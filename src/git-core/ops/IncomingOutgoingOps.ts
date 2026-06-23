@@ -1,5 +1,7 @@
+import { ResultAsync, okAsync } from 'neverthrow';
 import { IRepository } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import { GitError, classifyGitCommandError } from '../errors';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -62,22 +64,21 @@ export class IncomingOutgoingOps {
    * @param repo - The repository
    * @param branch - Short branch name (e.g. `main`, `feature/foo`)
    */
-  async getForBranch(repo: IRepository, branch: string): Promise<IIncomingOutgoing> {
+  getForBranch(repo: IRepository, branch: string): ResultAsync<IIncomingOutgoing, GitError> {
     const cwd = repo.rootUri.fsPath;
 
-    const upstream = await this._resolveUpstream(cwd, `${branch}@{upstream}`);
-    if (!upstream) {
-      return { branch, incoming: 0, outgoing: 0, noUpstream: true };
-    }
-
-    const counts = await this._countLeftRight(cwd, upstream, branch);
-    return {
-      branch,
-      upstream,
-      incoming: counts.incoming,
-      outgoing: counts.outgoing,
-      noUpstream: false,
-    };
+    return this._resolveUpstream(cwd, `${branch}@{upstream}`).andThen((upstream) => {
+      if (!upstream) {
+        return okAsync({ branch, incoming: 0, outgoing: 0, noUpstream: true });
+      }
+      return this._countLeftRight(cwd, upstream, branch).map((counts) => ({
+        branch,
+        upstream,
+        incoming: counts.incoming,
+        outgoing: counts.outgoing,
+        noUpstream: false,
+      }));
+    });
   }
 
   /**
@@ -91,23 +92,23 @@ export class IncomingOutgoingOps {
    *
    * @param repo - The repository
    */
-  async getForCurrentBranch(repo: IRepository): Promise<IIncomingOutgoing> {
+  getForCurrentBranch(repo: IRepository): ResultAsync<IIncomingOutgoing, GitError> {
     const cwd = repo.rootUri.fsPath;
 
-    const branch = await this._resolveUpstream(cwd, 'HEAD');
-    const upstream = await this._resolveUpstream(cwd, '@{upstream}');
-    if (!upstream) {
-      return { branch: branch ?? 'HEAD', incoming: 0, outgoing: 0, noUpstream: true };
-    }
-
-    const counts = await this._countLeftRight(cwd, '@{upstream}', 'HEAD');
-    return {
-      branch: branch ?? 'HEAD',
-      upstream,
-      incoming: counts.incoming,
-      outgoing: counts.outgoing,
-      noUpstream: false,
-    };
+    return this._resolveUpstream(cwd, 'HEAD').andThen((branch) =>
+      this._resolveUpstream(cwd, '@{upstream}').andThen((upstream) => {
+        if (!upstream) {
+          return okAsync({ branch: branch ?? 'HEAD', incoming: 0, outgoing: 0, noUpstream: true });
+        }
+        return this._countLeftRight(cwd, '@{upstream}', 'HEAD').map((counts) => ({
+          branch: branch ?? 'HEAD',
+          upstream,
+          incoming: counts.incoming,
+          outgoing: counts.outgoing,
+          noUpstream: false,
+        }));
+      })
+    );
   }
 
   /**
@@ -116,7 +117,7 @@ export class IncomingOutgoingOps {
    * detached HEAD, etc.) — git exits non-zero, which is an expected,
    * non-exceptional outcome here.
    */
-  private async _resolveUpstream(cwd: string, ref: string): Promise<string | undefined> {
+  private _resolveUpstream(cwd: string, ref: string): ResultAsync<string | undefined, GitError> {
     // NOTE: `git rev-parse --abbrev-ref` must NOT be built with
     // `--end-of-options` — rev-parse echoes that token back as an extra output
     // line (`--end-of-options\norigin/feature`), so the resolved upstream came
@@ -125,14 +126,19 @@ export class IncomingOutgoingOps {
     // exec the argv directly; match them. The ref is an internal
     // `@{upstream}` / `<branch>@{upstream}` expression and git rejects branch
     // names beginning with `-`, so there is no leading-dash injection vector.
-    const result = await this.ctx.gitCli.exec(['rev-parse', '--abbrev-ref', ref], {
-      cwd,
+    //
+    // A non-zero exit is the expected DOMAIN absence ("no upstream configured")
+    // → Ok(undefined); only a spawn/system fault becomes a typed Err.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['rev-parse', '--abbrev-ref', ref], { cwd }),
+      classifyGitCommandError
+    ).map((result) => {
+      if (result.exitCode !== 0) {
+        return undefined;
+      }
+      const value = result.stdout.trim();
+      return value.length > 0 ? value : undefined;
     });
-    if (result.exitCode !== 0) {
-      return undefined;
-    }
-    const value = result.stdout.trim();
-    return value.length > 0 ? value : undefined;
   }
 
   /**
@@ -142,27 +148,33 @@ export class IncomingOutgoingOps {
    * (defensive — the caller renders "in sync" rather than surfacing a parse
    * failure).
    */
-  private async _countLeftRight(
+  private _countLeftRight(
     cwd: string,
     left: string,
     right: string
-  ): Promise<{ incoming: number; outgoing: number }> {
-    const result = await this.ctx.gitCli.exec(
-      buildGitArgs('rev-list', ['--left-right', '--count'], [`${left}...${right}`]),
-      { cwd }
-    );
-
-    if (result.exitCode !== 0 || !result.stdout.trim()) {
-      return { incoming: 0, outgoing: 0 };
-    }
-
-    const parts = result.stdout.trim().split(/\s+/);
-    if (parts.length < 2) {
-      return { incoming: 0, outgoing: 0 };
-    }
-    return {
-      incoming: parseInt(parts[0], 10) || 0,
-      outgoing: parseInt(parts[1], 10) || 0,
-    };
+  ): ResultAsync<{ incoming: number; outgoing: number }, GitError> {
+    // A count is a value where 0 is a legitimate answer, so a non-zero exit or
+    // unparseable output folds to the "in sync" DOMAIN degrade (Ok({0,0})),
+    // matching the long-standing badge behavior. Only a spawn/system fault
+    // (which rejects the exec) becomes a typed Err.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(
+        buildGitArgs('rev-list', ['--left-right', '--count'], [`${left}...${right}`]),
+        { cwd }
+      ),
+      classifyGitCommandError
+    ).map((result) => {
+      if (result.exitCode !== 0 || !result.stdout.trim()) {
+        return { incoming: 0, outgoing: 0 };
+      }
+      const parts = result.stdout.trim().split(/\s+/);
+      if (parts.length < 2) {
+        return { incoming: 0, outgoing: 0 };
+      }
+      return {
+        incoming: parseInt(parts[0], 10) || 0,
+        outgoing: parseInt(parts[1], 10) || 0,
+      };
+    });
   }
 }

@@ -49,6 +49,7 @@ import {
   isNewRepoPathIgnored,
 } from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
+import { sanitizeGitError } from './gitError';
 import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { StagingOps } from './ops/StagingOps';
 import { DiffOps } from './ops/DiffOps';
@@ -58,6 +59,8 @@ import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
 import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
 import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/WorktreeOps';
+import type { ResultAsync } from 'neverthrow';
+import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -444,7 +447,18 @@ export class GitService implements IGitService, IGitServiceCli {
     // Try to find repository root. `git rev-parse --show-toplevel` must run with
     // a DIRECTORY cwd: `spawn` rejects a file cwd with ENOTDIR, which silently
     // turned file-path discovery into a no-op. Use the file's parent dir.
-    const rootPath = await this._gitCli.getRepositoryRoot(this.toDirectoryCwd(filePath));
+    //
+    // The probe returns a Result: Ok(root) when found, Ok(undefined) when the
+    // dir simply isn't a repo (expected absence → no repository), and Err on a
+    // genuine system fault. A fault is LOGGED, not swallowed, so it can't again
+    // masquerade as "no repository found".
+    const rootPath = await this._gitCli.getRepositoryRoot(this.toDirectoryCwd(filePath)).match(
+      (root) => root,
+      (error) => {
+        this._logger.error('getRepository: repository-root probe failed', { filePath }, error);
+        return undefined;
+      }
+    );
     if (!rootPath) {
       return undefined;
     }
@@ -572,7 +586,21 @@ export class GitService implements IGitService, IGitServiceCli {
       maxDepth,
       ignoredFolders,
       fs: this._repoScanFs,
-      resolveRepoRoot: (p): Promise<string | undefined> => this._gitCli.getRepositoryRoot(p),
+      resolveRepoRoot: (p): Promise<string | undefined> =>
+        this._gitCli.getRepositoryRoot(p).match(
+          (root) => root,
+          (error) => {
+            // A system fault while probing one candidate dir must not abort the
+            // scan — log it and treat this dir as "no repo here", letting the
+            // scan continue to siblings instead of swallowing silently.
+            this._logger.error(
+              'discoverRepository: repository-root probe failed',
+              { path: p },
+              error
+            );
+            return undefined;
+          }
+        ),
     });
 
     for (const root of repoRoots) {
@@ -747,8 +775,15 @@ export class GitService implements IGitService, IGitServiceCli {
             options
           );
         }
-      } catch {
-        // No upstream configured
+      } catch (error) {
+        // `options` has no `throwOnError`, so a non-zero "no tracking branch"
+        // exit is handled by the exitCode guard above — this catch only fires
+        // on a genuine spawn/system fault, which we degrade to "no upstream".
+        // Log so that swallowed fault stays visible.
+        this._logger.debug('loadRepository: upstream resolution failed', {
+          rootPath,
+          err: error instanceof Error ? error.message : String(error),
+        });
       }
 
       head = parseHead(
@@ -778,8 +813,14 @@ export class GitService implements IGitService, IGitServiceCli {
         options
       );
       state = parseRepositoryState(statusResult.stdout);
-    } catch {
-      // Ignore errors
+    } catch (error) {
+      // A status-probe failure leaves `state` at the 'idle' default; log so
+      // the swallowed error is visible rather than silently masking a real
+      // repository state.
+      this._logger.debug('loadRepository: status probe failed', {
+        rootPath,
+        err: error instanceof Error ? error.message : String(error),
+      });
     }
 
     // When state is non-idle, read on-disk in-progress markers
@@ -800,9 +841,14 @@ export class GitService implements IGitService, IGitServiceCli {
           );
           return result.exitCode === 0 ? result.stdout.trim() : sha.substring(0, 7);
         });
-      } catch {
+      } catch (error) {
         // Read failures fall through; the verb-only fallback in
         // StatusBarService still renders a useful label without the target.
+        // Log so the swallowed read failure stays visible.
+        this._logger.debug('loadRepository: in-progress marker read failed', {
+          rootPath,
+          err: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
@@ -832,8 +878,13 @@ export class GitService implements IGitService, IGitServiceCli {
       if (remotesResult.exitCode === 0) {
         remotes = parseRemotes(remotesResult.stdout);
       }
-    } catch {
-      // Ignore errors
+    } catch (error) {
+      // A remotes-read failure leaves `remotes` empty; log so the swallowed
+      // error is visible rather than silently masking a real failure.
+      this._logger.debug('loadRepository: remotes read failed', {
+        rootPath,
+        err: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const repository: IRepository = {
@@ -1282,11 +1333,15 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param options - Commit options (amend, signOff, noVerify, allowEmpty)
    * @throws Error if commit message is empty (unless amending or allowEmpty is true)
    */
-  commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
+  commit(
+    repo: IRepository,
+    message: string,
+    options: ICommitOptions = {}
+  ): ResultAsync<void, GitError> {
     return this._remoteOps.commit(repo, message, options);
   }
 
-  amend(repo: IRepository, message: string): Promise<void> {
+  amend(repo: IRepository, message: string): ResultAsync<void, GitError> {
     return this._remoteOps.amend(repo, message);
   }
 
@@ -1298,7 +1353,7 @@ export class GitService implements IGitService, IGitServiceCli {
     repo: IRepository,
     targetHash: string,
     mode: 'fixup' | 'squash'
-  ): Promise<ICommitFixupResult> {
+  ): ResultAsync<ICommitFixupResult, GitError> {
     return this._remoteOps.commitFixup(repo, targetHash, mode);
   }
 
@@ -1307,7 +1362,15 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   getBranches(repo: IRepository): Promise<IBranch[]> {
-    return this._branches.getBranches(repo);
+    // Absorbs the ops Result: the branch list tolerates absence with no failure
+    // toast, so a system fault is LOGGED (not swallowed) and degraded to [].
+    return this._branches.getBranches(repo).match(
+      (branches) => branches,
+      (error) => {
+        this._logger.error('getBranches failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
   /**
@@ -1340,15 +1403,25 @@ export class GitService implements IGitService, IGitServiceCli {
     repo: IRepository,
     name: string,
     startPointOrOptions?: string | ICreateBranchOptions
-  ): Promise<void> {
+  ): ResultAsync<void, GitError> {
+    // FORWARD: the UI caller `.match`es and surfaces a sanitized toast on a
+    // validation reject or git failure.
     return this._branches.createBranch(repo, name, startPointOrOptions);
   }
 
-  checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void> {
+  checkout(
+    repo: IRepository,
+    ref: string,
+    options?: ICheckoutOptions
+  ): ResultAsync<void, GitError> {
+    // FORWARD: the UI caller `.match`es and surfaces a sanitized toast; a
+    // conflict-bearing CommandFailedError still carries `result.combined` for
+    // callers that classify checkout conflict output.
     return this._branches.checkout(repo, ref, options);
   }
 
-  deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
+  deleteBranch(repo: IRepository, name: string, force?: boolean): ResultAsync<void, GitError> {
+    // FORWARD: the UI caller `.match`es and surfaces a sanitized toast.
     return this._branches.deleteBranch(repo, name, force);
   }
 
@@ -1364,16 +1437,32 @@ export class GitService implements IGitService, IGitServiceCli {
    * the same guard — the form is `<remote>/<branch>` and either segment
    * starting with `-`/`.` is rejected.
    */
-  setBranchUpstream(repo: IRepository, localName: string, upstreamRef: string): Promise<void> {
+  setBranchUpstream(
+    repo: IRepository,
+    localName: string,
+    upstreamRef: string
+  ): ResultAsync<void, GitError> {
+    // FORWARD: the UI caller `.match`es and surfaces a sanitized toast.
     return this._branches.setBranchUpstream(repo, localName, upstreamRef);
   }
 
-  renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
+  renameBranch(repo: IRepository, oldName: string, newName: string): ResultAsync<void, GitError> {
+    // FORWARD: the UI caller `.match`es and surfaces a sanitized toast.
     return this._branches.renameBranch(repo, oldName, newName);
   }
 
   mergeBranch(repo: IRepository, branch: string, options?: IMergeOptions): Promise<IMergeResult> {
-    return this._branches.mergeBranch(repo, branch, options);
+    // Absorbs the ops Result. Domain conflicts/failures already land in
+    // Ok(IMergeResult); only a spawn/system fault reaches the Err arm, where it
+    // is LOGGED and degraded to a failed result carrying the sanitized reason —
+    // strictly better than today, where a spawn fault was an uncaught rejection.
+    return this._branches.mergeBranch(repo, branch, options).match(
+      (result) => result,
+      (error) => {
+        this._logger.error('mergeBranch failed', { rootPath: repo.rootUri.fsPath, branch }, error);
+        return { success: false, conflicts: [], failureReason: sanitizeGitError(error.message) };
+      }
+    );
   }
 
   /**
@@ -1388,7 +1477,16 @@ export class GitService implements IGitService, IGitServiceCli {
     onto: string,
     options?: IRebaseOptions
   ): Promise<IBasicRebaseResult> {
-    return this._branches.rebaseBranch(repo, onto, options);
+    // Absorbs the ops Result. Domain conflicts/failures land in
+    // Ok(IBasicRebaseResult); a validation reject or spawn/system fault is
+    // LOGGED then degraded to a failed result carrying the sanitized reason.
+    return this._branches.rebaseBranch(repo, onto, options).match(
+      (result) => result,
+      (error) => {
+        this._logger.error('rebaseBranch failed', { rootPath: repo.rootUri.fsPath, onto }, error);
+        return { success: false, conflicts: [], failureReason: sanitizeGitError(error.message) };
+      }
+    );
   }
 
   /**
@@ -1405,7 +1503,15 @@ export class GitService implements IGitService, IGitServiceCli {
    * (feedback_data_loss_confirms.md — no double-confirm).
    */
   rebaseSkip(repo: IRepository): Promise<IBasicRebaseResult> {
-    return this._branches.rebaseSkip(repo);
+    // Absorbs the ops Result: a spawn/system fault is LOGGED then degraded to a
+    // failed result carrying the sanitized reason.
+    return this._branches.rebaseSkip(repo).match(
+      (result) => result,
+      (error) => {
+        this._logger.error('rebaseSkip failed', { rootPath: repo.rootUri.fsPath }, error);
+        return { success: false, conflicts: [], failureReason: sanitizeGitError(error.message) };
+      }
+    );
   }
 
   /**
@@ -1420,7 +1526,9 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  rebaseAbort(repo: IRepository): Promise<void> {
+  rebaseAbort(repo: IRepository): ResultAsync<void, GitError> {
+    // FORWARD: the caller `.match`es and surfaces a sanitized toast (auto-abort
+    // recovery in `_handleRebaseCurrentOnto`).
     return this._branches.rebaseAbort(repo);
   }
 
@@ -1440,7 +1548,15 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    */
   rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
-    return this._branches.rebaseContinue(repo);
+    // Absorbs the ops Result: a spawn/system fault is LOGGED then degraded to a
+    // failed result carrying the sanitized reason.
+    return this._branches.rebaseContinue(repo).match(
+      (result) => result,
+      (error) => {
+        this._logger.error('rebaseContinue failed', { rootPath: repo.rootUri.fsPath }, error);
+        return { success: false, conflicts: [], failureReason: sanitizeGitError(error.message) };
+      }
+    );
   }
 
   /**
@@ -1453,42 +1569,63 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns Branch comparison result with commits ahead/behind and changed files
    */
   compareBranches(repo: IRepository, branch1: string, branch2: string): Promise<IBranchComparison> {
-    return this._branches.compareBranches(repo, branch1, branch2);
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to an empty
+    // comparison (no commits ahead/behind, no changed files).
+    return this._branches.compareBranches(repo, branch1, branch2).match(
+      (comparison) => comparison,
+      (error) => {
+        this._logger.error(
+          'compareBranches failed',
+          { rootPath: repo.rootUri.fsPath, branch1, branch2 },
+          error
+        );
+        return {
+          commitsAhead: [],
+          commitsBehind: [],
+          aheadCount: 0,
+          behindCount: 0,
+          changedFiles: [],
+        };
+      }
+    );
   }
 
   // ============================================
   // Remote Operations
   // ============================================
 
-  fetch(repo: IRepository, optionsOrRemote?: IFetchOptions | string): Promise<IFetchResult> {
+  fetch(
+    repo: IRepository,
+    optionsOrRemote?: IFetchOptions | string
+  ): ResultAsync<IFetchResult, GitError> {
     return this._remoteOps.fetch(repo, optionsOrRemote);
   }
 
-  pull(repo: IRepository, options?: IPullOptions): Promise<void> {
+  pull(repo: IRepository, options?: IPullOptions): ResultAsync<void, GitError> {
     return this._remoteOps.pull(repo, options);
   }
 
-  push(repo: IRepository, options?: IPushOptions): Promise<void> {
+  push(repo: IRepository, options?: IPushOptions): ResultAsync<void, GitError> {
     return this._remoteOps.push(repo, options);
   }
 
-  getRemotes(repo: IRepository): Promise<IRemote[]> {
+  getRemotes(repo: IRepository): ResultAsync<IRemote[], GitError> {
     return this._remoteOps.getRemotes(repo);
   }
 
-  addRemote(repo: IRepository, name: string, url: string): Promise<void> {
+  addRemote(repo: IRepository, name: string, url: string): ResultAsync<void, GitError> {
     return this._remoteOps.addRemote(repo, name, url);
   }
 
-  removeRemote(repo: IRepository, name: string): Promise<void> {
+  removeRemote(repo: IRepository, name: string): ResultAsync<void, GitError> {
     return this._remoteOps.removeRemote(repo, name);
   }
 
-  setRemoteUrl(repo: IRepository, name: string, url: string): Promise<void> {
+  setRemoteUrl(repo: IRepository, name: string, url: string): ResultAsync<void, GitError> {
     return this._remoteOps.setRemoteUrl(repo, name, url);
   }
 
-  renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void> {
+  renameRemote(repo: IRepository, oldName: string, newName: string): ResultAsync<void, GitError> {
     return this._remoteOps.renameRemote(repo, oldName, newName);
   }
 
@@ -1506,7 +1643,20 @@ export class GitService implements IGitService, IGitServiceCli {
    * against its tracking upstream. See {@link IncomingOutgoingOps.getForBranch}.
    */
   getIncomingOutgoingForBranch(repo: IRepository, branch: string): Promise<IIncomingOutgoing> {
-    return this._incomingOutgoing.getForBranch(repo, branch);
+    // Absorbs the ops Result: this feeds a background badge with no failure
+    // toast, so a system fault is LOGGED (not swallowed) and degraded to a
+    // "no upstream" reading rather than rejecting the badge update.
+    return this._incomingOutgoing.getForBranch(repo, branch).match(
+      (io) => io,
+      (error) => {
+        this._logger.error(
+          'getIncomingOutgoingForBranch failed',
+          { branch, rootPath: repo.rootUri.fsPath },
+          error
+        );
+        return { branch, incoming: 0, outgoing: 0, noUpstream: true };
+      }
+    );
   }
 
   /**
@@ -1515,7 +1665,14 @@ export class GitService implements IGitService, IGitServiceCli {
    * {@link IncomingOutgoingOps.getForCurrentBranch}.
    */
   getIncomingOutgoing(repo: IRepository): Promise<IIncomingOutgoing> {
-    return this._incomingOutgoing.getForCurrentBranch(repo);
+    // Absorbs the ops Result (see getIncomingOutgoingForBranch).
+    return this._incomingOutgoing.getForCurrentBranch(repo).match(
+      (io) => io,
+      (error) => {
+        this._logger.error('getIncomingOutgoing failed', { rootPath: repo.rootUri.fsPath }, error);
+        return { branch: 'HEAD', incoming: 0, outgoing: 0, noUpstream: true };
+      }
+    );
   }
 
   // ============================================
@@ -1529,7 +1686,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * List the repository's worktrees (`git worktree list --porcelain`).
    * See {@link WorktreeOps.listWorktrees}.
    */
-  listWorktrees(repo: IRepository): Promise<IWorktreeEntry[]> {
+  listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError> {
     return this._worktrees.listWorktrees(repo);
   }
 
@@ -1537,7 +1694,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Create a linked worktree (`git worktree add`). See
    * {@link WorktreeOps.addWorktree}.
    */
-  addWorktree(repo: IRepository, options: IAddWorktreeOptions): Promise<void> {
+  addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError> {
     return this._worktrees.addWorktree(repo, options);
   }
 
@@ -1545,23 +1702,32 @@ export class GitService implements IGitService, IGitServiceCli {
   // Stash Operations
   // ============================================
 
-  stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void> {
+  stash(repo: IRepository, message?: string, options?: IStashOptions): ResultAsync<void, GitError> {
     return this._stashTagHistory.stash(repo, message, options);
   }
 
   stashList(repo: IRepository): Promise<IStash[]> {
-    return this._stashTagHistory.stashList(repo);
+    // Absorbs the ops Result: the stash views tolerate an empty list with no
+    // failure toast, so a system fault is LOGGED (not swallowed) and degraded
+    // to [] rather than rejecting every consumer.
+    return this._stashTagHistory.stashList(repo).match(
+      (stashes) => stashes,
+      (error) => {
+        this._logger.error('stashList failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
-  stashApply(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
+  stashApply(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashApply(repo, index, reinstateIndex);
   }
 
-  stashPop(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
+  stashPop(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashPop(repo, index, reinstateIndex);
   }
 
-  stashDrop(repo: IRepository, index: number): Promise<void> {
+  stashDrop(repo: IRepository, index: number): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashDrop(repo, index);
   }
 
@@ -1569,7 +1735,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Create a branch rooted at a stashed state and apply the stash into it.
    * See {@link IGitService.stashBranch}.
    */
-  stashBranch(repo: IRepository, index: number, branchName: string): Promise<void> {
+  stashBranch(repo: IRepository, index: number, branchName: string): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashBranch(repo, index, branchName);
   }
 
@@ -1585,7 +1751,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * No working-tree changes. On step 3 failure we attempt to drop the new
    * top-of-stack entry so we don't leave duplicates.
    */
-  stashRename(repo: IRepository, index: number, newMessage: string): Promise<void> {
+  stashRename(repo: IRepository, index: number, newMessage: string): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashRename(repo, index, newMessage);
   }
 
@@ -1597,7 +1763,17 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns Array of diffs showing the stash contents
    */
   stashShow(repo: IRepository, index: number): Promise<IDiff[]> {
-    return this._stashTagHistory.stashShow(repo, index);
+    // Funnels the ops Result back onto the throwing Promise contract: the
+    // single caller (StashView) already try/catches and toasts, so a failure
+    // re-throws here. Log on the re-throw arm so the fault is surfaced (not
+    // silent) even before the caller's catch decides how to present it.
+    return this._stashTagHistory.stashShow(repo, index).match(
+      (diffs) => diffs,
+      (error) => {
+        this._logger.error('stashShow failed', { rootPath: repo.rootUri.fsPath }, error);
+        throw error;
+      }
+    );
   }
 
   // ============================================
@@ -1605,7 +1781,16 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   getTags(repo: IRepository): Promise<ITag[]> {
-    return this._stashTagHistory.getTags(repo);
+    // Absorbs the ops Result: tag-list consumers tolerate an empty list with no
+    // failure toast, so a system fault is LOGGED (not swallowed) and degraded
+    // to [].
+    return this._stashTagHistory.getTags(repo).match(
+      (tags) => tags,
+      (error) => {
+        this._logger.error('getTags failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
   createTag(
@@ -1614,19 +1799,19 @@ export class GitService implements IGitService, IGitServiceCli {
     message?: string,
     ref?: string,
     force?: boolean
-  ): Promise<void> {
+  ): ResultAsync<void, GitError> {
     return this._stashTagHistory.createTag(repo, name, message, ref, force);
   }
 
-  deleteTag(repo: IRepository, name: string): Promise<void> {
+  deleteTag(repo: IRepository, name: string): ResultAsync<void, GitError> {
     return this._stashTagHistory.deleteTag(repo, name);
   }
 
-  pushTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+  pushTag(repo: IRepository, name: string, remote?: string): ResultAsync<void, GitError> {
     return this._stashTagHistory.pushTag(repo, name, remote);
   }
 
-  deleteRemoteTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+  deleteRemoteTag(repo: IRepository, name: string, remote?: string): ResultAsync<void, GitError> {
     return this._stashTagHistory.deleteRemoteTag(repo, name, remote);
   }
 
@@ -1638,7 +1823,16 @@ export class GitService implements IGitService, IGitServiceCli {
     // Track the in-flight log so a concurrent getStatus yields to it (see
     // `_logInFlight`). The slot clears on settle, so only genuinely overlapping
     // status walks ever wait.
-    const pending = this._stashTagHistory.getLog(repo, options);
+    // Absorbs the ops Result: the graph/log views tolerate an empty list with
+    // no failure toast, so a system fault is LOGGED (not swallowed) and degraded
+    // to []. `.match` yields the Promise the in-flight tracking expects.
+    const pending = this._stashTagHistory.getLog(repo, options).match(
+      (commits) => commits,
+      (error) => {
+        this._logger.error('getLog failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
     this._logInFlight.add(pending);
     // Wake any status calls waiting (within the startup grace) for a log to
     // appear, so they yield to this one instead of racing it.
@@ -1673,11 +1867,29 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
-    return this._stashTagHistory.getLogCount(repo, options);
+    // Absorbs the ops Result: the count is a display hint, so a system fault is
+    // LOGGED (not swallowed) and degraded to 0.
+    return this._stashTagHistory.getLogCount(repo, options).match(
+      (count) => count,
+      (error) => {
+        this._logger.error('getLogCount failed', { rootPath: repo.rootUri.fsPath }, error);
+        return 0;
+      }
+    );
   }
 
   getCommit(repo: IRepository, hash: string): Promise<ICommit> {
-    return this._stashTagHistory.getCommit(repo, hash);
+    // Funnels the ops Result back onto the throwing Promise contract: the many
+    // callers already `await` (and try/catch) a rejecting getCommit, so a
+    // failure re-throws here. Log on the re-throw arm so the fault is surfaced
+    // (not silent) even before the caller's catch decides how to present it.
+    return this._stashTagHistory.getCommit(repo, hash).match(
+      (commit) => commit,
+      (error) => {
+        this._logger.error('getCommit failed', { rootPath: repo.rootUri.fsPath, hash }, error);
+        throw error;
+      }
+    );
   }
 
   getFileHistory(
@@ -1685,7 +1897,16 @@ export class GitService implements IGitService, IGitServiceCli {
     path: string,
     options?: IFileHistoryOptions
   ): Promise<ICommit[]> {
-    return this._stashTagHistory.getFileHistory(repo, path, options);
+    // Absorbs the ops Result: file-history consumers tolerate an empty list with
+    // no failure toast, so a system fault is LOGGED (not swallowed) and degraded
+    // to [].
+    return this._stashTagHistory.getFileHistory(repo, path, options).match(
+      (commits) => commits,
+      (error) => {
+        this._logger.error('getFileHistory failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
   getLineHistory(
@@ -1695,7 +1916,14 @@ export class GitService implements IGitService, IGitServiceCli {
     endLine: number,
     options?: IFileHistoryOptions
   ): Promise<ICommit[]> {
-    return this._stashTagHistory.getLineHistory(repo, path, startLine, endLine, options);
+    // Absorbs the ops Result (see getFileHistory).
+    return this._stashTagHistory.getLineHistory(repo, path, startLine, endLine, options).match(
+      (commits) => commits,
+      (error) => {
+        this._logger.error('getLineHistory failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
   /**
@@ -1722,15 +1950,42 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff> {
-    return this._diff.getDiff(repo, path, staged);
+    // Absorbs the ops Result: a diff view tolerates an empty diff with no
+    // failure toast, so a system fault is LOGGED (not swallowed) and degraded
+    // to the empty-diff sentinel.
+    return this._diff.getDiff(repo, path, staged).match(
+      (diff) => diff,
+      (error) => {
+        this._logger.error('getDiff failed', { rootPath: repo.rootUri.fsPath, path }, error);
+        return { path, status: 'modified' as const, hunks: [], binary: false };
+      }
+    );
   }
 
   getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
-    return this._diff.getCommitDiff(repo, hash);
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to [].
+    return this._diff.getCommitDiff(repo, hash).match(
+      (diffs) => diffs,
+      (error) => {
+        this._logger.error('getCommitDiff failed', { rootPath: repo.rootUri.fsPath, hash }, error);
+        return [];
+      }
+    );
   }
 
   getFileAtRevision(repo: IRepository, path: string, rev: string): Promise<string> {
-    return this._diff.getFileAtRevision(repo, path, rev);
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to ''.
+    return this._diff.getFileAtRevision(repo, path, rev).match(
+      (content) => content,
+      (error) => {
+        this._logger.error(
+          'getFileAtRevision failed',
+          { rootPath: repo.rootUri.fsPath, path, rev },
+          error
+        );
+        return '';
+      }
+    );
   }
 
   /**
@@ -1746,7 +2001,14 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns Array of diffs representing the combined changes
    */
   getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
-    return this._diff.getMultiCommitDiff(repo, commits);
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to [].
+    return this._diff.getMultiCommitDiff(repo, commits).match(
+      (diffs) => diffs,
+      (error) => {
+        this._logger.error('getMultiCommitDiff failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
   /**
@@ -1755,7 +2017,18 @@ export class GitService implements IGitService, IGitServiceCli {
    * so paths with whitespace or non-ASCII characters are handled correctly).
    */
   getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
-    return this._diff.getChangedFilesAgainstWorkingTree(repo, ref);
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to [].
+    return this._diff.getChangedFilesAgainstWorkingTree(repo, ref).match(
+      (files) => files,
+      (error) => {
+        this._logger.error(
+          'getChangedFilesAgainstWorkingTree failed',
+          { rootPath: repo.rootUri.fsPath, ref },
+          error
+        );
+        return [];
+      }
+    );
   }
 
   /**
@@ -1778,7 +2051,21 @@ export class GitService implements IGitService, IGitServiceCli {
    * Used by the Git tool window's branch-focus feature.
    */
   getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
-    return this._diff.getMergeBase(repo, refA, refB);
+    // The ops layer returns a Result so a spawn/system fault can't masquerade
+    // as "no merge base". The façade preserves the public `string | undefined`
+    // contract: Ok → the sha (or undefined for the genuine no-common-ancestor
+    // case), Err → LOGGED (never silently dropped) then undefined.
+    return this._diff.getMergeBase(repo, refA, refB).match(
+      (sha) => sha,
+      (error) => {
+        this._logger.error(
+          'getMergeBase failed',
+          { refA, refB, rootPath: repo.rootUri.fsPath },
+          error
+        );
+        return undefined;
+      }
+    );
   }
 
   // ============================================
@@ -1786,7 +2073,14 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
-    return this._diff.getBlame(repo, path);
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to [].
+    return this._diff.getBlame(repo, path).match(
+      (lines) => lines,
+      (error) => {
+        this._logger.error('getBlame failed', { rootPath: repo.rootUri.fsPath, path }, error);
+        return [];
+      }
+    );
   }
 
   // ============================================
@@ -1795,25 +2089,17 @@ export class GitService implements IGitService, IGitServiceCli {
 
   /**
    * Cherry-pick one or more commits onto the current branch.
-   * Commits are applied in the order provided.
+   * Commits are applied in the order provided. Forwards the ops Result so the
+   * UI caller surfaces a sanitized toast on a spawn/invalid-argument fault.
    *
    * @param repo - The repository
    * @param commits - Array of commit hashes to cherry-pick
-   * @returns Cherry-pick result with success status and any conflicts
-   */
-  /**
-   * Cherry-pick one or more commits onto the current branch.
-   * Commits are applied in the order provided.
-   *
-   * @param repo - The repository
-   * @param commits - Array of commit hashes to cherry-pick
-   * @returns Cherry-pick result with success status and any conflicts
    */
   cherryPick(
     repo: IRepository,
     commits: string[],
     options?: ICherryPickOptions
-  ): Promise<ICherryPickResult> {
+  ): ResultAsync<ICherryPickResult, GitError> {
     return this._cherryRevert.cherryPick(repo, commits, options);
   }
 
@@ -1823,7 +2109,7 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  cherryPickAbort(repo: IRepository): Promise<void> {
+  cherryPickAbort(repo: IRepository): ResultAsync<void, GitError> {
     return this._cherryRevert.cherryPickAbort(repo);
   }
 
@@ -1831,13 +2117,16 @@ export class GitService implements IGitService, IGitServiceCli {
    * Continue a cherry-pick operation after resolving conflicts.
    *
    * @param repo - The repository
-   * @returns Cherry-pick result with success status and any new conflicts
    */
-  cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
+  cherryPickContinue(repo: IRepository): ResultAsync<ICherryPickResult, GitError> {
     return this._cherryRevert.cherryPickContinue(repo);
   }
 
-  revert(repo: IRepository, commits: string[], options?: IRevertOptions): Promise<IRevertResult> {
+  revert(
+    repo: IRepository,
+    commits: string[],
+    options?: IRevertOptions
+  ): ResultAsync<IRevertResult, GitError> {
     return this._cherryRevert.revert(repo, commits, options);
   }
 
@@ -1847,7 +2136,7 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  revertAbort(repo: IRepository): Promise<void> {
+  revertAbort(repo: IRepository): ResultAsync<void, GitError> {
     return this._cherryRevert.revertAbort(repo);
   }
 
@@ -1857,7 +2146,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
    */
-  revertContinue(repo: IRepository): Promise<IRevertResult> {
+  revertContinue(repo: IRepository): ResultAsync<IRevertResult, GitError> {
     return this._cherryRevert.revertContinue(repo);
   }
 
@@ -1903,14 +2192,23 @@ export class GitService implements IGitService, IGitServiceCli {
         new Promise<void>((resolve) => setTimeout(resolve, this._statusLogGateMs)),
       ]);
     }
-    return this._staging.getStatus(repo);
+    // Absorbs the ops Result: status feeds the SCM / changelist views with no
+    // failure toast, so a system fault is LOGGED (not swallowed) and degraded
+    // to an empty list rather than rejecting every consumer.
+    return this._staging.getStatus(repo).match(
+      (entries) => entries,
+      (error) => {
+        this._logger.error('getStatus failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
   }
 
-  stage(repo: IRepository, paths: string[]): Promise<void> {
+  stage(repo: IRepository, paths: string[]): ResultAsync<void, GitError> {
     return this._staging.stage(repo, paths);
   }
 
-  unstage(repo: IRepository, paths: string[]): Promise<void> {
+  unstage(repo: IRepository, paths: string[]): ResultAsync<void, GitError> {
     return this._staging.unstage(repo, paths);
   }
 
@@ -1921,7 +2219,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param path - The file path
    * @param hunk - The hunk to stage
    */
-  stageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+  stageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError> {
     return this._staging.stageHunk(repo, path, hunk);
   }
 
@@ -1934,7 +2232,12 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param lines - Array of line numbers (1-indexed) in the new file to stage
    * @param hunk - The hunk containing the lines to stage
    */
-  stageLines(repo: IRepository, path: string, lines: number[], hunk: IHunk): Promise<void> {
+  stageLines(
+    repo: IRepository,
+    path: string,
+    lines: number[],
+    hunk: IHunk
+  ): ResultAsync<void, GitError> {
     return this._staging.stageLines(repo, path, lines, hunk);
   }
 
@@ -1946,7 +2249,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param path - The file path
    * @param hunk - The hunk to unstage
    */
-  unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+  unstageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError> {
     return this._staging.unstageHunk(repo, path, hunk);
   }
 
@@ -1954,7 +2257,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Revert (discard) a single hunk in the working tree (IntelliJ "Revert
    * Chunk"). Delegates to {@link StagingOps.revertHunk}.
    */
-  revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+  revertHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError> {
     return this._staging.revertHunk(repo, path, hunk);
   }
 
@@ -1965,7 +2268,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @param path - The file path to revert
    */
-  revertFile(repo: IRepository, path: string): Promise<void> {
+  revertFile(repo: IRepository, path: string): ResultAsync<void, GitError> {
     return this._staging.revertFile(repo, path);
   }
 
@@ -1977,7 +2280,7 @@ export class GitService implements IGitService, IGitServiceCli {
     repo: IRepository,
     changes: IRollbackChange[],
     options?: IRollbackOptions
-  ): Promise<void> {
+  ): ResultAsync<void, GitError> {
     return this._staging.rollbackChanges(repo, changes, options);
   }
 
@@ -1985,7 +2288,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Reset the current branch to the given target commit using one of the four
    * IntelliJ reset modes.
    */
-  resetToCommit(repo: IRepository, target: string, mode: ResetMode): Promise<void> {
+  resetToCommit(repo: IRepository, target: string, mode: ResetMode): ResultAsync<void, GitError> {
     return this._staging.resetToCommit(repo, target, mode);
   }
 

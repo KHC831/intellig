@@ -70,7 +70,9 @@ import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { GitError, SpawnFailedError } from '../../../src/git-core/errors';
 import { __resetLoggerForTest, initLogger } from '../../../src/utils/logger';
 import { parseRecord } from '../../../src/utils/logger/render';
 import {
@@ -282,8 +284,8 @@ class StubGitCli {
     return { exitCode: 0, stdout: '', stderr: '', combined: '' };
   }
 
-  async getRepositoryRoot(p: string): Promise<string | undefined> {
-    return this.rootByPath.get(p);
+  getRepositoryRoot(p: string): ResultAsync<string | undefined, GitError> {
+    return okAsync(this.rootByPath.get(p));
   }
 
   dispose(): void {
@@ -813,5 +815,433 @@ describe('GitService — Logger waypoint integration', () => {
         service.dispose();
       }
     });
+  });
+
+  // ------------------------------------------------------------------------
+  // getRepository — system fault from the repository-root probe is LOGGED,
+  // never swallowed. This is the effort's core thesis: a spawn/system error
+  // (the kind that used to masquerade as "No repository found") must surface
+  // as an error log AND yield undefined, not a phantom repo.
+  // ------------------------------------------------------------------------
+
+  describe('getRepository repository-root probe failure', () => {
+    class ErringRootGitCli extends StubGitCli {
+      override getRepositoryRoot(_p: string): ResultAsync<string | undefined, GitError> {
+        return errAsync(new SpawnFailedError('spawn ENOTDIR'));
+      }
+    }
+
+    it('logs an error and returns undefined when the root probe yields a system Err', async () => {
+      setupLoggerWithTraceThreshold();
+
+      const service = new GitService();
+      const surface = service as unknown as GitServiceWaypointSurface;
+      surface._gitCli = new ErringRootGitCli();
+      try {
+        // A file URI for an unknown, uncached path forces the getRepositoryRoot
+        // probe, whose stub returns a typed system Err.
+        const resolved = await service.getRepository(Uri.file('/no/such/path/file.ts'));
+
+        assert.strictEqual(resolved, undefined, 'a system fault must not yield a phantom repo');
+
+        const lines = captureChannelLines();
+        const record = findAndParseRecord(lines, 'getRepository: repository-root probe failed');
+        assert.strictEqual(
+          record.level,
+          'error',
+          `the swallowed-no-more system fault must log at error level; got ${record.level}`
+        );
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // getMergeBase façade — a system Err from the ops layer is LOGGED then
+  // mapped to undefined, preserving the public `string | undefined` contract
+  // without swallowing the fault silently.
+  // ------------------------------------------------------------------------
+
+  describe('getMergeBase façade error logging', () => {
+    it('logs an error and returns undefined when the ops layer yields a system Err', async () => {
+      setupLoggerWithTraceThreshold();
+
+      const service = new GitService();
+      // Stub the DiffOps collaborator so getMergeBase yields a typed Err.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (service as any)._diff = {
+        getMergeBase: (): ResultAsync<string | undefined, GitError> =>
+          errAsync(new SpawnFailedError('spawn ENOTDIR')),
+      };
+      try {
+        const resolved = await service.getMergeBase(makeFakeRepo('/tmp/repo'), 'HEAD', 'feature');
+
+        assert.strictEqual(resolved, undefined, 'a system fault must map to undefined');
+
+        const lines = captureChannelLines();
+        const record = findAndParseRecord(lines, 'getMergeBase failed');
+        assert.strictEqual(
+          record.level,
+          'error',
+          `the ops-layer system fault must log at error level; got ${record.level}`
+        );
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // ABSORB facades log the system fault before degrading (thesis: logged,
+  // not silently swallowed). getStatus → [], getIncomingOutgoing → noUpstream.
+  // ------------------------------------------------------------------------
+
+  describe('getStatus façade absorb logging', () => {
+    it('logs an error and returns [] when the staging ops layer yields a system Err', async () => {
+      setupLoggerWithTraceThreshold();
+
+      const service = new GitService();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (service as any)._staging = {
+        getStatus: (): ResultAsync<never, GitError> =>
+          errAsync(new SpawnFailedError('spawn ENOTDIR')),
+      };
+      try {
+        const status = await service.getStatus(makeFakeRepo('/tmp/repo'));
+        assert.deepStrictEqual(status, [], 'a system fault must degrade to an empty status');
+
+        const record = findAndParseRecord(captureChannelLines(), 'getStatus failed');
+        assert.strictEqual(record.level, 'error');
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    });
+  });
+
+  describe('getIncomingOutgoing façade absorb logging', () => {
+    it('logs an error and degrades to noUpstream when the ops layer yields a system Err', async () => {
+      setupLoggerWithTraceThreshold();
+
+      const service = new GitService();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (service as any)._incomingOutgoing = {
+        getForCurrentBranch: (): ResultAsync<never, GitError> =>
+          errAsync(new SpawnFailedError('spawn ENOTDIR')),
+      };
+      try {
+        const io = await service.getIncomingOutgoing(makeFakeRepo('/tmp/repo'));
+        assert.strictEqual(io.noUpstream, true, 'a system fault must degrade to noUpstream');
+        assert.strictEqual(io.incoming, 0);
+        assert.strictEqual(io.outgoing, 0);
+
+        const record = findAndParseRecord(captureChannelLines(), 'getIncomingOutgoing failed');
+        assert.strictEqual(record.level, 'error');
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // StashTagHistory absorb facades log the system fault before degrading.
+  // ------------------------------------------------------------------------
+
+  /**
+   * Drive a StashTagHistory absorb facade through a system Err by stubbing the
+   * single ops method it delegates to, then assert it (a) degraded to the
+   * expected value and (b) logged `<waypoint>` at error level.
+   */
+  async function assertAbsorbLogged<T>(
+    stubMethod: string,
+    call: (service: GitService) => Promise<T>,
+    expected: T,
+    waypoint: string
+  ): Promise<void> {
+    setupLoggerWithTraceThreshold();
+    const service = new GitService();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    (service as any)._stashTagHistory = {
+      [stubMethod]: (): ResultAsync<never, GitError> =>
+        errAsync(new SpawnFailedError('spawn ENOTDIR')),
+    };
+    try {
+      const value = await call(service);
+      assert.deepStrictEqual(value, expected, `${waypoint} must degrade on a system fault`);
+      const record = findAndParseRecord(captureChannelLines(), waypoint);
+      assert.strictEqual(record.level, 'error');
+      assert.strictEqual(record.component, 'GitService');
+    } finally {
+      service.dispose();
+    }
+  }
+
+  describe('StashTagHistory façade absorb logging', () => {
+    const repo = makeFakeRepo('/tmp/repo');
+
+    it('stashList logs and degrades to []', () =>
+      assertAbsorbLogged('stashList', (s) => s.stashList(repo), [], 'stashList failed'));
+
+    it('getTags logs and degrades to []', () =>
+      assertAbsorbLogged('getTags', (s) => s.getTags(repo), [], 'getTags failed'));
+
+    it('getLog logs and degrades to []', () =>
+      assertAbsorbLogged('getLog', (s) => s.getLog(repo), [], 'getLog failed'));
+
+    it('getLogCount logs and degrades to 0', () =>
+      assertAbsorbLogged('getLogCount', (s) => s.getLogCount(repo), 0, 'getLogCount failed'));
+
+    it('getFileHistory logs and degrades to []', () =>
+      assertAbsorbLogged(
+        'getFileHistory',
+        (s) => s.getFileHistory(repo, 'src/foo.ts'),
+        [],
+        'getFileHistory failed'
+      ));
+
+    it('getLineHistory logs and degrades to []', () =>
+      assertAbsorbLogged(
+        'getLineHistory',
+        (s) => s.getLineHistory(repo, 'src/foo.ts', 1, 5),
+        [],
+        'getLineHistory failed'
+      ));
+  });
+
+  // ------------------------------------------------------------------------
+  // Re-throw facades (non-nullable reads, no natural degraded value): the
+  // fault is LOGGED before the throwing Promise contract re-throws it.
+  // ------------------------------------------------------------------------
+
+  describe('StashTagHistory façade re-throw logging', () => {
+    const repo = makeFakeRepo('/tmp/repo');
+
+    async function assertRethrowLogged(
+      stubMethod: string,
+      call: (service: GitService) => Promise<unknown>,
+      waypoint: string
+    ): Promise<void> {
+      setupLoggerWithTraceThreshold();
+      const service = new GitService();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (service as any)._stashTagHistory = {
+        [stubMethod]: (): ResultAsync<never, GitError> =>
+          errAsync(new SpawnFailedError('spawn ENOTDIR')),
+      };
+      try {
+        await assert.rejects(() => call(service), 'the throwing contract must re-throw the fault');
+        const record = findAndParseRecord(captureChannelLines(), waypoint);
+        assert.strictEqual(record.level, 'error');
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    }
+
+    it('getCommit logs then re-throws', () =>
+      assertRethrowLogged('getCommit', (s) => s.getCommit(repo, 'abc1234'), 'getCommit failed'));
+
+    it('stashShow logs then re-throws', () =>
+      assertRethrowLogged('stashShow', (s) => s.stashShow(repo, 0), 'stashShow failed'));
+  });
+
+  // ------------------------------------------------------------------------
+  // DiffOps absorb facades log the system fault before degrading. Each read
+  // tolerates absence with no failure toast, so a spawn/system Err is LOGGED
+  // (thesis: logged, not swallowed) then degraded to its empty sentinel.
+  // ------------------------------------------------------------------------
+
+  describe('DiffOps façade absorb logging', () => {
+    const repo = makeFakeRepo('/tmp/repo');
+
+    /**
+     * Drive a DiffOps absorb facade through a system Err by stubbing the single
+     * ops method it delegates to, then assert it (a) degraded to the expected
+     * value and (b) logged `<waypoint>` at error level.
+     */
+    async function assertDiffAbsorbLogged<T>(
+      stubMethod: string,
+      call: (service: GitService) => Promise<T>,
+      expected: T,
+      waypoint: string
+    ): Promise<void> {
+      setupLoggerWithTraceThreshold();
+      const service = new GitService();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (service as any)._diff = {
+        [stubMethod]: (): ResultAsync<never, GitError> =>
+          errAsync(new SpawnFailedError('spawn ENOTDIR')),
+      };
+      try {
+        const value = await call(service);
+        assert.deepStrictEqual(value, expected, `${waypoint} must degrade on a system fault`);
+        const record = findAndParseRecord(captureChannelLines(), waypoint);
+        assert.strictEqual(record.level, 'error');
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    }
+
+    it('getDiff logs and degrades to an empty diff', () =>
+      assertDiffAbsorbLogged(
+        'getDiff',
+        (s) => s.getDiff(repo, 'src/foo.ts'),
+        { path: 'src/foo.ts', status: 'modified', hunks: [], binary: false },
+        'getDiff failed'
+      ));
+
+    it('getCommitDiff logs and degrades to []', () =>
+      assertDiffAbsorbLogged(
+        'getCommitDiff',
+        (s) => s.getCommitDiff(repo, 'abc1234'),
+        [],
+        'getCommitDiff failed'
+      ));
+
+    it('getFileAtRevision logs and degrades to ""', () =>
+      assertDiffAbsorbLogged(
+        'getFileAtRevision',
+        (s) => s.getFileAtRevision(repo, 'src/foo.ts', 'abc1234'),
+        '',
+        'getFileAtRevision failed'
+      ));
+
+    it('getMultiCommitDiff logs and degrades to []', () =>
+      assertDiffAbsorbLogged(
+        'getMultiCommitDiff',
+        (s) => s.getMultiCommitDiff(repo, ['abc1234', 'def5678']),
+        [],
+        'getMultiCommitDiff failed'
+      ));
+
+    it('getChangedFilesAgainstWorkingTree logs and degrades to []', () =>
+      assertDiffAbsorbLogged(
+        'getChangedFilesAgainstWorkingTree',
+        (s) => s.getChangedFilesAgainstWorkingTree(repo, 'HEAD'),
+        [],
+        'getChangedFilesAgainstWorkingTree failed'
+      ));
+
+    it('getBlame logs and degrades to []', () =>
+      assertDiffAbsorbLogged(
+        'getBlame',
+        (s) => s.getBlame(repo, 'src/foo.ts'),
+        [],
+        'getBlame failed'
+      ));
+  });
+
+  // ------------------------------------------------------------------------
+  // BranchOps absorb facades log the system fault before degrading. getBranches
+  // → [], compareBranches → empty comparison, and the structured merge/rebase
+  // reads → a failed result carrying the sanitized reason (thesis: logged, not
+  // silently swallowed — and a spawn fault no longer becomes an uncaught reject).
+  // ------------------------------------------------------------------------
+
+  describe('BranchOps façade absorb logging', () => {
+    const repo = makeFakeRepo('/tmp/repo');
+
+    /**
+     * Drive a BranchOps absorb facade through a system Err by stubbing the
+     * single ops method it delegates to, then assert it (a) degraded as
+     * `assertValue` expects and (b) logged `<waypoint>` at error level.
+     */
+    async function assertBranchAbsorbLogged<T>(
+      stubMethod: string,
+      call: (service: GitService) => Promise<T>,
+      assertValue: (value: T) => void,
+      waypoint: string
+    ): Promise<void> {
+      setupLoggerWithTraceThreshold();
+      const service = new GitService();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (service as any)._branches = {
+        [stubMethod]: (): ResultAsync<never, GitError> =>
+          errAsync(new SpawnFailedError('spawn ENOTDIR')),
+      };
+      try {
+        assertValue(await call(service));
+        const record = findAndParseRecord(captureChannelLines(), waypoint);
+        assert.strictEqual(record.level, 'error');
+        assert.strictEqual(record.component, 'GitService');
+      } finally {
+        service.dispose();
+      }
+    }
+
+    /** Assert a degraded structured rebase/merge result (failed + sanitized reason). */
+    function assertDegradedResult(value: {
+      success: boolean;
+      conflicts?: string[];
+      failureReason?: string;
+    }): void {
+      assert.strictEqual(value.success, false, 'a system fault must degrade to a failed result');
+      assert.deepStrictEqual(value.conflicts, []);
+      assert.strictEqual(
+        typeof value.failureReason,
+        'string',
+        'the degraded result must carry a sanitized failureReason'
+      );
+    }
+
+    it('getBranches logs and degrades to []', () =>
+      assertBranchAbsorbLogged(
+        'getBranches',
+        (s) => s.getBranches(repo),
+        (v) => assert.deepStrictEqual(v, []),
+        'getBranches failed'
+      ));
+
+    it('compareBranches logs and degrades to an empty comparison', () =>
+      assertBranchAbsorbLogged(
+        'compareBranches',
+        (s) => s.compareBranches(repo, 'main', 'feature'),
+        (v) =>
+          assert.deepStrictEqual(v, {
+            commitsAhead: [],
+            commitsBehind: [],
+            aheadCount: 0,
+            behindCount: 0,
+            changedFiles: [],
+          }),
+        'compareBranches failed'
+      ));
+
+    it('mergeBranch logs and degrades to a failed result', () =>
+      assertBranchAbsorbLogged(
+        'mergeBranch',
+        (s) => s.mergeBranch(repo, 'feature'),
+        assertDegradedResult,
+        'mergeBranch failed'
+      ));
+
+    it('rebaseBranch logs and degrades to a failed result', () =>
+      assertBranchAbsorbLogged(
+        'rebaseBranch',
+        (s) => s.rebaseBranch(repo, 'main'),
+        assertDegradedResult,
+        'rebaseBranch failed'
+      ));
+
+    it('rebaseSkip logs and degrades to a failed result', () =>
+      assertBranchAbsorbLogged(
+        'rebaseSkip',
+        (s) => s.rebaseSkip(repo),
+        assertDegradedResult,
+        'rebaseSkip failed'
+      ));
+
+    it('rebaseContinue logs and degrades to a failed result', () =>
+      assertBranchAbsorbLogged(
+        'rebaseContinue',
+        (s) => s.rebaseContinue(repo),
+        assertDegradedResult,
+        'rebaseContinue failed'
+      ));
   });
 });

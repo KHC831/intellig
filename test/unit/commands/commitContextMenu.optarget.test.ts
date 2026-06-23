@@ -19,6 +19,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import type {
@@ -78,8 +79,8 @@ function makeGitService(byRoot: Map<string, IRepository>): IGitService & { opCal
     reloadRepository: async (repo: IRepository) => repo,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: record('checkout'),
     deleteBranch: async () => {},
@@ -94,12 +95,14 @@ function makeGitService(byRoot: Map<string, IRepository>): IGitService & { opCal
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    fetch: () => {
+      return okAsync(undefined);
+    },
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -135,12 +138,12 @@ function makeGitService(byRoot: Map<string, IRepository>): IGitService & { opCal
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & { opCalls: OpCall[] };
 }
@@ -195,9 +198,9 @@ function makeCleanGitCli(): MockGitCli {
     },
     execString: async () => '',
     isAvailable: async () => true,
-    getVersion: async () => '2.40.0',
-    isRepository: async () => true,
-    getRepositoryRoot: async () => ROOT_B,
+    getVersion: () => okAsync('2.40.0'),
+    isRepository: () => okAsync(true),
+    getRepositoryRoot: () => okAsync(ROOT_B),
     dispose: () => {},
     get gitPath() {
       return 'git';

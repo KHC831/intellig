@@ -317,7 +317,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       }
 
       try {
-        await gitService.revertFile(repo, filePath);
+        await gitService.revertFile(repo, filePath).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
         // Refresh views
         if (ctx.gitToolWindowProvider) {
@@ -363,7 +368,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       try {
-        await gitService.stage(repo, [filePath]);
+        await gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Staged: ${filePath}`);
         // Refresh views
         if (ctx.gitToolWindowProvider) {
@@ -409,7 +419,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       try {
-        await gitService.unstage(repo, [filePath]);
+        await gitService.unstage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
         // Refresh views
         if (ctx.gitToolWindowProvider) {
@@ -501,7 +516,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       }
       const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
       try {
-        await gitService.stage(repo, [filePath]);
+        await gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
         }
@@ -548,7 +568,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       }
       const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
       try {
-        await gitService.stage(repo, [filePath]);
+        await gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Added to VCS: ${filePath}`);
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();

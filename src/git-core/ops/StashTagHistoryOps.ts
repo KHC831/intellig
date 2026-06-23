@@ -1,3 +1,4 @@
+import { ResultAsync, errAsync } from 'neverthrow';
 import {
   IRepository,
   ICommit,
@@ -9,6 +10,12 @@ import {
   IFileHistoryOptions,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import {
+  GitError,
+  CommandFailedError,
+  InvalidArgumentError,
+  classifyGitCommandError,
+} from '../errors';
 import {
   parseLog,
   parseCommit,
@@ -32,7 +39,7 @@ import { IGitOpsContext } from './GitOpsContext';
 export class StashTagHistoryOps {
   constructor(private readonly ctx: IGitOpsContext) {}
 
-  async stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void> {
+  stash(repo: IRepository, message?: string, options?: IStashOptions): ResultAsync<void, GitError> {
     const args = ['stash', 'push'];
 
     if (message) {
@@ -45,22 +52,27 @@ export class StashTagHistoryOps {
       args.push('--keep-index');
     }
 
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
-  async stashList(repo: IRepository): Promise<IStash[]> {
+  stashList(repo: IRepository): ResultAsync<IStash[], GitError> {
     // `--format=%gd<sep>%ci<sep>%gs` carries the stash's real committer date
     // (`%ci`); plain `git stash list` has no date, so parseStashList would
     // stamp every entry with the current time. `\x1f` separator matches the
-    // log/tag/branch formats.
-    const result = await this.ctx.gitCli.exec(['stash', 'list', '--format=%gd\x1f%ci\x1f%gs'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseStashList(result.stdout);
+    // log/tag/branch formats. `git stash list` exits 0 on any repo, so a
+    // non-zero exit is a genuine failure → degraded empty list (the facade
+    // logs + returns []). A spawn/system fault rejects exec → classified Err.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['stash', 'list', '--format=%gd\x1f%ci\x1f%gs'], {
+        cwd: repo.rootUri.fsPath,
+      }),
+      classifyGitCommandError
+    ).map((result) => (result.exitCode !== 0 ? [] : parseStashList(result.stdout)));
   }
 
   /**
@@ -69,17 +81,31 @@ export class StashTagHistoryOps {
    * ref like `stash@{NaN}` or `stash@{undefined}`, so every stash method that
    * builds such a ref runs this guard first.
    *
-   * Throws (rather than returns) so the caller can trust `index` is a
-   * non-negative integer for the rest of the call.
+   * Returns the typed error (rather than throwing) so single-exec methods can
+   * `errAsync(...)` early and keep the Result channel total; the throwing
+   * {@link _assertStashIndex} variant is for the multi-step async bodies that
+   * are wrapped once in `fromPromise`.
    */
-  private _validateStashIndex(index: number): asserts index is number {
+  private _stashIndexError(index: number): InvalidArgumentError | undefined {
     if (!Number.isInteger(index) || index < 0) {
-      throw new Error(`Invalid stash index: ${index}`);
+      return new InvalidArgumentError(`Invalid stash index: ${index}`);
+    }
+    return undefined;
+  }
+
+  /** Throwing counterpart of {@link _stashIndexError} for pattern-(b) bodies. */
+  private _assertStashIndex(index: number): void {
+    const error = this._stashIndexError(index);
+    if (error) {
+      throw error;
     }
   }
 
-  async stashApply(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
-    this._validateStashIndex(index);
+  stashApply(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
+    const invalid = this._stashIndexError(index);
+    if (invalid) {
+      return errAsync(invalid);
+    }
     // `--index` reinstates the staged/unstaged split; without it git returns
     // previously-staged changes as unstaged. Mirrors IntelliJ's unstash
     // "Reinstate index" checkbox (GitStashUtils.createUnstashHandler), which
@@ -90,15 +116,19 @@ export class StashTagHistoryOps {
       args.push('--index');
     }
     args.push(`stash@{${index}}`);
-    await this.ctx.gitCli.exec(args, {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async stashPop(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
-    this._validateStashIndex(index);
+  stashPop(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
+    const invalid = this._stashIndexError(index);
+    if (invalid) {
+      return errAsync(invalid);
+    }
     // See stashApply: `--index` reinstates the staged/unstaged split and is
     // gated on the "Reinstate index" choice (IntelliJ GitStashUtils).
     const args = ['stash', 'pop'];
@@ -106,29 +136,37 @@ export class StashTagHistoryOps {
       args.push('--index');
     }
     args.push(`stash@{${index}}`);
-    await this.ctx.gitCli.exec(args, {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async stashDrop(repo: IRepository, index: number): Promise<void> {
-    this._validateStashIndex(index);
-    await this.ctx.gitCli.exec(['stash', 'drop', `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+  stashDrop(repo: IRepository, index: number): ResultAsync<void, GitError> {
+    const invalid = this._stashIndexError(index);
+    if (invalid) {
+      return errAsync(invalid);
+    }
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['stash', 'drop', `stash@{${index}}`], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
    * Create a branch rooted at a stashed state and apply the stash into it.
    * See {@link IGitService.stashBranch}.
    */
-  async stashBranch(repo: IRepository, index: number, branchName: string): Promise<void> {
+  stashBranch(repo: IRepository, index: number, branchName: string): ResultAsync<void, GitError> {
     if (!branchName || !branchName.trim()) {
-      throw new Error('Branch name cannot be empty');
+      return errAsync(new InvalidArgumentError('Branch name cannot be empty'));
     }
     const name = branchName.trim();
     // Reject names starting with `-` (git would parse `-foo` as a CLI flag —
@@ -137,14 +175,21 @@ export class StashTagHistoryOps {
     // splice `--end-of-options` before the user-controlled name as structural
     // defense in depth.
     if (name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid branch name: ${name}`));
     }
-    this._validateStashIndex(index);
-    await this.ctx.gitCli.exec(['stash', 'branch', '--end-of-options', name, `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    const invalid = this._stashIndexError(index);
+    if (invalid) {
+      return errAsync(invalid);
+    }
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['stash', 'branch', '--end-of-options', name, `stash@{${index}}`], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -159,10 +204,17 @@ export class StashTagHistoryOps {
    * No working-tree changes. On step 3 failure we attempt to drop the new
    * top-of-stack entry so we don't leave duplicates.
    */
-  async stashRename(repo: IRepository, index: number, newMessage: string): Promise<void> {
-    this._validateStashIndex(index);
+  stashRename(repo: IRepository, index: number, newMessage: string): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this._stashRename(repo, index, newMessage),
+      classifyGitCommandError
+    );
+  }
+
+  private async _stashRename(repo: IRepository, index: number, newMessage: string): Promise<void> {
+    this._assertStashIndex(index);
     if (typeof newMessage !== 'string') {
-      throw new Error('New stash message must be a string');
+      throw new InvalidArgumentError('New stash message must be a string');
     }
 
     const cwd = repo.rootUri.fsPath;
@@ -175,7 +227,7 @@ export class StashTagHistoryOps {
     });
     const commitHash = revParse.stdout.trim();
     if (!commitHash || !/^[a-f0-9]{7,40}$/i.test(commitHash)) {
-      throw new Error(`Could not resolve stash@{${index}} to a commit`);
+      throw new InvalidArgumentError(`Could not resolve stash@{${index}} to a commit`);
     }
 
     // Store the commit back onto the stash stack with the new
@@ -197,6 +249,7 @@ export class StashTagHistoryOps {
       // Best-effort rollback of the duplicate.
       try {
         await this.ctx.gitCli.exec(['stash', 'drop', 'stash@{0}'], { cwd });
+        // eslint-disable-next-line no-restricted-syntax -- best-effort rollback of the duplicate stash; if it also fails the original error below still surfaces to the caller.
       } catch {
         // If rollback also fails, leave the state as-is; the error below
         // still surfaces to the caller.
@@ -214,41 +267,43 @@ export class StashTagHistoryOps {
    * @param index - The stash index
    * @returns Array of diffs showing the stash contents
    */
-  async stashShow(repo: IRepository, index: number): Promise<IDiff[]> {
-    this._validateStashIndex(index);
-    const result = await this.ctx.gitCli.exec(['stash', 'show', '-p', `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-
-    return parseDiff(result.stdout);
-  }
-
-  async getTags(repo: IRepository): Promise<ITag[]> {
-    const format = getTagFormat();
-    const result = await this.ctx.gitCli.exec(['tag', '-l', '--format', format], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
+  stashShow(repo: IRepository, index: number): ResultAsync<IDiff[], GitError> {
+    const invalid = this._stashIndexError(index);
+    if (invalid) {
+      return errAsync(invalid);
     }
-
-    return parseTags(result.stdout);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['stash', 'show', '-p', `stash@{${index}}`], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map((result) => parseDiff(result.stdout));
   }
 
-  async createTag(
+  getTags(repo: IRepository): ResultAsync<ITag[], GitError> {
+    const format = getTagFormat();
+    // `git tag -l` exits 0 on any repo, so a non-zero exit is a genuine failure
+    // → degraded empty list (the facade logs + returns []). A spawn/system fault
+    // rejects exec → classified Err.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['tag', '-l', '--format', format], { cwd: repo.rootUri.fsPath }),
+      classifyGitCommandError
+    ).map((result) => (result.exitCode !== 0 ? [] : parseTags(result.stdout)));
+  }
+
+  createTag(
     repo: IRepository,
     name: string,
     message?: string,
     ref?: string,
     force?: boolean
-  ): Promise<void> {
+  ): ResultAsync<void, GitError> {
     // service-boundary reject tag names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard.
     if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid tag name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid tag name: ${name}`));
     }
     // Splice `--end-of-options` between flags and the
     // user-controlled `name` (and optional `ref`). Layouts:
@@ -271,30 +326,41 @@ export class StashTagHistoryOps {
     }
     const args = buildGitArgs('tag', flags, refs);
 
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
-  async deleteTag(repo: IRepository, name: string): Promise<void> {
+  deleteTag(repo: IRepository, name: string): ResultAsync<void, GitError> {
     // service-boundary reject tag names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Also splice `--end-of-options` between the
     // `-d` flag and the user-controlled name as structural defense in
     // depth.
     if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid tag name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid tag name: ${name}`));
     }
-    await this.ctx.gitCli.exec(buildGitArgs('tag', ['-d'], [name]), {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(buildGitArgs('tag', ['-d'], [name]), {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async pushTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+  pushTag(repo: IRepository, name: string, remote?: string): ResultAsync<void, GitError> {
     // `name` (and `remote`) are user-controlled; splice via buildGitArgs.
     const args = buildGitArgs('push', [], [remote || 'origin', `refs/tags/${name}`]);
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => undefined);
   }
 
   /**
@@ -303,16 +369,24 @@ export class StashTagHistoryOps {
    * "push nothing to this ref" delete form. Guards the tag name against a
    * leading dash so it can't smuggle a CLI flag into the refspec.
    */
-  async deleteRemoteTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+  deleteRemoteTag(repo: IRepository, name: string, remote?: string): ResultAsync<void, GitError> {
     if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid tag name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid tag name: ${name}`));
     }
     const args = buildGitArgs('push', [], [remote || 'origin', `:refs/tags/${name}`]);
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
-  async getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
+  getLog(repo: IRepository, options?: ILogOptions): ResultAsync<ICommit[], GitError> {
+    return ResultAsync.fromPromise(this._getLog(repo, options), classifyGitCommandError);
+  }
+
+  private async _getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
     const format = getLogFormat();
     const args = ['log', `--format=${format}`, '-z'];
 
@@ -391,7 +465,7 @@ export class StashTagHistoryOps {
       // exec passes argv (no shell), so once guarded the push is injection-safe.
       // Must precede any `--`/pathspec below.
       if (options.ref.startsWith('-') || options.ref.startsWith('.')) {
-        throw new Error(`Invalid ref: ${options.ref}`);
+        throw new InvalidArgumentError(`Invalid ref: ${options.ref}`);
       }
       args.push(options.ref);
     }
@@ -404,7 +478,7 @@ export class StashTagHistoryOps {
       // are self-scoping), so this is the only positional revision.
       const range = options.logRange;
       if (range.startsWith('-') || range.startsWith('.')) {
-        throw new Error(`Invalid log range: ${range}`);
+        throw new InvalidArgumentError(`Invalid log range: ${range}`);
       }
       args.push(range);
     }
@@ -440,7 +514,11 @@ export class StashTagHistoryOps {
    * explicit starting revision, so we count from `HEAD` to match getLog's
    * default.
    */
-  async getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
+  getLogCount(repo: IRepository, options?: ILogOptions): ResultAsync<number, GitError> {
+    return ResultAsync.fromPromise(this._getLogCount(repo, options), classifyGitCommandError);
+  }
+
+  private async _getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
     const args = ['rev-list', '--count'];
 
     if (options?.author) {
@@ -483,14 +561,14 @@ export class StashTagHistoryOps {
     }
     if (options?.ref) {
       if (options.ref.startsWith('-') || options.ref.startsWith('.')) {
-        throw new Error(`Invalid ref: ${options.ref}`);
+        throw new InvalidArgumentError(`Invalid ref: ${options.ref}`);
       }
       args.push(options.ref);
     }
     if (options?.logRange) {
       const range = options.logRange;
       if (range.startsWith('-') || range.startsWith('.')) {
-        throw new Error(`Invalid log range: ${range}`);
+        throw new InvalidArgumentError(`Invalid log range: ${range}`);
       }
       args.push(range);
     }
@@ -511,7 +589,11 @@ export class StashTagHistoryOps {
     return Number.isFinite(count) ? count : 0;
   }
 
-  async getCommit(repo: IRepository, hash: string): Promise<ICommit> {
+  getCommit(repo: IRepository, hash: string): ResultAsync<ICommit, GitError> {
+    return ResultAsync.fromPromise(this._getCommit(repo, hash), classifyGitCommandError);
+  }
+
+  private async _getCommit(repo: IRepository, hash: string): Promise<ICommit> {
     const format = getLogFormat();
     // `hash` is user-controlled; splice via buildGitArgs.
     const result = await this.ctx.gitCli.exec(
@@ -524,13 +606,24 @@ export class StashTagHistoryOps {
 
     const commit = parseCommit(result.stdout);
     if (!commit) {
-      throw new Error(`Failed to parse commit: ${hash}`);
+      throw new CommandFailedError(1, '', `Failed to parse commit: ${hash}`);
     }
 
     return commit;
   }
 
-  async getFileHistory(
+  getFileHistory(
+    repo: IRepository,
+    path: string,
+    options?: IFileHistoryOptions
+  ): ResultAsync<ICommit[], GitError> {
+    return ResultAsync.fromPromise(
+      this._getFileHistory(repo, path, options),
+      classifyGitCommandError
+    );
+  }
+
+  private async _getFileHistory(
     repo: IRepository,
     path: string,
     options?: IFileHistoryOptions
@@ -584,7 +677,20 @@ export class StashTagHistoryOps {
    * `-L` implies `--patch`; we pass `--no-patch` so the output is just the
    * custom log records {@link parseLog} understands (no hunk payload).
    */
-  async getLineHistory(
+  getLineHistory(
+    repo: IRepository,
+    path: string,
+    startLine: number,
+    endLine: number,
+    options?: IFileHistoryOptions
+  ): ResultAsync<ICommit[], GitError> {
+    return ResultAsync.fromPromise(
+      this._getLineHistory(repo, path, startLine, endLine, options),
+      classifyGitCommandError
+    );
+  }
+
+  private async _getLineHistory(
     repo: IRepository,
     path: string,
     startLine: number,
@@ -592,10 +698,10 @@ export class StashTagHistoryOps {
     options?: IFileHistoryOptions
   ): Promise<ICommit[]> {
     if (!Number.isInteger(startLine) || startLine < 1) {
-      throw new Error(`Invalid start line for line history: ${startLine}`);
+      throw new InvalidArgumentError(`Invalid start line for line history: ${startLine}`);
     }
     if (!Number.isInteger(endLine) || endLine < startLine) {
-      throw new Error(`Invalid end line for line history: ${endLine}`);
+      throw new InvalidArgumentError(`Invalid end line for line history: ${endLine}`);
     }
 
     const format = getLogFormat();

@@ -26,6 +26,8 @@
  */
 
 import '../../setup';
+import { SpawnFailedError } from '../../../src/git-core/errors';
+import { okAsync, errAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
@@ -146,8 +148,8 @@ function makeGitService(
     getRepositories: () => [],
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},
@@ -161,9 +163,9 @@ function makeGitService(
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => ({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
-    pull: async () => {},
-    push: async (repo: IRepository, opts?: IPushOptions) => {
+    fetch: () => okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
+    pull: () => okAsync(undefined),
+    push: (repo: IRepository, opts?: IPushOptions) => {
       pushCalls.push({ repo, options: opts });
       if (typeof options.pushError === 'function') {
         const err = options.pushError(repo, opts);
@@ -173,10 +175,11 @@ function makeGitService(
       } else if (options.pushError) {
         throw options.pushError;
       }
+      return okAsync(undefined);
     },
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -209,13 +212,13 @@ function makeGitService(
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
-    resetToCommit: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
+    resetToCommit: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & { pushCalls: PushCallLog[] };
   return service;
@@ -686,9 +689,8 @@ describe('PushDialog — lifecycle', () => {
       repos: [makeRepo('/repo-a')],
     });
     // Swap in a failing push mid-flight.
-    (gitService as unknown as { push: (r: IRepository) => Promise<void> }).push = async () => {
-      throw new Error('! [rejected] main -> main (non-fast-forward)');
-    };
+    (gitService as unknown as { push: IGitService['push'] }).push = () =>
+      errAsync(new SpawnFailedError('! [rejected] main -> main (non-fast-forward)'));
     await dialog.waitUntilPopulated();
     await dialog.simulateMessage({ type: 'submit', action: 'push' });
     assert.strictEqual(dialog.disposed(), false);
@@ -765,9 +767,8 @@ describe('PushDialog — lifecycle', () => {
     const { dialog, gitService, pullDialogCalls } = makeDialog({
       repos: [makeRepo('/repo-a', { upstream: { remote: 'origin', name: 'feature' } })],
     });
-    (gitService as unknown as { push: () => Promise<void> }).push = async () => {
-      throw new Error('! [rejected] main -> main (non-fast-forward)');
-    };
+    (gitService as unknown as { push: IGitService['push'] }).push = () =>
+      errAsync(new SpawnFailedError('! [rejected] main -> main (non-fast-forward)'));
     await dialog.waitUntilPopulated();
     await dialog.simulateMessage({ type: 'submit', action: 'push' });
     assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-non-ff');
@@ -793,9 +794,8 @@ describe('PushDialog — lifecycle', () => {
     const { dialog, gitService } = makeDialog({
       repos: [makeRepo('/repo-a')],
     });
-    (gitService as unknown as { push: () => Promise<void> }).push = async () => {
-      throw new Error('remote: GH006: Protected branch update failed');
-    };
+    (gitService as unknown as { push: IGitService['push'] }).push = () =>
+      errAsync(new SpawnFailedError('remote: GH006: Protected branch update failed'));
     await dialog.waitUntilPopulated();
     await dialog.simulateMessage({ type: 'submit', action: 'push' });
     assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-protected');
@@ -1103,9 +1103,8 @@ describe('PushDialog — SR-5 incremental patch (no full re-render)', () => {
   it('structural change (row error after failed submit) DOES trigger a full _render', async () => {
     installMessageTrackers();
     const { dialog, gitService } = makeDialog({ repos: [makeRepo('/repo-a')] });
-    (gitService as unknown as { push: () => Promise<void> }).push = async () => {
-      throw new Error('! [rejected] main -> main (non-fast-forward)');
-    };
+    (gitService as unknown as { push: IGitService['push'] }).push = () =>
+      errAsync(new SpawnFailedError('! [rejected] main -> main (non-fast-forward)'));
     await dialog.waitUntilPopulated();
     const rendersBefore = dialog.renderCount;
 

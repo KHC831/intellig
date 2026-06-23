@@ -15,6 +15,8 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
+import { GitError, SpawnFailedError } from '../../src/git-core/errors';
 import { CommitContextMenuCommands } from '../../src/commits/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../src/git-core/interfaces/IGitService';
 import { IRebaseService } from '../../src/git-core/interfaces/IRebaseService';
@@ -150,6 +152,11 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
   const throwError = async (..._args: unknown[]): Promise<never> => {
     throw new Error(errorMsg);
   };
+  // Result-channel equivalent for ops methods converted to ResultAsync — the
+  // failure surfaces through the Err arm (which the caller funnels to a toast)
+  // rather than a thrown promise rejection.
+  const throwErrorResult = (..._args: unknown[]): ResultAsync<never, GitError> =>
+    errAsync(new SpawnFailedError(errorMsg));
 
   return {
     onDidChangeRepository: repoChangeEmitter.event,
@@ -159,17 +166,17 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
     getTags: async () => [],
     commit: throwError,
     amend: throwError,
-    createBranch: throwError,
-    checkout: throwError,
-    deleteBranch: throwError,
-    renameBranch: throwError,
+    createBranch: throwErrorResult,
+    checkout: throwErrorResult,
+    deleteBranch: throwErrorResult,
+    renameBranch: throwErrorResult,
     mergeBranch: throwError,
     rebaseBranch: throwError,
     compareBranches: throwError,
     fetch: throwError,
     pull: throwError,
     push: throwError,
-    getRemotes: async () => [],
+    getRemotes: () => okAsync([]),
     addRemote: throwError,
     removeRemote: throwError,
     stash: throwError,
@@ -188,12 +195,12 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
     getCommitDiff: throwError,
     getMultiCommitDiff: async () => [],
     getBlame: async () => [],
-    cherryPick: throwError,
-    cherryPickAbort: throwError,
-    cherryPickContinue: throwError,
-    revert: throwError,
-    revertAbort: throwError,
-    revertContinue: throwError,
+    cherryPick: throwErrorResult,
+    cherryPickAbort: throwErrorResult,
+    cherryPickContinue: throwErrorResult,
+    revert: throwErrorResult,
+    revertAbort: throwErrorResult,
+    revertContinue: throwErrorResult,
     getStatus: async () => [],
     stage: throwError,
     unstage: throwError,
@@ -269,9 +276,9 @@ function createErrorThrowingGitCli(errorMsg: string): GitCli {
       throw new Error(errorMsg);
     },
     isAvailable: async () => true,
-    getVersion: async () => '2.40.0',
-    isRepository: async () => true,
-    getRepositoryRoot: async () => '/test-repo',
+    getVersion: () => okAsync('2.40.0'),
+    isRepository: () => okAsync(true),
+    getRepositoryRoot: () => okAsync('/test-repo'),
     dispose: () => {},
     get gitPath() {
       return 'git';

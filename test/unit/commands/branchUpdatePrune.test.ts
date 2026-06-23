@@ -11,13 +11,13 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
 import {
   IBranch,
   IFetchOptions,
-  IFetchResult,
   IGitService,
   IRepository,
   IUpstream,
@@ -33,9 +33,9 @@ function createRecordingGitService(): RecordingGitService {
   const calls: RecordingGitService['_fetchCalls'] = [];
   const service = {
     _fetchCalls: calls,
-    fetch: async (repo: IRepository, arg?: IFetchOptions | string): Promise<IFetchResult> => {
+    fetch: (repo: IRepository, arg?: IFetchOptions | string) => {
       calls.push({ repo, arg });
-      return { updatedRefs: [], ahead: 0, behind: 0, errors: [] };
+      return okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] });
     },
     reloadRepository: async (repo: IRepository) => repo,
   } as unknown as RecordingGitService;

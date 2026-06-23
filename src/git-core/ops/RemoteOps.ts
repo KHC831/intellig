@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ResultAsync, ok, err, errAsync } from 'neverthrow';
 import {
   IRepository,
   ICommitOptions,
@@ -11,6 +12,12 @@ import {
   IRemote,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import {
+  GitError,
+  CommandFailedError,
+  InvalidArgumentError,
+  classifyGitCommandError,
+} from '../errors';
 import { parseRemotes, parseStatus, isConflictedStatus } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -32,11 +39,15 @@ export class RemoteOps {
    * @param options - Commit options (amend, signOff, noVerify, allowEmpty)
    * @throws Error if commit message is empty (unless amending or allowEmpty is true)
    */
-  async commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
+  commit(
+    repo: IRepository,
+    message: string,
+    options: ICommitOptions = {}
+  ): ResultAsync<void, GitError> {
     // Validate commit message - prevent empty messages unless amending or allowEmpty
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !options.amend && !options.allowEmpty) {
-      throw new Error('Commit message cannot be empty');
+      return errAsync(new InvalidArgumentError('Commit message cannot be empty'));
     }
 
     const args = ['commit', '-m', message];
@@ -58,12 +69,16 @@ export class RemoteOps {
       args.push(`--author=${options.author.trim()}`);
     }
 
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
-  async amend(repo: IRepository, message: string): Promise<void> {
-    await this.commit(repo, message, { amend: true });
+  amend(repo: IRepository, message: string): ResultAsync<void, GitError> {
+    return this.commit(repo, message, { amend: true });
   }
 
   /**
@@ -79,7 +94,18 @@ export class RemoteOps {
    * @returns A structured result; never throws on an empty index or an
    *   invalid hash so the caller can surface a precise toast.
    */
-  async commitFixup(
+  commitFixup(
+    repo: IRepository,
+    targetHash: string,
+    mode: 'fixup' | 'squash'
+  ): ResultAsync<ICommitFixupResult, GitError> {
+    return ResultAsync.fromPromise(
+      this._commitFixup(repo, targetHash, mode),
+      classifyGitCommandError
+    );
+  }
+
+  private async _commitFixup(
     repo: IRepository,
     targetHash: string,
     mode: 'fixup' | 'squash'
@@ -110,7 +136,17 @@ export class RemoteOps {
     return { success: true };
   }
 
-  async fetch(repo: IRepository, optionsOrRemote?: IFetchOptions | string): Promise<IFetchResult> {
+  fetch(
+    repo: IRepository,
+    optionsOrRemote?: IFetchOptions | string
+  ): ResultAsync<IFetchResult, GitError> {
+    return ResultAsync.fromPromise(this._fetch(repo, optionsOrRemote), classifyGitCommandError);
+  }
+
+  private async _fetch(
+    repo: IRepository,
+    optionsOrRemote?: IFetchOptions | string
+  ): Promise<IFetchResult> {
     // Back-compat: a plain string argument is treated as the remote name.
     const options: IFetchOptions =
       typeof optionsOrRemote === 'string' ? { remote: optionsOrRemote } : (optionsOrRemote ?? {});
@@ -227,7 +263,11 @@ export class RemoteOps {
     };
   }
 
-  async pull(repo: IRepository, options?: IPullOptions): Promise<void> {
+  pull(repo: IRepository, options?: IPullOptions): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(this._pull(repo, options), classifyGitCommandError);
+  }
+
+  private async _pull(repo: IRepository, options?: IPullOptions): Promise<void> {
     // Order: git pull [--rebase|--ff-only|--no-ff] [--squash] [--no-commit] [--no-verify] <remote> <branch>
     // Split flags vs. refs (remote/branch) so buildGitArgs can
     // splice `--end-of-options` between them; defends against argv
@@ -291,14 +331,24 @@ export class RemoteOps {
         .filter(isConflictedStatus)
         .map((f) => f.path);
       if (conflicts.length > 0) {
-        throw new Error(
-          `CONFLICT: applying the autostash left unmerged files (${conflicts.join(', ')}).`
-        );
+        // Synthesised failure: git itself exited 0, but the autostash pop left
+        // unmerged files. Route as a CommandFailedError whose message AND
+        // `.combined` carry the "CONFLICT:" marker so `isConflictError`
+        // (which duck-types `.result.combined`, falling back to `.message`)
+        // still hands this to the Resolve Conflicts flow after classification.
+        const conflictMessage = `CONFLICT: applying the autostash left unmerged files (${conflicts.join(
+          ', '
+        )}).`;
+        throw new CommandFailedError(1, '', conflictMessage, {
+          stdout: conflictMessage,
+          stderr: '',
+          combined: conflictMessage,
+        });
       }
     }
   }
 
-  async push(repo: IRepository, options?: IPushOptions): Promise<void> {
+  push(repo: IRepository, options?: IPushOptions): ResultAsync<void, GitError> {
     // Order: git push [--force|--force-with-lease] [--set-upstream] [--no-verify]
     //                 [--tags|--follow-tags] <remote> [<refspec>|<branch>]
     // Split flags vs. refs so buildGitArgs splices
@@ -341,16 +391,25 @@ export class RemoteOps {
     }
 
     const args = buildGitArgs('push', flags, refs);
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
-  async getRemotes(repo: IRepository): Promise<IRemote[]> {
-    const result = await this.ctx.gitCli.exec(['remote', '-v'], { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseRemotes(result.stdout);
+  getRemotes(repo: IRepository): ResultAsync<IRemote[], GitError> {
+    // `git remote -v` exits 0 on any repo, so a non-zero exit is a genuine
+    // failure (not-a-repo / system), not a silent empty remote list.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['remote', '-v'], { cwd: repo.rootUri.fsPath }),
+      classifyGitCommandError
+    ).andThen((result) =>
+      result.exitCode !== 0
+        ? err(new CommandFailedError(result.exitCode, result.stderr))
+        : ok(parseRemotes(result.stdout))
+    );
   }
 
   /**
@@ -358,18 +417,22 @@ export class RemoteOps {
    * `--end-of-options`, so a leading-dash guard on both args is the
    * argv-injection defense (mirrors {@link setRemoteUrl}/{@link renameRemote}).
    */
-  async addRemote(repo: IRepository, name: string, url: string): Promise<void> {
+  addRemote(repo: IRepository, name: string, url: string): ResultAsync<void, GitError> {
     if (!name || name.startsWith('-')) {
-      throw new Error(`Invalid remote name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote name: ${name}`));
     }
     if (!url || url.startsWith('-')) {
-      throw new Error(`Invalid remote URL: ${url}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote URL: ${url}`));
     }
-    await this.ctx.gitCli.exec(['remote', 'add', name, url], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['remote', 'add', name, url], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -377,15 +440,19 @@ export class RemoteOps {
    * `--end-of-options`, so a leading-dash guard on the name is the
    * argv-injection defense (mirrors {@link addRemote}/{@link setRemoteUrl}).
    */
-  async removeRemote(repo: IRepository, name: string): Promise<void> {
+  removeRemote(repo: IRepository, name: string): ResultAsync<void, GitError> {
     if (!name || name.startsWith('-')) {
-      throw new Error(`Invalid remote name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote name: ${name}`));
     }
-    await this.ctx.gitCli.exec(['remote', 'remove', name], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['remote', 'remove', name], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -393,35 +460,43 @@ export class RemoteOps {
    * `git remote` has no `--end-of-options`, so a leading-dash guard on both
    * args is the argv-injection defense (mirrors the branch/stash name guards).
    */
-  async setRemoteUrl(repo: IRepository, name: string, url: string): Promise<void> {
+  setRemoteUrl(repo: IRepository, name: string, url: string): ResultAsync<void, GitError> {
     if (!name || name.startsWith('-')) {
-      throw new Error(`Invalid remote name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote name: ${name}`));
     }
     if (!url || url.startsWith('-')) {
-      throw new Error(`Invalid remote URL: ${url}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote URL: ${url}`));
     }
-    await this.ctx.gitCli.exec(['remote', 'set-url', name, url], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['remote', 'set-url', name, url], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
    * Rename a remote (`git remote rename <old> <new>`). Both names are
    * leading-dash-guarded against argv injection.
    */
-  async renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void> {
+  renameRemote(repo: IRepository, oldName: string, newName: string): ResultAsync<void, GitError> {
     if (!oldName || oldName.startsWith('-')) {
-      throw new Error(`Invalid remote name: ${oldName}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote name: ${oldName}`));
     }
     if (!newName || newName.startsWith('-')) {
-      throw new Error(`Invalid remote name: ${newName}`);
+      return errAsync(new InvalidArgumentError(`Invalid remote name: ${newName}`));
     }
-    await this.ctx.gitCli.exec(['remote', 'rename', oldName, newName], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['remote', 'rename', oldName, newName], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 }

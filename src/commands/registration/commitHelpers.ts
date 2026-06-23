@@ -260,7 +260,12 @@ export async function runNewTagFlow(
 
   const normalizedMessage = message.trim().length > 0 ? message : undefined;
   try {
-    await deps.gitService.createTag(deps.repo, name, normalizedMessage, ref);
+    await deps.gitService.createTag(deps.repo, name, normalizedMessage, ref).match(
+      () => undefined,
+      (e) => {
+        throw e;
+      }
+    );
     void deps.showInformationMessage(`Created tag: ${name}`);
     if (deps.onTagCreated) {
       deps.onTagCreated();
@@ -279,7 +284,12 @@ export async function runNewTagFlow(
         return;
       }
       try {
-        await deps.gitService.createTag(deps.repo, name, normalizedMessage, ref, true);
+        await deps.gitService.createTag(deps.repo, name, normalizedMessage, ref, true).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void deps.showInformationMessage(`Created tag: ${name}`);
         if (deps.onTagCreated) {
           deps.onTagCreated();

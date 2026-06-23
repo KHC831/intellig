@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
+import type { ResultAsync } from 'neverthrow';
 
 import type { GitCli } from '../gitCli';
+import type { GitError } from '../errors';
 
 /**
  * Repository state enumeration
@@ -946,13 +948,13 @@ export interface IGitService {
   reloadRepository(repo: IRepository): Promise<IRepository | undefined>;
 
   // Commit operations
-  commit(repo: IRepository, message: string, options: ICommitOptions): Promise<void>;
-  amend(repo: IRepository, message: string): Promise<void>;
+  commit(repo: IRepository, message: string, options: ICommitOptions): ResultAsync<void, GitError>;
+  amend(repo: IRepository, message: string): ResultAsync<void, GitError>;
   commitFixup(
     repo: IRepository,
     targetHash: string,
     mode: 'fixup' | 'squash'
-  ): Promise<ICommitFixupResult>;
+  ): ResultAsync<ICommitFixupResult, GitError>;
 
   // Branch operations
   getBranches(repo: IRepository): Promise<IBranch[]>;
@@ -971,10 +973,10 @@ export interface IGitService {
     repo: IRepository,
     name: string,
     startPointOrOptions?: string | ICreateBranchOptions
-  ): Promise<void>;
-  checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void>;
-  deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void>;
-  renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void>;
+  ): ResultAsync<void, GitError>;
+  checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): ResultAsync<void, GitError>;
+  deleteBranch(repo: IRepository, name: string, force?: boolean): ResultAsync<void, GitError>;
+  renameBranch(repo: IRepository, oldName: string, newName: string): ResultAsync<void, GitError>;
   /**
    * Set the upstream tracking ref of an existing
    * local branch. Routes through `git branch --set-upstream-to=<ref>
@@ -992,7 +994,11 @@ export interface IGitService {
    * leading-dash guard) and splices `--end-of-options` between the
    * flag(s) and the local name.
    */
-  setBranchUpstream(repo: IRepository, localName: string, upstreamRef: string): Promise<void>;
+  setBranchUpstream(
+    repo: IRepository,
+    localName: string,
+    upstreamRef: string
+  ): ResultAsync<void, GitError>;
   /**
    * Merge a branch into the current one. Legacy callers pass just
    * `(repo, branch)`; new callers may pass {@link IMergeOptions}.
@@ -1032,7 +1038,7 @@ export interface IGitService {
    *
    * @param repo - The repository
    */
-  rebaseAbort(repo: IRepository): Promise<void>;
+  rebaseAbort(repo: IRepository): ResultAsync<void, GitError>;
 
   /**
    * Continue an in-progress rebase after the user resolves conflicts
@@ -1055,39 +1061,43 @@ export interface IGitService {
    * Fetch from remote(s). Returns a structured result parsed from
    * `git fetch --porcelain`. Legacy callers can pass a remote-name string.
    */
-  fetch(repo: IRepository, options?: IFetchOptions | string): Promise<IFetchResult>;
-  pull(repo: IRepository, options?: IPullOptions): Promise<void>;
-  push(repo: IRepository, options?: IPushOptions): Promise<void>;
+  fetch(repo: IRepository, options?: IFetchOptions | string): ResultAsync<IFetchResult, GitError>;
+  pull(repo: IRepository, options?: IPullOptions): ResultAsync<void, GitError>;
+  push(repo: IRepository, options?: IPushOptions): ResultAsync<void, GitError>;
   /**
    * Event fired after each fetch completes (successful or not). Consumers
    * include the auto-fetch scheduler and incoming-commits UI.
    */
   onDidFetch: vscode.Event<{ repo: IRepository; result: IFetchResult }>;
-  getRemotes(repo: IRepository): Promise<IRemote[]>;
-  addRemote(repo: IRepository, name: string, url: string): Promise<void>;
-  removeRemote(repo: IRepository, name: string): Promise<void>;
+  getRemotes(repo: IRepository): ResultAsync<IRemote[], GitError>;
+  addRemote(repo: IRepository, name: string, url: string): ResultAsync<void, GitError>;
+  removeRemote(repo: IRepository, name: string): ResultAsync<void, GitError>;
   /** Change a remote's URL (`git remote set-url`). */
-  setRemoteUrl(repo: IRepository, name: string, url: string): Promise<void>;
+  setRemoteUrl(repo: IRepository, name: string, url: string): ResultAsync<void, GitError>;
   /** Rename a remote (`git remote rename`). */
-  renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void>;
+  renameRemote(repo: IRepository, oldName: string, newName: string): ResultAsync<void, GitError>;
 
   // Stash operations
-  stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void>;
+  stash(repo: IRepository, message?: string, options?: IStashOptions): ResultAsync<void, GitError>;
   stashList(repo: IRepository): Promise<IStash[]>;
   /**
    * Apply a stash. `reinstateIndex` (default true) controls whether `--index`
    * reinstates the staged/unstaged split — IntelliJ unstash "Reinstate index".
    */
-  stashApply(repo: IRepository, index: number, reinstateIndex?: boolean): Promise<void>;
+  stashApply(
+    repo: IRepository,
+    index: number,
+    reinstateIndex?: boolean
+  ): ResultAsync<void, GitError>;
   /** Apply + drop a stash. `reinstateIndex` as in {@link stashApply}. */
-  stashPop(repo: IRepository, index: number, reinstateIndex?: boolean): Promise<void>;
-  stashDrop(repo: IRepository, index: number): Promise<void>;
+  stashPop(repo: IRepository, index: number, reinstateIndex?: boolean): ResultAsync<void, GitError>;
+  stashDrop(repo: IRepository, index: number): ResultAsync<void, GitError>;
   stashShow(repo: IRepository, index: number): Promise<IDiff[]>;
   /**
    * Create a new branch rooted at the stashed state, apply the stash, and
    * drop it on success. Wraps `git stash branch <branchName> stash@{<index>}`.
    *
-   * Fails (throws) if:
+   * Returns an Err (via the Result channel) if:
    *  - the branch name already exists,
    *  - the stash index is invalid,
    *  - applying the stash would conflict with the new branch's base commit
@@ -1098,7 +1108,7 @@ export interface IGitService {
    * @param index - Stash index (e.g. 0 for `stash@{0}`)
    * @param branchName - Name of the new branch
    */
-  stashBranch(repo: IRepository, index: number, branchName: string): Promise<void>;
+  stashBranch(repo: IRepository, index: number, branchName: string): ResultAsync<void, GitError>;
   /**
    * Rename a stash entry. Git has no native `stash rename`, so this uses the
    * `git stash store` plumbing: the original stash's commit object is
@@ -1112,7 +1122,7 @@ export interface IGitService {
    * @param index - Stash index of the entry to rename
    * @param newMessage - The new message (subject line) for the stash
    */
-  stashRename(repo: IRepository, index: number, newMessage: string): Promise<void>;
+  stashRename(repo: IRepository, index: number, newMessage: string): ResultAsync<void, GitError>;
 
   // Tag operations
   getTags(repo: IRepository): Promise<ITag[]>;
@@ -1122,11 +1132,11 @@ export interface IGitService {
     message?: string,
     ref?: string,
     force?: boolean
-  ): Promise<void>;
-  deleteTag(repo: IRepository, name: string): Promise<void>;
-  pushTag(repo: IRepository, name: string, remote?: string): Promise<void>;
+  ): ResultAsync<void, GitError>;
+  deleteTag(repo: IRepository, name: string): ResultAsync<void, GitError>;
+  pushTag(repo: IRepository, name: string, remote?: string): ResultAsync<void, GitError>;
   /** Delete a tag on the remote (`git push <remote> :refs/tags/<name>`). */
-  deleteRemoteTag(repo: IRepository, name: string, remote?: string): Promise<void>;
+  deleteRemoteTag(repo: IRepository, name: string, remote?: string): ResultAsync<void, GitError>;
 
   // History operations
   getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]>;
@@ -1285,7 +1295,7 @@ export interface IGitService {
     repo: IRepository,
     commits: string[],
     options?: ICherryPickOptions
-  ): Promise<ICherryPickResult>;
+  ): ResultAsync<ICherryPickResult, GitError>;
 
   /**
    * Abort an in-progress cherry-pick operation.
@@ -1293,7 +1303,7 @@ export interface IGitService {
    *
    * @param repo - The repository
    */
-  cherryPickAbort(repo: IRepository): Promise<void>;
+  cherryPickAbort(repo: IRepository): ResultAsync<void, GitError>;
 
   /**
    * Continue a cherry-pick operation after resolving conflicts.
@@ -1301,7 +1311,7 @@ export interface IGitService {
    * @param repo - The repository
    * @returns Cherry-pick result with success status and any new conflicts
    */
-  cherryPickContinue(repo: IRepository): Promise<ICherryPickResult>;
+  cherryPickContinue(repo: IRepository): ResultAsync<ICherryPickResult, GitError>;
 
   /**
    * Revert one or more commits, creating new commits that undo the changes.
@@ -1311,7 +1321,11 @@ export interface IGitService {
    * @param commits - Array of commit hashes to revert
    * @returns Revert result with success status and any conflicts
    */
-  revert(repo: IRepository, commits: string[], options?: IRevertOptions): Promise<IRevertResult>;
+  revert(
+    repo: IRepository,
+    commits: string[],
+    options?: IRevertOptions
+  ): ResultAsync<IRevertResult, GitError>;
 
   /**
    * Abort an in-progress revert operation.
@@ -1319,7 +1333,7 @@ export interface IGitService {
    *
    * @param repo - The repository
    */
-  revertAbort(repo: IRepository): Promise<void>;
+  revertAbort(repo: IRepository): ResultAsync<void, GitError>;
 
   /**
    * Continue a revert operation after resolving conflicts.
@@ -1327,21 +1341,26 @@ export interface IGitService {
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
    */
-  revertContinue(repo: IRepository): Promise<IRevertResult>;
+  revertContinue(repo: IRepository): ResultAsync<IRevertResult, GitError>;
 
   // Status
   getStatus(repo: IRepository): Promise<IFileStatus[]>;
-  stage(repo: IRepository, paths: string[]): Promise<void>;
-  unstage(repo: IRepository, paths: string[]): Promise<void>;
-  stageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void>;
-  stageLines(repo: IRepository, path: string, lines: number[], hunk: IHunk): Promise<void>;
-  unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void>;
+  stage(repo: IRepository, paths: string[]): ResultAsync<void, GitError>;
+  unstage(repo: IRepository, paths: string[]): ResultAsync<void, GitError>;
+  stageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError>;
+  stageLines(
+    repo: IRepository,
+    path: string,
+    lines: number[],
+    hunk: IHunk
+  ): ResultAsync<void, GitError>;
+  unstageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError>;
 
   /**
    * Revert (discard) a single hunk in the working tree (`git apply -R`,
    * no `--cached`). Mirrors IntelliJ's "Revert Chunk".
    */
-  revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void>;
+  revertHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError>;
 
   /**
    * Revert (discard) uncommitted changes to a file.
@@ -1350,7 +1369,7 @@ export interface IGitService {
    * @param repo - The repository
    * @param path - The file path to revert
    */
-  revertFile(repo: IRepository, path: string): Promise<void>;
+  revertFile(repo: IRepository, path: string): ResultAsync<void, GitError>;
 
   /**
    * Roll back (revert local changes for) a set of selected files at once —
@@ -1369,7 +1388,7 @@ export interface IGitService {
     repo: IRepository,
     changes: IRollbackChange[],
     options?: IRollbackOptions
-  ): Promise<void>;
+  ): ResultAsync<void, GitError>;
 
   /**
    * Reset the current branch to point at the given commit.
@@ -1379,7 +1398,7 @@ export interface IGitService {
    * @param target - The commit hash, branch, or other ref to reset to
    * @param mode - The reset mode
    */
-  resetToCommit(repo: IRepository, target: string, mode: ResetMode): Promise<void>;
+  resetToCommit(repo: IRepository, target: string, mode: ResetMode): ResultAsync<void, GitError>;
 
   // Disposal
   dispose(): void;

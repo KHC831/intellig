@@ -10,6 +10,7 @@
  */
 
 import '../setup';
+import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
@@ -72,18 +73,19 @@ function createTrackingMockGitService(
     getRepository: async () => undefined,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
-    createBranch: async () => {},
-    checkout: async (_repo: IRepository, branchName: string) => {
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
+    createBranch: () => okAsync(undefined),
+    checkout: (_repo: IRepository, branchName: string) => {
       operationCalls.push({
         operation: 'checkout',
         args: [branchName],
         order: callOrder++,
       });
+      return okAsync(undefined);
     },
-    deleteBranch: async () => {},
-    renameBranch: async () => {},
+    deleteBranch: () => okAsync(undefined),
+    renameBranch: () => okAsync(undefined),
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async (_repo: IRepository, ontoBranch: string) => {
       operationCalls.push({
@@ -100,12 +102,14 @@ function createTrackingMockGitService(
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    fetch: () => {
+      return okAsync(undefined);
+    },
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -143,12 +147,12 @@ function createTrackingMockGitService(
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & { operationCalls: OperationCall[] };
 

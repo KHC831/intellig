@@ -128,7 +128,7 @@ describe('GitService.cherryPick — variants', () => {
   describe('plain cherry-pick (no options)', () => {
     it('passes only the commit hashes to git — no --no-commit', async () => {
       const { gitService, mockGitCli } = installGitService();
-      const result = await gitService.cherryPick(makeRepo(), ['abc1234']);
+      const result = (await gitService.cherryPick(makeRepo(), ['abc1234']))._unsafeUnwrap();
       assert.strictEqual(result.success, true);
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
@@ -137,7 +137,7 @@ describe('GitService.cherryPick — variants', () => {
 
     it('empty hash list returns success without invoking git', async () => {
       const { gitService, mockGitCli } = installGitService();
-      const result = await gitService.cherryPick(makeRepo(), []);
+      const result = (await gitService.cherryPick(makeRepo(), []))._unsafeUnwrap();
       assert.strictEqual(result.success, true);
       assert.strictEqual(mockGitCli.executedCommands.length, 0);
     });
@@ -188,9 +188,11 @@ describe('GitService.cherryPick — variants', () => {
         stderr: '',
       });
 
-      const result = await gitService.cherryPick(makeRepo(), ['abc1234'], {
-        files: ['a.ts'],
-      });
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], {
+          files: ['a.ts'],
+        })
+      )._unsafeUnwrap();
 
       assert.strictEqual(result.success, true);
 
@@ -249,7 +251,9 @@ describe('GitService.cherryPick — variants', () => {
 
     it('empty files array short-circuits without invoking git', async () => {
       const { gitService, mockGitCli } = installGitService();
-      const result = await gitService.cherryPick(makeRepo(), ['abc1234'], { files: [] });
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], { files: [] })
+      )._unsafeUnwrap();
       assert.strictEqual(result.success, true);
       assert.strictEqual(mockGitCli.executedCommands.length, 0);
     });
@@ -307,7 +311,7 @@ describe('GitService.cherryPick — variants', () => {
         stdout: 'UU src/foo.ts\nDU src/bar.ts\n',
         stderr: '',
       });
-      const result = await gitService.cherryPick(makeRepo(), ['abc1234']);
+      const result = (await gitService.cherryPick(makeRepo(), ['abc1234']))._unsafeUnwrap();
       assert.strictEqual(result.success, false);
       assert.ok(result.conflicts);
       assert.strictEqual(result.conflicts.length, 2);
@@ -327,9 +331,11 @@ describe('GitService.cherryPick — variants', () => {
         stdout: 'UU src/foo.ts\n',
         stderr: '',
       });
-      const result = await gitService.cherryPick(makeRepo(), ['abc1234'], {
-        noCommit: true,
-      });
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], {
+          noCommit: true,
+        })
+      )._unsafeUnwrap();
       assert.strictEqual(result.success, false);
       assert.ok(result.conflicts);
       assert.strictEqual(result.conflicts.length, 1);
@@ -347,9 +353,11 @@ describe('GitService.cherryPick — variants', () => {
         stdout: 'UU a.ts\n',
         stderr: '',
       });
-      const result = await gitService.cherryPick(makeRepo(), ['abc1234'], {
-        files: ['a.ts'],
-      });
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], {
+          files: ['a.ts'],
+        })
+      )._unsafeUnwrap();
       assert.strictEqual(result.success, false);
       // Should NOT have run show --name-only or reset/checkout — conflict path
       // short-circuits before the file-subset narrowing.

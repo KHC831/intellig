@@ -1,4 +1,8 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { execFileSync } from 'child_process';
 import {
   GitCli,
   GitCommandError,
@@ -220,11 +224,92 @@ describe('Git CLI Utilities', () => {
   });
 
   describe('getVersion', () => {
-    it('should return git version string', async () => {
-      const version = await gitCli.getVersion();
+    it('returns Ok with the git version string', async () => {
+      const result = await gitCli.getVersion();
 
-      assert.ok(version);
+      assert.ok(result.isOk(), 'git --version should succeed');
+      const version = result._unsafeUnwrap();
       assert.ok(/\d+\.\d+/.test(version));
+    });
+  });
+
+  // ─── Result boundary: system error vs domain outcome ──────────────────
+  //
+  // The query methods used to swallow EVERY failure to `undefined`/`false`,
+  // conflating a SYSTEM fault (a file handed as cwd → spawn ENOTDIR, a bug)
+  // with a DOMAIN outcome ("this dir is not a repo"). They now return a
+  // neverthrow Result so the two are distinguishable: a non-repo directory
+  // is the expected absence (Ok(undefined) / Ok(false)), while a spawn fault
+  // is a typed Err that can NEVER masquerade as "no repository".
+  describe('getRepositoryRoot — Result boundary', () => {
+    let tmpRoot: string;
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-gitcli-root-'));
+    });
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('returns Ok(root) inside a real repository', async () => {
+      execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
+      const result = await gitCli.getRepositoryRoot(tmpRoot);
+
+      assert.ok(result.isOk());
+      const root = result._unsafeUnwrap();
+      assert.ok(root, 'expected a root path');
+      // macOS routes os.tmpdir() through the /var → /private/var symlink, so
+      // compare realpaths rather than raw strings.
+      assert.strictEqual(fs.realpathSync(root), fs.realpathSync(tmpRoot));
+    });
+
+    it('returns Ok(undefined) for a real directory that is NOT a repo (domain absence)', async () => {
+      const result = await gitCli.getRepositoryRoot(tmpRoot);
+
+      assert.ok(result.isOk(), 'not-a-repo is an expected absence, not an error');
+      assert.strictEqual(result._unsafeUnwrap(), undefined);
+    });
+
+    it('returns a typed spawn-failed Err for a FILE cwd (ENOTDIR) — NOT a silent not-a-repo', async () => {
+      const filePath = path.join(tmpRoot, 'a-file.txt');
+      fs.writeFileSync(filePath, 'hi');
+      const result = await gitCli.getRepositoryRoot(filePath);
+
+      assert.ok(result.isErr(), 'file cwd must be an Err, not Ok(undefined)');
+      assert.strictEqual(result._unsafeUnwrapErr().kind, 'spawn-failed');
+    });
+  });
+
+  describe('isRepository — Result boundary', () => {
+    let tmpRoot: string;
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-gitcli-isrepo-'));
+    });
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('returns Ok(true) inside a repo', async () => {
+      execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
+      const result = await gitCli.isRepository(tmpRoot);
+
+      assert.ok(result.isOk());
+      assert.strictEqual(result._unsafeUnwrap(), true);
+    });
+
+    it('returns Ok(false) for a non-repo directory', async () => {
+      const result = await gitCli.isRepository(tmpRoot);
+
+      assert.ok(result.isOk());
+      assert.strictEqual(result._unsafeUnwrap(), false);
+    });
+
+    it('returns a typed spawn-failed Err for a FILE cwd', async () => {
+      const filePath = path.join(tmpRoot, 'f.txt');
+      fs.writeFileSync(filePath, 'x');
+      const result = await gitCli.isRepository(filePath);
+
+      assert.ok(result.isErr());
+      assert.strictEqual(result._unsafeUnwrapErr().kind, 'spawn-failed');
     });
   });
 

@@ -290,12 +290,15 @@ describe('GitService - Command Argument Correctness', () => {
       assert.deepStrictEqual(cmd.args, ['checkout', '-B', 'main', '--track', 'origin/main']);
     });
 
-    it('rejects a startpoint beginning with "-" (argv-injection guard)', async () => {
-      await assert.rejects(
-        () =>
-          gitService.checkout(mockRepo, 'main', { forceCreate: true, track: '--upload-pack=x' }),
-        /Invalid start point/
-      );
+    it('refuses a startpoint beginning with "-" (argv-injection guard)', async () => {
+      // The validation reject is a typed Err (checkout returns a Result); the
+      // security invariant (no exec for a hostile startpoint) is preserved.
+      const result = await gitService.checkout(mockRepo, 'main', {
+        forceCreate: true,
+        track: '--upload-pack=x',
+      });
+      assert.ok(result.isErr());
+      assert.match(result.error.message, /Invalid start point/);
       assert.strictEqual(mockGitCli.getAllCommands().length, 0, 'no git command should run');
     });
   });
@@ -589,7 +592,7 @@ describe('GitService - Command Argument Correctness', () => {
     });
 
     it('cherry-pick empty array returns success without executing', async () => {
-      const result = await gitService.cherryPick(mockRepo, []);
+      const result = (await gitService.cherryPick(mockRepo, []))._unsafeUnwrap();
       assert.strictEqual(result.success, true);
       assert.strictEqual(mockGitCli.getAllCommands().length, 0);
     });
@@ -649,21 +652,15 @@ describe('GitService - Command Argument Correctness', () => {
     });
 
     it('rejects empty commit message', async () => {
-      try {
-        await gitService.commit(mockRepo, '');
-        assert.fail('Should have thrown');
-      } catch (e) {
-        assert.ok((e as Error).message.includes('empty'));
-      }
+      const result = await gitService.commit(mockRepo, '');
+      assert.ok(result.isErr());
+      assert.ok(result._unsafeUnwrapErr().message.includes('empty'));
     });
 
     it('rejects whitespace-only commit message', async () => {
-      try {
-        await gitService.commit(mockRepo, '   ');
-        assert.fail('Should have thrown');
-      } catch (e) {
-        assert.ok((e as Error).message.includes('empty'));
-      }
+      const result = await gitService.commit(mockRepo, '   ');
+      assert.ok(result.isErr());
+      assert.ok(result._unsafeUnwrapErr().message.includes('empty'));
     });
 
     it('allows empty message with amend', async () => {

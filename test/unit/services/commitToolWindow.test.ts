@@ -22,6 +22,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import * as vscode from 'vscode';
 import { JSDOM } from 'jsdom';
 import {
@@ -383,14 +384,17 @@ describe('CommitToolWindow — host behavior', () => {
 
       // Status + staging + commit + diff — exercised by performCommit path
       getStatus: async () => [],
-      stage: async (...args: unknown[]) => {
+      stage: (...args: unknown[]) => {
         calls.push({ method: 'stage', args });
+        return okAsync(undefined);
       },
-      unstage: async (...args: unknown[]) => {
+      unstage: (...args: unknown[]) => {
         calls.push({ method: 'unstage', args });
+        return okAsync(undefined);
       },
-      commit: async (...args: unknown[]) => {
+      commit: (...args: unknown[]) => {
         calls.push({ method: 'commit', args });
+        return okAsync(undefined);
       },
       getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
 
@@ -977,8 +981,9 @@ describe('CommitToolWindow — host behavior', () => {
     const services = createMockServices(repoA, changelists);
     // Override getRepositories so both repos are visible.
     services.gitService.getRepositories = () => [repoA, repoB];
-    services.gitService.commit = async (...args: unknown[]) => {
+    services.gitService.commit = (...args: unknown[]) => {
       services.calls.push({ method: 'commit', args });
+      return okAsync(undefined);
     };
 
     // Point the active editor at a file under /repo-b so resolveRepo's

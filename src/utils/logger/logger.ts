@@ -455,6 +455,7 @@ function _reportSinkFailure(failingSinkName: string, original: LogRecord, _cause
       }
       try {
         sink.emit(failureRecord);
+        // eslint-disable-next-line no-restricted-syntax -- this is the logger's own sink-failure fallback; logging a secondary failure here would recurse. We have done what we can.
       } catch {
         // Swallow secondary failures — we have done what we can.
       }
@@ -583,6 +584,7 @@ export function __resetLoggerForTest(): void {
   for (const sink of _sinks.slice()) {
     try {
       sink.dispose();
+      // eslint-disable-next-line no-restricted-syntax -- logger test-teardown helper; logging during logger reset would recurse and teardown must not throw.
     } catch {
       // Swallow — test teardown must not throw.
     }
@@ -592,6 +594,7 @@ export function __resetLoggerForTest(): void {
   if (_configListenerDisposable !== undefined) {
     try {
       _configListenerDisposable.dispose();
+      // eslint-disable-next-line no-restricted-syntax -- logger test-teardown helper; logging during logger reset would recurse and teardown must not throw.
     } catch {
       // Swallow — test teardown must not throw.
     }

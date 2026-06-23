@@ -161,6 +161,7 @@ export class StatusBarService implements IStatusBarService {
         }
       });
       this._disposables.push(disposable);
+      // eslint-disable-next-line no-restricted-syntax -- no logger in scope; a duplicate command registration (another instance alive, or reload) is an expected, safe no-op — the existing registration still works.
     } catch {
       // Command already registered (another instance still alive, or reload).
       // Safe no-op — the existing registration still works.

@@ -13,6 +13,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync, errAsync } from 'neverthrow';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -64,8 +66,8 @@ function createMockGitService(
     reloadRepository: async () => repo,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async (...args: unknown[]) => {
       calls.push({ method: 'checkout', args });
@@ -85,12 +87,14 @@ function createMockGitService(
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    fetch: () => {
+      return okAsync(undefined);
+    },
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async (...args: unknown[]) => {
       calls.push({ method: 'stash', args });
     },
@@ -131,12 +135,12 @@ function createMockGitService(
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
     ...overrides,
   } as unknown as IGitService & { calls: CallTracker[] };
@@ -211,9 +215,9 @@ function createMockGitCli(overrides?: Record<string, unknown>): MockGitCli {
     },
     execString: async () => '',
     isAvailable: async () => true,
-    getVersion: async () => '2.40.0',
-    isRepository: async () => true,
-    getRepositoryRoot: async () => '/test-repo',
+    getVersion: () => okAsync('2.40.0'),
+    isRepository: () => okAsync(true),
+    getRepositoryRoot: () => okAsync('/test-repo'),
     dispose: () => {},
     get gitPath() {
       return 'git';
@@ -383,7 +387,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        cherryPick: async () => ({ success: false, conflicts: ['file1.ts', 'file2.ts'] }),
+        cherryPick: () => okAsync({ success: false, conflicts: ['file1.ts', 'file2.ts'] }),
       });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -399,9 +403,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        cherryPick: async () => {
-          throw new Error('cherry-pick failed');
-        },
+        cherryPick: () => errAsync(new SpawnFailedError('cherry-pick failed')),
       });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -436,7 +438,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        revert: async () => ({ success: false, conflicts: ['file1.ts'] }),
+        revert: () => okAsync({ success: false, conflicts: ['file1.ts'] }),
       });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -452,9 +454,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        revert: async () => {
-          throw new Error('revert failed');
-        },
+        revert: () => errAsync(new SpawnFailedError('revert failed')),
       });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -489,9 +489,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        checkout: async () => {
-          throw new Error('checkout failed');
-        },
+        checkout: () => errAsync(new SpawnFailedError('checkout failed')),
       });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -1995,9 +1993,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        cherryPick: async () => {
-          throw new Error(RAW);
-        },
+        cherryPick: () => errAsync(new SpawnFailedError(RAW)),
       });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -2534,7 +2530,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     ): IGitService & { calls: CallTracker[] } {
       const repo = createMockRepo('head_hash');
       return createMockGitService(repo, {
-        commitFixup: async () => fixupResult,
+        commitFixup: () => okAsync(fixupResult),
       } as unknown as Partial<IGitService>);
     }
 
@@ -2542,9 +2538,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo('head_hash');
       const calls: CallTracker[] = [];
       const gitService = createMockGitService(repo, {
-        commitFixup: async (...args: unknown[]) => {
+        commitFixup: (...args: unknown[]) => {
           calls.push({ method: 'commitFixup', args });
-          return { success: true };
+          return okAsync({ success: true });
         },
       } as unknown as Partial<IGitService>);
       const commands = new CommitContextMenuCommands(
@@ -2565,9 +2561,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo('head_hash');
       const calls: CallTracker[] = [];
       const gitService = createMockGitService(repo, {
-        commitFixup: async (...args: unknown[]) => {
+        commitFixup: (...args: unknown[]) => {
           calls.push({ method: 'commitFixup', args });
-          return { success: true };
+          return okAsync({ success: true });
         },
       } as unknown as Partial<IGitService>);
       const commands = new CommitContextMenuCommands(
@@ -2588,9 +2584,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo('head_hash');
       const calls: CallTracker[] = [];
       const gitService = createMockGitService(repo, {
-        commitFixup: async (...args: unknown[]) => {
+        commitFixup: (...args: unknown[]) => {
           calls.push({ method: 'commitFixup', args });
-          return { success: true };
+          return okAsync({ success: true });
         },
       } as unknown as Partial<IGitService>);
       const commands = new CommitContextMenuCommands(

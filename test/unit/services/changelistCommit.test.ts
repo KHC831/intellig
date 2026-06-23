@@ -13,6 +13,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import {
   computeChangelistCommitPlan,
   commitChangelist,
@@ -54,14 +55,17 @@ function makeGitService(): IGitService & { calls: CallLog[] } {
     calls,
     onDidChangeRepository: emitter.event,
     getStatus: async () => [],
-    stage: async (repo: IRepository, paths: string[]): Promise<void> => {
+    stage: (repo: IRepository, paths: string[]) => {
       calls.push({ method: 'stage', args: [repo, paths] });
+      return okAsync(undefined);
     },
-    unstage: async (repo: IRepository, paths: string[]): Promise<void> => {
+    unstage: (repo: IRepository, paths: string[]) => {
       calls.push({ method: 'unstage', args: [repo, paths] });
+      return okAsync(undefined);
     },
-    commit: async (repo: IRepository, message: string, options: ICommitOptions): Promise<void> => {
+    commit: (repo: IRepository, message: string, options: ICommitOptions) => {
       calls.push({ method: 'commit', args: [repo, message, options] });
+      return okAsync(undefined);
     },
     dispose: () => {},
   } as unknown as IGitService & { calls: CallLog[] };

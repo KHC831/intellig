@@ -898,6 +898,7 @@ export class CommitToolWindow extends BaseWebviewView {
             const active = await this._changelistService.getActiveChangelist(repo);
             isActive = !!active && active.id === message.changelistId;
           }
+          // eslint-disable-next-line no-restricted-syntax -- no logger in scope; best-effort isActive lookup falls back to false so the right-click menu still renders.
         } catch {
           // Best-effort — some tests stub the service with a resolved
           // undefined / throw; we just fall back to isActive:false.
@@ -1060,6 +1061,7 @@ export class CommitToolWindow extends BaseWebviewView {
     }
     try {
       await this._changelistService.reconcileWithGitStatus(repo);
+      // eslint-disable-next-line no-restricted-syntax -- ChangelistService surfaces reconcile errors via its own channels; this call is best-effort.
     } catch {
       // Best-effort; ChangelistService surfaces errors via its own channels.
     }

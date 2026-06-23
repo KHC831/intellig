@@ -16,6 +16,7 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
@@ -68,7 +69,7 @@ function createMockGitService(): IGitService & RepoTargetingGitService {
     pushTag: async (repo: IRepository, name: string, remote: string) => {
       calls.pushTag.push({ args: [repo, name, remote] });
     },
-    getRemotes: async () => [],
+    getRemotes: () => okAsync([]),
     reloadRepository: async (repo: IRepository) => repo,
   };
   return base as unknown as IGitService & RepoTargetingGitService;

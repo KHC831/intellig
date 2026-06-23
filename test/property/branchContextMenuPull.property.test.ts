@@ -10,6 +10,7 @@
  */
 
 import '../setup';
+import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
@@ -97,8 +98,8 @@ function createTrackingMockGitService(): IGitService & {
     getRepository: async () => undefined,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},
@@ -112,14 +113,17 @@ function createTrackingMockGitService(): IGitService & {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async (repo: IRepository, options?: IPullOptions) => {
-      pullCalls.push({ repo, options });
+    fetch: () => {
+      return okAsync(undefined);
     },
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    pull: (repo: IRepository, options?: IPullOptions) => {
+      pullCalls.push({ repo, options });
+      return okAsync(undefined);
+    },
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -157,12 +161,12 @@ function createTrackingMockGitService(): IGitService & {
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & {
     pullCalls: Array<{ repo: IRepository; options?: IPullOptions }>;

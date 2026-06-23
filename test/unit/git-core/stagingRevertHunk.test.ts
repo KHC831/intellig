@@ -64,10 +64,10 @@ describe('StagingOps — revertHunk refuses to leave a stale index', () => {
   it('throws (without reverse-applying) when the file already has staged changes', async () => {
     // `git diff --cached --name-only -- <path>` returns the path → staged.
     const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: 'src/file.txt\n', stderr: '' }]);
-    await assert.rejects(
-      () => ops.revertHunk(repo('/repo'), 'src/file.txt', modifyHunk()),
-      /stage|unstage/i
-    );
+    const result = await ops.revertHunk(repo('/repo'), 'src/file.txt', modifyHunk());
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    assert.match(result._unsafeUnwrapErr().message, /stage|unstage/i);
     // The guard must run BEFORE any `git apply -R` — otherwise the working tree
     // is mutated while the index keeps the ghost change.
     const applyCall = calls.find((c) => c.args[0] === 'apply');

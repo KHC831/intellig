@@ -15,6 +15,7 @@
  */
 
 import '../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import {
   planAlignLocal,
@@ -26,7 +27,6 @@ import {
   IGitService,
   IRepository,
   IBranch,
-  IFetchResult,
   IFetchOptions,
 } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
@@ -220,11 +220,11 @@ function makeStub(io: IoCounts, fetchImpl?: (options: IFetchOptions) => void) {
       outgoing: io.outgoing,
       noUpstream: false,
     }),
-    fetch: async (_repo: IRepository, options?: IFetchOptions | string): Promise<IFetchResult> => {
+    fetch: (_repo: IRepository, options?: IFetchOptions | string) => {
       const opts = typeof options === 'string' ? { remote: options } : (options ?? {});
       fetchCalls.push(opts);
       fetchImpl?.(opts);
-      return { updatedRefs: [], ahead: 0, behind: 0, errors: [] };
+      return okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] });
     },
     reloadRepository: async (repo: IRepository) => repo,
   } as unknown as IGitService;

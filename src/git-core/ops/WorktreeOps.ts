@@ -1,4 +1,11 @@
+import { ResultAsync, ok, err, errAsync } from 'neverthrow';
 import { IRepository } from '../interfaces/IGitService';
+import {
+  GitError,
+  CommandFailedError,
+  InvalidArgumentError,
+  classifyGitCommandError,
+} from '../errors';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -144,8 +151,8 @@ export interface IAddWorktreeOptions {
  * depend on this role interface rather than the frozen composite.
  */
 export interface IWorktreeCapableService {
-  listWorktrees(repo: IRepository): Promise<IWorktreeEntry[]>;
-  addWorktree(repo: IRepository, options: IAddWorktreeOptions): Promise<void>;
+  listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError>;
+  addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError>;
 }
 
 /**
@@ -164,17 +171,21 @@ export class WorktreeOps {
 
   /**
    * List the repository's worktrees via `git worktree list --porcelain`.
-   * Returns `[]` on git failure (not a fatal error for a picker UI — degrades
-   * to "no worktrees to open").
+   *
+   * `Ok(entries)` on success; `Err(GitError)` on any failure — a non-zero exit
+   * (`CommandFailedError`) or a spawn/system fault. The picker caller surfaces
+   * a sanitized error toast through the Err arm rather than silently rendering
+   * "no worktrees", so a fault can't masquerade as an empty list.
    */
-  async listWorktrees(repo: IRepository): Promise<IWorktreeEntry[]> {
-    const result = await this.ctx.gitCli.exec(['worktree', 'list', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseWorktreeList(result.stdout);
+  listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['worktree', 'list', '--porcelain'], { cwd: repo.rootUri.fsPath }),
+      classifyGitCommandError
+    ).andThen((result) =>
+      result.exitCode !== 0
+        ? err(new CommandFailedError(result.exitCode, result.stderr))
+        : ok(parseWorktreeList(result.stdout))
+    );
   }
 
   /**
@@ -196,20 +207,20 @@ export class WorktreeOps {
    * (git refuses, but a UI gives a clearer message); we additionally reject an
    * empty path here.
    */
-  async addWorktree(repo: IRepository, options: IAddWorktreeOptions): Promise<void> {
+  addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError> {
     const { path, ref, newBranch } = options;
 
     if (!path || path.trim().length === 0) {
-      throw new Error('Worktree path is required');
+      return errAsync(new InvalidArgumentError('Worktree path is required'));
     }
     if (!ref || ref.startsWith('-') || ref.startsWith('.')) {
-      throw new Error(`Invalid ref: ${ref}`);
+      return errAsync(new InvalidArgumentError(`Invalid ref: ${ref}`));
     }
     if (
       newBranch !== undefined &&
       (!newBranch || newBranch.startsWith('-') || newBranch.startsWith('.'))
     ) {
-      throw new Error(`Invalid branch name: ${newBranch}`);
+      return errAsync(new InvalidArgumentError(`Invalid branch name: ${newBranch}`));
     }
 
     // Layout: worktree add [-b <newBranch>] -- <path> <ref>
@@ -223,7 +234,11 @@ export class WorktreeOps {
     }
     args.push('--', path, ref);
 
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 }

@@ -557,8 +557,14 @@ export class CommitContextMenuCommands {
       if (headResult.exitCode === 0) {
         isHead = headResult.stdout.trim() === hash;
       }
-    } catch {
-      // Treat unknown state as "not HEAD" — safer default.
+    } catch (error) {
+      // Treat unknown state as "not HEAD" — safer default. Log the probe
+      // fault so it stays visible behind the user-facing toast.
+      getLogger()
+        .child({ component: 'CommitContextMenuCommands' })
+        .debug('dropSelectedChanges: HEAD probe failed', {
+          err: error instanceof Error ? error.message : String(error),
+        });
     }
     if (!isHead) {
       void vscode.window.showErrorMessage(
@@ -802,7 +808,12 @@ export class CommitContextMenuCommands {
         cherryOptions = { mainline: picked.mainline };
       }
 
-      const result = await this._gitService.cherryPick(repo, replayOrder, cherryOptions);
+      const result = await this._gitService.cherryPick(repo, replayOrder, cherryOptions).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -829,7 +840,12 @@ export class CommitContextMenuCommands {
             }
           } else if (choice === 'Abort Cherry-Pick') {
             try {
-              await this._gitService.cherryPickAbort(repo);
+              await this._gitService.cherryPickAbort(repo).match(
+                () => undefined,
+                (e) => {
+                  throw e;
+                }
+              );
               void vscode.window.showInformationMessage('Cherry-pick aborted.');
             } catch (abortError) {
               const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
@@ -890,8 +906,14 @@ export class CommitContextMenuCommands {
   private async _unstash(cwd: string): Promise<void> {
     try {
       await this._gitCli.exec(['stash', 'pop'], { cwd });
-    } catch {
-      // Leave in stash if pop fails
+    } catch (error) {
+      // Leave in stash if pop fails (the success-path variant surfaces a
+      // toast; this cleanup path stays quiet). Log so it isn't silent.
+      getLogger()
+        .child({ component: 'CommitContextMenuCommands' })
+        .debug('_unstash: stash pop failed', {
+          err: error instanceof Error ? error.message : String(error),
+        });
     }
   }
 
@@ -994,6 +1016,7 @@ export class CommitContextMenuCommands {
       // Same fallback as above — VS Code refused to open the tempfile.
       try {
         fs.unlinkSync(tmpPath);
+        // eslint-disable-next-line no-restricted-syntax -- best-effort cleanup of a temp file; a stale temp file is harmless and there is no recovery worth surfacing.
       } catch {
         // ignore
       }
@@ -1072,11 +1095,13 @@ export class CommitContextMenuCommands {
       if (squashTab) {
         await vscode.window.tabGroups.close(squashTab);
       }
+      // eslint-disable-next-line no-restricted-syntax -- closing an already-closed tab throws; that is the expected outcome here, nothing to recover.
     } catch {
       // Tab already gone — fine.
     }
     try {
       fs.unlinkSync(tmpPath);
+      // eslint-disable-next-line no-restricted-syntax -- best-effort cleanup of a temp file; a stale temp file is harmless and there is no recovery worth surfacing.
     } catch {
       // ignore
     }
@@ -1179,7 +1204,12 @@ export class CommitContextMenuCommands {
         if (message === undefined) {
           return;
         }
-        const singleResult = await this._gitService.revert(repo, commitHashes, { message });
+        const singleResult = await this._gitService.revert(repo, commitHashes, { message }).match(
+          (r) => r,
+          (e) => {
+            throw e;
+          }
+        );
         if (singleResult.success) {
           void vscode.window.showInformationMessage('Reverted 1 commit(s) successfully');
         } else if (singleResult.conflicts && singleResult.conflicts.length > 0) {
@@ -1208,7 +1238,12 @@ export class CommitContextMenuCommands {
       // change first means each subsequent revert applies to a tree the
       // user can mentally check against the displayed log. Cherry-pick
       // reverses; revert does not. ADR follows the contract.
-      const result = await this._gitService.revert(repo, commitHashes, revertOptions);
+      const result = await this._gitService.revert(repo, commitHashes, revertOptions).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -1314,7 +1349,12 @@ export class CommitContextMenuCommands {
         }
       } else if (choice === 'Abort Revert') {
         try {
-          await this._gitService.revertAbort(repo);
+          await this._gitService.revertAbort(repo).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
           void vscode.window.showInformationMessage('Revert aborted.');
         } catch (abortError) {
           const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
@@ -1402,12 +1442,9 @@ export class CommitContextMenuCommands {
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      // Best-effort abort so the working tree isn't half-reverted.
-      try {
-        await this._gitService.revertAbort(repo);
-      } catch {
-        // swallow; the primary error below is what the user needs to see
-      }
+      // Best-effort abort so the working tree isn't half-reverted; ignore its
+      // outcome — the primary error below is what the user needs to see.
+      await this._gitService.revertAbort(repo).unwrapOr(undefined);
       void vscode.window.showErrorMessage(
         `Failed to exclude files from revert: ${sanitizeGitError(msg)}. Revert aborted.`
       );
@@ -1421,6 +1458,7 @@ export class CommitContextMenuCommands {
       if (commit.message) {
         subject = commit.message.split('\n')[0];
       }
+      // eslint-disable-next-line no-restricted-syntax -- getCommit already logs the fault at the facade re-throw arm; degrade the revert subject to the short hash.
     } catch {
       // Keep short-hash fallback.
     }
@@ -1454,7 +1492,12 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
 
     try {
-      await this._gitService.checkout(repo, hash);
+      await this._gitService.checkout(repo, hash).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Synchronously reload after checkout so the panel reload
       // runs against fresh `repo.head.commit` (the user's stated bug).
       await this._gitService.reloadRepository(repo);
@@ -1476,11 +1519,20 @@ export class CommitContextMenuCommands {
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(
-              repo,
-              `Auto-stash before checkout ${hash.substring(0, 8)}`
+            await this._gitService
+              .stash(repo, `Auto-stash before checkout ${hash.substring(0, 8)}`)
+              .match(
+                () => undefined,
+                (e) => {
+                  throw e;
+                }
+              );
+            await this._gitService.checkout(repo, hash).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
             );
-            await this._gitService.checkout(repo, hash);
             // Reload after the stash + checkout pair so panel
             // reload sees fresh `repo.head.commit`.
             await this._gitService.reloadRepository(repo);
@@ -1496,7 +1548,12 @@ export class CommitContextMenuCommands {
           }
         } else if (choice === 'Force Checkout') {
           try {
-            await this._gitService.checkout(repo, hash, { force: true });
+            await this._gitService.checkout(repo, hash, { force: true }).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
             // Reload after force checkout.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
@@ -1544,6 +1601,7 @@ export class CommitContextMenuCommands {
     try {
       const commit = await this._gitService.getCommit(repo, hash);
       subject = commit.message.split('\n')[0];
+      // eslint-disable-next-line no-restricted-syntax -- getCommit already logs the fault at the facade re-throw arm; degrade the dialog subject to blank.
     } catch {
       // Leave subject blank — dialog still renders.
     }
@@ -3061,8 +3119,13 @@ export class CommitContextMenuCommands {
         if (msgResult.exitCode === 0 && msgResult.stdout.trim()) {
           fullMessage = msgResult.stdout.trim();
         }
-      } catch {
-        // Continue with empty message
+      } catch (error) {
+        // Continue with empty message; log the probe fault so it stays visible.
+        getLogger()
+          .child({ component: 'CommitContextMenuCommands' })
+          .debug('editCommitMessage: full-message fetch failed', {
+            err: error instanceof Error ? error.message : String(error),
+          });
       }
 
       const newMessage = await vscode.window.showInputBox({
@@ -3427,7 +3490,12 @@ export class CommitContextMenuCommands {
     const shortHash = hash.substring(0, 8);
     const verb = mode === 'fixup' ? 'fixup' : 'squash';
     try {
-      const result = await this._gitService.commitFixup(repo, hash, mode);
+      const result = await this._gitService.commitFixup(repo, hash, mode).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
       if (result.success) {
         void vscode.window.showInformationMessage(`Created ${verb}! commit for ${shortHash}`);
         await this._gitService.reloadRepository(repo);

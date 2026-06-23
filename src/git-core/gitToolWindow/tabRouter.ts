@@ -194,6 +194,7 @@ export class TabRouter {
     }
     try {
       await vscode.commands.executeCommand('setContext', ACTIVE_TAB_CONTEXT_KEY, tab);
+      // eslint-disable-next-line no-restricted-syntax -- setContext is a non-essential UI context key; a failure (e.g. unit tests where the commands API is a no-op mock) is non-fatal.
     } catch {
       // setContext failures are non-fatal (e.g. in unit tests where the
       // commands API is a no-op mock).

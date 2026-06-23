@@ -655,10 +655,20 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
           await this._execGit(['rebase', '--abort']);
           break;
         case 'cherryPick':
-          await this._gitService.cherryPickAbort(this._repo);
+          await this._gitService.cherryPickAbort(this._repo).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
           break;
         case 'revert':
-          await this._gitService.revertAbort(this._repo);
+          await this._gitService.revertAbort(this._repo).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
           break;
         case 'unshelve':
           // Unshelve doesn't leave git in a well-known "aborting" state (it
@@ -735,7 +745,12 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
           break;
         }
         case 'cherryPick': {
-          const res = await this._gitService.cherryPickContinue(this._repo);
+          const res = await this._gitService.cherryPickContinue(this._repo).match(
+            (r) => r,
+            (e) => {
+              throw e;
+            }
+          );
           if (!res.success && res.conflicts && res.conflicts.length > 0) {
             // More commits to cherry-pick with further conflicts — refresh the
             // dialog rather than closing.
@@ -748,7 +763,12 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
           break;
         }
         case 'revert': {
-          const res = await this._gitService.revertContinue(this._repo);
+          const res = await this._gitService.revertContinue(this._repo).match(
+            (r) => r,
+            (e) => {
+              throw e;
+            }
+          );
           if (!res.success && res.conflicts && res.conflicts.length > 0) {
             this.updateConflicts(res.conflicts.map((p) => ({ path: p, resolved: false })));
             void vscode.window.showWarningMessage(

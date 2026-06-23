@@ -777,6 +777,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
+      // eslint-disable-next-line no-restricted-syntax -- best-effort cleanup of a temp file; a stale temp file is harmless and there is no recovery worth surfacing.
     } catch {
       // Ignore cleanup errors
     }
@@ -858,6 +859,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
       if (/^\.intellig-reword-.*\.txt$/.test(name)) {
         try {
           fs.unlinkSync(path.join(gitDir, name));
+          // eslint-disable-next-line no-restricted-syntax -- best-effort cleanup of a leftover reword file (see the method doc); a concurrently-removed file or unreadable git dir is harmless.
         } catch {
           // best-effort
         }

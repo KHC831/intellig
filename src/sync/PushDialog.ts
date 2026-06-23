@@ -308,7 +308,12 @@ export async function runPushRow(
     return { ok: false, error: { kind: 'other', message } };
   }
   try {
-    await deps.gitService.push(row.repo, options);
+    await deps.gitService.push(row.repo, options).match(
+      () => undefined,
+      (e) => {
+        throw e;
+      }
+    );
     return { ok: true };
   } catch (err) {
     const raw = err instanceof Error ? err.message : 'Unknown error';

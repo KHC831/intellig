@@ -123,13 +123,13 @@ describe('StagingOps.rollbackChanges', () => {
       const outside = path.join(parent, 'precious.txt');
       fs.writeFileSync(outside, 'keep me');
       for (const evil of ['', '.', '../precious.txt']) {
-        await assert.rejects(
-          ops.rollbackChanges(repo(dir), [{ path: evil, status: 'untracked' }], {
-            deleteUntracked: true,
-          }),
-          /outside the repository/,
-          `expected rejection for path ${JSON.stringify(evil)}`
+        const rollbackResult = await ops.rollbackChanges(
+          repo(dir),
+          [{ path: evil, status: 'untracked' }],
+          { deleteUntracked: true }
         );
+        assert.ok(rollbackResult.isErr(), `expected Err for path ${JSON.stringify(evil)}`);
+        assert.match(rollbackResult._unsafeUnwrapErr().message, /outside the repository/);
       }
       assert.ok(fs.existsSync(outside), 'file outside the repo must survive');
       assert.ok(fs.existsSync(dir), 'repo root must survive an empty/"." path');

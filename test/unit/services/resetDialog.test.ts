@@ -18,6 +18,8 @@
  */
 
 import '../../setup';
+import { okAsync, ResultAsync } from 'neverthrow';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import type * as vscode from 'vscode';
@@ -92,8 +94,8 @@ function makeGitService(overrides?: {
     onDidChangeRepository: emitter.event,
     getRepository: async () => undefined,
     getRepositories: () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     getBranches: async () => [],
     createBranch: async () => {},
     checkout: async () => {},
@@ -108,12 +110,14 @@ function makeGitService(overrides?: {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    fetch: () => {
+      return okAsync(undefined);
+    },
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -147,17 +151,18 @@ function makeGitService(overrides?: {
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
-    resetToCommit: async (repo: IRepository, target: string, mode: ResetMode) => {
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
+    resetToCommit: (repo: IRepository, target: string, mode: ResetMode) => {
       calls.push({ method: 'resetToCommit', args: [repo, target, mode] });
-      if (overrides?.reset) {
-        await overrides.reset(repo, target, mode);
-      }
+      return ResultAsync.fromPromise(
+        overrides?.reset ? overrides.reset(repo, target, mode) : Promise.resolve(),
+        (e) => new SpawnFailedError(e instanceof Error ? e.message : String(e))
+      );
     },
     dispose: () => {},
   } as unknown as IGitService & { calls: CallLog[] };

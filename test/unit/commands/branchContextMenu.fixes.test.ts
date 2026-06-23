@@ -23,6 +23,8 @@
  */
 
 import '../../setup';
+import { SpawnFailedError, GitError } from '../../../src/git-core/errors';
+import { errAsync, okAsync, ResultAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
@@ -107,22 +109,25 @@ function createMockGitService(
     getRepositories: () => [],
     getRepository: async () => undefined,
     getBranches: async () => [],
-    checkout: async (repo: IRepository, ref: string, options?: unknown) => {
+    checkout: (repo: IRepository, ref: string, options?: unknown) => {
       calls.checkout.push({ args: [repo, ref, options] });
+      return okAsync(undefined);
     },
     rebaseBranch: async (repo: IRepository, onto: string): Promise<IBasicRebaseResult> => {
       calls.rebaseBranch.push({ args: [repo, onto] });
       return rebaseResult;
     },
-    pull: async (repo: IRepository, options?: unknown) => {
+    pull: (repo: IRepository, options?: unknown) => {
       calls.pull.push({ args: [repo, options] });
+      return okAsync(undefined);
     },
-    fetch: async (): Promise<IFetchResult> => ({
-      updatedRefs: [],
-      ahead: 0,
-      behind: 0,
-      errors: [],
-    }),
+    fetch: () =>
+      okAsync({
+        updatedRefs: [],
+        ahead: 0,
+        behind: 0,
+        errors: [],
+      }),
     reloadRepository: async (repo: IRepository) => repo,
   };
   return base as unknown as MockGitService;
@@ -692,12 +697,12 @@ describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict serv
     const gitService = createMockGitService();
     const calls = gitService._calls;
     // Override pull to throw; all other methods remain no-op stubs.
-    (gitService as unknown as { pull: IGitService['pull'] }).pull = async (
+    (gitService as unknown as { pull: IGitService['pull'] }).pull = (
       repo: IRepository,
       options?: unknown
     ) => {
       calls.pull.push({ args: [repo, options] });
-      throw err;
+      return errAsync(new SpawnFailedError(err instanceof Error ? err.message : String(err)));
     };
     return gitService;
   }
@@ -846,12 +851,12 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
   function makePullThrowingGitService(err: Error): MockGitService {
     const gitService = createMockGitService();
     const calls = gitService._calls;
-    (gitService as unknown as { pull: IGitService['pull'] }).pull = async (
+    (gitService as unknown as { pull: IGitService['pull'] }).pull = (
       repo: IRepository,
       options?: unknown
     ) => {
       calls.pull.push({ args: [repo, options] });
-      throw err;
+      return errAsync(new SpawnFailedError(err instanceof Error ? err.message : String(err)));
     };
     return gitService;
   }
@@ -1059,13 +1064,14 @@ describe('Wave H — detached row dispatcher safety (Wave F regression class)', 
     const repo = detachedRepo(FULL_SHA);
     let createdStartPoint: string | undefined;
     const gitService = createSharedMockGitService(repo, {
-      createBranch: async (
+      createBranch: (
         _repo: IRepository,
         _name: string,
         startPointOrOptions?: string | ICreateBranchOptions
       ) => {
         createdStartPoint =
           typeof startPointOrOptions === 'string' ? startPointOrOptions : undefined;
+        return okAsync(undefined);
       },
     });
     const branchTreeProvider = new BranchTreeProvider(gitService);
@@ -1108,8 +1114,9 @@ describe('Wave H — detached row dispatcher safety (Wave F regression class)', 
     const repo = detachedRepo(FULL_SHA);
     let checkedOutRef: string | undefined;
     const gitService = createSharedMockGitService(repo, {
-      checkout: async (_repo: IRepository, ref: string) => {
+      checkout: (_repo: IRepository, ref: string) => {
         checkedOutRef = ref;
+        return okAsync(undefined);
       },
     });
     const branchTreeProvider = new BranchTreeProvider(gitService);
@@ -1425,7 +1432,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     getRepository: () => Promise<IRepository | undefined>;
     getBranches: (repo: IRepository) => Promise<IBranch[]>;
     checkout: (repo: IRepository, ref: string, options?: unknown) => Promise<void>;
-    stash: (repo: IRepository, message?: string) => Promise<void>;
+    stash: (repo: IRepository, message?: string) => ResultAsync<void, GitError>;
     reloadRepository: (repo: IRepository) => Promise<IRepository>;
   }
 
@@ -1450,8 +1457,9 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       checkout: async (repo: IRepository, ref: string, options?: unknown) => {
         calls.checkout.push({ args: [repo, ref, options] });
       },
-      stash: async (repo: IRepository, message?: string) => {
+      stash: (repo: IRepository, message?: string) => {
         calls.stash.push({ args: [repo, message] });
+        return okAsync(undefined);
       },
       reloadRepository: async (repo: IRepository) => repo,
     };
@@ -1579,9 +1587,10 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     const savedWarning = writableWindow().showWarningMessage;
     writableWindow().showWarningMessage = (): Promise<string | undefined> =>
       Promise.resolve('Stash and reset');
-    gitService.stash = async (repo2: IRepository, message?: string) => {
+    gitService.stash = (repo2: IRepository, message?: string) => {
       order.push('stash');
       gitService._calls.stash.push({ args: [repo2, message] });
+      return okAsync(undefined);
     };
     gitService.checkout = async (repo2: IRepository, ref: string, options?: unknown) => {
       order.push('checkout');

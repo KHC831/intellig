@@ -1410,8 +1410,13 @@ export class ShelfService implements IShelfService {
         if (!selectedHunks?.has(file.path)) {
           try {
             await this._gitCli.exec(['checkout', '--', file.path], { cwd });
-          } catch {
-            // Ignore errors - the file might be new
+          } catch (error) {
+            // The file might be new (nothing to checkout); log so a genuine
+            // checkout fault isn't silently masked during unshelve.
+            this._logger.debug('unshelve: checkout fallback failed', {
+              path: file.path,
+              err: error instanceof Error ? error.message : String(error),
+            });
           }
         }
       }

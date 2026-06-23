@@ -206,7 +206,12 @@ export class StashView implements IStashView {
 
     // Create the stash
     try {
-      await this._gitService.stash(repository, message || undefined, options);
+      await this._gitService.stash(repository, message || undefined, options).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // sanitize-exempt: user-input: message is the user-typed stash label from showInputBox above, not git stderr
       void vscode.window.showInformationMessage(
         message ? `Stashed changes: "${message}"` : 'Stashed changes'
@@ -294,7 +299,12 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashApply(this._repository, index, reinstateIndex);
+      await this._gitService.stashApply(this._repository, index, reinstateIndex).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(`Applied stash@{${index}}`);
 
       this._onDidRequestAction.fire({ action: 'apply', stash });
@@ -366,7 +376,12 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashPop(this._repository, index, reinstateIndex);
+      await this._gitService.stashPop(this._repository, index, reinstateIndex).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(`Popped stash@{${index}}`);
 
       // refresh() never rejects — surface refresh failure as a warning
@@ -448,7 +463,12 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashBranch(this._repository, index, branchName);
+      await this._gitService.stashBranch(this._repository, index, branchName).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(
         `Created branch '${branchName}' from stash@{${index}} and applied it`
       );
@@ -526,7 +546,12 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashRename(this._repository, index, newMessage);
+      await this._gitService.stashRename(this._repository, index, newMessage).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(`Renamed stash@{${index}}`);
       // refresh() never rejects — surface failure as a warning toast.
       const refreshResult = await this.refresh();
@@ -573,7 +598,12 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashDrop(this._repository, index);
+      await this._gitService.stashDrop(this._repository, index).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(`Dropped stash@{${index}}`);
 
       // refresh() never rejects — surface failure as a warning toast.

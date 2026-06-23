@@ -6,7 +6,7 @@
     "sourceType": "module",
     "project": "./tsconfig.json"
   },
-  "plugins": ["@typescript-eslint", "prettier"],
+  "plugins": ["@typescript-eslint", "prettier", "neverthrow"],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
@@ -36,9 +36,30 @@
     "eqeqeq": "warn",
     "no-throw-literal": "warn",
     "semi": "off",
-    "prettier/prettier": "warn"
+    "prettier/prettier": "warn",
+    "neverthrow/must-use-result": "error"
   },
   "overrides": [
+    {
+      // P4 empty-catch ban (see workspace-notes/error-handling-plan.md):
+      // a silently-swallowed error must become a deliberate decision.
+      // The selector flags both truly-empty AND comment-only catch
+      // blocks (a comment is not a statement, so body.length stays 0) —
+      // no-empty/allowEmptyCatch misses comment-only ones. Each catch in
+      // src/ is therefore either logged/classified/rethrown or carries an
+      // inline `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
+      // Scoped to src/**; tests are intentionally out of scope.
+      "files": ["src/**/*.ts"],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CatchClause > BlockStatement[body.length=0]",
+            "message": "Empty/comment-only catch silently swallows errors. Log via getLogger(), classify, or rethrow; if absence is genuinely intended add `// eslint-disable-next-line no-restricted-syntax -- <reason>`. See workspace-notes/error-handling-plan.md (P4)."
+          }
+        ]
+      }
+    },
     {
       // The logger module's public types (Logger, LogRecord, LogSink,
       // Bindings, JsonValue) are intentionally named WITHOUT the `I`
@@ -65,6 +86,7 @@
         "@typescript-eslint/require-await": "off",
         "@typescript-eslint/unbound-method": "off",
         "@typescript-eslint/explicit-function-return-type": "off",
+        "neverthrow/must-use-result": "off",
         "@typescript-eslint/naming-convention": [
           "warn",
           {

@@ -409,7 +409,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     const shortHash = hash.substring(0, 8);
 
     try {
-      const result = await gitService.cherryPick(repo, [hash], options);
+      const result = await gitService.cherryPick(repo, [hash], options).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
       if (result.success) {
         const verb = options.files
           ? 'Applied selected changes from'
@@ -510,7 +515,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     try {
       const status = await gitService.getStatus(repo);
       if (status.length > 0) {
-        await gitService.stash(repo, `Auto-stash before applying files to ${targetBranch}`);
+        await gitService.stash(repo, `Auto-stash before applying files to ${targetBranch}`).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         stashed = true;
       }
     } catch (stashError) {
@@ -522,11 +532,23 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     }
 
     try {
-      await gitService.checkout(repo, targetBranch);
-      const result = await gitService.cherryPick(repo, [hash], {
-        noCommit: true,
-        files,
-      });
+      await gitService.checkout(repo, targetBranch).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+      const result = await gitService
+        .cherryPick(repo, [hash], {
+          noCommit: true,
+          files,
+        })
+        .match(
+          (r) => r,
+          (e) => {
+            throw e;
+          }
+        );
       if (result.success) {
         void vscode.window.showInformationMessage(
           `Applied ${files.length} file(s) from ${shortHash} onto '${targetBranch}'. ` +
@@ -581,7 +603,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       // the switch-back so the user sees their original state.
       if (currentBranchName) {
         try {
-          await gitService.checkout(repo, currentBranchName);
+          await gitService.checkout(repo, currentBranchName).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
         } catch (backError) {
           const msg = backError instanceof Error ? backError.message : 'Unknown error';
           void vscode.window.showWarningMessage(
@@ -592,7 +619,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       }
       if (stashed) {
         try {
-          await gitService.stashPop(repo, 0);
+          await gitService.stashPop(repo, 0).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
         } catch (popError) {
           const msg = popError instanceof Error ? popError.message : 'Unknown error';
           void vscode.window.showWarningMessage(
@@ -626,7 +658,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     }
 
     try {
-      const remotes = await ctx.services.gitService.getRemotes(repo);
+      const remotes = await ctx.services.gitService.getRemotes(repo).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
       if (!remotes || remotes.length === 0) {
         void vscode.window.showInformationMessage(
           'Open on Host: no remotes configured for this repository.'

@@ -23,6 +23,7 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { JSDOM } from 'jsdom';
@@ -329,8 +330,8 @@ function makeGitService(opts?: { stashes?: IStash[] }): IGitService {
     },
     // Unused but required for the type surface.
     getStatus: async (): Promise<[]> => [],
-    stage: async (): Promise<void> => {},
-    unstage: async (): Promise<void> => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
   } as unknown as IGitService;
 }
 

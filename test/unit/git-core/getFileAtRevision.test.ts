@@ -63,14 +63,16 @@ describe('DiffOps.getFileAtRevision — get version at revision (F)', () => {
 
   it('returns the file content from stdout on success', async () => {
     const { ops } = makeOps({ stdout: 'line1\nline2\n' });
-    const content = await ops.getFileAtRevision(repo, 'src/foo.ts', 'abc123');
-    assert.strictEqual(content, 'line1\nline2\n');
+    const result = await ops.getFileAtRevision(repo, 'src/foo.ts', 'abc123');
+    assert.ok(result.isOk());
+    assert.strictEqual(result._unsafeUnwrap(), 'line1\nline2\n');
   });
 
   it('returns an empty string when the file does not exist at that revision', async () => {
     const { ops } = makeOps({ exitCode: 128, stdout: '' });
-    const content = await ops.getFileAtRevision(repo, 'src/ghost.ts', 'abc123');
-    assert.strictEqual(content, '');
+    const result = await ops.getFileAtRevision(repo, 'src/ghost.ts', 'abc123');
+    assert.ok(result.isOk(), 'a non-zero exit (missing file) is the expected domain absence');
+    assert.strictEqual(result._unsafeUnwrap(), '');
   });
 
   it('runs against the repository root', async () => {

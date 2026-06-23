@@ -14,6 +14,8 @@
  */
 
 import '../../setup';
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { createStashView } from '../../../src/shelf/StashView';
@@ -65,8 +67,8 @@ function makeGitService(overrides: {
     getRepository: async () => undefined,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},
@@ -80,35 +82,39 @@ function makeGitService(overrides: {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => ({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
+    fetch: () => okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
     onDidFetch: () => ({ dispose: () => {} }),
-    resetToCommit: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
-    stash: async () => {},
+    resetToCommit: () => okAsync(undefined),
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
+    stash: () => okAsync(undefined),
     stashList: async (): Promise<IStash[]> => overrides.stashes,
-    stashApply: async () => {},
-    stashPop: async () => {},
-    stashDrop: async () => {},
+    stashApply: () => okAsync(undefined),
+    stashPop: () => okAsync(undefined),
+    stashDrop: () => okAsync(undefined),
     stashShow: async () => [],
-    stashBranch: async (repo: IRepository, index: number, name: string): Promise<void> => {
+    stashBranch: (repo: IRepository, index: number, name: string) => {
       calls.push({ method: 'stashBranch', args: [repo, index, name] });
-      if (overrides.stashBranchImpl) {
-        await overrides.stashBranchImpl(repo, index, name);
-      }
+      return ResultAsync.fromPromise(
+        overrides.stashBranchImpl
+          ? overrides.stashBranchImpl(repo, index, name)
+          : Promise.resolve(),
+        (e) => new SpawnFailedError(e instanceof Error ? e.message : String(e))
+      );
     },
-    stashRename: async (repo: IRepository, index: number, msg: string): Promise<void> => {
+    stashRename: (repo: IRepository, index: number, msg: string) => {
       calls.push({ method: 'stashRename', args: [repo, index, msg] });
-      if (overrides.stashRenameImpl) {
-        await overrides.stashRenameImpl(repo, index, msg);
-      }
+      return ResultAsync.fromPromise(
+        overrides.stashRenameImpl ? overrides.stashRenameImpl(repo, index, msg) : Promise.resolve(),
+        (e) => new SpawnFailedError(e instanceof Error ? e.message : String(e))
+      );
     },
-    createTag: async () => {},
-    deleteTag: async () => {},
-    pushTag: async () => {},
+    createTag: () => okAsync(undefined),
+    deleteTag: () => okAsync(undefined),
+    pushTag: () => okAsync(undefined),
     getLog: async () => [],
     getCommit: async () => ({
       hash: '',
@@ -132,12 +138,12 @@ function makeGitService(overrides: {
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & { calls: CallLog[] };
   return svc;
@@ -875,8 +881,7 @@ describe('StashView TL-72 — action-path toasts route through sanitizeGitError'
 
   it('showCreateDialog (createStash) sanitizes credentialed URL + home path in toast', async () => {
     const gitService = makeGitService({ stashes: makeStashes() });
-    (gitService as unknown as { stash: unknown }).stash = (): Promise<never> =>
-      Promise.reject(new Error(RAW));
+    (gitService as unknown as { stash: unknown }).stash = () => errAsync(new SpawnFailedError(RAW));
     const view = createStashView(gitService);
     const { toasts, restore } = installWindowStubs(() => 'wip');
 
@@ -901,8 +906,8 @@ describe('StashView TL-72 — action-path toasts route through sanitizeGitError'
 
   it('applyStash sanitizes credentialed URL + home path in toast', async () => {
     const gitService = makeGitService({ stashes: makeStashes() });
-    (gitService as unknown as { stashApply: unknown }).stashApply = (): Promise<never> =>
-      Promise.reject(new Error(RAW));
+    (gitService as unknown as { stashApply: unknown }).stashApply = () =>
+      errAsync(new SpawnFailedError(RAW));
     const view = createStashView(gitService);
     const { toasts, restore } = installWindowStubs(() => undefined);
     try {
@@ -919,8 +924,8 @@ describe('StashView TL-72 — action-path toasts route through sanitizeGitError'
 
   it('popStash sanitizes credentialed URL + home path in toast', async () => {
     const gitService = makeGitService({ stashes: makeStashes() });
-    (gitService as unknown as { stashPop: unknown }).stashPop = (): Promise<never> =>
-      Promise.reject(new Error(RAW));
+    (gitService as unknown as { stashPop: unknown }).stashPop = () =>
+      errAsync(new SpawnFailedError(RAW));
     const view = createStashView(gitService);
     const { toasts, restore } = installWindowStubs(() => undefined);
     try {
@@ -975,8 +980,8 @@ describe('StashView TL-72 — action-path toasts route through sanitizeGitError'
 
   it('dropStash sanitizes credentialed URL + home path in toast', async () => {
     const gitService = makeGitService({ stashes: makeStashes() });
-    (gitService as unknown as { stashDrop: unknown }).stashDrop = (): Promise<never> =>
-      Promise.reject(new Error(RAW));
+    (gitService as unknown as { stashDrop: unknown }).stashDrop = () =>
+      errAsync(new SpawnFailedError(RAW));
     const view = createStashView(gitService);
     const { toasts, restore } = installWindowStubs(() => undefined);
 

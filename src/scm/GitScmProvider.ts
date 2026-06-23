@@ -324,7 +324,12 @@ export class GitScmProvider implements vscode.Disposable {
     }
 
     try {
-      await this.gitService.commit(entry.repo, message, {});
+      await this.gitService.commit(entry.repo, message, {}).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       sourceControl.inputBox.value = '';
       await this.syncRepo(entry.repo);
     } catch (error) {

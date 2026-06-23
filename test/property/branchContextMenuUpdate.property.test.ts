@@ -11,6 +11,7 @@
  */
 
 import '../setup';
+import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
@@ -97,8 +98,8 @@ function createTrackingMockGitService(): IGitService & {
     getRepository: async () => undefined,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},
@@ -112,20 +113,22 @@ function createTrackingMockGitService(): IGitService & {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async (repo: IRepository, optionsOrRemote?: IFetchOptions | string) => {
+    fetch: (repo: IRepository, optionsOrRemote?: IFetchOptions | string) => {
       // Accept both IFetchOptions and the legacy string form so the asserted
       // `remote` field is populated either way.
       const remote =
         typeof optionsOrRemote === 'string' ? optionsOrRemote : optionsOrRemote?.remote;
       fetchCalls.push({ repo, remote });
+      return okAsync(undefined);
     },
-    pull: async () => {},
-    push: async (repo: IRepository, options?: IPushOptions) => {
+    pull: () => okAsync(undefined),
+    push: (repo: IRepository, options?: IPushOptions) => {
       pushCalls.push({ repo, options });
+      return okAsync(undefined);
     },
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -163,12 +166,12 @@ function createTrackingMockGitService(): IGitService & {
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & {
     fetchCalls: Array<{ repo: IRepository; remote?: string }>;

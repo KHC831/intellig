@@ -16,6 +16,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
@@ -55,8 +56,8 @@ class DispatchGitCli {
     };
   }
 
-  async getRepositoryRoot(path: string): Promise<string | undefined> {
-    return path;
+  getRepositoryRoot(path: string) {
+    return okAsync<string | undefined, never>(path);
   }
 
   dispose(): void {}
@@ -227,6 +228,27 @@ describe('Phase 0a — IncomingOutgoingOps via GitService', () => {
       assert.strictEqual(result.incoming, 0);
       assert.strictEqual(result.outgoing, 0);
       assert.strictEqual(result.branch, 'local-only');
+
+      gitService.dispose();
+    });
+  });
+
+  describe('façade absorbs a spawn/system fault (logs + degrades, never throws)', () => {
+    it('getIncomingOutgoing resolves to a degraded reading when exec rejects', async () => {
+      const gitService = new GitService();
+      const throwingCli = {
+        onCommandExecuted: (): { dispose: () => void } => ({ dispose: (): void => {} }),
+        exec: (): Promise<never> => Promise.reject(new Error('spawn ENOENT')),
+        getRepositoryRoot: (p: string) => okAsync<string | undefined, never>(p),
+        dispose: (): void => {},
+      };
+      (gitService as any)._gitCli = throwingCli;
+
+      // Must NOT reject — the badge update degrades instead of crashing.
+      const result = await gitService.getIncomingOutgoing(makeRepo());
+      assert.strictEqual(result.noUpstream, true);
+      assert.strictEqual(result.incoming, 0);
+      assert.strictEqual(result.outgoing, 0);
 
       gitService.dispose();
     });

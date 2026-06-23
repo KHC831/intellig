@@ -1,5 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { okAsync, errAsync } from 'neverthrow';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import { ConflictResolutionService } from '../../../src/conflicts/ConflictResolutionService';
 import {
   IGitService,
@@ -55,9 +57,9 @@ describe('ConflictResolutionService', () => {
     // Create mock Git service
     mockGitService = {
       getStatus: (): Promise<IFileStatus[]> => Promise.resolve([]),
-      stage: (_repo: IRepository, paths: string[]): Promise<void> => {
+      stage: (_repo: IRepository, paths: string[]) => {
         stagedFiles.push(...paths);
-        return Promise.resolve();
+        return okAsync(undefined);
       },
       onDidChangeRepository: new vscode.EventEmitter<IRepository>().event,
       gitCli: mockGitCli,
@@ -181,9 +183,7 @@ describe('ConflictResolutionService', () => {
     });
 
     it('should return error on failure', async () => {
-      mockGitService.stage = (): Promise<void> => {
-        return Promise.reject(new Error('Stage failed'));
-      };
+      mockGitService.stage = () => errAsync(new SpawnFailedError('Stage failed'));
 
       const result = await conflictService.markResolved(mockRepo, 'file1.txt');
       assert.strictEqual(result.success, false);

@@ -20,6 +20,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
@@ -88,25 +89,25 @@ function createMockGitService(
     getCommitDiff: async () => [],
     getMultiCommitDiff: async () => [],
     getBlame: async () => [],
-    cherryPick: async (...args: unknown[]) => {
+    cherryPick: (...args: unknown[]) => {
       calls.push({ method: 'cherryPick', args });
-      return { success: true };
+      return okAsync({ success: true });
     },
-    cherryPickAbort: async () => {},
-    cherryPickContinue: async () => ({ success: true }),
-    revert: async (...args: unknown[]) => {
+    cherryPickAbort: () => okAsync(undefined),
+    cherryPickContinue: () => okAsync({ success: true }),
+    revert: (...args: unknown[]) => {
       calls.push({ method: 'revert', args });
-      return { success: true };
+      return okAsync({ success: true });
     },
-    revertAbort: async () => {},
-    revertContinue: async () => ({ success: true }),
+    revertAbort: () => okAsync(undefined),
+    revertContinue: () => okAsync({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
     ...overrides,
   } as unknown as IGitService & { calls: CallTracker[] };
@@ -199,9 +200,9 @@ function createMockGitCli(overrides?: {
     exec,
     execString: async () => '',
     isAvailable: async () => true,
-    getVersion: async () => '2.40.0',
-    isRepository: async () => true,
-    getRepositoryRoot: async () => '/test-repo',
+    getVersion: () => okAsync('2.40.0'),
+    isRepository: () => okAsync(true),
+    getRepositoryRoot: () => okAsync('/test-repo'),
     dispose: () => {},
     get gitPath() {
       return 'git';

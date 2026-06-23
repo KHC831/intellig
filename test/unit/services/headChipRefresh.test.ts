@@ -24,6 +24,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import { Uri } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import type { IRebaseService } from '../../../src/git-core/interfaces/IRebaseService';
@@ -82,7 +83,7 @@ function createMockGitService(repo: IRepository): MockGitService {
       }
       return mutableRepo;
     },
-    checkout: async () => {
+    checkout: () => {
       calls.push({ method: 'checkout' });
       // The production checkout invalidates the cache; model that by
       // mutating the head commit on the next reload.
@@ -95,14 +96,15 @@ function createMockGitService(repo: IRepository): MockGitService {
           behind: 0,
         },
       };
+      return okAsync(undefined);
     },
-    revert: async () => {
+    revert: () => {
       calls.push({ method: 'revert' });
-      return { success: true };
+      return okAsync({ success: true });
     },
-    cherryPick: async () => {
+    cherryPick: () => {
       calls.push({ method: 'cherryPick' });
-      return { success: true };
+      return okAsync({ success: true });
     },
   });
 

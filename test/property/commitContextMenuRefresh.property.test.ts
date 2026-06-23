@@ -15,6 +15,7 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import { CommitContextMenuCommands } from '../../src/commits/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../src/git-core/interfaces/IGitService';
 import { IRebaseService } from '../../src/git-core/interfaces/IRebaseService';
@@ -100,10 +101,10 @@ function createSuccessGitService(headCommitHash?: string): IGitService {
     reloadRepository: async () => mockRepo,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
-    checkout: async () => {},
+    checkout: () => okAsync(undefined),
     deleteBranch: async () => {},
     renameBranch: async () => {},
     mergeBranch: async () => ({ success: true }),
@@ -115,12 +116,14 @@ function createSuccessGitService(headCommitHash?: string): IGitService {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    fetch: () => {
+      return okAsync(undefined);
+    },
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -151,19 +154,19 @@ function createSuccessGitService(headCommitHash?: string): IGitService {
     getCommitDiff: async () => [],
     getMultiCommitDiff: async () => [],
     getBlame: async () => [],
-    cherryPick: async () => ({ success: true }),
-    cherryPickAbort: async () => {},
-    cherryPickContinue: async () => ({ success: true }),
-    revert: async () => ({ success: true }),
-    revertAbort: async () => {},
-    revertContinue: async () => ({ success: true }),
+    cherryPick: () => okAsync({ success: true }),
+    cherryPickAbort: () => okAsync(undefined),
+    cherryPickContinue: () => okAsync({ success: true }),
+    revert: () => okAsync({ success: true }),
+    revertAbort: () => okAsync(undefined),
+    revertContinue: () => okAsync({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService;
 }
@@ -229,9 +232,9 @@ function createSuccessGitCli(): GitCli {
     exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
     execString: async () => '',
     isAvailable: async () => true,
-    getVersion: async () => '2.40.0',
-    isRepository: async () => true,
-    getRepositoryRoot: async () => '/test-repo',
+    getVersion: () => okAsync('2.40.0'),
+    isRepository: () => okAsync(true),
+    getRepositoryRoot: () => okAsync('/test-repo'),
     dispose: () => {},
     get gitPath() {
       return 'git';

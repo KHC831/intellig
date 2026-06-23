@@ -180,7 +180,12 @@ export class MergeView implements IMergeView {
     }
 
     try {
-      await this._gitService.stage(this._repository, [relativeFile]);
+      await this._gitService.stage(this._repository, [relativeFile]).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(`Failed to mark resolved: ${sanitizeGitError(raw)}`);

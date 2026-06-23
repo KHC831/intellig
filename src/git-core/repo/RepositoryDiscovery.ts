@@ -82,6 +82,7 @@ export function resolveWorktreeGitDir(repoRoot: string): string {
     if (pointer) {
       return path.isAbsolute(pointer[1]) ? pointer[1] : path.resolve(repoRoot, pointer[1]);
     }
+    // eslint-disable-next-line no-restricted-syntax -- an unreadable/absent `.git` pointer file falls through to the conventional `.git` path; absence here is an expected, recoverable outcome.
   } catch {
     // Unreadable pointer — fall through to the conventional path.
   }

@@ -14,13 +14,13 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
 import {
   IBranch,
   IGitService,
-  IRemote,
   IRepository,
   ITag,
   IUpstream,
@@ -43,9 +43,9 @@ interface PushCall {
 interface MockGitService {
   _push: PushCall[];
   _pushTag: Array<{ name: string; remote?: string }>;
-  getRemotes: (repo: IRepository) => Promise<IRemote[]>;
-  push: (repo: IRepository, options?: PushCall) => Promise<void>;
-  pushTag: (repo: IRepository, name: string, remote?: string) => Promise<void>;
+  getRemotes: (repo: IRepository) => ReturnType<IGitService['getRemotes']>;
+  push: (repo: IRepository, options?: PushCall) => ReturnType<IGitService['push']>;
+  pushTag: (repo: IRepository, name: string, remote?: string) => ReturnType<IGitService['pushTag']>;
   reloadRepository: (repo: IRepository) => Promise<IRepository>;
 }
 
@@ -53,12 +53,14 @@ function createMockGitService(remotes: string[]): MockGitService {
   const svc: MockGitService = {
     _push: [],
     _pushTag: [],
-    getRemotes: async () => remotes.map((name) => ({ name })),
-    push: async (_repo: IRepository, options?: PushCall) => {
+    getRemotes: () => okAsync(remotes.map((name) => ({ name }))),
+    push: (_repo: IRepository, options?: PushCall) => {
       svc._push.push(options ?? {});
+      return okAsync(undefined);
     },
-    pushTag: async (_repo: IRepository, name: string, remote?: string) => {
+    pushTag: (_repo: IRepository, name: string, remote?: string) => {
       svc._pushTag.push({ name, remote });
+      return okAsync(undefined);
     },
     reloadRepository: async (repo: IRepository) => repo,
   };

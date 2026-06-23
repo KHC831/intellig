@@ -246,6 +246,7 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
           });
           continue;
         }
+        // eslint-disable-next-line no-restricted-syntax -- no logger in scope; a failure here is non-fatal and falls through to the pull below, which surfaces real errors to the user.
       } catch {
         // Non-fatal: fall through to the pull, which will surface real errors.
       }

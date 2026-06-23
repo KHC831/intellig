@@ -13,6 +13,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -97,9 +98,10 @@ function makeService(root: string): {
           workTreeStatus: l[1],
         })) as IFileStatus[];
     },
-    stage: async (_repo: IRepository, paths: string[]): Promise<void> => {
+    stage: (_repo: IRepository, paths: string[]) => {
       git(root, 'add', '--', ...paths);
       staged.push(...paths);
+      return okAsync(undefined);
     },
     onDidChangeRepository: new vscode.EventEmitter<IRepository>().event,
   } as unknown as IGitService;

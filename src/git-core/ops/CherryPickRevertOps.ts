@@ -1,3 +1,4 @@
+import { ResultAsync } from 'neverthrow';
 import {
   IRepository,
   ICherryPickOptions,
@@ -6,6 +7,7 @@ import {
   IRevertResult,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import { GitError, InvalidArgumentError, classifyGitCommandError } from '../errors';
 import { parseStatus } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
@@ -27,7 +29,7 @@ export class CherryPickRevertOps {
    */
   private static assertValidMainline(mainline: number): void {
     if (!Number.isInteger(mainline) || mainline < 1) {
-      throw new Error(
+      throw new InvalidArgumentError(
         `Invalid mainline parent number: ${mainline}. Expected a positive integer (1-based).`
       );
     }
@@ -37,11 +39,25 @@ export class CherryPickRevertOps {
    * Cherry-pick one or more commits onto the current branch.
    * Commits are applied in the order provided.
    *
+   * `Ok(result)` carries the domain outcome (success, or a conflict/failure
+   * with `failureReason`); `Err(GitError)` is reserved for a spawn/system fault
+   * or an invalid argument (`InvalidArgumentError` from the mainline guard).
+   *
    * @param repo - The repository
    * @param commits - Array of commit hashes to cherry-pick
-   * @returns Cherry-pick result with success status and any conflicts
    */
-  async cherryPick(
+  cherryPick(
+    repo: IRepository,
+    commits: string[],
+    options?: ICherryPickOptions
+  ): ResultAsync<ICherryPickResult, GitError> {
+    return ResultAsync.fromPromise(
+      this._cherryPick(repo, commits, options),
+      classifyGitCommandError
+    );
+  }
+
+  private async _cherryPick(
     repo: IRepository,
     commits: string[],
     options?: ICherryPickOptions
@@ -178,7 +194,11 @@ export class CherryPickRevertOps {
    *
    * @param repo - The repository
    */
-  async cherryPickAbort(repo: IRepository): Promise<void> {
+  cherryPickAbort(repo: IRepository): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(this._cherryPickAbort(repo), classifyGitCommandError);
+  }
+
+  private async _cherryPickAbort(repo: IRepository): Promise<void> {
     await this.ctx.gitCli.exec(['cherry-pick', '--abort'], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -192,7 +212,11 @@ export class CherryPickRevertOps {
    * @param repo - The repository
    * @returns Cherry-pick result with success status and any new conflicts
    */
-  async cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
+  cherryPickContinue(repo: IRepository): ResultAsync<ICherryPickResult, GitError> {
+    return ResultAsync.fromPromise(this._cherryPickContinue(repo), classifyGitCommandError);
+  }
+
+  private async _cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
     const result = await this.ctx.gitCli.exec(['cherry-pick', '--continue'], {
       cwd: repo.rootUri.fsPath,
     });
@@ -237,7 +261,15 @@ export class CherryPickRevertOps {
       .map((f) => f.path);
   }
 
-  async revert(
+  revert(
+    repo: IRepository,
+    commits: string[],
+    options?: IRevertOptions
+  ): ResultAsync<IRevertResult, GitError> {
+    return ResultAsync.fromPromise(this._revert(repo, commits, options), classifyGitCommandError);
+  }
+
+  private async _revert(
     repo: IRepository,
     commits: string[],
     options?: IRevertOptions
@@ -326,7 +358,11 @@ export class CherryPickRevertOps {
    *
    * @param repo - The repository
    */
-  async revertAbort(repo: IRepository): Promise<void> {
+  revertAbort(repo: IRepository): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(this._revertAbort(repo), classifyGitCommandError);
+  }
+
+  private async _revertAbort(repo: IRepository): Promise<void> {
     await this.ctx.gitCli.exec(['revert', '--abort'], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -340,7 +376,11 @@ export class CherryPickRevertOps {
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
    */
-  async revertContinue(repo: IRepository): Promise<IRevertResult> {
+  revertContinue(repo: IRepository): ResultAsync<IRevertResult, GitError> {
+    return ResultAsync.fromPromise(this._revertContinue(repo), classifyGitCommandError);
+  }
+
+  private async _revertContinue(repo: IRepository): Promise<IRevertResult> {
     const result = await this.ctx.gitCli.exec(['revert', '--continue'], {
       cwd: repo.rootUri.fsPath,
     });

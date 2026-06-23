@@ -14,7 +14,9 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { GitError } from '../../../src/git-core/errors';
 import { Uri } from '../../mocks/vscode';
 
 class CountingGitCli {
@@ -61,8 +63,8 @@ class CountingGitCli {
     return ok('');
   }
 
-  async getRepositoryRoot(p: string): Promise<string | undefined> {
-    return p;
+  getRepositoryRoot(p: string): ResultAsync<string | undefined, GitError> {
+    return okAsync(p);
   }
   dispose(): void {}
 }

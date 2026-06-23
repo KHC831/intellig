@@ -71,23 +71,28 @@ describe('StashTagHistoryOps.getLineHistory — line-scoped history (F)', () => 
     assert.ok(!calls[0].some((a) => a === 'origin/feature'));
   });
 
-  it('returns [] when git exits non-zero', async () => {
+  it('returns Ok([]) when git exits non-zero', async () => {
     const { ops } = makeOps(1);
     const result = await ops.getLineHistory(repo, 'src/foo.ts', 1, 5);
-    assert.deepStrictEqual(result, []);
+    assert.ok(result.isOk());
+    assert.deepStrictEqual(result._unsafeUnwrap(), []);
   });
 
-  it('rejects a start line that is not a positive integer', async () => {
+  it('errs on a start line that is not a positive integer', async () => {
     const { ops, calls } = makeOps();
-    await assert.rejects(() => ops.getLineHistory(repo, 'src/foo.ts', 0, 5));
-    await assert.rejects(() => ops.getLineHistory(repo, 'src/foo.ts', 1.5, 5));
-    await assert.rejects(() => ops.getLineHistory(repo, 'src/foo.ts', -3, 5));
+    for (const start of [0, 1.5, -3]) {
+      const result = await ops.getLineHistory(repo, 'src/foo.ts', start, 5);
+      assert.ok(result.isErr(), `expected Err for start line ${start}`);
+      assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    }
     assert.strictEqual(calls.length, 0, 'git must not be invoked for an invalid range');
   });
 
-  it('rejects an end line below the start line', async () => {
+  it('errs on an end line below the start line', async () => {
     const { ops, calls } = makeOps();
-    await assert.rejects(() => ops.getLineHistory(repo, 'src/foo.ts', 20, 10));
+    const result = await ops.getLineHistory(repo, 'src/foo.ts', 20, 10);
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
     assert.strictEqual(calls.length, 0, 'git must not be invoked for an inverted range');
   });
 });

@@ -15,6 +15,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
@@ -203,9 +204,9 @@ function createMockGitCli(opts?: {
     exec,
     execString: async () => '',
     isAvailable: async () => true,
-    getVersion: async () => '2.40.0',
-    isRepository: async () => true,
-    getRepositoryRoot: async () => '/test-repo',
+    getVersion: () => okAsync('2.40.0'),
+    isRepository: () => okAsync(true),
+    getRepositoryRoot: () => okAsync('/test-repo'),
     dispose: () => {},
     get gitPath() {
       return 'git';
@@ -1290,9 +1291,9 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
     it('does not call gitService.cherryPick when the dispatched hash is not hex', async () => {
       let cherryPickCalled = false;
       const gitService = createMockGitService(repo, {
-        cherryPick: async () => {
+        cherryPick: () => {
           cherryPickCalled = true;
-          return { success: true };
+          return okAsync({ success: true });
         },
       });
       const provider = createMockProvider();

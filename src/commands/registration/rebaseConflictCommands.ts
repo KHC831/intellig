@@ -335,7 +335,12 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
 
     try {
-      await gitService.rebaseAbort(repo);
+      await gitService.rebaseAbort(repo).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage('Rebase aborted.');
       await gitService.reloadRepository(repo);
       if (ctx.gitToolWindowProvider) {

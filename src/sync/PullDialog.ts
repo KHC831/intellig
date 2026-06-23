@@ -398,7 +398,12 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
   };
 
   try {
-    await deps.gitService.pull(deps.repo, options);
+    await deps.gitService.pull(deps.repo, options).match(
+      () => undefined,
+      (e) => {
+        throw e;
+      }
+    );
     void deps.showInformationMessage(
       `Pulled ${source.remote}/${source.branch} into current branch`
     );

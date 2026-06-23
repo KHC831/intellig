@@ -12,6 +12,7 @@
 import * as assert from 'assert';
 import { GitService } from '../../../src/git-core/GitService';
 import { IRepository, ICommitOptions } from '../../../src/git-core/interfaces/IGitService';
+import { isConflictError } from '../../../src/sync/PullDialog';
 import { Uri } from '../../mocks/vscode';
 
 // Mock GitCli for testing
@@ -146,43 +147,31 @@ describe('GitService - Commit Operations', () => {
 
     describe('Empty message validation', () => {
       it('should throw error for empty commit message', async () => {
-        await assert.rejects(
-          async () => gitService.commit(mockRepo, '', {}),
-          {
-            message: 'Commit message cannot be empty',
-          },
-          'Should reject empty commit message'
-        );
+        {
+          const __r = await gitService.commit(mockRepo, '', {});
+          assert.ok(__r.isErr());
+        }
       });
 
       it('should throw error for whitespace-only commit message', async () => {
-        await assert.rejects(
-          async () => gitService.commit(mockRepo, '   ', {}),
-          {
-            message: 'Commit message cannot be empty',
-          },
-          'Should reject whitespace-only commit message'
-        );
+        {
+          const __r = await gitService.commit(mockRepo, '   ', {});
+          assert.ok(__r.isErr());
+        }
       });
 
       it('should throw error for newline-only commit message', async () => {
-        await assert.rejects(
-          async () => gitService.commit(mockRepo, '\n\n', {}),
-          {
-            message: 'Commit message cannot be empty',
-          },
-          'Should reject newline-only commit message'
-        );
+        {
+          const __r = await gitService.commit(mockRepo, '\n\n', {});
+          assert.ok(__r.isErr());
+        }
       });
 
       it('should throw error for tab-only commit message', async () => {
-        await assert.rejects(
-          async () => gitService.commit(mockRepo, '\t\t', {}),
-          {
-            message: 'Commit message cannot be empty',
-          },
-          'Should reject tab-only commit message'
-        );
+        {
+          const __r = await gitService.commit(mockRepo, '\t\t', {});
+          assert.ok(__r.isErr());
+        }
       });
 
       it('should allow empty message when allowEmpty option is true', async () => {
@@ -621,18 +610,16 @@ describe('GitService - Branch Operations', () => {
         assert.strictEqual((lastCommand.options as { cwd: string }).cwd, '/test/repo');
       });
 
-      it('should throw on error', async () => {
+      it('surfaces an Err on error', async () => {
         mockGitCli.setMockResult('branch new-feature', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: A branch named 'new-feature' already exists.",
         });
 
-        await assert.rejects(
-          async () => gitService.createBranch(mockRepo, 'new-feature'),
-          /Git command failed/,
-          'Should throw error when branch already exists'
-        );
+        const result = await gitService.createBranch(mockRepo, 'new-feature');
+        assert.ok(result.isErr(), 'createBranch must surface a failed Result');
+        assert.match(result.error.message, /Git command failed/);
       });
     });
 
@@ -831,11 +818,12 @@ describe('GitService - Branch Operations', () => {
           stderr: "error: The branch 'unmerged-branch' is not fully merged.",
         });
 
-        await assert.rejects(
-          async () => gitService.deleteBranch(mockRepo, 'unmerged-branch'),
-          /Git command failed/,
-          'Should throw error for unmerged branch'
+        const result = await gitService.deleteBranch(mockRepo, 'unmerged-branch');
+        assert.ok(
+          result.isErr(),
+          'deleteBranch must surface a failed Result for an unmerged branch'
         );
+        assert.match(result.error.message, /Git command failed/);
       });
     });
 
@@ -917,11 +905,12 @@ describe('GitService - Branch Operations', () => {
           stderr: 'error: refname refs/heads/nonexistent not found',
         });
 
-        await assert.rejects(
-          async () => gitService.renameBranch(mockRepo, 'nonexistent', 'new-name'),
-          /Git command failed/,
-          'Should throw error when branch does not exist'
+        const result = await gitService.renameBranch(mockRepo, 'nonexistent', 'new-name');
+        assert.ok(
+          result.isErr(),
+          'renameBranch must surface a failed Result when branch is missing'
         );
+        assert.match(result.error.message, /Git command failed/);
       });
 
       it('should throw error when new name already exists', async () => {
@@ -932,11 +921,9 @@ describe('GitService - Branch Operations', () => {
           stderr: "fatal: A branch named 'existing-name' already exists.",
         });
 
-        await assert.rejects(
-          async () => gitService.renameBranch(mockRepo, 'old-name', 'existing-name'),
-          /Git command failed/,
-          'Should throw error when new name already exists'
-        );
+        const result = await gitService.renameBranch(mockRepo, 'old-name', 'existing-name');
+        assert.ok(result.isErr(), 'renameBranch must surface a failed Result when target exists');
+        assert.match(result.error.message, /Git command failed/);
       });
 
       it('should handle branch names with special characters', async () => {
@@ -975,38 +962,35 @@ describe('GitService - Branch Operations', () => {
       ]);
     });
 
-    it('rejects local names starting with -', async () => {
-      await assert.rejects(
-        async () => gitService.setBranchUpstream(mockRepo, '-evil', 'origin/main'),
-        /Invalid branch name/,
-        'Should reject leading-dash names (CLI-flag injection guard)'
-      );
+    it('refuses local names starting with -', async () => {
+      const result = await gitService.setBranchUpstream(mockRepo, '-evil', 'origin/main');
+      assert.ok(result.isErr(), 'Should refuse leading-dash names (CLI-flag injection guard)');
+      assert.match(result.error.message, /Invalid branch name/);
     });
 
-    it('rejects local names starting with .', async () => {
-      await assert.rejects(
-        async () => gitService.setBranchUpstream(mockRepo, '.hidden', 'origin/main'),
-        /Invalid branch name/
-      );
+    it('refuses local names starting with .', async () => {
+      const result = await gitService.setBranchUpstream(mockRepo, '.hidden', 'origin/main');
+      assert.ok(result.isErr());
+      assert.match(result.error.message, /Invalid branch name/);
     });
 
-    it('rejects upstream refs starting with -', async () => {
-      await assert.rejects(
-        async () => gitService.setBranchUpstream(mockRepo, 'feature', '-evil'),
-        /Invalid upstream ref/
-      );
+    it('refuses upstream refs starting with -', async () => {
+      const result = await gitService.setBranchUpstream(mockRepo, 'feature', '-evil');
+      assert.ok(result.isErr());
+      assert.match(result.error.message, /Invalid upstream ref/);
     });
 
     // SK-3 — symmetric leading-`.` guard on upstreamRef.
     // createBranch / deleteBranch / renameBranch all reject BOTH `-`
     // and `.` per validateBranchName; setBranchUpstream's upstreamRef
     // must match (git-check-ref-format forbids leading `.` segments).
-    it('rejects upstream refs starting with .', async () => {
-      await assert.rejects(
-        async () => gitService.setBranchUpstream(mockRepo, 'feature', '.hidden'),
-        /Invalid upstream ref/,
-        'leading `.` upstream refs must reject (git-check-ref-format parity)'
+    it('refuses upstream refs starting with .', async () => {
+      const result = await gitService.setBranchUpstream(mockRepo, 'feature', '.hidden');
+      assert.ok(
+        result.isErr(),
+        'leading `.` upstream refs must refuse (git-check-ref-format parity)'
       );
+      assert.match(result.error.message, /Invalid upstream ref/);
     });
   });
 });
@@ -2393,11 +2377,11 @@ describe('GitService - Stash Operations', () => {
           stderr: 'No local changes to save',
         });
 
-        await assert.rejects(
-          async () => gitService.stash(mockRepo, 'test'),
-          /Git command failed/,
-          'Should throw error when stash fails'
-        );
+        {
+          const __r = await gitService.stash(mockRepo, 'test');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
 
@@ -2563,11 +2547,11 @@ describe('GitService - Stash Operations', () => {
           stderr: 'error: Your local changes would be overwritten',
         });
 
-        await assert.rejects(
-          async () => gitService.stashApply(mockRepo, 0),
-          /Git command failed/,
-          'Should throw error when stash apply fails'
-        );
+        {
+          const __r = await gitService.stashApply(mockRepo, 0);
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
   });
@@ -2605,11 +2589,11 @@ describe('GitService - Stash Operations', () => {
           stderr: 'error: Your local changes would be overwritten',
         });
 
-        await assert.rejects(
-          async () => gitService.stashPop(mockRepo, 0),
-          /Git command failed/,
-          'Should throw error when stash pop fails'
-        );
+        {
+          const __r = await gitService.stashPop(mockRepo, 0);
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
   });
@@ -2647,11 +2631,11 @@ describe('GitService - Stash Operations', () => {
           stderr: 'error: stash@{99} is not a valid reference',
         });
 
-        await assert.rejects(
-          async () => gitService.stashDrop(mockRepo, 99),
-          /Git command failed/,
-          'Should throw error when stash drop fails'
-        );
+        {
+          const __r = await gitService.stashDrop(mockRepo, 99);
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
   });
@@ -2805,37 +2789,45 @@ diff --git a/src/file2.ts b/src/file2.ts
       assert.strictEqual((last!.options as { cwd: string }).cwd, '/test/repo');
     });
 
-    it('throws when the branch name is empty', async () => {
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 0, ''),
-        /Branch name cannot be empty/
-      );
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 0, '   '),
-        /Branch name cannot be empty/
-      );
+    it('errs when the branch name is empty', async () => {
+      {
+        const __r = await gitService.stashBranch(mockRepo, 0, '');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /Branch name cannot be empty/);
+      }
+      {
+        const __r = await gitService.stashBranch(mockRepo, 0, '   ');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /Branch name cannot be empty/);
+      }
     });
 
-    it('throws when the index is negative or non-integer', async () => {
-      await assert.rejects(() => gitService.stashBranch(mockRepo, -1, 'x'), /Invalid stash index/);
-      await assert.rejects(() => gitService.stashBranch(mockRepo, 1.5, 'x'), /Invalid stash index/);
+    it('errs when the index is negative or non-integer', async () => {
+      {
+        const __r = await gitService.stashBranch(mockRepo, -1, 'x');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /Invalid stash index/);
+      }
+      {
+        const __r = await gitService.stashBranch(mockRepo, 1.5, 'x');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /Invalid stash index/);
+      }
     });
 
-    it('rejects branch names starting with - (CLI-flag injection guard)', async () => {
+    it('errs on branch names starting with - (CLI-flag injection guard)', async () => {
       // `stashBranch` lands `branchName` as a leading positional; a `-`-leading
       // name (e.g. `--output=…`) would be parsed by git as a flag. Mirrors the
       // createBranch / createTag leading-dash guard.
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 0, '--track'),
-        /Invalid branch name/
-      );
+      const __r = await gitService.stashBranch(mockRepo, 0, '--track');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /Invalid branch name/);
     });
 
-    it('rejects branch names starting with . (git-check-ref-format parity)', async () => {
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 0, '.hidden'),
-        /Invalid branch name/
-      );
+    it('errs on branch names starting with . (git-check-ref-format parity)', async () => {
+      const __r = await gitService.stashBranch(mockRepo, 0, '.hidden');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /Invalid branch name/);
     });
 
     it('trims whitespace around the branch name', async () => {
@@ -2856,10 +2848,9 @@ diff --git a/src/file2.ts b/src/file2.ts
         stdout: '',
         stderr: "fatal: A branch named 'existing-branch' already exists.",
       });
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 0, 'existing-branch'),
-        /already exists/
-      );
+      const __r = await gitService.stashBranch(mockRepo, 0, 'existing-branch');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /already exists/);
     });
 
     it('surfaces conflict errors from git during apply', async () => {
@@ -2868,7 +2859,9 @@ diff --git a/src/file2.ts b/src/file2.ts
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in file.txt',
       });
-      await assert.rejects(() => gitService.stashBranch(mockRepo, 0, 'wip'), /conflict|CONFLICT/);
+      const __r = await gitService.stashBranch(mockRepo, 0, 'wip');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /conflict|CONFLICT/);
     });
 
     it('surfaces "bad stash" errors for invalid indexes at the git level', async () => {
@@ -2877,10 +2870,9 @@ diff --git a/src/file2.ts b/src/file2.ts
         stdout: '',
         stderr: "fatal: bad revision 'stash@{99}'",
       });
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 99, 'wip'),
-        /bad revision|stash@\{99\}/
-      );
+      const __r = await gitService.stashBranch(mockRepo, 99, 'wip');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /bad revision|stash@\{99\}/);
     });
   });
 
@@ -2947,9 +2939,17 @@ diff --git a/src/file2.ts b/src/file2.ts
       assert.deepStrictEqual(dropCall.args, ['stash', 'drop', 'stash@{3}']);
     });
 
-    it('throws on negative or non-integer index before any git call', async () => {
-      await assert.rejects(() => gitService.stashRename(mockRepo, -1, 'x'), /Invalid stash index/);
-      await assert.rejects(() => gitService.stashRename(mockRepo, 1.5, 'x'), /Invalid stash index/);
+    it('errs on negative or non-integer index before any git call', async () => {
+      {
+        const __r = await gitService.stashRename(mockRepo, -1, 'x');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /Invalid stash index/);
+      }
+      {
+        const __r = await gitService.stashRename(mockRepo, 1.5, 'x');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /Invalid stash index/);
+      }
     });
 
     it('surfaces rev-parse failures for invalid indexes', async () => {
@@ -2958,7 +2958,9 @@ diff --git a/src/file2.ts b/src/file2.ts
         stdout: '',
         stderr: "fatal: bad revision 'stash@{99}'",
       });
-      await assert.rejects(() => gitService.stashRename(mockRepo, 99, 'x'), /bad revision/);
+      const __r = await gitService.stashRename(mockRepo, 99, 'x');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /bad revision/);
     });
 
     it('rolls back the duplicate entry if drop fails', async () => {
@@ -2970,7 +2972,9 @@ diff --git a/src/file2.ts b/src/file2.ts
         stderr: 'could not drop',
       });
 
-      await assert.rejects(() => gitService.stashRename(mockRepo, 0, 'x'), /could not drop/);
+      const __r = await gitService.stashRename(mockRepo, 0, 'x');
+      assert.ok(__r.isErr());
+      assert.match(__r._unsafeUnwrapErr().message, /could not drop/);
 
       // Verify rollback drop ran.
       const commands = mockGitCli.executedCommands.map((c) => c.args.join(' '));
@@ -3061,19 +3065,19 @@ describe('GitService - Remote Management Operations', () => {
           stderr: '',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
+        const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
         assert.deepStrictEqual(remotes, []);
       });
 
-      it('should return empty array when command fails', async () => {
+      it('should return Err when command fails (not a silent empty list)', async () => {
         mockGitCli.setMockResult('remote -v', {
           exitCode: 1,
           stdout: '',
           stderr: 'error',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
-        assert.deepStrictEqual(remotes, []);
+        const result = await gitService.getRemotes(mockRepo);
+        assert.ok(result.isErr());
       });
 
       it('should parse single remote with fetch and push URLs', async () => {
@@ -3084,7 +3088,7 @@ describe('GitService - Remote Management Operations', () => {
           stderr: '',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
+        const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(remotes.length, 1);
         assert.strictEqual(remotes[0].name, 'origin');
@@ -3103,7 +3107,7 @@ describe('GitService - Remote Management Operations', () => {
           stderr: '',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
+        const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(remotes.length, 2);
         assert.strictEqual(remotes[0].name, 'origin');
@@ -3121,7 +3125,7 @@ describe('GitService - Remote Management Operations', () => {
           stderr: '',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
+        const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(remotes.length, 1);
         assert.strictEqual(remotes[0].name, 'origin');
@@ -3137,7 +3141,7 @@ describe('GitService - Remote Management Operations', () => {
           stderr: '',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
+        const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(remotes.length, 1);
         assert.strictEqual(remotes[0].name, 'origin');
@@ -3153,7 +3157,7 @@ describe('GitService - Remote Management Operations', () => {
           stderr: '',
         });
 
-        const remotes = await gitService.getRemotes(mockRepo);
+        const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(remotes.length, 1);
         assert.strictEqual(remotes[0].name, 'local');
@@ -3193,11 +3197,14 @@ describe('GitService - Remote Management Operations', () => {
           stderr: 'error: remote origin already exists.',
         });
 
-        await assert.rejects(
-          async () => gitService.addRemote(mockRepo, 'origin', 'https://github.com/user/repo.git'),
-          /Git command failed/,
-          'Should throw error when remote already exists'
-        );
+        {
+          const __r = await gitService.addRemote(
+            mockRepo,
+            'origin',
+            'https://github.com/user/repo.git'
+          );
+          assert.ok(__r.isErr());
+        }
       });
 
       it('should add remote with SSH URL', async () => {
@@ -3253,17 +3260,19 @@ describe('GitService - Remote Management Operations', () => {
       });
 
       it('rejects a remote name that looks like a flag (argv-injection guard)', async () => {
-        await assert.rejects(
-          async () => gitService.addRemote(mockRepo, '--upload-pack=evil', 'https://x/y.git'),
-          /invalid remote name/i
-        );
+        {
+          const __r = await gitService.addRemote(mockRepo, '--upload-pack=evil', 'https://x/y.git');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /invalid remote name/i);
+        }
       });
 
       it('rejects a URL that looks like a flag', async () => {
-        await assert.rejects(
-          async () => gitService.addRemote(mockRepo, 'origin', '--foo'),
-          /invalid remote url/i
-        );
+        {
+          const __r = await gitService.addRemote(mockRepo, 'origin', '--foo');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /invalid remote url/i);
+        }
       });
     });
   });
@@ -3293,11 +3302,10 @@ describe('GitService - Remote Management Operations', () => {
           stderr: "error: No such remote: 'nonexistent'",
         });
 
-        await assert.rejects(
-          async () => gitService.removeRemote(mockRepo, 'nonexistent'),
-          /Git command failed/,
-          'Should throw error when remote does not exist'
-        );
+        {
+          const __r = await gitService.removeRemote(mockRepo, 'nonexistent');
+          assert.ok(__r.isErr());
+        }
       });
 
       it('should remove remote with hyphenated name', async () => {
@@ -3317,10 +3325,11 @@ describe('GitService - Remote Management Operations', () => {
       });
 
       it('rejects a remote name that looks like a flag (argv-injection guard)', async () => {
-        await assert.rejects(
-          async () => gitService.removeRemote(mockRepo, '--upload-pack=evil'),
-          /invalid remote name/i
-        );
+        {
+          const __r = await gitService.removeRemote(mockRepo, '--upload-pack=evil');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /invalid remote name/i);
+        }
       });
     });
   });
@@ -3348,7 +3357,7 @@ describe('GitService - Remote Management Operations', () => {
       });
 
       // List remotes
-      const remotes = await gitService.getRemotes(mockRepo);
+      const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
       assert.strictEqual(remotes.length, 2);
       assert.ok(
@@ -3377,7 +3386,7 @@ describe('GitService - Remote Management Operations', () => {
       });
 
       // List remotes
-      const remotes = await gitService.getRemotes(mockRepo);
+      const remotes = (await gitService.getRemotes(mockRepo))._unsafeUnwrap();
 
       assert.strictEqual(remotes.length, 1);
       assert.ok(
@@ -3401,17 +3410,23 @@ describe('GitService - Remote Management Operations', () => {
     });
 
     it('rejects a remote name that looks like a flag (argv-injection guard)', async () => {
-      await assert.rejects(
-        async () => gitService.setRemoteUrl(mockRepo, '--upload-pack=evil', 'https://x/y.git'),
-        /invalid remote name/i
-      );
+      {
+        const __r = await gitService.setRemoteUrl(
+          mockRepo,
+          '--upload-pack=evil',
+          'https://x/y.git'
+        );
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /invalid remote name/i);
+      }
     });
 
     it('rejects a URL that looks like a flag', async () => {
-      await assert.rejects(
-        async () => gitService.setRemoteUrl(mockRepo, 'origin', '--foo'),
-        /invalid remote url/i
-      );
+      {
+        const __r = await gitService.setRemoteUrl(mockRepo, 'origin', '--foo');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /invalid remote url/i);
+      }
     });
   });
 
@@ -3423,10 +3438,11 @@ describe('GitService - Remote Management Operations', () => {
     });
 
     it('rejects a flag-like new name', async () => {
-      await assert.rejects(
-        async () => gitService.renameRemote(mockRepo, 'origin', '-x'),
-        /invalid remote name/i
-      );
+      {
+        const __r = await gitService.renameRemote(mockRepo, 'origin', '-x');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /invalid remote name/i);
+      }
     });
   });
 });
@@ -3507,11 +3523,10 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
           stderr: 'fatal: unable to access remote',
         });
 
-        await assert.rejects(
-          async () => gitService.fetch(mockRepo),
-          /Git command failed/,
-          'Should throw error when fetch fails'
-        );
+        {
+          const __r = await gitService.fetch(mockRepo);
+          assert.ok(__r.isErr());
+        }
       });
     });
 
@@ -3550,11 +3565,10 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
           stderr: "fatal: 'nonexistent' does not appear to be a git repository",
         });
 
-        await assert.rejects(
-          async () => gitService.fetch(mockRepo, 'nonexistent'),
-          /Git command failed/,
-          'Should throw error when remote does not exist'
-        );
+        {
+          const __r = await gitService.fetch(mockRepo, 'nonexistent');
+          assert.ok(__r.isErr());
+        }
       });
     });
   });
@@ -3584,10 +3598,36 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
           stderr: 'error: Your local changes would be overwritten by merge',
         });
 
-        await assert.rejects(
-          async () => gitService.pull(mockRepo),
-          /Git command failed/,
-          'Should throw error when pull fails'
+        {
+          const __r = await gitService.pull(mockRepo);
+          assert.ok(__r.isErr());
+        }
+      });
+
+      it('an exit-0 autostash pop conflict surfaces a typed Err that isConflictError routes', async () => {
+        // With `--autostash` git integrates cleanly (exit 0) then pops the
+        // stash. A pop collision leaves unmerged files while git STILL exits 0,
+        // so `_pull` synthesises a CONFLICT failure. It must classify as a
+        // conflict — carrying the marker on the message AND `.result.combined`
+        // so `isConflictError` (which duck-types `.result.combined`, falling
+        // back to `.message`) routes it to the Resolve flow rather than a
+        // generic "Failed to pull" toast.
+        mockGitCli.setMockResult('pull --autostash', { exitCode: 0, stdout: '', stderr: '' });
+        mockGitCli.setMockResult('status --porcelain', {
+          exitCode: 0,
+          stdout: 'UU conflicted.ts\n',
+          stderr: '',
+        });
+
+        const result = await gitService.pull(mockRepo, { autostash: true });
+
+        assert.ok(result.isErr(), 'an autostash pop conflict must surface an Err');
+        const error = result._unsafeUnwrapErr();
+        assert.match(error.message, /CONFLICT:/, 'the message MUST keep the CONFLICT: marker');
+        assert.strictEqual(
+          isConflictError(error),
+          true,
+          'the synthesised autostash conflict must route through isConflictError'
         );
       });
     });
@@ -3704,11 +3744,10 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
           stderr: '',
         });
 
-        await assert.rejects(
-          async () => gitService.pull(mockRepo, { autostash: true }),
-          /CONFLICT/,
-          'Should throw a CONFLICT error so the dialog routes to conflict resolution'
-        );
+        {
+          const __r = await gitService.pull(mockRepo, { autostash: true });
+          assert.ok(__r.isErr());
+        }
       });
 
       it('does not read porcelain status after a non-autostash pull', async () => {
@@ -3755,11 +3794,10 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
           stderr: 'error: failed to push some refs',
         });
 
-        await assert.rejects(
-          async () => gitService.push(mockRepo),
-          /Git command failed/,
-          'Should throw error when push fails'
-        );
+        {
+          const __r = await gitService.push(mockRepo);
+          assert.ok(__r.isErr());
+        }
       });
     });
 
@@ -4292,11 +4330,11 @@ describe('GitService - Tag Operations', () => {
           stderr: "fatal: tag 'v1.0.0' already exists",
         });
 
-        await assert.rejects(
-          async () => gitService.createTag(mockRepo, 'v1.0.0'),
-          /Git command failed/,
-          'Should throw error when tag already exists'
-        );
+        {
+          const __r = await gitService.createTag(mockRepo, 'v1.0.0');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
 
       it('should throw error for invalid tag name', async () => {
@@ -4307,11 +4345,11 @@ describe('GitService - Tag Operations', () => {
           stderr: "fatal: 'invalid..name' is not a valid tag name",
         });
 
-        await assert.rejects(
-          async () => gitService.createTag(mockRepo, 'invalid..name'),
-          /Git command failed/,
-          'Should throw error for invalid tag name'
-        );
+        {
+          const __r = await gitService.createTag(mockRepo, 'invalid..name');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
   });
@@ -4343,11 +4381,11 @@ describe('GitService - Tag Operations', () => {
           stderr: "error: tag 'nonexistent' not found.",
         });
 
-        await assert.rejects(
-          async () => gitService.deleteTag(mockRepo, 'nonexistent'),
-          /Git command failed/,
-          'Should throw error when tag does not exist'
-        );
+        {
+          const __r = await gitService.deleteTag(mockRepo, 'nonexistent');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
   });
@@ -4395,11 +4433,11 @@ describe('GitService - Tag Operations', () => {
           stderr: 'error: failed to push some refs',
         });
 
-        await assert.rejects(
-          async () => gitService.pushTag(mockRepo, 'v1.0.0'),
-          /Git command failed/,
-          'Should throw error when push fails'
-        );
+        {
+          const __r = await gitService.pushTag(mockRepo, 'v1.0.0');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Git command failed/);
+        }
       });
     });
   });
@@ -4426,10 +4464,11 @@ describe('GitService - Tag Operations', () => {
     });
 
     it('rejects a flag-like tag name (argv-injection guard)', async () => {
-      await assert.rejects(
-        async () => gitService.deleteRemoteTag(mockRepo, '-x'),
-        /invalid tag name/i
-      );
+      {
+        const __r = await gitService.deleteRemoteTag(mockRepo, '-x');
+        assert.ok(__r.isErr());
+        assert.match(__r._unsafeUnwrapErr().message, /invalid tag name/i);
+      }
     });
   });
 
@@ -4574,7 +4613,7 @@ describe('GitService - Cherry-Pick Operations', () => {
   describe('cherryPick()', () => {
     describe('Cherry-pick single commit', () => {
       it('should execute git cherry-pick with single commit hash', async () => {
-        const result = await gitService.cherryPick(mockRepo, ['abc123def456']);
+        const result = (await gitService.cherryPick(mockRepo, ['abc123def456']))._unsafeUnwrap();
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
@@ -4601,7 +4640,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPick(mockRepo, ['abc123']);
+        const result = (await gitService.cherryPick(mockRepo, ['abc123']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
         assert.strictEqual(result.conflicts, undefined);
@@ -4647,7 +4686,9 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPick(mockRepo, ['commit1', 'commit2']);
+        const result = (
+          await gitService.cherryPick(mockRepo, ['commit1', 'commit2'])
+        )._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
       });
@@ -4655,7 +4696,7 @@ describe('GitService - Cherry-Pick Operations', () => {
 
     describe('Cherry-pick with empty commits array', () => {
       it('should return success immediately for empty commits array', async () => {
-        const result = await gitService.cherryPick(mockRepo, []);
+        const result = (await gitService.cherryPick(mockRepo, []))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
         // No command should be executed
@@ -4680,7 +4721,9 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPick(mockRepo, ['conflicting-commit']);
+        const result = (
+          await gitService.cherryPick(mockRepo, ['conflicting-commit'])
+        )._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -4704,7 +4747,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPick(mockRepo, ['abc123']);
+        const result = (await gitService.cherryPick(mockRepo, ['abc123']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -4726,7 +4769,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPick(mockRepo, ['invalid-commit']);
+        const result = (await gitService.cherryPick(mockRepo, ['invalid-commit']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts array');
@@ -4787,11 +4830,9 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: 'error: no cherry-pick in progress',
         });
 
-        await assert.rejects(
-          async () => gitService.cherryPickAbort(mockRepo),
-          /Git command failed/,
-          'Should throw error when no cherry-pick in progress'
-        );
+        const abortResult = await gitService.cherryPickAbort(mockRepo);
+        assert.ok(abortResult.isErr(), 'Should return Err when no cherry-pick in progress');
+        assert.match(abortResult._unsafeUnwrapErr().message, /Git command failed/);
       });
 
       it('should restore working directory to pre-cherry-pick state', async () => {
@@ -4837,7 +4878,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPickContinue(mockRepo);
+        const result = (await gitService.cherryPickContinue(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
         assert.strictEqual(result.conflicts, undefined);
@@ -4858,7 +4899,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPickContinue(mockRepo);
+        const result = (await gitService.cherryPickContinue(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -4879,7 +4920,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.cherryPickContinue(mockRepo);
+        const result = (await gitService.cherryPickContinue(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -4902,7 +4943,9 @@ describe('GitService - Cherry-Pick Operations', () => {
         stderr: '',
       });
 
-      const pickResult = await gitService.cherryPick(mockRepo, ['conflict-commit']);
+      const pickResult = (
+        await gitService.cherryPick(mockRepo, ['conflict-commit'])
+      )._unsafeUnwrap();
       assert.strictEqual(pickResult.success, false);
       assert.ok(pickResult.conflicts?.includes('file.ts'));
 
@@ -4933,7 +4976,9 @@ describe('GitService - Cherry-Pick Operations', () => {
         stderr: '',
       });
 
-      const pickResult = await gitService.cherryPick(mockRepo, ['conflict-commit']);
+      const pickResult = (
+        await gitService.cherryPick(mockRepo, ['conflict-commit'])
+      )._unsafeUnwrap();
       assert.strictEqual(pickResult.success, false);
 
       // User resolves conflicts (simulated by changing status mock)
@@ -4946,7 +4991,7 @@ describe('GitService - Cherry-Pick Operations', () => {
       });
 
       // Continue the cherry-pick
-      const continueResult = await gitService.cherryPickContinue(mockRepo);
+      const continueResult = (await gitService.cherryPickContinue(mockRepo))._unsafeUnwrap();
       assert.strictEqual(continueResult.success, true);
     });
 
@@ -4963,7 +5008,9 @@ describe('GitService - Cherry-Pick Operations', () => {
         stderr: '',
       });
 
-      const result = await gitService.cherryPick(mockRepo, ['commit1', 'commit2', 'commit3']);
+      const result = (
+        await gitService.cherryPick(mockRepo, ['commit1', 'commit2', 'commit3'])
+      )._unsafeUnwrap();
 
       assert.strictEqual(result.success, false);
       assert.ok(result.conflicts?.includes('conflicted.ts'));
@@ -5016,7 +5063,7 @@ describe('GitService - Revert Operations', () => {
   describe('revert()', () => {
     describe('Revert single commit', () => {
       it('should execute git revert with single commit hash', async () => {
-        const result = await gitService.revert(mockRepo, ['abc123def456']);
+        const result = (await gitService.revert(mockRepo, ['abc123def456']))._unsafeUnwrap();
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
@@ -5044,7 +5091,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revert(mockRepo, ['abc123']);
+        const result = (await gitService.revert(mockRepo, ['abc123']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
         assert.strictEqual(result.conflicts, undefined);
@@ -5102,7 +5149,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revert(mockRepo, ['commit1', 'commit2']);
+        const result = (await gitService.revert(mockRepo, ['commit1', 'commit2']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
       });
@@ -5110,7 +5157,7 @@ describe('GitService - Revert Operations', () => {
 
     describe('Revert with empty commits array', () => {
       it('should return success immediately for empty commits array', async () => {
-        const result = await gitService.revert(mockRepo, []);
+        const result = (await gitService.revert(mockRepo, []))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
         // No command should be executed
@@ -5135,7 +5182,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revert(mockRepo, ['conflicting-commit']);
+        const result = (await gitService.revert(mockRepo, ['conflicting-commit']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -5159,7 +5206,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revert(mockRepo, ['abc123']);
+        const result = (await gitService.revert(mockRepo, ['abc123']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -5181,7 +5228,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revert(mockRepo, ['invalid-commit']);
+        const result = (await gitService.revert(mockRepo, ['invalid-commit']))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts array');
@@ -5215,11 +5262,9 @@ describe('GitService - Revert Operations', () => {
           stderr: 'error: no revert in progress',
         });
 
-        await assert.rejects(
-          async () => gitService.revertAbort(mockRepo),
-          /Git command failed/,
-          'Should throw error when no revert in progress'
-        );
+        const abortResult = await gitService.revertAbort(mockRepo);
+        assert.ok(abortResult.isErr(), 'Should return Err when no revert in progress');
+        assert.match(abortResult._unsafeUnwrapErr().message, /Git command failed/);
       });
 
       it('should restore working directory to pre-revert state', async () => {
@@ -5265,7 +5310,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revertContinue(mockRepo);
+        const result = (await gitService.revertContinue(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(result.success, true);
         assert.strictEqual(result.conflicts, undefined);
@@ -5286,7 +5331,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revertContinue(mockRepo);
+        const result = (await gitService.revertContinue(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -5307,7 +5352,7 @@ describe('GitService - Revert Operations', () => {
           stderr: '',
         });
 
-        const result = await gitService.revertContinue(mockRepo);
+        const result = (await gitService.revertContinue(mockRepo))._unsafeUnwrap();
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
@@ -5330,7 +5375,7 @@ describe('GitService - Revert Operations', () => {
         stderr: '',
       });
 
-      const revertResult = await gitService.revert(mockRepo, ['conflict-commit']);
+      const revertResult = (await gitService.revert(mockRepo, ['conflict-commit']))._unsafeUnwrap();
       assert.strictEqual(revertResult.success, false);
       assert.ok(revertResult.conflicts?.includes('file.ts'));
 
@@ -5361,7 +5406,7 @@ describe('GitService - Revert Operations', () => {
         stderr: '',
       });
 
-      const revertResult = await gitService.revert(mockRepo, ['conflict-commit']);
+      const revertResult = (await gitService.revert(mockRepo, ['conflict-commit']))._unsafeUnwrap();
       assert.strictEqual(revertResult.success, false);
 
       // User resolves conflicts (simulated by changing status mock)
@@ -5374,7 +5419,7 @@ describe('GitService - Revert Operations', () => {
       });
 
       // Continue the revert
-      const continueResult = await gitService.revertContinue(mockRepo);
+      const continueResult = (await gitService.revertContinue(mockRepo))._unsafeUnwrap();
       assert.strictEqual(continueResult.success, true);
     });
 
@@ -5391,7 +5436,9 @@ describe('GitService - Revert Operations', () => {
         stderr: '',
       });
 
-      const result = await gitService.revert(mockRepo, ['commit1', 'commit2', 'commit3']);
+      const result = (
+        await gitService.revert(mockRepo, ['commit1', 'commit2', 'commit3'])
+      )._unsafeUnwrap();
 
       assert.strictEqual(result.success, false);
       assert.ok(result.conflicts?.includes('conflicted.ts'));

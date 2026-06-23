@@ -27,6 +27,7 @@
  */
 
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import { JSDOM } from 'jsdom';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -156,7 +157,7 @@ function makeMockGitService(): IGitService & {
         workTreeStatus: s.workTreeStatus,
       }));
     },
-    stage: async (): Promise<void> => {},
+    stage: () => okAsync(undefined),
     cherryPickAbort: async (): Promise<void> => {
       svc._cherryPickAbortCalls++;
     },
@@ -1088,6 +1089,63 @@ describe('ConflictResolutionService — (a) additions', () => {
 
     assert.strictEqual(openDialog.getFileStatuses().get('a.ts'), 'resolved');
     assert.strictEqual(openDialog.getFileStatuses().get('b.ts'), 'unresolved');
+  });
+
+  it('in-progress probe surfaces a non-ENOENT fs fault instead of masking it as "absent"', async () => {
+    // Make `.git` a FILE so the state-file / rebase-dir existence probes hit
+    // ENOTDIR (a real fs fault) rather than ENOENT. The probe must now LOG
+    // the non-ENOENT fault — the prior code swallowed every errno as "absent".
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-rc-enotdir-'));
+    fs.writeFileSync(path.join(root, '.git'), 'gitdir: /nowhere\n');
+    const badRepo = {
+      rootUri: vscode.Uri.file(root),
+      state: 'idle',
+      remotes: [],
+      submodules: [],
+    } as unknown as IRepository;
+
+    const debugMessages: string[] = [];
+    (conflictService as unknown as { _logger: unknown })._logger = {
+      debug: (msg: string): void => void debugMessages.push(msg),
+      info: (): void => {},
+      warn: (): void => {},
+      error: (): void => {},
+      trace: (): void => {},
+      child(): unknown {
+        return this;
+      },
+    };
+
+    const active = await conflictService.runStateFileCheck(badRepo);
+    assert.strictEqual(active, false, 'degrades to "no operation in progress"');
+    assert.ok(
+      debugMessages.some((m) => /probe failed/i.test(m)),
+      'a non-ENOENT fs fault must be logged, not silently masked'
+    );
+
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('in-progress probe stays silent for the normal ENOENT (absent) case', async () => {
+    // gitDir exists with no state files → ENOENT on every probe → no fault log.
+    const debugMessages: string[] = [];
+    (conflictService as unknown as { _logger: unknown })._logger = {
+      debug: (msg: string): void => void debugMessages.push(msg),
+      info: (): void => {},
+      warn: (): void => {},
+      error: (): void => {},
+      trace: (): void => {},
+      child(): unknown {
+        return this;
+      },
+    };
+
+    const active = await conflictService.runStateFileCheck(repo);
+    assert.strictEqual(active, false);
+    assert.ok(
+      !debugMessages.some((m) => /probe failed/i.test(m)),
+      'ENOENT is the expected absent signal — it must not be logged as a fault'
+    );
   });
 
   it('feature flag = true opens dialog and tracks it per repo (single-instance reveal)', async () => {

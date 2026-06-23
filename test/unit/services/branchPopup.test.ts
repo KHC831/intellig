@@ -21,6 +21,8 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { okAsync, errAsync } from 'neverthrow';
+import { CommandFailedError } from '../../../src/git-core/errors';
 import {
   IBranch,
   IGitService,
@@ -588,8 +590,9 @@ describe('BranchPopup — _handleSetUpstream', () => {
       getRepository: async () => undefined,
       onDidChangeRepository: repoChangeEmitter.event,
       reloadRepository: async () => undefined,
-      setBranchUpstream: async (_r: IRepository, local: string, upstream: string) => {
+      setBranchUpstream: (_r: IRepository, local: string, upstream: string) => {
         setUpstreamCalls.push([local, upstream]);
+        return okAsync(undefined);
       },
       ...overrides,
     } as unknown as IGitService;
@@ -694,9 +697,10 @@ describe('BranchPopup — _handleSetUpstream', () => {
   it('surfaces a sanitized error toast when setBranchUpstream fails', async () => {
     const { popup } = makePopup({
       getBranches: async () => [localDevelop, remoteMain],
-      setBranchUpstream: async () => {
-        throw new Error('fatal: https://alice:secret@example.com/repo.git denied');
-      },
+      setBranchUpstream: () =>
+        errAsync(
+          new CommandFailedError(1, '', 'fatal: https://alice:secret@example.com/repo.git denied')
+        ),
     });
     (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = (
       items: Array<{ branch: IBranch }>

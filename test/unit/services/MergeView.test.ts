@@ -3,7 +3,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { okAsync, errAsync } from 'neverthrow';
 import { MergeView } from '../../../src/conflicts/MergeView';
+import { GitError, SpawnFailedError } from '../../../src/git-core/errors';
 import {
   IGitService,
   IRepository,
@@ -42,7 +44,7 @@ describe('MergeView', () => {
     mockGitService = {
       getRepository: (): Promise<undefined> => Promise.resolve(undefined),
       getRepositories: (): IRepository[] => [],
-      stage: (): Promise<void> => Promise.resolve(),
+      stage: () => okAsync<void, GitError>(undefined),
       getStatus: (): Promise<IFileStatus[]> => Promise.resolve([]),
     };
 
@@ -150,11 +152,10 @@ describe('MergeView', () => {
     // continue treating the file as unresolved and the user can retry.
     it('surfaces error via showErrorMessage when staging fails; onDidResolve not fired', async () => {
       const tracker = installErrorMessageTracker();
-      const stageError = new Error('EACCES: permission denied, /repo/.git/index.lock');
+      const stageError = new SpawnFailedError('EACCES: permission denied, /repo/.git/index.lock');
 
-      (mockGitService as unknown as { stage: IGitService['stage'] }).stage = (): Promise<void> => {
-        return Promise.reject(stageError);
-      };
+      (mockGitService as unknown as { stage: IGitService['stage'] }).stage = () =>
+        errAsync(stageError);
 
       // Track onDidResolve emissions — must NOT fire on the error path.
       const resolveEvents: string[] = [];
@@ -205,9 +206,9 @@ describe('MergeView', () => {
       (mockGitService as unknown as { stage: IGitService['stage'] }).stage = (
         _repo: IRepository,
         paths: string[]
-      ): Promise<void> => {
+      ) => {
         stagedPaths.push(...paths);
-        return Promise.resolve();
+        return okAsync<void, GitError>(undefined);
       };
 
       const resolveEvents: string[] = [];
@@ -523,9 +524,9 @@ describe('MergeView', () => {
       (mockGitService as unknown as { stage: IGitService['stage'] }).stage = (
         _repo: IRepository,
         paths: string[]
-      ): Promise<void> => {
+      ) => {
         stageCalls.push(paths);
-        return Promise.resolve();
+        return okAsync<void, GitError>(undefined);
       };
 
       await mergeView.markResolved();

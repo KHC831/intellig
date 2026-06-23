@@ -68,7 +68,7 @@ describe('RemoteOps.commitFixup', () => {
   describe('argv (injection-safe + flag shape)', () => {
     it('rejects a non-hex target hash before running git', async () => {
       const { ops, calls } = makeMockOps();
-      const res = await ops.commitFixup(repo('/r'), '--force', 'fixup');
+      const res = (await ops.commitFixup(repo('/r'), '--force', 'fixup'))._unsafeUnwrap();
       assert.strictEqual(res.success, false);
       assert.strictEqual(res.reason, 'invalid-hash');
       assert.strictEqual(calls.length, 0, 'must not invoke git with an invalid hash');
@@ -92,7 +92,7 @@ describe('RemoteOps.commitFixup', () => {
         stdout: 'nothing to commit, working tree clean',
         stderr: '',
       });
-      const res = await ops.commitFixup(repo('/r'), 'abc123', 'fixup');
+      const res = (await ops.commitFixup(repo('/r'), 'abc123', 'fixup'))._unsafeUnwrap();
       assert.strictEqual(res.success, false);
       assert.strictEqual(res.reason, 'nothing-to-commit');
     });
@@ -136,7 +136,7 @@ describe('RemoteOps.commitFixup', () => {
       const { ops, cli } = makeRealOps();
       realCli = cli;
 
-      const res = await ops.commitFixup(repo(tmp), firstHash, 'fixup');
+      const res = (await ops.commitFixup(repo(tmp), firstHash, 'fixup'))._unsafeUnwrap();
 
       assert.strictEqual(res.success, true);
       const subject = git(tmp, 'log', '-1', '--format=%s').trim();
@@ -150,7 +150,7 @@ describe('RemoteOps.commitFixup', () => {
       const { ops, cli } = makeRealOps();
       realCli = cli;
 
-      const res = await ops.commitFixup(repo(tmp), firstHash, 'squash');
+      const res = (await ops.commitFixup(repo(tmp), firstHash, 'squash'))._unsafeUnwrap();
 
       assert.strictEqual(res.success, true);
       const subject = git(tmp, 'log', '-1', '--format=%s').trim();
@@ -162,7 +162,7 @@ describe('RemoteOps.commitFixup', () => {
       const { ops, cli } = makeRealOps();
       realCli = cli;
 
-      const res = await ops.commitFixup(repo(tmp), firstHash, 'fixup');
+      const res = (await ops.commitFixup(repo(tmp), firstHash, 'fixup'))._unsafeUnwrap();
 
       assert.strictEqual(res.success, false);
       assert.strictEqual(res.reason, 'nothing-to-commit');

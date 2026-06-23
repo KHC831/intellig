@@ -170,13 +170,9 @@ describe('isConflictError — real conflicting pull (M4)', () => {
   });
 
   it('a conflicting `git pull` throws an error that isConflictError classifies as a conflict', async () => {
-    let thrown: unknown;
-    try {
-      await gitService.pull(repoFor(localPath), { remote: 'origin', branch: 'main' });
-      assert.fail('a diverging pull must throw');
-    } catch (error) {
-      thrown = error;
-    }
+    const result = await gitService.pull(repoFor(localPath), { remote: 'origin', branch: 'main' });
+    assert.ok(result.isErr(), 'a diverging pull must yield an Err');
+    const thrown: unknown = result._unsafeUnwrapErr();
 
     // The exact M4 contract: the classifier inspects the COMBINED output, so a
     // real conflicting pull routes to the Resolve flow instead of a generic

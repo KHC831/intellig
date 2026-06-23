@@ -188,6 +188,7 @@ export class PatchService implements IPatchService {
           // Remove the whole mkdtemp directory (file + its private dir) so the
           // per-apply temp dir doesn't leak for the process lifetime.
           await fs.promises.rm(path.dirname(tempPath), { recursive: true, force: true });
+          // eslint-disable-next-line no-restricted-syntax -- best-effort cleanup of a private mkdtemp dir; a leftover temp dir is harmless and there is no recovery worth surfacing.
         } catch {
           // Best-effort cleanup.
         }

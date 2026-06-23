@@ -13,7 +13,9 @@
  */
 
 import '../setup';
+import { SpawnFailedError, CommandFailedError, GitError } from '../../src/git-core/errors';
 import * as assert from 'assert';
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
 import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../src/branches/BranchTreeProvider';
 import {
@@ -22,7 +24,6 @@ import {
   IBranch,
   IBasicRebaseResult,
   ICheckoutOptions,
-  IFetchResult,
   IPushOptions,
   IInProgressOperation,
   IFileStatus,
@@ -56,17 +57,17 @@ function createMockGitService(overrides: Partial<IGitService> = {}): IGitService
     reloadRepository: async (repo) => repo,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
-    commitFixup: async () => ({ success: true }),
-    createBranch: async () => {},
-    checkout: async () => {},
-    deleteBranch: async () => {},
-    renameBranch: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
+    commitFixup: () => okAsync({ success: true }),
+    createBranch: () => okAsync(undefined),
+    checkout: () => okAsync(undefined),
+    deleteBranch: () => okAsync(undefined),
+    renameBranch: () => okAsync(undefined),
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async () => ({ success: true }),
     rebaseSkip: async () => ({ success: true }),
-    rebaseAbort: async () => {},
+    rebaseAbort: () => okAsync(undefined),
     rebaseContinue: async () => ({ success: true }),
     compareBranches: async () => ({
       commitsAhead: [],
@@ -75,28 +76,29 @@ function createMockGitService(overrides: Partial<IGitService> = {}): IGitService
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async (): Promise<IFetchResult> => ({
-      updatedRefs: [],
-      ahead: 0,
-      behind: 0,
-      errors: [],
-    }),
+    fetch: () =>
+      okAsync({
+        updatedRefs: [],
+        ahead: 0,
+        behind: 0,
+        errors: [],
+      }),
     onDidFetch: () => ({ dispose: () => {} }),
-    resetToCommit: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
-    stash: async () => {},
+    resetToCommit: () => okAsync(undefined),
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
+    stash: () => okAsync(undefined),
     stashList: async () => [],
-    stashApply: async () => {},
-    stashPop: async () => {},
-    stashDrop: async () => {},
+    stashApply: () => okAsync(undefined),
+    stashPop: () => okAsync(undefined),
+    stashDrop: () => okAsync(undefined),
     stashShow: async () => [],
-    createTag: async () => {},
-    deleteTag: async () => {},
-    pushTag: async () => {},
+    createTag: () => okAsync(undefined),
+    deleteTag: () => okAsync(undefined),
+    pushTag: () => okAsync(undefined),
     getLog: async () => [],
     getCommit: async () => ({
       hash: '',
@@ -125,12 +127,12 @@ function createMockGitService(overrides: Partial<IGitService> = {}): IGitService
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
     ...overrides,
   } as IGitService;
@@ -294,9 +296,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handleUpdate should return early when repository is undefined', async () => {
       let fetchCalled = false;
       const gitService = createMockGitService({
-        fetch: async () => {
+        fetch: () => {
           fetchCalled = true;
-          return { updatedRefs: [], ahead: 0, behind: 0, errors: [] };
+          return okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] });
         },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
@@ -314,8 +316,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handlePush should return early when repository is undefined', async () => {
       let pushCalled = false;
       const gitService = createMockGitService({
-        push: async () => {
+        push: () => {
           pushCalled = true;
+          return okAsync(undefined);
         },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
@@ -333,8 +336,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handleCheckoutAndRebase should return early when repository is undefined', async () => {
       let checkoutCalled = false;
       const gitService = createMockGitService({
-        checkout: async () => {
+        checkout: () => {
           checkoutCalled = true;
+          return okAsync(undefined);
         },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
@@ -353,8 +357,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handlePullUsingRebase should return early when repository is undefined', async () => {
       let pullCalled = false;
       const gitService = createMockGitService({
-        pull: async () => {
+        pull: () => {
           pullCalled = true;
+          return okAsync(undefined);
         },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
@@ -369,8 +374,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handlePullUsingMerge should return early when repository is undefined', async () => {
       let pullCalled = false;
       const gitService = createMockGitService({
-        pull: async () => {
+        pull: () => {
           pullCalled = true;
+          return okAsync(undefined);
         },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
@@ -390,11 +396,14 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const warningTracker = installWarningMessageTracker(undefined); // user cancels
 
       const gitService = createMockGitService({
-        checkout: async () => {
-          throw new Error(
-            'error: Your local changes to the following files would be overwritten by checkout'
-          );
-        },
+        checkout: () =>
+          errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              'error: Your local changes to the following files would be overwritten by checkout'
+            )
+          ),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -417,9 +426,14 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const warningTracker = installWarningMessageTracker(undefined);
 
       const gitService = createMockGitService({
-        checkout: async () => {
-          throw new Error('Please commit your changes or stash them before you switch branches');
-        },
+        checkout: () =>
+          errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              'Please commit your changes or stash them before you switch branches'
+            )
+          ),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -442,16 +456,20 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async (_repo: IRepository, branchName: string) => {
+        checkout: (_repo: IRepository, branchName: string) => {
           checkoutCallCount++;
           checkoutCalls.push(branchName);
           if (checkoutCallCount === 1) {
-            throw new Error('Your local changes would be overwritten by checkout');
+            return errAsync(
+              new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+            );
           }
           // Second call succeeds
+          return okAsync(undefined);
         },
-        stash: async (_repo: IRepository, message?: string) => {
+        stash: (_repo: IRepository, message?: string) => {
           stashCalls.push(message ?? '');
+          return okAsync(undefined);
         },
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
       });
@@ -478,14 +496,17 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async (_repo: IRepository, _branchName: string, options?: ICheckoutOptions) => {
+        checkout: (_repo: IRepository, _branchName: string, options?: ICheckoutOptions) => {
           checkoutCallCount++;
           if (checkoutCallCount === 1) {
-            throw new Error('Your local changes would be overwritten by checkout');
+            return errAsync(
+              new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+            );
           }
           if (options?.force) {
             forceUsed = true;
           }
+          return okAsync(undefined);
         },
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
       });
@@ -522,13 +543,18 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
     function createCheckoutTracker(): {
       calls: CheckoutCall[];
-      checkout: (repo: IRepository, ref: string, options?: ICheckoutOptions) => Promise<void>;
+      checkout: (
+        repo: IRepository,
+        ref: string,
+        options?: ICheckoutOptions
+      ) => ResultAsync<void, GitError>;
     } {
       const calls: CheckoutCall[] = [];
       return {
         calls,
-        checkout: async (_repo, ref, options) => {
+        checkout: (_repo, ref, options) => {
           calls.push({ ref, options });
+          return okAsync(undefined);
         },
       };
     }
@@ -631,17 +657,22 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const calls: CheckoutCall[] = [];
       let throwOnce = true;
       const gitService = createMockGitService({
-        checkout: async (_repo, ref, options) => {
-          // First call (the entry-point checkout) throws "would be
+        checkout: (_repo, ref, options) => {
+          // First call (the entry-point checkout) fails "would be
           // overwritten"; subsequent calls (after stash) succeed and
           // record their args so we can verify the local-tracking form.
           if (throwOnce) {
             throwOnce = false;
-            throw new Error(
-              'error: Your local changes to the following files would be overwritten by checkout'
+            return errAsync(
+              new CommandFailedError(
+                1,
+                '',
+                'error: Your local changes to the following files would be overwritten by checkout'
+              )
             );
           }
           calls.push({ ref, options });
+          return okAsync(undefined);
         },
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
       });
@@ -667,14 +698,19 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const calls: CheckoutCall[] = [];
       let throwOnce = true;
       const gitService = createMockGitService({
-        checkout: async (_repo, ref, options) => {
+        checkout: (_repo, ref, options) => {
           if (throwOnce) {
             throwOnce = false;
-            throw new Error(
-              'error: Your local changes to the following files would be overwritten by checkout'
+            return errAsync(
+              new CommandFailedError(
+                1,
+                '',
+                'error: Your local changes to the following files would be overwritten by checkout'
+              )
             );
           }
           calls.push({ ref, options });
+          return okAsync(undefined);
         },
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
       });
@@ -701,7 +737,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async () => {},
+        checkout: () => okAsync(undefined),
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
           success: false,
           conflicts: ['file1.ts', 'file2.ts', 'file3.ts'],
@@ -1009,11 +1045,12 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
               commitDate: new Date(0),
             },
           ],
-          cherryPick: async () => ({
-            success: false,
-            conflicts: [],
-            failureReason: 'fatal: bad object abc1234',
-          }),
+          cherryPick: () =>
+            okAsync({
+              success: false,
+              conflicts: [],
+              failureReason: 'fatal: bad object abc1234',
+            }),
         });
         const branchTreeProvider = createMockBranchTreeProvider(gitService);
         const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1081,9 +1118,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const warningTracker = installWarningMessageTracker(undefined);
 
       const gitService = createMockGitService({
-        checkout: async () => {
-          throw new Error(WORKTREE_FATAL);
-        },
+        checkout: () => errAsync(new CommandFailedError(1, '', WORKTREE_FATAL)),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1107,9 +1142,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const warningTracker = installWarningMessageTracker(undefined);
 
       const gitService = createMockGitService({
-        checkout: async () => {
-          throw new Error(WORKTREE_FATAL);
-        },
+        checkout: () => errAsync(new CommandFailedError(1, '', WORKTREE_FATAL)),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1132,9 +1165,14 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       const gitService = createMockGitService({
         getBranches: async () => [],
-        checkout: async () => {
-          throw new Error("fatal: 'main' is already used by worktree at '/repos/proj-feature'");
-        },
+        checkout: () =>
+          errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              "fatal: 'main' is already used by worktree at '/repos/proj-feature'"
+            )
+          ),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1160,9 +1198,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async () => {
-          throw new Error('fatal: invalid reference: nonexistent-branch');
-        },
+        checkout: () =>
+          errAsync(new CommandFailedError(1, '', 'fatal: invalid reference: nonexistent-branch')),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1189,8 +1226,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
-        fetch: async () => {
-          throw new Error('Network error: could not resolve host');
+        fetch: () => {
+          return errAsync(new SpawnFailedError('Network error: could not resolve host'));
         },
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -1210,8 +1247,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
-        push: async () => {
-          throw new Error('rejected: non-fast-forward');
+        push: () => {
+          return errAsync(new SpawnFailedError('rejected: non-fast-forward'));
         },
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -1231,9 +1268,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async () => {
-          throw new Error('fatal: invalid reference: nonexistent-branch');
-        },
+        checkout: () =>
+          errAsync(new CommandFailedError(1, '', 'fatal: invalid reference: nonexistent-branch')),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1278,8 +1314,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        push: async (_repo: IRepository, options?: IPushOptions) => {
+        push: (_repo: IRepository, options?: IPushOptions) => {
           pushOptions = options;
+          return okAsync(undefined);
         },
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -1313,8 +1350,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
-        push: async () => {
-          throw new Error(RAW);
+        push: () => {
+          return errAsync(new SpawnFailedError(RAW));
         },
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -1376,14 +1413,18 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const gitService = createMockGitService({
         getRepositories: () => [repo],
         getRepository: async () => repo,
-        deleteBranch: async (_repo, name, force) => {
+        deleteBranch: (_repo, name, force) => {
           deleteCalls.push({ name, force });
           if (force === true) {
-            return; // success
+            return okAsync(undefined); // success
           }
-          throw new Error(
-            "error: the branch 'test-branch' is not fully merged.\n" +
-              "If you are sure you want to delete it, run 'git branch -D test-branch'."
+          return errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              "error: the branch 'test-branch' is not fully merged.\n" +
+                "If you are sure you want to delete it, run 'git branch -D test-branch'."
+            )
           );
         },
       });
@@ -1429,9 +1470,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const gitService = createMockGitService({
         getRepositories: () => [repo],
         getRepository: async () => repo,
-        deleteBranch: async (_repo, _name, force) => {
+        deleteBranch: (_repo, _name, force) => {
           deleteCalls.push({ force });
-          throw new Error("error: the branch 'test-branch' is not fully merged.");
+          return errAsync(
+            new CommandFailedError(1, '', "error: the branch 'test-branch' is not fully merged.")
+          );
         },
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -1457,9 +1500,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const gitService = createMockGitService({
         getRepositories: () => [repo],
         getRepository: async () => repo,
-        deleteBranch: async () => {
-          throw new Error("error: branch 'test-branch' not found.");
-        },
+        deleteBranch: () =>
+          errAsync(new CommandFailedError(1, '', "error: branch 'test-branch' not found.")),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -1601,9 +1643,10 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         }),
         // reloadRepository reports the orphaned rebasing state our call left.
         reloadRepository: async () => rebasingRepoSnapshot(),
-        rebaseAbort: async () => {
+        rebaseAbort: () => {
           abortCalled = true;
           events.push('rebaseAbort');
+          return okAsync(undefined);
         },
       });
       // before.inProgress is absent → our call created the rebasing state.
@@ -1637,8 +1680,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
           failureReason: 'error: it seems that there is already a rebase-merge directory',
         }),
         reloadRepository: async () => rebasingRepoSnapshot(),
-        rebaseAbort: async () => {
+        rebaseAbort: () => {
           abortCalled = true;
+          return okAsync(undefined);
         },
       });
       // before.inProgress.kind === 'rebasing' → the user already had a rebase

@@ -272,12 +272,23 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     // any remote (edge case — the push will still fail informatively).
     let remoteName = 'origin';
     try {
-      const remotes = await gitService.getRemotes(repo);
+      const remotes = await gitService.getRemotes(repo).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
       if (remotes.length > 0) {
         remoteName = remotes[0].name;
       }
-    } catch {
-      // Non-fatal — the push below surfaces the real error.
+    } catch (error) {
+      // Non-fatal — the push below surfaces the real error; the toast just
+      // falls back to 'origin'. Log so the swallowed fault stays visible.
+      getLogger()
+        .child({ component: 'extension' })
+        .debug('pushAllTags: remote resolution failed', {
+          err: error instanceof Error ? error.message : String(error),
+        });
     }
     try {
       await vscode.window.withProgress(
@@ -343,7 +354,13 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
           title: 'Fetching from all remotes…',
           cancellable: false,
         },
-        () => gitService.fetch(repo, { all: true, prune: true })
+        () =>
+          gitService.fetch(repo, { all: true, prune: true }).match(
+            (r) => r,
+            (e) => {
+              throw e;
+            }
+          )
       );
 
       // Reset auto-fetch backoff so the next scheduled tick isn't right on top
@@ -553,13 +570,23 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     if (repo) {
       try {
         branches = await gitService.getBranches(repo);
-      } catch {
-        /* ignore — fall through to SHA-only matching */
+      } catch (error) {
+        // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+        getLogger()
+          .child({ component: 'extension' })
+          .debug('findCommit: getBranches failed', {
+            err: error instanceof Error ? error.message : String(error),
+          });
       }
       try {
         tags = await gitService.getTags(repo);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+        getLogger()
+          .child({ component: 'extension' })
+          .debug('findCommit: getTags failed', {
+            err: error instanceof Error ? error.message : String(error),
+          });
       }
     }
 
@@ -607,7 +634,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       // for nested/multi-root repos (see repoRelativePath).
       const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
       try {
-        await gitService.stage(repo, [filePath]);
+        await gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Staged: ${filePath}`);
         // Refresh views
         if (ctx.gitToolWindowProvider) {
@@ -648,7 +680,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       // for nested/multi-root repos (see repoRelativePath).
       const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
       try {
-        await gitService.unstage(repo, [filePath]);
+        await gitService.unstage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
         // Refresh views
         if (ctx.gitToolWindowProvider) {
@@ -885,7 +922,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     }
 
     try {
-      await gitService.revertFile(repo, filePath);
+      await gitService.revertFile(repo, filePath).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
       if (ctx.gitToolWindowProvider) {
         ctx.gitToolWindowProvider.refresh();
@@ -965,7 +1007,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       try {
         // Untracked files reach this point only because the user explicitly
         // selected them, so honor the include-to-delete contract.
-        await gitService.rollbackChanges(repo, changes, { deleteUntracked: true });
+        await gitService.rollbackChanges(repo, changes, { deleteUntracked: true }).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         void vscode.window.showInformationMessage(`Rolled back ${changes.length} file(s).`);
         ctx.gitToolWindowProvider?.refresh();
       } catch (error) {

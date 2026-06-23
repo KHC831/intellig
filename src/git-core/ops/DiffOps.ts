@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ResultAsync } from 'neverthrow';
 import {
   IRepository,
   IDiff,
@@ -7,6 +8,7 @@ import {
   CherryMark,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import { GitError, classifyGitCommandError } from '../errors';
 import { parseDiff, parseBlame } from '../gitParser';
 import { sortCommitsStable } from '../commitSort';
 import { diffIgnorePolicyFlags, normalizeDiffIgnorePolicy } from '../diffIgnorePolicy';
@@ -86,6 +88,7 @@ export class DiffOps {
           out.set(hash, mark);
         }
       }
+      // eslint-disable-next-line no-restricted-syntax -- cherry marks are a non-essential visual cue; the UI degrades to "no highlights" rather than surfacing an error toast.
     } catch {
       // Swallow — the UI degrades to "no highlights" rather than surfacing
       // an error toast for a non-essential visual cue.
@@ -93,7 +96,7 @@ export class DiffOps {
     return out;
   }
 
-  async getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff> {
+  getDiff(repo: IRepository, path: string, staged?: boolean): ResultAsync<IDiff, GitError> {
     const args = ['diff'];
     if (staged) {
       args.push('--cached');
@@ -101,21 +104,21 @@ export class DiffOps {
     args.push(...this.whitespaceFlags());
     args.push('--', path);
 
-    const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    const diffs = parseDiff(result.stdout);
-
-    // Return the first diff or an empty diff
-    return (
-      diffs[0] || {
-        path,
-        status: 'modified',
-        hunks: [],
-        binary: false,
-      }
-    );
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath }),
+      classifyGitCommandError
+    ).map((result) => {
+      const diffs = parseDiff(result.stdout);
+      // Return the first diff or an empty diff
+      return diffs[0] || { path, status: 'modified', hunks: [], binary: false };
+    });
   }
 
-  async getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
+  getCommitDiff(repo: IRepository, hash: string): ResultAsync<IDiff[], GitError> {
+    return ResultAsync.fromPromise(this._commitDiff(repo, hash), classifyGitCommandError);
+  }
+
+  private async _commitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
     // `hash` is user-controlled; splice via buildGitArgs so a
     // hostile ref like `--upload-pack=evil` cannot land as a flag.
     const result = await this.ctx.gitCli.exec(
@@ -140,14 +143,18 @@ export class DiffOps {
    * @param commits - Array of commit hashes (can be in any order)
    * @returns Array of diffs representing the combined changes
    */
-  async getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
+  getMultiCommitDiff(repo: IRepository, commits: string[]): ResultAsync<IDiff[], GitError> {
+    return ResultAsync.fromPromise(this._multiCommitDiff(repo, commits), classifyGitCommandError);
+  }
+
+  private async _multiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
     if (commits.length === 0) {
       return [];
     }
 
     // For a single commit, just return its diff
     if (commits.length === 1) {
-      return this.getCommitDiff(repo, commits[0]);
+      return this._commitDiff(repo, commits[0]);
     }
 
     const cwd = repo.rootUri.fsPath;
@@ -228,7 +235,20 @@ export class DiffOps {
    * Uses `git diff --name-status -z <ref>` for robust parsing (NUL-delimited,
    * so paths with whitespace or non-ASCII characters are handled correctly).
    */
-  async getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
+  getChangedFilesAgainstWorkingTree(
+    repo: IRepository,
+    ref: string
+  ): ResultAsync<IRefDiffFile[], GitError> {
+    return ResultAsync.fromPromise(
+      this._changedFilesAgainstWorkingTree(repo, ref),
+      classifyGitCommandError
+    );
+  }
+
+  private async _changedFilesAgainstWorkingTree(
+    repo: IRepository,
+    ref: string
+  ): Promise<IRefDiffFile[]> {
     // `ref` is user-controlled; splice via buildGitArgs.
     const result = await this.ctx.gitCli.exec(
       buildGitArgs('diff', ['--name-status', '-z'], [ref]),
@@ -306,21 +326,26 @@ export class DiffOps {
    *
    * Used by the Git tool window's branch-focus feature.
    */
-  async getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
-    try {
-      const result = await this.ctx.gitCli.exec(['merge-base', '--end-of-options', refA, refB], {
+  getMergeBase(
+    repo: IRepository,
+    refA: string,
+    refB: string
+  ): ResultAsync<string | undefined, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['merge-base', '--end-of-options', refA, refB], {
         cwd: repo.rootUri.fsPath,
-      });
+      }),
+      classifyGitCommandError
+    ).map((result) => {
+      // A non-zero exit (no common ancestor, unknown refs, …) or empty output
+      // is the expected domain absence → Ok(undefined). A spawn/system fault
+      // arrives as an Err above and is NOT collapsed into "no merge base".
       if (result.exitCode !== 0) {
         return undefined;
       }
       const sha = result.stdout.trim();
       return sha.length > 0 ? sha : undefined;
-    } catch {
-      // Defensive: GitCli throws on spawn errors / disposed repos.
-      // Trap T-8 — caller treats undefined as "no path-to-merge-base".
-      return undefined;
-    }
+    });
   }
 
   /**
@@ -342,29 +367,28 @@ export class DiffOps {
    * not exist at that revision (git exits non-zero) — the caller surfaces an
    * empty document rather than an error for the common "added later" case.
    */
-  async getFileAtRevision(repo: IRepository, path: string, rev: string): Promise<string> {
-    const result = await this.ctx.gitCli.exec(buildGitArgs('show', [], [`${rev}:${path}`]), {
-      cwd: repo.rootUri.fsPath,
-    });
-    if (result.exitCode !== 0) {
-      return '';
-    }
-    return result.stdout;
+  getFileAtRevision(repo: IRepository, path: string, rev: string): ResultAsync<string, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(buildGitArgs('show', [], [`${rev}:${path}`]), {
+        cwd: repo.rootUri.fsPath,
+      }),
+      classifyGitCommandError
+      // A non-zero exit (the file does not exist at that revision) is the
+      // expected domain absence → empty content. A spawn/system fault arrives
+      // as an Err above and is NOT collapsed into "".
+    ).map((result) => (result.exitCode !== 0 ? '' : result.stdout));
   }
 
-  async getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
+  getBlame(repo: IRepository, path: string): ResultAsync<IBlameLine[], GitError> {
     // `path` is user-controlled; splice with `--` separator
     // via buildGitArgs so a path that starts with `-` cannot collapse
     // into a flag (e.g., `--git-dir=evil`).
-    const result = await this.ctx.gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseBlame(result.stdout);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
+        cwd: repo.rootUri.fsPath,
+      }),
+      classifyGitCommandError
+    ).map((result) => (result.exitCode !== 0 ? [] : parseBlame(result.stdout)));
   }
 }
 

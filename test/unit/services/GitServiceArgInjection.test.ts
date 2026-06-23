@@ -348,20 +348,16 @@ describe('Wave I — GitService argv-injection safety', () => {
 
   describe('Wave I R1 — leading-dash service-boundary guards', () => {
     describe('deleteBranch()', () => {
-      it('rejects a leading-dash branch name with `Invalid branch name`', async () => {
-        await assert.rejects(
-          async () => gitService.deleteBranch(mockRepo, '-foo'),
-          /Invalid branch name/,
-          'deleteBranch must reject names starting with `-`'
-        );
+      it('refuses a leading-dash branch name with `Invalid branch name`', async () => {
+        const result = await gitService.deleteBranch(mockRepo, '-foo');
+        assert.ok(result.isErr(), 'deleteBranch must refuse names starting with `-`');
+        assert.match(result.error.message, /Invalid branch name/);
       });
 
-      it('rejects a leading-dot branch name with `Invalid branch name`', async () => {
-        await assert.rejects(
-          async () => gitService.deleteBranch(mockRepo, '.hidden'),
-          /Invalid branch name/,
-          'deleteBranch must reject names starting with `.`'
-        );
+      it('refuses a leading-dot branch name with `Invalid branch name`', async () => {
+        const result = await gitService.deleteBranch(mockRepo, '.hidden');
+        assert.ok(result.isErr(), 'deleteBranch must refuse names starting with `.`');
+        assert.match(result.error.message, /Invalid branch name/);
       });
 
       it('safe argv for legitimate names: `branch -d --end-of-options <name>`', async () => {
@@ -373,20 +369,16 @@ describe('Wave I — GitService argv-injection safety', () => {
     });
 
     describe('renameBranch()', () => {
-      it('rejects a leading-dash oldName', async () => {
-        await assert.rejects(
-          async () => gitService.renameBranch(mockRepo, '-old', 'new'),
-          /Invalid branch name/,
-          'renameBranch must reject oldName starting with `-`'
-        );
+      it('refuses a leading-dash oldName', async () => {
+        const result = await gitService.renameBranch(mockRepo, '-old', 'new');
+        assert.ok(result.isErr(), 'renameBranch must refuse oldName starting with `-`');
+        assert.match(result.error.message, /Invalid branch name/);
       });
 
-      it('rejects a leading-dash newName', async () => {
-        await assert.rejects(
-          async () => gitService.renameBranch(mockRepo, 'old', '-new'),
-          /Invalid branch name/,
-          'renameBranch must reject newName starting with `-`'
-        );
+      it('refuses a leading-dash newName', async () => {
+        const result = await gitService.renameBranch(mockRepo, 'old', '-new');
+        assert.ok(result.isErr(), 'renameBranch must refuse newName starting with `-`');
+        assert.match(result.error.message, /Invalid branch name/);
       });
 
       it('safe argv for legitimate names: `branch -m --end-of-options <old> <new>`', async () => {
@@ -400,19 +392,19 @@ describe('Wave I — GitService argv-injection safety', () => {
 
     describe('createTag()', () => {
       it('rejects a leading-dash tag name with `Invalid tag name`', async () => {
-        await assert.rejects(
-          async () => gitService.createTag(mockRepo, '-foo'),
-          /Invalid tag name/,
-          'createTag must reject names starting with `-`'
-        );
+        {
+          const __r = await gitService.createTag(mockRepo, '-foo');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Invalid tag name/);
+        }
       });
 
       it('rejects a leading-dot tag name with `Invalid tag name`', async () => {
-        await assert.rejects(
-          async () => gitService.createTag(mockRepo, '.hidden'),
-          /Invalid tag name/,
-          'createTag must reject names starting with `.`'
-        );
+        {
+          const __r = await gitService.createTag(mockRepo, '.hidden');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Invalid tag name/);
+        }
       });
 
       it('safe argv (lightweight): `tag --end-of-options <name>`', async () => {
@@ -437,11 +429,11 @@ describe('Wave I — GitService argv-injection safety', () => {
 
     describe('deleteTag()', () => {
       it('rejects a leading-dash tag name with `Invalid tag name`', async () => {
-        await assert.rejects(
-          async () => gitService.deleteTag(mockRepo, '-foo'),
-          /Invalid tag name/,
-          'deleteTag must reject names starting with `-`'
-        );
+        {
+          const __r = await gitService.deleteTag(mockRepo, '-foo');
+          assert.ok(__r.isErr());
+          assert.match(__r._unsafeUnwrapErr().message, /Invalid tag name/);
+        }
       });
 
       it('safe argv: `tag -d --end-of-options <name>`', async () => {

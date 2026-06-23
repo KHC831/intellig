@@ -122,6 +122,7 @@ export abstract class BaseWebviewPanel {
       if (d) {
         try {
           d.dispose();
+          // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad disposable doesn't block cleanup of the rest; nothing actionable during teardown.
         } catch {
           // Swallow disposal errors so one bad disposable doesn't block cleanup.
         }

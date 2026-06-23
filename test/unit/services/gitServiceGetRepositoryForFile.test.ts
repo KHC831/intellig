@@ -19,7 +19,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { GitError, SpawnFailedError } from '../../../src/git-core/errors';
 import { Uri } from '../../mocks/vscode';
 
 class RecordingGitCli {
@@ -30,25 +32,27 @@ class RecordingGitCli {
     return { exitCode: 0, stdout: '', stderr: '', combined: '' };
   }
 
-  async getRepositoryRoot(p: string): Promise<string | undefined> {
+  getRepositoryRoot(p: string): ResultAsync<string | undefined, GitError> {
     this.rootCwds.push(p);
-    // Emulate git: a file cwd is invalid. Only a directory resolves.
+    // Emulate git faithfully: a file (or missing) cwd makes spawn throw
+    // ENOTDIR/ENOENT — a SYSTEM fault surfaced as a typed Err, NEVER a
+    // domain "not a repo" Ok(undefined). Only a real directory resolves.
     let dir = p;
     try {
       if (!fs.statSync(p).isDirectory()) {
-        return undefined;
+        return errAsync(new SpawnFailedError('spawn ENOTDIR'));
       }
     } catch {
-      return undefined;
+      return errAsync(new SpawnFailedError('spawn ENOENT'));
     }
     // Walk up to the temp repo root marker (.git dir present).
     while (dir !== path.dirname(dir)) {
       if (fs.existsSync(path.join(dir, '.git'))) {
-        return fs.realpathSync.native(dir);
+        return okAsync(fs.realpathSync.native(dir));
       }
       dir = path.dirname(dir);
     }
-    return undefined;
+    return okAsync(undefined);
   }
 
   dispose(): void {}

@@ -44,7 +44,9 @@
 import '../../setup';
 import * as assert from 'assert';
 
+import { ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { GitError } from '../../../src/git-core/errors';
 import { Uri } from '../../mocks/vscode';
 
 /** Test-only handle to the GitService internals exercised here. */
@@ -72,10 +74,12 @@ class HangingStubGitCli {
   /** Number of pending exec calls that are currently waiting. */
   execPending = 0;
 
-  async getRepositoryRoot(_p: string): Promise<string | undefined> {
-    return new Promise<string | undefined>((resolve) => {
-      this.rootResolve = resolve;
-    });
+  getRepositoryRoot(_p: string): ResultAsync<string | undefined, GitError> {
+    return ResultAsync.fromSafePromise(
+      new Promise<string | undefined>((resolve) => {
+        this.rootResolve = resolve;
+      })
+    );
   }
 
   async exec(_args: string[]): Promise<ExecResult> {

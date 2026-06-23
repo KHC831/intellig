@@ -252,6 +252,7 @@ export class BlameOptionsSource {
       const d = this._disposables.pop();
       try {
         d?.dispose();
+        // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad disposable doesn't block cleanup of the rest; nothing actionable during teardown.
       } catch {
         // ignore
       }

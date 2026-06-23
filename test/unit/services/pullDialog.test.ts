@@ -28,6 +28,7 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
@@ -50,6 +51,7 @@ import {
   IRepository,
 } from '../../../src/git-core/interfaces/IGitService';
 import { GitCommandError, IGitCommandResult } from '../../../src/git-core/gitCli';
+import { classifyGitCommandError } from '../../../src/git-core/errors';
 import { IConflictResolutionService } from '../../../src/conflicts/interfaces/IConflictResolutionService';
 import { Uri } from '../../mocks/vscode';
 
@@ -134,11 +136,12 @@ function createHarness(options: HarnessOptionsWithConflict = {}): HarnessState {
 
   const gitService = {
     getBranches: async () => branches,
-    pull: async (r: IRepository, opts?: IPullOptions) => {
+    pull: (r: IRepository, opts?: IPullOptions) => {
       pullCalls.push({ repo: r, options: opts });
       if (options.pullError) {
         throw options.pullError;
       }
+      return okAsync(undefined);
     },
   } as unknown as IGitService;
 
@@ -432,6 +435,42 @@ describe('PullDialog — pure helpers', () => {
       // blind spot the old `.message`-only classifier had.
       assert.ok(!/CONFLICT/i.test(err.message), 'precondition: marker not on .message');
       assert.strictEqual(isConflictError(err), true);
+    });
+
+    // The PRODUCTION path: the ops layer wraps exec with
+    // `fromPromise(.., classifyGitCommandError)`, so PullDialog never sees the
+    // raw GitCommandError — it sees the CLASSIFIED CommandFailedError. The case
+    // above (asserting on the raw error, which carries `.result.combined`
+    // natively) would stay green even if `classify` dropped `.result`; this one
+    // proves the stdout-only marker survives classification, which is the only
+    // reason the pull-conflict route still works post-Result-conversion.
+    it('a classified stdout-only conflict (production path) still routes through isConflictError', () => {
+      const result: IGitCommandResult = {
+        exitCode: 1,
+        stdout:
+          'Auto-merging src/foo.ts\nCONFLICT (content): Merge conflict in src/foo.ts\n' +
+          'Automatic merge failed; fix conflicts and then commit the result.',
+        // stderr is non-empty but carries NO conflict marker — so neither stderr
+        // nor the GitCommandError.message (= stderr || stdout → stderr) classify.
+        stderr: 'hint: Waiting for your editor to close the file...',
+        combined:
+          'Auto-merging src/foo.ts\nCONFLICT (content): Merge conflict in src/foo.ts\n' +
+          'Automatic merge failed; fix conflicts and then commit the result.\n' +
+          'hint: Waiting for your editor to close the file...',
+      };
+      const classified = classifyGitCommandError(new GitCommandError('git', ['pull'], result));
+      // Precondition: the classified error's `.message` does NOT carry the
+      // marker, so a `.message`-only check would miss it — the guard only holds
+      // if `classify` preserved `.result.combined`.
+      assert.ok(
+        !/CONFLICT/i.test(classified.message),
+        'precondition: marker not on the classified error message'
+      );
+      assert.strictEqual(
+        isConflictError(classified),
+        true,
+        'classify must preserve .result.combined so the stdout-only conflict still routes'
+      );
     });
 
     it('does not match a GitCommandError with no conflict marker on any stream', () => {

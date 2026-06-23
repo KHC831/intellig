@@ -186,6 +186,7 @@ export function atomicWriteFileSync(
       if (fsImpl.existsSync(tmpPath)) {
         fsImpl.unlinkSync(tmpPath);
       }
+      // eslint-disable-next-line no-restricted-syntax -- best-effort temp-file cleanup; swallow secondary errors so the caller sees the original failure rethrown below (see JSDoc).
     } catch {
       /* deliberate swallow — see JSDoc */
     }
@@ -241,6 +242,7 @@ export async function atomicWriteFile(
       if (await fsImpl.exists(tmpPath)) {
         await fsImpl.unlink(tmpPath);
       }
+      // eslint-disable-next-line no-restricted-syntax -- best-effort temp-file cleanup; swallow secondary errors so the caller sees the original failure rethrown below (see JSDoc).
     } catch {
       /* deliberate swallow — see JSDoc */
     }

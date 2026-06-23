@@ -1,3 +1,4 @@
+import { ResultAsync, ok, err, errAsync } from 'neverthrow';
 import {
   IRepository,
   IBranch,
@@ -11,6 +12,12 @@ import {
   IBranchComparison,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import {
+  GitError,
+  CommandFailedError,
+  InvalidArgumentError,
+  classifyGitCommandError,
+} from '../errors';
 import {
   parseBranches,
   parseStatus,
@@ -62,20 +69,36 @@ function rebaseOptionFlags(options?: IRebaseOptions): string[] {
 export class BranchOps {
   constructor(private readonly ctx: IGitOpsContext) {}
 
-  async getBranches(repo: IRepository): Promise<IBranch[]> {
+  getBranches(repo: IRepository): ResultAsync<IBranch[], GitError> {
     const format = getBranchFormat();
-    const result = await this.ctx.gitCli.exec(['branch', '-a', '--format', format], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseBranches(result.stdout);
+    // `git branch -a` exits 0 on any real repo (even one with no commits yet),
+    // so a non-zero exit is a genuine failure (not-a-repo / system) → Err,
+    // never a silent empty list.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['branch', '-a', '--format', format], { cwd: repo.rootUri.fsPath }),
+      classifyGitCommandError
+    ).andThen((result) =>
+      result.exitCode !== 0
+        ? err(new CommandFailedError(result.exitCode, result.stderr))
+        : ok(parseBranches(result.stdout))
+    );
   }
 
-  async createBranch(
+  createBranch(
+    repo: IRepository,
+    name: string,
+    startPointOrOptions?: string | ICreateBranchOptions
+  ): ResultAsync<void, GitError> {
+    // Pattern (b): the body branches across multiple exec paths (checkout-create
+    // vs `branch`) and validates the name; a validation reject (InvalidArgumentError)
+    // or any non-zero exit (throwOnError) is classified into the Err channel.
+    return ResultAsync.fromPromise(
+      this._createBranch(repo, name, startPointOrOptions),
+      classifyGitCommandError
+    );
+  }
+
+  private async _createBranch(
     repo: IRepository,
     name: string,
     startPointOrOptions?: string | ICreateBranchOptions
@@ -92,7 +115,7 @@ export class BranchOps {
     // git-check-ref-format). Mirrors the `resetToCommit` isValidRef guard
     // and defends against upstream callers that skipped validateBranchName.
     if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${name}`);
+      throw new InvalidArgumentError(`Invalid branch name: ${name}`);
     }
 
     // When `checkout: true`, use `git checkout -[B] <name> <startPoint>`
@@ -140,7 +163,25 @@ export class BranchOps {
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void> {
+  checkout(
+    repo: IRepository,
+    ref: string,
+    options?: ICheckoutOptions
+  ): ResultAsync<void, GitError> {
+    // Pattern (b): the body branches across multiple checkout layouts and
+    // validates the startpoint; a validation reject (InvalidArgumentError) or
+    // any non-zero exit (throwOnError) is classified into the Err channel. The
+    // thrown CommandFailedError preserves `result.combined`, so callers that
+    // inspect conflict output (combinedGitErrorText / isConflictError) keep
+    // working through their `.match` Err arm.
+    return ResultAsync.fromPromise(this._checkout(repo, ref, options), classifyGitCommandError);
+  }
+
+  private async _checkout(
+    repo: IRepository,
+    ref: string,
+    options?: ICheckoutOptions
+  ): Promise<void> {
     // Splice `--end-of-options` between flag args and the ref
     // to reject argv injection via a hostile branch name (e.g.
     // `--upload-pack=evil`).
@@ -172,7 +213,7 @@ export class BranchOps {
     // adjacency.
     if (options?.forceCreate) {
       if (options.track && (options.track.startsWith('-') || options.track.startsWith('.'))) {
-        throw new Error(`Invalid start point: ${options.track}`);
+        throw new InvalidArgumentError(`Invalid start point: ${options.track}`);
       }
       const args = ['checkout', '-B', ref];
       if (options.force) {
@@ -215,18 +256,22 @@ export class BranchOps {
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
+  deleteBranch(repo: IRepository, name: string, force?: boolean): ResultAsync<void, GitError> {
     // service-boundary reject branch names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
     // `--end-of-options` between the `-d`/`-D` flag and the user-controlled
     // name as structural defense in depth.
     if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${name}`);
+      return errAsync(new InvalidArgumentError(`Invalid branch name: ${name}`));
     }
     const args = buildGitArgs('branch', [force ? '-D' : '-d'], [name]);
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
   /**
@@ -241,42 +286,65 @@ export class BranchOps {
    * the same guard — the form is `<remote>/<branch>` and either segment
    * starting with `-`/`.` is rejected.
    */
-  async setBranchUpstream(
+  setBranchUpstream(
     repo: IRepository,
     localName: string,
     upstreamRef: string
-  ): Promise<void> {
+  ): ResultAsync<void, GitError> {
     if (!localName || localName.startsWith('-') || localName.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${localName}`);
+      return errAsync(new InvalidArgumentError(`Invalid branch name: ${localName}`));
     }
     if (!upstreamRef || upstreamRef.startsWith('-') || upstreamRef.startsWith('.')) {
-      throw new Error(`Invalid upstream ref: ${upstreamRef}`);
+      return errAsync(new InvalidArgumentError(`Invalid upstream ref: ${upstreamRef}`));
     }
     const args = buildGitArgs('branch', [`--set-upstream-to=${upstreamRef}`], [localName]);
-    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
   }
 
-  async renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
+  renameBranch(repo: IRepository, oldName: string, newName: string): ResultAsync<void, GitError> {
     // service-boundary reject either name starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
     // `--end-of-options` between the `-m` flag and the user-controlled
     // names as structural defense in depth.
     if (!oldName || oldName.startsWith('-') || oldName.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${oldName}`);
+      return errAsync(new InvalidArgumentError(`Invalid branch name: ${oldName}`));
     }
     if (!newName || newName.startsWith('-') || newName.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${newName}`);
+      return errAsync(new InvalidArgumentError(`Invalid branch name: ${newName}`));
     }
-    await this.ctx.gitCli.exec(buildGitArgs('branch', ['-m'], [oldName, newName]), {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(buildGitArgs('branch', ['-m'], [oldName, newName]), {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async mergeBranch(
+  mergeBranch(
+    repo: IRepository,
+    branch: string,
+    options?: IMergeOptions
+  ): ResultAsync<IMergeResult, GitError> {
+    // Pattern (b): the merge body self-detects conflicts via its own
+    // `status --porcelain` read and never throws on a non-zero git exit
+    // (domain conflicts/failures land in Ok(IMergeResult)). Only a spawn/system
+    // fault rejects → classified Err → the façade degrades.
+    return ResultAsync.fromPromise(
+      this._mergeBranch(repo, branch, options),
+      classifyGitCommandError
+    );
+  }
+
+  private async _mergeBranch(
     repo: IRepository,
     branch: string,
     options?: IMergeOptions
@@ -357,7 +425,22 @@ export class BranchOps {
    * @param onto - The branch to rebase onto
    * @returns Rebase result with success status and any conflicts
    */
-  async rebaseBranch(
+  rebaseBranch(
+    repo: IRepository,
+    onto: string,
+    options?: IRebaseOptions
+  ): ResultAsync<IBasicRebaseResult, GitError> {
+    // Pattern (b): the rebase body self-detects conflicts via its own
+    // `status --porcelain` read and returns a structured IBasicRebaseResult for
+    // both success and domain failures. A validation reject (InvalidArgumentError)
+    // or spawn/system fault is classified into the Err channel → façade degrades.
+    return ResultAsync.fromPromise(
+      this._rebaseBranch(repo, onto, options),
+      classifyGitCommandError
+    );
+  }
+
+  private async _rebaseBranch(
     repo: IRepository,
     onto: string,
     options?: IRebaseOptions
@@ -374,7 +457,7 @@ export class BranchOps {
     // guards). The newbase is the argument of `--onto` and is consumed
     // positionally by git's option parser, but we reject defensively anyway.
     if (options?.newBase && (options.newBase.startsWith('-') || options.newBase.startsWith('.'))) {
-      throw new Error(`Invalid rebase newbase: ${options.newBase}`);
+      throw new InvalidArgumentError(`Invalid rebase newbase: ${options.newBase}`);
     }
     // `--update-refs` HARD-ERRORS on git < 2.38 ("unknown option `update-refs'"),
     // which would abort the rebase with a cryptic message. Pre-flight the git
@@ -484,7 +567,13 @@ export class BranchOps {
    * palette command) gate with a single confirm modal per safety policy
    * (feedback_data_loss_confirms.md — no double-confirm).
    */
-  async rebaseSkip(repo: IRepository): Promise<IBasicRebaseResult> {
+  rebaseSkip(repo: IRepository): ResultAsync<IBasicRebaseResult, GitError> {
+    // Pattern (b): structured result for success/conflict; only a spawn/system
+    // fault rejects → classified Err → the façade degrades.
+    return ResultAsync.fromPromise(this._rebaseSkip(repo), classifyGitCommandError);
+  }
+
+  private async _rebaseSkip(repo: IRepository): Promise<IBasicRebaseResult> {
     const result = await this.ctx.gitCli.exec(['rebase', '--skip'], {
       cwd: repo.rootUri.fsPath,
     });
@@ -525,12 +614,16 @@ export class BranchOps {
    *
    * @param repo - The repository
    */
-  async rebaseAbort(repo: IRepository): Promise<void> {
-    await this.ctx.gitCli.exec(['rebase', '--abort'], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+  rebaseAbort(repo: IRepository): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['rebase', '--abort'], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -548,7 +641,13 @@ export class BranchOps {
    *
    * @param repo - The repository
    */
-  async rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
+  rebaseContinue(repo: IRepository): ResultAsync<IBasicRebaseResult, GitError> {
+    // Pattern (b): structured result for success/conflict; only a spawn/system
+    // fault rejects → classified Err → the façade degrades.
+    return ResultAsync.fromPromise(this._rebaseContinue(repo), classifyGitCommandError);
+  }
+
+  private async _rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
     const result = await this.ctx.gitCli.exec(['rebase', '--continue'], {
       cwd: repo.rootUri.fsPath,
     });
@@ -591,7 +690,22 @@ export class BranchOps {
    * @param branch2 - The second branch to compare against
    * @returns Branch comparison result with commits ahead/behind and changed files
    */
-  async compareBranches(
+  compareBranches(
+    repo: IRepository,
+    branch1: string,
+    branch2: string
+  ): ResultAsync<IBranchComparison, GitError> {
+    // Pattern (b): the comparison body tolerates a non-zero exit per-exec
+    // (each step gates on `exitCode === 0`), so a domain "no diff" lands in
+    // Ok(IBranchComparison). Only a spawn/system fault rejects → classified Err
+    // → the façade degrades to an empty comparison.
+    return ResultAsync.fromPromise(
+      this._compareBranches(repo, branch1, branch2),
+      classifyGitCommandError
+    );
+  }
+
+  private async _compareBranches(
     repo: IRepository,
     branch1: string,
     branch2: string

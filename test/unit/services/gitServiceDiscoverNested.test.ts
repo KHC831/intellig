@@ -17,7 +17,9 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { GitError } from '../../../src/git-core/errors';
 import * as vscodeMock from '../../mocks/vscode';
 import { IRepoScanFs } from '../../../src/git-core/repoScan';
 
@@ -36,9 +38,9 @@ class StubGitCliForDiscovery {
     this.rootByPath.set(query, root);
   }
 
-  async getRepositoryRoot(path: string): Promise<string | undefined> {
+  getRepositoryRoot(path: string): ResultAsync<string | undefined, GitError> {
     this.calls.push(path);
-    return this.rootByPath.get(path);
+    return okAsync(this.rootByPath.get(path));
   }
 
   async exec(

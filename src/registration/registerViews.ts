@@ -416,8 +416,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               branchMap.set(branch.commit, existing);
             }
           }
-        } catch {
-          // Branches are optional for graph rendering
+        } catch (error) {
+          // Branches are optional for graph rendering; log+degrade so the fault stays visible.
+          getLogger()
+            .child({ component: 'extension' })
+            .debug('graph load: getBranches failed', {
+              err: error instanceof Error ? error.message : String(error),
+            });
         }
 
         // Build tag map: commit hash -> tag names
@@ -431,8 +436,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               tagMap.set(tag.commit, existing);
             }
           }
-        } catch {
-          // Tags are optional for graph rendering
+        } catch (error) {
+          // Tags are optional for graph rendering; log+degrade so the fault stays visible.
+          getLogger()
+            .child({ component: 'extension' })
+            .debug('graph load: getTags failed', {
+              err: error instanceof Error ? error.message : String(error),
+            });
         }
 
         if (ctx.gitToolWindowProvider) {
@@ -577,9 +587,14 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           }
         }
         ctx.gitToolWindowProvider.setCherryPickedHashes(equivalent, baseRef);
-      } catch {
-        // Swallow — the feature degrades cleanly when git doesn't support
-        // --cherry-mark or the repo state is unusual.
+      } catch (error) {
+        // The feature degrades cleanly when git doesn't support --cherry-mark
+        // or the repo state is unusual; log+degrade so the fault stays visible.
+        getLogger()
+          .child({ component: 'extension' })
+          .debug('graph load: cherry-mark computation failed', {
+            err: error instanceof Error ? error.message : String(error),
+          });
       }
     };
 
@@ -725,8 +740,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
                   combinedBranchMap.set(branch.commit, existing);
                 }
               }
-            } catch {
-              // Branches are optional for graph rendering
+            } catch (error) {
+              // Branches are optional for graph rendering; log+degrade so the fault stays visible.
+              getLogger()
+                .child({ component: 'extension' })
+                .debug('graph load (merged): getBranches failed', {
+                  err: error instanceof Error ? error.message : String(error),
+                });
             }
             try {
               const tags = await gitService.getTags(repo);
@@ -737,8 +757,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
                   combinedTagMap.set(tag.commit, existing);
                 }
               }
-            } catch {
-              // Tags are optional
+            } catch (error) {
+              // Tags are optional for graph rendering; log+degrade so the fault stays visible.
+              getLogger()
+                .child({ component: 'extension' })
+                .debug('graph load (merged): getTags failed', {
+                  err: error instanceof Error ? error.message : String(error),
+                });
             }
           })
         );

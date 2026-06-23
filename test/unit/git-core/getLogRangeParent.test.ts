@@ -92,13 +92,17 @@ describe('StashTagHistoryOps.getLog — range filter', () => {
     assert.ok(calls[0].includes('main...feature'), 'symmetric range passed through');
   });
 
-  it('throws when the range starts with "." (invalid per git-check-ref-format)', async () => {
+  it('errs when the range starts with "." (invalid per git-check-ref-format)', async () => {
     const { ops } = makeOps();
-    await assert.rejects(() => ops.getLog(repo, { logRange: '.bad-range' }), /Invalid log range/);
+    const result = await ops.getLog(repo, { logRange: '.bad-range' });
+    assert.ok(result.isErr());
+    assert.match(result._unsafeUnwrapErr().message, /Invalid log range/);
   });
 
-  it('throws when the range starts with "-" (would smuggle a CLI flag)', async () => {
+  it('errs when the range starts with "-" (would smuggle a CLI flag)', async () => {
     const { ops } = makeOps();
-    await assert.rejects(() => ops.getLog(repo, { logRange: '-bad' }), /Invalid log range/);
+    const result = await ops.getLog(repo, { logRange: '-bad' });
+    assert.ok(result.isErr());
+    assert.match(result._unsafeUnwrapErr().message, /Invalid log range/);
   });
 });

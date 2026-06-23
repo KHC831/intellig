@@ -20,7 +20,11 @@ import type { PushDialog, IPushPreselect } from '../sync/PushDialog';
 import type { MergeDialog } from '../conflicts/MergeDialog';
 import type { RebaseDialog } from '../rebase/RebaseDialog';
 import type { NewBranchDialog } from './NewBranchDialog';
-import { sanitizeGitError, worktreeConflictMessage } from '../git-core/gitError';
+import {
+  sanitizeGitError,
+  formatActionFailureToast,
+  worktreeConflictMessage,
+} from '../git-core/gitError';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
 import type { IWorktreeCapableService, IWorktreeEntry } from '../git-core/ops/WorktreeOps';
 
@@ -377,16 +381,18 @@ export class BranchContextMenuCommands {
       }
     }
 
-    try {
-      await this._worktreeService().addWorktree(repo, {
-        path: worktreePath,
-        ref,
-        newBranch,
-      });
-    } catch (error) {
-      void vscode.window.showErrorMessage(
-        `Failed to create worktree: ${sanitizeGitError(error instanceof Error ? error.message : String(error))}`
+    const created = await this._worktreeService()
+      .addWorktree(repo, { path: worktreePath, ref, newBranch })
+      .match(
+        () => true,
+        (error) => {
+          void vscode.window.showErrorMessage(
+            formatActionFailureToast('Failed to create worktree', error)
+          );
+          return false;
+        }
       );
+    if (!created) {
       return;
     }
 
@@ -417,7 +423,20 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    const worktrees = await this._worktreeService().listWorktrees(repo);
+    const worktrees = await this._worktreeService()
+      .listWorktrees(repo)
+      .match(
+        (list) => list,
+        (error) => {
+          void vscode.window.showErrorMessage(
+            formatActionFailureToast('Failed to list worktrees', error)
+          );
+          return undefined;
+        }
+      );
+    if (!worktrees) {
+      return;
+    }
     if (worktrees.length === 0) {
       void vscode.window.showInformationMessage('No worktrees found for this repository.');
       return;
@@ -732,7 +751,12 @@ export class BranchContextMenuCommands {
         : `Force re-checked out detached HEAD at ${ref.substring(0, 7)}`;
 
     try {
-      await this._gitService.checkout(repo, ref);
+      await this._gitService.checkout(repo, ref).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Checkout moved HEAD; reload before refresh so the
       // BranchTreeProvider's "current branch" mark reflects fresh state.
       await this._gitService.reloadRepository(repo);
@@ -758,8 +782,18 @@ export class BranchContextMenuCommands {
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(repo, stashLabel());
-            await this._gitService.checkout(repo, ref);
+            await this._gitService.stash(repo, stashLabel()).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
+            await this._gitService.checkout(repo, ref).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
             // Stash + checkout pair moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(stashSuccessToast());
@@ -772,7 +806,12 @@ export class BranchContextMenuCommands {
           }
         } else if (choice === 'Force Checkout') {
           try {
-            await this._gitService.checkout(repo, ref, { force: true });
+            await this._gitService.checkout(repo, ref, { force: true }).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
             // Force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(forceSuccessToast());
@@ -869,8 +908,18 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.createBranch(repo, branchName, startPoint);
-      await this._gitService.checkout(repo, branchName);
+      await this._gitService.createBranch(repo, branchName, startPoint).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+      await this._gitService.checkout(repo, branchName).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // createBranch + checkout pair moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
@@ -1054,7 +1103,12 @@ export class BranchContextMenuCommands {
         // exist before our call. If the user already had a rebase paused,
         // `beforeKind === 'rebasing'` and we never touch it.
         try {
-          await this._gitService.rebaseAbort(repo);
+          await this._gitService.rebaseAbort(repo).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
         } catch (abortError) {
           const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
           void vscode.window.showErrorMessage(
@@ -1151,7 +1205,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.renameBranch(repo, item.branch.name, newName);
+      await this._gitService.renameBranch(repo, item.branch.name, newName).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Rename may have updated `repo.head.name` (if renaming
       // current branch); reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -1193,7 +1252,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteBranch(repo, branchName);
+      await this._gitService.deleteBranch(repo, branchName).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Branch list changed; reload so the tree shows the
       // post-deletion ref set deterministically.
       await this._gitService.reloadRepository(repo);
@@ -1212,7 +1276,12 @@ export class BranchContextMenuCommands {
           return;
         }
         try {
-          await this._gitService.deleteBranch(repo, branchName, true);
+          await this._gitService.deleteBranch(repo, branchName, true).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
           await this._gitService.reloadRepository(repo);
           void vscode.window.showInformationMessage(`Force-deleted branch '${branchName}'`);
           this._branchTreeProvider.refresh();
@@ -1254,7 +1323,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.fetch(repo, { remote: upstream.remote, prune: true });
+      await this._gitService.fetch(repo, { remote: upstream.remote, prune: true }).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Fetch updated remote-tracking refs; reload so ahead/behind
       // counts on the branch tree match the post-fetch state.
       await this._gitService.reloadRepository(repo);
@@ -1317,7 +1391,12 @@ export class BranchContextMenuCommands {
     const skipped = [...plan.skipped];
     for (const fetch of plan.fetches) {
       try {
-        await this._gitService.fetch(repo, { remote: fetch.remote, refspec: fetch.refspec });
+        await this._gitService.fetch(repo, { remote: fetch.remote, refspec: fetch.refspec }).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
         advanced.push(fetch.branch);
       } catch (error) {
         // git refuses a non-FF update into a non-checked-out ref; treat a late
@@ -1393,7 +1472,12 @@ export class BranchContextMenuCommands {
   ): Promise<string | undefined> {
     let remotes: IRemote[];
     try {
-      remotes = await this._gitService.getRemotes(repo);
+      remotes = await this._gitService.getRemotes(repo).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
     } catch {
       // Enumeration failed (rare) — fall back to the preferred/origin default
       // and let the push itself surface any real error.
@@ -1465,11 +1549,18 @@ export class BranchContextMenuCommands {
       // IntelliJ's "set new upstream" on a remote change. Pushing to the
       // already-tracked remote keeps the existing tracking untouched.
       const setUpstream = !upstream || targetRemote !== upstream.remote;
-      await this._gitService.push(repo, {
-        remote: targetRemote,
-        branch: item.branch.name,
-        ...(setUpstream ? { setUpstream: true } : {}),
-      });
+      await this._gitService
+        .push(repo, {
+          remote: targetRemote,
+          branch: item.branch.name,
+          ...(setUpstream ? { setUpstream: true } : {}),
+        })
+        .match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       void vscode.window.showInformationMessage(
         `Pushed branch '${item.branch.name}' to '${targetRemote}'`
       );
@@ -1610,13 +1701,19 @@ export class BranchContextMenuCommands {
     // reads as "Checked out main" rather than "Checked out origin/main".
     const displayName = localLeafName;
     const checkout = (force?: boolean): Promise<void> =>
-      isRemote
+      (isRemote
         ? this._gitService.checkout(repo, localLeafName, {
             forceCreate: true,
             track: remoteFullName,
             ...(force ? { force: true } : {}),
           })
-        : this._gitService.checkout(repo, localLeafName, force ? { force: true } : undefined);
+        : this._gitService.checkout(repo, localLeafName, force ? { force: true } : undefined)
+      ).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
 
     try {
       // Checkout the right-clicked branch (attached HEAD).
@@ -1665,7 +1762,12 @@ export class BranchContextMenuCommands {
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${displayName}`);
+            await this._gitService.stash(repo, `Auto-stash before checkout ${displayName}`).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
             await checkout();
             const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
             if (result.success) {
@@ -1808,12 +1910,19 @@ export class BranchContextMenuCommands {
     // handoff below auto-opens the Resolve Conflicts dialog when the pull
     // leaves the working tree with unresolved conflicts.
     try {
-      await this._gitService.pull(repo, {
-        remote: remoteName,
-        branch: branchName,
-        rebase: preset === 'rebase',
-        prune: true,
-      });
+      await this._gitService
+        .pull(repo, {
+          remote: remoteName,
+          branch: branchName,
+          rebase: preset === 'rebase',
+          prune: true,
+        })
+        .match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       const strategy = preset === 'rebase' ? 'rebase' : 'merge';
       void vscode.window.showInformationMessage(
         `Pulled '${item.branch.name}' into current branch using ${strategy}`
@@ -1921,7 +2030,12 @@ export class BranchContextMenuCommands {
           'Stash and reset'
         );
         if (choice === 'Stash and reset') {
-          await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
+          await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
         } else if (choice !== 'Reset anyway') {
           // Cancel (or dialog dismissed): do not touch the local branch.
           return;
@@ -1929,7 +2043,12 @@ export class BranchContextMenuCommands {
       }
 
       // Create-or-reset the local to the remote tip in one step.
-      await this._gitService.checkout(repo, branchName, { forceCreate: true, track });
+      await this._gitService.checkout(repo, branchName, { forceCreate: true, track }).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
 
       // checkout-as-local moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -1954,9 +2073,19 @@ export class BranchContextMenuCommands {
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
+            await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
             // `-B` create-or-resets regardless of whether a local exists.
-            await this._gitService.checkout(repo, branchName, { forceCreate: true, track });
+            await this._gitService.checkout(repo, branchName, { forceCreate: true, track }).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
             // Stash + checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
@@ -1972,11 +2101,18 @@ export class BranchContextMenuCommands {
         } else if (choice === 'Force Checkout') {
           try {
             // `-B` create-or-resets regardless of whether a local exists.
-            await this._gitService.checkout(repo, branchName, {
-              forceCreate: true,
-              force: true,
-              track,
-            });
+            await this._gitService
+              .checkout(repo, branchName, {
+                forceCreate: true,
+                force: true,
+                track,
+              })
+              .match(
+                () => undefined,
+                (e) => {
+                  throw e;
+                }
+              );
             // Force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
@@ -2032,7 +2168,12 @@ export class BranchContextMenuCommands {
       }
 
       const commitHashes = selected.map((s) => s.commit.hash);
-      const result = await this._gitService.cherryPick(repo, commitHashes);
+      const result = await this._gitService.cherryPick(repo, commitHashes).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -2106,10 +2247,17 @@ export class BranchContextMenuCommands {
 
     try {
       // Use git push to delete remote branch
-      await this._gitService.push(repo, {
-        remote: remoteName,
-        branch: `:${branchName}`,
-      });
+      await this._gitService
+        .push(repo, {
+          remote: remoteName,
+          branch: `:${branchName}`,
+        })
+        .match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
 
       // Push:branch removed remote ref; reload so the tree's
       // remote-branches list reflects the deletion.
@@ -2207,10 +2355,17 @@ export class BranchContextMenuCommands {
     try {
       if (!existingLocal) {
         // No local with this name → create + checkout with --track.
-        await this._gitService.checkout(repo, simpleName, {
-          createBranch: true,
-          track: upstreamRef,
-        });
+        await this._gitService
+          .checkout(repo, simpleName, {
+            createBranch: true,
+            track: upstreamRef,
+          })
+          .match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
         await this._gitService.reloadRepository(repo);
         void vscode.window.showInformationMessage(
           `Created local branch '${simpleName}' tracking '${upstreamRef}'`
@@ -2242,7 +2397,12 @@ export class BranchContextMenuCommands {
         }
       }
 
-      await this._gitService.setBranchUpstream(repo, simpleName, upstreamRef);
+      await this._gitService.setBranchUpstream(repo, simpleName, upstreamRef).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`'${simpleName}' now tracks '${upstreamRef}'`);
       this._branchTreeProvider.refresh();
@@ -2278,7 +2438,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.checkout(repo, item.tag.name);
+      await this._gitService.checkout(repo, item.tag.name).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // checkout-tag moved HEAD into detached state; reload
       // before refresh so the tree's "current branch" mark clears
       // (HEAD chip on the log graph drives the user-visible cue).
@@ -2313,7 +2478,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      const result = await this._gitService.cherryPick(repo, [item.tag.commit]);
+      const result = await this._gitService.cherryPick(repo, [item.tag.commit]).match(
+        (r) => r,
+        (e) => {
+          throw e;
+        }
+      );
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -2415,7 +2585,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteTag(repo, item.tag.name);
+      await this._gitService.deleteTag(repo, item.tag.name).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Tag list changed; reload so the tree's tags section
       // reflects the post-deletion ref set.
       await this._gitService.reloadRepository(repo);
@@ -2445,7 +2620,12 @@ export class BranchContextMenuCommands {
       if (!targetRemote) {
         return;
       }
-      await this._gitService.pushTag(repo, item.tag.name, targetRemote);
+      await this._gitService.pushTag(repo, item.tag.name, targetRemote).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(
         `Pushed tag '${item.tag.name}' to '${targetRemote}'`
       );
@@ -2487,7 +2667,12 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteRemoteTag(repo, item.tag.name);
+      await this._gitService.deleteRemoteTag(repo, item.tag.name).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       void vscode.window.showInformationMessage(
         `Deleted remote tag '${item.tag.name}' from origin`
       );

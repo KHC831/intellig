@@ -138,23 +138,27 @@ describe('GitService.rebaseBranch — --onto newbase (H-2 git4idea GitRebaseDial
     ]);
   });
 
-  it('rejects a `-`-leading newbase at the service boundary (no exec)', async () => {
+  it('refuses a `-`-leading newbase at the service boundary (no exec)', async () => {
     const cli = new ScriptedGitCli();
-    await assert.rejects(
-      () =>
-        createGitServiceWithCli(cli).rebaseBranch(createMockRepo(), 'main', { newBase: '-evil' }),
-      /Invalid rebase newbase/
-    );
+    // The validation reject is absorbed by the façade into a failed result
+    // carrying the sanitized reason — the security invariant (no exec for a
+    // hostile newbase) is preserved; only the surface changed from throw to
+    // degraded result.
+    const result = await createGitServiceWithCli(cli).rebaseBranch(createMockRepo(), 'main', {
+      newBase: '-evil',
+    });
+    assert.strictEqual(result.success, false);
+    assert.match(result.failureReason ?? '', /Invalid rebase newbase/);
     assert.strictEqual(cli.executed.length, 0, 'no git command runs for a hostile newbase');
   });
 
-  it('rejects a `.`-leading newbase at the service boundary (no exec)', async () => {
+  it('refuses a `.`-leading newbase at the service boundary (no exec)', async () => {
     const cli = new ScriptedGitCli();
-    await assert.rejects(
-      () =>
-        createGitServiceWithCli(cli).rebaseBranch(createMockRepo(), 'main', { newBase: '.git' }),
-      /Invalid rebase newbase/
-    );
+    const result = await createGitServiceWithCli(cli).rebaseBranch(createMockRepo(), 'main', {
+      newBase: '.git',
+    });
+    assert.strictEqual(result.success, false);
+    assert.match(result.failureReason ?? '', /Invalid rebase newbase/);
     assert.strictEqual(cli.executed.length, 0);
   });
 

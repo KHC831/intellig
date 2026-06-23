@@ -13,6 +13,7 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
@@ -33,8 +34,9 @@ function createRecordingGitService(): RecordingGitService {
   const calls: RecordingGitService['_pullCalls'] = [];
   const service = {
     _pullCalls: calls,
-    pull: async (repo: IRepository, options?: IPullOptions): Promise<void> => {
+    pull: (repo: IRepository, options?: IPullOptions) => {
       calls.push({ repo, options });
+      return okAsync(undefined);
     },
     reloadRepository: async (repo: IRepository) => repo,
   } as unknown as RecordingGitService;

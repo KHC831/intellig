@@ -91,13 +91,17 @@ describe('StashTagHistoryOps.getLog — ref guard (G1)', () => {
     assert.ok(!calls[0].includes('--all'), '--all must be absent when scoped to a ref');
   });
 
-  it('rejects a ref starting with a dash (flag injection)', async () => {
+  it('errs on a ref starting with a dash (flag injection)', async () => {
     const { ops } = makeOps();
-    await assert.rejects(() => ops.getLog(repo, { ref: '--upload-pack=evil' }), /Invalid ref/);
+    const result = await ops.getLog(repo, { ref: '--upload-pack=evil' });
+    assert.ok(result.isErr());
+    assert.match(result._unsafeUnwrapErr().message, /Invalid ref/);
   });
 
-  it('rejects a ref starting with a dot (invalid refname)', async () => {
+  it('errs on a ref starting with a dot (invalid refname)', async () => {
     const { ops } = makeOps();
-    await assert.rejects(() => ops.getLog(repo, { ref: '.hidden' }), /Invalid ref/);
+    const result = await ops.getLog(repo, { ref: '.hidden' });
+    assert.ok(result.isErr());
+    assert.match(result._unsafeUnwrapErr().message, /Invalid ref/);
   });
 });

@@ -20,7 +20,7 @@ import * as path from 'path';
 import { WorktreeOps, parseWorktreeList } from '../../../src/git-core/ops/WorktreeOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
-import { GitCli } from '../../../src/git-core/gitCli';
+import { GitCli, GitCommandError } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
 
 interface ExecResult {
@@ -33,15 +33,22 @@ interface ExecResult {
 class DispatchGitCli {
   public executed: string[][] = [];
   constructor(private readonly handler: (args: string[]) => Partial<ExecResult>) {}
-  async exec(args: string[]): Promise<ExecResult> {
+  // Faithfully emulates GitCli.exec: when `throwOnError` is set and git exits
+  // non-zero, it rejects with a `GitCommandError` (so the ops Result boundary
+  // classifies it as a `CommandFailedError`), exactly like the real binary.
+  async exec(args: string[], options?: { throwOnError?: boolean }): Promise<ExecResult> {
     this.executed.push([...args]);
     const partial = this.handler(args);
-    return {
+    const result: ExecResult = {
       exitCode: partial.exitCode ?? 0,
       stdout: partial.stdout ?? '',
       stderr: partial.stderr ?? '',
       combined: partial.combined ?? partial.stdout ?? '',
     };
+    if (options?.throwOnError && result.exitCode !== 0) {
+      throw new GitCommandError('git', args, result);
+    }
+    return result;
   }
 }
 
@@ -205,28 +212,41 @@ describe('WorktreeOps.addWorktree argv', () => {
     assert.strictEqual(argv[bIndex + 1], 'feature/x');
   });
 
-  it('rejects a new branch name that looks like a flag', async () => {
-    const { ops } = makeOps(() => ({ exitCode: 0 }));
-    await assert.rejects(
-      () => ops.addWorktree(makeRepo('/repo'), { path: '/wt', ref: 'main', newBranch: '-x' }),
-      /Invalid branch name/
-    );
+  it('rejects a new branch name that looks like a flag (invalid-argument Err, no git run)', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const result = await ops.addWorktree(makeRepo('/repo'), {
+      path: '/wt',
+      ref: 'main',
+      newBranch: '-x',
+    });
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    assert.match(result._unsafeUnwrapErr().message, /Invalid branch name/);
+    assert.strictEqual(cli.executed.length, 0, 'a rejected argument must never reach git');
   });
 
-  it('rejects a ref that looks like a flag', async () => {
-    const { ops } = makeOps(() => ({ exitCode: 0 }));
-    await assert.rejects(
-      () => ops.addWorktree(makeRepo('/repo'), { path: '/wt', ref: '--evil' }),
-      /Invalid ref/
-    );
+  it('rejects a ref that looks like a flag (invalid-argument Err)', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const result = await ops.addWorktree(makeRepo('/repo'), { path: '/wt', ref: '--evil' });
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    assert.match(result._unsafeUnwrapErr().message, /Invalid ref/);
+    assert.strictEqual(cli.executed.length, 0);
   });
 
-  it('requires a non-empty path', async () => {
+  it('requires a non-empty path (invalid-argument Err)', async () => {
     const { ops } = makeOps(() => ({ exitCode: 0 }));
-    await assert.rejects(
-      () => ops.addWorktree(makeRepo('/repo'), { path: '', ref: 'main' }),
-      /path/i
-    );
+    const result = await ops.addWorktree(makeRepo('/repo'), { path: '', ref: 'main' });
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    assert.match(result._unsafeUnwrapErr().message, /path/i);
+  });
+
+  it('returns a typed command-failed Err when git rejects the add', async () => {
+    const { ops } = makeOps(() => ({ exitCode: 128, stderr: "fatal: '/wt' already exists" }));
+    const result = await ops.addWorktree(makeRepo('/repo'), { path: '/wt', ref: 'main' });
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'command-failed');
   });
 });
 
@@ -245,7 +265,9 @@ describe('WorktreeOps.listWorktrees', () => {
       return { exitCode: 0 };
     });
 
-    const entries = await ops.listWorktrees(makeRepo('/home/user/project'));
+    const result = await ops.listWorktrees(makeRepo('/home/user/project'));
+    assert.ok(result.isOk());
+    const entries = result._unsafeUnwrap();
 
     const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'list');
     assert.ok(argv, 'expected a `git worktree list` invocation');
@@ -254,10 +276,11 @@ describe('WorktreeOps.listWorktrees', () => {
     assert.strictEqual(entries[0].branch, 'refs/heads/main');
   });
 
-  it('returns an empty list on git failure', async () => {
+  it('returns a typed command-failed Err on git failure (not a silent empty list)', async () => {
     const { ops } = makeOps(() => ({ exitCode: 128, stderr: 'fatal' }));
-    const entries = await ops.listWorktrees(makeRepo('/repo'));
-    assert.deepStrictEqual(entries, []);
+    const result = await ops.listWorktrees(makeRepo('/repo'));
+    assert.ok(result.isErr(), 'a git failure must surface, not masquerade as "no worktrees"');
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'command-failed');
   });
 });
 
@@ -315,12 +338,13 @@ describe('WorktreeOps real-git round-trip', () => {
   it('checks out an existing branch into a new worktree directory git accepts', async () => {
     const target = path.join(worktreeParent, 'wt-existing');
 
-    await ops.addWorktree(repo, { path: target, ref: 'feature' });
+    const addResult = await ops.addWorktree(repo, { path: target, ref: 'feature' });
+    assert.ok(addResult.isOk(), 'addWorktree should succeed');
 
     assert.ok(fs.existsSync(target), 'worktree directory should exist on disk');
     assert.ok(fs.existsSync(path.join(target, 'file.txt')), 'committed file should be checked out');
 
-    const entries = await ops.listWorktrees(repo);
+    const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
     const added = entries.find((e) => fs.realpathSync(e.path) === fs.realpathSync(target));
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/feature');
@@ -330,11 +354,16 @@ describe('WorktreeOps real-git round-trip', () => {
   it('creates a new branch in the worktree with -b', async () => {
     const target = path.join(worktreeParent, 'wt-newbranch');
 
-    await ops.addWorktree(repo, { path: target, ref: 'main', newBranch: 'spawned' });
+    const addResult = await ops.addWorktree(repo, {
+      path: target,
+      ref: 'main',
+      newBranch: 'spawned',
+    });
+    assert.ok(addResult.isOk(), 'addWorktree should succeed');
 
     assert.ok(fs.existsSync(target), 'worktree directory should exist on disk');
 
-    const entries = await ops.listWorktrees(repo);
+    const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
     const added = entries.find((e) => fs.realpathSync(e.path) === fs.realpathSync(target));
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/spawned');

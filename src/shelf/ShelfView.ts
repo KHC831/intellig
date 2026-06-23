@@ -774,6 +774,7 @@ export class ShelfView implements IShelfView {
             try {
               this._shelfService.restoreFromRecycleBin(this._repository, id);
               void this.refresh();
+              // eslint-disable-next-line no-restricted-syntax -- no logger in scope; the recycle-bin entry already being purged is the expected "nothing to undo" outcome.
             } catch {
               /* entry already purged — nothing to undo */
             }

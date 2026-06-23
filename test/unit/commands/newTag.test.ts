@@ -17,6 +17,8 @@
  */
 
 import '../../setup';
+import { okAsync, errAsync } from 'neverthrow';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
 import {
   runNewTagFlow,
@@ -76,20 +78,15 @@ function createHarness(
   const warnMessages: string[] = [];
 
   const gitService = {
-    createTag: async (
-      r: IRepository,
-      name: string,
-      message?: string,
-      ref?: string,
-      force?: boolean
-    ): Promise<void> => {
+    createTag: (r: IRepository, name: string, message?: string, ref?: string, force?: boolean) => {
       createTagCalls.push({ repo: r, name, message, ref, force });
       if (options?.failUntilForced && !force) {
-        throw new Error("fatal: tag 'v1.0.0' already exists");
+        return errAsync(new SpawnFailedError("fatal: tag 'v1.0.0' already exists"));
       }
       if (options?.createTagError) {
-        throw options.createTagError;
+        return errAsync(new SpawnFailedError(options.createTagError.message));
       }
+      return okAsync(undefined);
     },
   } as unknown as IGitService;
 

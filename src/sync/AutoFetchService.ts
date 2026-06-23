@@ -203,6 +203,7 @@ export class AutoFetchService implements IAutoFetchService {
     for (const sub of this._subscriptions) {
       try {
         sub.dispose();
+        // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad subscription doesn't block cleanup of the rest; nothing actionable during teardown.
       } catch {
         // ignore
       }
@@ -226,7 +227,17 @@ export class AutoFetchService implements IAutoFetchService {
       }
 
       const results = await Promise.allSettled(
-        repos.map((repo) => this._gitService.fetch(repo, { all: true, prune: true }))
+        repos.map((repo) =>
+          // Funnel the Result back into a rejecting promise so the existing
+          // allSettled / status==='rejected' failure detection (auth-pause +
+          // backoff) keeps working; the GitError carries the same message.
+          this._gitService.fetch(repo, { all: true, prune: true }).match(
+            (res) => res,
+            (e) => {
+              throw e;
+            }
+          )
+        )
       );
 
       let sawAuthFailure = false;

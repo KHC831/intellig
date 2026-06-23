@@ -17,7 +17,9 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { GitError } from '../../../src/git-core/errors';
 import { Uri } from '../../mocks/vscode';
 
 class RecordingGitCli {
@@ -42,8 +44,8 @@ class RecordingGitCli {
     return { exitCode: 0, stdout: '', stderr: '', combined: '' };
   }
 
-  async getRepositoryRoot(path: string): Promise<string | undefined> {
-    return path;
+  getRepositoryRoot(path: string): ResultAsync<string | undefined, GitError> {
+    return okAsync(path);
   }
 
   dispose(): void {}

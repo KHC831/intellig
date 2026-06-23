@@ -616,7 +616,12 @@ ${body}
         // user's model is "it didn't work, leave it as if I never clicked" —
         // auto-abort, but ONLY when the state did not exist before our call.
         try {
-          await this._gitService.rebaseAbort(this._repo);
+          await this._gitService.rebaseAbort(this._repo).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
         } catch (abortError) {
           const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
           void vscode.window.showErrorMessage(

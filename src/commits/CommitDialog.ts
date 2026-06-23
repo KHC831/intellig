@@ -164,7 +164,12 @@ export async function performCommit(
       .filter((f) => selectedSet.has(f.path) && !f.staged)
       .map((f) => f.path);
     if (filesToStage.length > 0) {
-      await gitService.stage(repository, filesToStage);
+      await gitService.stage(repository, filesToStage).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
     }
 
     // Unstage files that are staged but not selected.
@@ -172,7 +177,12 @@ export async function performCommit(
       .filter((f) => !selectedSet.has(f.path) && f.staged)
       .map((f) => f.path);
     if (filesToUnstage.length > 0) {
-      await gitService.unstage(repository, filesToUnstage);
+      await gitService.unstage(repository, filesToUnstage).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
     }
 
     const commitOptions: ICommitOptions = {
@@ -183,7 +193,12 @@ export async function performCommit(
     if (authorTrimmed.length > 0) {
       commitOptions.author = authorTrimmed;
     }
-    await gitService.commit(repository, options.message, commitOptions);
+    await gitService.commit(repository, options.message, commitOptions).match(
+      () => undefined,
+      (e) => {
+        throw e;
+      }
+    );
 
     return { success: true, files: options.selectedFiles };
   } catch (error) {
@@ -566,8 +581,14 @@ export class CommitDialog {
           ? `${commit.message}\n\n${commit.body}`
           : commit.message;
       }
-    } catch {
-      // Ignore errors - repository might be empty
+    } catch (error) {
+      // An empty repo is already handled as an empty log; this only fires on a
+      // genuine fault. Log+degrade (no previous-message prefill) so it stays visible.
+      getLogger()
+        .child({ component: 'CommitDialog' })
+        .debug('loadPreviousCommitMessage failed', {
+          err: error instanceof Error ? error.message : String(error),
+        });
     }
   }
 
@@ -975,7 +996,12 @@ export class CommitDialog {
     }
 
     try {
-      await this._gitService.stage(this._repository, [path]);
+      await this._gitService.stage(this._repository, [path]).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       await this._loadStagedFiles();
       this._updateWebview();
     } catch (error) {
@@ -995,7 +1021,12 @@ export class CommitDialog {
     }
 
     try {
-      await this._gitService.unstage(this._repository, [path]);
+      await this._gitService.unstage(this._repository, [path]).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       await this._loadStagedFiles();
       this._updateWebview();
     } catch (error) {
@@ -1020,7 +1051,12 @@ export class CommitDialog {
     }
 
     try {
-      await this._gitService.stageHunk(this._repository, this._selectedFilePath, hunk);
+      await this._gitService.stageHunk(this._repository, this._selectedFilePath, hunk).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Refresh the diff to show updated state
       await this._handleFileSelect(this._selectedFilePath);
       await this._loadStagedFiles();
@@ -1047,7 +1083,12 @@ export class CommitDialog {
     }
 
     try {
-      await this._gitService.unstageHunk(this._repository, this._selectedFilePath, hunk);
+      await this._gitService.unstageHunk(this._repository, this._selectedFilePath, hunk).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Refresh the diff to show updated state
       await this._handleFileSelect(this._selectedFilePath);
       await this._loadStagedFiles();
@@ -1085,7 +1126,12 @@ export class CommitDialog {
     }
 
     try {
-      await this._gitService.revertHunk(this._repository, this._selectedFilePath, hunk);
+      await this._gitService.revertHunk(this._repository, this._selectedFilePath, hunk).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Refresh the diff to show updated state
       await this._handleFileSelect(this._selectedFilePath);
       await this._loadStagedFiles();
@@ -1170,12 +1216,14 @@ export class CommitDialog {
     }
 
     try {
-      await this._gitService.stageLines(
-        this._repository,
-        this._selectedFilePath,
-        Array.from(selectedLineNumbers),
-        hunk
-      );
+      await this._gitService
+        .stageLines(this._repository, this._selectedFilePath, Array.from(selectedLineNumbers), hunk)
+        .match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       // Clear selection and refresh
       this._selectedLines.delete(hunkIndex);
       await this._handleFileSelect(this._selectedFilePath);

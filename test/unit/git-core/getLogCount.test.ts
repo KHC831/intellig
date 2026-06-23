@@ -90,15 +90,21 @@ describe('StashTagHistoryOps.getLogCount — argv shape', () => {
     assert.ok(a.includes('--min-parents=2'));
   });
 
-  it('rejects a ref starting with `-` or `.` before running git', async () => {
-    const { ops } = makeMockOps('5');
-    await assert.rejects(() => ops.getLogCount(repo('/r'), { all: false, ref: '-evil' }));
-    await assert.rejects(() => ops.getLogCount(repo('/r'), { all: false, ref: '.evil' }));
+  it('errs on a ref starting with `-` or `.` before running git', async () => {
+    const { ops, calls } = makeMockOps('5');
+    for (const ref of ['-evil', '.evil']) {
+      const result = await ops.getLogCount(repo('/r'), { all: false, ref });
+      assert.ok(result.isErr(), `expected Err for ref ${ref}`);
+      assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    }
+    assert.strictEqual(calls.length, 0, 'git must not be invoked for an invalid ref');
   });
 
-  it('rejects a logRange starting with `-` or `.`', async () => {
+  it('errs on a logRange starting with `-` or `.`', async () => {
     const { ops } = makeMockOps('5');
-    await assert.rejects(() => ops.getLogCount(repo('/r'), { logRange: '-evil' }));
+    const result = await ops.getLogCount(repo('/r'), { logRange: '-evil' });
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
   });
 });
 
@@ -126,19 +132,22 @@ describe('StashTagHistoryOps.getLogCount — real git round-trip', () => {
 
   it('counts all commits on HEAD (no scope)', async () => {
     const ops = makeRealOps();
-    assert.strictEqual(await ops.getLogCount(repo(dir)), N);
+    assert.strictEqual((await ops.getLogCount(repo(dir)))._unsafeUnwrap(), N);
   });
 
   it('count equals an unwindowed getLog length under --all', async () => {
     const ops = makeRealOps();
-    const count = await ops.getLogCount(repo(dir), { all: true });
-    const commits = await ops.getLog(repo(dir), { all: true });
+    const count = (await ops.getLogCount(repo(dir), { all: true }))._unsafeUnwrap();
+    const commits = (await ops.getLog(repo(dir), { all: true }))._unsafeUnwrap();
     assert.strictEqual(count, commits.length);
     assert.strictEqual(count, N);
   });
 
   it('respects a ref scope (HEAD~3 counts 3 fewer)', async () => {
     const ops = makeRealOps();
-    assert.strictEqual(await ops.getLogCount(repo(dir), { all: false, ref: 'HEAD~3' }), N - 3);
+    assert.strictEqual(
+      (await ops.getLogCount(repo(dir), { all: false, ref: 'HEAD~3' }))._unsafeUnwrap(),
+      N - 3
+    );
   });
 });

@@ -1287,7 +1287,12 @@ export class BranchPopup {
 
     const upstreamRef = picked.branch.name;
     try {
-      await this._gitService.setBranchUpstream(repo, branch.name, upstreamRef);
+      await this._gitService.setBranchUpstream(repo, branch.name, upstreamRef).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`'${branch.name}' now tracks '${upstreamRef}'`);
       return { branch, action: 'local.setUpstream', cancelled: false };

@@ -345,6 +345,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       if (decoration) {
         editor.setDecorations(this._decorationType, [decoration]);
       }
+      // eslint-disable-next-line no-restricted-syntax -- no logger in scope; blame being unavailable (binary/new/uncommitted file) is an expected domain outcome for this non-essential inline decoration that runs on cursor movement.
     } catch {
       // Silently fail - blame may not be available for this file
     }

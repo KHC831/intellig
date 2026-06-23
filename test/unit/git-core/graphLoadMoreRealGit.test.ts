@@ -48,6 +48,15 @@ describe('Graph load-more — real git, more than one page', function () {
 
   let dir: string;
   const ops = makeRealOps();
+  // fetchGraphPage consumes the facade's Promise-returning getLog/getLogCount;
+  // the ops now expose a Result channel, so this adapter mirrors the façade's
+  // absorb (degrade to []/0) to drive the production fetch path unchanged.
+  const gitForGraph = {
+    getLog: (r: IRepository, options?: Parameters<typeof ops.getLog>[1]) =>
+      ops.getLog(r, options).unwrapOr([]),
+    getLogCount: (r: IRepository, options?: Parameters<typeof ops.getLogCount>[1]) =>
+      ops.getLogCount(r, options).unwrapOr(0),
+  };
   let provider: GitToolWindowProvider;
   const repo = (): IRepository => ({ rootUri: { fsPath: dir } }) as unknown as IRepository;
 
@@ -67,7 +76,7 @@ describe('Graph load-more — real git, more than one page', function () {
       provider.markResetScrollOnNextRender();
     }
     const { commits, totalAvailable } = await fetchGraphPage(
-      ops as unknown as Pick<IGitService, 'getLog' | 'getLogCount'>,
+      gitForGraph as unknown as Pick<IGitService, 'getLog' | 'getLogCount'>,
       repo(),
       undefined,
       limit

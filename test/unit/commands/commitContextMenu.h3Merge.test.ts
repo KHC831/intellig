@@ -14,6 +14,7 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
@@ -71,8 +72,8 @@ function makeGitService(
     reloadRepository: async () => repo,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},
@@ -86,14 +87,14 @@ function makeGitService(
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => ({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
+    fetch: () => okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
     onDidFetch: () => ({ dispose: () => {} }),
-    resetToCommit: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    resetToCommit: () => okAsync(undefined),
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -138,13 +139,13 @@ function makeGitService(
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
-    revertHunk: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
+    revertHunk: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & { revertCalls: RevertCall[]; cherryPickCalls: CherryPickCall[] };
 }

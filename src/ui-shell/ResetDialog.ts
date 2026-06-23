@@ -517,7 +517,12 @@ ${body}
       if (!isValidRef(this._target.hash)) {
         throw new Error(`Invalid commit reference: ${this._target.hash}`);
       }
-      await this._gitService.resetToCommit(this._repo, this._target.hash, mode);
+      await this._gitService.resetToCommit(this._repo, this._target.hash, mode).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
       // Remember the chosen mode so the next reset dialog pre-selects it.
       void savePreferredResetMode(this._context.globalState, mode);
       this._finishReset();
@@ -573,9 +578,27 @@ ${body}
           );
           return pick === STASH ? 'stash' : pick === FORCE ? 'force' : 'cancel';
         },
-        stash: () => this._gitService.stash(this._repo),
-        reset: (m) => this._gitService.resetToCommit(this._repo, this._target.hash, m),
-        unstash: () => this._gitService.stashPop(this._repo, 0),
+        stash: () =>
+          this._gitService.stash(this._repo).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          ),
+        reset: (m) =>
+          this._gitService.resetToCommit(this._repo, this._target.hash, m).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          ),
+        unstash: () =>
+          this._gitService.stashPop(this._repo, 0).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          ),
       });
       if (choice === 'cancel') {
         this._busy = false;

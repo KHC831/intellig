@@ -57,10 +57,9 @@ describe('GitService.resetToCommit — SR-3 ref validation', () => {
   const rejectedTargets = ['-foo', '-x/y', '-.main', '-', '-HEAD', '.hidden'];
   for (const target of rejectedTargets) {
     it(`rejects dangerous target "${target}" and does not spawn git`, async () => {
-      await assert.rejects(
-        () => gitService.resetToCommit(makeRepo(), target, 'mixed' as ResetMode),
-        /Invalid reset target/
-      );
+      const resetResult = await gitService.resetToCommit(makeRepo(), target, 'mixed' as ResetMode);
+      assert.ok(resetResult.isErr());
+      assert.match(resetResult._unsafeUnwrapErr().message, /Invalid reset target/);
       assert.strictEqual(cli.calls.length, 0, 'git exec must not run on invalid ref');
     });
   }

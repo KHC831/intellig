@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { spawn, SpawnOptions, execFileSync } from 'child_process';
+import { ResultAsync, ok, err } from 'neverthrow';
 import { getOutputChannel } from '../utils/outputChannel';
+import { GitError, CommandFailedError, classifyGitCommandError } from './errors';
 
 /**
  * Upper bound (in chars) on each captured stream — stdout, stderr, and the
@@ -267,6 +269,7 @@ export class GitCli {
           const str = data.toString();
           stdout = appendCapped(stdout, str, MAX_GIT_OUTPUT_BYTES);
           combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
+          // eslint-disable-next-line no-restricted-syntax -- defensive belt-and-braces; a capture error in this high-frequency data handler must never escape as an uncaught async exception that crashes the host (see the block comment above).
         } catch {
           // Defensive: never let a capture error crash the host.
         }
@@ -277,6 +280,7 @@ export class GitCli {
           const str = data.toString();
           stderr = appendCapped(stderr, str, MAX_GIT_OUTPUT_BYTES);
           combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
+          // eslint-disable-next-line no-restricted-syntax -- defensive belt-and-braces; a capture error in this high-frequency data handler must never escape as an uncaught async exception that crashes the host (see the block comment above).
         } catch {
           // Defensive: never let a capture error crash the host.
         }
@@ -362,67 +366,67 @@ export class GitCli {
   /**
    * Check if Git is available and working.
    *
+   * Implemented in terms of {@link getVersion} so the system-fault path (git
+   * missing → spawn ENOENT) is classified rather than swallowed: availability
+   * is exactly "git ran `--version` successfully", and any spawn/command fault
+   * is, by definition, "not available".
+   *
    * @returns True if Git is available
    */
   async isAvailable(): Promise<boolean> {
-    try {
-      const result = await this.exec(['--version']);
-      return result.exitCode === 0;
-    } catch {
-      return false;
-    }
+    return (await this.getVersion()).isOk();
   }
 
   /**
    * Get the Git version.
    *
-   * @returns The Git version string, or undefined if not available
+   * @returns `Ok(version)` on success, or `Err(GitError)` — a spawn fault when
+   *   git is missing/unspawnable, else a command failure.
    */
-  async getVersion(): Promise<string | undefined> {
-    try {
-      const result = await this.exec(['--version']);
-      if (result.exitCode === 0) {
-        // Parse "git version X.Y.Z" format
+  getVersion(): ResultAsync<string, GitError> {
+    return ResultAsync.fromPromise(this.exec(['--version']), classifyGitCommandError).andThen(
+      (result) => {
+        if (result.exitCode !== 0) {
+          return err(new CommandFailedError(result.exitCode, result.stderr));
+        }
+        // Parse "git version X.Y.Z" format.
         const match = result.stdout.match(/git version (\d+\.\d+\.\d+)/);
-        return match ? match[1] : result.stdout.trim();
+        return ok(match ? match[1] : result.stdout.trim());
       }
-    } catch {
-      // Ignore errors
-    }
-    return undefined;
+    );
   }
 
   /**
    * Check if a directory is a Git repository.
    *
    * @param path - The directory path to check
-   * @returns True if the directory is a Git repository
+   * @returns `Ok(true)`/`Ok(false)` for the domain answer (a non-repo directory
+   *   exits non-zero → `Ok(false)`), or `Err(GitError)` when git could not be
+   *   spawned (e.g. `path` is a file → `ENOTDIR`). A system fault is never
+   *   collapsed into "not a repository".
    */
-  async isRepository(path: string): Promise<boolean> {
-    try {
-      const result = await this.exec(['rev-parse', '--git-dir'], { cwd: path });
-      return result.exitCode === 0;
-    } catch {
-      return false;
-    }
+  isRepository(path: string): ResultAsync<boolean, GitError> {
+    return ResultAsync.fromPromise(
+      this.exec(['rev-parse', '--git-dir'], { cwd: path }),
+      classifyGitCommandError
+    ).map((result) => result.exitCode === 0);
   }
 
   /**
    * Get the root directory of a Git repository.
    *
    * @param path - A path within the repository
-   * @returns The repository root path, or undefined if not in a repository
+   * @returns `Ok(root)` when `path` is inside a repo, `Ok(undefined)` when it is
+   *   a real directory that simply isn't a repo (the expected domain absence),
+   *   or `Err(GitError)` when git could not be spawned (e.g. `path` is a file →
+   *   `ENOTDIR`). Distinguishing the last two is the whole point: a swallowed
+   *   `ENOTDIR` used to masquerade as "no repository found".
    */
-  async getRepositoryRoot(path: string): Promise<string | undefined> {
-    try {
-      const result = await this.exec(['rev-parse', '--show-toplevel'], { cwd: path });
-      if (result.exitCode === 0) {
-        return result.stdout.trim();
-      }
-    } catch {
-      // Ignore errors
-    }
-    return undefined;
+  getRepositoryRoot(path: string): ResultAsync<string | undefined, GitError> {
+    return ResultAsync.fromPromise(
+      this.exec(['rev-parse', '--show-toplevel'], { cwd: path }),
+      classifyGitCommandError
+    ).map((result) => (result.exitCode === 0 ? result.stdout.trim() : undefined));
   }
 
   /**

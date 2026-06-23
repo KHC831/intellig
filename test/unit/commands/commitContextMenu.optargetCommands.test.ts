@@ -11,6 +11,7 @@
  */
 
 import '../../setup';
+import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { registerCommitMenuCommands } from '../../../src/commands/registration/commitMenuCommands';
@@ -138,8 +139,9 @@ describe('H-1 — delegating commands honor the threaded clicked-commit repo roo
         [ROOT_B, repoB],
       ]),
       {
-        createTag: async (repo: IRepository) => {
+        createTag: (repo: IRepository) => {
           tagCalls.push(repo);
+          return okAsync(undefined);
         },
       }
     );
@@ -172,8 +174,9 @@ describe('H-1 — delegating commands honor the threaded clicked-commit repo roo
         [ROOT_B, repoB],
       ]),
       {
-        push: async (repo: IRepository) => {
+        push: (repo: IRepository) => {
           pushCalls.push(repo);
+          return okAsync(undefined);
         },
       }
     );

@@ -501,12 +501,19 @@ ${body}
     }
     this._busy = true;
     try {
-      await this._gitService.createBranch(this._repo, params.name, {
-        startPoint: this._startPoint,
-        force: params.overwrite,
-        track: params.track,
-        checkout: params.checkout,
-      });
+      await this._gitService
+        .createBranch(this._repo, params.name, {
+          startPoint: this._startPoint,
+          force: params.overwrite,
+          track: params.track,
+          checkout: params.checkout,
+        })
+        .match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       const verb = params.checkout ? 'Created and switched to' : 'Created';
       void vscode.window.showInformationMessage(`${verb} branch '${params.name}'`);
       if (this._onBranchCreated) {

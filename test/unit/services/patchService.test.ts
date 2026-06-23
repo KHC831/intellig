@@ -27,6 +27,7 @@
  */
 
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -79,7 +80,7 @@ function makeMockGitService(
     getRepositories: (): IRepository[] => [],
     onDidChangeRepository: new vscode.EventEmitter<IRepository>().event,
     getStatus: async () => statusFiles,
-    stage: async (): Promise<void> => {},
+    stage: () => okAsync(undefined),
     gitCli: {
       exec: async (args: string[], options: unknown): Promise<MockGitResult> => {
         execLog.push({ args: [...args], options: options as RecordedExec['options'] });

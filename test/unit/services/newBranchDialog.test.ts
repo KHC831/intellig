@@ -27,7 +27,9 @@ import '../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
+import { okAsync, errAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
+import { CommandFailedError } from '../../../src/git-core/errors';
 import {
   NewBranchDialog,
   INewBranchDialogOptions,
@@ -81,15 +83,12 @@ function makeGitService(shouldThrow?: Error): IGitService & { _createCalls: Crea
   const calls: CreateBranchCall[] = [];
   return {
     _createCalls: calls,
-    createBranch: async (
-      repo: IRepository,
-      name: string,
-      options?: string | ICreateBranchOptions
-    ) => {
+    createBranch: (repo: IRepository, name: string, options?: string | ICreateBranchOptions) => {
       calls.push({ repo, name, options });
       if (shouldThrow) {
-        throw shouldThrow;
+        return errAsync(new CommandFailedError(1, '', shouldThrow.message));
       }
+      return okAsync(undefined);
     },
   } as unknown as IGitService & { _createCalls: CreateBranchCall[] };
 }
@@ -358,27 +357,29 @@ describe('GitService.createBranch — arg order', () => {
   // C-2: service-boundary defense. Even if an upstream caller
   // skips validateNewBranchName, createBranch must reject names that
   // git would parse as CLI flags (`-foo`) or invalid ref shapes (`.hidden`).
-  it('rejects leading dash at the service boundary (R5 C-2)', async () => {
+  it('refuses leading dash at the service boundary (R5 C-2)', async () => {
     const { gitService, executed } = installGitService();
-    await assert.rejects(
-      () => gitService.createBranch(makeRepo(), '-foo', { startPoint: 'main' }),
-      /Invalid branch name/
-    );
+    // The validation reject is now a typed Err (createBranch returns a Result);
+    // the security invariant (no exec for an invalid name) is preserved.
+    const result = await gitService.createBranch(makeRepo(), '-foo', { startPoint: 'main' });
+    assert.ok(result.isErr());
+    assert.match(result.error.message, /Invalid branch name/);
     assert.strictEqual(executed.length, 0, 'no git command should have been issued');
   });
 
-  it('rejects leading dot at the service boundary (R5 C-2)', async () => {
+  it('refuses leading dot at the service boundary (R5 C-2)', async () => {
     const { gitService, executed } = installGitService();
-    await assert.rejects(
-      () => gitService.createBranch(makeRepo(), '.hidden'),
-      /Invalid branch name/
-    );
+    const result = await gitService.createBranch(makeRepo(), '.hidden');
+    assert.ok(result.isErr());
+    assert.match(result.error.message, /Invalid branch name/);
     assert.strictEqual(executed.length, 0);
   });
 
-  it('rejects empty name at the service boundary (R5 C-2)', async () => {
+  it('refuses empty name at the service boundary (R5 C-2)', async () => {
     const { gitService, executed } = installGitService();
-    await assert.rejects(() => gitService.createBranch(makeRepo(), ''), /Invalid branch name/);
+    const result = await gitService.createBranch(makeRepo(), '');
+    assert.ok(result.isErr());
+    assert.match(result.error.message, /Invalid branch name/);
     assert.strictEqual(executed.length, 0);
   });
 });

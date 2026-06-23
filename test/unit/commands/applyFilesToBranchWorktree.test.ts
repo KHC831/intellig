@@ -14,6 +14,8 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { okAsync, errAsync } from 'neverthrow';
+import { CommandFailedError } from '../../../src/git-core/errors';
 import { registerCommitMenuCommands } from '../../../src/commands/registration/commitMenuCommands';
 import type { ICommandContext } from '../../../src/commands/registration/CommandContext';
 import type {
@@ -107,14 +109,21 @@ describe('Apply Files to Branch — worktree-conflict checkout', () => {
       getCommitDiff: async () => [
         { path: 'src/a.ts', status: 'modified', hunks: [], binary: false },
       ],
-      checkout: async (_repo: IRepository, ref: string) => {
+      checkout: (_repo: IRepository, ref: string) => {
         checkoutCalls.push(ref);
         // The first checkout targets the chosen branch and is refused
         // because that branch lives in another worktree. The cleanup
         // checkout back to 'main' (the branch we never left) succeeds.
         if (ref === 'feature') {
-          throw new Error("fatal: 'feature' is already used by worktree at '/repos/proj-feature'");
+          return errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              "fatal: 'feature' is already used by worktree at '/repos/proj-feature'"
+            )
+          );
         }
+        return okAsync(undefined);
       },
     });
 

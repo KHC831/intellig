@@ -15,6 +15,7 @@
  */
 
 import * as assert from 'assert';
+import { okAsync } from 'neverthrow';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -34,7 +35,7 @@ interface ShelfSecuritySurface {
 function createStubGitCli(): GitCli {
   return {
     exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
-    getRepositoryRoot: async (p: string) => p,
+    getRepositoryRoot: (p: string) => okAsync(p),
     onCommandExecuted: () => ({ dispose: () => {} }),
     dispose() {},
   } as unknown as GitCli;

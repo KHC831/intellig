@@ -49,7 +49,7 @@ describe('CherryPickRevertOps — -m mainline for merge commits (H3)', () => {
   describe('cherry-pick', () => {
     it('passes -m 1 when mainline option is 1', async () => {
       const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
-      const result = await ops.cherryPick(repo(), ['abc1234'], { mainline: 1 });
+      const result = (await ops.cherryPick(repo(), ['abc1234'], { mainline: 1 }))._unsafeUnwrap();
       assert.ok(result.success);
       const cherry = calls.find((c) => c.args[0] === 'cherry-pick');
       assert.ok(cherry, 'cherry-pick was called');
@@ -80,7 +80,7 @@ describe('CherryPickRevertOps — -m mainline for merge commits (H3)', () => {
   describe('revert', () => {
     it('passes -m 1 when mainline option is 1', async () => {
       const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
-      const result = await ops.revert(repo(), ['abc1234'], { mainline: 1 });
+      const result = (await ops.revert(repo(), ['abc1234'], { mainline: 1 }))._unsafeUnwrap();
       assert.ok(result.success);
       const revert = calls.find((c) => c.args[0] === 'revert');
       assert.ok(revert, 'revert was called');
@@ -101,7 +101,9 @@ describe('CherryPickRevertOps — -m mainline for merge commits (H3)', () => {
         { exitCode: 0, stdout: '', stderr: '' }, // revert --no-commit
         { exitCode: 0, stdout: '', stderr: '' }, // git commit -m
       ]);
-      const result = await ops.revert(repo(), ['abc1234'], { message: 'Revert "feat: something"' });
+      const result = (
+        await ops.revert(repo(), ['abc1234'], { message: 'Revert "feat: something"' })
+      )._unsafeUnwrap();
       assert.ok(result.success);
       const revert = calls.find((c) => c.args[0] === 'revert');
       assert.ok(revert, 'revert was called');
@@ -155,12 +157,16 @@ describe('CherryPickRevertOps — -m mainline for merge commits (H3)', () => {
     for (const { label, value } of bad) {
       it(`cherry-pick rejects ${label} mainline and never spawns git`, async () => {
         const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
-        await assert.rejects(() => ops.cherryPick(repo(), ['abc1234'], { mainline: value }));
+        const result = await ops.cherryPick(repo(), ['abc1234'], { mainline: value });
+        assert.ok(result.isErr());
+        assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
         assert.strictEqual(calls.length, 0, 'no git command should run for invalid mainline');
       });
       it(`revert rejects ${label} mainline and never spawns git`, async () => {
         const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
-        await assert.rejects(() => ops.revert(repo(), ['abc1234'], { mainline: value }));
+        const result = await ops.revert(repo(), ['abc1234'], { mainline: value });
+        assert.ok(result.isErr());
+        assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
         assert.strictEqual(calls.length, 0, 'no git command should run for invalid mainline');
       });
     }

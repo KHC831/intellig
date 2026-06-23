@@ -278,8 +278,16 @@ export class ConflictResolutionService implements IConflictResolutionService {
         await fs.promises.access(path.join(gitDir, file));
         anyStateFilePresent = true;
         break;
-      } catch {
-        // Missing — keep looking.
+      } catch (error) {
+        // ENOENT is the expected "state file absent" signal — keep looking.
+        // Any other errno (EACCES/EIO/ENOTDIR…) is a real fs fault that must
+        // not be masked as "no operation in progress"; log+degrade so it's visible.
+        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+          this._logger.debug('in-progress state-file probe failed', {
+            file,
+            err: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
 
@@ -292,8 +300,15 @@ export class ConflictResolutionService implements IConflictResolutionService {
             anyStateFilePresent = true;
             break;
           }
-        } catch {
-          // Ignore.
+        } catch (error) {
+          // ENOENT is the expected "rebase dir absent" signal. Any other errno
+          // is a real fs fault that must not be masked; log+degrade so it's visible.
+          if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+            this._logger.debug('in-progress rebase-dir probe failed', {
+              dir,
+              err: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     }
@@ -334,6 +349,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
         CONTEXT_KEY_CONFLICTS_ACTIVE,
         nextAggregate
       );
+      // eslint-disable-next-line no-restricted-syntax -- setContext is a non-essential UI context key; a failure (e.g. unit tests that don't mock it) is non-fatal.
     } catch {
       // setContext isn't available in non-test extension-host builds; swallow
       // so this call is safe in unit tests that don't mock it.
@@ -425,7 +441,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
   async markResolved(repo: IRepository, filePath: string): Promise<IConflictResolutionResult> {
     try {
       // Stage the file to mark it as resolved
-      await this._gitService.stage(repo, [filePath]);
+      await this._gitService.stage(repo, [filePath]).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
 
       // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
@@ -451,7 +472,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
   ): Promise<IConflictResolutionResult> {
     try {
       // Stage all files to mark them as resolved
-      await this._gitService.stage(repo, filePaths);
+      await this._gitService.stage(repo, filePaths).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
 
       // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
@@ -488,7 +514,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       } else {
         await gitCli.exec(['checkout', '--ours', '--', filePath], options);
         // Stage the file to mark as resolved.
-        await this._gitService.stage(repo, [filePath]);
+        await this._gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       }
 
       // Fire change event
@@ -549,7 +580,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       } else {
         await gitCli.exec(['checkout', '--theirs', '--', filePath], options);
         // Stage the file to mark as resolved.
-        await this._gitService.stage(repo, [filePath]);
+        await this._gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       }
 
       // Fire change event
@@ -615,7 +651,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       // drops out of the unmerged set. Otherwise leave it unstaged so the user
       // settles the remaining true conflicts.
       if (!merged.hasConflicts) {
-        await this._gitService.stage(repo, [filePath]);
+        await this._gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       }
 
       const conflicts = await this.getConflictedFiles(repo);
@@ -683,7 +724,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       }
       // Stage the checked-out files to mark as resolved (rm already staged its removals).
       if (toStage.length > 0) {
-        await this._gitService.stage(repo, toStage);
+        await this._gitService.stage(repo, toStage).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       }
 
       // Fire change event
@@ -731,7 +777,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       }
       // Stage the checked-out files to mark as resolved (rm already staged its removals).
       if (toStage.length > 0) {
-        await this._gitService.stage(repo, toStage);
+        await this._gitService.stage(repo, toStage).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
       }
 
       // Fire change event

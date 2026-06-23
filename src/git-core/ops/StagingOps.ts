@@ -1,5 +1,6 @@
 import { promises as fsp } from 'fs';
 import * as nodePath from 'path';
+import { ResultAsync, ok, err, okAsync, errAsync } from 'neverthrow';
 import {
   IRepository,
   IFileStatus,
@@ -9,6 +10,12 @@ import {
   IRollbackChange,
   IRollbackOptions,
 } from '../interfaces/IGitService';
+import {
+  GitError,
+  CommandFailedError,
+  InvalidArgumentError,
+  classifyGitCommandError,
+} from '../errors';
 import { parseStatus } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -20,32 +27,41 @@ import { IGitOpsContext } from './GitOpsContext';
 export class StagingOps {
   constructor(private readonly ctx: IGitOpsContext) {}
 
-  async getStatus(repo: IRepository): Promise<IFileStatus[]> {
-    const result = await this.ctx.gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseStatus(result.stdout);
+  getStatus(repo: IRepository): ResultAsync<IFileStatus[], GitError> {
+    // `git status --porcelain` exits 0 on any real repo, so a non-zero exit is
+    // a genuine failure (not-a-repo / system) → Err, never a silent empty list.
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['status', '--porcelain'], { cwd: repo.rootUri.fsPath }),
+      classifyGitCommandError
+    ).andThen((result) =>
+      result.exitCode !== 0
+        ? err(new CommandFailedError(result.exitCode, result.stderr))
+        : ok(parseStatus(result.stdout))
+    );
   }
 
-  async stage(repo: IRepository, paths: string[]): Promise<void> {
-    await this.ctx.gitCli.exec(['add', '--', ...paths], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+  stage(repo: IRepository, paths: string[]): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['add', '--', ...paths], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async unstage(repo: IRepository, paths: string[]): Promise<void> {
-    await this.ctx.gitCli.exec(['reset', 'HEAD', '--', ...paths], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+  unstage(repo: IRepository, paths: string[]): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['reset', 'HEAD', '--', ...paths], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -55,16 +71,20 @@ export class StagingOps {
    * @param path - The file path
    * @param hunk - The hunk to stage
    */
-  async stageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+  stageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError> {
     // Generate a patch for the hunk
     const patch = this.generateHunkPatch(path, hunk);
 
-    await this.ctx.gitCli.exec(['apply', '--cached', '-'], {
-      cwd: repo.rootUri.fsPath,
-      input: patch,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['apply', '--cached', '-'], {
+        cwd: repo.rootUri.fsPath,
+        input: patch,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -76,20 +96,29 @@ export class StagingOps {
    * @param lines - Array of line numbers (1-indexed) in the new file to stage
    * @param hunk - The hunk containing the lines to stage
    */
-  async stageLines(repo: IRepository, path: string, lines: number[], hunk: IHunk): Promise<void> {
+  stageLines(
+    repo: IRepository,
+    path: string,
+    lines: number[],
+    hunk: IHunk
+  ): ResultAsync<void, GitError> {
     if (lines.length === 0) {
-      return;
+      return okAsync(undefined);
     }
 
     // Generate a patch that includes only the specified lines
     const patch = this.generateLinesPatch(path, lines, hunk);
 
-    await this.ctx.gitCli.exec(['apply', '--cached', '-'], {
-      cwd: repo.rootUri.fsPath,
-      input: patch,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['apply', '--cached', '-'], {
+        cwd: repo.rootUri.fsPath,
+        input: patch,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -100,17 +129,21 @@ export class StagingOps {
    * @param path - The file path
    * @param hunk - The hunk to unstage
    */
-  async unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+  unstageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError> {
     // Generate a patch for the hunk
     const patch = this.generateHunkPatch(path, hunk);
 
     // Apply the patch in reverse to unstage
-    await this.ctx.gitCli.exec(['apply', '--cached', '-R', '-'], {
-      cwd: repo.rootUri.fsPath,
-      input: patch,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['apply', '--cached', '-R', '-'], {
+        cwd: repo.rootUri.fsPath,
+        input: patch,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -125,7 +158,11 @@ export class StagingOps {
    * @param path - The file path
    * @param hunk - The hunk to discard
    */
-  async revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+  revertHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(this._revertHunk(repo, path, hunk), classifyGitCommandError);
+  }
+
+  private async _revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
     // Reverting touches the working tree only (no `--cached`). If the file also
     // has staged changes the index keeps its pre-revert content, so the
     // "discarded" hunk silently reappears on the next commit. Refuse rather
@@ -134,7 +171,7 @@ export class StagingOps {
       cwd: repo.rootUri.fsPath,
     });
     if (staged.exitCode === 0 && staged.stdout.trim().length > 0) {
-      throw new Error(
+      throw new InvalidArgumentError(
         'Stage or unstage this file first — it has staged changes that would otherwise keep the reverted hunk in the next commit.'
       );
     }
@@ -156,14 +193,18 @@ export class StagingOps {
    * @param repo - The repository
    * @param path - The file path to revert
    */
-  async revertFile(repo: IRepository, path: string): Promise<void> {
+  revertFile(repo: IRepository, path: string): ResultAsync<void, GitError> {
     // Use git checkout -- <path> to discard changes
     // This works for both modified and deleted files
-    await this.ctx.gitCli.exec(['checkout', '--', path], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['checkout', '--', path], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**
@@ -176,7 +217,18 @@ export class StagingOps {
    * path is passed positionally behind `--` so a path that looks like a flag
    * (e.g. `--force`) can never be read as one.
    */
-  async rollbackChanges(
+  rollbackChanges(
+    repo: IRepository,
+    changes: IRollbackChange[],
+    options: IRollbackOptions = {}
+  ): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this._rollbackChanges(repo, changes, options),
+      classifyGitCommandError
+    );
+  }
+
+  private async _rollbackChanges(
     repo: IRepository,
     changes: IRollbackChange[],
     options: IRollbackOptions = {}
@@ -229,7 +281,7 @@ export class StagingOps {
       const abs = nodePath.resolve(cwd, rel);
       const root = nodePath.resolve(cwd);
       if (abs === root || !abs.startsWith(root + nodePath.sep)) {
-        throw new Error(`Refusing to delete a path outside the repository: ${rel}`);
+        throw new InvalidArgumentError(`Refusing to delete a path outside the repository: ${rel}`);
       }
       await fsp.rm(abs, { force: true, recursive: true });
     }
@@ -248,19 +300,23 @@ export class StagingOps {
    * Reset the current branch to the given target commit using one of the four
    * IntelliJ reset modes.
    */
-  async resetToCommit(repo: IRepository, target: string, mode: ResetMode): Promise<void> {
+  resetToCommit(repo: IRepository, target: string, mode: ResetMode): ResultAsync<void, GitError> {
     // Security: reject refs starting with `-` (git would treat them as CLI
     // flags, bypassing the argv-spawn defense) or `.` (invalid per
     // git-check-ref-format). Mirrors the ResetDialog.isValidRef guard.
     if (!target || !/^(?![-.])[A-Za-z0-9_./@:~^-]+$/.test(target)) {
-      throw new Error(`Invalid reset target: ${target}`);
+      return errAsync(new InvalidArgumentError(`Invalid reset target: ${target}`));
     }
     const modeFlag = `--${mode}`;
-    await this.ctx.gitCli.exec(['reset', modeFlag, target], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['reset', modeFlag, target], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
   /**

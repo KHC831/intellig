@@ -6,7 +6,9 @@
  */
 
 import '../../setup';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
+import { okAsync, ResultAsync } from 'neverthrow';
 import {
   IGitService,
   IRepository,
@@ -55,15 +57,19 @@ function createMockGitService(
         behindCount: 0,
         changedFiles: [],
       }),
-    fetch: async (repo: IRepository) => {
+    fetch: (repo: IRepository) => {
       fetchCalls.push(repo);
-      return fetchImpl(repo);
+      return ResultAsync.fromPromise(
+        fetchImpl(repo),
+        (e) => new SpawnFailedError(e instanceof Error ? e.message : String(e))
+      );
     },
-    pull: () => Promise.resolve(),
-    push: () => Promise.resolve(),
-    getRemotes: () => Promise.resolve([]),
-    addRemote: () => Promise.resolve(),
-    removeRemote: () => Promise.resolve(),
+    commitFixup: () => okAsync({ success: true }),
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: () => Promise.resolve(),
     stashList: () => Promise.resolve([]),
     stashApply: () => Promise.resolve(),
@@ -98,13 +104,13 @@ function createMockGitService(
     revertAbort: () => Promise.resolve(),
     revertContinue: () => Promise.resolve({ success: true }),
     getStatus: () => Promise.resolve([]),
-    stage: () => Promise.resolve(),
-    unstage: () => Promise.resolve(),
-    stageHunk: () => Promise.resolve(),
-    stageLines: () => Promise.resolve(),
-    unstageHunk: () => Promise.resolve(),
-    revertFile: () => Promise.resolve(),
-    resetToCommit: () => Promise.resolve(),
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
+    resetToCommit: () => okAsync(undefined),
     dispose: () => {},
   } as unknown as IGitService & {
     fetchCalls: IRepository[];

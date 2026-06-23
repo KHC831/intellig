@@ -18,7 +18,9 @@
  */
 
 import '../../setup';
+import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -217,8 +219,9 @@ describe('intellig.explorer.commitFile — handler', () => {
     let staged: string[] | undefined;
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
-      stage: async (_r: IRepository, files: string[]): Promise<void> => {
+      stage: (_r: IRepository, files: string[]) => {
         staged = files;
+        return okAsync(undefined);
       },
     });
 
@@ -241,8 +244,9 @@ describe('intellig.explorer.commitFile — handler', () => {
     const repo = repoAt('/repo');
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
-      stage: async (): Promise<void> => {
+      stage: () => {
         stageCalled = true;
+        return okAsync(undefined);
       },
     });
 
@@ -262,8 +266,9 @@ describe('intellig.explorer.commitFile — handler', () => {
     const repo = repoAt('/repo');
     const git = createMockGitService(repo, {
       getRepositories: () => [],
-      stage: async (): Promise<void> => {
+      stage: () => {
         stageCalled = true;
+        return okAsync(undefined);
       },
     });
 
@@ -350,8 +355,9 @@ describe('GitScmProvider — commit-on-accept', () => {
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       getStatus: async () => [],
-      commit: async (_r: IRepository, message: string): Promise<void> => {
+      commit: (_r: IRepository, message: string) => {
         committedWith = message;
+        return okAsync(undefined);
       },
     });
     const { api, created } = fakeScmApi();
@@ -378,9 +384,9 @@ describe('GitScmProvider — commit-on-accept', () => {
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       getStatus: async () => [],
-      commit: async (): Promise<void> => {
+      commit: () => {
         commitCount += 1;
-        await gate; // hold the first commit in flight
+        return ResultAsync.fromSafePromise<void, never>(gate); // hold the first commit in flight
       },
     });
     const { api, created } = fakeScmApi();
@@ -410,8 +416,9 @@ describe('GitScmProvider — commit-on-accept', () => {
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       getStatus: async () => [],
-      commit: async (): Promise<void> => {
+      commit: () => {
         commitCalled = true;
+        return okAsync(undefined);
       },
     });
     const { api, created } = fakeScmApi();
@@ -439,8 +446,9 @@ describe('GitScmProvider — commit-on-accept', () => {
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       getStatus: async () => [],
-      commit: async (): Promise<void> => {
+      commit: () => {
         commitCalled = true;
+        return okAsync(undefined);
       },
     });
     const { api, created } = fakeScmApi();
@@ -468,8 +476,9 @@ describe('GitScmProvider — commit-on-accept', () => {
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       getStatus: async () => [],
-      commit: async (): Promise<void> => {
+      commit: () => {
         commitCalled = true;
+        return okAsync(undefined);
       },
     });
     const { api, created } = fakeScmApi();
@@ -499,9 +508,9 @@ describe('GitScmProvider — commit-on-accept', () => {
         getStatusCalls += 1;
         return [];
       },
-      commit: async (): Promise<void> => {
+      commit: () => {
         statusCallsAtCommit = getStatusCalls;
-        throw new Error('fatal: unable to write commit object');
+        return errAsync(new SpawnFailedError('fatal: unable to write commit object'));
       },
     });
     const { api, created } = fakeScmApi();

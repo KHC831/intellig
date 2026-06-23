@@ -11,6 +11,8 @@
  */
 
 import '../setup';
+import { SpawnFailedError } from '../../src/git-core/errors';
+import { okAsync, errAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
@@ -186,8 +188,8 @@ function createErrorThrowingMockGitService(overrides: Partial<IGitService> = {})
     getRepository: async () => undefined,
     getBranches: async () => [],
     getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
+    commit: () => okAsync(undefined),
+    amend: () => okAsync(undefined),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},
@@ -201,12 +203,14 @@ function createErrorThrowingMockGitService(overrides: Partial<IGitService> = {})
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
+    fetch: () => {
+      return okAsync(undefined);
+    },
+    pull: () => okAsync(undefined),
+    push: () => okAsync(undefined),
+    getRemotes: () => okAsync([]),
+    addRemote: () => okAsync(undefined),
+    removeRemote: () => okAsync(undefined),
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},
@@ -244,12 +248,12 @@ function createErrorThrowingMockGitService(overrides: Partial<IGitService> = {})
     revertAbort: async () => {},
     revertContinue: async () => ({ success: true }),
     getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
+    stage: () => okAsync(undefined),
+    unstage: () => okAsync(undefined),
+    stageHunk: () => okAsync(undefined),
+    stageLines: () => okAsync(undefined),
+    unstageHunk: () => okAsync(undefined),
+    revertFile: () => okAsync(undefined),
     dispose: () => {},
     ...overrides,
   } as unknown as IGitService;
@@ -344,8 +348,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             errorTracker.reset();
 
             const gitService = createErrorThrowingMockGitService({
-              fetch: async () => {
-                throw new Error(errorMsg);
+              fetch: () => {
+                return errAsync(new SpawnFailedError(errorMsg));
               },
             });
             const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -380,8 +384,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             errorTracker.reset();
 
             const gitService = createErrorThrowingMockGitService({
-              push: async () => {
-                throw new Error(errorMsg);
+              push: () => {
+                return errAsync(new SpawnFailedError(errorMsg));
               },
             });
             const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -416,8 +420,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             errorTracker.reset();
 
             const gitService = createErrorThrowingMockGitService({
-              pull: async () => {
-                throw new Error(errorMsg);
+              pull: () => {
+                return errAsync(new SpawnFailedError(errorMsg));
               },
             });
             const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -450,8 +454,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             errorTracker.reset();
 
             const gitService = createErrorThrowingMockGitService({
-              pull: async () => {
-                throw new Error(errorMsg);
+              pull: () => {
+                return errAsync(new SpawnFailedError(errorMsg));
               },
             });
             const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -496,7 +500,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             errorTracker.reset();
 
             const gitService = createErrorThrowingMockGitService({
-              checkout: async () => {},
+              checkout: () => okAsync(undefined),
               rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
                 success: false,
                 conflicts: conflictFiles,
