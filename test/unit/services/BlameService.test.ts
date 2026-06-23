@@ -97,9 +97,12 @@ class MockGitCli {
   }
 }
 
-// Sample blame output in porcelain format
-// Note: The parser expects 40-character commit hashes and specific line format
-// Each line needs full metadata since the parser doesn't cache commit info
+// Sample blame output in porcelain format.
+// Mirrors REAL `git blame --porcelain`: a commit's header block (author /
+// author-time / summary / …) is emitted ONLY on its first appearance. Line 2
+// is the SAME commit as line 1 (`abc123…`) and therefore carries NO header
+// block — git expects the consumer to resolve it from the sha. The parser must
+// attribute it back to John Doe / "Initial commit" from the cached metadata.
 const sampleBlameOutput = `abc123def456789012345678901234567890abcd 1 1 1
 author John Doe
 author-mail <john@example.com>
@@ -113,16 +116,6 @@ summary Initial commit
 filename test.ts
 \tconst x = 1;
 abc123def456789012345678901234567890abcd 2 2 1
-author John Doe
-author-mail <john@example.com>
-author-time 1609459200
-author-tz +0000
-committer John Doe
-committer-mail <john@example.com>
-committer-time 1609459200
-committer-tz +0000
-summary Initial commit
-filename test.ts
 \tconst y = 2;
 def456789012345678901234567890abcdef12 3 3 1
 author Jane Smith
@@ -399,6 +392,15 @@ describe('BlameService', () => {
         assert.strictEqual(blameLine1.line, 1);
         assert.strictEqual(blameLine1.author, 'John Doe');
         assert.strictEqual(blameLine1.message, 'Initial commit');
+
+        // Line 2 is the SAME commit as line 1 but its porcelain group carries
+        // NO header block. It must still resolve to John Doe / "Initial commit"
+        // from the per-sha metadata cache — not be mis-attributed.
+        const blameLine2 = await blameService.getBlameForLine(mockRepo, 'test.ts', 2);
+        assert.strictEqual(blameLine2.line, 2);
+        assert.strictEqual(blameLine2.commit, 'abc123def456789012345678901234567890abcd');
+        assert.strictEqual(blameLine2.author, 'John Doe');
+        assert.strictEqual(blameLine2.message, 'Initial commit');
       });
 
       it('should return placeholder for non-existent line', async () => {

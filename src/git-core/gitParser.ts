@@ -737,16 +737,38 @@ export function parseBlame(output: string): IBlameLine[] {
   const blameLines: IBlameLine[] = [];
   const lines = output.split('\n');
 
+  // Per-commit metadata cache. `git blame --porcelain` emits a commit's
+  // author/author-time/summary/previous header block ONLY on that commit's
+  // FIRST appearance in the stream; later, non-contiguous occurrences of the
+  // same commit carry just the `<sha> <orig> <final>` line + the content line,
+  // because git expects the consumer to have cached the metadata by sha.
+  // Keying on the sha (rather than tracking flat running variables) is what
+  // keeps every repeat line attributed to its OWN commit instead of whichever
+  // header block was seen most recently.
+  interface ICommitMeta {
+    author: string;
+    authorEmail: string;
+    date?: Date;
+    message: string;
+    // Emitted by git blame's `previous <sha> <path>` header when -M/-C detect
+    // that the line was in a different file at the parent commit.
+    previousCommit?: string;
+    previousFilename?: string;
+  }
+  const commitMeta = new Map<string, ICommitMeta>();
+
   let currentCommit = '';
-  let currentAuthor = '';
-  let currentAuthorEmail = '';
-  let currentDate: Date | undefined;
-  let currentMessage = '';
   let currentLine = 0;
-  let previousCommit: string | undefined;
-  // Emitted by git blame's `previous <sha> <path>` header when -M/-C detect
-  // that the line was in a different file at the parent commit.
-  let previousFilename: string | undefined;
+
+  // The header lines that follow a commit line populate THAT commit's entry.
+  const meta = (): ICommitMeta => {
+    let m = commitMeta.get(currentCommit);
+    if (!m) {
+      m = { author: '', authorEmail: '', message: '' };
+      commitMeta.set(currentCommit, m);
+    }
+    return m;
+  };
 
   for (const line of lines) {
     // Commit line: hash origLine finalLine [numLines]
@@ -760,26 +782,26 @@ export function parseBlame(output: string): IBlameLine[] {
 
     // Author
     if (line.startsWith('author ')) {
-      currentAuthor = line.substring('author '.length);
+      meta().author = line.substring('author '.length);
       continue;
     }
 
     // Author email
     if (line.startsWith('author-mail ')) {
-      currentAuthorEmail = line.substring('author-mail '.length).replace(/[<>]/g, '');
+      meta().authorEmail = line.substring('author-mail '.length).replace(/[<>]/g, '');
       continue;
     }
 
     // Author time
     if (line.startsWith('author-time ')) {
       const timestamp = parseInt(line.substring('author-time '.length), 10);
-      currentDate = new Date(timestamp * 1000);
+      meta().date = new Date(timestamp * 1000);
       continue;
     }
 
     // Summary (commit message)
     if (line.startsWith('summary ')) {
-      currentMessage = line.substring('summary '.length);
+      meta().message = line.substring('summary '.length);
       continue;
     }
 
@@ -792,32 +814,30 @@ export function parseBlame(output: string): IBlameLine[] {
     if (line.startsWith('previous ')) {
       const rest = line.substring('previous '.length);
       const spaceIdx = rest.indexOf(' ');
+      const m = meta();
       if (spaceIdx >= 0) {
-        previousCommit = rest.substring(0, spaceIdx);
-        previousFilename = rest.substring(spaceIdx + 1);
+        m.previousCommit = rest.substring(0, spaceIdx);
+        m.previousFilename = rest.substring(spaceIdx + 1);
       } else {
-        previousCommit = rest;
-        previousFilename = undefined;
+        m.previousCommit = rest;
+        m.previousFilename = undefined;
       }
       continue;
     }
 
     // Content line (starts with tab)
     if (line.startsWith('\t')) {
+      const m = meta();
       blameLines.push({
         line: currentLine,
         commit: currentCommit,
-        author: currentAuthor,
-        authorEmail: currentAuthorEmail,
-        date: currentDate || new Date(),
-        message: currentMessage,
-        previousCommit,
-        previousFilename,
+        author: m.author,
+        authorEmail: m.authorEmail,
+        date: m.date || new Date(),
+        message: m.message,
+        previousCommit: m.previousCommit,
+        previousFilename: m.previousFilename,
       });
-
-      // Reset per-line headers.
-      previousCommit = undefined;
-      previousFilename = undefined;
     }
   }
 

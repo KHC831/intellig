@@ -9,6 +9,7 @@ import {
   parseHunks,
   parseDiff,
   parseBranches,
+  parseBlame,
   parseLog,
   parseTags,
   getLogFormat,
@@ -901,6 +902,92 @@ index 1234567,abcdefg..fedcba9
       // isHead set correctly — main carried `*`, others did not.
       assert.strictEqual(result.find((b) => b.name === 'main')?.isHead, true);
       assert.strictEqual(result.find((b) => b.name === 'feature/JIRA-123')?.isHead, false);
+    });
+  });
+
+  describe('parseBlame', () => {
+    // git blame --porcelain emits a commit's author/author-time/summary header
+    // block ONLY on that commit's FIRST appearance in the stream. Later,
+    // non-contiguous occurrences of the SAME commit carry just the
+    // `<sha> <orig> <final>` line + the `\t<content>` line — NO headers, because
+    // git expects the consumer to have cached the metadata by sha. A parser that
+    // tracks metadata as flat running variables (rather than a per-sha map) will
+    // mislabel every repeat line with whichever commit's headers were seen most
+    // recently. This fixture reproduces that real-world layout.
+    const A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const realisticPorcelain = [
+      // Line 1 — commit A, full header block (first sight of A).
+      `${A} 1 1 1`,
+      'author Alice',
+      'author-mail <alice@example.com>',
+      'author-time 1700000000',
+      'author-tz +0000',
+      'committer Alice',
+      'committer-mail <alice@example.com>',
+      'committer-time 1700000000',
+      'committer-tz +0000',
+      'summary Add greeting',
+      'filename greeting.ts',
+      '\tconst a = 1;',
+      // Line 2 — commit B, full header block (first sight of B).
+      `${B} 2 2 1`,
+      'author Bob',
+      'author-mail <bob@example.com>',
+      'author-time 1800000000',
+      'author-tz +0000',
+      'committer Bob',
+      'committer-mail <bob@example.com>',
+      'committer-time 1800000000',
+      'committer-tz +0000',
+      'summary Tweak spacing',
+      'filename greeting.ts',
+      '\tconst b = 2;',
+      // Line 3 — commit A AGAIN, NO header block (git already emitted A's once).
+      `${A} 3 3 1`,
+      '\tconst a3 = 3;',
+    ].join('\n');
+
+    it('attributes a repeated commit by its own metadata, not the last-seen commit', () => {
+      const lines = parseBlame(realisticPorcelain);
+      assert.strictEqual(lines.length, 3, 'all three content lines parsed');
+
+      const [l1, l2, l3] = lines;
+
+      // Line 1 — commit A.
+      assert.strictEqual(l1.commit, A);
+      assert.strictEqual(l1.author, 'Alice');
+      assert.strictEqual(l1.message, 'Add greeting');
+
+      // Line 2 — commit B.
+      assert.strictEqual(l2.commit, B);
+      assert.strictEqual(l2.author, 'Bob');
+      assert.strictEqual(l2.message, 'Tweak spacing');
+
+      // Line 3 — commit A again. The headerless repeat must still resolve to
+      // ALICE / "Add greeting" (A's cached metadata), NOT Bob's (the most
+      // recently-seen header block). This is the bug the flat-variable parser
+      // had.
+      assert.strictEqual(l3.commit, A, 'repeat line keeps the correct hash');
+      assert.strictEqual(l3.author, 'Alice', 'repeat line must use A’s author, not B’s');
+      assert.strictEqual(l3.message, 'Add greeting', 'repeat line must use A’s summary');
+      assert.strictEqual(
+        l3.date.getTime(),
+        1700000000 * 1000,
+        'repeat line must use A’s author-time, not B’s'
+      );
+    });
+
+    it('maps each content line to its 1-indexed final line number', () => {
+      const lines = parseBlame(realisticPorcelain);
+      assert.deepStrictEqual(
+        lines.map((l) => l.line),
+        [1, 2, 3]
+      );
+    });
+
+    it('returns an empty array for empty blame output', () => {
+      assert.deepStrictEqual(parseBlame(''), []);
     });
   });
 });

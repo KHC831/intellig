@@ -18,6 +18,11 @@ export async function run(): Promise<void> {
     reporter: 'spec',
   });
 
+  // Optional focus filter for local iteration: `E2E_GREP="<pattern>"`.
+  if (process.env.E2E_GREP) {
+    mocha.grep(process.env.E2E_GREP);
+  }
+
   const suiteRoot = __dirname;
   for (const file of findTestFiles(suiteRoot)) {
     mocha.addFile(file);

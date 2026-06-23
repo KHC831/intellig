@@ -21,9 +21,15 @@ export interface IBlameHoverOptions {
   showOpenOnHost?: boolean;
 }
 
-/** Encode a hash as a single-arg `command:` query payload. */
+/**
+ * Encode a hash as a `command:` query payload. VS Code spreads a JSON-array
+ * query into the command's positional arguments, so the hash is wrapped in a
+ * single-element array — matching the working `LineStatusHoverProvider`
+ * (`...?[uri, line]`) pattern. The command handlers read the hash as their
+ * first positional argument.
+ */
 function commandArg(hash: string): string {
-  return encodeURIComponent(JSON.stringify(hash));
+  return encodeURIComponent(JSON.stringify([hash]));
 }
 
 /**

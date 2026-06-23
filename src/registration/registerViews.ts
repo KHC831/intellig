@@ -299,6 +299,34 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // filter change, or load-more can never be clobbered by a stale count that
     // resolves late (rev-list --count on a big repo can take seconds).
     let logLoadGeneration = 0;
+
+    // Per-repo snapshot of the last DEFAULT (unfiltered, first-page) log render.
+    // Switching repos via the selector re-ran the full git log + count +
+    // branches + tags + graph layout every time, so a switch back to an
+    // already-viewed repo paid the whole cost again and felt laggy. We now keep
+    // the last rendered state per repo root and paint it INSTANTLY on switch,
+    // then fetch fresh in the background (stale-while-revalidate). The
+    // background fetch always corrects any staleness, so the cache only ever
+    // shortens the time-to-first-paint — it never shows persistently stale data.
+    type LogSnapshot = {
+      commits: Awaited<ReturnType<typeof fetchGraphPage>>['commits'];
+      branchMap: Map<string, Array<{ name: string; type: 'local' | 'remote' }>>;
+      tagMap: Map<string, string[]>;
+      headHash: string | undefined;
+      headBranchName: string | undefined;
+      totalAvailable: number | undefined;
+    };
+    const defaultLogCache = new Map<string, LogSnapshot>();
+
+    // Drop a repo's cached snapshot whenever its state changes (commit /
+    // checkout / fetch / reset), so the next switch to it never paints
+    // known-stale content before the background refresh lands.
+    ctx.context.subscriptions.push(
+      gitService.onDidChangeRepository((changed) => {
+        defaultLogCache.delete(changed.rootUri.fsPath);
+      })
+    );
+
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: {
@@ -324,6 +352,27 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     ): Promise<void> => {
       try {
         const myGeneration = ++logLoadGeneration;
+
+        // Stale-while-revalidate: a default (unfiltered, first-page) load is a
+        // navigational repo switch. Paint the last cached render for this repo
+        // IMMEDIATELY so the switch feels instant, then fall through to the
+        // fresh fetch below which repaints in place once git returns.
+        const isDefaultLoad = !loadMore && filter === undefined;
+        if (isDefaultLoad && ctx.gitToolWindowProvider) {
+          const cached = defaultLogCache.get(repo.rootUri.fsPath);
+          if (cached) {
+            ctx.gitToolWindowProvider.markResetScrollOnNextRender();
+            ctx.gitToolWindowProvider.updateLogState(
+              cached.commits,
+              cached.branchMap,
+              cached.tagMap,
+              cached.headHash,
+              cached.headBranchName,
+              cached.totalAvailable
+            );
+          }
+        }
+
         // A fresh load resets the grown limit to one page; a load-more re-run
         // carries the explicit grown limit through.
         let limit: number;
@@ -405,6 +454,24 @@ export function registerViews(ctx: IViewRegistrationContext): void {
             headBranchName,
             undefined
           );
+
+          // Cache the fresh default-page render so a later switch back to this
+          // repo paints instantly (see the stale-while-revalidate paint above).
+          // Only the unfiltered first page is cached — that is exactly the state
+          // a repo switch loads.
+          if (isDefaultLoad) {
+            defaultLogCache.set(repo.rootUri.fsPath, {
+              commits,
+              branchMap,
+              tagMap,
+              headHash,
+              headBranchName,
+              // `totalAvailable` is now a background promise; the cached paint
+              // mirrors main's fresh paint (render with the count unknown, no
+              // spinner) and lets the in-flight fresh load fold the real total in.
+              totalAvailable: undefined,
+            });
+          }
 
           // Re-arm the webview's load-more debounce now the grown page has
           // rendered, so the next scroll-to-bottom can fire. Explicit + reload

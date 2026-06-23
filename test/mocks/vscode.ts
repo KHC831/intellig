@@ -605,6 +605,18 @@ export interface CancellationToken {
 }
 
 // Mock window namespace
+// Active-editor change listeners registered via `window.onDidChangeActiveTextEditor`.
+// Tests drive a file switch with `fireActiveTextEditor(editor)`.
+const _activeEditorListeners: Array<(e: unknown) => void> = [];
+
+/** Fire a simulated active-editor change to every registered listener. */
+export function fireActiveTextEditor(editor: unknown): void {
+  window.activeTextEditor = editor;
+  for (const listener of [..._activeEditorListeners]) {
+    listener(editor);
+  }
+}
+
 export const window = {
   showInformationMessage: async (
     _message: string,
@@ -732,8 +744,16 @@ export const window = {
       },
     };
   },
-  onDidChangeActiveTextEditor(_listener: (e: unknown) => void): { dispose: () => void } {
-    return { dispose: () => {} };
+  onDidChangeActiveTextEditor(listener: (e: unknown) => void): { dispose: () => void } {
+    _activeEditorListeners.push(listener);
+    return {
+      dispose: (): void => {
+        const i = _activeEditorListeners.indexOf(listener);
+        if (i >= 0) {
+          _activeEditorListeners.splice(i, 1);
+        }
+      },
+    };
   },
   onDidChangeTextEditorSelection(_listener: (e: unknown) => void): { dispose: () => void } {
     return { dispose: () => {} };

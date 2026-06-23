@@ -69,6 +69,70 @@ export function computeHeatColor(commitMs: number, oldestMs: number, newestMs: n
 }
 
 /**
+ * Human-friendly categorical palette for ORDER mode. Distinct, moderate-
+ * saturation hues (editor-accent style) that read clearly as a translucent
+ * column tint on both light and dark themes — no amber/brown heat ramp. Adjacent
+ * entries are different hues so neighbouring commits stay easy to tell apart.
+ */
+const ORDER_PALETTE_RGB: ReadonlyArray<readonly [number, number, number]> = [
+  [97, 175, 239], // blue
+  [152, 195, 121], // green
+  [198, 120, 221], // purple
+  [86, 182, 194], // teal
+  [224, 108, 117], // red
+  [229, 165, 92], // orange
+  [214, 122, 177], // pink
+  [146, 156, 167], // slate gray
+];
+
+/** Background alpha for ORDER tints — gentle enough to keep gutter text legible. */
+export const ORDER_BG_ALPHA = 0.35;
+
+const ORDER_PALETTE: ReadonlyArray<string> = ORDER_PALETTE_RGB.map(
+  ([r, g, b]) => `rgba(${r}, ${g}, ${b}, ${ORDER_BG_ALPHA})`
+);
+
+/** The ORDER background palette as CSS `rgba()` strings. Exposed for testing. */
+export function orderColorPalette(): ReadonlyArray<string> {
+  return ORDER_PALETTE;
+}
+
+/**
+ * Build a per-commit ORDER-mode background color keyed by the commit's RANK in
+ * the file's age order — NOT its raw timestamp.
+ *
+ * Distinct commits are ranked oldest → newest and assigned successive palette
+ * entries (cycling), so every line of one commit shares a color while adjacent
+ * commits get different hues. This is the spirit of IntelliJ's ORDER branch
+ * (`AnnotateToggleAction.computeBgColors`, which maps ranked revisions onto a
+ * color palette) but with a categorical human-friendly palette rather than the
+ * amber heat ramp.
+ *
+ * @param lines - Blamed lines (commit + commit timestamp ms), any order.
+ * @returns A map from commit hash to its CSS `rgba()` background color.
+ */
+export function buildOrderColorMap(
+  lines: ReadonlyArray<{ commit: string; dateMs: number }>
+): Map<string, string> {
+  // First timestamp seen per distinct commit, then rank oldest → newest.
+  const firstMs = new Map<string, number>();
+  for (const l of lines) {
+    if (!firstMs.has(l.commit)) {
+      firstMs.set(l.commit, l.dateMs);
+    }
+  }
+  const ranked = Array.from(firstMs.keys()).sort(
+    (a, b) => (firstMs.get(a) as number) - (firstMs.get(b) as number)
+  );
+
+  const map = new Map<string, string>();
+  ranked.forEach((commit, rank) => {
+    map.set(commit, ORDER_PALETTE[rank % ORDER_PALETTE.length]);
+  });
+  return map;
+}
+
+/**
  * Map a normalized recency ratio (0 = oldest, 1 = newest) to an opacity
  * value. Exposed for unit testing.
  *

@@ -126,6 +126,18 @@ describe('buildBlameHover', () => {
     );
   });
 
+  it('encodes the command argument as a JSON array VS Code can spread into the handler', () => {
+    const md = buildBlameHover(makeBlameLine(), {});
+    // Match the pattern at LineStatusHoverProvider: `command:<id>?<encoded>`
+    // where decodeURIComponent(<encoded>) is a JSON ARRAY of positional args.
+    // A bare (non-array) payload diverges from the proven-working hover links.
+    const match = md.value.match(/command:intellig\.editor\.showCommit\?([^)\s|]+)/);
+    assert.ok(match, `show-commit link not found in: ${md.value}`);
+    const decoded: unknown = JSON.parse(decodeURIComponent(match[1]));
+    assert.ok(Array.isArray(decoded), `command arg must be an array, got: ${match[1]}`);
+    assert.deepStrictEqual(decoded, ['abcdef1234567890abcdef1234567890abcdef12']);
+  });
+
   it('renders the previous-revision link when requested and available', () => {
     const md = buildBlameHover(
       makeBlameLine({ previousCommit: 'fedcba0987654321fedcba0987654321fedcba09' }),

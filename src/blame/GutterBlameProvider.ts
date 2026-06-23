@@ -4,7 +4,7 @@ import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine } from '../git-core/interfaces/IGitService';
 import { BlameOptionsSource, IBlameAspectVisibility } from './BlameOptionsSource';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
-import { computeHeatColor } from './heatColor';
+import { computeHeatColor, buildOrderColorMap } from './heatColor';
 import { buildAuthorColorMap } from './authorColor';
 import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
 import { repoRelativePath } from '../utils/repoRelativePath';
@@ -29,11 +29,11 @@ const DEFAULT_DISPLAY: IBlameDisplay = {
  * Displays blame annotations in the editor gutter for all visible lines,
  * with an IntelliJ-style interpolated background gradient and click actions.
  *
- * - Display blame information in the editor gutter for all visible lines
+ * - Display blame information in the editor gutter for every line
  * - Click actions to view commit or copy hash
- * - Background heat gradient: newest commits → warm/amber, oldest → cool/gray,
- *   interpolated linearly across the file's full age range (matches IntelliJ's
- *   ORDER color mode from AnnotateToggleAction / AnnotationsSettings).
+ * - Per-commit background tint: each distinct commit gets a human-friendly
+ *   categorical color (ORDER mode, by age rank) or a per-author color (AUTHOR
+ *   mode), so lines from the same commit/author read as one colored block.
  */
 export class GutterBlameProvider implements IGutterBlameProvider {
   private _enabled: boolean = false;
@@ -152,17 +152,9 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       })
     );
 
-    // Listen for visible range changes (scrolling)
-    this._disposables.push(
-      vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
-        if (!this._enabled) {
-          return;
-        }
-
-        // Debounce updates during scrolling
-        this.debounceUpdate(event.textEditor);
-      })
-    );
+    // No scroll listener: the gutter is rendered for the whole file in one pass
+    // (see updateDecorations) and VS Code virtualizes the on-screen rows, so
+    // there is nothing to recompute as the viewport moves.
 
     // Listen for document changes to invalidate cache
     this._disposables.push(
@@ -204,7 +196,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Debounce decoration updates during rapid scrolling.
+   * Debounce decoration updates while the user is typing, so a burst of edits
+   * coalesces into a single re-blame instead of one per keystroke.
    *
    * @param editor - The text editor to update
    */
@@ -214,8 +207,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
 
     this._updateDebounceTimer = setTimeout(() => {
-      // Bucket B: debounced scroll/edit update; log+suppress so
-      // the debounce cycle keeps firing even if one fetch rejects.
+      // Bucket B: debounced edit update; log+suppress so the debounce cycle
+      // keeps firing even if one fetch rejects.
       safeFireAndForget(
         this.updateDecorations(editor),
         'GutterBlameProvider.debounceUpdate: debounced decoration refresh'
@@ -334,7 +327,16 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Update gutter blame decorations for all visible lines.
+   * Update gutter blame decorations for the WHOLE file in a single pass.
+   *
+   * Decorations are computed once per blame load (file switch / enable / option
+   * change / edit / save) and applied for every line; VS Code virtualizes the
+   * gutter so only on-screen rows actually paint. This is what the efficient
+   * blame extensions (and IntelliJ's annotation gutter) do — re-rendering the
+   * visible viewport on every scroll event was the source of the scroll lag and
+   * a column-width jitter (the `ch` width recomputed from whichever rows were
+   * visible). The text-column width is now the file-wide maximum, so the column
+   * stays put while scrolling.
    *
    * Computes the file's full oldest↔newest commit timestamp range from all
    * blamed lines, then interpolates a background heat color per line using
@@ -407,71 +409,79 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         return;
       }
 
-      // In AUTHOR color mode, pre-compute the stable per-author palette over
-      // the file's full author set so every line of the same author shares a
-      // color (matches IntelliJ's AnnotateToggleAction AUTHOR branch). ORDER
-      // mode leaves this undefined and falls back to the age heat gradient.
+      // Pre-compute the per-commit / per-author background palette over the
+      // file's full committed set so every line of the same commit (or author)
+      // shares one color and the gutter reads as colored blocks.
+      //   - AUTHOR mode: stable per-author color (IntelliJ AUTHOR branch).
+      //   - ORDER mode (default): per-commit color keyed by AGE RANK, so
+      //     adjacent commits stay visually distinct instead of collapsing to the
+      //     same timestamp-interpolated shade (IntelliJ ORDER branch).
       const colorMode = this._optionsSource?.snapshot().colorMode ?? 'order';
+      const committedLines = blameInfo.lines.filter((bl) => !bl.commit.startsWith('0000000'));
       const authorColors =
         colorMode === 'author'
-          ? buildAuthorColorMap(
-              blameInfo.lines
-                .filter((bl) => !bl.commit.startsWith('0000000'))
-                .map((bl) => bl.author)
-            )
+          ? buildAuthorColorMap(committedLines.map((bl) => bl.author))
           : undefined;
-
-      // Annotate the visible viewport (re-run on scroll). When the editor has
-      // not reported a viewport yet — e.g. immediately after the file is opened
-      // by the Annotate action — fall back to the whole document so the column
-      // appears right away instead of waiting for a scroll event.
-      const visibleRanges =
-        editor.visibleRanges.length > 0
-          ? editor.visibleRanges
-          : [new vscode.Range(0, 0, Math.max(0, editor.document.lineCount - 1), 0)];
+      const orderColors =
+        colorMode === 'author'
+          ? undefined
+          : buildOrderColorMap(
+              committedLines.map((bl) => ({ commit: bl.commit, dateMs: bl.date.getTime() }))
+            );
 
       log.debug('updateDecorations: computing decorations', {
         blameLines: blameInfo.lines.length,
-        viewports: visibleRanges.length,
-        usedFullDocFallback: editor.visibleRanges.length === 0,
       });
 
-      // First pass: collect the renderable (committed, non-hidden) lines and
-      // the widest formatted text, so the text column gets a single file-wide
-      // `ch` width and every row's columns line up.
+      // Single pass over every blamed line: collect the renderable (committed,
+      // non-hidden) rows and the widest formatted text, so the text column gets
+      // one file-wide `ch` width and every row's columns line up. Iterating the
+      // blame model directly (rather than scanning the visible viewport on each
+      // scroll) is O(lines) once per load instead of O(visible × lines) on every
+      // scroll frame.
       interface IRenderEntry {
         line: number;
         blameLine: IBlameLine;
         bgColor: string;
         text: string;
       }
+      const docLineCount = editor.document.lineCount;
       const entries: IRenderEntry[] = [];
-      let maxLen = 0;
-      for (const visibleRange of visibleRanges) {
-        for (let line = visibleRange.start.line; line <= visibleRange.end.line; line++) {
-          // Blame lines are 1-indexed
-          const blameLine = blameInfo.lines.find((bl) => bl.line === line + 1);
-          if (!blameLine || blameLine.commit.startsWith('0000000')) {
-            continue;
-          }
-          // "Hide Revision" — any line whose commit the user has hidden is
-          // elided from the gutter.
-          if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
-            continue;
-          }
-          // AUTHOR mode tints by the line's author; ORDER mode interpolates a
-          // heat color across the file's age range.
-          const bgColor =
-            authorColors?.get(blameLine.author) ??
-            computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
-          const text = this.formatGutterText(blameLine);
-          if (text.length > maxLen) {
-            maxLen = text.length;
-          }
-          entries.push({ line, blameLine, bgColor, text });
+      for (const blameLine of blameInfo.lines) {
+        // Blame lines are 1-indexed; map to the editor's 0-indexed line. Skip
+        // any blame row that falls outside the current document (e.g. a
+        // previous-revision blame longer than the working copy).
+        const line = blameLine.line - 1;
+        if (line < 0 || line >= docLineCount) {
+          continue;
         }
+        if (blameLine.commit.startsWith('0000000')) {
+          continue;
+        }
+        // "Hide Revision" — any line whose commit the user has hidden is
+        // elided from the gutter.
+        if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
+          continue;
+        }
+        // AUTHOR mode tints by the line's author; ORDER mode by the commit's age
+        // rank. `computeHeatColor` remains the ultimate fallback for a line whose
+        // commit somehow missed the map.
+        const bgColor =
+          authorColors?.get(blameLine.author) ??
+          orderColors?.get(blameLine.commit) ??
+          computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
+        entries.push({ line, blameLine, bgColor, text: this.formatGutterText(blameLine) });
       }
 
+      // Annotate EVERY line (author/date/revision on each), like IntelliJ's
+      // aspect columns. Size the text column to the widest entry so the code
+      // stays aligned across the whole file.
+      let maxLen = 0;
+      for (const e of entries) {
+        if (e.text.length > maxLen) {
+          maxLen = e.text.length;
+        }
+      }
       // `+ 2` leaves a little breathing room after the longest entry.
       const widthCh = `${maxLen + 2}ch`;
       const textDecorations: vscode.DecorationOptions[] = [];
@@ -481,11 +491,34 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         textDecorations.push({
           range,
           hoverMessage: this.createHoverMessage(e.blameLine),
-          renderOptions: { before: { contentText: e.text, width: widthCh } },
+          // Tint the FULL annotation column with the per-commit color (IntelliJ
+          // tints the whole gutter cell, not a sliver). VS Code's per-instance
+          // `before` REPLACES the decoration type's `before`, so the muted text
+          // color is restated here rather than inherited from the type — else it
+          // is dropped along with the type's attachment.
+          renderOptions: {
+            before: {
+              contentText: e.text,
+              width: widthCh,
+              backgroundColor: e.bgColor,
+              color: new vscode.ThemeColor('editorCodeLens.foreground'),
+            },
+          },
         });
         heatDecorations.push({
           range,
-          renderOptions: { before: { backgroundColor: e.bgColor } },
+          // Accent bar between the annotation and the code. Width/contentText are
+          // restated per-instance (not inherited from the type) for the same
+          // replace-semantics reason — otherwise the bar collapses to zero width
+          // and shows no color at all (the "no color" bug).
+          renderOptions: {
+            before: {
+              contentText: ' ',
+              width: '3px',
+              margin: '0 12px 0 8px',
+              backgroundColor: e.bgColor,
+            },
+          },
         });
       }
 
