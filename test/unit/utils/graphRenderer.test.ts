@@ -16,8 +16,8 @@ import {
   getColumnX,
   computeActiveLanes,
   computeGraphWidth,
-  renderGraphSvg,
 } from '../../../src/utils/graphRenderer';
+import { paintFabricatedRow, paintDagRow } from '../../support/printModelTestKit';
 import { ICommitNode, getColumnColor } from '../../../src/git-core/commitGraph';
 import { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
@@ -520,11 +520,10 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       makeNode('bbb', ['aaa'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]),
       makeNode('aaa', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
 
     it('should render a circle at column 0 for each row', () => {
       for (let i = 0; i < nodes.length; i++) {
-        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config, false, false);
+        const svg = paintDagRow(nodes, i, config);
         const circles = extractCircles(svg);
         assert.strictEqual(circles.length, 1, `Row ${i} should have exactly 1 circle`);
         assert.strictEqual(circles[0].cx, col0X, `Row ${i} circle should be at column 0 x`);
@@ -534,7 +533,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
     it('should not have any bezier paths (no merges)', () => {
       for (let i = 0; i < nodes.length; i++) {
-        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config, false, false);
+        const svg = paintDagRow(nodes, i, config);
         const paths = extractPaths(svg);
         assert.strictEqual(paths.length, 0, `Row ${i} should have no bezier paths`);
       }
@@ -542,12 +541,12 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
     it('should have vertical line segments for lane continuity', () => {
       // Row 0 (first row): should have center-to-bottom segment (has parents)
-      const svg0 = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg0 = paintDagRow(nodes, 0, config);
       const lines0 = extractLines(svg0);
       assert.ok(lines0.length > 0, 'Row 0 should have vertical line segments');
 
       // Row 1 (middle row): should have top-to-center and center-to-bottom segments
-      const svg1 = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config, false, false);
+      const svg1 = paintDagRow(nodes, 1, config);
       const lines1 = extractLines(svg1);
       assert.ok(
         lines1.length >= 2,
@@ -555,7 +554,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       );
 
       // Row 2 (root): should have top-to-center segment (rowIndex > 0) but no center-to-bottom (no parents)
-      const svg2 = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config, false, false);
+      const svg2 = paintDagRow(nodes, 2, config);
       const lines2 = extractLines(svg2);
       assert.ok(
         lines2.length >= 1,
@@ -575,10 +574,9 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       makeNode('p1p', [], 0),
       makeNode('p2p', [], 1),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
 
     it('should render a bezier path for the merge line (col 0 to col 1)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'Merge commit should have exactly 1 bezier path');
       // The path should connect from col 0 x to col 1 x
@@ -587,7 +585,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should render the merge commit as a diamond (rotated rect) with white stroke (Req 1.2)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       const rects = extractRects(svg);
       assert.strictEqual(rects.length, 1, 'Should have exactly 1 rect (diamond) for merge commit');
       // Diamond should have white stroke
@@ -608,7 +606,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should render non-merge parent commits without contrasting stroke', () => {
-      const svgP1 = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config, false, false);
+      const svgP1 = paintDagRow(nodes, 1, config);
       const circlesP1 = extractCircles(svgP1);
       assert.strictEqual(circlesP1.length, 1);
       assert.strictEqual(
@@ -617,7 +615,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
         'Non-merge commit should have matching fill and stroke'
       );
 
-      const svgP2 = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config, false, false);
+      const svgP2 = paintDagRow(nodes, 2, config);
       const circlesP2 = extractCircles(svgP2);
       assert.strictEqual(circlesP2.length, 1);
       assert.strictEqual(
@@ -644,7 +642,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     const lane1X = getColumnX(1, config).toString();
 
     it('emits no y1="0" pass-through line for the merged-in lane at row 0', () => {
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const lines = extractLines(svg);
 
       // No line that both starts at the very top (y1=0) AND sits on lane 1's
@@ -658,7 +656,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('still draws the bezier connecting the merge commit to lane 1', () => {
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'the merge bezier must still render');
       assert.ok(paths[0].d.includes(lane1X), 'bezier should target lane 1');
@@ -687,26 +685,10 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       makeNode('p2p', [], 1),
       makeNode('p1p', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const prevActive = activeLaneMap.get(0)!; // {0}
-    const rowActive = activeLaneMap.get(1)!; // {0, 1}
-    const nextActive = activeLaneMap.get(2)!; // {0, 1}
     const lane1X = getColumnX(1, config).toString();
 
     it('emits no y1="0" stub on the merged-in lane at the merge row', () => {
-      const svg = renderGraphSvg(
-        nodes[1],
-        1,
-        rowActive,
-        config,
-        false,
-        false,
-        new Set(),
-        false,
-        nextActive,
-        new Set(),
-        prevActive
-      );
+      const svg = paintDagRow(nodes, 1, config);
       const lines = extractLines(svg);
       // The merged-in lane (1) is born at this row, so no vertical segment
       // starting at the very top (y1=0) may sit on lane 1's column.
@@ -719,19 +701,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('draws NO straight segment for the born-here lane (the bezier is the sole connection)', () => {
-      const svg = renderGraphSvg(
-        nodes[1],
-        1,
-        rowActive,
-        config,
-        false,
-        false,
-        new Set(),
-        false,
-        nextActive,
-        new Set(),
-        prevActive
-      );
+      const svg = paintDagRow(nodes, 1, config);
       const lines = extractLines(svg);
       // The merge bezier delivers lane 1 to this row's bottom corner and P2's
       // own top stub (next row) continues it. A straight segment here — full
@@ -747,19 +717,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('still renders the merge bezier landing on lane 1', () => {
-      const svg = renderGraphSvg(
-        nodes[1],
-        1,
-        rowActive,
-        config,
-        false,
-        false,
-        new Set(),
-        false,
-        nextActive,
-        new Set(),
-        prevActive
-      );
+      const svg = paintDagRow(nodes, 1, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'the merge bezier must still render');
       assert.ok(paths[0].d.includes(lane1X), 'bezier should target lane 1');
@@ -777,18 +735,11 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     const lane0X = getColumnX(0, config).toString();
 
     it('draws lane 0 full height when it continues both above and below', () => {
-      const svg = renderGraphSvg(
+      const svg = paintFabricatedRow(
         nodeX,
         1,
-        rowActive,
-        config,
-        false,
-        false,
-        new Set(),
-        false,
-        nextActive,
-        new Set(),
-        prevActive
+        { activeLanes: rowActive, continuesFromAbove: prevActive, continuesBelow: nextActive },
+        config
       );
       const lines = extractLines(svg);
       const fullHeight = lines.filter(
@@ -814,16 +765,15 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       makeNode('ccc', ['aaa'], 1, [{ fromColumn: 1, toColumn: 0, type: 'branch' }]),
       makeNode('aaa', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
 
     it('should render a merge bezier path on the merge commit row (M)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'M should have 1 bezier path (merge line)');
     });
 
     it('should render a branch bezier path on C (col 1 → col 0)', () => {
-      const svg = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config, false, false);
+      const svg = paintDagRow(nodes, 2, config);
       const paths = extractPaths(svg);
       assert.strictEqual(
         paths.length,
@@ -836,14 +786,14 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should have no bezier paths on B (same-lane commit line)', () => {
-      const svg = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config, false, false);
+      const svg = paintDagRow(nodes, 1, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 0, 'B should have no bezier paths (same-lane line)');
     });
 
     it('should render a diamond on the merge row and a circle on every other row', () => {
       // Row 0 is the merge commit — should have a diamond (rect), not a circle
-      const svg0 = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg0 = paintDagRow(nodes, 0, config);
       const rects0 = extractRects(svg0);
       const circles0 = extractCircles(svg0);
       assert.strictEqual(rects0.length, 1, 'Merge row should have exactly 1 diamond rect');
@@ -851,7 +801,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
       // Rows 1-3 are non-merge commits — should have circles
       for (let i = 1; i < nodes.length; i++) {
-        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config, false, false);
+        const svg = paintDagRow(nodes, i, config);
         const circles = extractCircles(svg);
         assert.strictEqual(circles.length, 1, `Row ${i} should have exactly 1 circle`);
       }
@@ -860,16 +810,15 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
   describe('Root commit (no parents) - Req 1.1', () => {
     const nodes: ICommitNode[] = [makeNode('root', [], 0)];
-    const activeLaneMap = computeActiveLanes(nodes);
 
     it('should produce valid SVG wrapping', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       assert.ok(svg.startsWith('<svg'), 'SVG should start with <svg');
       assert.ok(svg.endsWith('</svg>'), 'SVG should end with </svg>');
     });
 
     it('should render a circle for the root commit', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       const circles = extractCircles(svg);
       assert.strictEqual(circles.length, 1, 'Root commit should have exactly 1 circle');
       assert.strictEqual(circles[0].cx, col0X);
@@ -877,7 +826,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should not have a center-to-bottom vertical line (no parents)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       const lines = extractLines(svg);
       // Root commit at row 0: no top-to-center (rowIndex === 0) and no center-to-bottom (no parents)
       assert.strictEqual(
@@ -888,7 +837,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should not have any bezier paths', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const svg = paintDagRow(nodes, 0, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 0, 'Root commit should have no bezier paths');
     });
@@ -953,7 +902,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     const activeLanes = new Set([0]);
 
     it('should render a filled circle at the commit position (Req 3.4)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const circles = extractCircles(svg);
       assert.strictEqual(circles.length, 1, 'Branch split should have exactly 1 circle');
       assert.strictEqual(circles[0].cx, col0X.toString());
@@ -962,7 +916,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     });
 
     it('should render two tick mark lines from the bottom of the circle (Req 3.4)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const lines = extractLines(svg);
       // There should be vertical line segments (top-to-center, center-to-bottom) plus 2 tick marks = 4 lines
       // Filter for tick marks: they start at the bottom of the circle (cx, cy + nodeRadius)
@@ -978,7 +937,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     });
 
     it('should use lane color for tick marks (Req 3.5)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const lines = extractLines(svg);
       const bottomCY = centerYNum + config.nodeRadius;
       const tickLines = lines.filter(
@@ -991,7 +955,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     });
 
     it('should have tick marks at ±30° angles from bottom of circle', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const lines = extractLines(svg);
       const bottomCY = centerYNum + config.nodeRadius;
       const tickLines = lines.filter(
@@ -1032,7 +1001,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     });
 
     it('should NOT render a diamond (rect) for branch split', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const rects = extractRects(svg);
       assert.strictEqual(rects.length, 0, 'Branch split should not have a diamond rect');
     });
@@ -1047,14 +1021,24 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     const activeLanes = new Set([0, 1]);
 
     it('should render diamond (merge icon) when commit is both merge and branch split', () => {
-      const svg = renderGraphSvg(mergeAndSplitNode, 0, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        mergeAndSplitNode,
+        0,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const rects = extractRects(svg);
       assert.strictEqual(rects.length, 1, 'Should have exactly 1 diamond rect for merge');
       assert.ok(rects[0].transform.includes('rotate(45'), 'Diamond should be rotated 45°');
     });
 
     it('should NOT render tick marks when commit is both merge and branch split', () => {
-      const svg = renderGraphSvg(mergeAndSplitNode, 0, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        mergeAndSplitNode,
+        0,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const lines = extractLines(svg);
       const bottomCY = centerYNum + config.nodeRadius;
       const tickLines = lines.filter(
@@ -1068,7 +1052,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     });
 
     it('should NOT render a plain circle when commit is both merge and branch split', () => {
-      const svg = renderGraphSvg(mergeAndSplitNode, 0, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        mergeAndSplitNode,
+        0,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
       const circles = extractCircles(svg);
       assert.strictEqual(circles.length, 0, 'Merge+split should not have a plain circle');
     });
@@ -1081,7 +1070,7 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     const activeLanes = new Set([0]);
 
     it('should render a plain circle without tick marks', () => {
-      const svg = renderGraphSvg(normalNode, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(normalNode, 1, { activeLanes: activeLanes }, config);
       const circles = extractCircles(svg);
       assert.strictEqual(circles.length, 1, 'Normal commit should have exactly 1 circle');
 
@@ -1095,7 +1084,7 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     });
 
     it('should not render a diamond', () => {
-      const svg = renderGraphSvg(normalNode, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(normalNode, 1, { activeLanes: activeLanes }, config);
       const rects = extractRects(svg);
       assert.strictEqual(rects.length, 0, 'Normal commit should not have a diamond rect');
     });
@@ -1105,7 +1094,12 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
     it('should render branch split icon at column 2 with correct lane color', () => {
       const node = makeNode('aaa', ['bbb'], 2, [{ fromColumn: 2, toColumn: 2, type: 'commit' }]);
       const activeLanes = new Set([0, 1, 2]);
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isBranchSplit: true },
+        config
+      );
 
       const col2X = getColumnX(2, config);
       const expectedColor = getColumnColor(2);
@@ -1166,7 +1160,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     const activeLanes = new Set([0]);
 
     it('should NOT render a top-to-center vertical line (Req 2.2)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const lines = extractLines(svg);
       // There should be no line from y=0 to y=centerY at the commit's column
       const topToCenterLines = lines.filter(
@@ -1184,7 +1183,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should still render a center-to-bottom vertical line (has parents)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const lines = extractLines(svg);
       const centerToBottomLines = lines.filter(
         (l) =>
@@ -1201,7 +1205,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should render a filled circle at the commit position (Req 2.1)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const circles = extractCircles(svg);
       // Terminal node renders 3 circles: bg circle at ringRadius, white-stroke ring (fill="none", not matched here),
       // and inner filled circle at nodeRadius. extractCircles matches filled circles only (fill !== "none").
@@ -1219,7 +1228,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should render an outer ring circle with radius nodeRadius + 2 (Req 2.1)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const rings = extractRingCircles(svg);
       assert.strictEqual(rings.length, 1, 'Terminal node should have exactly 1 outer ring circle');
       const expectedRingRadius = (config.nodeRadius + 2).toString();
@@ -1233,7 +1247,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should use white stroke for the outer ring (contrasting border)', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const rings = extractRingCircles(svg);
       // The outer ring now uses a white stroke for contrast, with a filled bg circle behind it in lane color
       assert.strictEqual(rings[0].stroke, '#ffffff', 'Ring stroke should be white for contrast');
@@ -1253,7 +1272,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     const activeLanes = new Set([0]);
 
     it('should render a top-to-center vertical line', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes, continuesFromAbove: [...activeLanes], continuesBelow: [...activeLanes] },
+        config
+      );
       const lines = extractLines(svg);
       const topToCenterLines = lines.filter(
         (l) =>
@@ -1270,7 +1294,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should NOT render an outer ring circle', () => {
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 1, { activeLanes: activeLanes }, config);
       const rings = extractRingCircles(svg);
       assert.strictEqual(rings.length, 0, 'Non-terminal node should not have an outer ring circle');
     });
@@ -1283,7 +1307,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     const activeLanes = new Set([0]);
 
     it('should NOT render a top-to-center line (row 0 never has one)', () => {
-      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        0,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const lines = extractLines(svg);
       const topToCenterLines = lines.filter(
         (l) =>
@@ -1300,7 +1329,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should render the outer ring circle', () => {
-      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        0,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const rings = extractRingCircles(svg);
       assert.strictEqual(rings.length, 1, 'Terminal node at row 0 should have outer ring');
     });
@@ -1311,7 +1345,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     const activeLanes = new Set([0]);
 
     it('should have no vertical line segments at all', () => {
-      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        0,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const lines = extractLines(svg);
       // Filter for lines at the commit's column
       const commitLines = lines.filter(
@@ -1325,7 +1364,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should render the filled circle and outer ring', () => {
-      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        0,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const circles = extractCircles(svg);
       // Terminal node has bg circle (ringRadius) + inner circle (nodeRadius) as filled circles
       const filledCircles = circles.filter((c) => c.fill !== 'none');
@@ -1347,7 +1391,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     const activeLanes = new Set([0, 1]);
 
     it('should render diamond icon (merge) with outer ring', () => {
-      const svg = renderGraphSvg(mergeNode, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        mergeNode,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const rects = extractRects(svg);
       const rings = extractRingCircles(svg);
       assert.strictEqual(rects.length, 1, 'Terminal merge should have diamond');
@@ -1355,7 +1404,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
     });
 
     it('should NOT render top-to-center line', () => {
-      const svg = renderGraphSvg(mergeNode, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        mergeNode,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
       const lines = extractLines(svg);
       const topToCenterLines = lines.filter(
         (l) =>
@@ -1381,7 +1435,12 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const col2X = getColumnX(2, config);
       const expectedColor = getColumnColor(2);
 
-      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes: activeLanes, isTerminal: true },
+        config
+      );
 
       // Helper to extract ring circles
       const ringRegex =
@@ -1453,7 +1512,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
         { fromColumn: 0, toColumn: 1, type: 'merge' },
       ]);
       const activeLanes = new Set([0, 1]);
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'Should have exactly 1 bezier path');
 
@@ -1475,7 +1534,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
         { fromColumn: 0, toColumn: 1, type: 'merge' },
       ]);
       const activeLanes = new Set([0, 1]);
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       const parsed = parseBezierPath(paths[0].d);
       assert.ok(parsed, 'Should be able to parse the bezier path');
@@ -1492,7 +1551,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
     it('should have correct start/end for a branch line from col 1 to col 0', () => {
       const node = makeNode('ccc', ['aaa'], 1, [{ fromColumn: 1, toColumn: 0, type: 'branch' }]);
       const activeLanes = new Set([0, 1]);
-      const svg = renderGraphSvg(node, 2, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 2, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'Should have exactly 1 bezier path');
 
@@ -1517,7 +1576,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
         { fromColumn: 0, toColumn: 3, type: 'merge' },
       ]);
       const activeLanes = new Set([0, 1, 2, 3]);
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'Should have exactly 1 bezier path');
 
@@ -1538,7 +1597,12 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
       // Node at column 0 with a pass-through lane at column 1
       const node = makeNode('aaa', ['bbb'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
       const activeLanes = new Set([0, 1]); // lane 1 is a pass-through
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes, continuesFromAbove: [...activeLanes], continuesBelow: [...activeLanes] },
+        config
+      );
       const lines = extractLines(svg);
 
       const col1X = getColumnX(1, config);
@@ -1560,7 +1624,12 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
       // Node at column 0 with pass-through lanes at columns 1 and 2
       const node = makeNode('aaa', ['bbb'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
       const activeLanes = new Set([0, 1, 2]); // lanes 1 and 2 are pass-throughs
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes, continuesFromAbove: [...activeLanes], continuesBelow: [...activeLanes] },
+        config
+      );
       const lines = extractLines(svg);
 
       for (const lane of [1, 2]) {
@@ -1588,7 +1657,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
         { fromColumn: 0, toColumn: 1, type: 'merge' },
       ]);
       const activeLanes = new Set([0, 1]);
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       const parsed = parseBezierPath(paths[0].d);
       assert.ok(parsed, 'Should parse bezier path');
@@ -1605,7 +1674,12 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
     it('pass-through vertical lines should start at y=0 (matching previous row bottom)', () => {
       const node = makeNode('aaa', ['bbb'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
       const activeLanes = new Set([0, 1]);
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(
+        node,
+        1,
+        { activeLanes, continuesFromAbove: [...activeLanes], continuesBelow: [...activeLanes] },
+        config
+      );
       const lines = extractLines(svg);
 
       const col1X = getColumnX(1, config);
@@ -1628,7 +1702,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
     it('same-lane lines should not produce bezier curves (handled by vertical segments)', () => {
       const node = makeNode('aaa', ['bbb'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
       const activeLanes = new Set([0]);
-      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 1, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 0, 'Same-lane lines should not produce bezier curves');
     });
@@ -1643,7 +1717,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
         { fromColumn: 0, toColumn: 2, type: 'merge' },
       ]);
       const activeLanes = new Set([0, 1, 2]);
-      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, config);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 2, 'Should have 2 bezier paths for 2 cross-lane lines');
 
@@ -1684,7 +1758,7 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
         { fromColumn: 0, toColumn: 1, type: 'merge' },
       ]);
       const activeLanes = new Set([0, 1]);
-      const svg = renderGraphSvg(node, 0, activeLanes, customConfig, false, false);
+      const svg = paintFabricatedRow(node, 0, { activeLanes: activeLanes }, customConfig);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'Should have 1 bezier path');
 
@@ -1717,8 +1791,7 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
         { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
       ]),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     assert.ok(
       /stroke-dasharray="[^"]+"/.test(svg),
@@ -1732,8 +1805,7 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
       makeNode('child', ['parent'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]),
       makeNode('parent', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     assert.ok(
       !/stroke-dasharray/.test(svg),
@@ -1756,8 +1828,7 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
       ]),
       makeNode('p1', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     assert.ok(
       !/stroke-dasharray/.test(svg),
@@ -1774,8 +1845,7 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
         { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
       ]),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     assert.ok(
       /stroke-dasharray="[^"]+"/.test(svg),
@@ -1802,8 +1872,7 @@ describe('Graph Renderer - bending-edge color matches line type (node/line color
       makeNode('n', ['p'], 1, [{ fromColumn: 1, toColumn: 0, type: 'commit' }]),
       makeNode('p', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     const sourceColor = getColumnColor(1); // node / lane 1
     const destColor = getColumnColor(0); // lane 0
@@ -1829,8 +1898,7 @@ describe('Graph Renderer - bending-edge color matches line type (node/line color
       makeNode('p1', [], 0),
       makeNode('p2', [], 1),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     const destColor = getColumnColor(1);
     const pathMatch = svg.match(/<path[^>]*stroke="(#[0-9A-Fa-f]+)"/);
@@ -1880,8 +1948,7 @@ describe('Graph Renderer - Phase 2 spec 8.L4 + spec 1.1 edge-color invariants', 
       makeNode('child', ['parent'], lane, [{ fromColumn: lane, toColumn: lane, type: 'commit' }]),
       makeNode('parent', [], lane),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     const expectedColor = getColumnColor(lane);
     const lines = extractLines(svg);
@@ -1919,8 +1986,7 @@ describe('Graph Renderer - Phase 2 spec 8.L4 + spec 1.1 edge-color invariants', 
       makeNode('p1', [], 0),
       makeNode('p2', [], 1),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     const lane0Color = getColumnColor(0);
     const lane1Color = getColumnColor(1);
@@ -1958,8 +2024,7 @@ describe('Graph Renderer - Phase 2 spec 8.L4 + spec 1.1 edge-color invariants', 
       makeNode('p1', [], 0),
       makeNode('p2', [], 1),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     const paths = extractPaths(svg);
     assert.strictEqual(
@@ -1999,8 +2064,7 @@ describe('Graph Renderer - Phase 2 spec 8.L9 dashed stroke literal pin', () => {
         { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
       ]),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     assert.ok(
       svg.includes('stroke-dasharray="4,3"'),
@@ -2018,8 +2082,7 @@ describe('Graph Renderer - Phase 2 spec 8.L9 dashed stroke literal pin', () => {
       ]),
       makeNode('p1', [], 0),
     ];
-    const activeLaneMap = computeActiveLanes(nodes);
-    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+    const svg = paintDagRow(nodes, 0, config);
 
     assert.ok(
       svg.includes('stroke-dasharray="4,3"'),
@@ -2064,14 +2127,24 @@ describe('Graph Renderer - Phase 2 spec 1.2 focus highlight dim/brighten contrac
 
   it('spec 1.2: hasFocusedBranch=true + on-path commit -> every element carries opacity="1"', () => {
     const node = focusNode('on', true, 0);
-    const svg = renderGraphSvg(node, 0, new Set([0]), config, false, false, new Set(), true);
+    const svg = paintFabricatedRow(
+      node,
+      0,
+      { activeLanes: new Set([0]), hasFocusedBranch: true },
+      config
+    );
     assert.ok(svg.includes('opacity="1"'), `on-path must emit opacity="1"; got: ${svg}`);
     assert.ok(!svg.includes('opacity="0.6"'), `on-path must NOT emit dim opacity; got: ${svg}`);
   });
 
   it('spec 1.2: hasFocusedBranch=true + off-path commit -> every element carries opacity="0.6"', () => {
     const node = focusNode('off', false, 0);
-    const svg = renderGraphSvg(node, 0, new Set([0]), config, false, false, new Set(), true);
+    const svg = paintFabricatedRow(
+      node,
+      0,
+      { activeLanes: new Set([0]), hasFocusedBranch: true },
+      config
+    );
     assert.ok(svg.includes('opacity="0.6"'), `off-path must emit opacity="0.6"; got: ${svg}`);
     assert.ok(
       !svg.includes('opacity="1"'),
@@ -2081,7 +2154,12 @@ describe('Graph Renderer - Phase 2 spec 1.2 focus highlight dim/brighten contrac
 
   it('spec 1.2: hasFocusedBranch=false -> NO opacity attribute on any element (unfocused parity)', () => {
     const node = focusNode('any', true, 0); // onFocusedBranchPath ignored when no focus
-    const svg = renderGraphSvg(node, 0, new Set([0]), config, false, false, new Set(), false);
+    const svg = paintFabricatedRow(
+      node,
+      0,
+      { activeLanes: new Set([0]), hasFocusedBranch: false },
+      config
+    );
     assert.ok(
       !/\bopacity="/.test(svg),
       `hasFocusedBranch=false must emit zero opacity attributes; got: ${svg}`
@@ -2111,20 +2189,7 @@ describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
       { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
     ]);
     const active = new Set<number>([0]);
-    const svg = renderGraphSvg(
-      node,
-      0,
-      active,
-      config,
-      false,
-      false,
-      new Set(),
-      false,
-      new Set(),
-      new Set(),
-      new Set(),
-      /* isLastRow */ true
-    );
+    const svg = paintFabricatedRow(node, 0, { activeLanes: active, isLastRow: true }, config);
     assert.ok(
       svg.includes(`d="${chevronD(0)}"`),
       `expected a down-chevron on lane 0 at the last row; got: ${svg}`
@@ -2136,19 +2201,11 @@ describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
     // row below, so no off-window chevron on an interior row.
     const node = makeNode('a', ['p'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
     const active = new Set<number>([0]);
-    const svg = renderGraphSvg(
+    const svg = paintFabricatedRow(
       node,
       3,
-      active,
-      config,
-      false,
-      false,
-      new Set(),
-      false,
-      new Set([0]),
-      new Set(),
-      new Set([0]),
-      /* isLastRow */ false
+      { activeLanes: active, continuesFromAbove: [0], continuesBelow: [0], isLastRow: false },
+      config
     );
     assert.ok(
       !svg.includes(`d="${chevronD(0)}"`),
@@ -2164,19 +2221,11 @@ describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
       { fromColumn: 1, toColumn: 1, type: 'commit', style: 'dashed' },
     ]);
     const active = new Set<number>([0, 1]); // lane 0 mainline passes through
-    const svg = renderGraphSvg(
+    const svg = paintFabricatedRow(
       node,
       1,
-      active,
-      config,
-      false,
-      false,
-      new Set(),
-      false,
-      new Set([0]),
-      new Set(),
-      new Set([0, 1]),
-      /* isLastRow */ false
+      { activeLanes: active, continuesFromAbove: [0], continuesBelow: [0], isLastRow: false },
+      config
     );
     assert.ok(
       svg.includes(`d="${chevronD(1)}"`),
@@ -2197,19 +2246,14 @@ describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
       { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
     ]);
     const active = new Set<number>([0, 1]);
-    const svg = renderGraphSvg(
+    // lane 1 is an off-window continuation trunk passing through to the bottom
+    // edge (continues above + below the slice); the last row caps it + the own
+    // dashed lane 0 with chevrons.
+    const svg = paintFabricatedRow(
       node,
       5,
-      active,
-      config,
-      false,
-      false,
-      new Set(),
-      false,
-      new Set(),
-      new Set(),
-      /* prevActiveLanes */ new Set([0, 1]),
-      /* isLastRow */ true
+      { activeLanes: active, continuesFromAbove: [0, 1], continuesBelow: [1], isLastRow: true },
+      config
     );
     assert.ok(
       svg.includes(`d="${chevronD(1)}"`),
@@ -2225,19 +2269,11 @@ describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
     // A root commit (no parents) draws no downward trunk, so no chevron.
     const node = makeNode('root', [], 0, []);
     const active = new Set<number>([0]);
-    const svg = renderGraphSvg(
+    const svg = paintFabricatedRow(
       node,
       3,
-      active,
-      config,
-      true,
-      false,
-      new Set(),
-      false,
-      new Set(),
-      new Set(),
-      new Set([0]),
-      /* isLastRow */ true
+      { activeLanes: active, isTerminal: true, isLastRow: true },
+      config
     );
     assert.ok(
       !svg.includes(`d="${chevronD(0)}"`),

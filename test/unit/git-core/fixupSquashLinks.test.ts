@@ -17,6 +17,7 @@ import {
   ICommitRowData,
 } from '../../../src/git-core/gitToolWindow/provider/graphClusterBuilder';
 import { ICommitNode } from '../../../src/git-core/commitGraph';
+import { mkRowModel } from '../../support/printModelTestKit';
 
 // ---------------------------------------------------------------------------
 // parseFixupSquashSubject — pure helper
@@ -57,12 +58,7 @@ describe('parseFixupSquashSubject()', () => {
 function makeMinimalRowData(overrides: Partial<ICommitRowData> = {}): ICommitRowData {
   return {
     selected: new Set<string>(),
-    activeLaneMap: new Map(),
-    terminalNodes: new Set<string>(),
-    childCountMap: new Map(),
-    childLanesMap: new Map(),
-    incomingBendsMap: new Map(),
-    hasFocusedBranch: false,
+    printModels: [mkRowModel()],
     branchLabelsFor: () => '',
     showGpgColumn: false,
     ...overrides,

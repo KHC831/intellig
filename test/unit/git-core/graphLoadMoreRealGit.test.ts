@@ -72,7 +72,14 @@ describe('Graph load-more — real git, more than one page', function () {
       undefined,
       limit
     );
-    provider.updateLogState(commits, undefined, undefined, undefined, undefined, totalAvailable);
+    provider.updateLogState(
+      commits,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      await totalAvailable
+    );
     // The test has no webview, so the provider's _render is a no-op and never
     // consumes the one-shot reset flag the way production does. Simulate that
     // consuming render so a fresh load's reset doesn't leak into the next

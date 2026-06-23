@@ -111,6 +111,37 @@ export class GitService implements IGitService, IGitServiceCli {
   /** In-flight `loadRepository` promises, keyed by rootPath. */
   private _reloading: Map<string, Promise<IRepository>> = new Map();
   /**
+   * In-flight `getStatus` promises, keyed by rootPath. On activation several
+   * subscribers (SCM provider, changelist + shelf views) request the same
+   * repo's status at once; each `git status --porcelain` walks the whole work
+   * tree to enumerate untracked files (multi-second on a large repo), so the
+   * concurrent duplicates saturate the disk and starve the graph's `git log`.
+   * Coalescing identical overlapping calls into one walk removes that storm.
+   */
+  private _statusInFlight: Map<string, Promise<IFileStatus[]>> = new Map();
+  /**
+   * In-flight `getLog` promises. The graph's `git log --topo-order` is CPU-bound
+   * on a large repo with no commit-graph (~2s on a 500k-commit tree); letting
+   * the heavy `git status --porcelain` untracked walk run alongside it starves
+   * the first paint. `getStatus` waits on these (bounded by `_statusLogGateMs`)
+   * so the graph paints first, with no effect when the two don't overlap.
+   */
+  private _logInFlight: Set<Promise<unknown>> = new Set();
+  /** Safety cap on how long getStatus yields to an in-flight getLog. */
+  private _statusLogGateMs = 4000;
+  /**
+   * Startup race fix: the SCM status refresh and the graph's getLog both fire on
+   * activation events in nondeterministic order. If status checks
+   * `_logInFlight` a tick before getLog registers, it would miss the gate and
+   * race the log. During the startup window, a status call that finds no log yet
+   * waits a short grace for an imminent getLog to register before deciding.
+   */
+  private readonly _createdAt = Date.now();
+  private _statusGateStartupWindowMs = 8000;
+  private _statusGateGraceMs = 500;
+  /** Resolvers woken when the next getLog registers (see `_waitForLogRegistration`). */
+  private _logRegisterWaiters: Array<() => void> = [];
+  /**
    * Latched on `dispose()`. Guards every watcher callback path so that an
    * in-flight `loadRepository` promise can't schedule a fresh debounce timer
    * or fire the change emitter against a disposed service.
@@ -408,6 +439,19 @@ export class GitService implements IGitService, IGitServiceCli {
       return cachedRoot;
     }
 
+    // Coalesce concurrent discovery: if a load for this root is already in
+    // flight, share it instead of launching another full probe. At activation
+    // many subscribers (SCM, changelist, branch tree, status bar, blame, the
+    // graph) call getRepository for the same repo at once; without this each
+    // call spawned its own ~6-command load storm (symbolic-ref / rev-parse /
+    // upstream / rev-list / status / remote), and N concurrent storms saturate
+    // the CPU and starve the graph's `git log`. `_reloading` already tracks the
+    // in-flight load — reuse it as the coalescing slot.
+    const inFlight = this._reloading.get(rootPath);
+    if (inFlight) {
+      return inFlight;
+    }
+
     // Load repository information.
     //
     // Enroll the load promise into `_reloading` so test infrastructure
@@ -701,10 +745,22 @@ export class GitService implements IGitService, IGitServiceCli {
     // When BOTH probes fail OR rev-parse fails with a non-empty-repo
     // stderr, leave head undefined.
 
-    // Get repository state
+    // Get repository state.
+    //
+    // `parseRepositoryState` only reads the rebase/merge/cherry-pick/revert
+    // HEADER lines, never the untracked-file listing — but a bare `git status`
+    // still walks the ENTIRE working tree to enumerate untracked files, which
+    // costs 5–10s on a large repo. Since discovery is on the critical path the
+    // graph load awaits, that walk is what stalls "Loading git graph…" at
+    // startup. `--untracked-files=no` skips the walk; `--no-optional-locks`
+    // keeps this read-only probe from contending for the index lock. State
+    // detection is unaffected — the header lines still print.
     let state: RepositoryState = 'idle';
     try {
-      const statusResult = await this._gitCli.exec(['status'], options);
+      const statusResult = await this._gitCli.exec(
+        ['--no-optional-locks', 'status', '--untracked-files=no'],
+        options
+      );
       state = parseRepositoryState(statusResult.stdout);
     } catch {
       // Ignore errors
@@ -1512,7 +1568,41 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
-    return this._stashTagHistory.getLog(repo, options);
+    // Track the in-flight log so a concurrent getStatus yields to it (see
+    // `_logInFlight`). The slot clears on settle, so only genuinely overlapping
+    // status walks ever wait.
+    const pending = this._stashTagHistory.getLog(repo, options);
+    this._logInFlight.add(pending);
+    // Wake any status calls waiting (within the startup grace) for a log to
+    // appear, so they yield to this one instead of racing it.
+    if (this._logRegisterWaiters.length > 0) {
+      const waiters = this._logRegisterWaiters;
+      this._logRegisterWaiters = [];
+      for (const wake of waiters) {
+        wake();
+      }
+    }
+    void pending.finally(() => this._logInFlight.delete(pending));
+    return pending;
+  }
+
+  /**
+   * Resolve when the next {@link getLog} registers, or after `graceMs` — used by
+   * the status gate to close the activation race where status checks for an
+   * in-flight log a tick before the graph's getLog has registered.
+   */
+  private _waitForLogRegistration(graceMs: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const wake = (): void => resolve();
+      this._logRegisterWaiters.push(wake);
+      setTimeout(() => {
+        const i = this._logRegisterWaiters.indexOf(wake);
+        if (i >= 0) {
+          this._logRegisterWaiters.splice(i, 1);
+        }
+        resolve();
+      }, graceMs);
+    });
   }
 
   getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
@@ -1709,6 +1799,43 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   getStatus(repo: IRepository): Promise<IFileStatus[]> {
+    // Coalesce concurrent identical walks (see `_statusInFlight`). A call that
+    // arrives while one is already running shares its result; once it settles
+    // the slot clears, so a later non-overlapping call walks fresh.
+    const key = repo.rootUri.fsPath;
+    const existing = this._statusInFlight.get(key);
+    if (existing) {
+      return existing;
+    }
+    const pending = this._statusYieldingToLog(repo).finally(() => {
+      this._statusInFlight.delete(key);
+    });
+    this._statusInFlight.set(key, pending);
+    return pending;
+  }
+
+  /**
+   * Run the status walk, but first let any in-flight {@link getLog} finish so
+   * the heavy untracked enumeration doesn't starve the graph's first paint.
+   * Bounded by `_statusLogGateMs` so a hung/never-resolving log can never block
+   * status. A no-op when no log is in flight.
+   */
+  private async _statusYieldingToLog(repo: IRepository): Promise<IFileStatus[]> {
+    // Startup race: if no log is in flight yet but one may be imminent (we're
+    // early in the session), wait a short grace for it to register so a status
+    // that fired just before the graph's getLog still yields rather than racing.
+    if (
+      this._logInFlight.size === 0 &&
+      Date.now() - this._createdAt < this._statusGateStartupWindowMs
+    ) {
+      await this._waitForLogRegistration(this._statusGateGraceMs);
+    }
+    if (this._logInFlight.size > 0) {
+      await Promise.race([
+        Promise.allSettled([...this._logInFlight]),
+        new Promise<void>((resolve) => setTimeout(resolve, this._statusLogGateMs)),
+      ]);
+    }
     return this._staging.getStatus(repo);
   }
 

@@ -10,13 +10,13 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import {
-  renderGraphSvg,
   IGraphRenderConfig,
   DEFAULT_GRAPH_CONFIG,
   getColumnX,
   computeActiveLanes,
   computeGraphWidth,
 } from '../../src/utils/graphRenderer';
+import { paintFabricatedRow } from '../support/printModelTestKit';
 import { ICommitNode, getColumnColor, getMaxGraphColumn } from '../../src/git-core/commitGraph';
 import { ICommit } from '../../src/git-core/interfaces/IGitService';
 
@@ -265,7 +265,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           arbitraryGraphRenderConfig(),
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, config);
 
             const expectedCx = getColumnX(node.graphColumn, config);
             const expectedCy = config.rowHeight / 2;
@@ -320,14 +320,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(
-              node,
-              rowIndex,
-              activeLanes,
-              DEFAULT_GRAPH_CONFIG,
-              false,
-              false
-            );
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
 
             // Merge commits now render a diamond (rotated <rect>) with white stroke
             // instead of a circle with contrasting stroke
@@ -361,14 +354,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(
-              node,
-              rowIndex,
-              activeLanes,
-              DEFAULT_GRAPH_CONFIG,
-              false,
-              false
-            );
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
 
             const circles = extractCircles(svg);
             assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
@@ -421,14 +407,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
       fc.assert(
         fc.property(arbitraryCommitNode(10), fc.integer({ min: 0, max: 100 }), (node, rowIndex) => {
           const activeLanes = new Set([node.graphColumn]);
-          const svg = renderGraphSvg(
-            node,
-            rowIndex,
-            activeLanes,
-            DEFAULT_GRAPH_CONFIG,
-            false,
-            false
-          );
+          const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
 
           const expectedColor = getColumnColor(node.graphColumn);
           const isMerge = node.commit.parents.length > 1;
@@ -472,13 +451,17 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
               extraLane === node.graphColumn ? (node.graphColumn + 1) % 11 : extraLane;
 
             const activeLanes = new Set([node.graphColumn, passThroughLane]);
-            const svg = renderGraphSvg(
+            // The pass-through lane renders only when a line genuinely transits
+            // it (interval model) — supply continuity so the through-stroke draws.
+            const svg = paintFabricatedRow(
               node,
               rowIndex,
-              activeLanes,
-              DEFAULT_GRAPH_CONFIG,
-              false,
-              false
+              {
+                activeLanes,
+                continuesFromAbove: [passThroughLane],
+                continuesBelow: [passThroughLane],
+              },
+              DEFAULT_GRAPH_CONFIG
             );
 
             const expectedColor = getColumnColor(passThroughLane);
@@ -566,7 +549,14 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Build active lanes set: always include the commit's own column + extra lanes
             const activeLanes = new Set([node.graphColumn, ...extraLanes]);
             const config = DEFAULT_GRAPH_CONFIG;
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
+            // Each extra lane is a genuine through-line (continues above + below),
+            // so the interval-model painter draws it full/half-height.
+            const svg = paintFabricatedRow(
+              node,
+              rowIndex,
+              { activeLanes, continuesFromAbove: extraLanes, continuesBelow: extraLanes },
+              config
+            );
 
             const lines = extractLines(svg);
 
@@ -586,25 +576,10 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
               const expectedX = getColumnX(lane, config);
 
-              // Bug B: pass-through stubs always start at y=0, so at the
-              // topmost row (rowIndex 0) they render as detached lines
-              // floating above the row. `renderGraphSvg` suppresses every
-              // pass-through line at rowIndex 0 (the bezier still draws the
-              // bottom-half connection). Assert the ABSENCE of any
-              // pass-through line at this lane's x for row 0 rather than the
-              // full/half-height presence the rows below require.
-              if (rowIndex === 0) {
-                const stubAtLane = lines.find(
-                  (l) => parseFloat(l.x1) === expectedX && parseFloat(l.y1) === 0
-                );
-                assert.ok(
-                  !stubAtLane,
-                  `At rowIndex 0 there must be NO pass-through stub (y1=0) at x=${expectedX} for lane ${lane}. ` +
-                    `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
-                );
-                continue;
-              }
-
+              // Interval model: rendering is continuity-driven, not row-indexed.
+              // A through-lane draws full-height (or half if a bezier also lands
+              // here), at every row including row 0 — the legacy row-0 suppression
+              // is gone.
               if (bezierTargetLanes.has(lane)) {
                 // Bezier target lanes get a half-height pass-through (y=0 to y=centerY)
                 // to avoid the "2 lines" visual artifact
@@ -660,7 +635,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
             const config = DEFAULT_GRAPH_CONFIG;
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, config);
 
             // Get all graphLines where fromColumn !== toColumn
             const crossLaneLines = node.graphLines.filter((l) => l.fromColumn !== l.toColumn);
@@ -739,7 +714,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Should not throw
             let svg: string;
             try {
-              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+              svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
             } catch (e) {
               assert.fail(
                 `renderGraphSvg should not throw for negative lane index ${negativeColumn}: ${String(e)}`
@@ -799,7 +774,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Should not throw
             let svg: string;
             try {
-              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+              svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
             } catch (e) {
               assert.fail(
                 `renderGraphSvg should not throw for large lane index ${largeColumn}: ${String(e)}`
@@ -865,7 +840,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Should not throw
             let svg: string;
             try {
-              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+              svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
             } catch (e) {
               assert.fail(
                 `renderGraphSvg should not throw with mixed valid/invalid lanes: ${String(e)}`

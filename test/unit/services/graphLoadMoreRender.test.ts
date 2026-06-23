@@ -85,6 +85,42 @@ describe('GitToolWindowProvider — load-more render plumbing', () => {
       const html = provider._getGraphPanelHtml(nodes, undefined, 2, 2);
       assert.ok(!html.includes('graph-loading-indicator'), 'no indicator at the true end');
     });
+
+    it('applyGraphTotalAvailable stores the total and posts a lightweight totals update (no full re-render)', () => {
+      provider.updateLogState([makeCommit('a1'), makeCommit('a2')]);
+      // Stub the view so postMessage is captured; track full re-renders via html sets.
+      const posted: Array<{ type?: string; loaded?: number; total?: number }> = [];
+      let htmlWrites = 0;
+      const internals = provider as unknown as { _view: unknown };
+      internals._view = {
+        webview: {
+          postMessage: (m: { type?: string; loaded?: number; total?: number }) => {
+            posted.push(m);
+            return Promise.resolve(true);
+          },
+          get html() {
+            return '';
+          },
+          set html(_v: string) {
+            htmlWrites++;
+          },
+          asWebviewUri: (u: unknown) => u,
+          cspSource: 'test:',
+        },
+        visible: true,
+        onDidDispose: () => ({ dispose: () => {} }),
+        onDidChangeVisibility: () => ({ dispose: () => {} }),
+      };
+
+      provider.applyGraphTotalAvailable(600);
+
+      assert.strictEqual(provider.getLogTotalAvailable(), 600, 'stores the resolved total');
+      const totalsMsg = posted.find((m) => m.type === 'graphTotalsUpdate');
+      assert.ok(totalsMsg, 'posts a graphTotalsUpdate message');
+      assert.strictEqual(totalsMsg.total, 600, 'message carries the total');
+      assert.strictEqual(totalsMsg.loaded, 2, 'message carries the loaded (rendered) count');
+      assert.strictEqual(htmlWrites, 0, 'no full webview re-render (no html rewrite)');
+    });
   });
 
   describe('scroll preserve-by-default / navigational reset', () => {

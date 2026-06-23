@@ -25,10 +25,11 @@ import {
 } from '../../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
-  renderGraphSvg,
   getColumnX,
   DEFAULT_GRAPH_CONFIG,
 } from '../../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../../src/git-core/graph/printModel';
+import { paintRow } from '../../../src/git-core/graph/graphPainter';
 import { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
 /**
@@ -953,23 +954,11 @@ describe('Commit Graph Generation', () => {
 
       it('renders real lane-0 ink (an unbroken vertical trunk) through the intervening rows', () => {
         const nodes = buildOffWindowMergeChain();
-        const active = computeActiveLanes(nodes);
         const cfg = DEFAULT_GRAPH_CONFIG;
         const x0 = getColumnX(0, cfg);
+        const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, cfg));
         for (const r of [2, 3]) {
-          const svg = renderGraphSvg(
-            nodes[r],
-            r,
-            active.get(r) ?? new Set<number>(),
-            cfg,
-            false,
-            false,
-            new Set<number>(),
-            false,
-            active.get(r + 1) ?? new Set<number>(),
-            new Set<number>(),
-            active.get(r - 1) ?? new Set<number>()
-          );
+          const svg = svgs[r];
           const hasLane0Line = new RegExp(`<line x1="${x0}"[^>]*y2="${cfg.rowHeight}"`).test(svg);
           assert.ok(
             hasLane0Line,
@@ -982,20 +971,7 @@ describe('Commit Graph Generation', () => {
       // graphClusterBuilder threads (prev/next active lanes), so isDashed and
       // pass-through decisions match the real pipeline.
       function renderRow(nodes: ICommitNode[], r: number): string {
-        const active = computeActiveLanes(nodes);
-        return renderGraphSvg(
-          nodes[r],
-          r,
-          active.get(r) ?? new Set<number>(),
-          DEFAULT_GRAPH_CONFIG,
-          false,
-          false,
-          new Set<number>(),
-          false,
-          active.get(r + 1) ?? new Set<number>(),
-          new Set<number>(),
-          active.get(r - 1) ?? new Set<number>()
-        );
+        return buildGraphPrintModel(nodes).map((m) => paintRow(m, DEFAULT_GRAPH_CONFIG))[r];
       }
 
       it('renders the merge-row trunk stub SOLID, not dashed (the load-bearing continuation clause)', () => {

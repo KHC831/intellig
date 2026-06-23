@@ -14,22 +14,9 @@ import {
   IChangedFile,
 } from '../../services/interfaces';
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
-import {
-  ICommitNode,
-  IBranchRef,
-  generateCommitGraph,
-  computeTerminalNodes,
-  computeChildCountMap,
-  computeChildLanesMap,
-  computeIncomingBendsMap,
-} from '../commitGraph';
-import {
-  computeActiveLanes,
-  computeLaneContinuesFromAbove,
-  computeLaneContinuesBelow,
-  computeGraphWidth,
-  DEFAULT_GRAPH_CONFIG,
-} from '../../utils/graphRenderer';
+import { ICommitNode, IBranchRef, generateCommitGraph } from '../commitGraph';
+import { DEFAULT_GRAPH_CONFIG } from '../../utils/graphRenderer';
+import { buildGraphPrintModel, computeGraphWidthFromModels } from '../graph/printModel';
 import {
   savePanelWidths,
   loadPanelWidths,
@@ -856,9 +843,16 @@ export class GitToolWindowProvider
       this._consoleEntries.shift();
     }
 
-    // Re-render so the Console tab reflects the new command live. Rebuilds HTML
-    // from in-memory state only (no git refetch); scroll is preserved by default.
-    this._updateWebview();
+    // Only re-render when the Console tab is actually visible — mirrors the
+    // History/Incoming tabs. Every git command logs an entry here, including
+    // the `git show` a commit selection fires; an unconditional re-render
+    // rebuilt the whole graph+details DOM on every git command, discarding the
+    // user's live-dragged divider/column widths and scroll (the "graph resizes
+    // on every click" bug) and producing a startup re-render storm. The Console
+    // tab re-reads `_consoleEntries` from in-memory state on its next render.
+    if (this._tabRouter.getActiveTab() === 'console') {
+      this._updateWebview();
+    }
     this._onDidChangeState.fire();
   }
 
@@ -1037,6 +1031,27 @@ export class GitToolWindowProvider
    */
   public getLogTotalAvailable(): number | undefined {
     return this._logTotalAvailable;
+  }
+
+  /**
+   * Fold a late-resolving total (the `git rev-list --count` that no longer
+   * blocks first paint) into the already-rendered graph WITHOUT a full
+   * re-render. It updates only the `.graph-panel` `data-total-available`
+   * attribute the scroll-to-bottom load-more reads, so a slow count
+   * re-enables load-more (and feeds the next render's "X of Y" indicator)
+   * without destroying scroll / in-progress layout / selection — the disruption
+   * a late `updateLogState` would cause. No-op if no view or the commits aren't
+   * a windowed page (total ≤ loaded → nothing more to load).
+   */
+  public applyGraphTotalAvailable(total: number): void {
+    this._logTotalAvailable = total;
+    if (this._view) {
+      void this._view.webview.postMessage({
+        type: 'graphTotalsUpdate',
+        loaded: this._extendedLogState.commitNodes.length,
+        total,
+      });
+    }
   }
 
   /**
@@ -3117,7 +3132,7 @@ ${bodyMarkup}
    *
    * Renders commit rows in reverse chronological order (as provided by the
    * commitNodes array). Each row contains:
-   * - SVG graph visualization (via renderGraphSvg with computeActiveLanes)
+   * - SVG graph visualization (via buildGraphPrintModel + paintRow)
    * - Commit short hash
    * - Commit message summary (first line, truncated to ~60 chars)
    * - Author name
@@ -3146,62 +3161,38 @@ ${bodyMarkup}
       return this._getEmptyGraphPanelHtml();
     }
 
-    // Compute active lanes for the entire commit list
-    const activeLaneMap = computeActiveLanes(commitNodes);
-    // Per-row "continues from the row above as the same line" — lets the row
-    // builder keep a genuine through-line's pass-through at a branch-split row.
-    const continuesFromAboveMap = computeLaneContinuesFromAbove(commitNodes);
-    // Per-row "continues into the row below as the same line" — the companion to
-    // continuesFromAboveMap. Together they drive the renderer's straight-stroke
-    // pass-through from the precise interval model (reuse vs. through-line).
-    const continuesBelowMap = computeLaneContinuesBelow(commitNodes);
-
-    // Compute terminal nodes and child count map for icon rendering
-    const terminalNodes = computeTerminalNodes(commitNodes);
-    const childCountMap = computeChildCountMap(commitNodes);
-    const childLanesMap = computeChildLanesMap(commitNodes);
-    // Far-parent fork-point bends. For each parent
-    // row that receives a far-parent first-parent line from above, the
-    // renderer draws the bend AT the parent row (not at the source row);
-    // this map surfaces the source lanes per parent hash.
-    const incomingBendsMap = computeIncomingBendsMap(commitNodes);
-
-    // True when ANY commit in the rendered set is on the
-    // focused-branch path. The renderer reads this to decide whether to
-    // brighten on-path / dim off-path lines and nodes. When false, the
-    // graph renders at baseline (no change from).
-    const hasFocusedBranch = commitNodes.some((n) => n.onFocusedBranchPath === true);
+    // Build the per-row graph print model once for the whole window (Layer 3).
+    // This single pure projection replaces the former cluster of per-row lane
+    // maps (active / continues-above / continues-below / terminal / child-count
+    // / child-lanes / incoming-bends / focus); the painter (Layer 4) consumes it.
+    const printModels = buildGraphPrintModel(commitNodes);
 
     // Pre-resolve the cherry-picked set once per render to keep the
     // per-row check O(1).
     const cherryPickedHashes = this._extendedLogState.cherryPickedHashes;
     const cherryPickBaseRef = this._extendedLogState.cherryPickBaseRef;
 
-    // Size the graph column to the WIDEST row across the whole window. The
-    // `.commit-graph` cell is `width: var(--graph-width)` with
-    // `overflow: hidden`; that var was never set, so it fell back to the
-    // 80px default — which fits only ~3 lanes. Any repo with more parallel
-    // branches than that had its outer lanes (and the branches living on
-    // them) CLIPPED out of view, even with plenty of horizontal room in the
-    // panel — the reported "older branches pushed out of the tree" bug. We
-    // compute the pixel width from the max lane index across all nodes and
-    // publish it as `--graph-width` on the panel so every row's graph cell
-    // is wide enough to show every lane.
-    const graphColumnWidthPx = Math.max(80, computeGraphWidth(commitNodes, DEFAULT_GRAPH_CONFIG));
+    // Size the graph column to the WIDEST row across the whole window so the
+    // `.commit-graph` cell (`width: var(--graph-width)`, `overflow: hidden`) is
+    // wide enough to show every lane — without this the default ~80px clipped
+    // outer lanes (the "older branches pushed out of the tree" bug). Derived
+    // from the print model's per-row inked lanes (incl. far-parent bend sources
+    // the old width pass missed).
+    const graphColumnWidthPx = Math.max(
+      80,
+      computeGraphWidthFromModels(
+        printModels,
+        DEFAULT_GRAPH_CONFIG.columnWidth,
+        DEFAULT_GRAPH_CONFIG.padding
+      )
+    );
 
     // Build commit rows
     const rowsHtml = buildCommitRows(commitNodes, {
       selected,
       cherryPickedHashes,
       cherryPickBaseRef,
-      activeLaneMap,
-      continuesFromAboveMap,
-      continuesBelowMap,
-      terminalNodes,
-      childCountMap,
-      childLanesMap,
-      incomingBendsMap,
-      hasFocusedBranch,
+      printModels,
       branchLabelsFor: (node) => this._getBranchLabelsHtml(node),
       showGpgColumn: this._isShowGpgColumnEnabled(),
       showRootColumn: this._isShowAllRootsEnabled(),

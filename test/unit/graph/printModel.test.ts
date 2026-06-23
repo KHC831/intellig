@@ -1,0 +1,108 @@
+/**
+ * Edge-IDENTITY pins for the print model — the refactor's whole thesis. The
+ * byte-equivalence oracle can't validate `edge.parent` because the painter reads
+ * none of it, so these hand-built topologies validate the off-window vs in-window
+ * classification directly (esp. the reviewer's worry: an in-window side branch
+ * whose tip is the bottom row must NOT be misclassified off-window).
+ */
+
+import '../../setup';
+import * as assert from 'assert';
+import { generateCommitGraph } from '../../../src/git-core/commitGraph';
+import {
+  buildGraphPrintModel,
+  computeGraphWidthFromModels,
+  IRowEdgeElement,
+} from '../../../src/git-core/graph/printModel';
+import { computeGraphWidth, DEFAULT_GRAPH_CONFIG } from '../../../src/utils/graphRenderer';
+import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
+
+function c(hash: string, parents: string[]): ICommit {
+  const d = new Date('2024-01-01T00:00:00Z');
+  return {
+    hash,
+    shortHash: hash,
+    message: hash,
+    author: { name: 'A', email: 'a@x' },
+    committer: { name: 'A', email: 'a@x' },
+    parents,
+    authorDate: d,
+    commitDate: d,
+  };
+}
+
+function allEdges(commits: ICommit[]): IRowEdgeElement[] {
+  return buildGraphPrintModel(generateCommitGraph(commits)).flatMap((m) => m.edges);
+}
+
+describe('print model — edge identity (off-window vs in-window)', () => {
+  it('a fully in-window linear chain tags every edge in-window (no over-tagging)', () => {
+    const edges = allEdges([c('n0', ['n1']), c('n1', ['n2']), c('n2', [])]);
+    assert.ok(edges.length > 0, 'expected some edges');
+    for (const e of edges) {
+      assert.strictEqual(
+        e.edge.parent.kind,
+        'inWindow',
+        `lane ${e.lane} edge must be in-window, got ${e.edge.parent.kind}`
+      );
+    }
+  });
+
+  it('an off-window trunk (merge with off-window first parent) tags its lane off-window', () => {
+    // n0 merges an off-window first parent with an in-window second parent; its
+    // own lane is reserved as the "history continues below the slice" trunk.
+    const edges = allEdges([c('n0', ['off_x', 'n1']), c('n1', ['n2']), c('n2', [])]);
+    const offWindow = edges.filter((e) => e.edge.parent.kind === 'offWindow');
+    assert.ok(
+      offWindow.length > 0,
+      'expected at least one edge tagged off-window for the reserved trunk'
+    );
+  });
+
+  it('an in-window side branch whose tip is the BOTTOM row is NOT misclassified off-window', () => {
+    // n0 merges n1 (lane 0, row 1) and n2 (side branch, lane 1, BOTTOM row 2).
+    // The side lane reaches the last row but the bottom node SITS on it → must be
+    // in-window. This is the heuristic's failure mode the reviewer flagged.
+    const edges = allEdges([c('n0', ['n1', 'n2']), c('n1', []), c('n2', [])]);
+    const offWindow = edges.filter((e) => e.edge.parent.kind === 'offWindow');
+    assert.deepStrictEqual(
+      offWindow.map((e) => `lane ${e.lane}`),
+      [],
+      'a side branch ending on the bottom row must not be tagged off-window'
+    );
+  });
+});
+
+describe('print model — graph width (model-based vs legacy agree, no drift)', () => {
+  const cfg = DEFAULT_GRAPH_CONFIG;
+  const widthBoth = (commits: ICommit[]): { model: number; legacy: number } => {
+    const nodes = generateCommitGraph(commits);
+    return {
+      model: computeGraphWidthFromModels(buildGraphPrintModel(nodes), cfg.columnWidth, cfg.padding),
+      legacy: computeGraphWidth(nodes, cfg),
+    };
+  };
+
+  it('agree exactly on a multi-lane DAG with no far-parent bends', () => {
+    // n0 merges n1 (lane 0) + n2 (lane 1); no far-parent bend source lanes, so
+    // the model-based width and the legacy max-column width must be identical.
+    const { model, legacy } = widthBoth([c('n0', ['n1', 'n2']), c('n1', []), c('n2', [])]);
+    assert.strictEqual(model, legacy, 'widths must agree when there are no far-parent bend lanes');
+  });
+
+  it('model-based width is never narrower than the legacy width (bend-source superset)', () => {
+    // The production path uses computeGraphWidthFromModels, which also counts
+    // far-parent bend SOURCE lanes the legacy getMaxGraphColumn pass omitted. It
+    // must therefore always be >= legacy, so the two cannot silently diverge in a
+    // way that re-clips outer lanes.
+    const dags: ICommit[][] = [
+      [c('n0', ['n1']), c('n1', ['n2']), c('n2', [])],
+      [c('n0', ['n3', 'n1']), c('n1', ['n2']), c('n2', ['n3']), c('n3', [])],
+      [c('n0', ['n1', 'n2']), c('n1', ['n4']), c('n2', ['n3']), c('n3', ['n4']), c('n4', [])],
+    ];
+    for (const d of dags) {
+      const { model, legacy } = widthBoth(d);
+      assert.ok(model >= legacy, `model width ${model} must be >= legacy width ${legacy}`);
+    }
+  });
+});

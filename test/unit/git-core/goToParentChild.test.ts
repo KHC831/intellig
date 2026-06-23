@@ -18,6 +18,7 @@ import {
 } from '../../../src/git-core/gitToolWindow/multiSelect';
 import type { ICommitNode } from '../../../src/git-core/commitGraph';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
+import { mkRowModel } from '../../support/printModelTestKit';
 
 // Minimal fake commit factory.
 function makeCommit(overrides: Partial<ICommit> = {}): ICommit {
@@ -50,12 +51,7 @@ function makeRowData() {
     selected: new Set<string>(),
     cherryPickedHashes: undefined,
     cherryPickBaseRef: undefined,
-    activeLaneMap: new Map(),
-    terminalNodes: new Set<string>(),
-    childCountMap: new Map(),
-    childLanesMap: new Map(),
-    incomingBendsMap: new Map(),
-    hasFocusedBranch: false,
+    printModels: [mkRowModel()],
     branchLabelsFor: () => '',
     showGpgColumn: false,
     showRootColumn: false,

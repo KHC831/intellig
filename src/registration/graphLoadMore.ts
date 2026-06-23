@@ -43,14 +43,17 @@ export interface IGraphLoadMoreController<F> {
 }
 
 /**
- * Create the load-more state machine. `basePage` is both the initial limit and
- * the per-load-more increment (the task's `GRAPH_PAGE`). `reload` re-runs the
- * scoped load — in production this is `loadLogCommitsForRepo` with an explicit
- * grown limit.
+ * Create the load-more state machine. `basePage` is the INITIAL window (the
+ * small first-paint chunk — kept small for a fast startup, IntelliJ shows a
+ * 100-commit "small data pack" first). `incrementPage` (default `basePage`) is
+ * the per-load-more growth; a larger increment keeps scrolling smooth without
+ * paying for it up front. `reload` re-runs the scoped load — in production this
+ * is `loadLogCommitsForRepo` with an explicit grown limit.
  */
 export function createGraphLoadMoreController<F>(
   basePage: number,
-  reload: GraphLoadMoreReloader<F>
+  reload: GraphLoadMoreReloader<F>,
+  incrementPage: number = basePage
 ): IGraphLoadMoreController<F> {
   let limit = basePage;
   let repo: IRepository | undefined;
@@ -69,7 +72,7 @@ export function createGraphLoadMoreController<F>(
       if (!repo) {
         return;
       }
-      limit += basePage;
+      limit += incrementPage;
       reload(repo, filter, { limit });
     },
   };

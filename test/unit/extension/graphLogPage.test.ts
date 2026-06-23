@@ -135,7 +135,7 @@ describe('fetchGraphPage — getLog and getLogCount consume the identical scope'
         `getLog and getLogCount must share the exact scope for ${name}`
       );
 
-      assert.strictEqual(page.totalAvailable, 7, 'total threads through from getLogCount');
+      assert.strictEqual(await page.totalAvailable, 7, 'total threads through from getLogCount');
     });
   }
 
@@ -147,6 +147,6 @@ describe('fetchGraphPage — getLog and getLogCount consume the identical scope'
       },
     } as unknown as Pick<IGitService, 'getLog' | 'getLogCount'>;
     const page = await fetchGraphPage(gitService, repo, undefined, 500);
-    assert.strictEqual(page.totalAvailable, undefined);
+    assert.strictEqual(await page.totalAvailable, undefined);
   });
 });

@@ -1,15 +1,17 @@
 import * as path from 'path';
-import { ICommitNode, isBranchSplit } from '../../commitGraph';
-import { ActiveLaneMap, DEFAULT_GRAPH_CONFIG, renderGraphSvg } from '../../../utils/graphRenderer';
+import { ICommitNode } from '../../commitGraph';
+import { DEFAULT_GRAPH_CONFIG } from '../../../utils/graphRenderer';
+import { IRowPrintModel } from '../../graph/printModel';
+import { paintRow } from '../../graph/graphPainter';
 import { formatCommitDate } from '../../../utils/dateFormat';
 import { escapeHtml } from './htmlBuilders';
 import { parseFixupSquashSubject } from './fixupSquashSubject';
 
 /**
- * Per-render lane/graph inputs for {@link buildCommitRows}, pre-computed once
- * over the whole `commitNodes` window by `_getGraphPanelHtml` (Zone A) and
- * threaded into the row builder so it stays a pure function with no provider
- * or controller-context reference.
+ * Per-render inputs for {@link buildCommitRows}. The graph SVG for every row is
+ * pre-built once by `_getGraphPanelHtml` into {@link printModels} (Layer 3); the
+ * row builder just paints each model (Layer 4) and assembles the surrounding
+ * commit-info markup, staying a pure function with no provider/controller ref.
  */
 export interface ICommitRowData {
   /** Hashes of the currently selected commits. */
@@ -18,31 +20,8 @@ export interface ICommitRowData {
   cherryPickedHashes?: Set<string>;
   /** The base ref used when computing {@link cherryPickedHashes}. */
   cherryPickBaseRef?: string;
-  /** Active lanes per row index. */
-  activeLaneMap: ActiveLaneMap;
-  /**
-   * Per row, lanes that continue from the row above as the same line. Optional
-   * for back-compat with callers/tests that predate the through-line fix; when
-   * omitted, a branch-split row falls back to the prior suppression behaviour.
-   */
-  continuesFromAboveMap?: ActiveLaneMap;
-  /**
-   * Per row, lanes that continue into the row below as the same line. Paired
-   * with {@link continuesFromAboveMap}; together they let the renderer draw
-   * straight strokes from the precise interval model (reuse vs. through-line).
-   * Optional for back-compat with callers/tests that predate the fix.
-   */
-  continuesBelowMap?: ActiveLaneMap;
-  /** Hashes that are terminal (branch-tip) nodes. */
-  terminalNodes: Set<string>;
-  /** Child count per commit hash, for split-point detection. */
-  childCountMap: Map<string, number>;
-  /** Child lanes per commit hash. */
-  childLanesMap: Map<string, Set<number>>;
-  /** Source lanes whose far-parent line lands at each parent hash. */
-  incomingBendsMap: Map<string, Set<number>>;
-  /** True when any commit in the rendered set is on the focused-branch path. */
-  hasFocusedBranch: boolean;
+  /** Per-row graph print model (one per commit, same order as `commitNodes`). */
+  printModels: IRowPrintModel[];
   /** Renders the branch-labels HTML for a node (provider-bound callback). */
   branchLabelsFor: (node: ICommitNode) => string;
   /**
@@ -105,14 +84,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     selected,
     cherryPickedHashes,
     cherryPickBaseRef,
-    activeLaneMap,
-    continuesFromAboveMap,
-    continuesBelowMap,
-    terminalNodes,
-    childCountMap,
-    childLanesMap,
-    incomingBendsMap,
-    hasFocusedBranch,
+    printModels,
     branchLabelsFor,
     showGpgColumn,
     showRootColumn,
@@ -124,50 +96,9 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       const isSelected = selected.has(commit.hash);
       const isCherryPicked = cherryPickedHashes?.has(commit.hash) ?? false;
 
-      // Generate SVG graph for this row
-      const activeLanes = activeLaneMap.get(index) || new Set<number>();
-      const isTerminal = terminalNodes.has(commit.hash);
-      const isSplitPoint = isBranchSplit(commit.hash, childCountMap);
-      const childLanes = childLanesMap.get(commit.hash) || new Set<number>();
-      // Next row's active lanes, so the renderer can tell whether a
-      // bezier-target lane also continues below (a through-lane) and must
-      // be drawn full-height — preventing the gap under a merge commit.
-      const nextActiveLanes = activeLaneMap.get(index + 1) || new Set<number>();
-      // Previous row's active lanes, so the renderer can tell whether a lane
-      // continues from ABOVE. A lane active here but not above is born at this
-      // row (a merge's second-parent lane) and must not draw a top-half stub
-      // floating above the merge diamond.
-      const prevActiveLanes = activeLaneMap.get(index - 1) || new Set<number>();
-      // Lanes transiting straight through THIS row from above (same line), so a
-      // branch-split row keeps a genuine through-line's pass-through stroke.
-      const continuesFromAbove = continuesFromAboveMap?.get(index) || new Set<number>();
-      // Lanes that continue from THIS row into the row below as the same line.
-      // Paired with `continuesFromAbove`, this is what switches the renderer to
-      // the precise interval-model straight-stroke path (vs. legacy heuristics).
-      const continuesBelow = continuesBelowMap?.get(index);
-      // Source lanes whose far-parent first-parent
-      // line lands at THIS row from above. The renderer draws a top-half
-      // bend per lane.
-      const incomingBendLanes = incomingBendsMap.get(commit.hash) || new Set<number>();
-      // The last loaded row caps its off-window continuations with a "more
-      // history below" chevron.
-      const isLastRow = index === commitNodes.length - 1;
-      const graphSvg = renderGraphSvg(
-        node,
-        index,
-        activeLanes,
-        DEFAULT_GRAPH_CONFIG,
-        isTerminal,
-        isSplitPoint,
-        childLanes,
-        hasFocusedBranch,
-        nextActiveLanes,
-        incomingBendLanes,
-        prevActiveLanes,
-        isLastRow,
-        continuesFromAbove,
-        continuesBelow
-      );
+      // Paint this row's pre-built print model (Layer 4). All graph topology
+      // decisions live in the model (Layer 3); the painter is dumb.
+      const graphSvg = paintRow(printModels[index], DEFAULT_GRAPH_CONFIG);
 
       // Format fields.
       //

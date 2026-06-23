@@ -34,15 +34,12 @@ import * as assert from 'assert';
 import {
   generateCommitGraph,
   getColumnColor,
-  computeTerminalNodes,
   IBranchRef,
   ICommitNode,
 } from '../../src/git-core/commitGraph';
-import {
-  computeActiveLanes,
-  renderGraphSvg,
-  DEFAULT_GRAPH_CONFIG,
-} from '../../src/utils/graphRenderer';
+import { computeActiveLanes, DEFAULT_GRAPH_CONFIG } from '../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../src/git-core/graph/printModel';
+import { paintRow } from '../../src/git-core/graph/graphPainter';
 import { ICommit } from '../../src/git-core/interfaces/IGitService';
 
 function mkCommit(hash: string, parents: string[]): ICommit {
@@ -361,8 +358,7 @@ describe('Property — node color equals its own first-parent line color (any DA
           dag.headName,
           dag.headHash
         );
-        const active = computeActiveLanes(nodes);
-        const terminals = computeTerminalNodes(nodes);
+        const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, DEFAULT_GRAPH_CONFIG));
         for (let i = 0; i < nodes.length; i++) {
           const node = nodes[i];
           const firstLine = node.graphLines[0];
@@ -371,13 +367,7 @@ describe('Property — node color equals its own first-parent line color (any DA
           if (!firstLine || firstLine.type !== 'commit') {
             continue;
           }
-          const svg = renderGraphSvg(
-            node,
-            i,
-            active.get(i)!,
-            DEFAULT_GRAPH_CONFIG,
-            terminals.has(node.commit.hash)
-          );
+          const svg = svgs[i];
           const nodeColor = getColumnColor(node.graphColumn);
           const edgeColor = firstParentEdgeColorFromSvg(svg, nodeColor);
           // edgeColor undefined → the row drew no downward edge (e.g. the

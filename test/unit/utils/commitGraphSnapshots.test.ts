@@ -26,21 +26,14 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import {
   generateCommitGraph,
-  computeChildCountMap,
-  computeChildLanesMap,
   computeIncomingBendsMap,
-  computeTerminalNodes,
-  isBranchSplit,
   type ICommitNode,
   type IBranchRef,
 } from '../../../src/git-core/commitGraph';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
-import {
-  computeActiveLanes,
-  getColumnX,
-  renderGraphSvg,
-  DEFAULT_GRAPH_CONFIG,
-} from '../../../src/utils/graphRenderer';
+import { getColumnX, DEFAULT_GRAPH_CONFIG } from '../../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../../src/git-core/graph/printModel';
+import { paintRow, mkRowModel, straightEdge } from '../../support/printModelTestKit';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import type { IExtendedLogState } from '../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../mocks/vscode';
@@ -352,25 +345,10 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     const bottomY = cfg.rowHeight;
     const lane0X = getColumnX(0, cfg);
     const lane1X = getColumnX(1, cfg);
-    const active = computeActiveLanes(result);
-    const childCountMap = computeChildCountMap(result);
-    const childLanesMap = computeChildLanesMap(result);
-    const terminals = computeTerminalNodes(result);
+    const svgs = buildGraphPrintModel(result).map((m) => paintRow(m, cfg));
 
     const m4Row = result.findIndex((n) => n.commit.hash === 'm4');
-    const m4Node = result[m4Row];
-    const m4Svg = renderGraphSvg(
-      m4Node,
-      m4Row,
-      active.get(m4Row) ?? new Set<number>(),
-      cfg,
-      terminals.has('m4'),
-      isBranchSplit('m4', childCountMap),
-      childLanesMap.get('m4') ?? new Set<number>(),
-      false,
-      active.get(m4Row + 1) ?? new Set<number>(),
-      incoming.get('m4') ?? new Set<number>()
-    );
+    const m4Svg = svgs[m4Row];
     const expectedTopHalfBend = `<path d="M ${lane1X},0 C ${lane1X},${centerY} ${lane0X},0 ${lane0X},${centerY}"`;
     assert.ok(
       m4Svg.includes(expectedTopHalfBend),
@@ -378,18 +356,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     );
 
     const b2Row = result.findIndex((n) => n.commit.hash === 'b2');
-    const b2Svg = renderGraphSvg(
-      result[b2Row],
-      b2Row,
-      active.get(b2Row) ?? new Set<number>(),
-      cfg,
-      terminals.has('b2'),
-      isBranchSplit('b2', childCountMap),
-      childLanesMap.get('b2') ?? new Set<number>(),
-      false,
-      active.get(b2Row + 1) ?? new Set<number>(),
-      incoming.get('b2') ?? new Set<number>()
-    );
+    const b2Svg = svgs[b2Row];
     const oldSourceRowBend = `M ${lane1X},${centerY} C ${lane1X},${bottomY} ${lane0X},${centerY} ${lane0X},${bottomY}`;
     assert.ok(
       !b2Svg.includes(oldSourceRowBend),
@@ -451,23 +418,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
 
     const cfg = DEFAULT_GRAPH_CONFIG;
     const m0Row = result.indexOf(m0);
-    const active = computeActiveLanes(result);
-    const incoming = computeIncomingBendsMap(result);
-    const childCountMap = computeChildCountMap(result);
-    const childLanesMap = computeChildLanesMap(result);
-    const terminals = computeTerminalNodes(result);
-    const svg = renderGraphSvg(
-      m0,
-      m0Row,
-      active.get(m0Row) ?? new Set<number>(),
-      cfg,
-      terminals.has('m0'),
-      isBranchSplit('m0', childCountMap),
-      childLanesMap.get('m0') ?? new Set<number>(),
-      false,
-      active.get(m0Row + 1) ?? new Set<number>(),
-      incoming.get('m0') ?? new Set<number>()
-    );
+    const svg = buildGraphPrintModel(result).map((m) => paintRow(m, cfg))[m0Row];
 
     // Locate the centerY→bottomY stub on lane 1 (m0's own lane). It must
     // exist and must NOT carry stroke-dasharray — the far-parent edge
@@ -529,22 +480,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     assert.ok(baseBends.size >= 2, `expected ≥2 incoming bends at base; got ${baseBends.size}`);
 
     const cfg = DEFAULT_GRAPH_CONFIG;
-    const active = computeActiveLanes(result);
-    const childCountMap = computeChildCountMap(result);
-    const childLanesMap = computeChildLanesMap(result);
-    const terminals = computeTerminalNodes(result);
-    const baseSvg = renderGraphSvg(
-      result[baseRow],
-      baseRow,
-      active.get(baseRow) ?? new Set<number>(),
-      cfg,
-      terminals.has('base'),
-      isBranchSplit('base', childCountMap),
-      childLanesMap.get('base') ?? new Set<number>(),
-      false,
-      active.get(baseRow + 1) ?? new Set<number>(),
-      baseBends
-    );
+    const baseSvg = buildGraphPrintModel(result).map((m) => paintRow(m, cfg))[baseRow];
 
     // Extract the SVG width.
     const widthMatch = baseSvg.match(/width="(\d+)"/);
@@ -575,29 +511,16 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
  * vs anything else) shows up as a deliberate snapshot diff.
  */
 describe('Wave D R1 / D4-snap — renderer-stage SVG snapshots', () => {
-  function nodeOf(hash: string, onFocusedBranchPath: boolean): ICommitNode {
-    return {
-      commit: mkCommit(hash, ['parent']),
-      graphColumn: 0,
-      graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
-      branches: [],
-      tags: [],
-      onFocusedBranchPath,
-    };
-  }
+  // A single own-lane downward stub carries the focus stroke/opacity treatment.
+  const focusModel = (onPath: boolean, hasFocusedBranch: boolean) =>
+    mkRowModel({
+      node: { lane: 0, onFocusedBranchPath: onPath },
+      edges: [straightEdge(0, 'down')],
+      hasFocusedBranch,
+    });
 
   it('snap-6a: hasFocusedBranch=false → NO opacity attribute on any element', () => {
-    const node = nodeOf('aaa', false);
-    const svg = renderGraphSvg(
-      node,
-      0,
-      new Set([0]),
-      DEFAULT_GRAPH_CONFIG,
-      false /* isTerminal */,
-      false /* isBranchSplitPoint */,
-      new Set() /* childLanes */,
-      false /* hasFocusedBranch */
-    );
+    const svg = paintRow(focusModel(false, false), DEFAULT_GRAPH_CONFIG);
     assert.ok(
       !/\bopacity=/.test(svg),
       `expected NO opacity= attribute when hasFocusedBranch=false; got: ${svg}`
@@ -605,17 +528,7 @@ describe('Wave D R1 / D4-snap — renderer-stage SVG snapshots', () => {
   });
 
   it('snap-6b: hasFocusedBranch=true + on-path → opacity="1" + 1.5× lineWidth', () => {
-    const node = nodeOf('aaa', true);
-    const svg = renderGraphSvg(
-      node,
-      0,
-      new Set([0]),
-      DEFAULT_GRAPH_CONFIG,
-      false,
-      false,
-      new Set(),
-      true /* hasFocusedBranch */
-    );
+    const svg = paintRow(focusModel(true, true), DEFAULT_GRAPH_CONFIG);
     // baseline lineWidth = 2 → on-path = 2 × 1.5 = 3
     assert.ok(svg.includes('opacity="1"'), `on-path must brighten to opacity="1"; got: ${svg}`);
     assert.ok(
@@ -625,17 +538,7 @@ describe('Wave D R1 / D4-snap — renderer-stage SVG snapshots', () => {
   });
 
   it('snap-6c: hasFocusedBranch=true + off-path → opacity="0.6" + baseline stroke', () => {
-    const node = nodeOf('aaa', false);
-    const svg = renderGraphSvg(
-      node,
-      0,
-      new Set([0]),
-      DEFAULT_GRAPH_CONFIG,
-      false,
-      false,
-      new Set(),
-      true /* hasFocusedBranch */
-    );
+    const svg = paintRow(focusModel(false, true), DEFAULT_GRAPH_CONFIG);
     assert.ok(svg.includes('opacity="0.6"'), `off-path must dim to opacity="0.6"; got: ${svg}`);
     assert.ok(
       svg.includes('stroke-width="2"'),

@@ -11,7 +11,8 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { renderGraphSvg, DEFAULT_GRAPH_CONFIG } from '../../src/utils/graphRenderer';
+import { DEFAULT_GRAPH_CONFIG } from '../../src/utils/graphRenderer';
+import { paintFabricatedRow } from '../support/printModelTestKit';
 import { ICommitNode, getColumnColor } from '../../src/git-core/commitGraph';
 import { ICommit } from '../../src/git-core/interfaces/IGitService';
 
@@ -160,14 +161,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(
-              node,
-              rowIndex,
-              activeLanes,
-              DEFAULT_GRAPH_CONFIG,
-              false,
-              false
-            );
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
 
             const radii = extractCircleRadii(svg);
 
@@ -203,14 +197,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(
-              node,
-              rowIndex,
-              activeLanes,
-              DEFAULT_GRAPH_CONFIG,
-              false,
-              false
-            );
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
 
             // Merge commits now render a diamond (rotated <rect>) instead of a circle.
             // Verify the diamond is present with the correct dimensions based on nodeRadius.
@@ -261,14 +248,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(
-              node,
-              rowIndex,
-              activeLanes,
-              DEFAULT_GRAPH_CONFIG,
-              false,
-              false
-            );
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, DEFAULT_GRAPH_CONFIG);
 
             const radii = extractCircleRadii(svg);
 

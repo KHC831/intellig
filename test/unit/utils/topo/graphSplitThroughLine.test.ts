@@ -19,21 +19,14 @@
 
 import '../../../setup';
 import * as assert from 'assert';
-import {
-  generateCommitGraph,
-  computeChildLanesMap,
-  computeChildCountMap,
-  computeTerminalNodes,
-  computeIncomingBendsMap,
-  isBranchSplit,
-} from '../../../../src/git-core/commitGraph';
+import { generateCommitGraph } from '../../../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
-  computeLaneContinuesFromAbove,
-  renderGraphSvg,
   getColumnX,
   DEFAULT_GRAPH_CONFIG,
 } from '../../../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../../../src/git-core/graph/printModel';
+import { paintRow } from '../../../../src/git-core/graph/graphPainter';
 import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 
 const BOTTOM_Y = DEFAULT_GRAPH_CONFIG.rowHeight;
@@ -139,29 +132,7 @@ describe('graph: transiting through-line at a branch-split row', () => {
   it('renders without a dangling lane (no vertical gap) in the SVG', () => {
     const nodes = generateCommitGraph(multiMergeSplitTopology());
     const active = computeActiveLanes(nodes);
-    const fromAbove = computeLaneContinuesFromAbove(nodes);
-    const childLanes = computeChildLanesMap(nodes);
-    const childCount = computeChildCountMap(nodes);
-    const incoming = computeIncomingBendsMap(nodes);
-    const terminal = computeTerminalNodes(nodes);
-
-    const svgs = nodes.map((n, i) =>
-      renderGraphSvg(
-        n,
-        i,
-        active.get(i) ?? new Set(),
-        DEFAULT_GRAPH_CONFIG,
-        terminal.has(n.commit.hash),
-        isBranchSplit(n.commit.hash, childCount),
-        childLanes.get(n.commit.hash) ?? new Set(),
-        false,
-        active.get(i + 1) ?? new Set(),
-        incoming.get(n.commit.hash) ?? new Set(),
-        active.get(i - 1) ?? new Set(),
-        i === nodes.length - 1,
-        fromAbove.get(i) ?? new Set()
-      )
-    );
+    const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, DEFAULT_GRAPH_CONFIG));
 
     // Endpoint-only ink probe: `<line>` endpoints + a `<path>`'s START (M) and
     // FINAL point — NOT bezier control points (not drawn ink, false matches).

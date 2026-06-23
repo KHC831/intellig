@@ -374,6 +374,21 @@ export function buildInlineScript(): string {
           if (message.type === 'scrollToCommit' && message.commitHash) {
             scrollToCommit(message.commitHash);
           }
+          if (message.type === 'graphTotalsUpdate') {
+            // A late-resolving rev-list count: update ONLY the load-count
+            // attributes the scroll load-more reads, so a slow total re-enables
+            // load-more without a full re-render (no scroll/layout/selection
+            // reset). The "X of Y" text refreshes on the next render.
+            const gp = document.querySelector('.graph-panel');
+            if (gp) {
+              if (typeof message.total === 'number') {
+                gp.setAttribute('data-total-available', String(message.total));
+              }
+              if (typeof message.loaded === 'number') {
+                gp.setAttribute('data-loaded-count', String(message.loaded));
+              }
+            }
+          }
           if (message.type === 'updateDetailsPanel' && message.model) {
             const detailsPanel = document.getElementById('details-panel');
             if (detailsPanel) {

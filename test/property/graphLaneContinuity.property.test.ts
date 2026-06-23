@@ -3,8 +3,8 @@
  *
  * Renders the FULL production graph pipeline (`generateCommitGraph` →
  * `computeActiveLanes` / `computeLaneContinuesFromAbove` /
- * `computeLaneContinuesBelow` → per-row `renderGraphSvg`, exactly as
- * `graphClusterBuilder` does) over thousands of randomly generated, fully
+ * `buildGraphPrintModel` → `paintRow`, exactly as `graphClusterBuilder` does)
+ * over thousands of randomly generated, fully
  * in-window DAGs and asserts every lane's vertical ink is continuous: no GAP
  * (a single line that loses a row's stroke) and no PHANTOM stub (ink on a lane
  * where no line spans the boundary).
@@ -31,22 +31,15 @@
 
 import '../setup';
 import * as assert from 'assert';
-import {
-  generateCommitGraph,
-  computeChildLanesMap,
-  computeChildCountMap,
-  computeTerminalNodes,
-  computeIncomingBendsMap,
-  isBranchSplit,
-} from '../../src/git-core/commitGraph';
+import { generateCommitGraph, computeIncomingBendsMap } from '../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
   computeLaneContinuesFromAbove,
-  computeLaneContinuesBelow,
-  renderGraphSvg,
   getColumnX,
   DEFAULT_GRAPH_CONFIG,
 } from '../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../src/git-core/graph/printModel';
+import { paintRow } from '../../src/git-core/graph/graphPainter';
 import type { ICommit } from '../../src/git-core/interfaces/IGitService';
 
 const BOTTOM_Y = DEFAULT_GRAPH_CONFIG.rowHeight;
@@ -138,30 +131,10 @@ function findDefects(commits: ICommit[]): string[] {
   const nodes = generateCommitGraph(commits);
   const active = computeActiveLanes(nodes);
   const fromAbove = computeLaneContinuesFromAbove(nodes);
-  const below = computeLaneContinuesBelow(nodes);
-  const childLanes = computeChildLanesMap(nodes);
-  const childCount = computeChildCountMap(nodes);
   const incoming = computeIncomingBendsMap(nodes);
-  const terminal = computeTerminalNodes(nodes);
 
-  const svgs = nodes.map((nd, i) =>
-    renderGraphSvg(
-      nd,
-      i,
-      active.get(i) ?? new Set(),
-      DEFAULT_GRAPH_CONFIG,
-      terminal.has(nd.commit.hash),
-      isBranchSplit(nd.commit.hash, childCount),
-      childLanes.get(nd.commit.hash) ?? new Set(),
-      false,
-      active.get(i + 1) ?? new Set(),
-      incoming.get(nd.commit.hash) ?? new Set(),
-      active.get(i - 1) ?? new Set(),
-      i === nodes.length - 1,
-      fromAbove.get(i) ?? new Set(),
-      below.get(i) ?? new Set()
-    )
-  );
+  // Render via the production Layer 3 (print model) + Layer 4 (painter) path.
+  const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, DEFAULT_GRAPH_CONFIG));
 
   const maxLane = Math.max(
     ...nodes.map((nd) => nd.graphColumn),

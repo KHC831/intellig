@@ -19,19 +19,14 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { generateCommitGraph, IBranchRef, ICommitNode } from '../../../../src/git-core/commitGraph';
 import {
-  generateCommitGraph,
-  computeTerminalNodes,
-  computeChildCountMap,
-  isBranchSplit,
-  IBranchRef,
-  ICommitNode,
-} from '../../../../src/git-core/commitGraph';
-import {
-  computeActiveLanes,
-  renderGraphSvg,
+  computeLaneContinuesFromAbove,
+  getColumnX,
   DEFAULT_GRAPH_CONFIG,
 } from '../../../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../../../src/git-core/graph/printModel';
+import { paintRow } from '../../../../src/git-core/graph/graphPainter';
 import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 
 interface AnonFixture {
@@ -77,48 +72,39 @@ describe('Self anonymized topology — disconnect regression', () => {
     );
   }
 
-  it('no vertical gap: a through-lane that also receives a merge bezier is drawn full-height', () => {
+  it('no vertical gap: a genuine through-lane keeps continuous ink across the boundary', () => {
     const nodes = build();
-    const active = computeActiveLanes(nodes);
-    const ccm = computeChildCountMap(nodes);
-    const terminals = computeTerminalNodes(nodes);
-
+    // A lane carries a SINGLE line across boundary i -> i+1 exactly when
+    // continuesFromAbove(i+1) holds for it (reuse starts a new interval and is
+    // excluded). For such a lane the bottom of row i and the top of row i+1 must
+    // BOTH have ink — otherwise the trunk is severed (the reported disconnect).
+    const fromAbove = computeLaneContinuesFromAbove(nodes);
+    const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, DEFAULT_GRAPH_CONFIG));
+    const rowHeight = DEFAULT_GRAPH_CONFIG.rowHeight;
+    const inkAt = (svg: string, x: number, y: number): boolean => {
+      const lineRe = /<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g;
+      for (let m = lineRe.exec(svg); m; m = lineRe.exec(svg)) {
+        if (+m[1] === x && +m[3] === x && (+m[2] === y || +m[4] === y)) {
+          return true;
+        }
+      }
+      const pathRe = /<path d="M ([\d.-]+),([\d.-]+) C [\d.,\s-]* ([\d.-]+),([\d.-]+)"/g;
+      for (let m = pathRe.exec(svg); m; m = pathRe.exec(svg)) {
+        if ((+m[1] === x && +m[2] === y) || (+m[3] === x && +m[4] === y)) {
+          return true;
+        }
+      }
+      return false;
+    };
     const gaps: string[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const n = nodes[i];
-      const nextActive = active.get(i + 1) ?? new Set<number>();
-      const svg = renderGraphSvg(
-        n,
-        i,
-        active.get(i)!,
-        DEFAULT_GRAPH_CONFIG,
-        terminals.has(n.commit.hash),
-        isBranchSplit(n.commit.hash, ccm),
-        new Set(),
-        false,
-        nextActive
-      );
-
-      // For every lane that is active at BOTH this row and the next row (a
-      // through-lane that visually continues downward), the rendered SVG
-      // must contain a FULL-height segment (y2="rowHeight") at that lane's
-      // x — otherwise the line is severed and a gap shows.
-      const rowHeight = DEFAULT_GRAPH_CONFIG.rowHeight;
-      for (const lane of active.get(i)!) {
-        if (!nextActive.has(lane)) {
-          continue; // lane doesn't continue below — no continuity to enforce
-        }
-        if (lane === n.graphColumn) {
-          continue; // the node's own lane is drawn as two segments around the dot
-        }
-        const x =
-          lane * DEFAULT_GRAPH_CONFIG.columnWidth +
-          DEFAULT_GRAPH_CONFIG.padding +
-          DEFAULT_GRAPH_CONFIG.columnWidth / 2;
-        const fullHeight = new RegExp(`<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}"`);
-        if (!fullHeight.test(svg)) {
+    for (let i = 0; i + 1 < nodes.length; i++) {
+      for (const lane of fromAbove.get(i + 1) ?? new Set<number>()) {
+        const x = getColumnX(lane, DEFAULT_GRAPH_CONFIG);
+        const bottom = inkAt(svgs[i], x, rowHeight);
+        const top = inkAt(svgs[i + 1], x, 0);
+        if (!bottom || !top) {
           gaps.push(
-            `row ${i} (${n.commit.hash}): lane ${lane} continues below but is not full-height`
+            `lane ${lane} boundary ${i}->${i + 1} (${nodes[i].commit.hash}): bottom=${bottom} top=${top}`
           );
         }
       }

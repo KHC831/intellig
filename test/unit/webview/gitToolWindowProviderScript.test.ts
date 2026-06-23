@@ -61,6 +61,26 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     assert.ok(h.document.getElementById('details-panel'), 'details panel present');
   });
 
+  it('graphTotalsUpdate updates the load-count attributes without rebuilding the panel', () => {
+    const { script, bodyHtml } = extractWebviewScript(fullHtml());
+    h = runWebviewScript(script, { bodyHtml });
+    const panel = h.document.querySelector('.graph-panel');
+    assert.ok(panel, 'graph panel present');
+    h.post({ type: 'graphTotalsUpdate', loaded: 100, total: 5000 });
+    assert.strictEqual(
+      panel.getAttribute('data-total-available'),
+      '5000',
+      'late total re-enables load-more by updating the attribute the scroll handler reads'
+    );
+    assert.strictEqual(panel.getAttribute('data-loaded-count'), '100');
+    // Same panel element — a lightweight attribute update, not a rebuild.
+    assert.strictEqual(h.document.querySelector('.graph-panel'), panel, 'panel not replaced');
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      []
+    );
+  });
+
   it('tolerates representative and garbage extension→webview messages', () => {
     const { script, bodyHtml } = extractWebviewScript(fullHtml());
     h = runWebviewScript(script, { bodyHtml });

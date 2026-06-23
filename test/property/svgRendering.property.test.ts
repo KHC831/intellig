@@ -16,7 +16,8 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { renderGraphSvg, getColumnX, IGraphRenderConfig } from '../../src/utils/graphRenderer';
+import { getColumnX, IGraphRenderConfig } from '../../src/utils/graphRenderer';
+import { paintFabricatedRow } from '../support/printModelTestKit';
 import { ICommitNode, getColumnColor } from '../../src/git-core/commitGraph';
 import { ICommit } from '../../src/git-core/interfaces/IGitService';
 
@@ -310,7 +311,7 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
           arbitraryGraphRenderConfig(),
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, config);
 
             const expectedColor = getColumnColor(node.graphColumn);
 
@@ -356,7 +357,12 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
             // Render with isBranchSplitPoint=true, isTerminal=false
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, true);
+            const svg = paintFabricatedRow(
+              node,
+              rowIndex,
+              { activeLanes, isBranchSplit: true },
+              config
+            );
 
             const expectedColor = getColumnColor(node.graphColumn);
 
@@ -388,7 +394,12 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
             // Render with BOTH isBranchSplitPoint=true AND merge (parents > 1)
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, true);
+            const svg = paintFabricatedRow(
+              node,
+              rowIndex,
+              { activeLanes, isBranchSplit: true },
+              config
+            );
 
             const expectedColor = getColumnColor(node.graphColumn);
 
@@ -426,7 +437,12 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
             // Render as terminal node
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, true, false);
+            const svg = paintFabricatedRow(
+              node,
+              rowIndex,
+              { activeLanes, isTerminal: true },
+              config
+            );
 
             const commitX = getColumnX(node.graphColumn, config);
             const centerY = config.rowHeight / 2;
@@ -464,7 +480,7 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
           arbitraryGraphRenderConfig(),
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
+            const svg = paintFabricatedRow(node, rowIndex, { activeLanes }, config);
 
             const centerY = config.rowHeight / 2;
             const bottomY = config.rowHeight;

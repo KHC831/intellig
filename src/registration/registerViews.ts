@@ -27,6 +27,7 @@ import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
 import { IViewRegistrationContext } from './ViewRegistrationContext';
+import { createCoalescedRunner } from './coalesceAsync';
 import {
   loadAllPanelDataCore,
   wireRepositorySelection,
@@ -45,9 +46,16 @@ import {
 import { fetchGraphPage } from './graphLogPage';
 
 /**
- * Base page size for the commit graph — the initial number of commits loaded
- * AND the increment grown on each scroll-to-bottom load-more.
+ * Initial commit-graph window — the small first chunk loaded for a FAST startup
+ * paint, then grown by {@link GRAPH_PAGE} on each scroll-to-bottom load-more.
+ * IntelliJ shows a 100-commit "small data pack" first (registry
+ * `vcs.log.small.data.pack.commits.count`) before streaming the rest; we mirror
+ * that so the graph appears immediately instead of waiting on a large first page.
  */
+const GRAPH_INITIAL_PAGE = 100;
+
+/** Per-load-more increment grown on each scroll-to-bottom (kept larger than the
+ * initial page so scrolling stays smooth without inflating first paint). */
 const GRAPH_PAGE = 500;
 
 /**
@@ -285,6 +293,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Scroll-to-bottom load-more state machine. Declared as a `const` just
     // below `loadLogCommitsForRepo`; the loader reaches it through this
     // forward closure reference (only read at call time, after both exist).
+    // Bumped on every (fresh or load-more) graph load. The background
+    // total-count resolution captures the generation at fetch time and only
+    // folds its result in if no newer load has started since — so a repo switch,
+    // filter change, or load-more can never be clobbered by a stale count that
+    // resolves late (rev-list --count on a big repo can take seconds).
+    let logLoadGeneration = 0;
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: {
@@ -309,6 +323,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       loadMore?: { limit: number }
     ): Promise<void> => {
       try {
+        const myGeneration = ++logLoadGeneration;
         // A fresh load resets the grown limit to one page; a load-more re-run
         // carries the explicit grown limit through.
         let limit: number;
@@ -324,15 +339,16 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           ctx.gitToolWindowProvider?.markResetScrollOnNextRender();
         }
 
-        // Fetch the windowed commit list AND the honest total under ONE shared
-        // scope (fetchGraphPage builds it once and passes it to both getLog and
-        // getLogCount), so the loaded list and the rev-list total can never
-        // diverge — that divergence is exactly what leaves hasMore stuck true
-        // (an endless load-more) or makes the "X of Y" indicator lie. Topo
-        // order is requested on the log: a commit's parent MUST appear later in
-        // the list (or off-window), else git's date order shuffles divergent
-        // branches between a commit and its parent after a squash/rebase and
-        // the algorithm renders it "linear" — the user-visible post-squash bug.
+        // Fetch the windowed commit list now; the honest total (`getLogCount`,
+        // a `rev-list --count` that walks the WHOLE history on a big repo) comes
+        // back as a background promise so it never blocks the first paint behind
+        // "Loading git graph…". Both share ONE scope (fetchGraphPage builds it
+        // once) so the loaded list and the eventual total can't diverge — the
+        // divergence that otherwise leaves hasMore stuck true or makes "X of Y"
+        // lie. Topo order is requested on the log: a commit's parent MUST appear
+        // later in the list (or off-window), else git's date order shuffles
+        // divergent branches between a commit and its parent after a
+        // squash/rebase and the algorithm renders it "linear" (the post-squash bug).
         const { commits, totalAvailable } = await fetchGraphPage(gitService, repo, filter, limit);
 
         // Build branch map: commit hash -> branch refs (name + type).
@@ -377,13 +393,17 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // Load-more grows the window in place; scroll is preserved by default
           // (only a fresh navigational load above flips on the reset flag), so
           // growing the window keeps the user on the commit they were viewing.
+          //
+          // Render NOW with the total unknown (undefined → "all loaded", no
+          // spinner). The exact total folds in below when its background promise
+          // resolves — first paint no longer waits on the count.
           ctx.gitToolWindowProvider.updateLogState(
             commits,
             branchMap,
             tagMap,
             headHash,
             headBranchName,
-            totalAvailable
+            undefined
           );
 
           // Re-arm the webview's load-more debounce now the grown page has
@@ -393,6 +413,21 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           if (loadMore) {
             ctx.gitToolWindowProvider.notifyCommitsLoaded();
           }
+
+          // Fold the honest total in once it resolves — but only if no newer
+          // load has started since (generation guard), so a stale count from a
+          // superseded repo/filter/load-more never clobbers the current view.
+          // This is a LIGHTWEIGHT attribute update (re-enables scroll load-more +
+          // the "X of Y" indicator), NOT a full updateLogState re-render — a late
+          // re-render would destroy the DOM (scroll, in-progress layout,
+          // selection) mid-interaction, which a slow count (5–10s) made
+          // user-visible as the graph "resetting" when you clicked a commit.
+          void totalAvailable.then((total) => {
+            if (total === undefined || myGeneration !== logLoadGeneration) {
+              return;
+            }
+            ctx.gitToolWindowProvider?.applyGraphTotalAvailable(total);
+          });
 
           // Compute the cherry-mark map in the background and push it into
           // the provider. We don't block the log render on it — cherry marks
@@ -412,9 +447,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // (its reload re-runs that loader at the grown limit) and subscribe it to
     // the provider's previously-dead `onDidRequestLoadMoreCommits` emitter.
     const graphLoadMore: IGraphLoadMoreController<LogFilter> =
-      createGraphLoadMoreController<LogFilter>(GRAPH_PAGE, (repo, filter, opts) => {
-        void loadLogCommitsForRepo(repo, filter, opts);
-      });
+      createGraphLoadMoreController<LogFilter>(
+        GRAPH_INITIAL_PAGE,
+        (repo, filter, opts) => {
+          void loadLogCommitsForRepo(repo, filter, opts);
+        },
+        GRAPH_PAGE
+      );
     ctx.context.subscriptions.push(
       wireGraphLoadMore(ctx.gitToolWindowProvider, () => graphLoadMore.handleLoadMore())
     );
@@ -663,8 +702,16 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       }
     };
 
-    // Helper to load all panel data (commits) and update repository list
-    const loadAllPanelData = async (): Promise<void> => {
+    // Helper to load all panel data (commits) and update repository list.
+    //
+    // Coalesced: `onDidRequestInitialData`, `onDidRequestRefresh` and
+    // `onDidChangeRepository` all fire within the same activation tick, so an
+    // unwrapped loader launches three concurrent graph loads — three CPU-bound
+    // `git log --topo-order` walks racing each other (each ~2s walk stretches to
+    // ~5s under the contention on a large repo with no commit-graph). The runner
+    // collapses the burst to one uncontended run (fast first paint) plus a
+    // single trailing reload so a real mid-load change is never dropped.
+    const loadAllPanelData = createCoalescedRunner(() =>
       // Delegate to the exported core so the no-repository wiring (Requirement
       // 3.4) is unit-testable at the fix's call site. The core reports the
       // detection outcome to the provider via
@@ -673,12 +720,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       // fills via `loadLogCommits`; no repo → lands in No_Repository_State.
       // Route through loadAllRootsLog so multi-root mode is respected on the
       // initial load and every refresh, not just on explicit filter changes.
-      await loadAllPanelDataCore({
+      loadAllPanelDataCore({
         discoverAllRepositories,
         provider: ctx.gitToolWindowProvider,
         loadLogCommits: () => loadAllRootsLog(),
-      });
-    };
+      })
+    );
 
     // Wire up onDidRequestInitialData to load all data when webview first opens
     const initialDataListener = ctx.gitToolWindowProvider.onDidRequestInitialData(() => {

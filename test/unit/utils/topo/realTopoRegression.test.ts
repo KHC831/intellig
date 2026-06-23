@@ -25,10 +25,7 @@ import * as path from 'path';
 import {
   generateCommitGraph,
   computeTerminalNodes,
-  computeChildCountMap,
-  computeChildLanesMap,
   computeIncomingBendsMap,
-  isBranchSplit,
   IBranchRef,
   ICommitNode,
 } from '../../../../src/git-core/commitGraph';
@@ -36,9 +33,10 @@ import {
   computeActiveLanes,
   computeGraphWidth,
   getColumnX,
-  renderGraphSvg,
   DEFAULT_GRAPH_CONFIG,
 } from '../../../../src/utils/graphRenderer';
+import { buildGraphPrintModel } from '../../../../src/git-core/graph/printModel';
+import { paintRow } from '../../../../src/git-core/graph/graphPainter';
 import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 import { groundTruthInk } from './groundTruthInk';
 
@@ -219,7 +217,6 @@ describe('Real anonymized topology — graph regression pins', () => {
     assert.strictEqual(c5Row, 22, 'fixture sanity: c5 at row 22');
 
     const c4 = nodes[c4Row];
-    const c5 = nodes[c5Row];
 
     // ─── Algorithm layer ────────────────────────────────────────────
     // c4's first-parent line carries endRow=22 (the parent's row).
@@ -301,51 +298,26 @@ describe('Real anonymized topology — graph regression pins', () => {
       `computeIncomingBendsMap('c4') must be empty (c4 is the source row, not a bend-landing row); got {${[...c4Bends].join(',')}}`
     );
 
-    // ─── Renderer layer ─────────────────────────────────────────────
-    const childCountMap = computeChildCountMap(nodes);
-    const childLanesMap = computeChildLanesMap(nodes);
-    const terminals = computeTerminalNodes(nodes);
+    // ─── Renderer layer (production path: print model → painter) ─────
     const cfg = DEFAULT_GRAPH_CONFIG;
     const centerY = cfg.rowHeight / 2;
     const lane0X = getColumnX(0, cfg);
     const lane1X = getColumnX(1, cfg);
+    const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, cfg));
 
-    // Render c5's row — it should carry the TOP-HALF bend path drawn from
-    // (lane1X, 0) curving into (lane0X, centerY).
-    const c5Svg = renderGraphSvg(
-      c5,
-      c5Row,
-      active.get(c5Row) ?? new Set<number>(),
-      cfg,
-      terminals.has('c5'),
-      isBranchSplit('c5', childCountMap),
-      childLanesMap.get('c5') ?? new Set<number>(),
-      false /* hasFocusedBranch */,
-      active.get(c5Row + 1) ?? new Set<number>(),
-      incoming.get('c5') ?? new Set<number>()
-    );
+    // c5's row should carry the TOP-HALF bend path from (lane1X, 0) curving into
+    // (lane0X, centerY).
+    const c5Svg = svgs[c5Row];
     const expectedTopHalfBend = `<path d="M ${lane1X},0 C ${lane1X},${centerY} ${lane0X},0 ${lane0X},${centerY}"`;
     assert.ok(
       c5Svg.includes(expectedTopHalfBend),
       `c5 row SVG must include the top-half bend path "${expectedTopHalfBend}"; got: ${c5Svg}`
     );
 
-    // Render c4's row — it must NOT contain the OLD source-row 1→0
-    // bottom-half bezier (`M lane1X,centerY C lane1X,bottomY lane0X,centerY lane0X,bottomY`),
-    // and it MUST contain the lane-1 downward stub from centerY to bottomY
-    // (the source lane carries straight-down ink at c4's row).
-    const c4Svg = renderGraphSvg(
-      c4,
-      c4Row,
-      active.get(c4Row) ?? new Set<number>(),
-      cfg,
-      terminals.has('c4'),
-      isBranchSplit('c4', childCountMap),
-      childLanesMap.get('c4') ?? new Set<number>(),
-      false,
-      active.get(c4Row + 1) ?? new Set<number>(),
-      incoming.get('c4') ?? new Set<number>()
-    );
+    // c4's row must NOT contain the OLD source-row 1→0 bottom-half bezier, and
+    // MUST contain the lane-1 downward stub (source lane stays vertical down to
+    // the fork point).
+    const c4Svg = svgs[c4Row];
     const bottomY = cfg.rowHeight;
     const oldSourceRowBend = `M ${lane1X},${centerY} C ${lane1X},${bottomY} ${lane0X},${centerY} ${lane0X},${bottomY}`;
     assert.ok(

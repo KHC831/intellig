@@ -94,6 +94,30 @@ describe('Graph load-more controller', () => {
     assert.strictEqual(last.repo, repoB, 'load-more now targets the newly-active repo');
     assert.strictEqual(last.limit, 1000);
   });
+
+  it('uses a small initial page but a larger load-more increment (fast first paint)', () => {
+    const calls: ReloadCall[] = [];
+    // Production shape: initial 100 (small startup chunk), increment 500.
+    const controller = createGraphLoadMoreController<Filter>(
+      100,
+      (repo, filter, opts) => calls.push({ repo, filter, limit: opts.limit }),
+      500
+    );
+    controller.noteFreshLoad(repoA, undefined);
+    assert.strictEqual(
+      controller.currentLimit(),
+      100,
+      'fresh load starts at the small initial page'
+    );
+    controller.handleLoadMore();
+    assert.strictEqual(controller.currentLimit(), 600, 'load-more grows by the larger increment');
+    controller.handleLoadMore();
+    assert.deepStrictEqual(
+      calls.map((c) => c.limit),
+      [600, 1100],
+      'increments by 500, not by the initial 100'
+    );
+  });
 });
 
 describe('wireGraphLoadMore — subscriber wiring', () => {

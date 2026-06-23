@@ -81,16 +81,25 @@ export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
 /** One graph page: the windowed commit list plus the honest total available. */
 export interface IGraphPage {
   commits: ICommit[];
-  /** `git rev-list --count` over the SAME scope, or `undefined` if it failed. */
-  totalAvailable: number | undefined;
+  /**
+   * `git rev-list --count` over the SAME scope, resolving to the honest total
+   * (or `undefined` if it failed). DELIBERATELY a Promise that is NOT awaited
+   * before the commits return: on a large repo `rev-list --count --all` walks
+   * the entire history (5–10s) and previously blocked the first paint behind the
+   * "Loading git graph…" spinner. Callers render the `commits` immediately and
+   * fold the resolved total into the "X of Y" indicator / load-more state in the
+   * background.
+   */
+  totalAvailable: Promise<number | undefined>;
 }
 
 /**
- * Fetch one graph page: `getLog` windowed to `limit` and `getLogCount` for the
- * honest total, BOTH under the identical {@link buildLogScope} object. Counting
- * is best-effort — a failure degrades to "all loaded" (no spinner) rather than
- * blocking the render. Topo order is requested on the log only; it doesn't
- * affect the count.
+ * Fetch one graph page: `getLog` windowed to `limit` (awaited — this is the
+ * first paint) and `getLogCount` for the honest total (NOT awaited — returned as
+ * a background promise), BOTH under the identical {@link buildLogScope} object so
+ * the loaded list and the total can never diverge. Counting is best-effort: a
+ * failure degrades to "all loaded" (no spinner). Topo order is requested on the
+ * log only; it doesn't affect the count.
  */
 export async function fetchGraphPage(
   gitService: Pick<IGitService, 'getLog' | 'getLogCount'>,
@@ -100,11 +109,9 @@ export async function fetchGraphPage(
 ): Promise<IGraphPage> {
   const scope = buildLogScope(filter);
   const commits = await gitService.getLog(repo, { maxCount: limit, topoOrder: true, ...scope });
-  let totalAvailable: number | undefined;
-  try {
-    totalAvailable = await gitService.getLogCount(repo, scope);
-  } catch {
-    totalAvailable = undefined;
-  }
+  // Kick off the count concurrently but do NOT await it — it stays off the
+  // first-paint critical path. `.catch` keeps a count failure from becoming an
+  // unhandled rejection; it degrades to `undefined` ("all loaded").
+  const totalAvailable = gitService.getLogCount(repo, scope).catch(() => undefined);
   return { commits, totalAvailable };
 }
