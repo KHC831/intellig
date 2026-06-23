@@ -807,7 +807,7 @@ export function parseBlame(output: string): IBlameLine[] {
     // Commit line: hash origLine finalLine [numLines]
     // 40-hex (SHA-1) or 64-hex (SHA-256) object id.
     const commitMatch = line.match(
-      /^([0-9a-f]{40}(?:[0-9a-f]{24})?)\s+(\d+)\s+(\d+)(?:\s+(\d+))?$/
+      /^([0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?)\s+(\d+)\s+(\d+)(?:\s+(\d+))?$/
     );
     if (commitMatch) {
       const [, hash, , finalLineStr] = commitMatch;

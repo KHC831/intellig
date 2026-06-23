@@ -251,14 +251,16 @@ describe('Git Parser Utilities', () => {
       assert.strictEqual(result.length, 2);
       assert.strictEqual(result[0].index, 0);
       assert.strictEqual(result[0].branch, 'main');
+      // Pin the ABSOLUTE timestamp (timezone-independent via Date.UTC) so the
+      // test also catches a host/locale-dependent %ci parse, not just "not now".
       assert.strictEqual(
         result[0].date.getTime(),
-        new Date('2024-05-01 12:00:00 +0000').getTime(),
-        'stash date must come from %ci, not the current time'
+        Date.UTC(2024, 4, 1, 12, 0, 0),
+        'stash date must come from %ci (2024-05-01 12:00:00 UTC), not the current time'
       );
       assert.strictEqual(result[1].index, 1);
       assert.strictEqual(result[1].branch, 'feature');
-      assert.strictEqual(result[1].date.getTime(), new Date('2023-01-02 03:04:05 +0000').getTime());
+      assert.strictEqual(result[1].date.getTime(), Date.UTC(2023, 0, 2, 3, 4, 5));
     });
 
     it('still parses the legacy `stash@{N}: WIP on branch: msg` form (no separator)', () => {

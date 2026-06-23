@@ -872,17 +872,27 @@ export class GitService implements IGitService, IGitServiceCli {
    * match, comparing canonicalized (realpath'd) paths so a symlinked path
    * (macOS `/var` → `/private/var`) still matches a root git reported as a
    * realpath. Pure (no subprocess); mirrors `findRepoContainingPath` /
-   * `resolveBlameRepo`. Returns `undefined` when no open repo is an ancestor.
+   * `resolveBlameRepo`. Returns `undefined` when no FRESH open repo is an
+   * ancestor.
+   *
+   * Only entries within {@link GitService.CACHE_TTL} are considered: a stale
+   * entry must not short-circuit here, otherwise the ancestor match would
+   * bypass the freshness backstop `getCachedRepository` enforces and make the
+   * TTL effectively infinite for any in-workspace path. A stale owner falls
+   * through to the rev-parse + reload path, which refreshes it.
    */
   private findOwningRepository(filePath: string): IRepository | undefined {
     const target = canonicalizeFsPath(filePath);
     let best: IRepository | undefined;
     let bestLen = -1;
-    for (const repo of this.getRepositories()) {
-      const root = canonicalizeFsPath(repo.rootUri.fsPath);
+    for (const [, cache] of this._repositories) {
+      if (Date.now() - cache.lastUpdated >= GitService.CACHE_TTL) {
+        continue;
+      }
+      const root = canonicalizeFsPath(cache.repository.rootUri.fsPath);
       if (target === root || target.startsWith(root + path.sep)) {
         if (root.length > bestLen) {
-          best = repo;
+          best = cache.repository;
           bestLen = root.length;
         }
       }

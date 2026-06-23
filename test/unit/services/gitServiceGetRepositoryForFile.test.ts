@@ -105,4 +105,26 @@ describe('GitService.getRepository resolves a file path to its repo', () => {
       assert.ok(fs.statSync(cwd).isDirectory(), `git cwd must be a directory, got file: ${cwd}`);
     }
   });
+
+  it('does NOT short-circuit on a STALE cached owner — falls through to reload (TTL backstop)', async () => {
+    // Discover the repo, then age its cache entry past CACHE_TTL.
+    await gitService.getRepository(Uri.file(tmpRoot));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    const cacheMap = (gitService as any)._repositories as Map<string, { lastUpdated: number }>;
+    for (const entry of cacheMap.values()) {
+      entry.lastUpdated = Date.now() - 60_000; // well past the 5s TTL
+    }
+
+    cli.rootCwds = [];
+    const fileUri = Uri.file(path.join(tmpRoot, 'src', 'foo.ts'));
+    const resolved = await gitService.getRepository(fileUri);
+
+    assert.ok(resolved, 'still resolves, via the reload path');
+    assert.strictEqual(resolved?.rootUri.fsPath, tmpRoot);
+    // The stale ancestor entry must be ignored, so a rev-parse fires to refresh.
+    assert.ok(
+      cli.rootCwds.length > 0,
+      'a stale cache entry must fall through to rev-parse, not short-circuit'
+    );
+  });
 });
