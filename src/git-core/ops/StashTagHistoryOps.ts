@@ -50,7 +50,13 @@ export class StashTagHistoryOps {
   }
 
   async stashList(repo: IRepository): Promise<IStash[]> {
-    const result = await this.ctx.gitCli.exec(['stash', 'list'], { cwd: repo.rootUri.fsPath });
+    // `--format=%gd<sep>%ci<sep>%gs` carries the stash's real committer date
+    // (`%ci`); plain `git stash list` has no date, so parseStashList would
+    // stamp every entry with the current time. `\x1f` separator matches the
+    // log/tag/branch formats.
+    const result = await this.ctx.gitCli.exec(['stash', 'list', '--format=%gd\x1f%ci\x1f%gs'], {
+      cwd: repo.rootUri.fsPath,
+    });
     if (result.exitCode !== 0) {
       return [];
     }

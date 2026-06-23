@@ -1,5 +1,7 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { canonicalizeFsPath } from '../utils/repoRelativePath';
 import {
   IGitService,
   IGitServiceCli,
@@ -419,16 +421,30 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns The repository, or undefined if not found
    */
   async getRepository(uri: vscode.Uri): Promise<IRepository | undefined> {
-    const path = uri.fsPath;
+    const filePath = uri.fsPath;
 
-    // Check cache first
-    const cached = this.getCachedRepository(path);
+    // Check cache first (exact key — a repo ROOT path).
+    const cached = this.getCachedRepository(filePath);
     if (cached) {
       return cached;
     }
 
-    // Try to find repository root
-    const rootPath = await this._gitCli.getRepositoryRoot(path);
+    // Resolve a FILE (or any non-root path) to its owning repository by
+    // ancestor-matching against already-known repositories — no subprocess.
+    // This is the common case for file URIs (blame, line-status, merge view):
+    // the exact-key cache above never matches a file path because it's keyed by
+    // repo root, and the `git rev-parse` fallback below cannot take a file as
+    // its cwd. Without this, `getRepository(fileUri)` returned `undefined` for
+    // every file that wasn't itself a cached repo root.
+    const owner = this.findOwningRepository(filePath);
+    if (owner) {
+      return owner;
+    }
+
+    // Try to find repository root. `git rev-parse --show-toplevel` must run with
+    // a DIRECTORY cwd: `spawn` rejects a file cwd with ENOTDIR, which silently
+    // turned file-path discovery into a no-op. Use the file's parent dir.
+    const rootPath = await this._gitCli.getRepositoryRoot(this.toDirectoryCwd(filePath));
     if (!rootPath) {
       return undefined;
     }
@@ -849,6 +865,47 @@ export class GitService implements IGitService, IGitServiceCli {
       return cached.repository;
     }
     return undefined;
+  }
+
+  /**
+   * Resolve a path to the open repository that owns it via deepest-ancestor
+   * match, comparing canonicalized (realpath'd) paths so a symlinked path
+   * (macOS `/var` → `/private/var`) still matches a root git reported as a
+   * realpath. Pure (no subprocess); mirrors `findRepoContainingPath` /
+   * `resolveBlameRepo`. Returns `undefined` when no open repo is an ancestor.
+   */
+  private findOwningRepository(filePath: string): IRepository | undefined {
+    const target = canonicalizeFsPath(filePath);
+    let best: IRepository | undefined;
+    let bestLen = -1;
+    for (const repo of this.getRepositories()) {
+      const root = canonicalizeFsPath(repo.rootUri.fsPath);
+      if (target === root || target.startsWith(root + path.sep)) {
+        if (root.length > bestLen) {
+          best = repo;
+          bestLen = root.length;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Coerce a path into a directory usable as a git `cwd`. `git rev-parse` with
+   * `cwd` set to a regular file fails with ENOTDIR (verified), so an existing
+   * file is mapped to its parent directory. Existing directories and
+   * non-existent paths pass through unchanged (the latter preserves prior
+   * rev-parse-fails-gracefully behavior).
+   */
+  private toDirectoryCwd(p: string): string {
+    try {
+      if (fs.statSync(p).isDirectory()) {
+        return p;
+      }
+      return path.dirname(p);
+    } catch {
+      return p;
+    }
   }
 
   /**

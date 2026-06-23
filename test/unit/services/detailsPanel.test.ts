@@ -819,13 +819,17 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       );
     });
 
-    it('wraps GH-99 and PROJECT-123 style refs', () => {
+    it('wraps GH-99 on GitHub but leaves JIRA-style PROJECT-123 as inert text', () => {
+      // PROJECT-123 is a JIRA ticket, NOT a hosting-provider issue number.
+      // Linking it to `<provider>/issues/123` points at the wrong thing, so
+      // JIRA-style refs must stay plain text (no JIRA base URL is configured).
       provider.setAvailableRepositories([makeRepoWithGitHub()]);
       setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
       const details = makeCommitDetails({ message: 'GH-99 and PROJECT-123: cleanup' });
       const html = renderDetails(provider, details);
       assert.ok(html.includes('>GH-99</a>'), `expected GH-99 anchor; got: ${html}`);
-      assert.ok(html.includes('>PROJECT-123</a>'), `expected PROJECT-123 anchor; got: ${html}`);
+      assert.ok(!html.includes('>PROJECT-123</a>'), `PROJECT-123 must NOT be linked; got: ${html}`);
+      assert.ok(html.includes('PROJECT-123'), 'PROJECT-123 must remain as visible text');
     });
 
     it('does NOT wrap `abc#42` (not a real reference)', () => {

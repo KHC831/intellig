@@ -235,11 +235,36 @@ describe('Git Parser Utilities', () => {
   });
 
   describe('parseStashList', () => {
-    it('should parse stash entries', () => {
+    it('parses the dated `--format=%gd<sep>%ci<sep>%gs` output incl. REAL dates', () => {
+      const sep = '\x1f';
+      const output =
+        ['stash@{0}', '2024-05-01 12:00:00 +0000', 'WIP on main: abc1234 Some commit message'].join(
+          sep
+        ) +
+        '\n' +
+        ['stash@{1}', '2023-01-02 03:04:05 +0000', 'On feature: def5678 Another message'].join(
+          sep
+        ) +
+        '\n';
+      const result = parseStashList(output);
+
+      assert.strictEqual(result.length, 2);
+      assert.strictEqual(result[0].index, 0);
+      assert.strictEqual(result[0].branch, 'main');
+      assert.strictEqual(
+        result[0].date.getTime(),
+        new Date('2024-05-01 12:00:00 +0000').getTime(),
+        'stash date must come from %ci, not the current time'
+      );
+      assert.strictEqual(result[1].index, 1);
+      assert.strictEqual(result[1].branch, 'feature');
+      assert.strictEqual(result[1].date.getTime(), new Date('2023-01-02 03:04:05 +0000').getTime());
+    });
+
+    it('still parses the legacy `stash@{N}: WIP on branch: msg` form (no separator)', () => {
       const output =
         'stash@{0}: WIP on main: abc1234 Some commit message\nstash@{1}: On feature: def5678 Another message\n';
       const result = parseStashList(output);
-
       assert.strictEqual(result.length, 2);
       assert.strictEqual(result[0].index, 0);
       assert.strictEqual(result[0].branch, 'main');
@@ -692,6 +717,31 @@ index 1234567,abcdefg..fedcba9
       assert.ok(format.includes('%(objectname)'));
     });
 
+    it('getBranchFormat default separator is `\\x1f`; branch name with literal `|` round-trips', () => {
+      // The previous `|` default collided with branch names containing a pipe
+      // (`git check-ref-format 'refs/heads/foo|bar'` exits 0), corrupting every
+      // field. Mirrors the parseLog/parseTags `\x1f` switch.
+      const format = getBranchFormat();
+      assert.ok(format.includes('\x1f'), `expected \\x1f in default format, got ${format}`);
+      assert.ok(!format.includes('|'), 'default format must not embed pipe separator');
+
+      const sep = '\x1f';
+      const line = ['refs/heads/foo|bar', 'a'.repeat(40), 'origin/foo|bar', '*'].join(sep);
+      const branches = parseBranches(line);
+      assert.strictEqual(branches.length, 1);
+      assert.strictEqual(branches[0].name, 'foo|bar', 'branch name with a pipe must survive');
+      assert.strictEqual(branches[0].commit, 'a'.repeat(40));
+      assert.strictEqual(branches[0].upstream?.remote, 'origin');
+      assert.strictEqual(branches[0].upstream?.name, 'foo|bar');
+      assert.strictEqual(branches[0].isHead, true);
+    });
+
+    it('getBranchFormat accepts an explicit separator override', () => {
+      const format = getBranchFormat('|');
+      assert.ok(format.includes('|'));
+      assert.ok(!format.includes('\x1f'));
+    });
+
     it('getTagFormat should return a valid format string', () => {
       const format = getTagFormat();
       assert.ok(format.includes('%(refname)'));
@@ -796,7 +846,7 @@ index 1234567,abcdefg..fedcba9
   describe('parseBranches — Wave F pseudo-ref filtering', () => {
     it('parseBranches-detached-1: single detached pseudo-ref → returns empty array', () => {
       const output = '(HEAD detached at abc1234)|abc1234567890123456789012345678901234567890||*';
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
       assert.deepStrictEqual(
         result,
         [],
@@ -811,7 +861,7 @@ index 1234567,abcdefg..fedcba9
         'refs/heads/feature|ghi7890123456789012345678901234567890abcdef||',
         'refs/remotes/origin/main|def4567890123456789012345678901234567890abc||',
       ].join('\n');
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
 
       assert.strictEqual(result.length, 3, 'expected 3 branches (detached pseudo-ref filtered)');
       const names = result.map((b) => b.name);
@@ -834,14 +884,14 @@ index 1234567,abcdefg..fedcba9
     it('parseBranches-detached-3: mid-rebase pseudo-ref → filtered', () => {
       // git emits this during `git rebase -i` while paused.
       const output = '(no branch, rebasing main)|abc1234567890123456789012345678901234567890||*';
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
       assert.deepStrictEqual(result, [], 'mid-rebase parenthesized label must be filtered');
     });
 
     it('parseBranches-detached-4: mid-bisect pseudo-ref → filtered', () => {
       const output =
         '(no branch, bisect started on main)|abc1234567890123456789012345678901234567890||*';
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
       assert.deepStrictEqual(result, [], 'mid-bisect parenthesized label must be filtered');
     });
 
@@ -852,7 +902,7 @@ index 1234567,abcdefg..fedcba9
       // is empty so the UI shows zero branches and falls back to
       // `repo.head?.commit` for detached display.
       const output = '(HEAD detached from origin/main)|deadbeefdeadbeefdeadbeefdeadbeefdeadbeef||*';
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
       assert.deepStrictEqual(result, []);
     });
 
@@ -863,7 +913,7 @@ index 1234567,abcdefg..fedcba9
       // by-fixture rather than implied by the predicate shape alone.
       const output =
         '(no branch, cherry-pick of abcdef1)|abc1234567890123456789012345678901234567890||*';
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
       assert.deepStrictEqual(result, [], 'mid-cherry-pick parenthesized label must be filtered');
     });
 
@@ -884,7 +934,7 @@ index 1234567,abcdefg..fedcba9
         'refs/remotes/origin/main|def4567890123456789012345678901234567890abc||',
         'refs/remotes/upstream/feature|ccc4567890123456789012345678901234567890abc||',
       ].join('\n');
-      const result = parseBranches(output);
+      const result = parseBranches(output, '|');
 
       assert.strictEqual(result.length, 5, 'all 5 normal branches must survive');
       assert.deepStrictEqual(result.map((b) => b.name).sort(), [
@@ -988,6 +1038,22 @@ index 1234567,abcdefg..fedcba9
 
     it('returns an empty array for empty blame output', () => {
       assert.deepStrictEqual(parseBlame(''), []);
+    });
+
+    it('parses a 64-hex (SHA-256) commit line', () => {
+      const sha256 = 'a'.repeat(64);
+      const porcelain = [
+        `${sha256} 1 1 1`,
+        'author Alice',
+        'author-mail <alice@example.com>',
+        'author-time 1700000000',
+        'summary first',
+        '\tconst x = 1;',
+      ].join('\n');
+      const lines = parseBlame(porcelain);
+      assert.strictEqual(lines.length, 1, 'a sha256 repo blame line must parse');
+      assert.strictEqual(lines[0].commit, sha256);
+      assert.strictEqual(lines[0].author, 'Alice');
     });
   });
 });

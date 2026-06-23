@@ -235,13 +235,13 @@ export function parseCommit(output: string, separator: string = '\x1f'): ICommit
  * @param output - The output from `git branch -a --format`
  * @returns Array of branch objects
  */
-export function parseBranches(output: string): IBranch[] {
+export function parseBranches(output: string, separator: string = '\x1f'): IBranch[] {
   const branches: IBranch[] = [];
   const lines = output.split('\n').filter((line) => line.trim().length > 0);
 
   for (const line of lines) {
-    // Format: refname|objectname|upstream|HEAD
-    const parts = line.split('|');
+    // Format: refname<sep>objectname<sep>upstream<sep>HEAD
+    const parts = line.split(separator);
     if (parts.length < 4) {
       continue;
     }
@@ -375,23 +375,56 @@ export function parseTags(output: string, separator: string = '\x1f'): ITag[] {
 /**
  * Parse Git stash list output into stash objects.
  *
- * @param output - The output from `git stash list`
+ * Preferred input is the dated reflog format
+ * `git stash list --format=%gd<sep>%ci<sep>%gs` (separator default `\x1f`),
+ * which carries the stash's REAL committer date via `%ci` — the bare
+ * `git stash list` output has no date, so the previous parser stamped every
+ * stash with `new Date()` (the current time), giving misleading timestamps and
+ * a wrong date-sort. Lines WITHOUT the separator fall back to the legacy
+ * single-line `stash@{N}: WIP on branch: message` parse (date unavailable →
+ * current time) so old callers / output still work.
+ *
+ * @param output - The output from `git stash list` (dated `--format` or legacy)
+ * @param separator - The field separator for the dated format (default: `\x1f`)
  * @returns Array of stash objects
  */
-export function parseStashList(output: string): IStash[] {
+export function parseStashList(output: string, separator: string = '\x1f'): IStash[] {
   const stashes: IStash[] = [];
   const lines = output.split('\n').filter((line) => line.trim().length > 0);
 
+  // `%gs` reflog subject: `WIP on branch: message` or `On branch: message`.
+  const subjectRe = /^(?:WIP on|On)\s+([^:]+):\s*(.*)$/;
+
   for (const line of lines) {
-    // Format: stash@{N}: WIP on branch: message
-    // or: stash@{N}: On branch: message
+    if (line.includes(separator)) {
+      // Dated format: `%gd<sep>%ci<sep>%gs`.
+      const [selector, dateStr, subject = ''] = line.split(separator);
+      const indexMatch = selector.match(/stash@\{(\d+)\}/);
+      if (!indexMatch) {
+        continue;
+      }
+      const subjectMatch = subject.match(subjectRe);
+      const branch = subjectMatch ? subjectMatch[1] : undefined;
+      const message = subjectMatch ? subjectMatch[2] : subject;
+      const parsedDate = new Date(dateStr);
+      stashes.push({
+        index: parseInt(indexMatch[1], 10),
+        message: message || (branch ? `WIP on ${branch}` : ''),
+        // Fall back to the current time only when %ci is unparseable.
+        date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+        branch,
+      });
+      continue;
+    }
+
+    // Legacy single-line form (no date available).
     const match = line.match(/^stash@\{(\d+)\}:\s*(?:WIP on|On)\s+([^:]+):\s*(.*)$/);
     if (match) {
       const [, indexStr, branch, message] = match;
       stashes.push({
         index: parseInt(indexStr, 10),
         message: message || `WIP on ${branch}`,
-        date: new Date(), // Git stash list doesn't include date by default
+        date: new Date(),
         branch,
       });
     }
@@ -772,7 +805,10 @@ export function parseBlame(output: string): IBlameLine[] {
 
   for (const line of lines) {
     // Commit line: hash origLine finalLine [numLines]
-    const commitMatch = line.match(/^([0-9a-f]{40})\s+(\d+)\s+(\d+)(?:\s+(\d+))?$/);
+    // 40-hex (SHA-1) or 64-hex (SHA-256) object id.
+    const commitMatch = line.match(
+      /^([0-9a-f]{40}(?:[0-9a-f]{24})?)\s+(\d+)\s+(\d+)(?:\s+(\d+))?$/
+    );
     if (commitMatch) {
       const [, hash, , finalLineStr] = commitMatch;
       currentCommit = hash;
@@ -877,10 +913,18 @@ export function getLogFormat(separator: string = '\x1f'): string {
 /**
  * Format a branch format string for Git.
  *
+ * Default separator is `\x1f` (ASCII Unit Separator) to match `parseLog` /
+ * `parseTags`. The previous `|` collided with branch names containing a literal
+ * pipe — `git check-ref-format 'refs/heads/foo|bar'` exits 0, so `foo|bar` is a
+ * valid branch — which corrupted `parseBranches`' field split (refname truncated,
+ * commit hash shifted). `\x1f` is a C0 control char that never appears in a ref
+ * name. Callers needing the legacy `|` can pass it explicitly.
+ *
+ * @param separator - The field separator (default: `\x1f`)
  * @returns The format string
  */
-export function getBranchFormat(): string {
-  return '%(refname)|%(objectname)|%(upstream:short)|%(HEAD)';
+export function getBranchFormat(separator: string = '\x1f'): string {
+  return `%(refname)${separator}%(objectname)${separator}%(upstream:short)${separator}%(HEAD)`;
 }
 
 /**

@@ -502,7 +502,7 @@ describe('GitService - Branch Operations', () => {
     describe('Listing local and remote branches', () => {
       it('should execute git branch -a with format option', async () => {
         mockGitCli.setMockResult(
-          'branch -a --format %(refname)|%(objectname)|%(upstream:short)|%(HEAD)',
+          'branch -a --format %(refname)\x1f%(objectname)\x1f%(upstream:short)\x1f%(HEAD)',
           {
             exitCode: 0,
             stdout: '',
@@ -529,7 +529,7 @@ describe('GitService - Branch Operations', () => {
 
       it('should return empty array when command fails', async () => {
         mockGitCli.setMockResult(
-          'branch -a --format %(refname)|%(objectname)|%(upstream:short)|%(HEAD)',
+          'branch -a --format %(refname)\x1f%(objectname)\x1f%(upstream:short)\x1f%(HEAD)',
           {
             exitCode: 1,
             stdout: '',
@@ -543,11 +543,11 @@ describe('GitService - Branch Operations', () => {
 
       it('should parse local branches correctly', async () => {
         mockGitCli.setMockResult(
-          'branch -a --format %(refname)|%(objectname)|%(upstream:short)|%(HEAD)',
+          'branch -a --format %(refname)\x1f%(objectname)\x1f%(upstream:short)\x1f%(HEAD)',
           {
             exitCode: 0,
             stdout:
-              'refs/heads/main|abc123def456|origin/main|*\nrefs/heads/feature|def789abc012||\n',
+              'refs/heads/main\x1fabc123def456\x1forigin/main\x1f*\nrefs/heads/feature\x1fdef789abc012\x1f\x1f\n',
             stderr: '',
           }
         );
@@ -565,11 +565,11 @@ describe('GitService - Branch Operations', () => {
 
       it('should parse remote branches correctly', async () => {
         mockGitCli.setMockResult(
-          'branch -a --format %(refname)|%(objectname)|%(upstream:short)|%(HEAD)',
+          'branch -a --format %(refname)\x1f%(objectname)\x1f%(upstream:short)\x1f%(HEAD)',
           {
             exitCode: 0,
             stdout:
-              'refs/remotes/origin/main|abc123def456||\nrefs/remotes/origin/develop|def789abc012||\n',
+              'refs/remotes/origin/main\x1fabc123def456\x1f\x1f\nrefs/remotes/origin/develop\x1fdef789abc012\x1f\x1f\n',
             stderr: '',
           }
         );
@@ -585,10 +585,10 @@ describe('GitService - Branch Operations', () => {
 
       it('should parse upstream information correctly', async () => {
         mockGitCli.setMockResult(
-          'branch -a --format %(refname)|%(objectname)|%(upstream:short)|%(HEAD)',
+          'branch -a --format %(refname)\x1f%(objectname)\x1f%(upstream:short)\x1f%(HEAD)',
           {
             exitCode: 0,
-            stdout: 'refs/heads/main|abc123def456|origin/main|*\n',
+            stdout: 'refs/heads/main\x1fabc123def456\x1forigin/main\x1f*\n',
             stderr: '',
           }
         );
@@ -2476,7 +2476,7 @@ describe('GitService - Stash Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['stash', 'list']);
+        assert.deepStrictEqual(lastCommand.args, ['stash', 'list', '--format=%gd\x1f%ci\x1f%gs']);
       });
 
       it('should pass the correct working directory', async () => {
@@ -2488,7 +2488,7 @@ describe('GitService - Stash Operations', () => {
       });
 
       it('should return empty array when no stashes exist', async () => {
-        mockGitCli.setMockResult('stash list', {
+        mockGitCli.setMockResult('stash list --format=%gd\x1f%ci\x1f%gs', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -2499,10 +2499,10 @@ describe('GitService - Stash Operations', () => {
       });
 
       it('should parse stash list correctly', async () => {
-        mockGitCli.setMockResult('stash list', {
+        mockGitCli.setMockResult('stash list --format=%gd\x1f%ci\x1f%gs', {
           exitCode: 0,
           stdout:
-            'stash@{0}: WIP on main: abc1234 Some commit message\nstash@{1}: On feature: def5678 Another message\n',
+            'stash@{0}\x1f2024-05-01 12:00:00 +0000\x1fWIP on main: abc1234 Some commit message\nstash@{1}\x1f2023-01-02 03:04:05 +0000\x1fOn feature: def5678 Another message\n',
           stderr: '',
         });
 

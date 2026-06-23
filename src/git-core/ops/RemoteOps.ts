@@ -195,7 +195,8 @@ export class RemoteOps {
       const oldSha = parts[1];
       const newSha = parts[2];
       const ref = parts.slice(3).join(' ');
-      if (!/^[0-9a-f]{40}$/.test(newSha)) {
+      // 40-hex (SHA-1) or 64-hex (SHA-256) object id.
+      if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(newSha)) {
         continue;
       }
       if (oldSha === newSha) {

@@ -1011,8 +1011,9 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
     const detachedSha = 'abc1234567890123456789012345678901234567890';
     const fixture = `(HEAD detached at abc1234)|${detachedSha}||*`;
 
-    // parseBranches must filter the parenthesized line out.
-    const branches = parseBranches(fixture);
+    // parseBranches must filter the parenthesized line out. (Fixture uses the
+    // legacy `|` separator, passed explicitly; the filter is separator-agnostic.)
+    const branches = parseBranches(fixture, '|');
     assert.strictEqual(
       branches.length,
       0,
@@ -1087,7 +1088,8 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       `refs/heads/feature|${featureSha}||`,
       `refs/remotes/origin/main|${mainSha}||`,
     ].join('\n');
-    const parsed: IBranch[] = parseBranches(fixture);
+    // Fixture uses the legacy `|` separator, passed explicitly.
+    const parsed: IBranch[] = parseBranches(fixture, '|');
 
     // Sanity: parser already filtered the parenthesized line; the
     // tree provider can only render what the parser hands it.

@@ -129,8 +129,8 @@ async function readRebaseDir(dir: string): Promise<IInProgressOperation | undefi
   return result;
 }
 
-/** Hex-only 40-char git SHA1. */
-const FULL_SHA_RE = /^[0-9a-fA-F]{40}$/;
+/** Hex-only git object id: 40-char (SHA-1) or 64-char (SHA-256). */
+const FULL_SHA_RE = /^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$/;
 
 /**
  * Read a SHA-bearing marker file (CHERRY_PICK_HEAD / REVERT_HEAD) and

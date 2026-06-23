@@ -10,6 +10,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import { gatherCheckinContext, formatCheckinProblems } from '../../../src/commits/CheckinChecks';
+import { runCheckinHandlers } from '../../../src/commits/CheckinHandlers';
 import type {
   IGitService,
   IRepository,
@@ -131,6 +132,39 @@ describe('gatherCheckinContext', () => {
     } as unknown as IGitService;
     const ctx = await gatherCheckinContext(git, makeRepo(), []);
     assert.strictEqual(ctx.userIdentityResolved, false);
+  });
+
+  it('surfaces a status-read failure instead of silently passing the conflict check', async () => {
+    // Regression: a getStatus throw used to swallow to files:[], so the
+    // unresolved-merge check saw no conflicts and the commit proceeded with no
+    // warning (fail-open). Now the failure is captured + surfaced as a warning.
+    const git = {
+      getStatus: async () => {
+        throw new Error('status read failed');
+      },
+      gitCli: {
+        exec: async (args: string[]) => {
+          // Provide a valid identity so the ONLY surfaced problem is the
+          // status-read warning (isolates this test from the user.name check).
+          if (args[0] === 'config' && args[2] === 'user.name') {
+            return { exitCode: 0, stdout: 'Kit\n', stderr: '', combined: 'Kit\n' };
+          }
+          if (args[0] === 'config' && args[2] === 'user.email') {
+            return { exitCode: 0, stdout: 'k@e.com\n', stderr: '', combined: 'k@e.com\n' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      },
+    } as unknown as IGitService;
+    const ctx = await gatherCheckinContext(git, makeRepo(), ['a.ts']);
+    assert.strictEqual(ctx.statusReadFailed, true, 'status-read failure must be flagged');
+    assert.deepStrictEqual(ctx.files, [], 'no files when status could not be read');
+
+    const result = runCheckinHandlers(ctx);
+    const warn = result.problems.find((p) => p.handlerId === 'git.status.read');
+    assert.ok(warn, 'a status-read warning problem must be surfaced');
+    assert.strictEqual(warn?.severity, 'warning', 'must be non-blocking');
+    assert.strictEqual(result.hasBlockingProblem, false, 'a status-read failure must not block');
   });
 });
 

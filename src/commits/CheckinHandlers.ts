@@ -85,6 +85,12 @@ export interface ICheckinContext {
   files: ReadonlyArray<ICheckinFile>;
   /** True when HEAD is detached (committing lands on no branch). */
   detachedHead: boolean;
+  /**
+   * True when the working-tree status could not be read (e.g. `getStatus`
+   * threw). When set, {@link files} is empty and the conflict check cannot
+   * run — surfaced as a non-blocking warning rather than silently passing.
+   */
+  statusReadFailed?: boolean;
 }
 
 /**
@@ -204,8 +210,35 @@ export const detachedRootCheckinHandler: ICheckinHandler = {
 };
 
 /**
+ * Status-read-failure check.
+ *
+ * When the working-tree status couldn't be read, the unresolved-merge check
+ * operates on an empty file set and cannot detect conflicts. Rather than let
+ * the commit proceed with no signal (fail-open), surface a non-blocking warning
+ * so the user knows the pre-commit checks were incomplete. git itself still
+ * refuses a truly conflicted index, so this stays advisory.
+ */
+export const statusReadCheckinHandler: ICheckinHandler = {
+  id: 'git.status.read',
+  displayName: 'Working-tree status is readable',
+  check(context: ICheckinContext): ICheckinProblem[] {
+    if (!context.statusReadFailed) {
+      return [];
+    }
+    return [
+      {
+        handlerId: 'git.status.read',
+        text: 'Could not read the working-tree status, so the pre-commit conflict check could not run. The commit can proceed, but verify there are no unresolved conflicts.',
+        severity: 'warning',
+      },
+    ];
+  },
+};
+
+/**
  * The default cheap-check chain, in run order. user.name first (it blocks
- * the hardest), then unresolved-merge, then the detached-HEAD warning.
+ * the hardest), then unresolved-merge, then the detached-HEAD + status-read
+ * warnings.
  *
  * CRLF / large-file / bad-filename checks plug in here when ported.
  */
@@ -213,6 +246,7 @@ export const DEFAULT_CHECKIN_HANDLERS: ReadonlyArray<ICheckinHandler> = [
   userNameCheckinHandler,
   unresolvedMergeCheckinHandler,
   detachedRootCheckinHandler,
+  statusReadCheckinHandler,
 ];
 
 /**

@@ -97,7 +97,13 @@ export function buildMessageTokens(
     if (ref.start > cursor) {
       tokens.push({ t: 'text', v: message.substring(cursor, ref.start) });
     }
-    const url = issueUrl(remote, ref.id);
+    // Only linkify refs that map to the hosting provider's issue tracker:
+    // `#123` always, and `GH-123` on GitHub. JIRA-style `PROJECT-123` is a
+    // ticket key, NOT a provider issue number — linking it to
+    // `<provider>/issues/123` points at the wrong resource, so it stays inert.
+    const linkable =
+      ref.kind === 'hash' || (ref.kind === 'gh-number' && remote.provider === 'github');
+    const url = linkable ? issueUrl(remote, ref.id) : undefined;
     const rawText = message.substring(ref.start, ref.end);
     if (url) {
       tokens.push({

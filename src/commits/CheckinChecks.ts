@@ -145,10 +145,14 @@ export async function gatherCheckinContext(
   const gitCli = (gitService as IGitServiceWithCli).gitCli;
 
   let statuses: IFileStatus[] = [];
+  let statusReadFailed = false;
   try {
     statuses = await gitService.getStatus(repo);
   } catch {
+    // Don't silently pass the conflict check on a status-read failure — flag it
+    // so runCheckinHandlers can surface a non-blocking warning.
     statuses = [];
+    statusReadFailed = true;
   }
   const committedSet = new Set(committedPaths);
   const files: ICheckinFile[] = statuses
@@ -165,6 +169,7 @@ export async function gatherCheckinContext(
       userIdentityResolved: false,
       files,
       detachedHead: !repo.head?.name,
+      statusReadFailed,
     };
   }
 
@@ -174,7 +179,7 @@ export async function gatherCheckinContext(
     isDetachedHead(gitCli, repo),
   ]);
 
-  return { userName, userEmail, userIdentityResolved: true, files, detachedHead };
+  return { userName, userEmail, userIdentityResolved: true, files, detachedHead, statusReadFailed };
 }
 
 /**

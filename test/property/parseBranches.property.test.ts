@@ -32,12 +32,12 @@ import { parseBranches } from '../../src/git-core/gitParser';
  * separator in our line-based parsing — fuzzing it would split the line
  * and produce undefined fixture behavior unrelated to the predicate
  * under test. `|` is reserved as our column separator (see
- * `getBranchFormat`). Excluding both keeps the fuzz aimed at the
- * predicate, not at separator-collision behavior. (Note: git itself
- * accepts both characters in refnames — `git check-ref-format
- * 'refs/heads/foo|bar'` exits 0 — so a real branch with `|` in its
- * name is a pre-existing parser fragility, orthogonal to the
- * pseudo-ref filter under test here.)
+ * `getBranchFormat`). This test pins the pseudo-ref FILTER, so it passes
+ * `'|'` to `parseBranches` explicitly as the separator and excludes `|`
+ * from the fuzzed inner content. (The real `getBranchFormat` default is now
+ * `\x1f`, so a branch name containing a literal `|` — `git check-ref-format
+ * 'refs/heads/foo|bar'` exits 0 — round-trips correctly; that fix is pinned in
+ * `gitParser.test.ts`. Here the separator choice is just a test convenience.)
  *
  * The remaining char-set is broad enough to cover ASCII + multi-byte
  * UTF-8 + whitespace + punctuation, which is what git actually emits
@@ -60,7 +60,7 @@ describe('parseBranches property — Wave F', () => {
           `refs/heads/main|def4567890123456789012345678901234567890abc||`,
           `refs/remotes/origin/main|def4567890123456789012345678901234567890abc||`,
         ];
-        const result = parseBranches(lines.join('\n'));
+        const result = parseBranches(lines.join('\n'), '|');
 
         // INVARIANT 1: no surviving branch carries a parenthesized name.
         for (const b of result) {
@@ -106,7 +106,7 @@ describe('parseBranches property — Wave F', () => {
             `${padded}|abc1234567890123456789012345678901234567890||*`,
             `refs/heads/main|def4567890123456789012345678901234567890abc||`,
           ];
-          const result = parseBranches(lines.join('\n'));
+          const result = parseBranches(lines.join('\n'), '|');
           for (const b of result) {
             if (b.name.trim().startsWith('(')) {
               throw new Error(
