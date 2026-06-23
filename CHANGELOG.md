@@ -10,6 +10,20 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.2] - 2026-06-22
+
+### Added
+
+- Blame annotation gutter: per-line author, date, and revision with per-commit colors and hover actions.
+
+### Fixed
+
+- Blame line attribution, commit-graph rendering, commit selection, and multi-repo diff resolution.
+
+### Changed
+
+- Faster graph load and repository switching.
+
 ## [0.2.1] - 2026-06-21
 
 ### Fixed
