@@ -28,50 +28,205 @@ export function buildInlineScript(): string {
         const vscode = window.__intelligVscodeApi || (typeof acquireVsCodeApi === 'function' ? (window.__intelligVscodeApi = acquireVsCodeApi()) : undefined);
         if (!vscode) return;
 
-        // Repository selector wiring. Posts the selectRepository message
-        // through the shared \`vscode\` handle above. The dropdown intentionally
-        // has no inline onchange handler — an inline \`acquire\` would re-run
-        // before this IIFE memoised the handle, and the message would drop.
-        const repoSelect = document.querySelector('.repository-selector');
-        if (repoSelect) {
-          repoSelect.addEventListener('change', function(e) {
-            const target = e.target;
-            if (!target) return;
-            // The "All Repositories" sentinel must be handled before the
-            // numeric guard below — Number('all') is NaN and would be dropped.
-            if (target.value === 'all') {
-              vscode.postMessage({
-                type: 'selectRepository',
-                repositoryIndex: 'all',
-              });
-              return;
-            }
-            const value = Number(target.value);
-            if (!Number.isFinite(value)) return;
-            vscode.postMessage({
-              type: 'selectRepository',
-              repositoryIndex: value,
-            });
-          });
-        }
+        // Repository scope is chosen from the Path filter popup (the repo rows
+        // post \`selectRepository\`); see the setupLogFilterRow IIFE below.
 
-        // Branch-filter selector wiring. Picking a branch scopes the log to it;
-        // the "__all__" sentinel drops the branch scope. The host validates the
-        // value before it reaches \`git log <branch>\`. Options are filled lazily
-        // by the \`logFilterOptionsReady\` handler below, so request them once on
-        // load (the dropdown is always visible, unlike the collapsible bar).
-        const branchFilterSelect = document.querySelector('.branch-filter-selector');
-        if (branchFilterSelect) {
-          branchFilterSelect.addEventListener('change', function(e) {
-            const target = e.target;
-            if (!target) return;
+        // ─── Log filter row (IntelliJ VcsLogClassicFilterUi) ─────────────
+        // A text-search field plus Branch / User / Date / Path popup buttons.
+        // The popups are custom styled panels (native <select>/<datalist>
+        // popups render in an unstyleable Chromium UA layer). Every control
+        // uses data-action — the CSP (script-src 'nonce-…') blocks inline
+        // handlers. The active filter is mirrored into data-f-* on the row so
+        // this rehydrates after a full host re-render.
+        (function setupLogFilterRow() {
+          const row = document.querySelector('.log-filter-row');
+          if (!row) return;
+
+          const filterState = {
+            branch: row.getAttribute('data-f-branch') || '',
+            author: row.getAttribute('data-f-author') || '',
+            path: row.getAttribute('data-f-path') || '',
+            since: row.getAttribute('data-f-since') || '',
+            until: row.getAttribute('data-f-until') || '',
+          };
+
+          function byId(id) { return document.getElementById(id); }
+          function readSearch() { const el = byId('filter-search'); return el ? el.value.trim() : ''; }
+          function readToggle(id) { const el = byId(id); return el ? el.classList.contains('active') : false; }
+
+          function applyFilters() {
             vscode.postMessage({
-              type: 'selectBranchFilter',
-              branch: target.value === '__all__' ? null : target.value,
+              type: 'applyLogFilter',
+              filter: {
+                branch: filterState.branch,
+                searchText: readSearch(),
+                author: filterState.author,
+                path: filterState.path,
+                since: filterState.since || null,
+                until: filterState.until || null,
+                searchRegex: readToggle('filter-search-regex'),
+                searchCaseSensitive: readToggle('filter-search-case'),
+              }
+            });
+          }
+
+          function setPopValue(key, text) {
+            const el = byId('filter-' + key + '-value');
+            if (el) el.textContent = (text && text.length > 0) ? text : 'All';
+          }
+          function dateLabel() {
+            const s = filterState.since, u = filterState.until;
+            if (s && u) return s + ' – ' + u;
+            if (s) return 'Since ' + s;
+            if (u) return 'Until ' + u;
+            return 'All';
+          }
+          function pathLeaf(p) {
+            const parts = p.split('/').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : p;
+          }
+
+          function closeAllPopups() {
+            document.querySelectorAll('.log-filter-popup').forEach(function(p) { p.hidden = true; });
+            document.querySelectorAll('.log-filter-pop-btn').forEach(function(b) { b.setAttribute('aria-expanded', 'false'); });
+          }
+          function togglePopup(key) {
+            const popup = byId('filter-popup-' + key);
+            if (!popup) return;
+            const show = popup.hidden;
+            closeAllPopups();
+            popup.hidden = !show;
+            const wrap = popup.closest('.log-filter-pop');
+            const btn = wrap ? wrap.querySelector('.log-filter-pop-btn') : null;
+            if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+            if (show) {
+              if (key === 'branch') vscode.postMessage({ type: 'requestLogFilterOptions' });
+              if (key === 'user') vscode.postMessage({ type: 'requestAuthorOptions' });
+              const input = popup.querySelector('input[type="text"]');
+              if (input) { try { input.focus(); } catch (err) {} }
+            }
+          }
+
+          // YYYY-MM-DD for (today - days), used by the Date presets.
+          function daysAgoIso(days) {
+            const d = new Date();
+            d.setDate(d.getDate() - days);
+            const m = ('0' + (d.getMonth() + 1)).slice(-2);
+            const day = ('0' + d.getDate()).slice(-2);
+            return d.getFullYear() + '-' + m + '-' + day;
+          }
+
+          document.addEventListener('click', function(e) {
+            if (!(e.target instanceof Element)) return;
+            // A click outside any popup wrapper dismisses open popups.
+            if (!e.target.closest('.log-filter-pop')) closeAllPopups();
+            const actionEl = e.target.closest('[data-action]');
+            if (!actionEl) return;
+            const action = actionEl.getAttribute('data-action');
+            if (action === 'toggleFilterPopup') {
+              togglePopup(actionEl.getAttribute('data-popup'));
+            } else if (action === 'toggleSearchRegex' || action === 'toggleSearchCase') {
+              actionEl.classList.toggle('active');
+              actionEl.setAttribute('aria-pressed', actionEl.classList.contains('active') ? 'true' : 'false');
+              applyFilters();
+            } else if (action === 'pickBranchFilter') {
+              const b = actionEl.getAttribute('data-branch');
+              filterState.branch = (b && b !== '__all__') ? b : '';
+              setPopValue('branch', filterState.branch);
+              closeAllPopups();
+              applyFilters();
+            } else if (action === 'pickAuthorFilter') {
+              const a = actionEl.getAttribute('data-author');
+              filterState.author = (a && a !== '__all__') ? a : '';
+              const ai = byId('filter-author-input'); if (ai) ai.value = filterState.author;
+              setPopValue('user', filterState.author);
+              closeAllPopups();
+              applyFilters();
+            } else if (action === 'pickDateFilter') {
+              const range = actionEl.getAttribute('data-range');
+              if (range === '24h') { filterState.since = daysAgoIso(1); filterState.until = ''; }
+              else if (range === '7d') { filterState.since = daysAgoIso(7); filterState.until = ''; }
+              else { filterState.since = ''; filterState.until = ''; }
+              setPopValue('date', dateLabel());
+              closeAllPopups();
+              applyFilters();
+            } else if (action === 'dateSelectCustom') {
+              const custom = byId('filter-date-custom');
+              if (custom) custom.hidden = false; // keep the Date popup open
+            } else if (action === 'applyDateCustom') {
+              const afterOn = byId('filter-after-enabled');
+              const beforeOn = byId('filter-before-enabled');
+              const afterDate = byId('filter-after-date');
+              const beforeDate = byId('filter-before-date');
+              filterState.since = (afterOn && afterOn.checked && afterDate) ? afterDate.value : '';
+              filterState.until = (beforeOn && beforeOn.checked && beforeDate) ? beforeDate.value : '';
+              setPopValue('date', dateLabel());
+              closeAllPopups();
+              applyFilters();
+            } else if (action === 'applyPathFilter') {
+              const pi = byId('filter-path-input');
+              filterState.path = pi ? pi.value.trim() : '';
+              setPopValue('path', filterState.path ? pathLeaf(filterState.path) : 'All');
+              closeAllPopups();
+              applyFilters();
+            } else if (action === 'pickRepoScope') {
+              const idx = actionEl.getAttribute('data-repo-index');
+              vscode.postMessage({ type: 'selectRepository', repositoryIndex: idx === 'all' ? 'all' : Number(idx) });
+              closeAllPopups(); // host re-renders the row with the new scope
+            }
+          });
+
+          // After/Before checkboxes gate their date input (enable on check).
+          document.addEventListener('change', function(e) {
+            if (!(e.target instanceof Element)) return;
+            const el = e.target.closest('[data-action="toggleDateBound"]');
+            if (!el) return;
+            const dateInput = byId(el.getAttribute('data-bound') === 'after' ? 'filter-after-date' : 'filter-before-date');
+            if (dateInput) dateInput.disabled = !el.checked;
+          });
+
+          document.addEventListener('keydown', function(e) {
+            if (!(e.target instanceof Element)) return;
+            if (e.key === 'Escape') { closeAllPopups(); return; }
+            if (e.key !== 'Enter') return;
+            const a = e.target.getAttribute('data-action');
+            if (a === 'filterSearchKeydown') {
+              e.preventDefault(); applyFilters();
+            } else if (a === 'filterAuthorKeydown') {
+              e.preventDefault();
+              filterState.author = e.target.value.trim();
+              setPopValue('user', filterState.author);
+              closeAllPopups();
+              applyFilters();
+            } else if (a === 'filterPathKeydown') {
+              e.preventDefault();
+              filterState.path = e.target.value.trim();
+              setPopValue('path', filterState.path ? pathLeaf(filterState.path) : 'All');
+              closeAllPopups();
+              applyFilters();
+            }
+          });
+
+          // Live-filter the branch list as the user types in the popup search.
+          document.addEventListener('input', function(e) {
+            if (!(e.target instanceof Element)) return;
+            if (e.target.getAttribute('data-action') !== 'filterPopupSearch') return;
+            const q = e.target.value.toLowerCase();
+            const list = byId('filter-branch-list');
+            if (!list) return;
+            list.querySelectorAll('.log-filter-popup-item').forEach(function(item) {
+              const t = (item.textContent || '').toLowerCase();
+              item.hidden = q.length > 0 && t.indexOf(q) === -1;
             });
           });
-          vscode.postMessage({ type: 'requestLogFilterOptions' });
-        }
+
+          // Read accessors for the message handlers that fill the branch /
+          // author lists (so they can mark the active item).
+          window.__intelligFilter = {
+            getBranch: function() { return filterState.branch; },
+            getAuthor: function() { return filterState.author; },
+          };
+        })();
 
         // Multi-select webview state.
         //
@@ -427,15 +582,13 @@ export function buildInlineScript(): string {
                 item.setAttribute('role', 'treeitem');
                 item.setAttribute('tabindex', '0');
                 item.setAttribute('style', 'padding-left: ' + padding + 'px;');
-                const indicator = document.createElement('span');
-                indicator.className = 'file-status-indicator';
-                indicator.setAttribute('style', 'color: ' + node.statusColor + ';');
-                indicator.setAttribute('title', node.status);
-                indicator.textContent = node.statusChar;
-                item.appendChild(indicator);
+                // No M/A/D status letter — the file-name colour (+ the per-file
+                // line stat below) conveys the change kind. The status still
+                // rides as a title for hover / screen readers.
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'file-name';
                 nameSpan.setAttribute('style', 'color: ' + node.statusColor + ';');
+                nameSpan.setAttribute('title', node.status);
                 nameSpan.textContent = node.fileName;
                 item.appendChild(nameSpan);
                 if (node.status === 'renamed' && node.oldPath) {
@@ -450,6 +603,27 @@ export function buildInlineScript(): string {
                   oldPath.setAttribute('title', node.oldPath);
                   oldPath.textContent = node.oldPath;
                   item.appendChild(oldPath);
+                }
+                // Per-file line diff: "(+N | -M)" with +N green and -M red.
+                // Shown only when there is at least one changed line (binary /
+                // no-line-change files carry no counts).
+                const adds = typeof node.additions === 'number' ? node.additions : 0;
+                const dels = typeof node.deletions === 'number' ? node.deletions : 0;
+                if (adds > 0 || dels > 0) {
+                  const stats = document.createElement('span');
+                  stats.className = 'changed-file-stats';
+                  stats.appendChild(document.createTextNode('('));
+                  const addSpan = document.createElement('span');
+                  addSpan.className = 'changed-file-add';
+                  addSpan.textContent = '+' + adds;
+                  stats.appendChild(addSpan);
+                  stats.appendChild(document.createTextNode(' | '));
+                  const delSpan = document.createElement('span');
+                  delSpan.className = 'changed-file-del';
+                  delSpan.textContent = '-' + dels;
+                  stats.appendChild(delSpan);
+                  stats.appendChild(document.createTextNode(')'));
+                  item.appendChild(stats);
                 }
                 parent.appendChild(item);
               }
@@ -554,37 +728,81 @@ export function buildInlineScript(): string {
             });
             refreshSelectedCount();
           }
-          // Ref-aware filter options: populate the top branch-filter dropdown
-          // from the live repo. (The filter-bar fields are plain free-text — the
-          // native <datalist> autocompletes were removed because Chromium renders
-          // their popup in an unstyleable UA layer; the top selector is the
-          // styled branch picker.)
+          // Branch popup options (lazy, on popup open): fill the Branch list
+          // with IntelliJ's grouped layout — "All branches", then a Local
+          // group, then one group per remote. Built via createElement so the
+          // textContent/data-branch cross as data, never markup.
           if (message.type === 'logFilterOptionsReady') {
-            // Populate the branch-filter dropdown from the ref-aware list,
-            // preserving the active branch carried in data-selected-branch (and
-            // appending it if it is outside the fetched window, so the selection
-            // holds). Built via createElement — value/textContent cross as data.
-            const branchSelect = document.querySelector('.branch-filter-selector');
-            if (branchSelect && Array.isArray(message.branches)) {
-              const current = branchSelect.getAttribute('data-selected-branch') || '';
-              branchSelect.replaceChildren();
-              const allOption = document.createElement('option');
-              allOption.value = '__all__';
-              allOption.textContent = 'All branches';
-              branchSelect.appendChild(allOption);
-              message.branches.forEach(function(name) {
-                const option = document.createElement('option');
-                option.value = String(name);
-                option.textContent = String(name);
-                branchSelect.appendChild(option);
-              });
-              if (current && message.branches.indexOf(current) === -1) {
-                const option = document.createElement('option');
-                option.value = current;
-                option.textContent = current;
-                branchSelect.appendChild(option);
+            const list = document.getElementById('filter-branch-list');
+            const groups = message.branchGroups;
+            if (list && groups) {
+              const current = window.__intelligFilter ? window.__intelligFilter.getBranch() : '';
+              list.replaceChildren();
+              function addBranchItem(value, text) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'log-filter-popup-item' + (value === current ? ' active' : '');
+                btn.setAttribute('data-action', 'pickBranchFilter');
+                btn.setAttribute('data-branch', value);
+                btn.textContent = text;
+                list.appendChild(btn);
               }
-              branchSelect.value = current ? current : '__all__';
+              function addSection(title) {
+                const header = document.createElement('div');
+                header.className = 'log-filter-popup-section';
+                header.textContent = title;
+                list.appendChild(header);
+              }
+              // "All branches" maps to the empty (no-scope) branch — active when
+              // no branch is set.
+              const allBtn = document.createElement('button');
+              allBtn.type = 'button';
+              allBtn.className = 'log-filter-popup-item' + (current ? '' : ' active');
+              allBtn.setAttribute('data-action', 'pickBranchFilter');
+              allBtn.setAttribute('data-branch', '__all__');
+              allBtn.textContent = 'All branches';
+              list.appendChild(allBtn);
+              if (Array.isArray(groups.local) && groups.local.length > 0) {
+                addSection('Local');
+                groups.local.forEach(function(name) { addBranchItem(name, name); });
+              }
+              if (Array.isArray(groups.remotes)) {
+                groups.remotes.forEach(function(g) {
+                  if (!g.branches || g.branches.length === 0) return;
+                  addSection(g.remote);
+                  g.branches.forEach(function(name) {
+                    // Display the short name (strip "remote/"); the value keeps
+                    // the full ref the host needs for git log.
+                    const display = name.indexOf(g.remote + '/') === 0 ? name.slice(g.remote.length + 1) : name;
+                    addBranchItem(name, display);
+                  });
+                });
+              }
+            }
+          }
+          // User popup options (lazy, on popup open): fill the author list.
+          if (message.type === 'authorOptionsReady') {
+            const list = document.getElementById('filter-author-list');
+            if (list && Array.isArray(message.authors)) {
+              const current = window.__intelligFilter ? window.__intelligFilter.getAuthor() : '';
+              list.replaceChildren();
+              const allBtn = document.createElement('button');
+              allBtn.type = 'button';
+              allBtn.className = 'log-filter-popup-item' + (current ? '' : ' active');
+              allBtn.setAttribute('data-action', 'pickAuthorFilter');
+              allBtn.setAttribute('data-author', '__all__');
+              allBtn.textContent = 'All users';
+              list.appendChild(allBtn);
+              message.authors.forEach(function(a) {
+                const name = String(a);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'log-filter-popup-item' + (name === current ? ' active' : '');
+                btn.setAttribute('data-action', 'pickAuthorFilter');
+                btn.setAttribute('data-author', name);
+                btn.textContent = name;
+                list.appendChild(btn);
+              });
             }
           }
           // Partial-update path for branch focus. The
@@ -804,58 +1022,8 @@ export function buildInlineScript(): string {
           }
         });
 
-        // ─── Log filter bar ──────────────────────────────────────────────
-        // The filter bar (toggle button + #log-filter-bar inputs/buttons)
-        // is emitted with data-action attributes, NOT inline onclick — the
-        // CSP (script-src 'nonce-…', no unsafe-inline) blocks inline
-        // handlers. Route each data-action to the existing window.* filter
-        // functions, which read/post through the shared vscode instance.
-        document.addEventListener('click', function(e) {
-          // Guard non-Element targets — document/text-node clicks have no
-          // .closest. (This listener fires on the whole document, unlike the
-          // commit-row handlers below whose targets are always elements.)
-          if (!(e.target instanceof Element)) return;
-          const filterAction = e.target.closest('[data-action]');
-          if (!filterAction) return;
-          const action = filterAction.getAttribute('data-action');
-          if (action === 'toggleSearchRegex') {
-            const btn = e.target.closest('[data-action="toggleSearchRegex"]');
-            if (btn) {
-              btn.classList.toggle('active');
-              btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
-            }
-            return;
-          }
-          if (action === 'toggleSearchCase') {
-            const btn = e.target.closest('[data-action="toggleSearchCase"]');
-            if (btn) {
-              btn.classList.toggle('active');
-              btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
-            }
-            return;
-          }
-          if (action === 'toggleLogFilters') {
-            window.toggleLogFilters();
-          } else if (action === 'applyLogFilter') {
-            window.applyLogFilters();
-          } else if (action === 'clearLogFilter' && filterAction.closest('#log-filter-bar')) {
-            // Scoped to the bar's Clear button; the empty-state Clear
-            // button is handled above (it lives outside #log-filter-bar).
-            window.clearLogFilters();
-          }
-        });
-
-        // Enter inside any filter input applies the filter. Guards
-        // non-Element targets — a document-level keydown (e.g. Escape with no
-        // focused element) has no .closest.
-        document.addEventListener('keydown', function(e) {
-          if (!(e.target instanceof Element)) return;
-          const input = e.target.closest('#log-filter-bar [data-action="filterKeydown"]');
-          if (input && e.key === 'Enter') {
-            e.preventDefault();
-            window.applyLogFilters();
-          }
-        });
+        // (The Branch / User / Date / Path filter controls and the search field
+        // are wired in the setupLogFilterRow IIFE near the top of this script.)
 
         // ─── Event delegation for commit rows ────────────────────────────
 
@@ -1037,103 +1205,6 @@ export function buildInlineScript(): string {
 
         window.refreshLog = function() {
           vscode.postMessage({ type: 'refresh' });
-        };
-
-        // Log Filter functions
-        window.toggleLogFilters = function() {
-          const filterBar = document.getElementById('log-filter-bar');
-          if (filterBar) {
-            filterBar.hidden = !filterBar.hidden;
-            // Report the new expanded state so a later host re-render preserves
-            // it (the host no longer derives bar visibility from filter-is-set,
-            // which used to pop the bar open when a branch was picked).
-            vscode.postMessage({ type: 'setLogFilterBarExpanded', expanded: !filterBar.hidden });
-            const toggleBtn = document.querySelector('[data-action="toggleLogFilters"]');
-            if (toggleBtn) { toggleBtn.setAttribute('aria-expanded', String(!filterBar.hidden)); }
-            // When opening the bar, ask the host for ref-aware branch +
-            // author options to populate the datalists.
-            if (!filterBar.hidden) {
-              vscode.postMessage({ type: 'requestLogFilterOptions' });
-            }
-          }
-        };
-
-        window.applyLogFilters = function() {
-          const branchInput = document.getElementById('filter-branch');
-          const searchInput = document.getElementById('filter-search');
-          const authorInput = document.getElementById('filter-author');
-          const pathInput = document.getElementById('filter-path');
-          const sinceInput = document.getElementById('filter-since');
-          const untilInput = document.getElementById('filter-until');
-          const noMergesInput = document.getElementById('filter-no-merges');
-          const firstParentInput = document.getElementById('filter-first-parent');
-          const simplifyMergesInput = document.getElementById('filter-simplify-merges');
-          const minParentsInput = document.getElementById('filter-min-parents');
-          const maxParentsInput = document.getElementById('filter-max-parents');
-          const cherryCompareInput = document.getElementById('filter-cherry-compare');
-
-          const minParents = minParentsInput ? parseInt(minParentsInput.value, 10) : NaN;
-          const maxParents = maxParentsInput ? parseInt(maxParentsInput.value, 10) : NaN;
-
-          const filter = {
-            branch: branchInput ? branchInput.value.trim() : '',
-            searchText: searchInput ? searchInput.value.trim() : '',
-            author: authorInput ? authorInput.value.trim() : '',
-            path: pathInput ? pathInput.value.trim() : '',
-            since: sinceInput && sinceInput.value ? sinceInput.value : null,
-            until: untilInput && untilInput.value ? untilInput.value : null,
-            noMerges: noMergesInput ? noMergesInput.checked : false,
-            firstParent: firstParentInput ? firstParentInput.checked : false,
-            simplifyMerges: simplifyMergesInput ? simplifyMergesInput.checked : false,
-            minParents: Number.isNaN(minParents) ? undefined : minParents,
-            maxParents: Number.isNaN(maxParents) ? undefined : maxParents,
-            searchRegex: document.getElementById('filter-search-regex')?.classList.contains('active') ?? false,
-            searchCaseSensitive: document.getElementById('filter-search-case')?.classList.contains('active') ?? false,
-            cherryCompareRef: cherryCompareInput ? cherryCompareInput.value.trim() : ''
-          };
-
-          vscode.postMessage({
-            type: 'applyLogFilter',
-            filter: filter
-          });
-        };
-
-        window.clearLogFilters = function() {
-          const branchInput = document.getElementById('filter-branch');
-          const searchInput = document.getElementById('filter-search');
-          const authorInput = document.getElementById('filter-author');
-          const pathInput = document.getElementById('filter-path');
-          const sinceInput = document.getElementById('filter-since');
-          const untilInput = document.getElementById('filter-until');
-          const noMergesInput = document.getElementById('filter-no-merges');
-          const firstParentInput = document.getElementById('filter-first-parent');
-          const simplifyMergesInput = document.getElementById('filter-simplify-merges');
-          const minParentsInput = document.getElementById('filter-min-parents');
-          const maxParentsInput = document.getElementById('filter-max-parents');
-
-          if (branchInput) branchInput.value = '';
-          if (searchInput) searchInput.value = '';
-          if (authorInput) authorInput.value = '';
-          if (pathInput) pathInput.value = '';
-          if (sinceInput) sinceInput.value = '';
-          if (untilInput) untilInput.value = '';
-          if (noMergesInput) noMergesInput.checked = false;
-          if (firstParentInput) firstParentInput.checked = false;
-          if (simplifyMergesInput) simplifyMergesInput.checked = false;
-          if (minParentsInput) minParentsInput.value = '';
-          if (maxParentsInput) maxParentsInput.value = '';
-          const cherryCompareInput = document.getElementById('filter-cherry-compare');
-          if (cherryCompareInput) cherryCompareInput.value = '';
-
-          const regexBtn = document.getElementById('filter-search-regex');
-          const caseBtn = document.getElementById('filter-search-case');
-          if (regexBtn) { regexBtn.classList.remove('active'); regexBtn.setAttribute('aria-pressed', 'false'); }
-          if (caseBtn) { caseBtn.classList.remove('active'); caseBtn.setAttribute('aria-pressed', 'false'); }
-
-          vscode.postMessage({
-            type: 'applyLogFilter',
-            filter: null
-          });
         };
 
         // Keyboard handler for commits

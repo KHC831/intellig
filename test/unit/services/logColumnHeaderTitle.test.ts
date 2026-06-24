@@ -54,15 +54,15 @@ describe('GitToolWindowProvider — message column header label', () => {
     assert.ok(!html.includes('>Subject</div>'), 'column header must not read "Subject"');
   });
 
-  it('uses "Title or commit hash" as the message-filter placeholder', () => {
+  it('uses "Message or hash" as the search placeholder', () => {
     const html = provider._getGraphPanelHtml([makeCommitNode()]);
     assert.ok(
-      html.includes('placeholder="Title or commit hash"'),
-      'message-filter placeholder must read "Title or commit hash"'
+      html.includes('placeholder="Message or hash"'),
+      'search placeholder must read "Message or hash"'
     );
     assert.ok(
       !html.includes('placeholder="Subject or commit hash"'),
-      'message-filter placeholder must not read "Subject or commit hash"'
+      'search placeholder must not read "Subject or commit hash"'
     );
   });
 });

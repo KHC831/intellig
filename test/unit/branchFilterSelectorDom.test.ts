@@ -1,8 +1,8 @@
 /**
  * Behavioral test for the inline `logFilterOptionsReady` handler populating the
- * branch-filter dropdown. The handler must build the <option> nodes via
- * createElement (injection-proof — value/textContent cross as data) and
- * preserve the currently-selected branch carried in `data-selected-branch`.
+ * Branch popup. The handler must build the item buttons via createElement
+ * (injection-proof — textContent/data-branch cross as data), render IntelliJ's
+ * grouped layout (Local + per-remote), and mark the active branch.
  */
 
 import '../setup';
@@ -39,64 +39,80 @@ function runOptionsReady(dom: JSDOM, message: unknown): void {
   );
 }
 
-describe('Branch filter selector — client population on logFilterOptionsReady', () => {
+describe('Branch popup — client population on logFilterOptionsReady', () => {
   function makeDom(selectedBranch: string): JSDOM {
-    return new JSDOM(
+    const dom = new JSDOM(
       `<!DOCTYPE html><html><body>
-        <select class="branch-filter-selector" data-selected-branch="${selectedBranch}"></select>
+        <div class="log-filter-popup-list" id="filter-branch-list">
+          <button class="log-filter-popup-item" data-branch="__all__">All branches</button>
+        </div>
       </body></html>`,
       { runScripts: 'outside-only' }
     );
+    (dom.window as unknown as { __intelligFilter: unknown }).__intelligFilter = {
+      getBranch: () => selectedBranch,
+      getAuthor: () => '',
+    };
+    return dom;
   }
 
-  it('fills the dropdown with "All branches" plus every branch name', () => {
+  const groups = {
+    local: ['dev', 'main'],
+    remotes: [{ remote: 'origin', branches: ['origin/feature', 'origin/main'] }],
+  };
+
+  it('fills the list with All branches + Local + per-remote groups', () => {
+    const dom = makeDom('');
+    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
+    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const items = Array.from(list.querySelectorAll('.log-filter-popup-item')).map(
+      (b) => b.textContent
+    );
+    assert.deepStrictEqual(items, ['All branches', 'dev', 'main', 'feature', 'main']);
+    const sections = Array.from(list.querySelectorAll('.log-filter-popup-section')).map(
+      (s) => s.textContent
+    );
+    assert.deepStrictEqual(sections, ['Local', 'origin']);
+  });
+
+  it('keeps the full remote ref in data-branch while showing the short name', () => {
+    const dom = makeDom('');
+    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
+    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const feature = Array.from(list.querySelectorAll('.log-filter-popup-item')).find(
+      (b) => b.textContent === 'feature'
+    )!;
+    assert.strictEqual(feature.getAttribute('data-branch'), 'origin/feature');
+  });
+
+  it('marks the active branch item', () => {
+    const dom = makeDom('main');
+    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
+    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const active = list.querySelector('.log-filter-popup-item.active')!;
+    assert.strictEqual(active.getAttribute('data-branch'), 'main');
+  });
+
+  it('marks "All branches" active when no branch is set', () => {
+    const dom = makeDom('');
+    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
+    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const active = list.querySelector('.log-filter-popup-item.active')!;
+    assert.strictEqual(active.getAttribute('data-branch'), '__all__');
+  });
+
+  it('builds items as inert text (no markup injection)', () => {
     const dom = makeDom('');
     runOptionsReady(dom, {
       type: 'logFilterOptionsReady',
-      branches: ['main', 'dev', 'feature/x'],
-      contributors: [],
-    });
-    const sel = dom.window.document.querySelector('.branch-filter-selector') as HTMLSelectElement;
-    const labels = Array.from(sel.options).map((o) => o.textContent);
-    assert.deepStrictEqual(labels, ['All branches', 'main', 'dev', 'feature/x']);
-    assert.strictEqual(sel.options[0].value, '__all__');
-    assert.strictEqual(sel.value, '__all__', 'no active branch → sentinel selected');
-  });
-
-  it('preserves the active branch selection after repopulation', () => {
-    const dom = makeDom('feature/x');
-    runOptionsReady(dom, {
-      type: 'logFilterOptionsReady',
-      branches: ['main', 'dev', 'feature/x'],
-      contributors: [],
-    });
-    const sel = dom.window.document.querySelector('.branch-filter-selector') as HTMLSelectElement;
-    assert.strictEqual(sel.value, 'feature/x', 'active branch stays selected');
-  });
-
-  it('keeps an active branch even when it is absent from the fetched list', () => {
-    const dom = makeDom('detached-feature');
-    runOptionsReady(dom, {
-      type: 'logFilterOptionsReady',
-      branches: ['main', 'dev'],
-      contributors: [],
-    });
-    const sel = dom.window.document.querySelector('.branch-filter-selector') as HTMLSelectElement;
-    const labels = Array.from(sel.options).map((o) => o.textContent);
-    assert.ok(labels.includes('detached-feature'), 'active branch appended so selection holds');
-    assert.strictEqual(sel.value, 'detached-feature');
-  });
-
-  it('builds options as inert text (no markup injection)', () => {
-    const dom = makeDom('');
-    runOptionsReady(dom, {
-      type: 'logFilterOptionsReady',
-      branches: ['<img src=x onerror=alert(1)>'],
-      contributors: [],
+      branchGroups: { local: ['<img src=x onerror=alert(1)>'], remotes: [] },
     });
     const doc = dom.window.document;
     assert.strictEqual(doc.querySelector('img'), null, 'no element injected');
-    const sel = doc.querySelector('.branch-filter-selector') as HTMLSelectElement;
-    assert.strictEqual(sel.options[1].textContent, '<img src=x onerror=alert(1)>');
+    const list = doc.getElementById('filter-branch-list')!;
+    const item = Array.from(list.querySelectorAll('.log-filter-popup-item')).find(
+      (b) => b.getAttribute('data-branch') === '<img src=x onerror=alert(1)>'
+    )!;
+    assert.strictEqual(item.textContent, '<img src=x onerror=alert(1)>');
   });
 });

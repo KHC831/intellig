@@ -1,15 +1,14 @@
 /**
  * Structural guard for the inline `logFilterOptionsReady` handler that populates
- * the top branch-filter `<select>`.
+ * the Branch filter popup.
  *
- * As part of the string→DOM webview migration, the handler must build the
- * `<option>` nodes via `document.createElement('option')` + the injection-proof
- * `.value`/`.textContent` properties, NOT by assigning an interpolated HTML
- * string to `.innerHTML`. (The filter-bar Branch/Author/Cherry-compare fields
- * no longer use native `<datalist>` autocompletes — those were removed because
- * Chromium renders the datalist popup in an unstyleable UA layer.)
+ * The handler must build the item nodes via `document.createElement('button')` +
+ * the injection-proof `.textContent`/`data-*` properties, NOT by assigning an
+ * interpolated HTML string to `.innerHTML`. (The filters use custom popups, not
+ * native `<select>`/`<datalist>` — Chromium renders those popups in an
+ * unstyleable UA layer.)
  *
- * The guard pins that contract: the branch-select population must use
+ * The guard pins that contract: the Branch-popup population must use
  * `createElement` and must not assign `.innerHTML`.
  */
 
@@ -53,7 +52,7 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
   return null;
 }
 
-describe('GitToolWindowProvider - branch-filter select built via createElement (DOM migration)', () => {
+describe('GitToolWindowProvider - Branch popup items built via createElement (DOM migration)', () => {
   let provider: GitToolWindowProvider;
   let block: string;
 
@@ -73,17 +72,17 @@ describe('GitToolWindowProvider - branch-filter select built via createElement (
     provider.dispose();
   });
 
-  it('builds <option> nodes via document.createElement', () => {
+  it('builds Branch popup items via document.createElement', () => {
     assert.ok(
-      /createElement\(\s*['"]option['"]\s*\)/.test(block),
-      "logFilterOptionsReady must build options via document.createElement('option')"
+      /createElement\(\s*['"]button['"]\s*\)/.test(block),
+      "logFilterOptionsReady must build items via document.createElement('button')"
     );
   });
 
-  it('does not assign innerHTML to the datalists', () => {
+  it('does not assign innerHTML when populating the Branch popup', () => {
     assert.ok(
       !/\.innerHTML\s*=/.test(block),
-      'logFilterOptionsReady must not populate the branch-filter select via innerHTML — use DOM nodes + .value'
+      'logFilterOptionsReady must not populate the Branch popup via innerHTML — use DOM nodes + .textContent'
     );
   });
 });

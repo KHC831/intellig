@@ -1,9 +1,9 @@
 /**
- * Unit tests for the branch-filter selector — a dropdown alongside the repo
- * selector that scopes the log/graph to a chosen branch (IntelliJ
- * BranchFilterPopupComponent / BranchFilterModel). Default = "All branches"
- * (current HEAD --branches --remotes behavior); picking a branch threads
- * `filter.branch` into the log query (git log <branch>).
+ * Unit tests for the Branch filter popup — the Branch button in the log filter
+ * row that scopes the log/graph to a chosen branch (IntelliJ
+ * BranchFilterPopupComponent / BranchFilterModel). Default = "All branches";
+ * picking a branch threads `filter.branch` into the log query (git log <branch>)
+ * via the shared `applyLogFilter` pipeline.
  */
 
 import '../setup';
@@ -23,69 +23,57 @@ function makeRepo(): IRepository {
   };
 }
 
-describe('Branch filter selector — render', () => {
+describe('Branch filter popup — render', () => {
   let provider: GitToolWindowProvider;
 
   beforeEach(() => {
     provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setAvailableRepositories([makeRepo()]);
   });
 
   afterEach(() => {
     provider.dispose();
   });
 
-  it('renders nothing when no repository is selected', () => {
-    assert.strictEqual(provider._getBranchFilterSelectorHtml(), '');
+  it('renders a Branch popup button defaulting to "All"', () => {
+    const html = provider._getLogFilterRowHtml();
+    assert.ok(html.includes('data-popup="branch"'), 'has the Branch popup trigger');
+    assert.ok(/id="filter-branch-value">All</.test(html), 'Branch value defaults to All');
+    assert.ok(html.includes('data-f-branch=""'), 'row mirrors an empty branch scope');
   });
 
-  it('renders an "All branches" sentinel selected by default', () => {
-    provider.setAvailableRepositories([makeRepo()]);
-    const html = provider._getBranchFilterSelectorHtml();
-    assert.ok(html.includes('branch-filter-selector'), 'has the selector element');
-    assert.ok(/All branches/.test(html), 'has the All branches sentinel');
-    assert.ok(/value="__all__" selected/.test(html), 'sentinel selected when no branch filter');
-  });
-
-  it('preselects the active branch when a branch filter is set', () => {
-    provider.setAvailableRepositories([makeRepo()]);
+  it('shows the active branch as the Branch button value', () => {
     provider.setLogFilter({ branch: 'feature/x' });
-    const html = provider._getBranchFilterSelectorHtml();
-    assert.ok(
-      html.includes('data-selected-branch="feature/x"'),
-      'carries the active branch for client repopulation'
-    );
-    assert.ok(/value="feature\/x" selected/.test(html), 'active branch option preselected');
-    assert.ok(
-      !/value="__all__" selected/.test(html),
-      'sentinel NOT selected when a branch is active'
-    );
+    const html = provider._getLogFilterRowHtml();
+    assert.ok(/id="filter-branch-value">feature\/x</.test(html), 'Branch value shows the branch');
+    assert.ok(html.includes('data-f-branch="feature/x"'), 'row mirrors the branch for the script');
   });
 
-  it('does not preselect a branch when the active filter is a range', () => {
-    provider.setAvailableRepositories([makeRepo()]);
+  it('shows a range as the Branch button value', () => {
     provider.setLogFilter({ logRange: 'main..feature' });
-    const html = provider._getBranchFilterSelectorHtml();
-    assert.ok(/value="__all__" selected/.test(html), 'a range is not a single-branch scope');
-    assert.ok(!/data-selected-branch="main\.\.feature"/.test(html));
+    const html = provider._getLogFilterRowHtml();
+    assert.ok(
+      /id="filter-branch-value">main\.\.feature</.test(html),
+      'range shown in Branch value'
+    );
   });
 
-  it('escapes a hostile branch name in the preselected option', () => {
-    provider.setAvailableRepositories([makeRepo()]);
+  it('escapes a hostile branch name in the rendered value', () => {
     provider.setLogFilter({ branch: '"><img src=x>' });
-    const html = provider._getBranchFilterSelectorHtml();
+    const html = provider._getLogFilterRowHtml();
     assert.ok(!html.includes('<img src=x>'), 'must not emit a raw tag');
   });
 });
 
-describe('Branch filter selector — selection handling', () => {
+describe('Branch filter popup — selection handling', () => {
   let provider: GitToolWindowProvider;
   let lastFilter: ILogFilter | undefined;
   let fireCount: number;
 
-  function postSelectBranch(branch: string | null): void {
+  function applyBranch(branch: string): void {
     (provider as unknown as { _handleMessage(m: unknown): void })._handleMessage({
-      type: 'selectBranchFilter',
-      branch,
+      type: 'applyLogFilter',
+      filter: { branch },
     });
   }
 
@@ -105,7 +93,7 @@ describe('Branch filter selector — selection handling', () => {
   });
 
   it('sets filter.branch and fires the log-filter request when a branch is picked', () => {
-    postSelectBranch('feature/x');
+    applyBranch('feature/x');
     assert.strictEqual(fireCount, 1);
     assert.strictEqual(lastFilter?.branch, 'feature/x');
     assert.strictEqual(provider.getExtendedLogState().filter?.branch, 'feature/x');
@@ -113,37 +101,32 @@ describe('Branch filter selector — selection handling', () => {
 
   it('clears the branch scope (undefined filter) when "All branches" is picked', () => {
     provider.setLogFilter({ branch: 'feature/x' });
-    postSelectBranch(null);
-    assert.strictEqual(fireCount, 1);
+    applyBranch('');
     assert.strictEqual(lastFilter, undefined, 'no other criteria → whole filter clears');
     assert.strictEqual(provider.getExtendedLogState().filter, undefined);
   });
 
-  it('preserves other active filter criteria when switching branch', () => {
-    provider.setLogFilter({ author: 'jane', branch: 'old' });
-    postSelectBranch('new');
-    assert.strictEqual(lastFilter?.author, 'jane', 'author criterion preserved');
-    assert.strictEqual(lastFilter?.branch, 'new', 'branch updated');
+  it('routes a range value (A..B) to logRange, not a single branch', () => {
+    applyBranch('main..feature');
+    assert.strictEqual(lastFilter?.logRange, 'main..feature');
+    assert.strictEqual(lastFilter?.branch, undefined);
   });
 
-  it('clears a conflicting range when a single branch is picked', () => {
-    provider.setLogFilter({ logRange: 'main..feature' });
-    postSelectBranch('feature/x');
-    assert.strictEqual(lastFilter?.logRange, undefined, 'range dropped in favor of the branch');
-    assert.strictEqual(lastFilter?.branch, 'feature/x');
+  it('drops a flag-injection branch value (security)', () => {
+    applyBranch('--upload-pack=evil');
+    assert.strictEqual(
+      provider.getExtendedLogState().filter?.branch,
+      undefined,
+      'a leading-dash ref must be dropped, not applied'
+    );
   });
 
-  it('rejects a flag-injection branch value without firing (security)', () => {
-    postSelectBranch('--upload-pack=evil');
-    assert.strictEqual(fireCount, 0, 'a leading-dash ref must be dropped, not applied');
-    assert.strictEqual(provider.getExtendedLogState().filter, undefined);
-  });
-
-  it('rejects a leading-dot ref without firing (getLog throws on it)', () => {
-    // GitService.getLog rejects refs starting with `.` (invalid per
-    // git-check-ref-format); dropping it here avoids a failed reload.
-    postSelectBranch('.hidden');
-    assert.strictEqual(fireCount, 0, 'a leading-dot ref must be dropped, not applied');
-    assert.strictEqual(provider.getExtendedLogState().filter, undefined);
+  it('drops a leading-dot ref (getLog throws on it)', () => {
+    applyBranch('.hidden');
+    assert.strictEqual(
+      provider.getExtendedLogState().filter?.branch,
+      undefined,
+      'a leading-dot ref must be dropped, not applied'
+    );
   });
 });

@@ -230,8 +230,6 @@ export interface IExtendedLogState extends ILogState {
    * *which* branch the commit has already been cherry-picked to.
    */
   cherryPickBaseRef?: string;
-  /** User-set cherry-compare base ref; overrides the auto-upstream when present. */
-  manualCherryCompareRef?: string;
   /**
    * IntelliJ-parity multi-select anchor.
    *
@@ -368,18 +366,11 @@ export class GitToolWindowProvider
    */
   private _commonHighlightGen = 0;
   /**
-   * Whether the advanced log-filter bar is expanded. Driven solely by the
-   * user's explicit "Filter" toggle — NOT by whether a filter is set. Setting a
-   * filter via the branch-filter dropdown (or any non-bar path) must not pop the
-   * bar open, so its visibility on re-render reads this, not `filter !== undefined`.
+   * Short-lived cache of the grouped Branch-popup options, keyed by the repo
+   * scope. Collapses the per-open `requestLogFilterOptions` storm so a burst
+   * can't re-run `git branch -a` on every Branch-popup open.
    */
-  private _logFilterBarExpanded = false;
-  /**
-   * Short-lived cache of the branch-filter dropdown options, keyed by the repo
-   * scope. Collapses the per-render `requestLogFilterOptions` storm so a refresh
-   * burst can't re-run `git branch -a` on every webview render.
-   */
-  private _logFilterOptionsCache?: { key: string; branches: string[]; at: number };
+  private _logFilterOptionsCache?: { key: string; groups: IBranchFilterGroups; at: number };
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
   private _availableRepositories: IRepository[] = [];
@@ -535,13 +526,6 @@ export class GitToolWindowProvider
   private readonly _onDidRequestLogFilter = new vscode.EventEmitter<ILogFilter | undefined>();
 
   /**
-   * Event emitter that fires when the user sets (or clears) the manual
-   * cherry-compare base ref. A ref string overrides the auto-upstream used
-   * for `git log --cherry-mark`; `undefined` reverts to auto-upstream.
-   */
-  private readonly _onDidRequestCherryCompareRef = new vscode.EventEmitter<string | undefined>();
-
-  /**
    * Event emitter for requesting more commits to be loaded incrementally.
    */
   private readonly _onDidRequestLoadMoreCommits = new vscode.EventEmitter<void>();
@@ -579,7 +563,6 @@ export class GitToolWindowProvider
   public readonly onDidRequestLogContextAction = this._onDidRequestLogContextAction.event;
   public readonly onDidSelectCommit = this._onDidSelectCommit.event;
   public readonly onDidRequestLogFilter = this._onDidRequestLogFilter.event;
-  public readonly onDidRequestCherryCompareRef = this._onDidRequestCherryCompareRef.event;
 
   /**
    * Event fired when the webview requests more commits to be loaded.
@@ -638,7 +621,6 @@ export class GitToolWindowProvider
       this._onDidSelectCommit,
       this._onDidRequestCommitDiff,
       this._onDidRequestLogFilter,
-      this._onDidRequestCherryCompareRef,
       this._onDidRequestLoadMoreCommits,
       this._onDidRequestInitialData,
       this._onDidRequestRefresh,
@@ -1136,26 +1118,6 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Store the manual cherry-compare base ref and notify the extension host so
-   * it can re-run the cherry-mark computation against that ref. An empty ref
-   * clears the override (fires `undefined`) so cherry marks revert to the
-   * auto-upstream.
-   */
-  private _handleSetCherryCompareRef(ref: string): void {
-    this._extendedLogState.manualCherryCompareRef = ref || undefined;
-    this._onDidRequestCherryCompareRef.fire(ref || undefined);
-  }
-
-  /**
-   * The user-set cherry-compare base ref, if any. The extension host passes
-   * this back into the cherry-mark computation on repo-change refreshes so the
-   * manual choice survives reloads. `undefined` means auto-upstream.
-   */
-  public getManualCherryCompareRef(): string | undefined {
-    return this._extendedLogState.manualCherryCompareRef;
-  }
-
-  /**
    * Get the extended log state with commit nodes
    */
   public getExtendedLogState(): IExtendedLogState {
@@ -1550,6 +1512,9 @@ export class GitToolWindowProvider
     const commitNodes = this._extendedLogState.commitNodes.map((n) => ({
       hash: n.commit.hash,
       parentCount: (n.commit.parents || []).length,
+      // Parent hashes power the "in current branch" gate on Fixup / Squash Into
+      // (HEAD-ancestor reachability over the loaded window).
+      parents: n.commit.parents || [],
     }));
     // Read the real head hash from state. This used
     // `commitNodes[0].hash` which assumed HEAD was the newest commit; that's
@@ -1724,12 +1689,10 @@ export class GitToolWindowProvider
         // surface as an unhandled rejection.
         void this._handleRequestLogFilterOptions().catch(() => {});
         break;
-      case 'setLogFilterBarExpanded':
-        // The webview flips the bar's visibility client-side for responsiveness
-        // and reports the new state here so a subsequent host re-render preserves
-        // it (instead of re-deriving visibility from whether a filter is set,
-        // which popped the bar open whenever a branch was chosen from the dropdown).
-        this._logFilterBarExpanded = (message as { expanded?: unknown }).expanded === true;
+      case 'requestAuthorOptions':
+        // Fired when the User popup opens — fetch authors lazily (no load-time
+        // shortlog). Guard the fire-and-forget call as above.
+        void this._handleRequestAuthorOptions().catch(() => {});
         break;
       case 'clearLogFilter':
         // Fired by the "Clear filter" button on the filtered-empty
@@ -1761,14 +1724,6 @@ export class GitToolWindowProvider
           this._handleRepositorySelection(message.repositoryIndex);
         }
         break;
-      case 'selectBranchFilter': {
-        // `branch` is the chosen ref, or null for the "All branches" sentinel.
-        const branch = message.branch;
-        if (branch === null || typeof branch === 'string') {
-          this._handleSelectBranchFilter(branch);
-        }
-        break;
-      }
       case 'focusBranchOnGraph':
         // Webview asked to focus the graph on a branch.
         // The bridge is async (getMergeBase + scroll); fire-and-forget.
@@ -1882,13 +1837,27 @@ export class GitToolWindowProvider
   /**
    * Handle applying log filter from webview
    */
+  /**
+   * Reject a ref that would be unsafe to thread into `git log <ref>`: a leading
+   * `-` (parsed as a CLI flag) or `.` (invalid per git-check-ref-format, which
+   * makes getLog throw). Defense-in-depth alongside the GitService.getLog guard.
+   */
+  private _isUnsafeRef(ref: string): boolean {
+    return ref.startsWith('-') || ref.startsWith('.');
+  }
+
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {
     let filter: ILogFilter | undefined;
 
     if (webviewFilter) {
       filter = {};
 
-      if (webviewFilter.branch) {
+      // The branch/range crosses the untrusted webview boundary before reaching
+      // `git log <ref>`; reject a leading `-` (CLI-flag injection) or `.`
+      // (invalid per git-check-ref-format) defensively, mirroring the
+      // GitService.getLog ref guard. A dropped ref simply leaves the branch
+      // scope unset rather than applying a hostile value.
+      if (webviewFilter.branch && !this._isUnsafeRef(webviewFilter.branch)) {
         // IntelliJ BranchFilterModel: a value containing `..`/`...` is a range
         // (VcsLogRangeFilter), not a single branch ref — route it accordingly.
         if (webviewFilter.branch.includes('..')) {
@@ -1920,22 +1889,6 @@ export class GitToolWindowProvider
       if (webviewFilter.until) {
         filter.until = new Date(webviewFilter.until);
       }
-      if (webviewFilter.noMerges) {
-        filter.noMerges = true;
-      }
-      if (webviewFilter.firstParent) {
-        filter.firstParent = true;
-      }
-      if (webviewFilter.simplifyMerges) {
-        filter.simplifyMerges = true;
-      }
-      // Treat 0 as "not set" (0 min-parents is git's default anyway).
-      if (webviewFilter.minParents) {
-        filter.minParents = webviewFilter.minParents;
-      }
-      if (webviewFilter.maxParents) {
-        filter.maxParents = webviewFilter.maxParents;
-      }
 
       // Check if filter is empty
       if (this._isLogFilterEmpty(filter)) {
@@ -1945,18 +1898,13 @@ export class GitToolWindowProvider
 
     this.setLogFilter(filter);
     this._onDidRequestLogFilter.fire(filter);
-
-    // Cherry-compare ref: separate from filter criteria — does not affect which
-    // commits are shown, only which are highlighted as cherry-picked equivalents.
-    const cherryCompareRef = webviewFilter?.cherryCompareRef?.trim() ?? '';
-    this._handleSetCherryCompareRef(cherryCompareRef);
   }
 
   /**
-   * Fetch ref-aware filter options (branch names + distinct authors) for
-   * the active repo and post them back so the webview can populate the
-   * branch/author datalists. Silent no-op when no repo or service is
-   * attached — the datalists simply stay empty.
+   * Fetch the ref-aware branch list for the active repo scope and post it back
+   * grouped (Local + per-remote) so the Branch popup can render IntelliJ's
+   * nested layout. Lazy: fired when the Branch popup opens. Silent no-op when
+   * no repo or service is attached.
    */
   private async _handleRequestLogFilterOptions(): Promise<void> {
     const repo = this.getSelectedRepository();
@@ -1978,7 +1926,7 @@ export class GitToolWindowProvider
     const now = Date.now();
     const cached = this._logFilterOptionsCache;
     if (cached && cached.key === cacheKey && now - cached.at < LOG_FILTER_OPTIONS_TTL_MS) {
-      this._postLogFilterOptions(cached.branches);
+      this._postLogFilterOptions(cached.groups);
       return;
     }
     // Per-root catch: a hard exec rejection on one root (e.g. an unmounted /
@@ -1989,28 +1937,59 @@ export class GitToolWindowProvider
     const perRepoBranches = await Promise.all(
       branchSources.map((r) => gitService.getBranches(r).catch(() => []))
     );
-    let branchNames: string[];
-    if (branchSources.length > 1) {
-      const union = new Set<string>();
-      for (const list of perRepoBranches) {
-        for (const b of list) {
-          union.add(b.name);
+    const local = new Set<string>();
+    const remotes = new Map<string, Set<string>>();
+    for (const list of perRepoBranches) {
+      for (const b of list) {
+        if (b.type === 'local') {
+          local.add(b.name);
+        } else if (b.type === 'remote') {
+          // Remote ref names look like `origin/feature`; group by the remote.
+          const slash = b.name.indexOf('/');
+          const remote = slash > 0 ? b.name.slice(0, slash) : b.name;
+          let set = remotes.get(remote);
+          if (!set) {
+            set = new Set<string>();
+            remotes.set(remote, set);
+          }
+          set.add(b.name);
         }
       }
-      branchNames = [...union].sort();
-    } else {
-      branchNames = perRepoBranches[0].map((b) => b.name);
     }
-    this._logFilterOptionsCache = { key: cacheKey, branches: branchNames, at: Date.now() };
-    this._postLogFilterOptions(branchNames);
+    const groups: IBranchFilterGroups = {
+      local: [...local].sort(),
+      remotes: [...remotes.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([remote, set]) => ({ remote, branches: [...set].sort() })),
+    };
+    this._logFilterOptionsCache = { key: cacheKey, groups, at: Date.now() };
+    this._postLogFilterOptions(groups);
   }
 
-  /** Post the branch-filter dropdown options to the webview (if attached). */
-  private _postLogFilterOptions(branches: string[]): void {
+  /** Post the grouped branch options (Local + per-remote) to the Branch popup. */
+  private _postLogFilterOptions(groups: IBranchFilterGroups): void {
     if (!this._view) {
       return;
     }
-    void this._view.webview.postMessage({ type: 'logFilterOptionsReady', branches });
+    void this._view.webview.postMessage({ type: 'logFilterOptionsReady', branchGroups: groups });
+  }
+
+  /**
+   * Fetch the distinct commit authors for the active repo and post them to the
+   * User popup. Lazy: only fired when the User popup opens (avoids a load-time
+   * `git shortlog`). Silent no-op when no repo or service is attached.
+   */
+  private async _handleRequestAuthorOptions(): Promise<void> {
+    const repo = this.getSelectedRepository();
+    const gitService = this._attachedGitService;
+    if (!repo || !gitService || !this._view) {
+      return;
+    }
+    const authors = await gitService.getLogContributors(repo).catch(() => []);
+    if (!this._view) {
+      return;
+    }
+    void this._view.webview.postMessage({ type: 'authorOptionsReady', authors });
   }
 
   /**
@@ -3435,8 +3414,6 @@ ${bodyMarkup}
     const preserveScrollAttr = this._resetScrollOnNextRender ? '' : ' data-preserve-scroll="true"';
     this._resetScrollOnNextRender = false;
 
-    const repositorySelectorHtml = this._getRepositorySelectorHtml();
-
     // Embed the anchor hash so a full
     // re-render rehydrates the JS `let anchorHash` mirror correctly.
     // The webview JS reads this attribute on script-execution and
@@ -3459,14 +3436,12 @@ ${bodyMarkup}
     // the markup means a full re-render rehydrates a user's dragged widths.
     const [authorWidthPx, dateWidthPx] = this._columnWidths;
     const columnHeaderHtml = this._getLogColumnHeaderHtml();
-    const logFilterBarHtml = this._getLogFilterBarHtml();
+    const logFilterRowHtml = this._getLogFilterRowHtml();
 
     return `
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px; --col-author-width: ${authorWidthPx}px; --col-date-width: ${dateWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}${preserveScrollAttr}>
         ${focusedBranchHelpHtml}
-        ${repositorySelectorHtml}
-        ${this._getBranchFilterSelectorHtml()}
-        ${logFilterBarHtml}
+        ${logFilterRowHtml}
         ${columnHeaderHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
@@ -3499,7 +3474,6 @@ ${bodyMarkup}
    * result.
    */
   private _getEmptyGraphPanelHtml(): string {
-    const repositorySelectorHtml = this._getRepositorySelectorHtml();
     const hasActiveFilter = this._extendedLogState.filter !== undefined;
 
     const body = hasActiveFilter
@@ -3513,8 +3487,7 @@ ${bodyMarkup}
 
     return `
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
-        ${repositorySelectorHtml}
-        ${this._getBranchFilterSelectorHtml()}
+        ${this._getLogFilterRowHtml()}
         ${body}
       </div>`;
   }
@@ -3553,115 +3526,205 @@ ${bodyMarkup}
   }
 
   /**
-   * Build the log filter bar — IntelliJ's Git-log filter set
-   * (text/author/path/date), wired to the host's already-live
-   * `applyLogFilter` pipeline.
+   * Build the always-visible log filter row — IntelliJ `VcsLogClassicFilterUi`
+   * parity: a text-search field followed by Branch / User / Date / Path popup
+   * buttons (each filter is a styled popup, not a native `<select>`/`<datalist>`
+   * whose popup Chromium renders in an unstyleable UA layer).
    *
-   * The webview CSP is `script-src 'nonce-<nonce>'` with no
-   * `unsafe-inline`, so the bar uses `data-action` attributes (routed by
-   * the delegated click/keydown listeners in the inline script), never
-   * inline `onclick=`/`onkeyup=`. The toggle button lives at the top so a
-   * user can open the bar without it stealing vertical space when closed.
+   * The webview CSP is `script-src 'nonce-<nonce>'` with no `unsafe-inline`, so
+   * every control uses `data-action` attributes (routed by the delegated
+   * click/keydown listeners in the inline script), never inline handlers.
    *
-   * The bar starts `hidden`; `toggleLogFilters` flips it. The inputs are
-   * rehydrated from `_extendedLogState.filter` so a full re-render (which
-   * the host does on every refresh) preserves what the user typed. All
-   * values are HTML-escaped — they land in `value="…"` attributes and are
-   * user-controlled, so an unescaped quote would break out of the
-   * attribute.
+   * The current filter is mirrored into `data-f-*` attributes on the row so the
+   * inline script can rehydrate its `filterState` after a full re-render (which
+   * the host does on every refresh). All values are HTML-escaped — they land in
+   * attribute positions and are user-controlled.
    *
-   * @returns HTML string for the toggle button + `#log-filter-bar`.
+   * @returns HTML string for the filter row.
    * @internal Public for direct snapshot/DOM tests; the `_` prefix flags
    *   "not for production callers outside this class", matching the
    *   existing `_get*Html` testability pattern.
    */
-  public _getLogFilterBarHtml(): string {
+  public _getLogFilterRowHtml(): string {
     const filter = this._extendedLogState.filter;
     const search = this._escapeHtml(filter?.searchText ?? '');
-    const author = this._escapeHtml(filter?.author ?? '');
-    const path = this._escapeHtml(filter?.path ?? '');
-    const since = this._toDateInputValue(filter?.since);
-    const until = this._toDateInputValue(filter?.until);
-    const noMerges = filter?.noMerges === true;
-    const firstParent = filter?.firstParent === true;
-    const simplifyMerges = filter?.simplifyMerges === true;
-    // A range filter ("A..B") lives in logRange; rehydrate it into the branch
-    // input since that's the field the user typed it into.
-    const branchOrRange = this._escapeHtml(filter?.logRange ?? filter?.branch ?? '');
-    const minParents = filter?.minParents ?? '';
-    const maxParents = filter?.maxParents ?? '';
     const searchRegex = filter?.searchRegex ?? false;
     const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
-    const cherryCompare = this._escapeHtml(this._extendedLogState.manualCherryCompareRef ?? '');
-    const active = filter !== undefined;
+    // A range filter ("A..B") lives in logRange; show it in the Branch button
+    // value, falling back to the single-branch scope.
+    const branch = filter?.logRange ?? filter?.branch ?? '';
+    const author = filter?.author ?? '';
+    const path = filter?.path ?? '';
+    const sinceAttr = this._toDateInputValue(filter?.since);
+    const untilAttr = this._toDateInputValue(filter?.until);
+
+    const branchLabel = branch ? this._escapeHtml(branch) : 'All';
+    const authorLabel = author ? this._escapeHtml(author) : 'All';
+    const dateLabel = this._escapeHtml(this._dateFilterLabel(filter?.since, filter?.until));
+    const pathLabel = this._escapeHtml(this._pathFilterLabel(path));
 
     return `
-        <div class="log-filter-toolbar">
-          <button type="button" class="log-filter-toggle${active ? ' active' : ''}" data-action="toggleLogFilters" aria-label="Toggle log filters" aria-expanded="${this._logFilterBarExpanded}" title="Filter commits">Filter</button>
-        </div>
-        <div id="log-filter-bar" class="log-filter-bar"${this._logFilterBarExpanded ? '' : ' hidden'} role="group" aria-label="Log filters">
-          <div class="log-filter-row">
-            <div class="log-filter-group">
-              <label class="log-filter-label" for="filter-branch">Branch</label>
-              <input type="text" id="filter-branch" class="log-filter-input" data-action="filterKeydown" placeholder="Branch, tag, or range (A..B)" value="${branchOrRange}" autocomplete="off" />
-            </div>
-            <div class="log-filter-group">
-              <label class="log-filter-label" for="filter-search">Message / Hash</label>
-              <input type="text" id="filter-search" class="log-filter-input" data-action="filterKeydown" placeholder="Title or commit hash" value="${search}" />
-              <div class="log-filter-toggle-group">
-                <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Use regular expression" aria-pressed="${searchRegex}">.*</button>
-                <button type="button" id="filter-search-case" class="log-filter-toggle-btn${searchCaseSensitive ? ' active' : ''}" data-action="toggleSearchCase" title="Match case" aria-pressed="${searchCaseSensitive}">Aa</button>
-              </div>
-            </div>
-            <div class="log-filter-group">
-              <label class="log-filter-label" for="filter-author">Author</label>
-              <input type="text" id="filter-author" class="log-filter-input" data-action="filterKeydown" placeholder="Author name or email" value="${author}" autocomplete="off" />
-            </div>
-            <div class="log-filter-group">
-              <label class="log-filter-label" for="filter-path">Path</label>
-              <input type="text" id="filter-path" class="log-filter-input" data-action="filterKeydown" placeholder="File or directory path" value="${path}" />
-            </div>
-            <div class="log-filter-group">
-              <label class="log-filter-label" for="filter-cherry-compare">Cherry-compare with</label>
-              <input type="text" id="filter-cherry-compare" class="log-filter-input" data-action="filterKeydown" placeholder="Branch or ref (highlights cherry-picked)" value="${cherryCompare}" autocomplete="off" />
-            </div>
+        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
+          <div class="log-filter-search">
+            <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${search}" aria-label="Search by message or hash" autocomplete="off" />
+            <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Match by regular expression" aria-label="Match by regular expression" aria-pressed="${searchRegex}">.*</button>
+            <button type="button" id="filter-search-case" class="log-filter-toggle-btn${searchCaseSensitive ? ' active' : ''}" data-action="toggleSearchCase" title="Match case (case-sensitive)" aria-label="Match case (case-sensitive)" aria-pressed="${searchCaseSensitive}">Aa</button>
           </div>
-          <div class="log-filter-row">
-            <div class="log-filter-group log-filter-group-date">
-              <label class="log-filter-label" for="filter-since">Since</label>
-              <input type="date" id="filter-since" class="log-filter-input log-filter-date" data-action="filterKeydown" value="${since}" />
-            </div>
-            <div class="log-filter-group log-filter-group-date">
-              <label class="log-filter-label" for="filter-until">Until</label>
-              <input type="date" id="filter-until" class="log-filter-input log-filter-date" data-action="filterKeydown" value="${until}" />
-            </div>
-            <div class="log-filter-group log-filter-group-parents">
-              <label class="log-filter-label">Parents</label>
-              <input type="number" id="filter-min-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Min" min="0" value="${minParents}" />
-              <span class="log-filter-parents-sep">–</span>
-              <input type="number" id="filter-max-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Max" min="0" value="${maxParents}" />
-            </div>
-            <div class="log-filter-group log-filter-group-check">
-              <label class="log-filter-check-label" for="filter-no-merges">
-                <input type="checkbox" id="filter-no-merges" class="log-filter-check"${noMerges ? ' checked' : ''} /> No Merges
-              </label>
-            </div>
-            <div class="log-filter-group log-filter-group-check">
-              <label class="log-filter-check-label" for="filter-first-parent">
-                <input type="checkbox" id="filter-first-parent" class="log-filter-check"${firstParent ? ' checked' : ''} /> First Parent
-              </label>
-            </div>
-            <div class="log-filter-group log-filter-group-check">
-              <label class="log-filter-check-label" for="filter-simplify-merges">
-                <input type="checkbox" id="filter-simplify-merges" class="log-filter-check"${simplifyMerges ? ' checked' : ''} /> Simplify Merges
-              </label>
-            </div>
-          </div>
-          <div class="log-filter-actions">
-            <button type="button" class="log-filter-button log-filter-clear" data-action="clearLogFilter">Clear</button>
-            <button type="button" class="log-filter-button log-filter-apply" data-action="applyLogFilter">Apply</button>
-          </div>
+          ${this._getFilterPopupHtml('branch', 'Branch', branchLabel, this._getBranchPopupBodyHtml())}
+          ${this._getFilterPopupHtml('user', 'User', authorLabel, this._getUserPopupBodyHtml(author))}
+          ${this._getFilterPopupHtml('date', 'Date', dateLabel, this._getDatePopupBodyHtml(filter?.since, filter?.until))}
+          ${this._getFilterPopupHtml('path', 'Path', pathLabel, this._getPathPopupBodyHtml(path))}
         </div>`;
+  }
+
+  /**
+   * Wrap one filter as a label-button + anchored popup panel — the webview
+   * analogue of IntelliJ's `FilterPopupComponent` (a button showing the active
+   * value that opens a popup of choices). The popup starts `hidden`; the
+   * delegated `toggleFilterPopup` click handler flips it. `bodyHtml` is the
+   * popup contents (already escaped by its builder).
+   */
+  private _getFilterPopupHtml(
+    key: string,
+    label: string,
+    valueLabel: string,
+    bodyHtml: string
+  ): string {
+    return `
+          <div class="log-filter-pop" data-popup-wrap="${key}">
+            <button type="button" class="log-filter-pop-btn" data-action="toggleFilterPopup" data-popup="${key}" aria-haspopup="true" aria-expanded="false">
+              <span class="log-filter-pop-label">${label}:</span>
+              <span class="log-filter-pop-value" id="filter-${key}-value">${valueLabel}</span>
+              <span class="log-filter-pop-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="log-filter-popup" id="filter-popup-${key}" role="group" aria-label="${label} filter" hidden>${bodyHtml}</div>
+          </div>`;
+  }
+
+  /**
+   * Branch popup shell. The "All branches" item + the live-filter input are
+   * static; the Local / per-remote groups are injected client-side from the
+   * `logFilterOptionsReady` message (lazy, on first open — no load-time git).
+   */
+  private _getBranchPopupBodyHtml(): string {
+    return `
+              <input type="text" class="log-filter-popup-search" data-action="filterPopupSearch" data-popup="branch" placeholder="Filter branches" aria-label="Filter branches" autocomplete="off" />
+              <div class="log-filter-popup-list" id="filter-branch-list">
+                <button type="button" class="log-filter-popup-item" data-action="pickBranchFilter" data-branch="__all__">All branches</button>
+              </div>`;
+  }
+
+  /**
+   * User (author) popup — a free-text author field plus a lazily-filled list of
+   * known authors (requested on open, cached). Mirrors IntelliJ
+   * `UserFilterPopupComponent`. Pressing Enter in the field applies it.
+   */
+  private _getUserPopupBodyHtml(author: string): string {
+    const esc = this._escapeHtml(author);
+    return `
+              <input type="text" id="filter-author-input" class="log-filter-popup-search" data-action="filterAuthorKeydown" placeholder="Author name or email" value="${esc}" aria-label="Author name or email" autocomplete="off" />
+              <div class="log-filter-popup-list" id="filter-author-list">
+                <button type="button" class="log-filter-popup-item" data-action="pickAuthorFilter" data-author="__all__">All users</button>
+              </div>`;
+  }
+
+  /**
+   * Date popup — preset ranges (Last 24 Hours / Last 7 Days) plus "Select…",
+   * which reveals an inline custom-range panel (IntelliJ `DateFilterComponent`):
+   * After/Before checkboxes each gating a date input that is disabled until its
+   * box is checked.
+   */
+  private _getDatePopupBodyHtml(since: Date | undefined, until: Date | undefined): string {
+    const sinceVal = this._toDateInputValue(since);
+    const untilVal = this._toDateInputValue(until);
+    const hasSince = sinceVal !== '';
+    const hasUntil = untilVal !== '';
+    const customOpen = hasSince || hasUntil;
+    return `
+              <button type="button" class="log-filter-popup-item" data-action="pickDateFilter" data-range="all">All</button>
+              <button type="button" class="log-filter-popup-item" data-action="pickDateFilter" data-range="24h">Last 24 Hours</button>
+              <button type="button" class="log-filter-popup-item" data-action="pickDateFilter" data-range="7d">Last 7 Days</button>
+              <button type="button" class="log-filter-popup-item" data-action="dateSelectCustom">Select…</button>
+              <div class="log-filter-date-custom" id="filter-date-custom"${customOpen ? '' : ' hidden'}>
+                <label class="log-filter-date-bound">
+                  <input type="checkbox" id="filter-after-enabled" data-action="toggleDateBound" data-bound="after"${hasSince ? ' checked' : ''} /> After
+                  <input type="date" id="filter-after-date" class="log-filter-date-input" value="${sinceVal}"${hasSince ? '' : ' disabled'} />
+                </label>
+                <label class="log-filter-date-bound">
+                  <input type="checkbox" id="filter-before-enabled" data-action="toggleDateBound" data-bound="before"${hasUntil ? ' checked' : ''} /> Before
+                  <input type="date" id="filter-before-date" class="log-filter-date-input" value="${untilVal}"${hasUntil ? '' : ' disabled'} />
+                </label>
+                <button type="button" class="log-filter-popup-apply" data-action="applyDateCustom">Apply</button>
+              </div>`;
+  }
+
+  /**
+   * Path popup — a file/directory path field (IntelliJ structure filter) plus,
+   * when more than one repository is open, the repository rows that scope the
+   * log + Branches view (the former repository selector, folded in here per the
+   * "Path = our repo, renamed" parity request). v1 maps the rows to the existing
+   * single-or-all repository scope; a true multi-root subset is a deferred gap.
+   */
+  private _getPathPopupBodyHtml(path: string): string {
+    const esc = this._escapeHtml(path);
+    let reposHtml = '';
+    if (this._availableRepositories.length > 1) {
+      const allActive = this._repositoryScope === 'all';
+      const allCheck = allActive ? '✓' : '';
+      const rows = this._availableRepositories
+        .map((repo, index) => {
+          const fsPath = repo.rootUri.fsPath;
+          const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
+          const active = this._repositoryScope !== 'all' && index === this._selectedRepositoryIndex;
+          const check = active ? '✓' : '';
+          return `<button type="button" class="log-filter-popup-item${active ? ' active' : ''}" data-action="pickRepoScope" data-repo-index="${index}" title="${this._escapeHtml(fsPath)}"><span class="log-filter-check" aria-hidden="true">${check}</span>${folderName}</button>`;
+        })
+        .join('');
+      reposHtml = `
+              <div class="log-filter-popup-section">Repositories</div>
+              <button type="button" class="log-filter-popup-item${allActive ? ' active' : ''}" data-action="pickRepoScope" data-repo-index="all"><span class="log-filter-check" aria-hidden="true">${allCheck}</span>All repositories</button>
+              ${rows}`;
+    }
+    return `
+              <input type="text" id="filter-path-input" class="log-filter-popup-search" data-action="filterPathKeydown" placeholder="File or directory path" value="${esc}" aria-label="File or directory path" />
+              <button type="button" class="log-filter-popup-apply" data-action="applyPathFilter">Apply path</button>${reposHtml}`;
+  }
+
+  /**
+   * Human-readable Date-button value. `since`+`until` → "after – before";
+   * one bound → "Since X" / "Until X"; neither → "All".
+   */
+  private _dateFilterLabel(since: Date | undefined, until: Date | undefined): string {
+    const s = this._toDateInputValue(since);
+    const u = this._toDateInputValue(until);
+    if (s && u) {
+      return `${s} – ${u}`;
+    }
+    if (s) {
+      return `Since ${s}`;
+    }
+    if (u) {
+      return `Until ${u}`;
+    }
+    return 'All';
+  }
+
+  /**
+   * Path-button value: the path leaf if a path filter is set, else the scoped
+   * repository's folder name (multi-repo, single scope), else "All".
+   */
+  private _pathFilterLabel(path: string): string {
+    if (path) {
+      return path.split('/').filter(Boolean).pop() || path;
+    }
+    if (this._availableRepositories.length > 1 && this._repositoryScope !== 'all') {
+      const repo = this._availableRepositories[this._selectedRepositoryIndex];
+      if (repo) {
+        const fs = repo.rootUri.fsPath;
+        return fs.split('/').pop() || fs;
+      }
+    }
+    return 'All';
   }
 
   /**
@@ -3851,137 +3914,6 @@ ${bodyMarkup}
     }
 
     return labels.join('') + collapsedSummaryHtml + tagLabels.join('');
-  }
-
-  /**
-   * Get the repository selector HTML for the graph panel header.
-   * Renders a `<select>` dropdown when multiple repositories are available.
-   * When 0 or 1 repositories exist, returns an empty string (selector is hidden).
-   *
-   * The dropdown displays the folder name (last path segment of rootUri.fsPath)
-   * for each repository and sends a `selectRepository` message with the
-   * selected `repositoryIndex` when the user changes the selection.
-   *
-   * @returns HTML string for the repository selector, or empty string if not needed
-   */
-  public _getRepositorySelectorHtml(): string {
-    if (this._availableRepositories.length <= 1) {
-      return '';
-    }
-
-    // "All Repositories" sentinel — shown only with >1 repo (the guard above),
-    // selected when the scope is the merged view. Routes the log + branches to
-    // the merged/grouped layout. The webview posts `repositoryIndex: 'all'`,
-    // which `scriptBuilder` handles before the numeric guard.
-    const allSelected = this._repositoryScope === 'all' ? ' selected' : '';
-    const allOptionHtml = `<option value="all"${allSelected}>All Repositories</option>`;
-
-    const optionsHtml = this._availableRepositories
-      .map((repo, index) => {
-        const fsPath = repo.rootUri.fsPath;
-        const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
-        const selected =
-          this._repositoryScope !== 'all' && index === this._selectedRepositoryIndex
-            ? ' selected'
-            : '';
-        // `title` carries the full user-friendly path so two repos
-        // with the same leaf folder name are distinguishable on hover
-        // (spec section 4.2). Internal identity comparisons use the
-        // normalized form (see setAvailableRepositories); the tooltip
-        // shows the raw path the user recognizes.
-        const titleAttr = ` title="${this._escapeHtml(fsPath)}"`;
-        return `<option value="${index}"${selected}${titleAttr}>${folderName}</option>`;
-      })
-      .join('');
-
-    // The `change` listener is wired from the main inline script
-    // (`_getInlineScript`), which reads the shared `vscode` API handle
-    // memoised on `window.__intelligVscodeApi`. A bare `acquireVsCodeApi()`
-    // call inside an inline `onchange` handler would throw — VS Code only
-    // allows one acquire per webview lifetime — and silently drop the selection.
-    return `
-      <div class="repository-selector-container">
-        <select class="repository-selector" aria-label="Select repository">
-          ${allOptionHtml}${optionsHtml}
-        </select>
-      </div>`;
-  }
-
-  /**
-   * Branch-filter selector for the graph-panel header — a dropdown that scopes
-   * the log/graph to a single branch, mirroring IntelliJ's
-   * BranchFilterPopupComponent. Hidden until a repository is attached.
-   *
-   * Renders a shell here: the "All branches" sentinel plus, when a branch
-   * filter is active, that branch preselected (so the selection survives a full
-   * re-render before the async branch list arrives). The complete option list is
-   * filled client-side from the `logFilterOptionsReady` message — the same
-   * ref-aware source that feeds the filter-bar datalist — keeping the host
-   * render synchronous. The active branch also rides in `data-selected-branch`
-   * so the client repopulation can restore the selection.
-   *
-   * A range filter (`A..B`) is not a single-branch scope, so the selector falls
-   * back to "All branches" while a range is active (the range stays editable in
-   * the free-text filter bar).
-   *
-   * @returns selector HTML, or empty string when no repository is selected
-   */
-  public _getBranchFilterSelectorHtml(): string {
-    if (!this.getSelectedRepository()) {
-      return '';
-    }
-
-    const filter = this._extendedLogState.filter;
-    const activeBranch = filter?.logRange ? undefined : filter?.branch;
-
-    const allSelected = activeBranch ? '' : ' selected';
-    let activeOptionHtml = '';
-    let selectedAttr = '';
-    if (activeBranch) {
-      const escaped = this._escapeHtml(activeBranch);
-      activeOptionHtml = `<option value="${escaped}" selected>${escaped}</option>`;
-      selectedAttr = ` data-selected-branch="${escaped}"`;
-    }
-
-    return `
-      <div class="branch-filter-selector-container">
-        <select class="branch-filter-selector" aria-label="Filter log by branch"${selectedAttr}>
-          <option value="__all__"${allSelected}>All branches</option>${activeOptionHtml}
-        </select>
-      </div>`;
-  }
-
-  /**
-   * Apply a branch scope chosen from the branch-filter selector. Updates only
-   * the branch portion of the active log filter (preserving author/search/date
-   * etc.), clears any conflicting range, and re-fires the log-filter request so
-   * the host reloads through the existing filter pipeline. `null` (the "All
-   * branches" sentinel) drops the branch scope.
-   *
-   * The branch crosses the untrusted webview boundary before reaching
-   * `git log <branch>`; reject a leading `-` (CLI-flag injection) or `.`
-   * (invalid per git-check-ref-format, which makes getLog throw) defensively,
-   * mirroring the GitService.getLog ref guard.
-   */
-  private _handleSelectBranchFilter(branch: string | null): void {
-    if (branch !== null && (branch.startsWith('-') || branch.startsWith('.'))) {
-      return;
-    }
-
-    const current = this._extendedLogState.filter;
-    const next: ILogFilter = { ...(current ?? {}) };
-    // The selector scopes by a single branch; a range and a branch can't both
-    // hold, so drop any range the free-text bar may have set.
-    delete next.logRange;
-    if (branch === null) {
-      delete next.branch;
-    } else {
-      next.branch = branch;
-    }
-
-    const resolved = this._isLogFilterEmpty(next) ? undefined : next;
-    this.setLogFilter(resolved);
-    this._onDidRequestLogFilter.fire(resolved);
   }
 
   /**
@@ -4207,6 +4139,15 @@ ${bodyMarkup}
 }
 
 /**
+ * Branch options for the Branch popup, grouped IntelliJ-style: local branches
+ * plus one group per remote (e.g. `origin`). Posted in `logFilterOptionsReady`.
+ */
+interface IBranchFilterGroups {
+  local: string[];
+  remotes: Array<{ remote: string; branches: string[] }>;
+}
+
+/**
  * Log filter from webview (with string dates)
  */
 interface IWebviewLogFilter {
@@ -4216,14 +4157,8 @@ interface IWebviewLogFilter {
   path?: string;
   since?: string | null;
   until?: string | null;
-  noMerges?: boolean;
-  firstParent?: boolean;
-  simplifyMerges?: boolean;
-  minParents?: number;
-  maxParents?: number;
   searchRegex?: boolean;
   searchCaseSensitive?: boolean;
-  cherryCompareRef?: string;
 }
 
 /**
@@ -4289,11 +4224,6 @@ interface IWebviewMessage {
    * current focus.
    */
   branchName?: string | null;
-  /**
-   * Branch ref carried by `selectBranchFilter` (the branch-filter dropdown).
-   * `null` is the "All branches" sentinel, which drops the branch scope.
-   */
-  branch?: string | null;
   branchType?: 'local' | 'remote';
   widths?: [number, number];
   /**

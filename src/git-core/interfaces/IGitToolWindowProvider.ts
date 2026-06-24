@@ -16,6 +16,10 @@ export interface IChangedFile {
   path: string;
   status: FileStatus;
   oldPath?: string; // for renames
+  /** Lines added in this file (from the diff hunks); omitted for binary files. */
+  additions?: number;
+  /** Lines deleted in this file (from the diff hunks); omitted for binary files. */
+  deletions?: number;
 }
 
 /**

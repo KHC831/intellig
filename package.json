@@ -1411,18 +1411,21 @@
         {
           "type": "webview",
           "id": "intellig.toolWindow",
-          "name": "Git"
+          "name": "Git",
+          "initialSize": 3
         },
         {
           "id": "intellig.branchTree",
-          "name": "Branches"
+          "name": "Branches",
+          "initialSize": 1
         },
         {
           "type": "webview",
           "id": "intellig.commitToolWindow",
           "name": "Commit",
           "icon": "$(git-commit)",
-          "when": "workbenchState != empty && config.intellig.useCommitToolWindow"
+          "when": "workbenchState != empty && config.intellig.useCommitToolWindow",
+          "initialSize": 2
         }
       ]
     },

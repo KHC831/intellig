@@ -97,35 +97,32 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
     provider.dispose();
   });
 
-  describe('Property 1: Repository selector visibility matches repository count', () => {
+  describe('Property 1: Path-popup repo rows match repository count', () => {
     /**
      *
-     * For any list of repositories, the repository selector HTML should be present
-     * if and only if the list contains more than one repository. When exactly one
-     * repository exists, the selector should be absent.
+     * For any list of repositories, the Path popup should render selectable repo
+     * rows (data-action="pickRepoScope") if and only if more than one repository
+     * exists. With 0 or 1 repos there is no repo scope to choose, so no rows.
      */
-    it('Feature: git-graph-visual-improvements, Property 1: Repository selector visibility matches repository count', () => {
+    it('Feature: git-graph-visual-improvements, Property 1: Path-popup repo rows match repository count', () => {
       fc.assert(
         fc.property(arbitraryRepositoryList(0, 10), (repos) => {
           provider.setAvailableRepositories(repos);
-          const html = provider._getRepositorySelectorHtml();
+          const html = provider._getLogFilterRowHtml();
 
           if (repos.length > 1) {
-            // Selector should be present (contains a <select> element)
             assert.ok(
-              html.includes('<select'),
-              `Repository selector should be present when ${repos.length} repositories exist. Got: "${html}"`
+              html.includes('pickRepoScope'),
+              `Path popup should render repo rows when ${repos.length} repositories exist. Got: "${html}"`
             );
             assert.ok(
-              html.includes('</select>'),
-              `Repository selector should have a closing </select> tag when ${repos.length} repositories exist.`
+              html.includes('All repositories'),
+              `Path popup should offer "All repositories" when ${repos.length} repositories exist.`
             );
           } else {
-            // Selector should be absent (empty string)
-            assert.strictEqual(
-              html,
-              '',
-              `Repository selector should be absent when ${repos.length} repository exists. Got: "${html}"`
+            assert.ok(
+              !html.includes('pickRepoScope'),
+              `Path popup should have no repo rows when ${repos.length} repository exists. Got: "${html}"`
             );
           }
         }),
@@ -174,23 +171,23 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
     });
   });
 
-  describe('Property 3: Repository selector displays folder names', () => {
+  describe('Property 3: Path popup displays repo folder names', () => {
     /**
      *
-     * For any list of repositories with root URIs, the rendered repository
-     * selector HTML should contain the folder name (last path segment) of
-     * each repository's root URI.
+     * For any list of repositories with root URIs, the rendered Path popup
+     * should contain the folder name (last path segment) of each repository's
+     * root URI as a selectable repo row.
      */
-    it('Feature: git-graph-visual-improvements, Property 3: Repository selector displays folder names', () => {
+    it('Feature: git-graph-visual-improvements, Property 3: Path popup displays repo folder names', () => {
       fc.assert(
         fc.property(arbitraryRepositoryList(2, 10), (repos) => {
           provider.setAvailableRepositories(repos);
-          const html = provider._getRepositorySelectorHtml();
+          const html = provider._getLogFilterRowHtml();
 
-          // Selector should be present since repos.length > 1
+          // Repo rows should be present since repos.length > 1
           assert.ok(
-            html.includes('<select'),
-            `Repository selector should be present when ${repos.length} repositories exist.`
+            html.includes('pickRepoScope'),
+            `Path popup repo rows should be present when ${repos.length} repositories exist.`
           );
 
           // Each repository's folder name should appear in the HTML
@@ -198,7 +195,7 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
             const folderName = getFolderName(repo.rootUri.fsPath);
             assert.ok(
               html.includes(folderName),
-              `Repository selector HTML should contain folder name "${folderName}" ` +
+              `Path popup HTML should contain folder name "${folderName}" ` +
                 `from path "${repo.rootUri.fsPath}". HTML: "${html}"`
             );
           }

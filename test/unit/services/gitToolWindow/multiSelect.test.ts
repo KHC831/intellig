@@ -170,6 +170,7 @@ describe('multiSelect — pure helpers', () => {
       isContiguous: false,
       isHeadInSelection: false,
       hasMergeCommitInSelection: false,
+      isSelectedInCurrentBranch: true,
     };
 
     it('A0 — enables editCommitMessage when N=1 (regression for line 3650 hard-disable)', () => {
@@ -232,6 +233,38 @@ describe('multiSelect — pure helpers', () => {
       assert.strictEqual(e.revert, false);
       assert.strictEqual(e.copyHash, false);
       assert.strictEqual(e.createPatch, false);
+    });
+
+    it('enables Fixup / Squash Into only for a single non-merge commit in the current branch', () => {
+      const ok = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 1,
+        isSelectedInCurrentBranch: true,
+        hasMergeCommitInSelection: false,
+      });
+      assert.strictEqual(ok.fixup, true);
+      assert.strictEqual(ok.squashInto, true);
+    });
+
+    it('greys Fixup / Squash Into for a merge commit (IntelliJ checkNotMergeCommit)', () => {
+      const merge = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 1,
+        isSelectedInCurrentBranch: true,
+        hasMergeCommitInSelection: true,
+      });
+      assert.strictEqual(merge.fixup, false);
+      assert.strictEqual(merge.squashInto, false);
+    });
+
+    it('greys Fixup / Squash Into for a commit not in the current branch', () => {
+      const offHead = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 1,
+        isSelectedInCurrentBranch: false,
+      });
+      assert.strictEqual(offHead.fixup, false);
+      assert.strictEqual(offHead.squashInto, false);
     });
 
     // Drop must reject merge commits. Silent history-flattening
@@ -431,6 +464,47 @@ describe('multiSelect — pure helpers', () => {
         headHash: 'aaa',
       });
       assert.strictEqual(nonHead.undoCommit.enabled, false);
+    });
+
+    it('enables Fixup/Squash for an ancestor of HEAD, greys an off-branch commit', () => {
+      // HEAD=aaa → bbb → ccc (linear); xxx is on another branch (not an
+      // ancestor of HEAD). Reachability walks parents from HEAD over the window.
+      const chain = [
+        { hash: 'aaa', parentCount: 1, parents: ['bbb'] },
+        { hash: 'bbb', parentCount: 1, parents: ['ccc'] },
+        { hash: 'ccc', parentCount: 0, parents: [] },
+        { hash: 'xxx', parentCount: 0, parents: [] },
+      ];
+      const ancestor = computeMenuState({
+        selectedHashes: new Set(['ccc']),
+        commitNodes: chain,
+        headHash: 'aaa',
+      });
+      assert.strictEqual(ancestor.fixup.enabled, true, 'ancestor of HEAD is editable');
+      assert.strictEqual(ancestor.squashInto.enabled, true);
+
+      const offBranch = computeMenuState({
+        selectedHashes: new Set(['xxx']),
+        commitNodes: chain,
+        headHash: 'aaa',
+      });
+      assert.strictEqual(offBranch.fixup.enabled, false, 'off-branch commit is greyed');
+      assert.strictEqual(offBranch.squashInto.enabled, false);
+    });
+
+    it('does not grey Fixup/Squash when HEAD is off the loaded window (no false-grey)', () => {
+      // headHash not present in commitNodes → reachability unknown → default
+      // enabled rather than greying a possibly-editable commit.
+      const state = computeMenuState({
+        selectedHashes: new Set(['bbb']),
+        commitNodes: [
+          { hash: 'bbb', parentCount: 1, parents: ['ccc'] },
+          { hash: 'ccc', parentCount: 0, parents: [] },
+        ],
+        headHash: 'zzz-not-in-window',
+      });
+      assert.strictEqual(state.fixup.enabled, true);
+      assert.strictEqual(state.squashInto.enabled, true);
     });
 
     it('enables undoCommit in merged scope when the selected commit is any root HEAD (headHash suppressed)', () => {

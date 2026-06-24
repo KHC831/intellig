@@ -171,19 +171,6 @@ function arbitraryCommitDetails(): fc.Arbitrary<ICommitDetails> {
   });
 }
 
-// ─── Status indicator mapping (mirrors GitToolWindowProvider._getFileStatusChar) ──
-
-const STATUS_CHAR_MAP: Record<FileStatus, string> = {
-  modified: 'M',
-  added: 'A',
-  deleted: 'D',
-  renamed: 'R',
-  copied: 'C',
-  untracked: 'U',
-  ignored: 'I',
-  conflicted: '!',
-};
-
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 /**
@@ -248,7 +235,9 @@ describe('Feature: intellig-layout - Details Panel Property Tests', () => {
             `HTML should contain the commit message "${commitDetails.message}"`
           );
 
-          // 6. Every changed file path must be present with its status indicator
+          // 6. Every changed file path must be present, and its status must ride
+          // as a title on the file name (the M/A/D letter indicator was removed —
+          // the file-name colour + title convey the status now).
           for (const file of commitDetails.changedFiles) {
             // The file path should appear in the HTML (in data-path attribute or display)
             assert.ok(
@@ -256,17 +245,15 @@ describe('Feature: intellig-layout - Details Panel Property Tests', () => {
               `HTML should contain the changed file path "${file.path}"`
             );
 
-            // The status indicator character should be present
-            const expectedStatusChar = STATUS_CHAR_MAP[file.status];
-            // Look for the status indicator pattern: class="file-status-indicator" ... >statusChar<
-            const statusPattern = new RegExp(
-              `class="file-status-indicator"[^>]*>[\\s]*${expectedStatusChar.replace(/[!]/g, '\\$&')}[\\s]*</`
-            );
             assert.ok(
-              statusPattern.test(html),
-              `HTML should contain status indicator "${expectedStatusChar}" for file "${file.path}" with status "${file.status}"`
+              html.includes(`title="${file.status}"`),
+              `HTML should carry the status "${file.status}" as a file-name title for "${file.path}"`
             );
           }
+          assert.ok(
+            !html.includes('file-status-indicator'),
+            'the M/A/D status-letter indicator must be gone'
+          );
         }),
         { numRuns: 150 }
       );

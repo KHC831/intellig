@@ -192,45 +192,52 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       assert.ok(html.includes('new-file.ts'), 'Should contain the second file name');
     });
 
-    it('should show "M" indicator for modified files', () => {
+    it('does NOT render an M/A/D status letter (colour + line stat convey the change)', () => {
+      const details = makeCommitDetails({
+        changedFiles: [
+          { path: 'src/main.ts', status: 'modified' },
+          { path: 'src/new.ts', status: 'added' },
+          { path: 'src/old.ts', status: 'deleted' },
+        ],
+      });
+      const html = renderDetails(provider, details);
+      assert.ok(
+        !html.includes('file-status-indicator'),
+        'the status-letter indicator must be gone'
+      );
+    });
+
+    it('carries the status as a title on the file name (a11y, replaces the letter)', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
       const html = renderDetails(provider, details);
-
-      // The status indicator should contain 'M'
-      const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*M[\s]*<\/span>/);
-      assert.ok(statusMatch, 'Should have M status indicator for modified files');
+      assert.ok(
+        /class="file-name"[^>]*title="modified"/.test(html) ||
+          /title="modified"[^>]*class="file-name"/.test(html),
+        'file name carries the status as a title'
+      );
     });
 
-    it('should show "A" indicator for added files', () => {
+    it('renders a per-file "(+N | -M)" line stat with add green / del red', () => {
       const details = makeCommitDetails({
-        changedFiles: [{ path: 'src/new.ts', status: 'added' }],
+        changedFiles: [{ path: 'src/main.ts', status: 'modified', additions: 20, deletions: 10 }],
       });
       const html = renderDetails(provider, details);
-
-      const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*A[\s]*<\/span>/);
-      assert.ok(statusMatch, 'Should have A status indicator for added files');
+      assert.ok(html.includes('changed-file-stats'), 'has the stat block');
+      assert.ok(
+        /class="changed-file-add"[^>]*>\+20</.test(html),
+        'shows +20 in the additions span'
+      );
+      assert.ok(/class="changed-file-del"[^>]*>-10</.test(html), 'shows -10 in the deletions span');
     });
 
-    it('should show "D" indicator for deleted files', () => {
+    it('omits the line stat when a file has no line changes (e.g. binary)', () => {
       const details = makeCommitDetails({
-        changedFiles: [{ path: 'src/old.ts', status: 'deleted' }],
+        changedFiles: [{ path: 'img/logo.png', status: 'modified' }],
       });
       const html = renderDetails(provider, details);
-
-      const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*D[\s]*<\/span>/);
-      assert.ok(statusMatch, 'Should have D status indicator for deleted files');
-    });
-
-    it('should show "R" indicator for renamed files', () => {
-      const details = makeCommitDetails({
-        changedFiles: [{ path: 'src/renamed.ts', status: 'renamed', oldPath: 'src/original.ts' }],
-      });
-      const html = renderDetails(provider, details);
-
-      const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*R[\s]*<\/span>/);
-      assert.ok(statusMatch, 'Should have R status indicator for renamed files');
+      assert.ok(!html.includes('changed-file-stats'), 'no stat block without counts');
     });
 
     it('should use IntelliJ blue color (#6897BB) for modified files', () => {
@@ -633,9 +640,16 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         ];
         const html = renderMulti(provider, commits);
 
-        // The file should show as modified (last status wins)
-        const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*M[\s]*<\/span>/);
-        assert.ok(statusMatch, 'Should show M (modified) status from the later commit');
+        // Last status wins → the file name is coloured with the modified colour
+        // (the M/A/D letter was removed; colour conveys the status now).
+        assert.ok(
+          html.includes(INTELLIJ_FILE_STATUS_COLORS.modified),
+          'Should colour the file with the modified status from the later commit'
+        );
+        assert.ok(
+          !html.includes(INTELLIJ_FILE_STATUS_COLORS.added),
+          'the earlier "added" status must not win'
+        );
       });
 
       it('should display file count in the header', () => {

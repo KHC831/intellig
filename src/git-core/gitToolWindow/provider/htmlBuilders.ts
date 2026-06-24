@@ -122,23 +122,6 @@ export function getFileStatusColor(status: FileStatus): string {
 }
 
 /**
- * Get status character for file status
- */
-export function getFileStatusChar(status: FileStatus): string {
-  const statusChars: Record<FileStatus, string> = {
-    modified: 'M',
-    added: 'A',
-    deleted: 'D',
-    renamed: 'R',
-    copied: 'C',
-    untracked: 'U',
-    ignored: 'I',
-    conflicted: '!',
-  };
-  return statusChars[status] || '?';
-}
-
-/**
  * Get file name from path
  */
 export function getFileName(path: string): string {
@@ -222,12 +205,10 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
         <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
         <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
         <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
+        <div class="context-menu-item" data-action="pushUpToCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Push All up to Here\u2026</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="compareWithBranch" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Branch\u2026</div>
         <div class="context-menu-item" data-action="newBranch" data-multi-action="single-only" role="menuitem" tabindex="0">New Branch\u2026</div>
         <div class="context-menu-item" data-action="newTag" data-multi-action="single-only" role="menuitem" tabindex="0">New Tag\u2026</div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="pushUpToCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Push up to here\u2026</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="goToChild" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Child Commit</div>
         <div class="context-menu-item" data-action="goToParent" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Parent Commit</div>

@@ -511,8 +511,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // the provider. We don't block the log render on it — cherry marks
           // are a visual nicety, and the call is throttled by git spawn
           // overhead (typically <100ms). Gated by the
-          // `intellig.log.highlightCherryPicked` flag.
-          void loadCherryMarksForRepo(repo, ctx.gitToolWindowProvider?.getManualCherryCompareRef());
+          // `intellig.log.highlightCherryPicked` flag. Compares HEAD against its
+          // upstream (auto).
+          void loadCherryMarksForRepo(repo);
         }
       } catch (error) {
         getLogger()
@@ -541,10 +542,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
      * upstream and push the `=`-marked hashes into the Log tab's state.
      * Runs in the background; errors are swallowed so the UI stays calm.
      */
-    const loadCherryMarksForRepo = async (
-      repo: IRepository,
-      overrideRef?: string
-    ): Promise<void> => {
+    const loadCherryMarksForRepo = async (repo: IRepository): Promise<void> => {
       if (!ctx.gitToolWindowProvider) {
         return;
       }
@@ -556,23 +554,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
         return;
       }
-      let baseRef: string;
-      if (overrideRef) {
-        // User manually set a cherry-compare ref — validate and use it.
-        if (overrideRef.startsWith('-') || overrideRef.startsWith('.')) {
-          ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
-          return;
-        }
-        baseRef = overrideRef;
-      } else {
-        // Auto-upstream: resolve the upstream ref for the current branch.
-        const headUpstream = repo.head?.upstream;
-        if (!headUpstream) {
-          ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
-          return;
-        }
-        baseRef = `${headUpstream.remote}/${headUpstream.name}`;
+      // Auto-upstream: resolve the upstream ref for the current branch.
+      const headUpstream = repo.head?.upstream;
+      if (!headUpstream) {
+        ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
+        return;
       }
+      const baseRef = `${headUpstream.remote}/${headUpstream.name}`;
       try {
         const gitServiceAny = gitService as IGitService & {
           getCherryMarks?: (r: IRepository, b: string) => Promise<Map<string, string>>;
@@ -865,20 +853,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     });
     ctx.context.subscriptions.push(filterChangeListener);
 
-    // Re-run cherry-mark computation when the user sets a manual compare ref.
-    const cherryCompareRefListener = ctx.gitToolWindowProvider.onDidRequestCherryCompareRef(
-      async (ref) => {
-        const repo =
-          ctx.gitToolWindowProvider?.getSelectedRepository() ??
-          (await resolveRepo(gitService, { preferActive: true, silent: true }));
-        if (!repo) {
-          return;
-        }
-        await loadCherryMarksForRepo(repo, ref);
-      }
-    );
-    ctx.context.subscriptions.push(cherryCompareRefListener);
-
     // The repository-selector wiring (onDidChangeRepositoryScope → graph
     // reload + branch tree refresh) is registered in the second
     // `if (ctx.services)` block below, where `branchTreeProvider` is in scope.
@@ -920,11 +894,29 @@ export function registerViews(ctx: IViewRegistrationContext): void {
 
       try {
         const diffs = await gitService.getCommitDiff(repo, hash);
-        const changedFiles = diffs.map((d) => ({
-          path: d.path,
-          oldPath: d.oldPath,
-          status: d.status || ('modified' as const),
-        }));
+        const changedFiles = diffs.map((d) => {
+          // Per-file +/- line counts from the already-parsed diff hunks (no extra
+          // git call). Binary files have no hunks → counts stay undefined so the
+          // UI shows no stat.
+          let additions = 0;
+          let deletions = 0;
+          for (const hunk of d.hunks) {
+            for (const line of hunk.lines) {
+              if (line.type === 'add') {
+                additions++;
+              } else if (line.type === 'delete') {
+                deletions++;
+              }
+            }
+          }
+          return {
+            path: d.path,
+            oldPath: d.oldPath,
+            status: d.status || ('modified' as const),
+            additions: d.binary ? undefined : additions,
+            deletions: d.binary ? undefined : deletions,
+          };
+        });
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.updateCommitDetails(hash, changedFiles);
         }

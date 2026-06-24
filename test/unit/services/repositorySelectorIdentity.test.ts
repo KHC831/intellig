@@ -86,7 +86,7 @@ describe('Repo selector identity (L5 + L14)', () => {
     );
   });
 
-  it('emits the selected <option> and a title attribute carrying the full path', () => {
+  it('emits a Path-popup repo row per repo with a full-path title, marking the active one', () => {
     const a = makeRepo('/work/alpha');
     const b = makeRepo('/work/beta');
     provider.setAvailableRepositories([a, b] as SetReposArg);
@@ -94,27 +94,28 @@ describe('Repo selector identity (L5 + L14)', () => {
       provider as unknown as { _handleRepositorySelection: (i: number) => void }
     )._handleRepositorySelection(1);
 
-    const html = (
-      provider as unknown as { _getRepositorySelectorHtml: () => string }
-    )._getRepositorySelectorHtml();
+    const html = provider._getLogFilterRowHtml();
 
-    // Each option carries a title with the full fsPath (disambiguates
-    // same-leaf-name repos on hover).
-    assert.ok(html.includes('title="/work/alpha"'), `option should carry alpha path; got: ${html}`);
-    assert.ok(html.includes('title="/work/beta"'), `option should carry beta path; got: ${html}`);
+    // Each repo row carries a title with the full fsPath (disambiguates
+    // same-leaf-name repos on hover) and routes the scope via pickRepoScope.
+    assert.ok(html.includes('title="/work/alpha"'), `row should carry alpha path; got: ${html}`);
+    assert.ok(html.includes('title="/work/beta"'), `row should carry beta path; got: ${html}`);
 
-    // The selected attribute lands on beta's option (index 1).
+    // The active marker lands on beta's row (index 1).
     assert.ok(
-      /<option value="1"[^>]*\bselected\b/.test(html),
-      `beta (index 1) should be the selected option; got: ${html}`
+      html.includes(
+        'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="1"'
+      ),
+      `beta (index 1) should be the active repo row; got: ${html}`
     );
   });
 
-  it('hides the selector entirely when only one repo is present', () => {
+  it('renders no repo rows in the Path popup when only one repo is present', () => {
     provider.setAvailableRepositories([makeRepo('/work/solo')] as SetReposArg);
-    const html = (
-      provider as unknown as { _getRepositorySelectorHtml: () => string }
-    )._getRepositorySelectorHtml();
-    assert.strictEqual(html, '', 'selector is hidden with a single repo');
+    const html = provider._getLogFilterRowHtml();
+    assert.ok(
+      !html.includes('pickRepoScope'),
+      'single-repo Path popup has no repo rows (just the path entry)'
+    );
   });
 });

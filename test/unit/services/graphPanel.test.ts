@@ -752,17 +752,31 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(item.includes('New Tag…'), 'New Tag label uses the unicode ellipsis');
     });
 
-    it('groups New Branch… / New Tag… with the branch-operations cluster', () => {
+    it('groups New Branch… before New Tag… in the branch-operations cluster', () => {
       const html = provider._getCommitContextMenuHtml();
       const idx = (action: string) => html.indexOf(`data-action="${action}"`);
-      // git4idea Git.Log.ContextMenu places CreateNewBranch.FromCommit +
-      // CreateNewTag immediately after the BranchOperationGroup (Compare with
-      // Branch).
-      assert.ok(
-        idx('compareWithBranch') < idx('newBranch'),
-        'Compare with Branch before New Branch'
-      );
+      assert.ok(idx('newBranch') !== -1, 'has New Branch');
       assert.ok(idx('newBranch') < idx('newTag'), 'New Branch before New Tag');
+    });
+
+    it('does not offer Compare with Branch in the commit menu (removed)', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(
+        !html.includes('data-action="compareWithBranch"'),
+        'Compare with Branch was removed from the commit context menu'
+      );
+    });
+
+    it('places Push All up to Here… immediately after Interactively Rebase from Here…', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
+      assert.ok(
+        idx('interactiveRebase') < idx('pushUpToCommit'),
+        'Push All up to Here follows Interactively Rebase'
+      );
+      assert.ok(html.includes('Push All up to Here…'), 'uses the IntelliJ label');
+      // Nothing sits between them (they are adjacent menu items).
+      assert.ok(idx('pushUpToCommit') < idx('newBranch'), 'Push precedes the branch-ops cluster');
     });
 
     it('exposes Fixup… (Git.Fixup.To.Commit) as a single-only item', () => {
@@ -808,10 +822,9 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have role="menuitem" on each menu item', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      // git4idea-parity set after removing four non-IntelliJ items
-      // (mergeIntoCurrent, squashWithPrevious, fixupWithPrevious,
-      // copyCommitMessage): 26 - 4 = 22.
-      assert.strictEqual(menuItemCount, 22, 'Should have 22 menu items with role="menuitem"');
+      // git4idea-parity set; Compare with Branch removed from the commit menu
+      // (22 − 1 = 21).
+      assert.strictEqual(menuItemCount, 21, 'Should have 21 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -860,7 +873,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(idx('resetToHere') < idx('editCommitMessage'), 'Reset before Edit Commit Message');
       assert.ok(idx('resetToHere') < idx('dropCommit'), 'Reset before Drop Commit');
       // Branch-integration actions still follow the history-rewrite block.
-      assert.ok(idx('dropCommit') < idx('compareWithBranch'), 'history rewrite before integration');
+      assert.ok(idx('dropCommit') < idx('newBranch'), 'history rewrite before integration');
     });
 
     it('should have data-head-hash attribute on the menu root element', () => {
@@ -879,11 +892,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have five context-menu-separator dividers between six sections', () => {
       const html = provider._getCommitContextMenuHtml();
       const separatorCount = (html.match(/context-menu-separator/g) || []).length;
-      // Seven sections (copy/patch · checkout/compare · reset/revert/undo ·
-      // edit/fixup/squash/drop/rebase · branch+tag · push · navigate),
-      // separated by six dividers. Removing the four non-IntelliJ items did
-      // not empty any section, so the divider count is unchanged.
-      assert.strictEqual(separatorCount, 6, 'Should have 6 separators between 7 sections');
+      // Six sections (copy/patch · checkout/compare · reset/revert/undo ·
+      // edit/fixup/squash/drop/rebase/push · branch+tag · navigate), separated
+      // by five dividers. "Push All up to Here" folded into the rebase section
+      // (after Interactively Rebase), collapsing its standalone divider.
+      assert.strictEqual(separatorCount, 5, 'Should have 5 separators between 6 sections');
     });
   });
 

@@ -18,12 +18,7 @@ import type { IGtwControllerContext } from './IGtwControllerContext';
 import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
 import type { FileStatus } from '../../interfaces/IGitService';
 import { buildFileTree, type FileTreeNode } from '../html/fileTree';
-import {
-  getFileStatusColor,
-  getFileStatusChar,
-  getFileName,
-  mergeChangedFiles,
-} from './htmlBuilders';
+import { getFileStatusColor, getFileName, mergeChangedFiles } from './htmlBuilders';
 import { findIssueReferences, issueUrl } from '../../../utils/hostingLinks';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
 
@@ -40,9 +35,11 @@ export type DetailsTreeNode =
       path: string;
       status: FileStatus;
       statusColor: string;
-      statusChar: string;
       fileName: string;
       oldPath?: string;
+      /** Lines added / deleted (from the diff); omitted for binary or no-line-change files. */
+      additions?: number;
+      deletions?: number;
     };
 
 /** Details Panel render-model. The `kind` discriminator drives the builder. */
@@ -150,11 +147,16 @@ function annotateTree(nodes: readonly FileTreeNode[]): DetailsTreeNode[] {
       path: file.path,
       status: file.status,
       statusColor: getFileStatusColor(file.status),
-      statusChar: getFileStatusChar(file.status),
       fileName: getFileName(file.path),
     };
     if (file.status === 'renamed' && file.oldPath) {
       annotated.oldPath = file.oldPath;
+    }
+    // Carry per-file line counts when present (a commit-details file leaf shows
+    // a "(+N | -M)" stat); absent for binary / no-line-change files.
+    if (typeof file.additions === 'number' || typeof file.deletions === 'number') {
+      annotated.additions = file.additions;
+      annotated.deletions = file.deletions;
     }
     return annotated;
   });

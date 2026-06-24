@@ -6,10 +6,6 @@
       "status": "tested",
       "note": "buildInlineScript run in jsdom (toolWindowScript.test.ts)"
     },
-    "src/git-core/gitToolWindow/GitToolWindowProvider.ts": {
-      "status": "tested",
-      "note": "full _getThreePanelHtmlContent document (init island + buildInlineScript + divider/column scripts) run in jsdom (gitToolWindowProviderScript.test.ts)"
-    },
     "src/git-core/gitToolWindow/html/commonHtml.ts": {
       "status": "tested",
       "note": "tabStripBehaviorScript run in jsdom over rendered tab strip (toolWindowHtmlPieces.test.ts)"

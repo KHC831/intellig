@@ -124,58 +124,6 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-toolbar-hoverBackground);
       }
 
-      /* Multi-repo selector — the toolbar <select> for switching repositories
-         in a multi-root workspace. Themed through the VS Code dropdown tokens
-         so it adopts the editor theme instead of the browser's native white
-         control; sizing/padding/font mirror the sibling toolbar controls
-         (.log-filter-input) so it sits consistently in the toolbar. */
-      .repository-selector {
-        padding: 4px 8px;
-        border: 1px solid var(--vscode-dropdown-border);
-        border-radius: 3px;
-        background-color: var(--vscode-dropdown-background);
-        color: var(--vscode-dropdown-foreground);
-        font-size: 12px;
-        font-family: var(--vscode-font-family);
-        cursor: pointer;
-      }
-
-      .repository-selector option {
-        background-color: var(--vscode-dropdown-listBackground);
-        color: var(--vscode-dropdown-foreground);
-      }
-
-      .repository-selector:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-        border-color: var(--vscode-focusBorder);
-      }
-
-      /* Branch-filter selector — the toolbar <select> that scopes the log to a
-         single branch. Shares the repository-selector theming so the two
-         dropdowns sit consistently side by side in the header. */
-      .branch-filter-selector {
-        padding: 4px 8px;
-        border: 1px solid var(--vscode-dropdown-border);
-        border-radius: 3px;
-        background-color: var(--vscode-dropdown-background);
-        color: var(--vscode-dropdown-foreground);
-        font-size: 12px;
-        font-family: var(--vscode-font-family);
-        cursor: pointer;
-      }
-
-      .branch-filter-selector option {
-        background-color: var(--vscode-dropdown-listBackground);
-        color: var(--vscode-dropdown-foreground);
-      }
-
-      .branch-filter-selector:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-        border-color: var(--vscode-focusBorder);
-      }
-
       /* Local Changes Content */
       .local-changes-content {
         flex: 1;
@@ -423,99 +371,58 @@ export function buildInlineStyles(): string {
         gap: 4px;
       }
 
-      /* Log Filter Bar Styles*/
-      .log-filter-toolbar {
+      /* ─── Log filter row (IntelliJ VcsLogClassicFilterUi) ─────────────── */
+      .log-filter-row {
         display: flex;
         align-items: center;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--vscode-panel-border);
-      }
-
-      .log-filter-toggle {
-        padding: 2px 10px;
-        border: 1px solid transparent;
-        border-radius: 3px;
-        font-size: 12px;
-        cursor: pointer;
-        background-color: transparent;
-        color: var(--vscode-foreground);
-      }
-
-      .log-filter-toggle:hover {
-        background-color: var(--vscode-toolbar-hoverBackground);
-      }
-
-      .log-filter-toggle:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: 1px;
-      }
-
-      .log-filter-toggle.active {
-        background-color: var(--vscode-inputOption-activeBackground);
-        border-color: var(--vscode-inputOption-activeBorder);
-        color: var(--vscode-inputOption-activeForeground);
-      }
-
-      .log-filter-bar {
+        flex-wrap: wrap;
+        gap: 6px;
         padding: 6px 8px;
         background-color: var(--vscode-input-background);
         border-bottom: 1px solid var(--vscode-panel-border);
       }
 
-      .log-filter-row {
+      /* Text search field (Message or hash) with regex/case adornments. */
+      .log-filter-search {
         display: flex;
-        gap: 10px;
-        margin-bottom: 6px;
-        flex-wrap: wrap;
-      }
-
-      .log-filter-row:last-of-type {
-        margin-bottom: 0;
-      }
-
-      .log-filter-group {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        min-width: 120px;
-      }
-
-      .log-filter-group-date {
-        flex: 0 0 auto;
-        min-width: 130px;
-      }
-
-      .log-filter-group-parents {
-        display: flex;
-        /* Override .log-filter-group's column direction so the label + Min/Max
-           sit side by side on one row (they were stacking vertically). */
-        flex-direction: row;
         align-items: center;
-        gap: 6px;
-        /* Size to content and don't inherit .log-filter-group's flex:1 / 120px
-           min-width, which stretched the group and clipped the Max field. */
-        flex: 0 0 auto;
-        min-width: 0;
-      }
-
-      .log-filter-parents-input {
-        /* Wide enough for the "Min"/"Max" placeholder plus the number spinner;
-           the two sit side by side on one line. */
-        width: 64px;
-      }
-
-      .log-filter-parents-sep {
-        font-size: 11px;
-        opacity: 0.6;
-      }
-
-      .log-filter-toggle-group {
-        display: flex;
         gap: 2px;
-        align-items: center;
+        /* Size to content (a fixed-width input + the two toggles) instead of
+           growing to fill the row — a compact, roughly half-width search box
+           (IntelliJ's search field is similarly sized). */
+        flex: 0 0 auto;
+        border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+        border-radius: 3px;
+        background-color: var(--vscode-input-background);
+        padding: 0 4px;
+      }
+
+      .log-filter-search:focus-within {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .log-filter-search-input {
+        /* Fixed compact width so the .* / Aa toggles always have room and never
+           get squeezed out. */
+        flex: 0 0 auto;
+        width: 120px;
+        border: none;
+        background: transparent;
+        color: var(--vscode-input-foreground);
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+        padding: 4px 4px;
+        outline: none;
+      }
+
+      .log-filter-search-input::placeholder {
+        color: var(--vscode-input-placeholderForeground);
       }
 
       .log-filter-toggle-btn {
+        flex: 0 0 auto;
         background: none;
         border: 1px solid transparent;
         border-radius: 3px;
@@ -537,15 +444,78 @@ export function buildInlineStyles(): string {
         background: var(--vscode-toolbar-hoverBackground);
       }
 
-      .log-filter-label {
-        font-size: 11px;
-        color: var(--vscode-descriptionForeground);
-        margin-bottom: 2px;
-        font-weight: 500;
+      /* Filter popup buttons (Branch / User / Date / Path) + their panels. */
+      .log-filter-pop {
+        position: relative;
+        flex: 0 0 auto;
       }
 
-      .log-filter-input {
+      .log-filter-pop-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 220px;
         padding: 4px 8px;
+        border: 1px solid var(--vscode-dropdown-border);
+        border-radius: 3px;
+        background-color: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+        cursor: pointer;
+      }
+
+      .log-filter-pop-btn:hover {
+        background-color: var(--vscode-toolbar-hoverBackground);
+      }
+
+      .log-filter-pop-btn:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .log-filter-pop-label {
+        color: var(--vscode-descriptionForeground);
+      }
+
+      .log-filter-pop-value {
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .log-filter-pop-caret {
+        font-size: 9px;
+        opacity: 0.7;
+      }
+
+      .log-filter-popup {
+        position: absolute;
+        top: calc(100% + 2px);
+        left: 0;
+        z-index: 30;
+        min-width: 200px;
+        max-width: 320px;
+        max-height: 360px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        padding: 4px;
+        background-color: var(--vscode-dropdown-background);
+        border: 1px solid var(--vscode-dropdown-border);
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+      }
+
+      .log-filter-popup[hidden] {
+        display: none;
+      }
+
+      .log-filter-popup-search {
+        margin-bottom: 4px;
+        padding: 4px 6px;
         border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
         border-radius: 3px;
         background-color: var(--vscode-input-background);
@@ -554,62 +524,106 @@ export function buildInlineStyles(): string {
         font-family: var(--vscode-font-family);
       }
 
-      .log-filter-input:focus {
+      .log-filter-popup-search:focus {
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: -1px;
         border-color: var(--vscode-focusBorder);
       }
 
-      .log-filter-input::placeholder {
-        color: var(--vscode-input-placeholderForeground);
-      }
-
-      .log-filter-date {
-        width: 130px;
-      }
-
-      .log-filter-actions {
+      .log-filter-popup-list {
         display: flex;
-        gap: 8px;
-        margin-top: 8px;
-        justify-content: flex-end;
+        flex-direction: column;
       }
 
-      .log-filter-button {
+      .log-filter-popup-section {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--vscode-descriptionForeground);
+        padding: 6px 6px 2px;
+      }
+
+      .log-filter-popup-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+        text-align: left;
+        padding: 4px 6px;
+        border: none;
+        border-radius: 3px;
+        background: none;
+        color: var(--vscode-foreground);
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .log-filter-popup-item:hover {
+        background-color: var(--vscode-list-hoverBackground);
+      }
+
+      .log-filter-popup-item.active {
+        color: var(--vscode-list-activeSelectionForeground);
+        background-color: var(--vscode-list-activeSelectionBackground);
+      }
+
+      .log-filter-check {
+        display: inline-block;
+        width: 12px;
+        flex: 0 0 12px;
+        text-align: center;
+      }
+
+      .log-filter-date-custom {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 4px;
+        padding-top: 6px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+
+      .log-filter-date-bound {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--vscode-foreground);
+      }
+
+      .log-filter-date-input {
+        margin-left: auto;
+        padding: 2px 4px;
+        border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+        border-radius: 3px;
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+      }
+
+      .log-filter-date-input:disabled {
+        opacity: 0.45;
+      }
+
+      .log-filter-popup-apply {
+        align-self: flex-end;
+        margin-top: 4px;
         padding: 4px 12px;
         border: none;
         border-radius: 3px;
         font-size: 12px;
         cursor: pointer;
-        transition: background-color 0.1s ease;
-      }
-
-      .log-filter-apply {
         background-color: var(--vscode-button-background);
         color: var(--vscode-button-foreground);
       }
 
-      .log-filter-apply:hover {
+      .log-filter-popup-apply:hover {
         background-color: var(--vscode-button-hoverBackground);
-      }
-
-      .log-filter-clear {
-        background-color: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-      }
-
-      .log-filter-clear:hover:not(:disabled) {
-        background-color: var(--vscode-button-secondaryHoverBackground);
-      }
-
-      .log-filter-clear:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-
-      .log-filter-button:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: 1px;
       }
 
       .log-split-view {
@@ -1479,15 +1493,6 @@ export function buildInlineStyles(): string {
         font-size: 12px;
       }
 
-      .file-status-indicator {
-        width: 16px;
-        font-size: 11px;
-        font-weight: bold;
-        margin-right: 6px;
-        flex-shrink: 0;
-        text-align: center;
-      }
-
       .file-name {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1513,6 +1518,25 @@ export function buildInlineStyles(): string {
         color: var(--vscode-descriptionForeground);
         font-size: 11px;
         text-decoration: line-through;
+      }
+
+      /* Per-file line diff stat: "(+N | -M)" — additions green, deletions red. */
+      .changed-file-stats {
+        /* Sits immediately to the right of the file name (not pushed to the row's
+           far edge). */
+        margin-left: 6px;
+        flex: 0 0 auto;
+        font-size: 11px;
+        white-space: nowrap;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      .changed-file-add {
+        color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-charts-green, #587c0c));
+      }
+
+      .changed-file-del {
+        color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-charts-red, #ad0707));
       }
 
       .no-parents {

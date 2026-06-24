@@ -81,6 +81,14 @@ export interface IMultiSelectMenuInputs {
   isHeadInSelection: boolean;
   /** `true` when at least one selected commit has ≥ 2 parents (a merge). */
   hasMergeCommitInSelection: boolean;
+  /**
+   * `true` when the single selected commit is contained in the current branch
+   * (an ancestor of HEAD, inclusive). Gates Fixup / Squash Into — IntelliJ
+   * `GitCommitEditingActionBase.checkCommitsCanBeEdited` greys them for commits
+   * not in HEAD. Defaults `true` when HEAD can't be resolved (merged scope /
+   * HEAD off the loaded window) so we never falsely grey an editable commit.
+   */
+  isSelectedInCurrentBranch: boolean;
 }
 
 /**
@@ -96,6 +104,13 @@ export interface IMenuStateNode {
    * `squashCommits` rule rejects regardless of contiguity.
    */
   parentCount: number;
+  /**
+   * Parent commit hashes (display order is implicit in array order). Used to
+   * walk HEAD's ancestor set for the "commit is in the current branch" gate on
+   * Fixup / Squash Into. Optional so existing fixtures/payloads that only carry
+   * `parentCount` still type-check (the gate then defaults to enabled).
+   */
+  parents?: string[];
   /**
    * Absolute repository root the rendered row belongs to, in the merged
    * "All Repositories" log. Carried per-row so a commit-targeted action
@@ -253,7 +268,13 @@ export function computeMenuVisibility(
 export function computeMenuEnableState(
   inputs: IMultiSelectMenuInputs
 ): Record<MultiSelectMenuAction, boolean> {
-  const { selectedCount, isContiguous, isHeadInSelection, hasMergeCommitInSelection } = inputs;
+  const {
+    selectedCount,
+    isContiguous,
+    isHeadInSelection,
+    hasMergeCommitInSelection,
+    isSelectedInCurrentBranch,
+  } = inputs;
   const isSingle = selectedCount === 1;
   const isAtLeastOne = selectedCount >= 1;
   const isAtLeastTwo = selectedCount >= 2;
@@ -284,9 +305,12 @@ export function computeMenuEnableState(
     // N=2
     compareVersions: selectedCount === 2,
     // single-only IntelliJ-parity entries (Git.Fixup.To.Commit /
-    // Git.Squash.Into.Commit). The handler does its own root/merge-commit guard.
-    fixup: isSingle,
-    squashInto: isSingle,
+    // Git.Squash.Into.Commit). Mirroring
+    // GitCommitEditingActionBase.checkCommitsEditingAvailability: greyed for a
+    // merge commit, or a commit not in the current branch (not an ancestor of
+    // HEAD). The handler also guards at perform-time.
+    fixup: isSingle && !hasMergeCommitInSelection && isSelectedInCurrentBranch,
+    squashInto: isSingle && !hasMergeCommitInSelection && isSelectedInCurrentBranch,
     compareWithBranch: isSingle,
     // IntelliJ Git.PushUpToHere — single-only.
     pushUpToCommit: isSingle,
@@ -359,12 +383,46 @@ export function computeMenuState(
     }
   }
 
+  // "Contained in the current branch" for the single selected commit: is it an
+  // ancestor of HEAD (inclusive)? Walk HEAD's ancestors over the loaded window
+  // following parent hashes. The log window is a topo-ordered prefix, so every
+  // descendant of an in-window commit is also in-window — making this walk EXACT
+  // for any right-clickable (in-window) commit. Defaults `true` when HEAD is
+  // unknown or off the loaded window (merged scope / far-detached) so we never
+  // falsely grey an editable commit.
+  let isSelectedInCurrentBranch = true;
+  if (selectedCount === 1 && headHash !== '' && indexByHash.has(headHash)) {
+    const reachable = new Set<string>();
+    const stack = [headHash];
+    while (stack.length > 0) {
+      const h = stack.pop()!;
+      if (reachable.has(h)) {
+        continue;
+      }
+      reachable.add(h);
+      const idx = indexByHash.get(h);
+      if (idx === undefined) {
+        continue; // parent scrolled off-window — a harmless dead-end
+      }
+      const parents = commitNodes[idx].parents;
+      if (parents) {
+        for (const p of parents) {
+          if (!reachable.has(p)) {
+            stack.push(p);
+          }
+        }
+      }
+    }
+    isSelectedInCurrentBranch = reachable.has(knownSelected[0]);
+  }
+
   const visibility = computeMenuVisibility(selectedCount);
   const enableState = computeMenuEnableState({
     selectedCount,
     isContiguous,
     isHeadInSelection,
     hasMergeCommitInSelection,
+    isSelectedInCurrentBranch,
   });
 
   // Derive a human-readable disabled reason for the
@@ -398,6 +456,18 @@ export function computeMenuState(
     ? 'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.'
     : undefined;
 
+  // Explain why Fixup / Squash Into are disabled (IntelliJ greys them for a
+  // merge commit or a commit that isn't in the current branch).
+  const commitEditReason = ((): string | undefined => {
+    if (hasMergeCommitInSelection) {
+      return 'Cannot fixup/squash a merge commit.';
+    }
+    if (!isSelectedInCurrentBranch) {
+      return 'Commit is not in the current branch.';
+    }
+    return undefined;
+  })();
+
   // Walk all action keys via the visibility record so the result is
   // statically guaranteed to cover every MultiSelectMenuAction.
   const result = {} as Record<MultiSelectMenuAction, IMenuItemState>;
@@ -417,6 +487,8 @@ export function computeMenuState(
       } else if (action === 'dropCommit') {
         // merge-commit gate.
         reason = dropReason;
+      } else if (action === 'fixup' || action === 'squashInto') {
+        reason = commitEditReason;
       }
       // compareVersions has no visible+disabled state by
       // construction, so no branch here. Other actions have trivial

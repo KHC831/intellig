@@ -28,7 +28,7 @@ function branch(name: string): IBranch {
 
 interface PostedMessage {
   type?: string;
-  branches?: string[];
+  branchGroups?: { local: string[]; remotes: Array<{ remote: string; branches: string[] }> };
 }
 
 /** Capture postMessage payloads from a stub view attached to the provider. */
@@ -68,7 +68,7 @@ function gitServiceWithBranches(
   });
 }
 
-describe('Branch filter selector — option source per scope', () => {
+describe('Branch popup — option source per scope', () => {
   let provider: GitToolWindowProvider;
   let posted: PostedMessage[];
   const repoA = repoAt('/repos/a');
@@ -101,7 +101,8 @@ describe('Branch filter selector — option source per scope', () => {
     (provider as any)._repositoryScope = 'all';
     await requestOptions();
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
-    assert.deepStrictEqual(msg?.branches, ['feature/a', 'feature/b', 'main']);
+    assert.deepStrictEqual(msg?.branchGroups?.local, ['feature/a', 'feature/b', 'main']);
+    assert.deepStrictEqual(msg?.branchGroups?.remotes, []);
   });
 
   it('lists only the selected repo’s branches in a single-repo scope', async () => {
@@ -109,7 +110,7 @@ describe('Branch filter selector — option source per scope', () => {
     (provider as any)._repositoryScope = 0; // repoA
     await requestOptions();
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
-    assert.deepStrictEqual(msg?.branches, ['main', 'feature/a']);
+    assert.deepStrictEqual(msg?.branchGroups?.local, ['feature/a', 'main']);
   });
 
   it('survives a hard rejection on ONE root (keeps the healthy roots, no throw)', async () => {
@@ -136,6 +137,10 @@ describe('Branch filter selector — option source per scope', () => {
 
     await assert.doesNotReject(() => requestOptions());
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
-    assert.deepStrictEqual(msg?.branches, ['feature/a', 'main'], 'healthy root survives');
+    assert.deepStrictEqual(
+      msg?.branchGroups?.local,
+      ['feature/a', 'main'],
+      'healthy root survives'
+    );
   });
 });

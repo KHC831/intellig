@@ -32,7 +32,7 @@ function runTabbedDocumentScripts(): {
       <div class="intellig-tab-panel" data-tab-panel="history">
         <div class="history-commit-row" data-rev="abcdef1"></div>
       </div>
-      <div class="repository-selector"></div>
+      <div class="log-filter-row" data-f-branch="" data-f-author="" data-f-path="" data-f-since="" data-f-until=""></div>
     </body>`,
     { runScripts: 'outside-only' }
   );

@@ -725,185 +725,103 @@ describe('Log View', () => {
     });
   });
 
-  describe('_getLogFilterBarHtml (#5 filter-bar UI)', () => {
-    it('emits the filter bar with the five wired inputs', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="log-filter-bar"'), 'has filter bar container');
+  describe('_getLogFilterRowHtml (IntelliJ filter row)', () => {
+    it('emits an always-visible filter row with the search field + four popup buttons', () => {
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(html.includes('class="log-filter-row"'), 'has the filter row');
+      assert.ok(!/class="log-filter-row"[^>]*\shidden/.test(html), 'the row is not hidden');
       assert.ok(html.includes('id="filter-search"'), 'has search input');
-      assert.ok(html.includes('id="filter-author"'), 'has author input');
-      assert.ok(html.includes('id="filter-path"'), 'has path input');
-      assert.ok(html.includes('id="filter-since"'), 'has since input');
-      assert.ok(html.includes('id="filter-until"'), 'has until input');
+      assert.ok(html.includes('data-popup="branch"'), 'has Branch popup');
+      assert.ok(html.includes('data-popup="user"'), 'has User popup');
+      assert.ok(html.includes('data-popup="date"'), 'has Date popup');
+      assert.ok(html.includes('data-popup="path"'), 'has Path popup');
     });
 
-    it('emits regex (.*) and match-case (Aa) toggle buttons next to the search input', () => {
-      const html = provider._getLogFilterBarHtml();
+    it('places the search field before the popup buttons', () => {
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(
+        html.indexOf('id="filter-search"') < html.indexOf('data-popup="branch"'),
+        'search precedes Branch'
+      );
+    });
+
+    it('emits regex (.*) and match-case (Aa) toggles next to the search input', () => {
+      const html = provider._getLogFilterRowHtml();
       assert.ok(html.includes('id="filter-search-regex"'), 'has regex toggle');
       assert.ok(html.includes('id="filter-search-case"'), 'has match-case toggle');
       assert.ok(html.includes('data-action="toggleSearchRegex"'), 'regex toggle wired');
       assert.ok(html.includes('data-action="toggleSearchCase"'), 'match-case toggle wired');
-      // The toggles sit after the search input (same group).
       assert.ok(
         html.indexOf('id="filter-search"') < html.indexOf('id="filter-search-regex"'),
         'search input precedes the regex toggle'
       );
     });
 
-    it('marks the toggles inactive (aria-pressed=false) when no filter is set', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(
-        /id="filter-search-regex"[^>]*aria-pressed="false"/.test(html),
-        'regex toggle starts unpressed'
-      );
-      assert.ok(
-        /id="filter-search-case"[^>]*aria-pressed="false"/.test(html),
-        'match-case toggle starts unpressed'
-      );
-    });
-
-    it('reflects searchRegex/searchCaseSensitive filter state in aria-pressed + active class', () => {
-      provider.setLogFilter({
-        searchText: 'token',
-        searchRegex: true,
-        searchCaseSensitive: true,
-      });
-      const html = provider._getLogFilterBarHtml();
+    it('reflects searchRegex/searchCaseSensitive state in aria-pressed + active class', () => {
+      provider.setLogFilter({ searchText: 'token', searchRegex: true, searchCaseSensitive: true });
+      const html = provider._getLogFilterRowHtml();
       assert.ok(
         /id="filter-search-regex"[^>]*aria-pressed="true"/.test(html),
-        'regex toggle pressed when searchRegex is set'
+        'regex toggle pressed'
       );
       assert.ok(
         /id="filter-search-case"[^>]*aria-pressed="true"/.test(html),
-        'match-case toggle pressed when searchCaseSensitive is set'
+        'match-case toggle pressed'
       );
       assert.ok(html.includes('class="log-filter-toggle-btn active"'), 'active class applied');
     });
 
-    it('wires Apply/Clear via data-action (CSP blocks inline onclick)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('data-action="applyLogFilter"'), 'apply uses data-action');
-      assert.ok(html.includes('data-action="clearLogFilter"'), 'clear uses data-action');
+    it('uses data-action wiring only (CSP blocks inline handlers)', () => {
+      const html = provider._getLogFilterRowHtml();
       assert.ok(!/onclick=/i.test(html), 'no inline onclick handlers');
-      assert.ok(!/onkeyup=|onkeydown=/i.test(html), 'no inline key handlers');
+      assert.ok(!/onkeyup=|onkeydown=|onchange=/i.test(html), 'no inline key/change handlers');
     });
 
-    it('is hidden until toggled open', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(/id="log-filter-bar"[^>]*\shidden/.test(html), 'filter bar starts hidden');
-    });
-
-    it('stays collapsed when a filter is set via a non-bar path (no auto-pop)', () => {
-      // Regression: picking a branch from the top selector sets filter.branch;
-      // the advanced filter bar used to un-hide whenever a filter existed
-      // (`active = filter !== undefined`), popping open unexpectedly.
-      provider.setLogFilter({ branch: 'feature/x' });
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(
-        /id="log-filter-bar"[^>]*\shidden/.test(html),
-        'bar must stay collapsed when a filter is set but the user did not toggle it open'
-      );
-    });
-
-    it('opens only after an explicit toggle (setLogFilterBarExpanded message)', () => {
-      (
-        provider as unknown as { _handleWebviewMessage: (m: unknown) => void }
-      )._handleWebviewMessage({ type: 'setLogFilterBarExpanded', expanded: true });
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(
-        !/id="log-filter-bar"[^>]*\shidden/.test(html),
-        'bar is shown after an explicit expand toggle'
-      );
-      assert.ok(html.includes('aria-expanded="true"'), 'toggle button reflects expanded state');
-    });
-
-    it('rehydrates the inputs from an active filter so a re-render keeps the values', () => {
+    it('mirrors the active filter into data-f-* attributes + the search value', () => {
       provider.setLogFilter({ author: 'Jane Smith', searchText: 'refactor', path: 'src/' });
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('value="Jane Smith"'), 'author value rehydrated');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(html.includes('data-f-author="Jane Smith"'), 'author mirrored');
+      assert.ok(html.includes('data-f-path="src/"'), 'path mirrored');
       assert.ok(html.includes('value="refactor"'), 'search value rehydrated');
-      assert.ok(html.includes('value="src/"'), 'path value rehydrated');
+    });
+
+    it('shows the active branch/author/path as popup button values', () => {
+      provider.setLogFilter({ branch: 'feature/x', author: 'jane', path: 'src/app' });
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(/id="filter-branch-value">feature\/x</.test(html), 'Branch value shown');
+      assert.ok(/id="filter-user-value">jane</.test(html), 'User value shown');
+      assert.ok(/id="filter-path-value">app</.test(html), 'Path value shows the leaf');
     });
 
     it('escapes filter values to prevent attribute-injection', () => {
       provider.setLogFilter({ searchText: '"><img src=x>' });
-      const html = provider._getLogFilterBarHtml();
+      const html = provider._getLogFilterRowHtml();
       assert.ok(!html.includes('"><img src=x>'), 'raw injection payload not present');
       assert.ok(html.includes('&quot;&gt;&lt;img'), 'value is HTML-escaped');
     });
 
-    it('emits a toolbar toggle button wired to toggleLogFilters', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('data-action="toggleLogFilters"'), 'toggle button present');
+    it('offers the Date presets and the custom Select… range', () => {
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(html.includes('data-range="24h"'), 'Last 24 Hours preset');
+      assert.ok(html.includes('data-range="7d"'), 'Last 7 Days preset');
+      assert.ok(html.includes('data-action="dateSelectCustom"'), 'custom Select… entry');
+      assert.ok(html.includes('id="filter-after-enabled"'), 'After bound checkbox');
+      assert.ok(html.includes('id="filter-before-enabled"'), 'Before bound checkbox');
     });
 
-    it('emits a plain free-text branch input first (no native datalist popup)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-branch"'), 'has branch input');
-      // The native <datalist> autocomplete was removed (Chromium renders its
-      // popup in an unstyleable UA layer); branch picking lives in the top
-      // branch-filter <select>, this field stays free-text for ranges/refs.
-      assert.ok(!html.includes('list="filter-branch-options"'), 'branch input not datalist-wired');
-      assert.ok(!html.includes('id="filter-branch-options"'), 'branch datalist removed');
-      // Branch comes before Author in the filter row.
-      assert.ok(
-        html.indexOf('id="filter-branch"') < html.indexOf('id="filter-author"'),
-        'branch field precedes author field'
-      );
-    });
-
-    it('author input is plain free-text (no native datalist popup)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-author"'), 'has author input');
-      assert.ok(!html.includes('list="filter-author-options"'), 'author input not datalist-wired');
-      assert.ok(!html.includes('id="filter-author-options"'), 'author datalist removed');
-    });
-
-    it('rehydrates the branch input from an active filter', () => {
-      provider.setLogFilter({ branch: 'feature/x' });
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('value="feature/x"'), 'branch value rehydrated');
-    });
-
-    it('emits a No Merges toggle (IntelliJ vcs.log.filter.no.merges)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-no-merges"'), 'has no-merges checkbox');
-      assert.ok(html.includes('No Merges'), 'has No Merges label');
-    });
-
-    it('rehydrates the No Merges toggle from an active filter', () => {
-      provider.setLogFilter({ noMerges: true });
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(/id="filter-no-merges"[^>]*\schecked/.test(html), 'no-merges box checked');
-    });
-
-    it('emits a First Parent toggle (IntelliJ graph.options.first.parent)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-first-parent"'), 'has first-parent checkbox');
-      assert.ok(html.includes('First Parent'), 'has First Parent label');
-    });
-
-    it('emits a Simplify Merges toggle (IntelliJ graph options chooser)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-simplify-merges"'), 'has simplify-merges checkbox');
-      assert.ok(html.includes('Simplify Merges'), 'has Simplify Merges label');
-    });
-
-    it('emits min/max parent-count inputs (IntelliJ ParentFilterModel)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-min-parents"'), 'has min-parents input');
-      assert.ok(html.includes('id="filter-max-parents"'), 'has max-parents input');
-    });
-
-    it('hints range notation (A..B) in the branch input placeholder', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(
-        /id="filter-branch"[^>]*placeholder="[^"]*A\.\.B/.test(html),
-        'branch placeholder hints A..B range'
-      );
+    it('drops the removed controls (no-merges / first-parent / simplify / parents / cherry-compare / toggle / apply)', () => {
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(!html.includes('filter-no-merges'), 'no No-Merges control');
+      assert.ok(!html.includes('filter-first-parent'), 'no First-Parent control');
+      assert.ok(!html.includes('filter-simplify-merges'), 'no Simplify-Merges control');
+      assert.ok(!html.includes('filter-min-parents'), 'no parents control');
+      assert.ok(!html.includes('filter-cherry-compare'), 'no Cherry-compare control');
+      assert.ok(!html.includes('toggleLogFilters'), 'no Filter toggle button');
+      assert.ok(!html.includes('data-action="applyLogFilter"'), 'no Apply button (applies live)');
     });
   });
 
-  describe('_handleApplyLogFilter — No Merges mapping', () => {
+  describe('_handleApplyLogFilter — filter mapping', () => {
     function applyFilter(p: GitToolWindowProvider, filter: unknown): void {
       (p as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
         type: 'applyLogFilter',
@@ -911,36 +829,9 @@ describe('Log View', () => {
       });
     }
 
-    it('maps noMerges:true through to the requested ILogFilter', (done) => {
-      const disposable = provider.onDidRequestLogFilter((filter) => {
-        disposable.dispose();
-        assert.ok(filter, 'a filter is requested');
-        assert.strictEqual(filter?.noMerges, true);
-        done();
-      });
-      applyFilter(provider, { noMerges: true });
-    });
-
-    it('treats noMerges:true alone as a non-empty filter', (done) => {
-      const disposable = provider.onDidRequestLogFilter((filter) => {
-        disposable.dispose();
-        assert.notStrictEqual(filter, undefined, 'noMerges-only must not collapse to undefined');
-        done();
-      });
-      applyFilter(provider, {
-        searchText: '',
-        author: '',
-        path: '',
-        since: null,
-        until: null,
-        noMerges: true,
-      });
-    });
-
     it('maps a branch value through to the requested ILogFilter', (done) => {
       const disposable = provider.onDidRequestLogFilter((filter) => {
         disposable.dispose();
-        assert.ok(filter, 'a filter is requested');
         assert.strictEqual(filter?.branch, 'main');
         done();
       });
@@ -960,7 +851,6 @@ describe('Log View', () => {
         branch: '',
         since: null,
         until: null,
-        noMerges: false,
       });
     });
 
@@ -974,75 +864,24 @@ describe('Log View', () => {
       applyFilter(provider, { branch: 'main..feature' });
     });
 
-    it('maps firstParent/simplifyMerges flags through to the requested ILogFilter', (done) => {
+    it('maps search/author/path through to the requested ILogFilter', (done) => {
       const disposable = provider.onDidRequestLogFilter((filter) => {
         disposable.dispose();
-        assert.strictEqual(filter?.firstParent, true);
-        assert.strictEqual(filter?.simplifyMerges, true);
+        assert.strictEqual(filter?.searchText, 'fix');
+        assert.strictEqual(filter?.author, 'jane');
+        assert.strictEqual(filter?.path, 'src/');
         done();
       });
-      applyFilter(provider, { firstParent: true, simplifyMerges: true });
+      applyFilter(provider, { searchText: 'fix', author: 'jane', path: 'src/' });
     });
 
-    it('maps min/max parent counts through to the requested ILogFilter', (done) => {
+    it('maps a since date through to the requested ILogFilter', (done) => {
       const disposable = provider.onDidRequestLogFilter((filter) => {
         disposable.dispose();
-        assert.strictEqual(filter?.minParents, 1);
-        assert.strictEqual(filter?.maxParents, 2);
+        assert.ok(filter?.since instanceof Date, 'since is a Date');
         done();
       });
-      applyFilter(provider, { minParents: 1, maxParents: 2 });
-    });
-  });
-
-  describe('Cherry-compare with (G4 manual cherry-compare base ref)', () => {
-    function applyFilter(p: GitToolWindowProvider, filter: unknown): void {
-      (p as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
-        type: 'applyLogFilter',
-        filter,
-      });
-    }
-
-    it('renders a "filter-cherry-compare" input in the filter bar', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('id="filter-cherry-compare"'), 'has cherry-compare input');
-    });
-
-    it('cherry-compare input is plain free-text (no native datalist popup)', () => {
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(
-        !/id="filter-cherry-compare"[^>]*list=/.test(html),
-        'cherry-compare input is not datalist-wired'
-      );
-    });
-
-    it('rehydrates the cherry-compare input value from manualCherryCompareRef state', () => {
-      (
-        provider as unknown as { _extendedLogState: { manualCherryCompareRef?: string } }
-      )._extendedLogState.manualCherryCompareRef = 'feature/x';
-      const html = provider._getLogFilterBarHtml();
-      assert.ok(
-        /id="filter-cherry-compare"[^>]*value="feature\/x"/.test(html),
-        'cherry-compare value rehydrated'
-      );
-    });
-
-    it('fires onDidRequestCherryCompareRef with the ref when applyLogFilter carries cherryCompareRef', (done) => {
-      const disposable = provider.onDidRequestCherryCompareRef((ref) => {
-        disposable.dispose();
-        assert.strictEqual(ref, 'main', 'override ref forwarded');
-        done();
-      });
-      applyFilter(provider, { cherryCompareRef: 'main' });
-    });
-
-    it('fires onDidRequestCherryCompareRef with undefined when cherryCompareRef is empty', (done) => {
-      const disposable = provider.onDidRequestCherryCompareRef((ref) => {
-        disposable.dispose();
-        assert.strictEqual(ref, undefined, 'empty ref reverts to auto-upstream');
-        done();
-      });
-      applyFilter(provider, { cherryCompareRef: '' });
+      applyFilter(provider, { since: '2026-01-01' });
     });
   });
 });
@@ -1674,24 +1513,23 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('_getRepositorySelectorHtml', () => {
-    it('should return empty string when no repositories are available', () => {
+  describe('Path popup — repository scope rows', () => {
+    it('renders no repo rows when no repositories are available', () => {
       provider.setAvailableRepositories([]);
-      const html = provider._getRepositorySelectorHtml();
-      assert.strictEqual(html, '');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(!html.includes('pickRepoScope'), 'no repo rows with zero repos');
     });
 
-    it('should return empty string when only one repository is available', () => {
+    it('renders no repo rows when only one repository is available', () => {
       const repos = [createMockRepository('/workspace/my-repo')];
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.strictEqual(html, '');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(!html.includes('pickRepoScope'), 'no repo rows with a single repo');
     });
 
-    it('should render a select dropdown when multiple repositories are available', () => {
+    it('renders a repo row per repo when multiple repositories are available', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1699,14 +1537,15 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(html.includes('<select'), 'Should contain a <select> element');
-      assert.ok(html.includes('</select>'), 'Should close the <select> element');
-      assert.ok(html.includes('repository-selector'), 'Should have repository-selector class');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(html.includes('data-action="pickRepoScope"'), 'has repo rows');
+      assert.ok(html.includes('data-repo-index="0"'), 'row for repo 0');
+      assert.ok(html.includes('data-repo-index="1"'), 'row for repo 1');
+      assert.ok(html.includes('data-repo-index="all"'), 'has the All repositories row');
+      assert.ok(html.includes('All repositories'), 'All repositories label');
     });
 
-    it('should display folder name (last path segment) for each repository', () => {
+    it('displays the folder name (last path segment) for each repository', () => {
       const repos = [
         createMockRepository('/workspace/frontend'),
         createMockRepository('/workspace/backend'),
@@ -1715,28 +1554,13 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(html.includes('frontend'), 'Should display folder name "frontend"');
-      assert.ok(html.includes('backend'), 'Should display folder name "backend"');
-      assert.ok(html.includes('shared-lib'), 'Should display folder name "shared-lib"');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(html.includes('frontend'), 'shows folder name "frontend"');
+      assert.ok(html.includes('backend'), 'shows folder name "backend"');
+      assert.ok(html.includes('shared-lib'), 'shows folder name "shared-lib"');
     });
 
-    it('should render an option for each repository with correct value', () => {
-      const repos = [
-        createMockRepository('/workspace/repo-a'),
-        createMockRepository('/workspace/repo-b'),
-      ];
-      provider.setAvailableRepositories(
-        repos as Parameters<typeof provider.setAvailableRepositories>[0]
-      );
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(html.includes('value="0"'), 'Should have option with value 0');
-      assert.ok(html.includes('value="1"'), 'Should have option with value 1');
-    });
-
-    it('should mark the selected repository option as selected', () => {
+    it('marks the scoped repo row active and the All row inactive', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1745,27 +1569,26 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-
-      // Select the second repo
       (
         provider as unknown as { _handleRepositorySelection: (index: number) => void }
       )._handleRepositorySelection(1);
 
-      const html = provider._getRepositorySelectorHtml();
-      // The option with value="1" should have the selected attribute
-      assert.ok(html.includes('value="1" selected'), 'Second option should be marked as selected');
-      // The option with value="0" should NOT have selected
+      const html = provider._getLogFilterRowHtml();
       assert.ok(
-        !html.includes('value="0" selected'),
-        'First option should not be marked as selected'
+        html.includes(
+          'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="1"'
+        ),
+        'scoped repo row is active'
+      );
+      assert.ok(
+        !html.includes(
+          'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="all"'
+        ),
+        'All row is not active when a concrete repo is scoped'
       );
     });
 
-    it('should NOT call acquireVsCodeApi inside the selector HTML (regression: dropdown was a no-op)', () => {
-      // VS Code only allows acquireVsCodeApi() once per webview lifetime.
-      // The main inline script already acquires it, so any second call
-      // inside the selector throws DOMException and silently drops the
-      // user's selection. This test pins the fix in place.
+    it('marks the All row active when the scope is all', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1773,40 +1596,20 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
+      (
+        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
+      )._handleRepositorySelection('all');
 
-      const html = provider._getRepositorySelectorHtml();
+      const html = provider._getLogFilterRowHtml();
       assert.ok(
-        !html.includes('acquireVsCodeApi'),
-        'Selector HTML must not call acquireVsCodeApi — the change listener is wired from the main inline script'
-      );
-      assert.ok(
-        !html.includes('onchange='),
-        'Selector HTML must not use an inline onchange handler'
+        html.includes(
+          'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="all"'
+        ),
+        'All row active when scope is all'
       );
     });
 
-    it('should wire the selectRepository message via the main inline script', () => {
-      // The change listener that posts `selectRepository` is registered
-      // from `_getInlineScript`, where the single `vscode` API instance
-      // already lives.
-      const inlineScript = (
-        provider as unknown as { _getInlineScript: () => string }
-      )._getInlineScript();
-      assert.ok(
-        inlineScript.includes('selectRepository'),
-        'Inline script should post the selectRepository message type'
-      );
-      assert.ok(
-        inlineScript.includes('repositoryIndex'),
-        'Inline script should reference repositoryIndex in the payload'
-      );
-      assert.ok(
-        inlineScript.includes('repository-selector'),
-        'Inline script should bind the change listener to the .repository-selector element'
-      );
-    });
-
-    it('should escape HTML special characters in folder names', () => {
+    it('escapes HTML special characters in repo folder names', () => {
       const repos = [
         createMockRepository('/workspace/repo<em>test'),
         createMockRepository('/workspace/normal-repo'),
@@ -1814,13 +1617,30 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(!html.includes('<em>'), 'Should escape HTML tags in folder names');
-      assert.ok(html.includes('&lt;em&gt;'), 'Should contain escaped tag');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(!html.includes('<em>'), 'escapes HTML tags in folder names');
+      assert.ok(html.includes('&lt;em&gt;'), 'contains the escaped tag');
     });
 
-    it('renders an "All Repositories" option only when more than one repository exists', () => {
+    it('wires repo-scope selection (selectRepository / repositoryIndex) via the inline script', () => {
+      const inlineScript = (
+        provider as unknown as { _getInlineScript: () => string }
+      )._getInlineScript();
+      assert.ok(
+        inlineScript.includes('selectRepository'),
+        'inline script posts the selectRepository message type'
+      );
+      assert.ok(
+        inlineScript.includes('repositoryIndex'),
+        'inline script references repositoryIndex in the payload'
+      );
+      assert.ok(
+        inlineScript.includes('pickRepoScope'),
+        'inline script handles the Path-popup repo-row action'
+      );
+    });
+
+    it('uses no inline handlers / no second acquireVsCodeApi in the filter row HTML', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1828,59 +1648,9 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(html.includes('value="all"'), 'multi-repo selector must offer the all option');
-      assert.ok(
-        html.includes('All Repositories'),
-        'the all option must carry a human-readable label'
-      );
-    });
-
-    it('marks the "All Repositories" option as selected when the scope is all', () => {
-      const repos = [
-        createMockRepository('/workspace/repo-a'),
-        createMockRepository('/workspace/repo-b'),
-      ];
-      provider.setAvailableRepositories(
-        repos as Parameters<typeof provider.setAvailableRepositories>[0]
-      );
-
-      // Drive scope to all explicitly (config seeding is off in this suite).
-      (
-        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
-      )._handleRepositorySelection('all');
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(
-        html.includes('value="all" selected'),
-        'the all option must be selected when scope is all'
-      );
-      assert.ok(
-        !html.includes('value="0" selected'),
-        'no concrete repo option should be selected when scope is all'
-      );
-    });
-
-    it('does NOT mark the all option selected when a specific repo is the scope', () => {
-      const repos = [
-        createMockRepository('/workspace/repo-a'),
-        createMockRepository('/workspace/repo-b'),
-      ];
-      provider.setAvailableRepositories(
-        repos as Parameters<typeof provider.setAvailableRepositories>[0]
-      );
-
-      (
-        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
-      )._handleRepositorySelection(1);
-
-      const html = provider._getRepositorySelectorHtml();
-      assert.ok(
-        !html.includes('value="all" selected'),
-        'the all option must not be selected when a specific repo is scoped'
-      );
-      assert.ok(html.includes('value="1" selected'), 'the chosen repo option must be selected');
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(!html.includes('acquireVsCodeApi'), 'no acquire in the row HTML');
+      assert.ok(!/onchange=|onclick=/i.test(html), 'no inline handlers in the row HTML');
     });
   });
 
@@ -2061,25 +1831,21 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('scriptBuilder routes the all sentinel', () => {
-    it('handles value === "all" before the numeric finite guard and posts the all sentinel', () => {
+  describe('scriptBuilder routes the all sentinel (Path-popup repo rows)', () => {
+    it('maps the "all" repo row to the all sentinel and numeric rows to indices', () => {
       const inlineScript = (
         provider as unknown as { _getInlineScript: () => string }
       )._getInlineScript();
 
-      // Scope the ordering check to the repository-selector handler tokens so
-      // it can't be satisfied by an unrelated earlier Number() elsewhere.
-      const allBranchIdx = inlineScript.indexOf("target.value === 'all'");
-      const numberGuardIdx = inlineScript.indexOf('Number(target.value)');
-      assert.ok(allBranchIdx >= 0, 'inline script must branch on the all sentinel');
-      assert.ok(numberGuardIdx >= 0, 'inline script must still parse numeric indices');
+      // The pickRepoScope handler must treat the 'all' sentinel BEFORE coercing
+      // to a number (Number('all') is NaN and would drop the selection).
       assert.ok(
-        allBranchIdx < numberGuardIdx,
-        'the all branch must be handled BEFORE Number(target.value) drops it as NaN'
+        inlineScript.includes("idx === 'all' ? 'all' : Number(idx)"),
+        'inline script must short-circuit the all sentinel before Number()'
       );
       assert.ok(
-        inlineScript.includes("repositoryIndex: 'all'"),
-        'inline script must post the all sentinel as repositoryIndex'
+        inlineScript.includes('repositoryIndex:'),
+        'inline script must post repositoryIndex'
       );
     });
   });
@@ -2179,8 +1945,8 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('_getGraphPanelHtml repository selector integration', () => {
-    it('should include repository selector in graph panel when multiple repos exist', () => {
+  describe('_getGraphPanelHtml Path-popup repo-scope integration', () => {
+    it('should include Path-popup repo rows in graph panel when multiple repos exist', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -2206,14 +1972,14 @@ describe('Multi-Repository Selection State', () => {
 
       const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
       assert.ok(
-        graphHtml.includes('repository-selector'),
-        'Graph panel should include repository selector'
+        graphHtml.includes('pickRepoScope'),
+        'Graph panel should include Path-popup repo rows'
       );
       assert.ok(graphHtml.includes('repo-a'), 'Should show repo-a folder name');
       assert.ok(graphHtml.includes('repo-b'), 'Should show repo-b folder name');
     });
 
-    it('should not include repository selector in graph panel when only one repo exists', () => {
+    it('should not include repo rows in graph panel when only one repo exists', () => {
       const repos = [createMockRepository('/workspace/only-repo')];
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
@@ -2235,18 +2001,18 @@ describe('Multi-Repository Selection State', () => {
 
       const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
       assert.ok(
-        !graphHtml.includes('repository-selector'),
-        'Graph panel should not include repository selector'
+        !graphHtml.includes('pickRepoScope'),
+        'Graph panel should not include repo rows for a single repo'
       );
     });
 
-    it('should not include repository selector in graph panel when no repos exist', () => {
+    it('should not include repo rows in graph panel when no repos exist', () => {
       provider.setAvailableRepositories([]);
 
       const graphHtml = provider._getGraphPanelHtml([]);
       assert.ok(
-        !graphHtml.includes('repository-selector'),
-        'Graph panel should not include repository selector'
+        !graphHtml.includes('pickRepoScope'),
+        'Graph panel should not include repo rows with no repos'
       );
     });
   });
@@ -3149,13 +2915,16 @@ describe('pushUpToCommit — commit context menu wiring (Gap B)', () => {
     p.dispose();
   });
 
-  it('commit-context-menu HTML includes a "Push up to here" item with data-action="pushUpToCommit"', () => {
+  it('commit-context-menu HTML includes a "Push All up to Here…" item with data-action="pushUpToCommit"', () => {
     const html = p._getCommitContextMenuHtml();
     assert.ok(
       /data-action="pushUpToCommit"/.test(html),
       'Commit context menu must include a pushUpToCommit action item'
     );
-    assert.ok(/[Pp]ush up to here/i.test(html), 'Item label must say "Push up to here"');
+    assert.ok(
+      /Push All up to Here/i.test(html),
+      'Item label must say "Push All up to Here" (IntelliJ Git.PushUpToCommit)'
+    );
   });
 
   it('commitContextMenu webview message with action pushUpToCommit fires onDidRequestLogContextAction', (done) => {

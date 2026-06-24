@@ -63,6 +63,7 @@ const baseInputs = {
   isContiguous: false,
   isHeadInSelection: false,
   hasMergeCommitInSelection: false,
+  isSelectedInCurrentBranch: true,
 };
 
 // ─── buildCommitRows: data-parents attribute ────────────────────────────────
