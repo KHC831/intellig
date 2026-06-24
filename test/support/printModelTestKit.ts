@@ -144,6 +144,7 @@ export function paintFabricatedRow(
     continuesFromAbove: Iterable<number>;
     continuesBelow: Iterable<number>;
     incomingBendLanes: Iterable<number>;
+    bendsLandingBelow: Iterable<number>;
     isTerminal: boolean;
     isBranchSplit: boolean;
     isLastRow: boolean;
@@ -156,6 +157,7 @@ export function paintFabricatedRow(
     continuesFromAbove: new Set<number>(ctx.continuesFromAbove ?? []),
     continuesBelow: new Set<number>(ctx.continuesBelow ?? []),
     incomingBendLanes: new Set<number>(ctx.incomingBendLanes ?? []),
+    bendsLandingBelow: new Set<number>(ctx.bendsLandingBelow ?? []),
     isTerminal: ctx.isTerminal ?? false,
     isBranchSplit: ctx.isBranchSplit ?? false,
     isLastRow: ctx.isLastRow ?? false,
@@ -186,11 +188,22 @@ export function paintDagRow(
   const above = computeLaneContinuesFromAbove(nodes);
   const below = computeLaneContinuesBelow(nodes);
   const incoming = computeIncomingBendsMap(nodes);
+  // Source lanes whose far-parent bend lands at rowIndex+1 need to bottom this
+  // row (mirrors printModel.computeBendsLandingBelowMap for this single row).
+  const bendsLandingBelow = new Set<number>();
+  for (const n of nodes) {
+    for (const line of n.graphLines) {
+      if (line.endRow === rowIndex + 1) {
+        bendsLandingBelow.add(line.fromColumn);
+      }
+    }
+  }
   const model = projectRow(nodes[rowIndex], rowIndex, {
     activeLanes: active.get(rowIndex) ?? new Set<number>(),
     continuesFromAbove: above.get(rowIndex) ?? new Set<number>(),
     continuesBelow: below.get(rowIndex) ?? new Set<number>(),
     incomingBendLanes: incoming.get(nodes[rowIndex].commit.hash) ?? new Set<number>(),
+    bendsLandingBelow,
     isTerminal: overrides.isTerminal ?? false,
     isBranchSplit: overrides.isBranchSplit ?? false,
     isLastRow: rowIndex === nodes.length - 1,

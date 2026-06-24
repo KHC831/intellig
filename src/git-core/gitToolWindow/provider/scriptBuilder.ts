@@ -55,6 +55,24 @@ export function buildInlineScript(): string {
           });
         }
 
+        // Branch-filter selector wiring. Picking a branch scopes the log to it;
+        // the "__all__" sentinel drops the branch scope. The host validates the
+        // value before it reaches \`git log <branch>\`. Options are filled lazily
+        // by the \`logFilterOptionsReady\` handler below, so request them once on
+        // load (the dropdown is always visible, unlike the collapsible bar).
+        const branchFilterSelect = document.querySelector('.branch-filter-selector');
+        if (branchFilterSelect) {
+          branchFilterSelect.addEventListener('change', function(e) {
+            const target = e.target;
+            if (!target) return;
+            vscode.postMessage({
+              type: 'selectBranchFilter',
+              branch: target.value === '__all__' ? null : target.value,
+            });
+          });
+          vscode.postMessage({ type: 'requestLogFilterOptions' });
+        }
+
         // Multi-select webview state.
         //
         // The HOST is the source of truth for menu visibility/enable
@@ -297,6 +315,77 @@ export function buildInlineScript(): string {
           parentsRow.appendChild(parentsVal);
           meta.appendChild(parentsRow);
 
+          // "Contained in branches" row (mirrors IntelliJ ContainingBranchesPanel /
+          // CommitPresentationUtil.getBranchesLinkText): the header carries the
+          // FULL branch count ("In N branch(es):") in both collapsed and expanded
+          // states, or a loading / "not in any branch" phrase. Past the threshold
+          // the names collapse to the first N + a "Show all" toggle. Branch names
+          // cross as DATA (textContent), never interpolated markup.
+          const branchesRow = make('div', 'detail-row containing-branches-row');
+          const branchesLabel = make('span', 'detail-label');
+          const containing = model.containingBranches;
+          if (!containing) {
+            branchesLabel.textContent = 'In branches: loading…';
+            branchesRow.appendChild(branchesLabel);
+          } else if (containing.length === 0) {
+            branchesLabel.textContent = 'Not in any branch';
+            branchesRow.appendChild(branchesLabel);
+          } else {
+            branchesLabel.textContent =
+              'In ' + containing.length + (containing.length === 1 ? ' branch:' : ' branches:');
+            branchesRow.appendChild(branchesLabel);
+            const branchesVal = make('span', 'detail-value containing-branches-value');
+            const threshold = model.branchCollapseThreshold || 3;
+            const appendNames = function (parent, names) {
+              names.forEach(function (name, i) {
+                if (i > 0) parent.appendChild(document.createTextNode(', '));
+                const span = make('span', 'containing-branch');
+                span.textContent = name;
+                parent.appendChild(span);
+              });
+            };
+            if (containing.length <= threshold) {
+              const all = make('span', 'branches-collapsed');
+              appendNames(all, containing);
+              branchesVal.appendChild(all);
+            } else {
+              const collapsed = make('span', 'branches-collapsed');
+              appendNames(collapsed, containing.slice(0, threshold));
+              collapsed.appendChild(document.createTextNode(' … '));
+              const expanded = make('span', 'branches-expanded');
+              expanded.style.display = 'none';
+              appendNames(expanded, containing);
+              expanded.appendChild(document.createTextNode(' '));
+
+              const toggle = function (showExpanded) {
+                collapsed.style.display = showExpanded ? 'none' : '';
+                expanded.style.display = showExpanded ? '' : 'none';
+              };
+              const linkButton = function (className, label, expand) {
+                const a = make('a', className);
+                a.setAttribute('role', 'button');
+                a.setAttribute('tabindex', '0');
+                a.textContent = label;
+                a.addEventListener('click', function () {
+                  toggle(expand);
+                });
+                a.addEventListener('keydown', function (e) {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle(expand);
+                  }
+                });
+                return a;
+              };
+              collapsed.appendChild(linkButton('branches-show-all', 'Show all', true));
+              expanded.appendChild(linkButton('branches-hide', 'Hide', false));
+              branchesVal.appendChild(collapsed);
+              branchesVal.appendChild(expanded);
+            }
+            branchesRow.appendChild(branchesVal);
+          }
+          meta.appendChild(branchesRow);
+
           panel.appendChild(meta);
           return panel;
 
@@ -482,6 +571,33 @@ export function buildInlineScript(): string {
             };
             fillDatalist('filter-branch-options', message.branches);
             fillDatalist('filter-author-options', message.contributors);
+
+            // Populate the branch-filter dropdown from the same ref-aware list,
+            // preserving the active branch carried in data-selected-branch (and
+            // appending it if it is outside the fetched window, so the selection
+            // holds). Built via createElement — value/textContent cross as data.
+            const branchSelect = document.querySelector('.branch-filter-selector');
+            if (branchSelect && Array.isArray(message.branches)) {
+              const current = branchSelect.getAttribute('data-selected-branch') || '';
+              branchSelect.replaceChildren();
+              const allOption = document.createElement('option');
+              allOption.value = '__all__';
+              allOption.textContent = 'All branches';
+              branchSelect.appendChild(allOption);
+              message.branches.forEach(function(name) {
+                const option = document.createElement('option');
+                option.value = String(name);
+                option.textContent = String(name);
+                branchSelect.appendChild(option);
+              });
+              if (current && message.branches.indexOf(current) === -1) {
+                const option = document.createElement('option');
+                option.value = current;
+                option.textContent = current;
+                branchSelect.appendChild(option);
+              }
+              branchSelect.value = current ? current : '__all__';
+            }
           }
           // Partial-update path for branch focus. The
           // render-time \`_getBranchLabelsHtml\` is the source of truth;
@@ -506,6 +622,22 @@ export function buildInlineScript(): string {
                 chip.classList.add('branch-label-focused');
               } else {
                 chip.classList.remove('branch-label-focused');
+              }
+            });
+          }
+          // Highlight the commits common to a selected non-checked-out branch and
+          // HEAD (IntelliJ CurrentBranchHighlighter). Clear every row first, then
+          // re-apply to the hashes the host sent (empty payload = clear).
+          if (message.type === 'highlightCommonCommits') {
+            const hashes = Array.isArray(message.hashes) ? message.hashes : [];
+            document.querySelectorAll('.commit-row.commit-row-common').forEach(function(row) {
+              row.classList.remove('commit-row-common');
+            });
+            hashes.forEach(function(hash) {
+              // Hashes are hex (host-validated), so no selector-injection risk.
+              const row = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+              if (row) {
+                row.classList.add('commit-row-common');
               }
             });
           }
@@ -1203,11 +1335,19 @@ export function buildInlineScript(): string {
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
 
-            const left = x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x;
-            const top = y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y;
+            // Clamp to >= 8px so the menu never starts off the top/left edge
+            // (a short window made the top coordinate negative, pushing the
+            // first items off-screen above the viewport).
+            const left = Math.max(8, x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x);
+            const top = Math.max(8, y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y);
 
             contextMenu.style.left = left + 'px';
             contextMenu.style.top = top + 'px';
+            // Cap the menu to the remaining viewport height and scroll the
+            // overflow, so a tall menu in a short window keeps every item
+            // reachable instead of spilling off the bottom edge.
+            contextMenu.style.maxHeight = (viewportHeight - top - 10) + 'px';
+            contextMenu.style.overflowY = 'auto';
 
             applyMenuEnableMap(contextMenu);
 

@@ -959,6 +959,18 @@ export interface IGitService {
   // Branch operations
   getBranches(repo: IRepository): Promise<IBranch[]>;
   /**
+   * Branches (local + remote) that contain the given commit, sorted
+   * alphabetically. Backs the "Contained in branches" row in the commit
+   * details panel. Degrades to an empty list on failure.
+   */
+  getContainingBranches(repo: IRepository, hash: string): Promise<string[]>;
+  /**
+   * Commits common to HEAD and `ref` (reachable from both). Backs the
+   * "highlight common commits" treatment when a non-checked-out branch is
+   * selected. Degrades to an empty list on failure or unrelated histories.
+   */
+  getCommonCommits(repo: IRepository, ref: string): Promise<string[]>;
+  /**
    * Distinct commit authors across all refs, formatted `"Name <email>"`,
    * in descending commit-count order, capped at 500. Source for the
    * ref-aware author datalist in the log filter bar.

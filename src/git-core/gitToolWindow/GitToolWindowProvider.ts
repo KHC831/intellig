@@ -175,7 +175,6 @@ export type LocalChangesContextAction =
  */
 export type LogContextAction =
   | 'copyHash'
-  | 'copyCommitMessage'
   | 'createPatch'
   | 'cherryPick'
   | 'checkoutRevision'
@@ -186,27 +185,15 @@ export type LogContextAction =
   | 'undoCommit'
   | 'dropCommit'
   | 'editCommitMessage'
-  | 'mergeIntoCurrent'
   | 'interactiveRebase'
-  // multi-select-only actions. Stub handlers in
-  // CommitContextMenuCommands surface a "lands in " toast until
-  // the real implementations land. Adding them to the union (C-2) makes
-  // the cast in `_handleCommitContextMenu` truthful again.
+  // multi-select-only actions.
   | 'squashCommits'
   | 'compareVersions'
-  // IntelliJ-parity additions. Single-only entries
-  // that route through dedicated handlers in CommitContextMenuCommands.
-  // squashWithPrevious / fixupWithPrevious synthesise a 2-commit selection
-  // and reuse `_handleSquashCommits` (single source of truth for the
-  // squash plan). compareWithBranch opens a QuickPick listing local +
-  // remote branches + tags and routes through BranchComparisonView.
-  | 'squashWithPrevious'
-  | 'fixupWithPrevious'
+  // compareWithBranch opens a QuickPick listing local + remote branches + tags
+  // and routes through BranchComparisonView.
   // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: commit the
   // currently-staged changes as a `fixup!`/`squash!` of the selected commit
-  // (git commit --fixup=<hash> / --squash=<hash>). Distinct from the
-  // with-previous rewrites above, which rebase the selected commit into its
-  // parent. Single-only.
+  // (git commit --fixup=<hash> / --squash=<hash>). Single-only.
   | 'fixup'
   | 'squashInto'
   | 'compareWithBranch'
@@ -351,6 +338,28 @@ export class GitToolWindowProvider
   private _resetScrollOnNextRender: boolean = false;
   private _pendingChangedFiles: IChangedFile[] | undefined;
   private _pendingChangedFilesError: unknown;
+  /**
+   * Branches containing the expanded commit, fetched asynchronously after the
+   * commit is selected. `undefined` = not yet loaded (the panel shows a loading
+   * affordance); resets alongside the pending changed files on a new selection.
+   */
+  private _pendingContainingBranches: string[] | undefined;
+  /**
+   * Commits common to a selected non-checked-out branch and HEAD, highlighted in
+   * the log (IntelliJ CurrentBranchHighlighter). `undefined` = no highlight
+   * active. Persisted so a full re-render re-applies the row class; partial
+   * updates post `highlightCommonCommits`.
+   */
+  private _commonCommitHashes: Set<string> | undefined;
+  /**
+   * Monotonic token guarding the async common-commit highlight against stale
+   * application: each highlight/clear bumps it, and a highlight only applies its
+   * result if the token is still current after the await (mirrors the
+   * expandedCommit guard on the containing-branches fetch). Prevents a slow
+   * earlier selection from overwriting a faster later one, or an in-flight
+   * highlight from re-applying after a clear.
+   */
+  private _commonHighlightGen = 0;
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
   private _availableRepositories: IRepository[] = [];
@@ -1234,6 +1243,49 @@ export class GitToolWindowProvider
           tags: node.tags || [],
           changedFiles,
           changedFilesError: error ? String(error) : undefined,
+          containingBranches: this._pendingContainingBranches,
+        };
+        void this._view.webview.postMessage({
+          type: 'updateDetailsPanel',
+          model: this._getDetailsPanelModel(commitDetails),
+        });
+      }
+    }
+  }
+
+  /**
+   * Update the details panel with the branches that contain the expanded
+   * commit. Called by the host once `getContainingBranches` resolves. Posts a
+   * partial details-panel update (preserving graph scroll) built from the
+   * already-fetched changed files plus the branch list. No-ops if the user has
+   * since selected a different commit.
+   *
+   * @param hash - the commit the branches belong to
+   * @param branches - sorted containing-branch names (`[]` = in no branch)
+   */
+  public updateContainingBranches(hash: string, branches: string[]): void {
+    if (this._extendedLogState.expandedCommit !== hash) {
+      return;
+    }
+    this._pendingContainingBranches = branches;
+
+    if (this._view) {
+      const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
+      if (node) {
+        const commitDetails: ICommitDetails = {
+          hash: node.commit.hash,
+          message: node.commit.message,
+          body: node.commit.body,
+          author: { name: node.commit.author.name, email: node.commit.author.email },
+          date: node.commit.authorDate,
+          parents: node.commit.parents || [],
+          branches: (node.branches || []).map((ref) => ref.name),
+          tags: node.tags || [],
+          changedFiles: this._pendingChangedFiles ?? [],
+          changedFilesError: this._pendingChangedFilesError
+            ? String(this._pendingChangedFilesError)
+            : undefined,
+          containingBranches: branches,
         };
         void this._view.webview.postMessage({
           type: 'updateDetailsPanel',
@@ -1298,6 +1350,10 @@ export class GitToolWindowProvider
   clearPendingChangedFiles(): void {
     this._pendingChangedFiles = undefined;
     this._pendingChangedFilesError = undefined;
+    // Containing branches belong to the same commit selection; reset them in
+    // lockstep so a new selection starts from the loading state, never showing
+    // the previous commit's branch list.
+    this._pendingContainingBranches = undefined;
   }
 
   // IGtwControllerContext — capability methods for the single-select handler.
@@ -1643,7 +1699,10 @@ export class GitToolWindowProvider
         this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
         break;
       case 'requestLogFilterOptions':
-        void this._handleRequestLogFilterOptions();
+        // Defense-in-depth: the handler swallows per-root failures internally,
+        // but guard the fire-and-forget call so any unexpected throw can't
+        // surface as an unhandled rejection.
+        void this._handleRequestLogFilterOptions().catch(() => {});
         break;
       case 'clearLogFilter':
         // Fired by the "Clear filter" button on the filtered-empty
@@ -1675,6 +1734,14 @@ export class GitToolWindowProvider
           this._handleRepositorySelection(message.repositoryIndex);
         }
         break;
+      case 'selectBranchFilter': {
+        // `branch` is the chosen ref, or null for the "All branches" sentinel.
+        const branch = message.branch;
+        if (branch === null || typeof branch === 'string') {
+          this._handleSelectBranchFilter(branch);
+        }
+        break;
+      }
       case 'focusBranchOnGraph':
         // Webview asked to focus the graph on a branch.
         // The bridge is async (getMergeBase + scroll); fire-and-forget.
@@ -1764,6 +1831,28 @@ export class GitToolWindowProvider
   }
 
   /**
+   * Whether every criterion of a log filter is unset — i.e. it would scope the
+   * log to nothing more than the default view, so it should collapse to
+   * `undefined`. Shared by the filter-bar apply path and the branch selector.
+   */
+  private _isLogFilterEmpty(filter: ILogFilter): boolean {
+    return (
+      !filter.branch &&
+      !filter.logRange &&
+      !filter.searchText &&
+      !filter.author &&
+      !filter.path &&
+      !filter.since &&
+      !filter.until &&
+      !filter.noMerges &&
+      !filter.firstParent &&
+      !filter.simplifyMerges &&
+      !filter.minParents &&
+      !filter.maxParents
+    );
+  }
+
+  /**
    * Handle applying log filter from webview
    */
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {
@@ -1822,20 +1911,7 @@ export class GitToolWindowProvider
       }
 
       // Check if filter is empty
-      if (
-        !filter.branch &&
-        !filter.logRange &&
-        !filter.searchText &&
-        !filter.author &&
-        !filter.path &&
-        !filter.since &&
-        !filter.until &&
-        !filter.noMerges &&
-        !filter.firstParent &&
-        !filter.simplifyMerges &&
-        !filter.minParents &&
-        !filter.maxParents
-      ) {
+      if (this._isLogFilterEmpty(filter)) {
         filter = undefined;
       }
     }
@@ -1861,16 +1937,39 @@ export class GitToolWindowProvider
     if (!repo || !gitService) {
       return;
     }
-    const [branches, contributors] = await Promise.all([
-      gitService.getBranches(repo),
-      gitService.getLogContributors(repo),
+    // In the merged "All Repositories" scope the branch filter applies across
+    // every visible root, so the dropdown must offer the UNION of all roots'
+    // branches (IntelliJ BranchFilterModel parity) — listing only the context
+    // repo's branches would silently scope the graph to one repo. A single-repo
+    // scope lists just that repo's branches, unchanged.
+    const branchSources = this.isAllReposSelected() ? this._availableRepositories : [repo];
+    // Per-root catch: a hard exec rejection on one root (e.g. an unmounted /
+    // removed multi-root → cwd ENOENT, spawn failure) must not discard the
+    // healthy roots' branches or escape as an unhandled rejection. Each bad
+    // root contributes [] and the union survives. `getBranches` already returns
+    // [] on a non-zero git exit; this guards the throw path.
+    const [perRepoBranches, contributors] = await Promise.all([
+      Promise.all(branchSources.map((r) => gitService.getBranches(r).catch(() => []))),
+      gitService.getLogContributors(repo).catch(() => []),
     ]);
+    let branchNames: string[];
+    if (branchSources.length > 1) {
+      const union = new Set<string>();
+      for (const list of perRepoBranches) {
+        for (const b of list) {
+          union.add(b.name);
+        }
+      }
+      branchNames = [...union].sort();
+    } else {
+      branchNames = perRepoBranches[0].map((b) => b.name);
+    }
     if (!this._view) {
       return;
     }
     void this._view.webview.postMessage({
       type: 'logFilterOptionsReady',
-      branches: branches.map((b) => b.name),
+      branches: branchNames,
       contributors,
     });
   }
@@ -1892,6 +1991,77 @@ export class GitToolWindowProvider
    */
   public navigateToBranch(branchName: string): void {
     this._handleBranchClick(branchName);
+  }
+
+  /**
+   * Highlight the log rows whose commits are COMMON to `branchName` and the
+   * current (HEAD) branch — IntelliJ's CurrentBranchHighlighter, surfaced when a
+   * non-checked-out branch is selected in the Branches tree. Selecting the
+   * checked-out branch (or one matching HEAD) clears the highlight.
+   *
+   * Computes the common set once via {@link IGitService.getCommonCommits}
+   * (reachable from both), intersects it with the loaded rows, and posts a
+   * `highlightCommonCommits` partial update; the set is remembered so a full
+   * re-render re-applies the row class.
+   */
+  public async highlightBranchCommonCommits(
+    branchName: string,
+    repoOverride?: IRepository
+  ): Promise<void> {
+    // In the merged "All Repositories" scope a branch belongs to a specific
+    // root (the tree item carries it); resolving against that owning repo marks
+    // the right repo's <branch> ∩ HEAD even when another root has a same-named
+    // branch (e.g. two `main`s). Falls back to the context repo in single-repo.
+    const repo = repoOverride ?? this.getSelectedRepository();
+    const gitService = this._attachedGitService;
+    if (!repo || !gitService) {
+      return;
+    }
+    // Selecting the already-checked-out branch is not a "compare against
+    // current" gesture — there is nothing distinct to mark, so clear.
+    if (branchName === repo.head?.name) {
+      this.clearCommonCommitHighlight();
+      return;
+    }
+
+    // Claim a generation BEFORE the await so a newer selection (or a clear) that
+    // lands while getCommonCommits is running supersedes this one.
+    const gen = ++this._commonHighlightGen;
+    const common = new Set(await gitService.getCommonCommits(repo, branchName));
+    if (gen !== this._commonHighlightGen) {
+      // A later selection/clear bumped the token while we awaited — drop the
+      // stale result so it can't overwrite the newer highlight.
+      return;
+    }
+    this._commonCommitHashes = common;
+
+    // Only the loaded rows can be highlighted; send that bounded subset.
+    const visible = this._extendedLogState.commitNodes
+      .map((n) => n.commit.hash)
+      .filter((hash) => common.has(hash));
+    this._postCommonCommitHighlight(visible);
+  }
+
+  /**
+   * Clear the common-commit highlight (selecting HEAD / deselecting a branch).
+   */
+  public clearCommonCommitHighlight(): void {
+    // Bump the token even when nothing is currently applied so an in-flight
+    // highlight that started before this clear is dropped when it resolves.
+    this._commonHighlightGen++;
+    if (this._commonCommitHashes === undefined) {
+      return;
+    }
+    this._commonCommitHashes = undefined;
+    this._postCommonCommitHighlight([]);
+  }
+
+  /** Post the partial-update highlight message (no full re-render). */
+  private _postCommonCommitHighlight(hashes: string[]): void {
+    if (!this._view) {
+      return;
+    }
+    void this._view.webview.postMessage({ type: 'highlightCommonCommits', hashes });
   }
 
   /**
@@ -2420,9 +2590,9 @@ export class GitToolWindowProvider
    *
    * - Cold start (first population): seed the default from
    *   `intellig.log.showAllRoots` — `'all'` when the flag is on AND there's
-   *   more than one repo, otherwise the single (context) repo. This keeps the
-   *   prior behavior non-breaking: with the flag off (its default) a
-   *   multi-root workspace still opens scoped to one repo.
+   *   more than one repo, otherwise the single (context) repo. The flag
+   *   defaults to ON, so a multi-root workspace opens to the merged log,
+   *   matching the branch view; setting it off scopes the log to one repo.
    * - `'all'` scope is preserved across reloads while multiple repos remain,
    *   and collapses to the single repo when the workspace drops to one.
    * - A specific-repo scope tracks the identity-stable context index resolved
@@ -2664,6 +2834,10 @@ export class GitToolWindowProvider
             this._pendingChangedFilesError &&
             this._extendedLogState.expandedCommit === node.commit.hash
               ? String(this._pendingChangedFilesError)
+              : undefined,
+          containingBranches:
+            this._extendedLogState.expandedCommit === node.commit.hash
+              ? this._pendingContainingBranches
               : undefined,
         };
       }
@@ -3192,6 +3366,7 @@ ${bodyMarkup}
       selected,
       cherryPickedHashes,
       cherryPickBaseRef,
+      commonCommitHashes: this._commonCommitHashes,
       printModels,
       branchLabelsFor: (node) => this._getBranchLabelsHtml(node),
       showGpgColumn: this._isShowGpgColumnEnabled(),
@@ -3251,6 +3426,7 @@ ${bodyMarkup}
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px; --col-author-width: ${authorWidthPx}px; --col-date-width: ${dateWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}${preserveScrollAttr}>
         ${focusedBranchHelpHtml}
         ${repositorySelectorHtml}
+        ${this._getBranchFilterSelectorHtml()}
         ${logFilterBarHtml}
         ${columnHeaderHtml}
         ${rowsHtml}
@@ -3299,6 +3475,7 @@ ${bodyMarkup}
     return `
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
         ${repositorySelectorHtml}
+        ${this._getBranchFilterSelectorHtml()}
         ${body}
       </div>`;
   }
@@ -3694,6 +3871,83 @@ ${bodyMarkup}
   }
 
   /**
+   * Branch-filter selector for the graph-panel header — a dropdown that scopes
+   * the log/graph to a single branch, mirroring IntelliJ's
+   * BranchFilterPopupComponent. Hidden until a repository is attached.
+   *
+   * Renders a shell here: the "All branches" sentinel plus, when a branch
+   * filter is active, that branch preselected (so the selection survives a full
+   * re-render before the async branch list arrives). The complete option list is
+   * filled client-side from the `logFilterOptionsReady` message — the same
+   * ref-aware source that feeds the filter-bar datalist — keeping the host
+   * render synchronous. The active branch also rides in `data-selected-branch`
+   * so the client repopulation can restore the selection.
+   *
+   * A range filter (`A..B`) is not a single-branch scope, so the selector falls
+   * back to "All branches" while a range is active (the range stays editable in
+   * the free-text filter bar).
+   *
+   * @returns selector HTML, or empty string when no repository is selected
+   */
+  public _getBranchFilterSelectorHtml(): string {
+    if (!this.getSelectedRepository()) {
+      return '';
+    }
+
+    const filter = this._extendedLogState.filter;
+    const activeBranch = filter?.logRange ? undefined : filter?.branch;
+
+    const allSelected = activeBranch ? '' : ' selected';
+    let activeOptionHtml = '';
+    let selectedAttr = '';
+    if (activeBranch) {
+      const escaped = this._escapeHtml(activeBranch);
+      activeOptionHtml = `<option value="${escaped}" selected>${escaped}</option>`;
+      selectedAttr = ` data-selected-branch="${escaped}"`;
+    }
+
+    return `
+      <div class="branch-filter-selector-container">
+        <select class="branch-filter-selector" aria-label="Filter log by branch"${selectedAttr}>
+          <option value="__all__"${allSelected}>All branches</option>${activeOptionHtml}
+        </select>
+      </div>`;
+  }
+
+  /**
+   * Apply a branch scope chosen from the branch-filter selector. Updates only
+   * the branch portion of the active log filter (preserving author/search/date
+   * etc.), clears any conflicting range, and re-fires the log-filter request so
+   * the host reloads through the existing filter pipeline. `null` (the "All
+   * branches" sentinel) drops the branch scope.
+   *
+   * The branch crosses the untrusted webview boundary before reaching
+   * `git log <branch>`; reject a leading `-` (CLI-flag injection) or `.`
+   * (invalid per git-check-ref-format, which makes getLog throw) defensively,
+   * mirroring the GitService.getLog ref guard.
+   */
+  private _handleSelectBranchFilter(branch: string | null): void {
+    if (branch !== null && (branch.startsWith('-') || branch.startsWith('.'))) {
+      return;
+    }
+
+    const current = this._extendedLogState.filter;
+    const next: ILogFilter = { ...(current ?? {}) };
+    // The selector scopes by a single branch; a range and a branch can't both
+    // hold, so drop any range the free-text bar may have set.
+    delete next.logRange;
+    if (branch === null) {
+      delete next.branch;
+    } else {
+      next.branch = branch;
+    }
+
+    const resolved = this._isLogFilterEmpty(next) ? undefined : next;
+    this.setLogFilter(resolved);
+    this._onDidRequestLogFilter.fire(resolved);
+  }
+
+  /**
    * Get the commit context menu HTML overlay for the Graph Panel.
    * Renders a context menu with all 7 required options:
    * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,
@@ -3850,15 +4104,17 @@ ${bodyMarkup}
   }
 
   /**
-   * Read the `intellig.log.showAllRoots` config flag (default `false`). Used
-   * once to seed the initial repository scope; thereafter the runtime scope
-   * (driven by the selector) is authoritative.
+   * Read the `intellig.log.showAllRoots` config flag (default `true`, matching
+   * the branch view which shows all repositories by default). Used once to seed
+   * the initial repository scope; thereafter the runtime scope (driven by the
+   * selector) is authoritative.
    */
   private _isShowAllRootsConfigEnabled(): boolean {
     try {
       const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showAllRoots', false);
+      return config.get<boolean>('log.showAllRoots', true);
     } catch {
+      // Defensive: on a config-read failure, degrade to single-repo scope.
       return false;
     }
   }
@@ -3996,6 +4252,11 @@ interface IWebviewMessage {
    * current focus.
    */
   branchName?: string | null;
+  /**
+   * Branch ref carried by `selectBranchFilter` (the branch-filter dropdown).
+   * `null` is the "All branches" sentinel, which drops the branch scope.
+   */
+  branch?: string | null;
   branchType?: 'local' | 'remote';
   widths?: [number, number];
   /**

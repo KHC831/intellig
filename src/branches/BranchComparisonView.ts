@@ -20,6 +20,7 @@ import {
   BranchComparisonAction,
 } from './interfaces/IBranchComparisonView';
 import { sanitizeGitError } from '../git-core/gitError';
+import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { buildGitArgs } from '../git-core/gitCli';
 
 /**
@@ -277,9 +278,10 @@ export class BranchComparisonView implements IBranchComparisonView {
         `intellig-git:${filePath}?${encodeURIComponent(this._state.branch2)}`
       );
 
-      // Open diff editor
+      // Open diff editor — bare (re-throws) so the surrounding catch can fall
+      // back to a virtual-document diff.
       const title = `${this._getFileName(filePath)} (${this._state.branch1} ↔ ${this._state.branch2})`;
-      await vscode.commands.executeCommand('vscode.diff', branch1Uri, branch2Uri, title);
+      await openRevisionDiff({ leftUri: branch1Uri, rightUri: branch2Uri, title });
 
       this._onDidSelectFile.fire(filePath);
     } catch (error) {

@@ -34,6 +34,12 @@ export interface ICommitDetails {
   changedFiles: IChangedFile[];
   /** Optional error message when changed files could not be loaded */
   changedFilesError?: string;
+  /**
+   * Branches (local + remote) that contain this commit, sorted alphabetically.
+   * Fetched asynchronously after the commit is selected; `undefined` means the
+   * list is still loading, `[]` means the commit is in no branch.
+   */
+  containingBranches?: string[];
 }
 
 // ─── Preserved Types (still used by other services) ──────────────────────────

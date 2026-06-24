@@ -140,6 +140,14 @@ export interface IRowProjectionContext {
   continuesFromAbove: Set<number>;
   continuesBelow: Set<number>;
   incomingBendLanes: Set<number>;
+  /**
+   * Source lanes whose far-parent first-parent bend lands at the row BELOW this
+   * one (its incoming bend tops `rowIndex + 1`). Such a lane bottoms this row so
+   * its straight pass-through meets the bend at the seam — its interval ends at
+   * this row (the bend, not a pass-through, occupies the parent row), so
+   * `continuesBelow` does not report it.
+   */
+  bendsLandingBelow: Set<number>;
   isTerminal: boolean;
   isBranchSplit: boolean;
   isLastRow: boolean;
@@ -166,6 +174,7 @@ export function projectRow(
     continuesFromAbove,
     continuesBelow,
     incomingBendLanes,
+    bendsLandingBelow,
     isLastRow,
     nodes,
     intervalByLane: ivLookup,
@@ -201,7 +210,11 @@ export function projectRow(
       continue; // the bend path (below) draws this lane's top-half
     }
     const enters = continuesFromAbove.has(lane);
-    const exits = continuesBelow.has(lane);
+    // A far-parent bend landing at the row below also "exits" this row: the
+    // source lane runs straight down to the seam, where the bend (drawn at the
+    // parent row) takes over. Without this the lane stops at its center and
+    // leaves a gap above the incoming bend.
+    const exits = continuesBelow.has(lane) || bendsLandingBelow.has(lane);
     const isBezierTarget = bezierTargetLanes.has(lane);
     if (exits) {
       bottomInkLanes.add(lane);
@@ -384,6 +397,36 @@ export function projectRow(
 }
 
 /**
+ * Map each row index → the source lanes whose far-parent first-parent bend lands
+ * at the row BELOW it. A far-parent line (`endRow` set) bends into its parent at
+ * `endRow`; the source lane therefore needs to bottom row `endRow - 1` so its
+ * straight pass-through meets that incoming bend at the seam. The companion to
+ * {@link computeIncomingBendsMap} (which keys the bend by the PARENT row); this
+ * keys it by the row immediately above so {@link projectRow} can close the seam.
+ */
+function computeBendsLandingBelowMap(nodes: ICommitNode[]): Map<number, Set<number>> {
+  const result = new Map<number, Set<number>>();
+  for (let rowIndex = 0; rowIndex < nodes.length; rowIndex++) {
+    for (const line of nodes[rowIndex].graphLines) {
+      if (line.endRow === undefined || line.endRow <= rowIndex) {
+        continue;
+      }
+      const rowAboveParent = line.endRow - 1;
+      if (rowAboveParent < 0 || rowAboveParent >= nodes.length) {
+        continue;
+      }
+      let set = result.get(rowAboveParent);
+      if (!set) {
+        set = new Set<number>();
+        result.set(rowAboveParent, set);
+      }
+      set.add(line.fromColumn);
+    }
+  }
+  return result;
+}
+
+/**
  * Build the per-row print model for the whole graph window. Pure function.
  */
 export function buildGraphPrintModel(nodes: ICommitNode[]): IRowPrintModel[] {
@@ -392,6 +435,7 @@ export function buildGraphPrintModel(nodes: ICommitNode[]): IRowPrintModel[] {
   const continuesBelowMap = computeLaneContinuesBelow(nodes);
   const childCountMap = computeChildCountMap(nodes);
   const incomingBendsMap = computeIncomingBendsMap(nodes);
+  const bendsLandingBelowMap = computeBendsLandingBelowMap(nodes);
   const terminalNodes = computeTerminalNodes(nodes);
   const intervalLookup = buildIntervalLookup(nodes);
   const hasFocusedBranch = nodes.some((n) => n.onFocusedBranchPath === true);
@@ -402,6 +446,7 @@ export function buildGraphPrintModel(nodes: ICommitNode[]): IRowPrintModel[] {
       continuesFromAbove: continuesFromAboveMap.get(rowIndex) ?? new Set<number>(),
       continuesBelow: continuesBelowMap.get(rowIndex) ?? new Set<number>(),
       incomingBendLanes: incomingBendsMap.get(node.commit.hash) ?? new Set<number>(),
+      bendsLandingBelow: bendsLandingBelowMap.get(rowIndex) ?? new Set<number>(),
       isTerminal: terminalNodes.has(node.commit.hash),
       isBranchSplit: isBranchSplit(node.commit.hash, childCountMap),
       isLastRow: rowIndex === nodes.length - 1,

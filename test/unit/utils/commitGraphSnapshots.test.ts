@@ -369,6 +369,51 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     );
   });
 
+  // ─── snap-far-parent-seam: source lane is unbroken into the bend ───────
+  it('snap-far-parent-seam: the row just above the parent inks the source lane FULL height so it meets the incoming bend (no seam gap)', () => {
+    // Same topology as snap-far-parent: b2 (row 4, lane 1) first-parents to m4
+    // (row 7, lane 0); the source lane 1 transits rows 5 (m2) and 6 (m3). The
+    // row directly above the parent (m3, row 6) MUST ink lane 1 from y=0 to
+    // y=bottomY — a FULL pass-through — so its bottom meets the bend's top
+    // (lane1X, y=0) at m4's row. The pre-fix model emitted only the top half
+    // (y2=centerY), leaving the reported gap above the converging node.
+    const commits = [
+      mkCommit('m0', ['m1']),
+      mkCommit('m1', ['m2']),
+      mkCommit('b0', ['b1']),
+      mkCommit('b1', ['b2']),
+      mkCommit('b2', ['m4']),
+      mkCommit('m2', ['m3']),
+      mkCommit('m3', ['m4']),
+      mkCommit('m4'),
+    ];
+    const branchMap = new Map<string, IBranchRef[]>();
+    branchMap.set('m0', [{ name: 'main', type: 'local' }]);
+    branchMap.set('b0', [{ name: 'side', type: 'local' }]);
+    const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main', 'm0');
+
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const bottomY = cfg.rowHeight;
+    const centerY = cfg.rowHeight / 2;
+    const lane1X = getColumnX(1, cfg);
+    const svgs = buildGraphPrintModel(result).map((m) => paintRow(m, cfg));
+
+    // m3 is the row immediately above the parent m4 (the far bend lands at m4).
+    const m3Svg = svgs[result.findIndex((n) => n.commit.hash === 'm3')];
+    const fullSourceLane = `<line x1="${lane1X}" y1="0" x2="${lane1X}" y2="${bottomY}"`;
+    assert.ok(
+      m3Svg.includes(fullSourceLane),
+      `m3 SVG must ink lane 1 full height (0→${bottomY}) to meet the bend; got: ${m3Svg}`
+    );
+    // Guard against a regression to the half-stroke (gap): the source lane must
+    // NOT stop at centerY on m3's row.
+    const truncatedTopHalf = `<line x1="${lane1X}" y1="0" x2="${lane1X}" y2="${centerY}"`;
+    assert.ok(
+      !m3Svg.includes(truncatedTopHalf),
+      `m3 SVG must NOT truncate lane 1 at centerY (the seam gap); got: ${m3Svg}`
+    );
+  });
+
   // ─── snap-far-parent-dashed-stub: far-parent + off-window 2nd parent ───
   it('snap-far-parent-dashed-stub: a far-parent commit with an off-window 2nd parent draws its centerY→bottomY stub SOLID (the dashed-stub-shadowing the far-parent edge bug)', () => {
     // Topology — a merge commit `m0` on lane 1 whose:

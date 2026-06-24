@@ -357,17 +357,17 @@ Enable the IntelliJ preset in settings:
 
 ### UI polish
 
-| Setting                              | Default     | Description                                                           |
-| ------------------------------------ | ----------- | --------------------------------------------------------------------- |
-| `intellig.showStatusBarBranch`       | `true`      | Show current branch + incoming/outgoing badge in the status bar       |
-| `intellig.log.highlightCherryPicked` | `true`      | Dim commits already cherry-picked into the current branch             |
-| `intellig.log.showGpgColumn`         | `false`     | Show a GPG/SSH signature status column in the commit log              |
-| `intellig.log.showAllRoots`          | `false`     | Show commits from all workspace repositories merged into one log (G8) |
-| `intellig.modifiedFileColor`         | `"#6897BB"` | Color for modified files (IntelliJ blue)                              |
-| `intellig.addedFileColor`            | `"#629755"` | Color for added files (IntelliJ green)                                |
-| `intellig.deletedFileColor`          | `"#6C6C6C"` | Color for deleted files (IntelliJ gray)                               |
-| `intellig.ignoredFileColor`          | `"#848504"` | Color for ignored files                                               |
-| `intellig.conflictFileColor`         | `"#FF0000"` | Color for conflicted files (red)                                      |
+| Setting                              | Default     | Description                                                                                                                                          |
+| ------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `intellig.showStatusBarBranch`       | `true`      | Show current branch + incoming/outgoing badge in the status bar                                                                                      |
+| `intellig.log.highlightCherryPicked` | `true`      | Dim commits already cherry-picked into the current branch                                                                                            |
+| `intellig.log.showGpgColumn`         | `false`     | Show a GPG/SSH signature status column in the commit log                                                                                             |
+| `intellig.log.showAllRoots`          | `true`      | Show commits from all workspace repositories merged into one log, matching the branch view; disable to scope a multi-repo log to one repository (G8) |
+| `intellig.modifiedFileColor`         | `"#6897BB"` | Color for modified files (IntelliJ blue)                                                                                                             |
+| `intellig.addedFileColor`            | `"#629755"` | Color for added files (IntelliJ green)                                                                                                               |
+| `intellig.deletedFileColor`          | `"#6C6C6C"` | Color for deleted files (IntelliJ gray)                                                                                                              |
+| `intellig.ignoredFileColor`          | `"#848504"` | Color for ignored files                                                                                                                              |
+| `intellig.conflictFileColor`         | `"#FF0000"` | Color for conflicted files (red)                                                                                                                     |
 
 ### Logging
 

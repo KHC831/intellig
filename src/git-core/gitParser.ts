@@ -313,6 +313,43 @@ export function parseBranches(output: string, separator: string = '\x1f'): IBran
 }
 
 /**
+ * Parse `git branch -a --contains <hash> --format=%(refname)` output into the
+ * alphabetically-sorted list of branches that contain a commit.
+ *
+ * Mirrors git4idea `GitBranchUtil.getBranches` (local + remote, sorted): local
+ * refs lose the `refs/heads/` prefix, remote refs lose `refs/remotes/` (keeping
+ * the `<remote>/<branch>` form used elsewhere in this codebase), the remote
+ * `HEAD` symref is dropped (it is an alias, not a branch), and git's
+ * parenthesized pseudo-refs (detached/rebase/bisect) are filtered out — the same
+ * narrow `^\(.*\)$` guard {@link parseBranches} uses.
+ *
+ * @param output - stdout of the `git branch … --format=%(refname)` call
+ * @returns deduplicated branch names, sorted alphabetically
+ */
+export function parseContainingBranches(output: string): string[] {
+  const names = new Set<string>();
+
+  for (const raw of output.split('\n')) {
+    const refname = raw.trim();
+    if (refname.length === 0 || /^\(.*\)$/.test(refname)) {
+      continue;
+    }
+
+    if (refname.startsWith('refs/heads/')) {
+      names.add(refname.substring('refs/heads/'.length));
+    } else if (refname.startsWith('refs/remotes/')) {
+      const remoteName = refname.substring('refs/remotes/'.length);
+      // `<remote>/HEAD` is git's per-remote default-branch alias, not a branch.
+      if (!remoteName.endsWith('/HEAD')) {
+        names.add(remoteName);
+      }
+    }
+  }
+
+  return [...names].sort();
+}
+
+/**
  * Parse Git tag output into tag objects.
  *
  * Separator switched from `|` to `\x1f` (ASCII Unit Separator).

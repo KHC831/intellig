@@ -26,6 +26,7 @@ import { getOutputChannel } from '../utils/outputChannel';
 import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
+import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { IViewRegistrationContext } from './ViewRegistrationContext';
 import { createCoalescedRunner } from './coalesceAsync';
 import {
@@ -903,6 +904,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       if (!repo) {
         return;
       }
+      // Fetch the "Contained in branches" list in parallel with the diff so a
+      // slow branch query never delays the changed-files render. Each posts its
+      // own partial details update; getContainingBranches degrades to [] on
+      // failure, so this never rejects.
+      void gitService
+        .getContainingBranches(repo, hash)
+        .then((branches) => {
+          ctx.gitToolWindowProvider?.updateContainingBranches(hash, branches);
+        })
+        // getContainingBranches itself never rejects, but updateContainingBranches
+        // posts to the webview — swallow any throw there so it can't surface as an
+        // unhandled rejection.
+        .catch(() => {});
+
       try {
         const diffs = await gitService.getCommitDiff(repo, hash);
         const changedFiles = diffs.map((d) => ({
@@ -947,12 +962,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
             const parentRef = commitHash + '~1';
             const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${parentRef}`);
             const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${commitHash}`);
-            await vscode.commands.executeCommand(
-              'vscode.diff',
+            // Bare (re-throws) into the surrounding catch, which also covers
+            // `getCommitDiff` above.
+            await openRevisionDiff({
               leftUri,
               rightUri,
-              `${filePath} (${commitHash.substring(0, 7)})`
-            );
+              title: `${filePath} (${commitHash.substring(0, 7)})`,
+            });
           }
         } catch (error) {
           void vscode.window.showErrorMessage(
@@ -1042,6 +1058,18 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // Only navigate for actual branch items (not category headers)
           if (selectedItem.branch) {
             ctx.gitToolWindowProvider!.navigateToBranch(selectedItem.branch.name);
+            // Highlight the commits common to the selected branch and HEAD
+            // (IntelliJ CurrentBranchHighlighter). Selecting the checked-out
+            // branch clears it. Pass the tree item's owning repository so a
+            // multi-root same-named branch resolves against the right repo;
+            // undefined in single-repo falls back to the context repo. Async +
+            // fire-and-forget; degrades to no highlight on failure.
+            void ctx
+              .gitToolWindowProvider!.highlightBranchCommonCommits(
+                selectedItem.branch.name,
+                selectedItem.repository
+              )
+              .catch(() => {});
           }
         }
       });

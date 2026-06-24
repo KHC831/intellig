@@ -151,6 +151,31 @@ export function buildInlineStyles(): string {
         border-color: var(--vscode-focusBorder);
       }
 
+      /* Branch-filter selector — the toolbar <select> that scopes the log to a
+         single branch. Shares the repository-selector theming so the two
+         dropdowns sit consistently side by side in the header. */
+      .branch-filter-selector {
+        padding: 4px 8px;
+        border: 1px solid var(--vscode-dropdown-border);
+        border-radius: 3px;
+        background-color: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+        cursor: pointer;
+      }
+
+      .branch-filter-selector option {
+        background-color: var(--vscode-dropdown-listBackground);
+        color: var(--vscode-dropdown-foreground);
+      }
+
+      .branch-filter-selector:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+        border-color: var(--vscode-focusBorder);
+      }
+
       /* Local Changes Content */
       .local-changes-content {
         flex: 1;
@@ -646,6 +671,23 @@ export function buildInlineStyles(): string {
         vertical-align: middle;
       }
 
+      /* Commits common to a selected non-checked-out branch and HEAD get a
+         subtle background — IntelliJ CurrentBranchHighlighter
+         (VersionControl.Log.Commit.currentBranchBackground: ~#E4FAFF light,
+         ~#3F4749 dark). The theme-kind classes VS Code stamps on <body> drive
+         the light/dark value via a CSS variable; a selected row keeps the
+         selection background (it wins by being defined after). */
+      body { --intellig-common-commit-bg: #e4faff; }
+      body.vscode-dark,
+      body.vscode-high-contrast { --intellig-common-commit-bg: #3f4749; }
+      .commit-row-common {
+        background-color: var(--intellig-common-commit-bg);
+      }
+      .commit-row-common.selected {
+        background-color: var(--vscode-list-activeSelectionBackground);
+        color: var(--vscode-list-activeSelectionForeground);
+      }
+
       /* Graph Styles */
       .commit-graph {
         flex-shrink: 0;
@@ -724,20 +766,11 @@ export function buildInlineStyles(): string {
         line-height: 1.2;
       }
 
-      /* Author column: fixed-width, RIGHT-aligned. The column is a
-         fixed 120px so the date column starts at a stable x across
-         rows (IntelliJ-parity column alignment). Earlier the content
-         was left-aligned, which left a visible dead band between a
-         short name and the date column — the name hugged the left
-         edge of its 120px box while the date sat 120px away
-         regardless of name length. Right-aligning collapses that
-         band: the name now butts up against the date column's
-         left padding, and the slack (if any) falls on the LEFT where
-         it abuts the flexible title column. Long names still
-         ellipsise (overflow/text-overflow/nowrap retained); the
-         ellipsis now appears at the LEFT, preserving the most-recent
-         characters of the name nearest the date.
-         See KNOWN-ISSUES.md author/date dead-band entry. */
+      /* Author column: fixed-width, LEFT-aligned — consistent with every other
+         column (title, date) and IntelliJ's log table. A 12px left padding
+         gives the same gutter the date column uses, so columns line up at a
+         stable x across rows. Long names ellipsise at the right
+         (overflow/text-overflow/nowrap). */
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -749,9 +782,9 @@ export function buildInlineStyles(): string {
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
-        text-align: right;
-        padding-left: 0;
-        padding-right: 12px;
+        text-align: left;
+        padding-left: 12px;
+        padding-right: 0;
       }
 
       .commit-date {
@@ -812,8 +845,8 @@ export function buildInlineStyles(): string {
       .log-column-header-author {
         width: var(--col-author-width, 120px);
         flex-shrink: 0;
-        text-align: right;
-        padding-right: 12px;
+        text-align: left;
+        padding-left: 12px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;

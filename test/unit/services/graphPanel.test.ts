@@ -185,17 +185,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
-    it('uses a resizable 120px-default right-aligned author column with ellipsis (closes the author/date dead band)', () => {
+    it('uses a resizable 120px-default LEFT-aligned author column with ellipsis (consistent with other columns + IntelliJ)', () => {
       // Reach into the inline-style block for the .commit-author rule.
-      // The column went through 140px -> max-width:140px -> 100px -> 120px
-      // for width, and left-align -> RIGHT-align to close the dead band:
-      // a short name now butts against the date column instead of
-      // leaving a gap inside its 120px box. See KNOWN-ISSUES.md
-      // author/date dead-band entry.
-      //
-      // The width is now driven by the --col-author-width custom property so
-      // the column is drag-resizable; the 120px fallback preserves the
-      // original default render, so the dead-band fix holds out of the box.
+      // The author column is LEFT-aligned to match every other column (title,
+      // date) and IntelliJ's log table; the width is var-driven
+      // (--col-author-width, 120px default) so the column is drag-resizable.
       const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
 
       const authorRuleMatch = styles.match(/\.commit-author\s*\{([^}]+)\}/);
@@ -207,12 +201,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         `.commit-author should declare a var-driven width defaulting to 120px, got: "${authorRule.trim()}"`
       );
       assert.ok(
-        authorRule.includes('text-align: right'),
-        '.commit-author must be right-aligned so the name abuts the date column (no dead band)'
+        /text-align:\s*left/.test(authorRule),
+        '.commit-author must be LEFT-aligned to match the other columns + IntelliJ'
       );
       assert.ok(
-        !/text-align:\s*left/.test(authorRule),
-        '.commit-author must NOT be left-aligned (re-introduces the dead band)'
+        !/text-align:\s*right/.test(authorRule),
+        '.commit-author must NOT be right-aligned (inconsistent with other columns)'
       );
       assert.ok(
         authorRule.includes('text-overflow: ellipsis'),
@@ -678,11 +672,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.strictEqual(label, 'Edit Commit Message…');
     });
 
-    it('should contain Merge into Current Branch option', () => {
+    it('should NOT contain Merge into Current Branch (not in git4idea Git.Log.ContextMenu)', () => {
       const html = provider._getCommitContextMenuHtml();
       assert.ok(
-        html.includes('Merge into Current Branch'),
-        'Should contain Merge into Current Branch option'
+        !html.includes('data-action="mergeIntoCurrent"'),
+        'Merge into Current is a branch action, not a commit-log-menu item'
       );
     });
 
@@ -694,7 +688,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('should contain all 15 required context menu options', () => {
+    it('should contain all required context menu options', () => {
       const html = provider._getCommitContextMenuHtml();
       const requiredOptions = [
         'Copy Revision Number',
@@ -708,7 +702,6 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         'Undo Commit',
         'Drop Commit',
         'Edit Commit Message',
-        'Merge into Current Branch',
         'Interactively Rebase from Here',
         'New Branch',
         'New Tag',
@@ -732,7 +725,6 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
         'newBranch',
         'newTag',
@@ -765,8 +757,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const idx = (action: string) => html.indexOf(`data-action="${action}"`);
       // git4idea Git.Log.ContextMenu places CreateNewBranch.FromCommit +
       // CreateNewTag immediately after the BranchOperationGroup (Compare with
-      // Branch / Merge into Current).
-      assert.ok(idx('mergeIntoCurrent') < idx('newBranch'), 'Merge before New Branch');
+      // Branch).
+      assert.ok(
+        idx('compareWithBranch') < idx('newBranch'),
+        'Compare with Branch before New Branch'
+      );
       assert.ok(idx('newBranch') < idx('newTag'), 'New Branch before New Tag');
     });
 
@@ -795,10 +790,6 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // (editCommitMessage), and before the existing with-previous rewrites.
       assert.ok(idx('editCommitMessage') < idx('fixup'), 'Reword before Fixup');
       assert.ok(idx('fixup') < idx('squashInto'), 'Fixup before Squash Into');
-      assert.ok(
-        idx('squashInto') < idx('fixupWithPrevious'),
-        'Squash Into before Fixup with Previous'
-      );
     });
 
     it('should render the commit context menu as hidden by default', () => {
@@ -817,15 +808,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have role="menuitem" on each menu item', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      // Added two multi-select-only items: squashCommits + compareVersions.
-      // Added three single-only items: squashWithPrevious
-      // fixupWithPrevious and compareWithBranch. 15 + 3 = 18.
-      // Plus Copy Commit Message (#P3 Vcs.Log.CopySubjectText) = 19.
-      // Plus pushUpToCommit (Gap B IntelliJ Git.PushUpToHere parity) = 20.
-      // G9: goToParent + goToChild = 22.
-      // Git.CreateNewBranch.FromCommit + Git.CreateNewTag = 24.
-      // Git.Fixup.To.Commit + Git.Squash.Into.Commit = 26.
-      assert.strictEqual(menuItemCount, 26, 'Should have 26 menu items with role="menuitem"');
+      // git4idea-parity set after removing four non-IntelliJ items
+      // (mergeIntoCurrent, squashWithPrevious, fixupWithPrevious,
+      // copyCommitMessage): 26 - 4 = 22.
+      assert.strictEqual(menuItemCount, 22, 'Should have 22 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -833,13 +819,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('aria-label="Commit actions"'), 'Should have aria-label');
     });
 
-    it('includes Copy Commit Message (#P3 Vcs.Log.CopySubjectText)', () => {
+    it('should NOT contain Copy Commit Message (removed for parity)', () => {
       const html = provider._getCommitContextMenuHtml();
       assert.ok(
-        html.includes('data-action="copyCommitMessage"'),
-        'Should expose the copyCommitMessage action'
+        !html.includes('data-action="copyCommitMessage"'),
+        'copyCommitMessage was removed from the commit menu'
       );
-      assert.ok(html.includes('>Copy Commit Message<'), 'Should label it');
     });
 
     it('should mark Reset Current Branch to Here as a danger action', () => {
@@ -874,9 +859,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // Reset is no longer buried beneath the history-rewrite actions.
       assert.ok(idx('resetToHere') < idx('editCommitMessage'), 'Reset before Edit Commit Message');
       assert.ok(idx('resetToHere') < idx('dropCommit'), 'Reset before Drop Commit');
-      assert.ok(idx('resetToHere') < idx('mergeIntoCurrent'), 'Reset before Merge into Current');
       // Branch-integration actions still follow the history-rewrite block.
-      assert.ok(idx('dropCommit') < idx('mergeIntoCurrent'), 'history rewrite before integration');
+      assert.ok(idx('dropCommit') < idx('compareWithBranch'), 'history rewrite before integration');
     });
 
     it('should have data-head-hash attribute on the menu root element', () => {
@@ -895,16 +879,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have five context-menu-separator dividers between six sections', () => {
       const html = provider._getCommitContextMenuHtml();
       const separatorCount = (html.match(/context-menu-separator/g) || []).length;
-      // Added two new sections.
-      //   Section 4 (was: just rebase ops): squashWithPrevious +
-      // fixupWithPrevious.
-      //   Section 5 (new): compareWithBranch + mergeIntoCurrent +
-      //     interactiveRebase. Pre-K's section 4 (merge + rebase) absorbed
-      //     compareWithBranch as the first entry — IntelliJ groups
-      //     "Compare with Branch" near the rebase/merge actions.
-      // Net: 3 separators → 4, 4 sections → 5.
-      // Gap B: pushUpToCommit added in its own section 6. 4 → 5 separators.
-      // G9: goToParent + goToChild added in section 7. 5 → 6 separators.
+      // Seven sections (copy/patch · checkout/compare · reset/revert/undo ·
+      // edit/fixup/squash/drop/rebase · branch+tag · push · navigate),
+      // separated by six dividers. Removing the four non-IntelliJ items did
+      // not empty any section, so the divider count is unchanged.
       assert.strictEqual(separatorCount, 6, 'Should have 6 separators between 7 sections');
     });
   });

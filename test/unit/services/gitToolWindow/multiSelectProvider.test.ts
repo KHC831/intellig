@@ -306,7 +306,6 @@ describe('Wave A — provider integration', () => {
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
       ];
       for (const action of requiredActions) {

@@ -28,7 +28,7 @@ import type {
 } from '../../../src/git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../../mocks/vscode';
-import { writableWindow, writableCommands, writableEnv } from '../../typed/windowStub';
+import { writableWindow, writableCommands } from '../../typed/windowStub';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -621,28 +621,5 @@ describe('H-1 — cross-repo multi-selection guard refuses ops that span reposit
     assert.ok(revert, 'a no-recorded-roots multi revert should run');
     assert.strictEqual(revert.repo.rootUri.fsPath, ROOT_A);
     assert.strictEqual(warnings.length, 0);
-  });
-
-  it('refuses copyCommitMessage across a cross-repo selection (uniform with the other multi arms)', async () => {
-    const { commands, gitService } = crossRepoSetup();
-    let clipboard = '';
-    writableEnv().clipboard = {
-      writeText: (text: string) => {
-        clipboard = text;
-        return Promise.resolve();
-      },
-      readText: () => Promise.resolve(''),
-    };
-
-    await commands._handleAction('copyCommitMessage', [FOREIGN_HASH, HASH_A1]);
-
-    assert.strictEqual(
-      gitService.opCalls.find((c) => c.method === 'getCommit'),
-      undefined,
-      'copy must not read commit messages from a single resolved repo for a cross-repo selection'
-    );
-    assert.strictEqual(clipboard, '', 'nothing should be copied for a cross-repo selection');
-    assert.strictEqual(warnings.length, 1);
-    assert.match(warnings[0], /multiple repositories/i);
   });
 });

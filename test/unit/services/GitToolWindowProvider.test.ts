@@ -513,7 +513,6 @@ describe('Log View', () => {
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
       ];
       const receivedActions: string[] = [];
@@ -1859,6 +1858,9 @@ describe('Multi-Repository Selection State', () => {
 
   describe('repository scope state', () => {
     it('exposes isAllReposSelected() reflecting the current scope', () => {
+      // Pin a specific-repo starting scope (the merged-default is exercised by
+      // the seeding tests); this test verifies the toggle, not the default.
+      setMockConfigValue('intellig', 'log.showAllRoots', false);
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1871,7 +1873,7 @@ describe('Multi-Repository Selection State', () => {
         isAllReposSelected(): boolean;
       };
 
-      // Config-off default → specific repo scope.
+      // Explicit config-off → specific repo scope.
       assert.strictEqual(surface.isAllReposSelected(), false);
 
       surface._handleRepositorySelection('all');
@@ -1879,6 +1881,7 @@ describe('Multi-Repository Selection State', () => {
 
       surface._handleRepositorySelection(0);
       assert.strictEqual(surface.isAllReposSelected(), false);
+      setMockConfigValue('intellig', 'log.showAllRoots', undefined);
     });
 
     it('keeps getSelectedRepository() returning a concrete context repo even in all scope', () => {
@@ -2011,7 +2014,8 @@ describe('Multi-Repository Selection State', () => {
 
     it('does not fire a scope event when an already single-repo scope shrinks to one repo', () => {
       const surface = scopeSurface();
-      // Config-off default → specific-repo scope (not 'all').
+      // Pin an explicit specific-repo scope (not 'all') for this mechanics test.
+      setMockConfigValue('intellig', 'log.showAllRoots', false);
       setRepos('/workspace/repo-a', '/workspace/repo-b');
 
       const events: ScopeEvent[] = [];
@@ -2025,6 +2029,7 @@ describe('Multi-Repository Selection State', () => {
         0,
         'a non-all scope shrinking the repo set is not a collapse and must not emit'
       );
+      setMockConfigValue('intellig', 'log.showAllRoots', undefined);
     });
   });
 
@@ -3243,7 +3248,22 @@ describe('_isShowAllRootsEnabled (G8) — now derives from the repository scope'
     assert.strictEqual(enabled, true, 'config-seeded all scope must report all-roots enabled');
   });
 
-  it('seeds the scope to a specific repo when showAllRoots config is false (the default)', () => {
+  it('seeds the scope to all by DEFAULT (config unset) when >1 repo exists', () => {
+    // Default flipped to true so the graph matches the branch tree, which is
+    // always 'all' by default. Config unset → the `.get(..., true)` default.
+    setMockConfigValue('intellig', 'log.showAllRoots', undefined);
+    p.setAvailableRepositories(twoRepos());
+    const enabled = (
+      p as unknown as { _isShowAllRootsEnabled(): boolean }
+    )._isShowAllRootsEnabled();
+    assert.strictEqual(
+      enabled,
+      true,
+      'default (unset) scope must be the merged all-roots view in a multi-repo workspace'
+    );
+  });
+
+  it('seeds the scope to a specific repo when showAllRoots config is EXPLICITLY false', () => {
     setMockConfigValue('intellig', 'log.showAllRoots', false);
     p.setAvailableRepositories(twoRepos());
     const enabled = (
@@ -3252,7 +3272,7 @@ describe('_isShowAllRootsEnabled (G8) — now derives from the repository scope'
     assert.strictEqual(
       enabled,
       false,
-      'config-off default must scope to a single repo, not the merged view'
+      'explicit config-off must scope to a single repo, not the merged view'
     );
   });
 

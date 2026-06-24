@@ -159,10 +159,23 @@ function findDefects(commits: ICommit[]): string[] {
       }
       beziers.add(ln.toColumn);
     }
+    // Source lanes of a far-parent bend that lands at row i+1: the source lane
+    // runs straight down to bottom THIS row so it meets the incoming bend at the
+    // seam (the gap this guard previously missed because it keyed bottom ink off
+    // the interval model, which stops the source lane one row early).
+    const bendLandsBelow = new Set<number>();
+    for (const nd of nodes) {
+      for (const ln of nd.graphLines) {
+        if (ln.endRow === i + 1) {
+          bendLandsBelow.add(ln.fromColumn);
+        }
+      }
+    }
     const isLast = i === svgs.length - 1;
     for (let lane = 0; lane <= maxLane; lane++) {
       const expTop = cfa.has(lane) || bends.has(lane);
-      const expBottom = (cfaNext.has(lane) && !isLast) || beziers.has(lane);
+      const expBottom =
+        (cfaNext.has(lane) && !isLast) || beziers.has(lane) || bendLandsBelow.has(lane);
       const x = getColumnX(lane, DEFAULT_GRAPH_CONFIG);
       const top = inkAt(svgs[i], x, 0);
       const bottom = inkAt(svgs[i], x, BOTTOM_Y);

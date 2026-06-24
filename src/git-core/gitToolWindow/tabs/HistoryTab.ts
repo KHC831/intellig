@@ -50,6 +50,7 @@ import type {
   IRepository,
 } from '../../interfaces/IGitService';
 import { sanitizeGitError } from '../../gitError';
+import { openRevisionDiff } from '../../diff/openRevisionDiff';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -708,7 +709,8 @@ export class HistoryTab {
     const rightUri = buildFileAtRevisionUri(filePath, to);
     const title = buildDiffAnyTwoTitle(filePath, from, to);
     try {
-      await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
+      // Bare (re-throws) so the tab-scoped `_surfaceError` keeps owning the UX.
+      await openRevisionDiff({ leftUri, rightUri, title });
     } catch (err) {
       this._surfaceError(err, 'Failed to open diff tab');
     }
@@ -734,7 +736,8 @@ export class HistoryTab {
     const rightUri = vscode.Uri.joinPath(repo.rootUri, filePath);
     const title = buildCompareWithLocalTitle(filePath, rev);
     try {
-      await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
+      // Bare (re-throws) so the tab-scoped `_surfaceError` keeps owning the UX.
+      await openRevisionDiff({ leftUri, rightUri, title });
     } catch (err) {
       this._surfaceError(err, 'Failed to open diff against local');
     }

@@ -204,7 +204,6 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
   return `
       <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${escapeHtml(headHash)}">
         <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">Copy Revision Number</div>
-        <div class="context-menu-item" data-action="copyCommitMessage" role="menuitem" tabindex="0">Copy Commit Message</div>
         <div class="context-menu-item" data-action="createPatch" role="menuitem" tabindex="0">Create Patch\u2026</div>
         <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">Cherry-Pick</div>
         <div class="context-menu-separator"></div>
@@ -220,20 +219,17 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
         <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message\u2026</div>
         <div class="context-menu-item" data-action="fixup" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup\u2026</div>
         <div class="context-menu-item" data-action="squashInto" data-multi-action="single-only" role="menuitem" tabindex="0">Squash Into\u2026</div>
-        <div class="context-menu-item" data-action="fixupWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup with Previous</div>
-        <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
         <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
         <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
         <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="compareWithBranch" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Branch\u2026</div>
-        <div class="context-menu-item" data-action="mergeIntoCurrent" data-multi-action="single-only" role="menuitem" tabindex="0">Merge into Current Branch</div>
         <div class="context-menu-item" data-action="newBranch" data-multi-action="single-only" role="menuitem" tabindex="0">New Branch\u2026</div>
         <div class="context-menu-item" data-action="newTag" data-multi-action="single-only" role="menuitem" tabindex="0">New Tag\u2026</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="pushUpToCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Push up to here\u2026</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="goToParent" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Parent</div>
-        <div class="context-menu-item" data-action="goToChild" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Child</div>
+        <div class="context-menu-item" data-action="goToChild" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Child Commit</div>
+        <div class="context-menu-item" data-action="goToParent" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Parent Commit</div>
       </div>`;
 }

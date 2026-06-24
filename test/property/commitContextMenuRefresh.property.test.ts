@@ -43,7 +43,6 @@ const STATE_MODIFYING_ACTIONS: LogContextAction[] = [
   'undoCommit',
   'dropCommit',
   'editCommitMessage',
-  'mergeIntoCurrent',
   'interactiveRebase',
 ];
 

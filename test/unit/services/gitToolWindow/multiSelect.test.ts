@@ -108,7 +108,6 @@ describe('multiSelect — pure helpers', () => {
         'checkoutRevision',
         'showRepoAtRevision',
         'compareWithLocal',
-        'mergeIntoCurrent',
         'interactiveRebase',
         // resetToHere is now single-only too.
         'resetToHere',
@@ -126,7 +125,6 @@ describe('multiSelect — pure helpers', () => {
         'checkoutRevision',
         'showRepoAtRevision',
         'compareWithLocal',
-        'mergeIntoCurrent',
         'interactiveRebase',
         'resetToHere',
       ];
@@ -333,7 +331,6 @@ describe('multiSelect — pure helpers', () => {
         'checkoutRevision',
         'showRepoAtRevision',
         'compareWithLocal',
-        'mergeIntoCurrent',
         'interactiveRebase',
         'resetToHere',
       ];
@@ -359,7 +356,6 @@ describe('multiSelect — pure helpers', () => {
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
         'squashCommits',
         'compareVersions',
@@ -400,7 +396,6 @@ describe('multiSelect — pure helpers', () => {
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
         'squashCommits',
         'compareVersions',

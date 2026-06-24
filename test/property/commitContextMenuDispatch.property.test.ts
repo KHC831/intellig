@@ -31,7 +31,6 @@ import { writableWindow, writableWorkspace, writableCommands } from '../typed/wi
  */
 const IMPLEMENTED_ACTIONS: LogContextAction[] = [
   'copyHash',
-  'copyCommitMessage',
   'cherryPick',
   'revert',
   'checkoutRevision',
@@ -42,7 +41,6 @@ const IMPLEMENTED_ACTIONS: LogContextAction[] = [
   'undoCommit',
   'dropCommit',
   'editCommitMessage',
-  'mergeIntoCurrent',
   'interactiveRebase',
   // `compareVersions` is now a real handler. Property 4's "for any
   // LogContextAction the right handler is called" claim was structurally
@@ -83,7 +81,6 @@ function arbitraryCommitHashes(): fc.Arbitrary<string[]> {
  */
 const ACTION_TO_HANDLER: Record<string, string> = {
   copyHash: '_handleCopyHash',
-  copyCommitMessage: '_handleCopyCommitMessage',
   cherryPick: '_handleCherryPick',
   revert: '_handleRevert',
   checkoutRevision: '_handleCheckoutRevision',
@@ -94,7 +91,6 @@ const ACTION_TO_HANDLER: Record<string, string> = {
   undoCommit: '_handleUndoCommit',
   dropCommit: '_handleDropCommit',
   editCommitMessage: '_handleEditCommitMessage',
-  mergeIntoCurrent: '_handleMergeIntoCurrent',
   interactiveRebase: '_handleInteractiveRebase',
   // see IMPLEMENTED_ACTIONS comment.
   compareVersions: '_handleCompareVersions',

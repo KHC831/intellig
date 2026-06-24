@@ -1518,8 +1518,8 @@
         },
         "intellig.log.showAllRoots": {
           "type": "boolean",
-          "default": false,
-          "description": "Show commits from all workspace repositories merged into one log. When enabled, a Root column shows the repo basename for each commit (G8)."
+          "default": true,
+          "description": "Show commits from all workspace repositories merged into one log (matches the branch view, which shows all repositories by default). A Root column shows the repo basename for each commit. Disable to scope a multi-repo workspace's log to a single repository (G8)."
         },
         "intellig.blameAnnotationStyle": {
           "type": "string",

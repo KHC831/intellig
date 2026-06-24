@@ -211,7 +211,6 @@ describe('Wave A R1 — provider integration', () => {
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
         'squashCommits',
         'compareVersions',

@@ -25,6 +25,7 @@ import {
   formatActionFailureToast,
   worktreeConflictMessage,
 } from '../git-core/gitError';
+import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
 import type { IWorktreeCapableService, IWorktreeEntry } from '../git-core/ops/WorktreeOps';
 
@@ -1654,14 +1655,7 @@ export class BranchContextMenuCommands {
       const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
       const title = `${basename} (${branchRef} ↔ Working Tree)`;
 
-      try {
-        await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(
-          `Failed to show diff for ${filePath}: ${sanitizeGitError(errorMessage)}`
-        );
-      }
+      await openRevisionDiff({ leftUri, rightUri, title }, `Failed to show diff for ${filePath}`);
     }
   }
 

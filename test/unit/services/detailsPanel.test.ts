@@ -791,6 +791,119 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────
+  // "Contained in branches" row (mirrors IntelliJ ContainingBranchesPanel).
+  // ──────────────────────────────────────────────────────────────────────
+  describe('Contained in branches', () => {
+    it('shows the IntelliJ loading header while the branch list is undefined', () => {
+      const details = makeCommitDetails({ containingBranches: undefined });
+      const html = renderDetails(provider, details);
+      assert.ok(html.includes('In branches: loading…'), 'should show the loading header');
+    });
+
+    it('shows "Not in any branch" when the commit is in no branch', () => {
+      const details = makeCommitDetails({ containingBranches: [] });
+      const html = renderDetails(provider, details);
+      assert.ok(html.includes('Not in any branch'), 'should show the empty state');
+    });
+
+    it('uses the singular "In 1 branch:" header for a single branch', () => {
+      const details = makeCommitDetails({ containingBranches: ['main'] });
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
+      assert.strictEqual(
+        panel.querySelector('.containing-branches-row .detail-label')?.textContent,
+        'In 1 branch:'
+      );
+    });
+
+    it('uses the plural "In N branches:" header carrying the full count', () => {
+      const details = makeCommitDetails({ containingBranches: ['main', 'dev', 'release'] });
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
+      assert.strictEqual(
+        panel.querySelector('.containing-branches-row .detail-label')?.textContent,
+        'In 3 branches:'
+      );
+    });
+
+    it('lists every branch inline when at or below the collapse threshold (3)', () => {
+      const details = makeCommitDetails({ containingBranches: ['main', 'dev', 'release'] });
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
+      const names = Array.from(panel.querySelectorAll('.containing-branch')).map(
+        (n) => n.textContent
+      );
+      assert.deepStrictEqual(names, ['main', 'dev', 'release']);
+      assert.strictEqual(
+        panel.querySelector('.branches-show-all'),
+        null,
+        'no Show all link when nothing is collapsed'
+      );
+    });
+
+    it('collapses to the first 3 branches plus a Show all affordance past the threshold', () => {
+      const details = makeCommitDetails({
+        containingBranches: ['a', 'b', 'c', 'd', 'e'],
+      });
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
+      // The full count rides in the header even while collapsed (M1 parity).
+      assert.strictEqual(
+        panel.querySelector('.containing-branches-row .detail-label')?.textContent,
+        'In 5 branches:'
+      );
+      const collapsed = panel.querySelector('.branches-collapsed');
+      const expanded = panel.querySelector('.branches-expanded');
+      assert.ok(collapsed, 'collapsed view present');
+      assert.ok(expanded, 'expanded view present');
+      const collapsedNames = Array.from(collapsed.querySelectorAll('.containing-branch')).map(
+        (n) => n.textContent
+      );
+      assert.deepStrictEqual(collapsedNames, ['a', 'b', 'c'], 'collapsed shows first 3');
+      assert.ok(panel.querySelector('.branches-show-all'), 'Show all link present');
+      assert.ok(
+        (expanded.getAttribute('style') || '').includes('display: none'),
+        'expanded list hidden initially'
+      );
+    });
+
+    it('reveals all branches and swaps to a Hide control when Show all is clicked', () => {
+      const details = makeCommitDetails({
+        containingBranches: ['a', 'b', 'c', 'd', 'e'],
+      });
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
+      const showAll = panel.querySelector('.branches-show-all') as HTMLElement;
+      const collapsed = panel.querySelector('.branches-collapsed') as HTMLElement;
+      const expanded = panel.querySelector('.branches-expanded') as HTMLElement;
+
+      showAll.click();
+
+      assert.strictEqual(collapsed.style.display, 'none', 'collapsed view hidden after expand');
+      assert.notStrictEqual(expanded.style.display, 'none', 'expanded view shown after expand');
+      // Count header is unchanged across the expand (full count shown in both states).
+      assert.strictEqual(
+        panel.querySelector('.containing-branches-row .detail-label')?.textContent,
+        'In 5 branches:'
+      );
+      const expandedNames = Array.from(expanded.querySelectorAll('.containing-branch')).map(
+        (n) => n.textContent
+      );
+      assert.deepStrictEqual(expandedNames, ['a', 'b', 'c', 'd', 'e'], 'all branches listed');
+      assert.ok(expanded.querySelector('.branches-hide'), 'Hide control present in expanded view');
+    });
+
+    it('renders branch names as inert text (no script injection)', () => {
+      const details = makeCommitDetails({
+        containingBranches: ['<script>alert(1)</script>', 'main'],
+      });
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
+      assert.strictEqual(panel.querySelector('script'), null, 'no <script> element injected');
+      const first = panel.querySelector('.containing-branch');
+      assert.strictEqual(
+        first?.textContent,
+        '<script>alert(1)</script>',
+        'branch name preserved as inert text'
+      );
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
   // wire issue-link utilities into the details panel.
   // ──────────────────────────────────────────────────────────────────────
   describe('commit message issue links', () => {

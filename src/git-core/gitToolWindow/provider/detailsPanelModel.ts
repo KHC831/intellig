@@ -60,6 +60,13 @@ export type DetailsPanelModel =
       changedFilesError?: string;
       changedFilesCount: number;
       fileTree: DetailsTreeNode[];
+      /**
+       * Branches containing this commit: `null` while still loading, `[]` when
+       * the commit is in no branch, else the alphabetically-sorted names.
+       */
+      containingBranches: string[] | null;
+      /** Collapse the list past this many names behind a "Show all" toggle. */
+      branchCollapseThreshold: number;
     }
   | {
       kind: 'multi';
@@ -68,6 +75,14 @@ export type DetailsPanelModel =
       changedFilesCount: number;
       fileTree: DetailsTreeNode[];
     };
+
+/**
+ * Collapse threshold for the "Contained in branches" list. Past this many
+ * branches the details panel shows the first N plus a "Show all" toggle.
+ * IntelliJ's ContainingBranchesPanel collapses by available pixel width; we
+ * use a fixed count so the behavior is deterministic across panel sizes.
+ */
+export const BRANCH_COLLAPSE_THRESHOLD = 3;
 
 /** First line of a message, truncated with an ellipsis past `maxLength`. */
 function truncateSummary(message: string, maxLength: number): string {
@@ -174,6 +189,8 @@ export function buildDetailsPanelModel(
     changedFilesError: commitDetails.changedFilesError,
     changedFilesCount: commitDetails.changedFiles.length,
     fileTree: commitDetails.changedFilesError ? [] : buildAnnotatedTree(commitDetails.changedFiles),
+    containingBranches: commitDetails.containingBranches ?? null,
+    branchCollapseThreshold: BRANCH_COLLAPSE_THRESHOLD,
   };
 }
 

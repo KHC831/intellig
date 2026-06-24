@@ -38,8 +38,57 @@ export function extractCommitHash(arg: unknown): string | undefined {
 }
 
 /**
+ * Resolve the repository that CONTAINS `hash`, NON-interactively.
+ *
+ * For a commit-scoped action (diff/compare/apply) the target repo is determined
+ * by the commit, not the user. {@link pickRepositoryForCommit} prompts with a
+ * blind "Choose Repository" QuickPick in a multi-repo workspace and never
+ * verifies the pick holds the commit — so a wrong pick runs the op against a
+ * repo without the commit and yields a BLANK diff / empty result. This resolver
+ * mirrors `resolveRepoForCommitDiff` (registration/wiring.ts): single-repo is
+ * auto-selected; multi-repo returns the first repo whose `getCommit(hash)`
+ * succeeds; and it surfaces an error (rather than prompting) when no open repo
+ * contains the commit.
+ */
+export async function resolveRepoContainingCommit(
+  ctx: ICommandContext,
+  hash: string
+): Promise<IRepository | undefined> {
+  if (!ctx.services) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  const gitService = ctx.services.gitService;
+  const repos = gitService.getRepositories();
+  if (repos.length === 0) {
+    void vscode.window.showErrorMessage('No Git repository found in workspace');
+    return undefined;
+  }
+  if (repos.length === 1) {
+    return repos[0];
+  }
+  for (const repo of repos) {
+    try {
+      await gitService.getCommit(repo, hash);
+      return repo;
+    } catch {
+      // Commit not in this repo — keep looking, never prompt blindly. Mirrors
+      // resolveRepoForCommitDiff's contains() probe (wiring.ts).
+      continue;
+    }
+  }
+  void vscode.window.showErrorMessage(
+    `Could not find the repository containing commit ${hash.substring(0, 7)}.`
+  );
+  return undefined;
+}
+
+/**
  * Resolve a single repository to operate on for a commit-context action.
  * Single-repo workspaces are auto-selected; multi-repo shows a QuickPick.
+ * Prefer {@link resolveRepoContainingCommit} for commit-scoped actions where
+ * the repo is determined by the commit (this blind picker has no commit
+ * context, so a multi-repo pick can target the wrong repo).
  */
 export async function pickRepositoryForCommit(
   ctx: ICommandContext

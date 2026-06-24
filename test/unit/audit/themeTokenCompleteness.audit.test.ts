@@ -93,6 +93,16 @@ const STANDALONE_HEX_ALLOWLIST: Array<{ hex: string; rationale: string }> = [
     rationale:
       'IntelliJ-parity current-branch yellow — hardcoded pixel-faithful over the statusBarItem-warning token, matching the local-green/remote-violet hardcodes (issue #10 dogfood fix)',
   },
+  {
+    hex: '#e4faff',
+    rationale:
+      'IntelliJ-parity common-commit highlight (light) — VersionControl.Log.Commit.currentBranchBackground; no VS Code token equivalent, so the light value is set on a theme-driven CSS variable',
+  },
+  {
+    hex: '#3f4749',
+    rationale:
+      'IntelliJ-parity common-commit highlight (dark) — VersionControl.Log.Commit.currentBranchBackground dark value, applied under body.vscode-dark/high-contrast',
+  },
 ];
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;

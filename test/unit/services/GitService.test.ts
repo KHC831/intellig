@@ -592,6 +592,123 @@ describe('GitService - Branch Operations', () => {
     });
   });
 
+  describe('getContainingBranches()', () => {
+    const HASH = '1234567890abcdef1234567890abcdef12345678';
+    const CMD = `branch -a --contains ${HASH} --format %(refname)`;
+
+    it('runs git branch -a --contains <hash> --format %(refname)', async () => {
+      await gitService.getContainingBranches(mockRepo, HASH);
+
+      const lastCommand = mockGitCli.getLastCommand();
+      assert.ok(lastCommand, 'Command should have been executed');
+      assert.deepStrictEqual(lastCommand.args, [
+        'branch',
+        '-a',
+        '--contains',
+        HASH,
+        '--format',
+        '%(refname)',
+      ]);
+    });
+
+    it('passes the repo root as the working directory', async () => {
+      await gitService.getContainingBranches(mockRepo, HASH);
+
+      const lastCommand = mockGitCli.getLastCommand();
+      assert.strictEqual((lastCommand?.options as { cwd: string }).cwd, '/test/repo');
+    });
+
+    it('returns the sorted local + remote branch names that contain the commit', async () => {
+      mockGitCli.setMockResult(CMD, {
+        exitCode: 0,
+        stdout: 'refs/heads/main\nrefs/heads/feature/x\nrefs/remotes/origin/main\n',
+        stderr: '',
+      });
+
+      const branches = await gitService.getContainingBranches(mockRepo, HASH);
+      assert.deepStrictEqual(branches, ['feature/x', 'main', 'origin/main']);
+    });
+
+    it('returns an empty list when no branch contains the commit', async () => {
+      mockGitCli.setMockResult(CMD, { exitCode: 0, stdout: '', stderr: '' });
+
+      const branches = await gitService.getContainingBranches(mockRepo, HASH);
+      assert.deepStrictEqual(branches, []);
+    });
+
+    it('degrades to an empty list when the git command fails', async () => {
+      mockGitCli.setMockResult(CMD, { exitCode: 1, stdout: '', stderr: 'boom' });
+
+      const branches = await gitService.getContainingBranches(mockRepo, HASH);
+      assert.deepStrictEqual(branches, []);
+    });
+
+    it('rejects a non-hex commit ref without running git (injection guard)', async () => {
+      const branches = await gitService.getContainingBranches(mockRepo, '--upload-pack=evil');
+      assert.deepStrictEqual(branches, []);
+      assert.strictEqual(
+        mockGitCli.getLastCommand(),
+        undefined,
+        'no git command should run for an invalid ref'
+      );
+    });
+  });
+
+  describe('getCommonCommits()', () => {
+    const REF = 'feature/x';
+    const MERGE_BASE_CMD = `merge-base --all --end-of-options HEAD ${REF}`;
+
+    it('returns commits reachable from the merge base(s) — the common set with HEAD', async () => {
+      mockGitCli.setMockResult(MERGE_BASE_CMD, { exitCode: 0, stdout: 'base1\n', stderr: '' });
+      mockGitCli.setMockResult('rev-list --end-of-options base1', {
+        exitCode: 0,
+        stdout: 'base1\nc2\nc3\n',
+        stderr: '',
+      });
+
+      const common = await gitService.getCommonCommits(mockRepo, REF);
+      assert.deepStrictEqual(common, ['base1', 'c2', 'c3']);
+    });
+
+    it('passes every merge base to rev-list (multiple bases / criss-cross merge)', async () => {
+      mockGitCli.setMockResult(MERGE_BASE_CMD, { exitCode: 0, stdout: 'b1\nb2\n', stderr: '' });
+      mockGitCli.setMockResult('rev-list --end-of-options b1 b2', {
+        exitCode: 0,
+        stdout: 'b1\nb2\n',
+        stderr: '',
+      });
+
+      const common = await gitService.getCommonCommits(mockRepo, REF);
+      assert.deepStrictEqual(common, ['b1', 'b2']);
+    });
+
+    it('returns an empty list when there is no merge base (unrelated histories)', async () => {
+      mockGitCli.setMockResult(MERGE_BASE_CMD, { exitCode: 1, stdout: '', stderr: '' });
+      const common = await gitService.getCommonCommits(mockRepo, REF);
+      assert.deepStrictEqual(common, []);
+    });
+
+    it('rejects a flag-injection ref without running git', async () => {
+      const common = await gitService.getCommonCommits(mockRepo, '--upload-pack=evil');
+      assert.deepStrictEqual(common, []);
+      assert.strictEqual(
+        mockGitCli.getLastCommand(),
+        undefined,
+        'no git command for an invalid ref'
+      );
+    });
+
+    it('rejects a leading-dot ref without running git', async () => {
+      const common = await gitService.getCommonCommits(mockRepo, '.hidden');
+      assert.deepStrictEqual(common, []);
+      assert.strictEqual(
+        mockGitCli.getLastCommand(),
+        undefined,
+        'no git command for an invalid ref'
+      );
+    });
+  });
+
   describe('createBranch()', () => {
     describe('Creating branch from current HEAD', () => {
       it('should execute git branch with branch name', async () => {

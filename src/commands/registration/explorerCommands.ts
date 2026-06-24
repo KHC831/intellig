@@ -4,6 +4,7 @@ import * as path from 'path';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
+import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { PatchWriteFailed } from '../../services';
 import { canonicalizeFsPath, repoRelativePath } from '../../utils/repoRelativePath';
 import type { ICommandContext } from './CommandContext';
@@ -260,12 +261,13 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         // in place of the bundled Git extension). The repo root is encoded so
         // the provider resolves the right repo for a nested/multi-root layout.
         const branchUri = buildIntelligGitUri(filePath, selected.label, repo.rootUri.fsPath);
-        await vscode.commands.executeCommand(
-          'vscode.diff',
-          branchUri,
-          fileUriToUse,
-          `${filePath} (${selected.label} ↔ Working Tree)`
-        );
+        // Bare (re-throws) into the surrounding catch, which also covers
+        // `getBranches` + the QuickPick above.
+        await openRevisionDiff({
+          leftUri: branchUri,
+          rightUri: fileUriToUse,
+          title: `${filePath} (${selected.label} ↔ Working Tree)`,
+        });
       } catch (error) {
         void vscode.window.showErrorMessage(
           formatActionFailureToast('Failed to compare with branch', error)
@@ -462,22 +464,20 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       }
       const filePath = repoRelativePath(repo.rootUri.fsPath, fileUriToUse.fsPath);
 
-      try {
-        // Diff the working-tree file against its HEAD revision via the
-        // `intellig-git:` content provider (the scheme this extension serves;
-        // the built-in `git:` scheme is unavailable when the user runs IntelliG
-        // in place of the bundled Git extension). The repo root is encoded so
-        // the provider resolves the right repo for a nested/multi-root layout.
-        const headUri = buildIntelligGitUri(filePath, 'HEAD', repo.rootUri.fsPath);
-        await vscode.commands.executeCommand(
-          'vscode.diff',
-          headUri,
-          fileUriToUse,
-          `${filePath} (HEAD ↔ Working Tree)`
-        );
-      } catch (error) {
-        void vscode.window.showErrorMessage(formatActionFailureToast('Failed to show diff', error));
-      }
+      // Diff the working-tree file against its HEAD revision via the
+      // `intellig-git:` content provider (the scheme this extension serves;
+      // the built-in `git:` scheme is unavailable when the user runs IntelliG
+      // in place of the bundled Git extension). The repo root is encoded so
+      // the provider resolves the right repo for a nested/multi-root layout.
+      const headUri = buildIntelligGitUri(filePath, 'HEAD', repo.rootUri.fsPath);
+      await openRevisionDiff(
+        {
+          leftUri: headUri,
+          rightUri: fileUriToUse,
+          title: `${filePath} (HEAD ↔ Working Tree)`,
+        },
+        'Failed to show diff'
+      );
     }
   );
 
@@ -675,14 +675,10 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
       const leftUri = buildCompareWithRepoVersionLeftUri(filePath, 'HEAD', repo.rootUri.fsPath);
       const title = buildCompareWithRepoVersionTitle(filePath);
-      try {
-        await vscode.commands.executeCommand('vscode.diff', leftUri, resolvedUri, title);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(
-          `Failed to compare with HEAD: ${sanitizeGitError(msg)}`
-        );
-      }
+      await openRevisionDiff(
+        { leftUri, rightUri: resolvedUri, title },
+        'Failed to compare with HEAD'
+      );
     }
   );
 

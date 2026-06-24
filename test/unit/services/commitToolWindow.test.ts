@@ -411,6 +411,8 @@ describe('CommitToolWindow — host behavior', () => {
       amend: notImplemented('amend'),
       commitFixup: notImplemented('commitFixup'),
       getBranches: notImplemented('getBranches'),
+      getContainingBranches: notImplemented('getContainingBranches'),
+      getCommonCommits: notImplemented('getCommonCommits'),
       getLogContributors: notImplemented('getLogContributors'),
       createBranch: notImplemented('createBranch'),
       checkout: notImplemented('checkout'),

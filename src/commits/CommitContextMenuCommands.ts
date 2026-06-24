@@ -17,6 +17,7 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
+import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { getLogger } from '../utils/logger';
@@ -411,9 +412,6 @@ export class CommitContextMenuCommands {
       case 'copyHash':
         await this._handleCopyHash(commitHashes);
         break;
-      case 'copyCommitMessage':
-        await this._handleCopyCommitMessage(commitHashes);
-        break;
       case 'cherryPick':
         await this._handleCherryPick(commitHashes);
         break;
@@ -448,9 +446,6 @@ export class CommitContextMenuCommands {
       case 'editCommitMessage':
         await this._handleEditCommitMessage(commitHashes);
         break;
-      case 'mergeIntoCurrent':
-        await this._handleMergeIntoCurrent(commitHashes);
-        break;
       case 'interactiveRebase':
         await this._handleInteractiveRebase(commitHashes);
         break;
@@ -461,16 +456,6 @@ export class CommitContextMenuCommands {
         break;
       case 'compareVersions':
         await this._handleCompareVersions(commitHashes, commitNodes);
-        break;
-      // IntelliJ-parity single-commit Squash/Fixup with
-      // Previous. Both delegate into `_handleSquashCommits` with a
-      // synthesised 2-commit selection (clicked commit + its first
-      // parent).: single source of truth for the squash plan.
-      case 'squashWithPrevious':
-        await this._handleSquashWithPrevious(commitHashes);
-        break;
-      case 'fixupWithPrevious':
-        await this._handleFixupWithPrevious(commitHashes);
         break;
       // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: commit the
       // currently-staged changes as a fixup!/squash! of the selected commit.
@@ -724,46 +709,6 @@ export class CommitContextMenuCommands {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to copy hash: ${sanitizeGitError(errorMessage)}`);
-    }
-  }
-
-  /**
-   * Copy the full commit message(s) to the clipboard (IntelliJ
-   * Vcs.Log.CopySubjectText / copy-commit-message). For multiple selected
-   * commits the messages are joined with a blank line so they paste as
-   * separated blocks. Order is preserved as supplied (newest-first per the
-   * webview's DOM order).
-   */
-  private async _handleCopyCommitMessage(commitHashes: string[]): Promise<void> {
-    if (commitHashes.length === 0) {
-      return;
-    }
-    // All messages are read from a single resolved repo, so a cross-repo
-    // selection would fail noisily on the foreign hashes. Refuse uniformly with
-    // the other multi-commit arms rather than copy a partial / wrong result.
-    if (this._isCrossRepoSelection(commitHashes)) {
-      return;
-    }
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    if (!repo) {
-      return;
-    }
-    try {
-      const messages: string[] = [];
-      for (const hash of commitHashes) {
-        messages.push((await this._gitService.getCommit(repo, hash)).message);
-      }
-      await vscode.env.clipboard.writeText(messages.join('\n\n'));
-      void vscode.window.showInformationMessage(
-        commitHashes.length === 1
-          ? 'Copied commit message to clipboard'
-          : `Copied ${commitHashes.length} commit messages to clipboard`
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to copy commit message: ${sanitizeGitError(errorMessage)}`
-      );
     }
   }
 
@@ -1920,12 +1865,13 @@ export class CommitContextMenuCommands {
       );
       const localUri = vscode.Uri.joinPath(repo.rootUri, firstDiff.path);
 
-      await vscode.commands.executeCommand(
-        'vscode.diff',
-        commitUri,
-        localUri,
-        `${firstDiff.path} (${hash.substring(0, 8)} ↔ Working Tree)`
-      );
+      // Bare (re-throws) so the surrounding catch — which also covers
+      // `getCommitDiff` above — produces the single toast.
+      await openRevisionDiff({
+        leftUri: commitUri,
+        rightUri: localUri,
+        title: `${firstDiff.path} (${hash.substring(0, 8)} ↔ Working Tree)`,
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
@@ -2049,19 +1995,14 @@ export class CommitContextMenuCommands {
     }
     const lhs = vscode.Uri.parse(`intellig-git:${firstFile}?${encodeURIComponent(oldHash)}`);
     const rhs = vscode.Uri.parse(`intellig-git:${firstFile}?${encodeURIComponent(newHash)}`);
-    try {
-      await vscode.commands.executeCommand(
-        'vscode.diff',
-        lhs,
-        rhs,
-        `${firstFile} (${oldHash.substring(0, 8)} ↔ ${newHash.substring(0, 8)})`
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to compare versions: ${sanitizeGitError(errorMessage)}`
-      );
-    }
+    await openRevisionDiff(
+      {
+        leftUri: lhs,
+        rightUri: rhs,
+        title: `${firstFile} (${oldHash.substring(0, 8)} ↔ ${newHash.substring(0, 8)})`,
+      },
+      'Failed to compare versions'
+    );
   }
 
   /**
@@ -2849,95 +2790,6 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * IntelliJ-parity "Squash with Previous". Combines
-   * the right-clicked commit with its first parent into a single commit
-   * via the existing {@link _handleSquashCommits} pipeline. Synthesises
-   * the 2-commit selection [clicked, parent] in newest-first display order
-   * plus the matching `IMenuStateNode[]` so the contiguity / merge-commit
-   * guards apply unchanged. The existing squash-message editor still runs
-   * pre-rebase; the user can edit the seeded `clicked\n\nparent` message
-   * before the rebase runs.
-   *
-   * Defence-in-depth checks before delegating:
-   *   - Hash format valid (`HASH_RE`).
-   *   - Commit lookup succeeds (otherwise we can't read parents).
-   *   - Commit has at least one parent (root commit can't be squashed
-   *     into anything).
-   *   - Commit has at most one parent (merge commits are rejected — the
-   *     existing `_handleSquashCommits` rejects them too, but we emit a
-   *     friendlier per-action message here).
-   */
-  private async _handleSquashWithPrevious(commitHashes: string[]): Promise<void> {
-    await this._handleSquashOrFixupWithPrevious(commitHashes, 'squash');
-  }
-
-  /**
-   * IntelliJ-parity "Fixup with Previous". Same
-   * shape as {@link _handleSquashWithPrevious} but routes through
-   * `_handleSquashCommits` with `mode: 'fixup'` so the squash-message
-   * editor is skipped and the parent's existing message is reused
-   * verbatim — matching `git commit --fixup` semantics.
-   */
-  private async _handleFixupWithPrevious(commitHashes: string[]): Promise<void> {
-    await this._handleSquashOrFixupWithPrevious(commitHashes, 'fixup');
-  }
-
-  /**
-   * Shared body for {@link _handleSquashWithPrevious} and
-   * {@link _handleFixupWithPrevious}. The two entry points differ only in
-   * the mode flag passed to `_handleSquashCommits`.
-   */
-  private async _handleSquashOrFixupWithPrevious(
-    commitHashes: string[],
-    mode: 'squash' | 'fixup'
-  ): Promise<void> {
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    if (!repo || commitHashes.length === 0) {
-      return;
-    }
-
-    const hash = commitHashes[0];
-    if (!allHashesValid([hash])) {
-      return;
-    }
-
-    let commit;
-    try {
-      commit = await this._gitService.getCommit(repo, hash);
-    } catch {
-      void vscode.window.showErrorMessage('Could not load commit information.');
-      return;
-    }
-
-    if (!commit.parents || commit.parents.length === 0) {
-      const verb = mode === 'fixup' ? 'fixup' : 'squash';
-      void vscode.window.showErrorMessage(
-        `Cannot ${verb} a root commit (no parent to ${verb} into).`
-      );
-      return;
-    }
-    if (commit.parents.length >= 2) {
-      const verb = mode === 'fixup' ? 'fixup' : 'squash';
-      const tail = mode === 'squash' ? ' Use "Drop Commit" to discard the merge.' : '';
-      void vscode.window.showErrorMessage(`Cannot ${verb} a merge commit.${tail}`);
-      return;
-    }
-
-    const parentHash = commit.parents[0];
-    // The synthesised IMenuStateNode list mirrors the newest-first
-    // commitHashes order — `_handleSquashCommits` indexes by hash and
-    // computes `oldestIdx = max(indices)`, so the parent (older) lands
-    // in the trailing slot and is kept as `pick`. Both nodes carry
-    // `parentCount: 1` since the merge-commit guard already rejected
-    // multi-parent inputs.
-    const synthNodes: IMenuStateNode[] = [
-      { hash, parentCount: 1 },
-      { hash: parentHash, parentCount: 1 },
-    ];
-    await this._handleSquashCommits([hash, parentHash], synthNodes, { mode });
-  }
-
-  /**
    * IntelliJ-parity "Compare with Branch...". Opens
    * a single QuickPick listing local branches + remote branches + tags
    * (each group separated by a `Separator` kind item) and routes the
@@ -3280,72 +3132,6 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage(
         `Failed to edit commit message: ${sanitizeGitError(errorMessage)}`
       );
-    }
-  }
-
-  /**
-   * Merge the selected commit into the current branch.
-   */
-  private async _handleMergeIntoCurrent(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    if (!repo || commitHashes.length === 0) {
-      return;
-    }
-
-    const hash = commitHashes[0];
-
-    try {
-      const result = await this._gitService.mergeBranch(repo, hash);
-
-      if (result.success) {
-        void vscode.window.showInformationMessage(
-          `Merged ${hash.substring(0, 8)} into current branch successfully`
-        );
-      } else if (result.conflicts && result.conflicts.length > 0) {
-        // Auto-open the Resolve Conflicts dialog. Falls back to the legacy
-        // toast if conflictResolutionService isn't wired yet.
-        if (this._conflictResolutionService) {
-          await this._openResolveConflictsDialog(repo, result.conflicts, {
-            operation: 'merge',
-            target: hash.substring(0, 8),
-          });
-        } else {
-          const choice = await vscode.window.showWarningMessage(
-            `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
-            'Open Conflicts',
-            'Abort Merge'
-          );
-          if (choice === 'Open Conflicts') {
-            for (const filePath of result.conflicts) {
-              const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
-              await vscode.commands.executeCommand('vscode.open', fileUri);
-            }
-          } else if (choice === 'Abort Merge') {
-            try {
-              await this._gitCli.exec(['merge', '--abort'], {
-                cwd: repo.rootUri.fsPath,
-                throwOnError: true,
-              });
-              void vscode.window.showInformationMessage('Merge aborted.');
-            } catch (abortError) {
-              const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-              void vscode.window.showErrorMessage(
-                `Failed to abort merge: ${sanitizeGitError(abortMsg)}`
-              );
-            }
-          }
-        }
-      } else {
-        // Non-conflict failure: surface the underlying git error.
-        const reason = result.failureReason ?? 'unknown error (no output from git)';
-        void vscode.window.showErrorMessage(`Failed to merge: ${sanitizeGitError(reason)}`);
-      }
-      // Merge moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to merge: ${sanitizeGitError(errorMessage)}`);
     }
   }
 

@@ -48,19 +48,11 @@ export type MultiSelectMenuAction =
   | 'undoCommit'
   | 'dropCommit'
   | 'editCommitMessage'
-  | 'mergeIntoCurrent'
   | 'interactiveRebase'
   | 'squashCommits'
   | 'compareVersions'
-  // IntelliJ-parity single-only entries. Same
-  // single-only visibility rule as editCommitMessage / checkoutRevision /
-  // mergeIntoCurrent / interactiveRebase. squashWithPrevious / fixupWithPrevious
-  // synthesise a 2-commit selection (the clicked commit + its first parent)
-  // and route through `_handleSquashCommits`. compareWithBranch opens a
-  // QuickPick listing local + remote branches + tags and routes through
-  // BranchComparisonView.
-  | 'squashWithPrevious'
-  | 'fixupWithPrevious'
+  // compareWithBranch opens a QuickPick listing local + remote branches + tags
+  // and routes through BranchComparisonView.
   // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: single-only.
   // Commit the staged changes as a `fixup!`/`squash!` of the selected commit.
   | 'fixup'
@@ -220,15 +212,12 @@ export function computeMenuVisibility(
     checkoutRevision: !isMulti,
     showRepoAtRevision: !isMulti,
     compareWithLocal: !isMulti,
-    mergeIntoCurrent: !isMulti,
     interactiveRebase: !isMulti,
     resetToHere: !isMulti,
     // Multi-only
     squashCommits: selectedCount >= 2,
     compareVersions: selectedCount === 2,
     // single-only IntelliJ-parity entries.
-    squashWithPrevious: !isMulti,
-    fixupWithPrevious: !isMulti,
     fixup: !isMulti,
     squashInto: !isMulti,
     compareWithBranch: !isMulti,
@@ -286,7 +275,6 @@ export function computeMenuEnableState(
     checkoutRevision: isSingle,
     showRepoAtRevision: isSingle,
     compareWithLocal: isSingle,
-    mergeIntoCurrent: isSingle,
     interactiveRebase: isSingle,
     resetToHere: isSingle,
     // N=1 + HEAD
@@ -295,13 +283,8 @@ export function computeMenuEnableState(
     squashCommits: isAtLeastTwo && isContiguous && !hasMergeCommitInSelection,
     // N=2
     compareVersions: selectedCount === 2,
-    // single-only IntelliJ-parity entries; the handler does its
-    // own root-commit / merge-commit guard since the parent count for the
-    // clicked commit isn't visible to the menu-state computation here
-    // (the visibility rule only sees N=1; the handler dispatches against
-    // the clicked commit's parents at execute time).
-    squashWithPrevious: isSingle,
-    fixupWithPrevious: isSingle,
+    // single-only IntelliJ-parity entries (Git.Fixup.To.Commit /
+    // Git.Squash.Into.Commit). The handler does its own root/merge-commit guard.
     fixup: isSingle,
     squashInto: isSingle,
     compareWithBranch: isSingle,

@@ -1,12 +1,17 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { sanitizeGitError, worktreeConflictMessage } from '../../git-core/gitError';
+import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { parseRemoteUrl } from '../../utils/remoteUrl';
 import { commitUrl } from '../../utils/hostingLinks';
 import type { IGitService, IRepository } from '../../services';
 import type { LogContextAction } from '../../ui-shell/GitToolWindowProvider';
 import type { ICommandContext } from './CommandContext';
-import { extractCommitHash, pickRepositoryForCommit, resolveRepoForCommit } from './commitHelpers';
+import {
+  extractCommitHash,
+  resolveRepoContainingCommit,
+  resolveRepoForCommit,
+} from './commitHelpers';
 
 /**
  * Log-commit right-click menu parity commands (`intellig.commit.*` +
@@ -159,11 +164,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     'intellig.commit.showDiff',
     async (commitArg?: unknown) => {
       const hash = extractCommitHash(commitArg);
-      const repo = await pickRepositoryForCommit(ctx);
-      if (!hash || !repo || !ctx.services) {
-        if (!hash) {
-          void vscode.window.showErrorMessage('No commit selected.');
-        }
+      if (!hash) {
+        void vscode.window.showErrorMessage('No commit selected.');
+        return;
+      }
+      const repo = await resolveRepoContainingCommit(ctx, hash);
+      if (!repo || !ctx.services) {
         return;
       }
       try {
@@ -188,11 +194,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     'intellig.commit.compareWithHead',
     async (commitArg?: unknown) => {
       const hash = extractCommitHash(commitArg);
-      const repo = await pickRepositoryForCommit(ctx);
-      if (!hash || !repo || !ctx.services) {
-        if (!hash) {
-          void vscode.window.showErrorMessage('No commit selected.');
-        }
+      if (!hash) {
+        void vscode.window.showErrorMessage('No commit selected.');
+        return;
+      }
+      const repo = await resolveRepoContainingCommit(ctx, hash);
+      if (!repo || !ctx.services) {
         return;
       }
       await _openRefPairDiffPicker(repo, hash, 'HEAD', ctx.services.gitService);
@@ -204,11 +211,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     'intellig.commit.compareWith',
     async (commitArg?: unknown) => {
       const hash = extractCommitHash(commitArg);
-      const repo = await pickRepositoryForCommit(ctx);
-      if (!hash || !repo || !ctx.services) {
-        if (!hash) {
-          void vscode.window.showErrorMessage('No commit selected.');
-        }
+      if (!hash) {
+        void vscode.window.showErrorMessage('No commit selected.');
+        return;
+      }
+      const repo = await resolveRepoContainingCommit(ctx, hash);
+      if (!repo || !ctx.services) {
         return;
       }
       const gitService = ctx.services.gitService;
@@ -225,11 +233,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     'intellig.commit.showFileInRevision',
     async (commitArg?: unknown) => {
       const hash = extractCommitHash(commitArg);
-      const repo = await pickRepositoryForCommit(ctx);
-      if (!hash || !repo || !ctx.services) {
-        if (!hash) {
-          void vscode.window.showErrorMessage('No commit selected.');
-        }
+      if (!hash) {
+        void vscode.window.showErrorMessage('No commit selected.');
+        return;
+      }
+      const repo = await resolveRepoContainingCommit(ctx, hash);
+      if (!repo || !ctx.services) {
         return;
       }
       try {
@@ -325,7 +334,7 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         void vscode.window.showErrorMessage('No commit selected.');
         return;
       }
-      const repo = await pickRepositoryForCommit(ctx);
+      const repo = await resolveRepoContainingCommit(ctx, hash);
       if (!repo || !ctx.services) {
         return;
       }
@@ -400,7 +409,7 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       void vscode.window.showErrorMessage('No commit selected.');
       return;
     }
-    const repo = await pickRepositoryForCommit(ctx);
+    const repo = await resolveRepoContainingCommit(ctx, hash);
     if (!repo || !ctx.services) {
       return;
     }
@@ -474,7 +483,7 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       void vscode.window.showErrorMessage('No commit selected.');
       return;
     }
-    const repo = await pickRepositoryForCommit(ctx);
+    const repo = await resolveRepoContainingCommit(ctx, hash);
     if (!repo || !ctx.services) {
       return;
     }
@@ -652,7 +661,7 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
    * silently doing nothing.
    */
   async function _openCommitOnHost(hash: string): Promise<void> {
-    const repo = await pickRepositoryForCommit(ctx);
+    const repo = await resolveRepoContainingCommit(ctx, hash);
     if (!repo || !ctx.services) {
       return;
     }
@@ -723,12 +732,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     const filePath = picked.label;
     const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(parentRef)}`);
     const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(commitHash)}`);
-    await vscode.commands.executeCommand(
-      'vscode.diff',
+    // Bare (re-throws); the caller owns error reporting.
+    await openRevisionDiff({
       leftUri,
       rightUri,
-      `${filePath} (${parentRef.substring(0, 8)} ↔ ${commitHash.substring(0, 8)})`
-    );
+      title: `${filePath} (${parentRef.substring(0, 8)} ↔ ${commitHash.substring(0, 8)})`,
+    });
   }
 
   /**
@@ -768,12 +777,13 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       const rightUri = vscode.Uri.parse(
         `intellig-git:${filePath}?${encodeURIComponent(commitHash)}`
       );
-      await vscode.commands.executeCommand(
-        'vscode.diff',
+      // Bare (re-throws) into the surrounding catch, which also covers
+      // `getCommitDiff` + the picker above.
+      await openRevisionDiff({
         leftUri,
         rightUri,
-        `${filePath} (${target} ↔ ${commitHash.substring(0, 8)})`
-      );
+        title: `${filePath} (${target} ↔ ${commitHash.substring(0, 8)})`,
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to compare: ${sanitizeGitError(msg)}`);

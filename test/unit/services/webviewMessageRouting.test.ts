@@ -401,9 +401,9 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       });
     });
 
-    it('should fire event for mergeIntoCurrent action', (done) => {
+    it('should fire event for cherryPick action', (done) => {
       const disposable = provider.onDidRequestLogContextAction((event) => {
-        assert.strictEqual(event.action, 'mergeIntoCurrent');
+        assert.strictEqual(event.action, 'cherryPick');
         assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
         disposable.dispose();
         done();
@@ -411,7 +411,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
 
       handler({
         type: 'commitContextMenu',
-        action: 'mergeIntoCurrent',
+        action: 'cherryPick',
         commitHashes: ['abc1234567890'],
       });
     });
@@ -448,7 +448,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       });
     });
 
-    it('should correctly route all 13 action types', () => {
+    it('should correctly route all 12 action types', () => {
       const allActions = [
         'copyHash',
         'createPatch',
@@ -461,7 +461,6 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
         'undoCommit',
         'dropCommit',
         'editCommitMessage',
-        'mergeIntoCurrent',
         'interactiveRebase',
       ];
 
@@ -478,7 +477,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
         });
       }
 
-      assert.strictEqual(receivedActions.length, 13, 'All 13 action types should be routed');
+      assert.strictEqual(receivedActions.length, 12, 'All 12 action types should be routed');
       assert.deepStrictEqual(receivedActions, allActions, 'Actions should be routed in order');
       disposable.dispose();
     });

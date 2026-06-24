@@ -25,6 +25,7 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import { IChangelistService } from '../changelists/interfaces/IChangelistService';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
+import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { renderDiffAsText } from './diffText';
@@ -708,12 +709,7 @@ export class ShelfView implements IShelfView {
     const rightUri = vscode.Uri.file(absPath);
     const title = `${fileName} (Shelved ↔ Local)`;
 
-    try {
-      await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
-    } catch (error) {
-      const raw = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Failed to open shelf diff: ${sanitizeGitError(raw)}`);
-    }
+    await openRevisionDiff({ leftUri, rightUri, title }, 'Failed to open shelf diff');
   }
 
   /**

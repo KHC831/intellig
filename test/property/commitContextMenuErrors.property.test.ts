@@ -47,7 +47,6 @@ const ERROR_TESTABLE_ACTIONS: LogContextAction[] = [
   'undoCommit',
   'dropCommit',
   'editCommitMessage',
-  'mergeIntoCurrent',
   'interactiveRebase',
 ];
 

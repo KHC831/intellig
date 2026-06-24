@@ -9,6 +9,7 @@ import {
   parseHunks,
   parseDiff,
   parseBranches,
+  parseContainingBranches,
   parseBlame,
   parseLog,
   parseTags,
@@ -954,6 +955,43 @@ index 1234567,abcdefg..fedcba9
       // isHead set correctly — main carried `*`, others did not.
       assert.strictEqual(result.find((b) => b.name === 'main')?.isHead, true);
       assert.strictEqual(result.find((b) => b.name === 'feature/JIRA-123')?.isHead, false);
+    });
+  });
+
+  describe('parseContainingBranches', () => {
+    // Output shape: `git branch -a --contains <hash> --format=%(refname)`,
+    // one full refname per line. Mirrors git4idea GitBranchUtil.getBranches,
+    // which lists BOTH local and remote branches that contain a commit and
+    // returns them sorted alphabetically.
+    it('parseContainingBranches-1: local + remote refnames → stripped, sorted names', () => {
+      const output = ['refs/heads/main', 'refs/heads/feature/x', 'refs/remotes/origin/main'].join(
+        '\n'
+      );
+      assert.deepStrictEqual(parseContainingBranches(output), ['feature/x', 'main', 'origin/main']);
+    });
+
+    it('parseContainingBranches-2: empty output → empty list', () => {
+      assert.deepStrictEqual(parseContainingBranches(''), []);
+    });
+
+    it('parseContainingBranches-3: skips the remote HEAD symref', () => {
+      const output = ['refs/remotes/origin/HEAD', 'refs/remotes/origin/main'].join('\n');
+      assert.deepStrictEqual(parseContainingBranches(output), ['origin/main']);
+    });
+
+    it('parseContainingBranches-4: filters git parenthesized pseudo-refs', () => {
+      const output = ['(HEAD detached at 5eed84b)', 'refs/heads/main'].join('\n');
+      assert.deepStrictEqual(parseContainingBranches(output), ['main']);
+    });
+
+    it('parseContainingBranches-5: deduplicates identical refnames', () => {
+      const output = ['refs/heads/main', 'refs/heads/main'].join('\n');
+      assert.deepStrictEqual(parseContainingBranches(output), ['main']);
+    });
+
+    it('parseContainingBranches-6: ignores blank/whitespace-only lines', () => {
+      const output = ['refs/heads/main', '', '   ', 'refs/heads/dev'].join('\n');
+      assert.deepStrictEqual(parseContainingBranches(output), ['dev', 'main']);
     });
   });
 
