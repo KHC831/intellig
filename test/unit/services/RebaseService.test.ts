@@ -7,6 +7,7 @@ import {
 } from '../../../src/git-core/interfaces/IRebaseService';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { GitCli, IGitCommandResult } from '../../../src/git-core/gitCli';
+import { REBASE_PLAN_ENV } from '../../../src/git-core/rebaseTodoEditor';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -449,6 +450,24 @@ describe('RebaseService', () => {
       assert.strictEqual(result.rebaseInProgress, false);
     });
 
+    it('removes spent reword override files on a terminal autostash-pop conflict', async () => {
+      // The rebase itself finished (no .git/rebase-merge), so its
+      // `.intellig-reword-*.txt` override files are spent and must be cleaned
+      // even though the autostash pop left a conflict behind.
+      const litter = path.join(tmpRepo, '.git', '.intellig-reword-abc123.txt');
+      fs.writeFileSync(litter, 'an override message');
+      mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
+
+      const result = await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      assert.strictEqual(result.rebaseInProgress, false);
+      assert.strictEqual(
+        fs.existsSync(litter),
+        false,
+        'a terminal pop conflict must clean the spent reword override files'
+      );
+    });
+
     it('marks a conflict continuable (rebaseInProgress:true) when a rebase is still in progress', async () => {
       // A genuine mid-replay conflict leaves a live rebase in progress
       // (.git/rebase-merge present). That state IS continuable, so it stays
@@ -456,12 +475,22 @@ describe('RebaseService', () => {
       fs.mkdirSync(path.join(tmpRepo, '.git', 'rebase-merge'), { recursive: true });
       mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
 
+      // A still-live rebase keeps its override files — its remaining exec lines
+      // still reference them.
+      const litter = path.join(tmpRepo, '.git', '.intellig-reword-abc123.txt');
+      fs.writeFileSync(litter, 'an override message');
+
       const result = await tmpRebaseService.executeRebase(tmpRepoObj);
 
       assert.strictEqual(result.success, false);
       assert.strictEqual(result.status, 'conflict');
       assert.deepStrictEqual(result.conflictedFiles, ['shared.ts']);
       assert.strictEqual(result.rebaseInProgress, true);
+      assert.strictEqual(
+        fs.existsSync(litter),
+        true,
+        'a live rebase must NOT clean override files its remaining exec lines need'
+      );
     });
 
     it('completes cleanly when the autostash pop leaves no unmerged files (exit 0)', async () => {
@@ -473,6 +502,88 @@ describe('RebaseService', () => {
 
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.status, 'completed');
+    });
+  });
+
+  describe('executeRebase() — per-entry message override', () => {
+    let tmpRepo: string;
+    let tmpRebaseService: RebaseService;
+    let tmpRepoObj: IRepository;
+
+    beforeEach(async () => {
+      tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-override-'));
+      fs.mkdirSync(path.join(tmpRepo, '.git'));
+      tmpRepoObj = createMockRepository(tmpRepo);
+      tmpRebaseService = new RebaseService(mockGitCli);
+
+      mockGitCli.setExecResult('rev-parse --abbrev-ref HEAD', createMockResult(0, 'feature\n'));
+      mockGitCli.setExecResult(
+        'log --reverse',
+        createMockResult(0, 'aaa111\0First commit\nbbb222\0Second commit\nccc333\0Third commit\n')
+      );
+      await tmpRebaseService.startInteractiveRebase(tmpRepoObj, 'main');
+      mockGitCli.clearCalls();
+    });
+
+    afterEach(() => {
+      tmpRebaseService.dispose();
+      fs.rmSync(tmpRepo, { recursive: true, force: true });
+    });
+
+    function readPlanFromRebaseCall(): IRebaseAction[] {
+      const rebaseCall = mockGitCli
+        .getExecCalls()
+        .find((c) => c.args[0] === 'rebase' && c.args.includes('-i'));
+      assert.ok(rebaseCall, 'interactive rebase should have been spawned');
+      const env = (rebaseCall.options as { env?: NodeJS.ProcessEnv }).env;
+      assert.ok(env, 'rebase must run with an explicit env');
+      const planJson = env[REBASE_PLAN_ENV];
+      assert.ok(typeof planJson === 'string', `${REBASE_PLAN_ENV} must carry the plan as JSON`);
+      return JSON.parse(planJson) as IRebaseAction[];
+    }
+
+    // Regression: a squash plan with NO per-entry override (the multi-select
+    // "Squash Commits" shape: oldest pick, rest squash) must NOT have each
+    // commit's own message stamped on as `newMessage`. Stamping it makes every
+    // squash entry satisfy hasSquashOverride, which rewrites squash → fixup +
+    // amend-with-that-commit's-own-message and silently discards the user's
+    // combined message, leaving only the newest commit's message.
+    it("does not stamp a commit's own message as a per-entry override", async () => {
+      const plan: IRebaseAction[] = [
+        { hash: 'aaa111', action: 'pick' },
+        { hash: 'bbb222', action: 'squash' },
+        { hash: 'ccc333', action: 'squash' },
+      ];
+      tmpRebaseService.updateRebasePlan(tmpRepoObj, plan);
+
+      await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      const sentPlan = readPlanFromRebaseCall();
+      const second = sentPlan.find((e) => e.hash === 'bbb222');
+      const third = sentPlan.find((e) => e.hash === 'ccc333');
+      assert.strictEqual(
+        second?.newMessage,
+        undefined,
+        "squash entry without an explicit override must not carry the commit's own message"
+      );
+      assert.strictEqual(third?.newMessage, undefined);
+    });
+
+    // A genuine override (the inline-edit reword/squash path) must still reach
+    // git's todo transform as `newMessage`, so the override machinery fires.
+    it('carries a genuine reword override through to the rebase plan', async () => {
+      const plan: IRebaseAction[] = [
+        { hash: 'aaa111', action: 'reword', newMessage: 'edited subject' },
+        { hash: 'bbb222', action: 'pick' },
+        { hash: 'ccc333', action: 'pick' },
+      ];
+      tmpRebaseService.updateRebasePlan(tmpRepoObj, plan);
+
+      await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      const sentPlan = readPlanFromRebaseCall();
+      const first = sentPlan.find((e) => e.hash === 'aaa111');
+      assert.strictEqual(first?.newMessage, 'edited subject');
     });
   });
 
@@ -1122,71 +1233,6 @@ describe('RebaseService', () => {
         );
 
         newService.dispose();
-      });
-    });
-
-    // `provideSquashMessage` is the symmetric companion to
-    // `provideRewordMessage`. The git mechanics are identical (the rebase
-    // pauses, asks for a commit message, and resumes on `--continue`); the
-    // separate name carries intent at the call site for the squash multi-
-    // commit flow added in.
-    describe('Squash Action — provideSquashMessage', () => {
-      it('should provide squash message via provideSquashMessage', async () => {
-        mockGitCli.setExecResult('commit --amend', createMockResult(0, ''));
-        mockGitCli.setExecResult('rebase --continue', createMockResult(0, ''));
-
-        const result = await rebaseService.provideSquashMessage(
-          mockRepo,
-          'Combined squash message'
-        );
-
-        // git commit --amend -m <message> threads the user's chosen
-        // squash message into the rebase the same way reword does.
-        const calls = mockGitCli.getExecCalls();
-        const amendCall = calls.find((c) => c.args.includes('--amend') && c.args.includes('-m'));
-        assert.ok(amendCall, 'expected git commit --amend -m to be invoked');
-        assert.ok(amendCall.args.includes('Combined squash message'));
-        assert.ok(result.success);
-      });
-
-      it('should throw error when providing squash message without session', async () => {
-        const newService = new RebaseService(mockGitCli);
-
-        await assert.rejects(
-          async () => newService.provideSquashMessage(mockRepo, 'Combined squash message'),
-          /No rebase session found/
-        );
-
-        newService.dispose();
-      });
-
-      it('should surface conflict status when amend fails with conflicts', async () => {
-        mockGitCli.setExecResult('commit --amend', createMockResult(1, '', 'merge conflict'));
-        mockGitCli.setExecResult(
-          'status --porcelain',
-          createMockResult(0, 'UU src/conflicted.ts\n')
-        );
-
-        const result = await rebaseService.provideSquashMessage(mockRepo, 'msg');
-
-        assert.strictEqual(result.success, false);
-        assert.strictEqual(result.status, 'conflict');
-        assert.ok(result.conflictedFiles && result.conflictedFiles.length > 0);
-      });
-
-      it('should be exposed on the IRebaseService interface', async () => {
-        const fs = await import('fs');
-        const path = await import('path');
-        const src = fs.readFileSync(
-          path.join(process.cwd(), 'src/git-core/interfaces/IRebaseService.ts'),
-          'utf8'
-        );
-        assert.ok(
-          /provideSquashMessage\s*\(\s*repo\s*:\s*IRepository\s*,\s*message\s*:\s*string\s*\)\s*:\s*Promise<IRebaseResult>/.test(
-            src
-          ),
-          'IRebaseService must declare provideSquashMessage(repo, message): Promise<IRebaseResult>'
-        );
       });
     });
 

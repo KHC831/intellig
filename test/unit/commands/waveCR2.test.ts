@@ -289,10 +289,8 @@ interface MockRebaseTracker {
   lastPlan: IRebaseAction[] | undefined;
   executeCalls: number;
   abortCalls: number;
-  provideSquashMessageCalls: { message: string }[];
   sessionCommits: { hash: string; message: string; action: 'pick' }[];
   executeResult: IRebaseResult;
-  provideSquashResult: IRebaseResult;
 }
 
 function createMockRebaseService(
@@ -326,10 +324,6 @@ function createMockRebaseService(
     },
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
-    provideSquashMessage: async (_repo: IRepository, message: string) => {
-      tracker.provideSquashMessageCalls.push({ message });
-      return tracker.provideSquashResult;
-    },
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
     onDidChangeRebaseSession: sessionChangeEmitter.event,
     dispose: () => {},
@@ -448,10 +442,8 @@ function blankRebaseTracker(): MockRebaseTracker {
     lastPlan: undefined,
     executeCalls: 0,
     abortCalls: 0,
-    provideSquashMessageCalls: [],
     sessionCommits: [],
     executeResult: { success: true, status: 'completed' },
-    provideSquashResult: { success: true, status: 'completed' },
   };
 }
 

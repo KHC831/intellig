@@ -184,7 +184,6 @@ function createMockRebaseService(
     },
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
-    provideSquashMessage: async () => ({ success: true, status: 'completed' as const }),
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
     onDidChangeRebaseSession: sessionChangeEmitter.event,
     dispose: () => {},
@@ -2213,9 +2212,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('fixupWithPrev-3: happy path skips message editor and reuses parent message', async () => {
-      // Stub showInputBox to a sentinel — fixup MUST NOT call it. If it
-      // does, the rebase will receive 'editor-was-called' as the squash
-      // message, which we'd see in provideSquashMessage call args.
+      // Stub showInputBox to a sentinel — fixup MUST NOT call it. Fixup
+      // reuses the kept commit's own message verbatim; opening the editor
+      // would mean the edited text could leak into the rebase plan.
       let inputBoxCalled = false;
       writableWindow().showInputBox = (): Promise<string | undefined> => {
         inputBoxCalled = true;

@@ -119,10 +119,6 @@ class MockRebaseService implements IRebaseService {
     return Promise.resolve({ success: true, status: 'in-progress' });
   }
 
-  provideSquashMessage(_repo: IRepository, _message: string): Promise<IRebaseResult> {
-    return Promise.resolve({ success: true, status: 'in-progress' });
-  }
-
   amendEditCommit(_repo: IRepository, _message?: string): Promise<IRebaseResult> {
     return Promise.resolve({ success: true, status: 'paused' });
   }

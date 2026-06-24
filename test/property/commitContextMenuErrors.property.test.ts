@@ -234,9 +234,6 @@ function createErrorThrowingRebaseService(errorMsg: string): IRebaseService {
     provideRewordMessage: async () => {
       throw new Error(errorMsg);
     },
-    provideSquashMessage: async () => {
-      throw new Error(errorMsg);
-    },
     amendEditCommit: async () => {
       throw new Error(errorMsg);
     },

@@ -176,7 +176,6 @@ function makeRebaseService(): IRebaseService & { rebaseCalls: RebaseCall[] } {
     abortRebase: async () => {},
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
-    provideSquashMessage: async () => ({ success: true, status: 'completed' as const }),
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
     onDidChangeRebaseSession: sessionEmitter.event,
     dispose: () => {},

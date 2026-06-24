@@ -91,12 +91,9 @@ interface MockRebaseTracker {
   lastPlan: IRebaseAction[] | undefined;
   executeCalls: number;
   abortCalls: number;
-  provideSquashMessageCalls: { message: string }[];
   sessionCommits: { hash: string; message: string; action: 'pick' }[];
   /** What `executeRebase` should resolve to. Mutate per-test. */
   executeResult: IRebaseResult;
-  /** What `provideSquashMessage` should resolve to. Mutate per-test. */
-  provideSquashResult: IRebaseResult;
 }
 
 function createMockRebaseService(
@@ -130,10 +127,6 @@ function createMockRebaseService(
     },
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
-    provideSquashMessage: async (_repo: IRepository, message: string) => {
-      tracker.provideSquashMessageCalls.push({ message });
-      return tracker.provideSquashResult;
-    },
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
     onDidChangeRebaseSession: sessionChangeEmitter.event,
     dispose: () => {},
@@ -445,10 +438,8 @@ function blankRebaseTracker(): MockRebaseTracker {
     lastPlan: undefined,
     executeCalls: 0,
     abortCalls: 0,
-    provideSquashMessageCalls: [],
     sessionCommits: [],
     executeResult: { success: true, status: 'completed' },
-    provideSquashResult: { success: true, status: 'completed' },
   };
 }
 
@@ -857,13 +848,13 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       );
     });
 
-    it('starts rebase onto oldest^ and threads the squash message via provideSquashMessage', async () => {
+    it('starts rebase onto oldest^ and delivers the combined message via a reword override on the target', async () => {
       const tracker = blankRebaseTracker();
       tracker.sessionCommits = [
         { hash: HASH_MID, message: 'mid', action: 'pick' },
         { hash: HASH_NEWEST, message: 'new', action: 'pick' },
       ];
-      tracker.executeResult = { success: true, status: 'paused' };
+      tracker.executeResult = { success: true, status: 'completed' };
       const rebaseService = createMockRebaseService(tracker);
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -882,15 +873,24 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       );
 
       assert.strictEqual(tracker.startedOnto, `${HASH_MID}^`, 'onto must be oldest^');
+      // The combined message is delivered deterministically through the plan
+      // (a reword override on the squash target). git never pauses under
+      // GIT_EDITOR=true, so a classic squash with a post-rebase message step
+      // would silently keep the newest commit's own message instead.
+      const target = tracker.lastPlan!.find((a) => a.hash === HASH_MID);
       assert.strictEqual(
-        tracker.provideSquashMessageCalls.length,
-        1,
-        'must call provideSquashMessage on paused state'
+        target?.action,
+        'reword',
+        'squash target must reword to carry the message'
       );
-      assert.strictEqual(tracker.provideSquashMessageCalls[0].message, 'combined squash message');
+      assert.strictEqual(
+        target?.newMessage,
+        'combined squash message',
+        'the squash target must carry the user-edited combined message as the override'
+      );
     });
 
-    it('builds plan: oldest selected = pick, others = squash; non-selected = pick', async () => {
+    it('builds plan: oldest selected = reword(combined message), others = fixup; non-selected = pick', async () => {
       const tracker = blankRebaseTracker();
       // Window covers all three commits (rebase from OLDEST^).
       tracker.sessionCommits = [
@@ -912,17 +912,26 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
             [HASH_NEWEST, HASH_MID, HASH_OLDEST],
             NODES_4
           ),
-        (e) => e.simulateSave('combined')
+        (e) => e.simulateSave('combined message text')
       );
 
-      const planByHash = new Map(tracker.lastPlan!.map((a) => [a.hash, a.action]));
+      const plan = tracker.lastPlan!;
+      const byHash = new Map(plan.map((a) => [a.hash, a]));
+      // Mirrors git4idea GitRebaseTodoModelConverter: the unite ROOT (oldest
+      // selected) becomes a Reword carrying the combined message; every other
+      // selected commit is united via fixup (its own message discarded).
       assert.strictEqual(
-        planByHash.get(HASH_OLDEST),
-        'pick',
-        'oldest selected commit must remain pick (squash target)'
+        byHash.get(HASH_OLDEST)?.action,
+        'reword',
+        'oldest selected commit (squash target) must be reword'
       );
-      assert.strictEqual(planByHash.get(HASH_MID), 'squash');
-      assert.strictEqual(planByHash.get(HASH_NEWEST), 'squash');
+      assert.strictEqual(
+        byHash.get(HASH_OLDEST)?.newMessage,
+        'combined message text',
+        'the combined message must land on the squash target'
+      );
+      assert.strictEqual(byHash.get(HASH_MID)?.action, 'fixup');
+      assert.strictEqual(byHash.get(HASH_NEWEST)?.action, 'fixup');
     });
 
     it('aborts on contiguity violation (defence-in-depth even though UI gates it)', async () => {
@@ -1112,6 +1121,13 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
         0,
         'must not start rebase on empty save (treated as cancel)'
       );
+      // The abort happens BEFORE plan-building, so no plan is ever built — a
+      // blank message must never reach the rebase as an empty reword override.
+      assert.strictEqual(
+        tracker.lastPlan,
+        undefined,
+        'a blank message must abort before any plan is built'
+      );
       // No error toast — empty save is "user changed their mind".
       assert.strictEqual(
         messages.error.length,
@@ -1127,13 +1143,11 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
         { hash: HASH_MID, message: 'mid', action: 'pick' },
         { hash: HASH_NEWEST, message: 'new', action: 'pick' },
       ];
-      // Emulate the edge: executeRebase returns `paused`, the handler
-      // calls provideSquashMessage, but THAT result is also paused (e.g.
-      // amendEditCommit succeeded but rebase still has more steps to
-      // run after the amend). Earlier we surfaced "Squashed N commits
-      // successfully", which is misleading.
+      // Emulate the edge where executeRebase resolves `paused` rather than
+      // `completed` (e.g. the rebase still has steps left after the amend).
+      // The handler must route that through the "partial complete" warning,
+      // not the "Squashed N commits successfully" toast.
       tracker.executeResult = { success: true, status: 'paused' };
-      tracker.provideSquashResult = { success: true, status: 'paused' };
       const rebaseService = createMockRebaseService(tracker);
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -1267,21 +1281,6 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       assert.ok(
         !/getExtendedLogState\(\)/.test(codeOnly),
         'handlers must not call getExtendedLogState() (TLB-H-2 inversion fix)'
-      );
-    });
-
-    it('IRebaseService declares provideSquashMessage', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const ifaceSrc = fs.readFileSync(
-        path.join(process.cwd(), 'src/git-core/interfaces/IRebaseService.ts'),
-        'utf8'
-      );
-      assert.ok(
-        /provideSquashMessage\s*\(\s*repo\s*:\s*IRepository\s*,\s*message\s*:\s*string\s*\)\s*:\s*Promise<IRebaseResult>/.test(
-          ifaceSrc
-        ),
-        'IRebaseService must declare provideSquashMessage(repo, message): Promise<IRebaseResult>'
       );
     });
   });

@@ -21,6 +21,7 @@ import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolW
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
+import { buildSquashRebasePlan } from './squashPlan';
 
 /**
  * Defence-in-depth hash format check.
@@ -2588,14 +2589,18 @@ export class CommitContextMenuCommands {
    *      and a non-merge always has a parent.
    *   3. Fetch each selected commit's full message via `getCommit`. Join
    *      with `\n\n` to seed the message editor.
-   *   4. Open `vscode.window.showInputBox` with the seed value. On
-   *      cancel (undefined), abort with no git side-effects.
+   *   4. Open the squash-message dialog with the seed value. On cancel
+   *      or a blank message, abort with no git side-effects.
    *   5. Stash dirty tree. On unmerged-files block, error toast.
-   *   6. Start rebase onto `oldest^`. Build the plan: oldest selected
-   *      stays `pick` (it's the squash target); every other selected
-   *      becomes `squash`; non-selected stays `pick`.
-   *   7. Execute the rebase. When it pauses for the squash message,
-   *      thread the user's chosen message via `provideSquashMessage`.
+   *   6. Start rebase onto `oldest^`. Build the plan mirroring git4idea's
+   *      unite model: the oldest selected commit (the unite root) becomes
+   *      `reword` carrying the user's combined message; every other
+   *      selected commit becomes `fixup` (its own message discarded);
+   *      non-selected commits keep their action.
+   *   7. Execute the rebase. The combined message is delivered through the
+   *      reword override in the plan (realised as `pick` + a
+   *      non-interactive `commit --amend -F`), so the rebase runs to
+   *      completion without pausing for a message.
    *   8. Conflict path: abort + unstash + handoff to the resolve
    *      dialog with operation:'rebase', target:'squash'.
    */
@@ -2711,45 +2716,21 @@ export class CommitContextMenuCommands {
     }
     const seedMessage = messages.filter((m) => m.length > 0).join('\n\n');
 
-    // 4. Show the squash-message editor. This previously
-    // used `showInputBox`, which is single-line and rendered the
-    // multi-line `\n\n`-joined seed with literal backslash-n. It now
-    // switches to an untitled-style editor opened on a tempfile so
-    // multi-line editing works naturally and `git-commit` syntax
-    // highlighting kicks in. Cancel (close-without-save OR empty save)
-    // aborts the flow with NO git side-effects.
+    // 4. Show the squash-message editor: a webview-hosted modal dialog with
+    // a multi-line textarea seeded with the `\n\n`-joined messages; it
+    // resolves with the user's message on submit or `undefined` on cancel.
+    // Falls back to the temp-file editor when the extension context isn't
+    // available (palette / scripted callers that didn't go through
+    // `register()`).
     //
-    // When `mode === 'fixup'` the editor step is
-    // skipped — fixup semantics reuse the kept commit's message verbatim
-    // (matching `git commit --fixup`). The kept commit is the OLDEST in
-    // display order (the rebase plan keeps it as `pick`); its message
-    // was loaded into the messages[0] slot above.
+    // `mode === 'fixup'` skips the dialog entirely: the oldest selected
+    // commit stays `pick`, so it keeps its own message verbatim (matching
+    // `git commit --fixup`) — no message needs to be collected or applied.
     let userMessage: string | undefined;
-    if (mode === 'fixup') {
-      // The oldest selected commit is at the start of `oldestFirst`, so
-      // its message is `messages[0]`. In the entry path that is the
-      // PARENT of the right-clicked commit. Falling back to the seed if
-      // for any reason messages[0] is empty (e.g. getCommit failed and
-      // the shortHash sentinel is in messages[0]) keeps the rebase
-      // working rather than landing an empty message.
-      userMessage = messages[0] && messages[0].length > 0 ? messages[0] : seedMessage;
-    } else {
+    if (mode === 'squash') {
       log.debug('squash: opening message dialog', {
         commitCount: commitHashes.length,
       });
-      // Webview-hosted modal dialog. Replaces the previous
-      // `_promptForSquashMessage` flow (which opened a temp file in
-      // ViewColumn.Beside — confusing UX, users didn't know what to
-      // do with the side tab). The dialog renders a textarea inline
-      // in the editor area and resolves with the user's message on
-      // submit (Cmd+Enter or click) or undefined on cancel (Esc /
-      // close-tab / empty-submit).
-      //
-      // Falls back to the legacy single-line InputBox when the
-      // extension context isn't available (palette / scripted
-      // callers that didn't go through `register()`). Same fallback
-      // path used by every other context-driven dialog in this
-      // class.
       if (this._context) {
         const dialog = new SquashMessageDialog(this._context, {
           seedMessage,
@@ -2757,14 +2738,14 @@ export class CommitContextMenuCommands {
         });
         userMessage = await dialog.prompt();
       } else {
-        // Fallback for callers without an extension context (palette /
-        // scripted entry points that didn't go through `register()`).
-        // The temp-file flow preserves multi-line editing; the
-        // input-box fallback inside it kicks in if VS Code can't open
-        // the tempfile.
         userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
       }
-      if (userMessage === undefined) {
+      // A blank message is a cancel, not an override: carrying an empty
+      // string into the plan would fail hasRewordOverride and silently fall
+      // back to a classic reword (which keeps the target's own message under
+      // GIT_EDITOR=true). Treat undefined AND blank as a clean cancel so the
+      // combined-message contract holds regardless of which dialog produced it.
+      if (userMessage === undefined || userMessage.trim().length === 0) {
         log.debug('squash cancelled: user dismissed the message dialog');
         return;
       }
@@ -2787,26 +2768,20 @@ export class CommitContextMenuCommands {
         // 6. Start interactive rebase onto oldest^.
         const session = await this._rebaseService.startInteractiveRebase(repo, `${oldestHash}^`);
 
-        // Build the plan: oldest selected stays `pick` (the squash target);
-        // every other selected becomes `squash`; non-selected stays `pick`.
-        const plan = session.commits.map((c) => {
-          if (!selectedSet.has(c.hash)) {
-            return { hash: c.hash, action: c.action };
-          }
-          if (c.hash === oldestHash) {
-            return { hash: c.hash, action: 'pick' as const };
-          }
-          return { hash: c.hash, action: 'squash' as const };
-        });
+        // Build the plan (reword the unite root with the combined message,
+        // fixup the rest — git4idea parity). See {@link buildSquashRebasePlan}.
+        // Fixup carries no message, so the target keeps its own (root stays
+        // pick); squash threads the user's combined message as a reword.
+        const plan =
+          mode === 'fixup'
+            ? buildSquashRebasePlan(session.commits, selectedSet, oldestHash)
+            : buildSquashRebasePlan(session.commits, selectedSet, oldestHash, userMessage);
         this._rebaseService.updateRebasePlan(repo, plan);
 
-        // 7. Execute. The rebase pauses after squash steps to ask for
-        // the combined message; we thread the user's chosen message
-        // via `provideSquashMessage`.
-        let result = await this._rebaseService.executeRebase(repo);
-        if (result.status === 'paused') {
-          result = await this._rebaseService.provideSquashMessage(repo, userMessage);
-        }
+        // 7. Execute. The combined message is delivered through the plan above
+        // (a reword override on the squash target), so the rebase runs
+        // non-interactively to completion — it never pauses for the message.
+        const result = await this._rebaseService.executeRebase(repo);
 
         // `result.success` alone is not sufficient:
         // `RebaseService.amendEditCommit` returns `{success: true,

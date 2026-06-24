@@ -202,8 +202,14 @@ export class RebaseService implements IRebaseService {
       }
       return {
         hash: action.hash,
+        // `message` mirrors the override for display in the plan, falling back
+        // to the commit's own message. `newMessage` is kept SEPARATE so a
+        // genuine user override is distinguishable from a commit's own message:
+        // only the former may later fire the inline reword/squash override
+        // machinery in executeRebase.
         message: action.newMessage || existingCommit.message,
         action: action.action,
+        newMessage: action.newMessage,
       };
     });
 
@@ -414,10 +420,17 @@ export class RebaseService implements IRebaseService {
     // It is applied to git's REAL todo by the sequence editor — NOT rebuilt
     // from scratch — so git's structural lines (update-ref/label/reset/merge/
     // exec) survive (see rebaseTodo.ts / IntelliJ git4idea parity).
+    //
+    // `newMessage` carries ONLY a genuine user override (an inline reword or
+    // squash message). It must never be back-filled from the commit's own
+    // message: doing so makes every squash/reword entry satisfy
+    // hasSquashOverride/hasRewordOverride, which rewrites the entry to a
+    // non-interactive amend with that commit's OWN message and silently drops
+    // the user's intended message.
     const plan: IRebaseAction[] = session.commits.map((c) => ({
       hash: c.hash,
       action: c.action,
-      newMessage: c.message,
+      newMessage: c.newMessage,
     }));
 
     // The sequence editor is a `.sh` shim that runs our Node editor entry on
@@ -521,6 +534,12 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
       // progress". Consumers gate the continue/abort affordance on
       // `rebaseInProgress === true`.
       const rebaseInProgress = this.isRebaseInProgress(repo);
+      // A terminal autostash-pop conflict means the rebase itself already
+      // finished, so its reword/squash override files are spent — remove them
+      // (a still-live rebase keeps them: its remaining exec lines need them).
+      if (!rebaseInProgress) {
+        this._cleanupRewordFiles(repo);
+      }
       session.status = 'conflict';
       this._onDidChangeRebaseSession.fire(session);
       return { success: false, status: 'conflict', conflictedFiles: conflicts, rebaseInProgress };
@@ -698,24 +717,6 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
     // transitively surface that status — the consumer handles it as a no-op
     // rather than a successful message rewrite.
     return this.continueRebase(repo);
-  }
-
-  /**
-   * Provide a combined message for a squash action.
-   *
-   * Symmetric companion to {@link provideRewordMessage}. The git
-   * mechanics are identical: when the rebase pauses after a `squash`
-   * step, git wants a single combined commit message; we feed it through
-   * `git commit --amend -m <message>` and resume on `--continue`. The
-   * separate method name (vs. reusing `provideRewordMessage`) carries
-   * intent at the call site of the new squash N-commit flow.
-   *
-   * @param repo - The repository
-   * @param message - The combined commit message
-   * @returns The result of continuing the rebase with the combined message
-   */
-  async provideSquashMessage(repo: IRepository, message: string): Promise<IRebaseResult> {
-    return this.provideRewordMessage(repo, message);
   }
 
   /**
