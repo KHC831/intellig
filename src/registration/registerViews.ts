@@ -1050,18 +1050,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // Only navigate for actual branch items (not category headers)
           if (selectedItem.branch) {
             ctx.gitToolWindowProvider!.navigateToBranch(selectedItem.branch.name);
-            // Highlight the commits common to the selected branch and HEAD
-            // (IntelliJ CurrentBranchHighlighter). Selecting the checked-out
-            // branch clears it. Pass the tree item's owning repository so a
-            // multi-root same-named branch resolves against the right repo;
-            // undefined in single-repo falls back to the context repo. Async +
-            // fire-and-forget; degrades to no highlight on failure.
-            void ctx
-              .gitToolWindowProvider!.highlightBranchCommonCommits(
-                selectedItem.branch.name,
-                selectedItem.repository
-              )
-              .catch(() => {});
           }
         }
       });

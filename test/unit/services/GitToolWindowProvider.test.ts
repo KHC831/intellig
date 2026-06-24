@@ -2450,18 +2450,16 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      // Local chip = hardcoded IntelliJ green (#499C54), white foreground —
-      // pixel-faithful parity, NOT theme-adaptive. The earlier
-      // var(--vscode-badge-background) token rendered as the theme's grey/blue
-      // badge rather than green, so each ref kind now sets its own hardcoded
-      // IntelliJ colour (local green / remote violet / current yellow).
+      // Chip backgrounds are now set INLINE per branch color (so a chip matches
+      // its graph line); the shared CSS no longer hardcodes the local green and
+      // only sets white text.
       assert.ok(
-        html.includes('background: #499C54'),
-        'Local label background must be the hardcoded IntelliJ green #499C54'
+        !html.includes('background: #499C54'),
+        'the old hardcoded local-green background must be gone (color is inline now)'
       );
       assert.ok(
-        /\.branch-label-local\s*\{[^}]*color:\s*white/i.test(html),
-        'Local label foreground must be white for legibility on the green fill'
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*#fff/i.test(html),
+        'Local/remote chips must keep white text for legibility on the branch-color fill'
       );
     });
 
@@ -2484,19 +2482,11 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-remote'),
         'Should include .branch-label-remote CSS class'
       );
-      // Remote chip is the hardcoded IntelliJ violet (#9876AA) —
-      // pixel-faithful parity, deliberately NOT theme-adaptive (issue #10
-      // decision A). The standalone hex is sanctioned via the
-      // themeTokenCompleteness audit allowlist.
+      // Remote chips also take their background inline from the branch color;
+      // the old hardcoded violet is gone.
       assert.ok(
-        /\.branch-label-remote\s*\{[^}]*background:\s*#9876AA/i.test(html),
-        'Remote label must use the IntelliJ violet #9876AA background'
-      );
-      // The earlier theme-blue fallbacks no longer apply to the remote
-      // chip (it left the badge-* family for the brand violet).
-      assert.ok(
-        !/\.branch-label-remote\s*\{[^}]*#1a3a5c/i.test(html),
-        'Remote label must no longer carry the #1a3a5c theme fallback'
+        !/background:\s*#9876AA/i.test(html),
+        'the old hardcoded remote-violet background must be gone (color is inline now)'
       );
     });
 

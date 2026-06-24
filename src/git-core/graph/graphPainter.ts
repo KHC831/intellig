@@ -12,8 +12,16 @@ import { getColumnColor } from '../commitGraph';
 import { IGraphRenderConfig, getColumnX, isValidLane } from '../../utils/graphRenderer';
 import { IRowPrintModel, IRowEdgeElement } from './printModel';
 
-/** L4 color rule: source lane for first-parent / straight strokes; dest lane for merge/branch bends. */
+/**
+ * Edge stroke color. The print model resolves the owning-branch color and carries
+ * it on the element; when absent (test-constructed elements / no branch coloring)
+ * fall back to the L4 lane rule: source lane for first-parent/straight strokes,
+ * dest lane for merge/branch bends.
+ */
 function edgeColor(el: IRowEdgeElement): string {
+  if (el.color !== undefined) {
+    return el.color;
+  }
   const colorSource = el.type === 'commit' || !el.curved ? el.fromLane : el.targetLane;
   return getColumnColor(colorSource);
 }
@@ -59,7 +67,7 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
   if (isValidLane(lane)) {
     const cx = getColumnX(lane, config);
     const cy = centerY;
-    const fillColor = getColumnColor(lane);
+    const fillColor = model.node.color ?? getColumnColor(lane);
 
     if (model.node.isMerge) {
       const side = nodeRadius * 1.8;
@@ -113,12 +121,13 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
     const armW = nodeRadius;
     const armH = nodeRadius;
     const tipY = rowHeight - 1;
-    for (const cl of model.chevronLanes) {
+    for (let ci = 0; ci < model.chevronLanes.length; ci++) {
+      const cl = model.chevronLanes[ci];
       if (!isValidLane(cl)) {
         continue;
       }
       const x = getColumnX(cl, config);
-      const color = getColumnColor(cl);
+      const color = model.chevronColors?.[ci] ?? getColumnColor(cl);
       elements.push(
         `<path d="M ${x - armW},${tipY - armH} L ${x},${tipY} L ${x + armW},${tipY - armH}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round" stroke-linejoin="round"${opacityAttr}/>`
       );

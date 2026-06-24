@@ -226,13 +226,19 @@ still emitted for second parent (spec 8 L9 + merge interaction)`.
 dashed` suite in the same file — covers the linear-commit and
   second-parent-merge variants that landed in the bug-fix branch.
 
-### 4. Same-lane stroke color uses the source lane — spec 8 L4
+### 4. Stroke color follows the owning branch, falling back to the source lane — spec 8 L4
 
-When `fromColumn === toColumn`, the renderer's vertical stroke MUST
-use `getColumnColor(fromColumn)` — the source commit's lane color,
-NEVER a destination lane color. The data-model side of this rule is
-that the algorithm sets `color: getColumnColor(column)` for every
-same-lane edge it emits, including the off-window stub from spec 3 above.
+A segment's color is its OWNING branch's color (see `branchColors.ts` /
+`computeBranchColors` — color follows the branch, not the column). The print
+model resolves it per element (source-commit color for first-parent / straight
+strokes, destination-commit color for merge/branch bends) and carries it on the
+edge/node element; the painter strokes/fills with that color.
+
+When no branch owns a segment (a detached commit, or no branch data supplied),
+the color falls back to the lane rule it superseded: `getColumnColor(fromColumn)`
+— the source commit's lane color, NEVER a destination lane color. The data-model
+`IGraphLine.color` field still carries that lane fallback, but it is no longer
+the rendered color when branch coloring is active.
 
 This invariant is shared with the renderer surface and is pinned by
 the existing renderer tests; it appears here only to record the

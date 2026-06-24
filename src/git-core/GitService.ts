@@ -1390,23 +1390,6 @@ export class GitService implements IGitService, IGitServiceCli {
     );
   }
 
-  getCommonCommits(repo: IRepository, ref: string): Promise<string[]> {
-    // Absorbs the ops Result: the common-commit set tolerates absence with no
-    // failure toast, so a system fault is LOGGED (not swallowed) and degraded
-    // to [].
-    return this._branches.getCommonCommits(repo, ref).match(
-      (commits) => commits,
-      (error) => {
-        this._logger.error(
-          'getCommonCommits failed',
-          { rootPath: repo.rootUri.fsPath, ref },
-          error
-        );
-        return [];
-      }
-    );
-  }
-
   /**
    * Distinct commit authors across all refs, in descending commit-count
    * order, formatted as `"Name <email>"`. Powers the ref-aware author

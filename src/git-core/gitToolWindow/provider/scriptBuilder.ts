@@ -831,22 +831,6 @@ export function buildInlineScript(): string {
               }
             });
           }
-          // Highlight the commits common to a selected non-checked-out branch and
-          // HEAD (IntelliJ CurrentBranchHighlighter). Clear every row first, then
-          // re-apply to the hashes the host sent (empty payload = clear).
-          if (message.type === 'highlightCommonCommits') {
-            const hashes = Array.isArray(message.hashes) ? message.hashes : [];
-            document.querySelectorAll('.commit-row.commit-row-common').forEach(function(row) {
-              row.classList.remove('commit-row-common');
-            });
-            hashes.forEach(function(hash) {
-              // Hashes are hex (host-validated), so no selector-injection risk.
-              const row = document.querySelector('.commit-row[data-hash="' + hash + '"]');
-              if (row) {
-                row.classList.add('commit-row-common');
-              }
-            });
-          }
         });
 
         function scrollToCommit(commitHash) {

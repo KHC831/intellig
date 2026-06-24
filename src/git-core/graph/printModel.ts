@@ -21,8 +21,10 @@ import {
   computeChildCountMap,
   computeIncomingBendsMap,
   computeTerminalNodes,
+  getColumnColor,
   isBranchSplit,
 } from '../commitGraph';
+import { computeBranchColors, type IColorNode } from './branchColors';
 import {
   computeActiveLanes,
   computeLaneContinuesFromAbove,
@@ -63,6 +65,12 @@ export interface IRowEdgeElement {
   curved: boolean;
   type: 'commit' | 'merge' | 'branch';
   style: 'solid' | 'dashed';
+  /**
+   * Resolved stroke color (the owning branch's color, or the lane color when no
+   * branch owns the segment). Optional so test-constructed elements omit it; the
+   * painter falls back to {@link getColumnColor} on the lane.
+   */
+  color?: string;
 }
 
 /** The commit dot for the row. */
@@ -72,6 +80,8 @@ export interface IRowNodeElement {
   isTerminal: boolean;
   isBranchSplit: boolean;
   onFocusedBranchPath: boolean;
+  /** Resolved node color (owning branch color, else lane color). Optional — see {@link IRowEdgeElement.color}. */
+  color?: string;
 }
 
 /** Everything needed to paint one commit row. */
@@ -84,6 +94,8 @@ export interface IRowPrintModel {
   isLastRow: boolean;
   /** Lanes capped with a "more history below" chevron (off-window leaves + last-row trunks). */
   chevronLanes: number[];
+  /** Per-chevron color, parallel to {@link chevronLanes}. Optional — painter falls back to the lane color. */
+  chevronColors?: string[];
   hasFocusedBranch: boolean;
 }
 
@@ -156,6 +168,12 @@ export interface IRowProjectionContext {
   nodes: ICommitNode[];
   /** Merged interval covering each lane at this row, for pass-through edge identity. */
   intervalByLane: Map<number, { startRow: number; endRow: number }>;
+  /**
+   * Per-commit owning-branch color (`hash → color`) from {@link computeBranchColors}.
+   * Optional/empty → every element falls back to its lane color (no behavior
+   * change), so existing projectRow tests need not supply it.
+   */
+  branchColors?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -183,6 +201,23 @@ export function projectRow(
   const edges: IRowEdgeElement[] = [];
   const bottomInkLanes = new Set<number>();
   const chevronLanes = new Set<number>();
+
+  // Per-branch color resolution. A segment takes its OWNING commit's branch
+  // color; with no owning branch (or no branchColors supplied) it falls back to
+  // the lane color, so behavior is unchanged when branch coloring is off.
+  const branchColors = ctx.branchColors;
+  const colorForRow = (row: number, fallbackLane: number): string => {
+    const hash = nodes[row]?.commit.hash;
+    const c = hash !== undefined ? branchColors?.get(hash) : undefined;
+    return c ?? getColumnColor(fallbackLane);
+  };
+  // A pass-through lane is owned by the commit at the TOP of its interval (the
+  // chain's tip in this window); the whole first-parent chain shares one color.
+  const colorForLane = (lane: number): string => {
+    const iv = ivLookup.get(lane);
+    return iv ? colorForRow(iv.startRow, lane) : getColumnColor(lane);
+  };
+  const nodeColor = colorForRow(rowIndex, ownLane);
 
   // Cross-lane bezier targets DRAWN at this row. A far-parent line (endRow on a
   // lower row) bends at the PARENT row, so it is excluded here and must not
@@ -220,6 +255,7 @@ export function projectRow(
       bottomInkLanes.add(lane);
     }
     const edge = laneEdgeId(nodes, ivLookup.get(lane), lane, rowIndex);
+    const passThroughColor = colorForLane(lane);
     const straight = (half: EdgeHalf): IRowEdgeElement => ({
       edge,
       half,
@@ -229,6 +265,7 @@ export function projectRow(
       curved: false,
       type: 'commit',
       style: 'solid',
+      color: passThroughColor,
     });
     if (enters && exits) {
       // A genuine through-lane (continues above AND below) must always ink a
@@ -259,6 +296,7 @@ export function projectRow(
         curved: false,
         type: 'commit',
         style: 'solid',
+        color: nodeColor,
       });
     }
     const sameLaneLines = node.graphLines.filter(
@@ -289,6 +327,7 @@ export function projectRow(
         curved: false,
         type: 'commit',
         style: isDashed ? 'dashed' : 'solid',
+        color: nodeColor,
       });
       bottomInkLanes.add(ownLane);
       if (isDashed) {
@@ -309,6 +348,15 @@ export function projectRow(
       continue; // far-parent line bends at the parent row, not here
     }
     const parentRow = findParentRow(nodes, node, line.toColumn, rowIndex);
+    // L4 color source: a first-parent ('commit') bend keeps the SOURCE branch
+    // color (this node); a merge/branch bend takes the DESTINATION branch color
+    // (the parent it joins), falling back to the destination lane off-window.
+    const bezierColor =
+      line.type === 'commit'
+        ? nodeColor
+        : parentRow === undefined
+          ? getColumnColor(line.toColumn)
+          : colorForRow(parentRow, line.toColumn);
     edges.push({
       edge: {
         childRow: rowIndex,
@@ -323,6 +371,7 @@ export function projectRow(
       curved: true,
       type: line.type,
       style: line.style === 'dashed' ? 'dashed' : 'solid',
+      color: bezierColor,
     });
   }
 
@@ -343,10 +392,11 @@ export function projectRow(
         fromLane: sourceLane,
         targetLane: ownLane,
         curved: true,
-        // First-parent far edge → L4 source-lane color; the (type==='commit' || !curved)
-        // short-circuit is load-bearing here (curved AND first-parent).
+        // First-parent far edge → L4 source-lane color: the child's chain that
+        // owns the source lane.
         type: 'commit',
         style: 'solid',
+        color: colorForLane(sourceLane),
       });
     }
   }
@@ -389,15 +439,18 @@ export function projectRow(
     isTerminal: ctx.isTerminal,
     isBranchSplit: ctx.isBranchSplit,
     onFocusedBranchPath: node.onFocusedBranchPath === true,
+    color: nodeColor,
   };
 
+  const chevronLaneList = [...chevronLanes].filter(isValidLane);
   return {
     rowIndex,
     node: nodeEl,
     edges,
     inkedLanes: [...inkedLanes],
     isLastRow,
-    chevronLanes: [...chevronLanes].filter(isValidLane),
+    chevronLanes: chevronLaneList,
+    chevronColors: chevronLaneList.map((lane) => colorForLane(lane)),
     hasFocusedBranch: ctx.hasFocusedBranch,
   };
 }
@@ -432,10 +485,36 @@ function computeBendsLandingBelowMap(nodes: ICommitNode[]): Map<number, Set<numb
   return result;
 }
 
+/** Options for {@link buildGraphPrintModel}. */
+export interface IBuildPrintModelOptions {
+  /** Currently checked-out branch — a tiebreak when a commit has multiple refs. */
+  headBranchName?: string;
+  /**
+   * Precomputed owning-branch colors (`hash → color`). Supply this when the
+   * caller also needs the map elsewhere (e.g. to color the branch chips to
+   * match) so it's computed once; otherwise it's derived from `headBranchName`.
+   */
+  branchColors?: ReadonlyMap<string, string>;
+}
+
+/** Map graph nodes to the minimal shape {@link computeBranchColors} needs. */
+export function colorNodesFrom(nodes: ICommitNode[]): IColorNode[] {
+  return nodes.map((n) => ({ hash: n.commit.hash, parents: n.commit.parents, refs: n.branches }));
+}
+
 /**
  * Build the per-row print model for the whole graph window. Pure function.
+ *
+ * Resolves each commit's owning-branch color once (so a branch's trunk and its
+ * chip can share it); segments with no owning branch fall back to the lane color.
  */
-export function buildGraphPrintModel(nodes: ICommitNode[]): IRowPrintModel[] {
+export function buildGraphPrintModel(
+  nodes: ICommitNode[],
+  options: IBuildPrintModelOptions = {}
+): IRowPrintModel[] {
+  const branchColors =
+    options.branchColors ??
+    computeBranchColors(colorNodesFrom(nodes), { headBranchName: options.headBranchName });
   const activeLaneMap = computeActiveLanes(nodes);
   const continuesFromAboveMap = computeLaneContinuesFromAbove(nodes);
   const continuesBelowMap = computeLaneContinuesBelow(nodes);
@@ -460,6 +539,7 @@ export function buildGraphPrintModel(nodes: ICommitNode[]): IRowPrintModel[] {
       nodes,
       intervalByLane:
         intervalLookup.get(rowIndex) ?? new Map<number, { startRow: number; endRow: number }>(),
+      branchColors,
     })
   );
 }

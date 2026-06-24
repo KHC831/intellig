@@ -16,7 +16,12 @@ import {
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
 import { ICommitNode, IBranchRef, generateCommitGraph } from '../commitGraph';
 import { DEFAULT_GRAPH_CONFIG } from '../../utils/graphRenderer';
-import { buildGraphPrintModel, computeGraphWidthFromModels } from '../graph/printModel';
+import {
+  buildGraphPrintModel,
+  computeGraphWidthFromModels,
+  colorNodesFrom,
+} from '../graph/printModel';
+import { computeBranchColors } from '../graph/branchColors';
 import {
   savePanelWidths,
   loadPanelWidths,
@@ -349,22 +354,6 @@ export class GitToolWindowProvider
    * affordance); resets alongside the pending changed files on a new selection.
    */
   private _pendingContainingBranches: string[] | undefined;
-  /**
-   * Commits common to a selected non-checked-out branch and HEAD, highlighted in
-   * the log (IntelliJ CurrentBranchHighlighter). `undefined` = no highlight
-   * active. Persisted so a full re-render re-applies the row class; partial
-   * updates post `highlightCommonCommits`.
-   */
-  private _commonCommitHashes: Set<string> | undefined;
-  /**
-   * Monotonic token guarding the async common-commit highlight against stale
-   * application: each highlight/clear bumps it, and a highlight only applies its
-   * result if the token is still current after the await (mirrors the
-   * expandedCommit guard on the containing-branches fetch). Prevents a slow
-   * earlier selection from overwriting a faster later one, or an in-flight
-   * highlight from re-applying after a clear.
-   */
-  private _commonHighlightGen = 0;
   /**
    * Short-lived cache of the grouped Branch-popup options, keyed by the repo
    * scope. Collapses the per-open `requestLogFilterOptions` storm so a burst
@@ -2012,77 +2001,6 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Highlight the log rows whose commits are COMMON to `branchName` and the
-   * current (HEAD) branch — IntelliJ's CurrentBranchHighlighter, surfaced when a
-   * non-checked-out branch is selected in the Branches tree. Selecting the
-   * checked-out branch (or one matching HEAD) clears the highlight.
-   *
-   * Computes the common set once via {@link IGitService.getCommonCommits}
-   * (reachable from both), intersects it with the loaded rows, and posts a
-   * `highlightCommonCommits` partial update; the set is remembered so a full
-   * re-render re-applies the row class.
-   */
-  public async highlightBranchCommonCommits(
-    branchName: string,
-    repoOverride?: IRepository
-  ): Promise<void> {
-    // In the merged "All Repositories" scope a branch belongs to a specific
-    // root (the tree item carries it); resolving against that owning repo marks
-    // the right repo's <branch> ∩ HEAD even when another root has a same-named
-    // branch (e.g. two `main`s). Falls back to the context repo in single-repo.
-    const repo = repoOverride ?? this.getSelectedRepository();
-    const gitService = this._attachedGitService;
-    if (!repo || !gitService) {
-      return;
-    }
-    // Selecting the already-checked-out branch is not a "compare against
-    // current" gesture — there is nothing distinct to mark, so clear.
-    if (branchName === repo.head?.name) {
-      this.clearCommonCommitHighlight();
-      return;
-    }
-
-    // Claim a generation BEFORE the await so a newer selection (or a clear) that
-    // lands while getCommonCommits is running supersedes this one.
-    const gen = ++this._commonHighlightGen;
-    const common = new Set(await gitService.getCommonCommits(repo, branchName));
-    if (gen !== this._commonHighlightGen) {
-      // A later selection/clear bumped the token while we awaited — drop the
-      // stale result so it can't overwrite the newer highlight.
-      return;
-    }
-    this._commonCommitHashes = common;
-
-    // Only the loaded rows can be highlighted; send that bounded subset.
-    const visible = this._extendedLogState.commitNodes
-      .map((n) => n.commit.hash)
-      .filter((hash) => common.has(hash));
-    this._postCommonCommitHighlight(visible);
-  }
-
-  /**
-   * Clear the common-commit highlight (selecting HEAD / deselecting a branch).
-   */
-  public clearCommonCommitHighlight(): void {
-    // Bump the token even when nothing is currently applied so an in-flight
-    // highlight that started before this clear is dropped when it resolves.
-    this._commonHighlightGen++;
-    if (this._commonCommitHashes === undefined) {
-      return;
-    }
-    this._commonCommitHashes = undefined;
-    this._postCommonCommitHighlight([]);
-  }
-
-  /** Post the partial-update highlight message (no full re-render). */
-  private _postCommonCommitHighlight(hashes: string[]): void {
-    if (!this._view) {
-      return;
-    }
-    void this._view.webview.postMessage({ type: 'highlightCommonCommits', hashes });
-  }
-
-  /**
    * Focus the graph on a branch.
    *
    * Resolves the branch's tip commit, scrolls the graph to it, computes
@@ -3357,7 +3275,13 @@ ${bodyMarkup}
     // This single pure projection replaces the former cluster of per-row lane
     // maps (active / continues-above / continues-below / terminal / child-count
     // / child-lanes / incoming-bends / focus); the painter (Layer 4) consumes it.
-    const printModels = buildGraphPrintModel(commitNodes);
+    // Resolve owning-branch colors once and share them with BOTH the painter
+    // (via the print model) and the branch chips, so a branch's line and its
+    // chip render the same color.
+    const branchColors = computeBranchColors(colorNodesFrom(commitNodes), {
+      headBranchName: this._extendedLogState.headBranchName,
+    });
+    const printModels = buildGraphPrintModel(commitNodes, { branchColors });
 
     // Pre-resolve the cherry-picked set once per render to keep the
     // per-row check O(1).
@@ -3384,9 +3308,8 @@ ${bodyMarkup}
       selected,
       cherryPickedHashes,
       cherryPickBaseRef,
-      commonCommitHashes: this._commonCommitHashes,
       printModels,
-      branchLabelsFor: (node) => this._getBranchLabelsHtml(node),
+      branchLabelsFor: (node) => this._getBranchLabelsHtml(node, branchColors),
       showGpgColumn: this._isShowGpgColumnEnabled(),
       showRootColumn: this._isShowAllRootsEnabled(),
     });
@@ -3761,7 +3684,10 @@ ${bodyMarkup}
    *   matching the existing pattern (`_getGraphPanelHtml`,
    *   `_getMultiCommitDetailsPanelModel`, etc.).
    */
-  public _getBranchLabelsHtml(node: ICommitNode): string {
+  public _getBranchLabelsHtml(
+    node: ICommitNode,
+    branchColors?: ReadonlyMap<string, string>
+  ): string {
     const hasBranches = !!node.branches && node.branches.length > 0;
     // Tag chips render alongside the branch chip family. The
     // empty-string return contract (snap-7d) extends to the no-tag case
@@ -3809,16 +3735,21 @@ ${bodyMarkup}
     const inlineBranches: IBranchRef[] = orderedBranches.slice(0, MAX_INLINE_BRANCH_CHIPS);
     const collapsedBranches: IBranchRef[] = orderedBranches.slice(MAX_INLINE_BRANCH_CHIPS);
 
+    // All chips on this commit take the commit's OWNING-branch color (so a chip
+    // matches the graph line it sits on). The current-branch chip is set apart
+    // by a ring + bold (`.branch-label-head`), not a different hue.
+    const chipColor = branchColors?.get(node.commit.hash);
+    const chipStyleAttr = chipColor ? ` style="background:${chipColor}"` : '';
+
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
       // Classify directly from the branch ref's `type` (sourced from
       // IBranch.type / refs-prefix), NOT from a `name.includes('/')` heuristic.
       // A local branch named `feature/foo` is local, not remote.
       const isRemote = branchRef.type === 'remote';
-      // The current branch (the one HEAD points at) is coloured YELLOW
-      // via `.branch-label-head`, matching IntelliJ's HEAD convention —
-      // there is no separate "HEAD" badge. Non-current local branches are
-      // green; remote branches are violet.
+      // The current branch (the one HEAD points at) gets the ring+bold
+      // `.branch-label-head` treatment; its fill is the branch color like every
+      // other chip.
       const isCurrent = !!headBranchName && branchName === headBranchName;
       const baseClass = isCurrent
         ? 'branch-label-head'
@@ -3863,8 +3794,10 @@ ${bodyMarkup}
       // data-branch-name carries the unescaped name so the inline
       // script's partial-update handler can match by attribute. The
       // attribute value goes through the same _escapeHtml the chip text
-      // uses so reflective injection is impossible.
-      return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
+      // uses so reflective injection is impossible. `chipStyleAttr` sets the
+      // per-branch background (a controlled palette hex) so the chip matches
+      // its graph line.
+      return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}${chipStyleAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
     // Tag chips render LAST (rightmost) so branch

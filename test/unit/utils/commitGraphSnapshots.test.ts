@@ -1370,7 +1370,7 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     provider.dispose();
   });
 
-  it('snap-9f: inline <style> embeds .branch-label-head with hardcoded IntelliJ yellow + max-width 200px', () => {
+  it('snap-9f: inline <style> sets the HEAD chip apart by a ring + bold (not a fixed hue) + max-width 200px', () => {
     // Probe the full webview HTML which embeds `_getInlineStyles()`.
     const mockWebview = {
       html: '',
@@ -1382,12 +1382,20 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Hardcoded IntelliJ yellow (#d4a017) — deliberately NOT theme-token-driven
-    // (the theme token rendered as the theme's warning colour, not a consistent
-    // IntelliJ yellow). Matches the hardcoded local-green/remote-violet chips.
+    // The HEAD chip fill is the branch color (set INLINE per chip), so the CSS
+    // no longer hardcodes a yellow background; the current-branch cue is a ring
+    // (box-shadow) + bold weight.
     assert.ok(
-      /\.branch-label-head[\s,{][\s\S]*?background:\s*#d4a017/i.test(fullHtml),
-      'inline CSS must declare the hardcoded IntelliJ HEAD chip yellow (#d4a017)'
+      !/\.branch-label-head[\s,{][\s\S]*?background:\s*#d4a017/i.test(fullHtml),
+      'HEAD chip must NOT hardcode the old yellow background'
+    );
+    assert.ok(
+      /\.branch-label-head[\s,{][\s\S]*?box-shadow:/.test(fullHtml),
+      'inline CSS must give the HEAD chip a ring (box-shadow) as the current-branch cue'
+    );
+    assert.ok(
+      /\.branch-label-head[\s,{][\s\S]*?font-weight:\s*700/.test(fullHtml),
+      'inline CSS must bold the HEAD chip'
     );
     assert.ok(
       /\.branch-label-head[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
@@ -1589,7 +1597,7 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     provider.dispose();
   });
 
-  it('snap-12e: inline <style> colors the local chip IntelliJ green (#499C54) and the remote chip IntelliJ violet (#9876AA)', () => {
+  it('snap-12e: chip background is set inline per branch color; CSS no longer hardcodes green/violet, only white text', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -1600,28 +1608,30 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Local chip is the hardcoded IntelliJ green (#499C54) — pixel-faithful
-    // parity, NOT theme-adaptive (the badge-background token rendered as the
-    // theme's grey/blue badge, not green — issue #10 dogfood fix). Sanctioned
-    // by the themeTokenCompleteness allowlist.
+    // Chips now take the commit's owning-branch color (set INLINE), so a chip
+    // matches its graph line. The shared chip CSS no longer hardcodes the old
+    // per-ref-kind green/violet — it only sets white text + sizing.
     assert.ok(
-      /\.branch-label-local\s*\{[^}]*background:\s*#499C54/i.test(fullHtml),
-      'inline CSS for .branch-label-local must use the hardcoded IntelliJ green #499C54'
+      !/\.branch-label-local\s*\{[^}]*background:\s*#499C54/i.test(fullHtml),
+      'the old hardcoded local-green background must be gone (color is inline now)'
     );
+    assert.ok(
+      !/background:\s*#9876AA/i.test(fullHtml),
+      'the old hardcoded remote-violet background must be gone (color is inline now)'
+    );
+    assert.ok(
+      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*#fff/i.test(fullHtml),
+      'shared chip CSS must keep white text for legibility on the branch-color fill'
+    );
+  });
 
-    // Remote chip is now the hardcoded IntelliJ violet (#9876AA) —
-    // pixel-faithful parity, NOT theme-adaptive (issue #10 decision A).
-    // The standalone hex is sanctioned by the themeTokenCompleteness
-    // allowlist.
+  it('snap-12e-2: a rendered chip carries an inline background = the commit branch color', () => {
+    const node = nodeWithBranches('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ['feature']);
+    const colors = new Map<string, string>([[node.commit.hash, '#2f8f4e']]);
+    const html = provider._getBranchLabelsHtml(node, colors);
     assert.ok(
-      /\.branch-label-remote\s*\{[^}]*background:\s*#9876AA/i.test(fullHtml),
-      'inline CSS for .branch-label-remote must use the IntelliJ violet #9876AA'
-    );
-    // The old theme-blue remote fallback is gone (the remote chip no
-    // longer shares the badge family).
-    assert.ok(
-      !/\.branch-label-remote\s*\{[^}]*#1a3a5c/i.test(fullHtml),
-      'the old #1a3a5c remote fallback must be gone (remote is now violet)'
+      /<span class="branch-label-local"[^>]*style="background:#2f8f4e"/.test(html),
+      `chip must carry the inline branch-color background; got: ${html}`
     );
   });
 });

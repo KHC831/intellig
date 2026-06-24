@@ -20,11 +20,6 @@ export interface ICommitRowData {
   cherryPickedHashes?: Set<string>;
   /** The base ref used when computing {@link cherryPickedHashes}. */
   cherryPickBaseRef?: string;
-  /**
-   * Hashes common to a selected non-checked-out branch and HEAD (IntelliJ
-   * CurrentBranchHighlighter). Matching rows get the `commit-row-common` class.
-   */
-  commonCommitHashes?: Set<string>;
   /** Per-row graph print model (one per commit, same order as `commitNodes`). */
   printModels: IRowPrintModel[];
   /** Renders the branch-labels HTML for a node (provider-bound callback). */
@@ -89,7 +84,6 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     selected,
     cherryPickedHashes,
     cherryPickBaseRef,
-    commonCommitHashes,
     printModels,
     branchLabelsFor,
     showGpgColumn,
@@ -101,7 +95,6 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       const commit = node.commit;
       const isSelected = selected.has(commit.hash);
       const isCherryPicked = cherryPickedHashes?.has(commit.hash) ?? false;
-      const isCommonCommit = commonCommitHashes?.has(commit.hash) ?? false;
 
       // Paint this row's pre-built print model (Layer 4). All graph topology
       // decisions live in the model (Layer 3); the painter is dumb.
@@ -181,7 +174,6 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
         'commit-row',
         isSelected ? 'selected' : '',
         isCherryPicked ? 'commit-row-cherry-picked' : '',
-        isCommonCommit ? 'commit-row-common' : '',
       ]
         .filter(Boolean)
         .join(' ');

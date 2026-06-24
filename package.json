@@ -271,12 +271,12 @@
       },
       {
         "command": "intellig.branch.mergeIntoCurrent",
-        "title": "Merge into Current",
+        "title": "Merge This into Current",
         "category": "IntelliG"
       },
       {
         "command": "intellig.branch.rebaseCurrentOnto",
-        "title": "Rebase Current onto This…",
+        "title": "Rebase Current onto This",
         "category": "IntelliG"
       },
       {
@@ -316,7 +316,7 @@
       },
       {
         "command": "intellig.branch.checkoutAndRebase",
-        "title": "Checkout and Rebase",
+        "title": "Checkout and Rebase onto Current",
         "category": "IntelliG"
       },
       {
@@ -348,12 +348,12 @@
       },
       {
         "command": "intellig.remoteBranch.pullUsingRebase",
-        "title": "Pull Using Rebase",
+        "title": "Pull into Current Using Rebase",
         "category": "IntelliG"
       },
       {
         "command": "intellig.remoteBranch.pullUsingMerge",
-        "title": "Pull Using Merge",
+        "title": "Pull into Current Using Merge",
         "category": "IntelliG"
       },
       {
@@ -1135,9 +1135,14 @@
           "group": "3_integrate@2"
         },
         {
-          "submenu": "intellig.trackedBranchSubmenu",
+          "command": "intellig.remoteBranch.pullUsingRebase",
           "when": "viewItem == intellig.remoteBranch",
           "group": "4_pull@1"
+        },
+        {
+          "command": "intellig.remoteBranch.pullUsingMerge",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "4_pull@2"
         },
         {
           "command": "intellig.remoteBranch.deleteRemote",
@@ -1360,20 +1365,6 @@
           "command": "intellig.blame.clearHiddenRevisions",
           "group": "3_revisions@1"
         }
-      ],
-      "intellig.trackedBranchSubmenu": [
-        {
-          "command": "intellig.remoteBranch.trackBranch",
-          "group": "1_track@1"
-        },
-        {
-          "command": "intellig.remoteBranch.pullUsingRebase",
-          "group": "2_pull@1"
-        },
-        {
-          "command": "intellig.remoteBranch.pullUsingMerge",
-          "group": "2_pull@2"
-        }
       ]
     },
     "submenus": [
@@ -1391,10 +1382,6 @@
         "id": "intellig.blameOptionsSubmenu",
         "label": "Annotations Options",
         "icon": "$(settings-gear)"
-      },
-      {
-        "id": "intellig.trackedBranchSubmenu",
-        "label": "Tracked Branch"
       }
     ],
     "viewsContainers": {

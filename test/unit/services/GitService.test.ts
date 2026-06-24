@@ -654,61 +654,6 @@ describe('GitService - Branch Operations', () => {
     });
   });
 
-  describe('getCommonCommits()', () => {
-    const REF = 'feature/x';
-    const MERGE_BASE_CMD = `merge-base --all --end-of-options HEAD ${REF}`;
-
-    it('returns commits reachable from the merge base(s) — the common set with HEAD', async () => {
-      mockGitCli.setMockResult(MERGE_BASE_CMD, { exitCode: 0, stdout: 'base1\n', stderr: '' });
-      mockGitCli.setMockResult('rev-list --end-of-options base1', {
-        exitCode: 0,
-        stdout: 'base1\nc2\nc3\n',
-        stderr: '',
-      });
-
-      const common = await gitService.getCommonCommits(mockRepo, REF);
-      assert.deepStrictEqual(common, ['base1', 'c2', 'c3']);
-    });
-
-    it('passes every merge base to rev-list (multiple bases / criss-cross merge)', async () => {
-      mockGitCli.setMockResult(MERGE_BASE_CMD, { exitCode: 0, stdout: 'b1\nb2\n', stderr: '' });
-      mockGitCli.setMockResult('rev-list --end-of-options b1 b2', {
-        exitCode: 0,
-        stdout: 'b1\nb2\n',
-        stderr: '',
-      });
-
-      const common = await gitService.getCommonCommits(mockRepo, REF);
-      assert.deepStrictEqual(common, ['b1', 'b2']);
-    });
-
-    it('returns an empty list when there is no merge base (unrelated histories)', async () => {
-      mockGitCli.setMockResult(MERGE_BASE_CMD, { exitCode: 1, stdout: '', stderr: '' });
-      const common = await gitService.getCommonCommits(mockRepo, REF);
-      assert.deepStrictEqual(common, []);
-    });
-
-    it('rejects a flag-injection ref without running git', async () => {
-      const common = await gitService.getCommonCommits(mockRepo, '--upload-pack=evil');
-      assert.deepStrictEqual(common, []);
-      assert.strictEqual(
-        mockGitCli.getLastCommand(),
-        undefined,
-        'no git command for an invalid ref'
-      );
-    });
-
-    it('rejects a leading-dot ref without running git', async () => {
-      const common = await gitService.getCommonCommits(mockRepo, '.hidden');
-      assert.deepStrictEqual(common, []);
-      assert.strictEqual(
-        mockGitCli.getLastCommand(),
-        undefined,
-        'no git command for an invalid ref'
-      );
-    });
-  });
-
   describe('createBranch()', () => {
     describe('Creating branch from current HEAD', () => {
       it('should execute git branch with branch name', async () => {

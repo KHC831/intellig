@@ -270,6 +270,12 @@ function firstParentEdgeColorFromSvg(svg: string, expectedNodeColor: string): st
   return undefined;
 }
 
+/** The node dot's rendered fill — the first `<circle fill="…">` the painter emits. */
+function nodeFillFromSvg(svg: string): string | undefined {
+  const m = svg.match(/<circle [^>]*fill="(#[0-9A-Fa-f]+)"/);
+  return m ? m[1] : undefined;
+}
+
 describe('Property — node color equals its own first-parent line color (any DAG)', () => {
   it('algorithm: every first-parent line is colored by the node lane', () => {
     fc.assert(
@@ -368,8 +374,14 @@ describe('Property — node color equals its own first-parent line color (any DA
             continue;
           }
           const svg = svgs[i];
-          const nodeColor = getColumnColor(node.graphColumn);
-          const edgeColor = firstParentEdgeColorFromSvg(svg, nodeColor);
+          // The node's OWN rendered fill (branch color, or lane color when no
+          // branch owns it). The first-parent spine edge must match it — that's
+          // the contract, independent of whether coloring is by-branch or by-lane.
+          const nodeFill = nodeFillFromSvg(svg);
+          if (nodeFill === undefined) {
+            continue;
+          }
+          const edgeColor = firstParentEdgeColorFromSvg(svg, nodeFill);
           // edgeColor undefined → the row drew no downward edge (e.g. the
           // node fill <circle> only); skip — nothing to mismatch.
           if (edgeColor === undefined) {
@@ -377,9 +389,9 @@ describe('Property — node color equals its own first-parent line color (any DA
           }
           assert.strictEqual(
             edgeColor,
-            nodeColor,
+            nodeFill,
             `${node.commit.hash} (row ${i}, lane ${node.graphColumn}): rendered ` +
-              `first-parent edge stroke ${edgeColor} != node fill ${nodeColor}.\nSVG: ${svg}`
+              `first-parent edge stroke ${edgeColor} != node fill ${nodeFill}.\nSVG: ${svg}`
           );
         }
       }),

@@ -694,23 +694,6 @@ export function buildInlineStyles(): string {
         vertical-align: middle;
       }
 
-      /* Commits common to a selected non-checked-out branch and HEAD get a
-         subtle background — IntelliJ CurrentBranchHighlighter
-         (VersionControl.Log.Commit.currentBranchBackground: ~#E4FAFF light,
-         ~#3F4749 dark). The theme-kind classes VS Code stamps on <body> drive
-         the light/dark value via a CSS variable; a selected row keeps the
-         selection background (it wins by being defined after). */
-      body { --intellig-common-commit-bg: #e4faff; }
-      body.vscode-dark,
-      body.vscode-high-contrast { --intellig-common-commit-bg: #3f4749; }
-      .commit-row-common {
-        background-color: var(--intellig-common-commit-bg);
-      }
-      .commit-row-common.selected {
-        background-color: var(--vscode-list-activeSelectionBackground);
-        color: var(--vscode-list-activeSelectionForeground);
-      }
-
       /* Graph Styles */
       .commit-graph {
         flex-shrink: 0;
@@ -945,22 +928,16 @@ export function buildInlineStyles(): string {
         color: white;
       }
 
-      /* The HEAD chip is distinct from branch chips so the user reads
-         "this is HEAD" at a glance even when HEAD is on a commit that ALSO
-         has branch-tip chips. It lives in the same .commit-branches flex
-         slot as branch chips, prepended FIRST (leftmost) so it precedes any
-         branch chips. The yellow is a DELIBERATELY hardcoded IntelliJ brand
-         shade (#d4a017), not theme-adaptive — matching the hardcoded green
-         (local) and violet (remote) so each ref kind shows its own
-         IntelliJ colour consistently across themes. Dark text (#1a1a1a)
-         keeps the name legible on the yellow fill. Sanctioned via the
-         themeTokenCompleteness audit allowlist. */
+      /* The current (HEAD) branch chip. Its fill is the branch color (set
+         inline, like every chip, so the chip matches its graph line); it's set
+         apart from the other chips by a bold name + a light ring rather than a
+         different hue. The ring uses box-shadow so it adds no layout shift.
+         Prepended FIRST (leftmost) in the .commit-branches flex slot. */
       .branch-label-head {
         display: inline-block;
-        background: #d4a017;
-        color: #1a1a1a;
+        color: #fff;
         font-size: 11px;
-        font-weight: 600;
+        font-weight: 700;
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
@@ -969,6 +946,7 @@ export function buildInlineStyles(): string {
         text-overflow: ellipsis;
         white-space: nowrap;
         vertical-align: middle;
+        box-shadow: 0 0 0 1.5px var(--vscode-foreground, #ffffff);
       }
 
       /* Cap chip width with CSS ellipsis. Without a cap, a 70-char branch
@@ -994,28 +972,17 @@ export function buildInlineStyles(): string {
         vertical-align: middle;
       }
 
-      /* Shared chip sizing/spacing for local + remote chips (font, padding,
-         radius, margin). Each chip kind sets its OWN hardcoded IntelliJ
-         background below — local green, remote violet — so the colour is
-         pixel-faithful and theme-independent rather than theme-token-driven
-         (the earlier badge-background token rendered as the theme's grey/blue
-         badge, not green). Pinned by snap-12e. */
+      /* Local + remote chips: sizing/spacing + white text. The background is set
+         INLINE per chip to the commit's owning-branch color (earthy palette), so
+         a chip matches the graph line it sits on; local vs remote is conveyed by
+         the chip's aria-label, not a fixed hue. */
       .branch-label-local,
       .branch-label-remote {
         font-size: 11px;
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
-      }
-
-      /* Local-branch chip = IntelliJ GREEN (#499C54). DELIBERATELY hardcoded
-         brand colour, not theme-adaptive — matches the hardcoded violet
-         (remote) and yellow (current) for consistent per-ref-kind IntelliJ
-         colours across themes. White foreground keeps the name legible on
-         the green fill. Sanctioned via the themeTokenCompleteness allowlist. */
-      .branch-label-local {
-        background: #499C54;
-        color: white;
+        color: #fff;
       }
 
       /* Collapsed-summary chip ("+N"): rendered when a commit has more
@@ -1047,19 +1014,6 @@ export function buildInlineStyles(): string {
         outline-offset: 1px;
       }
 
-      /* Remote-branch chip = IntelliJ VIOLET (#9876AA). This is a
-         DELIBERATELY hardcoded brand colour, not theme-adaptive — chosen
-         for pixel-faithful IntelliJ parity over VS Code theme-token
-         adaptivity. It overrides the shared badge-background rule above so
-         remote chips read violet while local chips stay green and the
-         current branch stays yellow — giving each ref kind its own
-         IntelliJ colour. The standalone hex is sanctioned via the
-         themeTokenCompleteness audit allowlist. White foreground keeps the
-         name legible on the violet fill. */
-      .branch-label-remote {
-        background: #9876AA;
-        color: white;
-      }
 
       /* Codicon prefix sizing on chips. The icon is the non-color WCAG 1.4.1
          affordance for local vs remote vs HEAD distinction; font-size 11px

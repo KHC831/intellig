@@ -111,60 +111,6 @@ export class BranchOps {
     ).map((result) => (result.exitCode !== 0 ? [] : parseContainingBranches(result.stdout)));
   }
 
-  /**
-   * Commits common to HEAD and the given ref — the set reachable from BOTH, i.e.
-   * the ancestors of their merge base(s), inclusive. Backs the "highlight common
-   * commits" treatment when a non-checked-out branch is selected (IntelliJ
-   * CurrentBranchHighlighter, which marks commits contained in the current
-   * branch among the shown branch's commits).
-   *
-   * `git merge-base --all HEAD <ref>` → the base(s); `git rev-list <bases>` →
-   * every commit reachable from them (= HEAD ∩ ref). Tolerates per-exec non-zero
-   * (no merge base / unrelated histories) as Ok([]); only a spawn/system fault
-   * rejects → classified Err, which the façade LOGS and degrades to [].
-   */
-  getCommonCommits(repo: IRepository, ref: string): ResultAsync<string[], GitError> {
-    // `ref` is a branch name crossing from the UI; reject a leading `-`
-    // (CLI-flag injection) or `.` (invalid per git-check-ref-format) before it
-    // reaches git, on top of the `--end-of-options` separator in the body. A
-    // guard miss is benign (not a git fault) → Ok([]), no error noise.
-    if (ref.startsWith('-') || ref.startsWith('.')) {
-      return okAsync([]);
-    }
-    // Pattern (b): the body tolerates per-exec non-zero (each step gates on
-    // `exitCode === 0`), so a domain "no common commits" lands in Ok([]). Only a
-    // spawn/system fault rejects → classified Err → the façade degrades.
-    return ResultAsync.fromPromise(this._getCommonCommits(repo, ref), classifyGitCommandError);
-  }
-
-  private async _getCommonCommits(repo: IRepository, ref: string): Promise<string[]> {
-    const cwd = repo.rootUri.fsPath;
-    const baseResult = await this.ctx.gitCli.exec(
-      ['merge-base', '--all', '--end-of-options', 'HEAD', ref],
-      { cwd }
-    );
-    if (baseResult.exitCode !== 0) {
-      return [];
-    }
-    const bases = baseResult.stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    if (bases.length === 0) {
-      return [];
-    }
-    const revListResult = await this.ctx.gitCli.exec(['rev-list', '--end-of-options', ...bases], {
-      cwd,
-    });
-    if (revListResult.exitCode !== 0) {
-      return [];
-    }
-    return revListResult.stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  }
-
   createBranch(
     repo: IRepository,
     name: string,
