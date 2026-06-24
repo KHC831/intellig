@@ -120,4 +120,21 @@ describe('print model — row-seam continuity (no unpaired bend half)', () => {
     const defects = seamDefects([c('m', ['p', 's']), c('p', ['b']), c('s', ['b']), c('b', [])]);
     assert.deepStrictEqual(defects, [], defects.join('\n'));
   });
+
+  it('a through-lane keeps its vertical where a sibling bends into it (reported gap)', () => {
+    // A(lane0)→B is a through-trunk passing X's row; X(lane1)→B bends INTO lane0
+    // at X's row. lane0 there must ink a continuous VERTICAL (full/down straight),
+    // not just an 'up' half relying on X's diagonal bezier — otherwise the trunk
+    // shows a gap above B. The seam oracle is blind to this (the bezier endpoint
+    // "bottoms" the lane at a point), so assert the straight half directly.
+    const nodes = generateCommitGraph([c('A', ['B']), c('X', ['B']), c('B', ['C']), c('C', [])]);
+    const models = buildGraphPrintModel(nodes);
+    const row1 = models[1]; // X's row
+    const lane0Straights = row1.edges.filter((e) => e.lane === 0 && !e.curved);
+    const bottomsLane0 = lane0Straights.some((e) => e.half === 'full' || e.half === 'down');
+    assert.ok(
+      bottomsLane0,
+      'lane0 through-trunk must ink its bottom-half vertical at the bend row (no gap)'
+    );
+  });
 });

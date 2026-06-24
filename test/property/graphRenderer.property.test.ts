@@ -467,11 +467,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             const expectedColor = getColumnColor(passThroughLane);
             const expectedX = getColumnX(passThroughLane, DEFAULT_GRAPH_CONFIG);
 
-            // Check if this lane is a bezier target (cross-lane graphLine ends here)
-            const isBezierTarget = node.graphLines.some(
-              (l) => l.fromColumn !== l.toColumn && l.toColumn === passThroughLane
-            );
-
             const lines = extractLines(svg);
 
             // Bug B: `renderGraphSvg` suppresses all pass-through lines at the
@@ -485,45 +480,29 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
               return;
             }
 
-            if (isBezierTarget) {
-              // Bezier target lanes get half-height pass-through (y=0 to y=centerY)
-              const halfHeightLine = lines.find(
-                (l) =>
-                  parseFloat(l.x1) === expectedX &&
-                  parseFloat(l.y1) === 0 &&
-                  parseFloat(l.x2) === expectedX &&
-                  parseFloat(l.y2) === DEFAULT_GRAPH_CONFIG.rowHeight / 2
-              );
+            // A genuine through-lane (continues above AND below) always inks a
+            // FULL-height vertical — even when a sibling's line bends into it
+            // here. The incoming bezier is a separate diagonal that only meets
+            // this lane at a point; downgrading the through-lane to half-height
+            // dropped its bottom half and left a visible gap (reported bug), so
+            // the lane is full-height regardless of any bezier landing in it.
+            const passThroughLine = lines.find(
+              (l) =>
+                parseFloat(l.x1) === expectedX &&
+                parseFloat(l.y1) === 0 &&
+                parseFloat(l.x2) === expectedX &&
+                parseFloat(l.y2) === DEFAULT_GRAPH_CONFIG.rowHeight
+            );
 
-              assert.ok(
-                halfHeightLine,
-                `Should have a half-height pass-through line at x=${expectedX} for bezier-target lane ${passThroughLane}`
-              );
-              assert.strictEqual(
-                halfHeightLine.stroke,
-                expectedColor,
-                `Half-height pass-through line stroke (${halfHeightLine.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
-              );
-            } else {
-              // Non-bezier-target lanes get full-height pass-through
-              const passThroughLine = lines.find(
-                (l) =>
-                  parseFloat(l.x1) === expectedX &&
-                  parseFloat(l.y1) === 0 &&
-                  parseFloat(l.x2) === expectedX &&
-                  parseFloat(l.y2) === DEFAULT_GRAPH_CONFIG.rowHeight
-              );
-
-              assert.ok(
-                passThroughLine,
-                `Should have a pass-through line at x=${expectedX} for lane ${passThroughLane}`
-              );
-              assert.strictEqual(
-                passThroughLine.stroke,
-                expectedColor,
-                `Pass-through line stroke (${passThroughLine.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
-              );
-            }
+            assert.ok(
+              passThroughLine,
+              `Should have a full-height pass-through line at x=${expectedX} for lane ${passThroughLane}`
+            );
+            assert.strictEqual(
+              passThroughLine.stroke,
+              expectedColor,
+              `Pass-through line stroke (${passThroughLine.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
+            );
           }
         ),
         { numRuns: 100 }
@@ -560,14 +539,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
             const lines = extractLines(svg);
 
-            // Compute bezier target lanes (lanes where a cross-lane graphLine ends)
-            const bezierTargetLanes = new Set<number>();
-            for (const line of node.graphLines) {
-              if (line.fromColumn !== line.toColumn) {
-                bezierTargetLanes.add(line.toColumn);
-              }
-            }
-
             // Check each pass-through lane (active lanes that are NOT the commit's column)
             for (const lane of activeLanes) {
               if (lane === node.graphColumn) {
@@ -576,42 +547,24 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
               const expectedX = getColumnX(lane, config);
 
-              // Interval model: rendering is continuity-driven, not row-indexed.
-              // A through-lane draws full-height (or half if a bezier also lands
-              // here), at every row including row 0 — the legacy row-0 suppression
-              // is gone.
-              if (bezierTargetLanes.has(lane)) {
-                // Bezier target lanes get a half-height pass-through (y=0 to y=centerY)
-                // to avoid the "2 lines" visual artifact
-                const halfHeightLine = lines.find(
-                  (l) =>
-                    parseFloat(l.x1) === expectedX &&
-                    parseFloat(l.y1) === 0 &&
-                    parseFloat(l.x2) === expectedX &&
-                    parseFloat(l.y2) === config.rowHeight / 2
-                );
+              // Every extra lane here continues above AND below, so it is a
+              // genuine through-lane → a FULL-height vertical, even if a sibling's
+              // line bends into it (the incoming bezier is a separate diagonal;
+              // downgrading the through-lane to half-height left a gap — the
+              // reported bug).
+              const fullHeightLine = lines.find(
+                (l) =>
+                  parseFloat(l.x1) === expectedX &&
+                  parseFloat(l.y1) === 0 &&
+                  parseFloat(l.x2) === expectedX &&
+                  parseFloat(l.y2) === config.rowHeight
+              );
 
-                assert.ok(
-                  halfHeightLine,
-                  `Should have a half-height vertical line (y1=0, y2=${config.rowHeight / 2}) at x=${expectedX} for bezier-target pass-through lane ${lane}. ` +
-                    `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
-                );
-              } else {
-                // Non-bezier-target lanes get a full-height pass-through
-                const fullHeightLine = lines.find(
-                  (l) =>
-                    parseFloat(l.x1) === expectedX &&
-                    parseFloat(l.y1) === 0 &&
-                    parseFloat(l.x2) === expectedX &&
-                    parseFloat(l.y2) === config.rowHeight
-                );
-
-                assert.ok(
-                  fullHeightLine,
-                  `Should have a full-height vertical line (y1=0, y2=${config.rowHeight}) at x=${expectedX} for pass-through lane ${lane}. ` +
-                    `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
-                );
-              }
+              assert.ok(
+                fullHeightLine,
+                `Should have a full-height vertical line (y1=0, y2=${config.rowHeight}) at x=${expectedX} for pass-through lane ${lane}. ` +
+                  `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
+              );
             }
           }
         ),

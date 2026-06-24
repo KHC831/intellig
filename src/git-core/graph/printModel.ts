@@ -231,13 +231,19 @@ export function projectRow(
       style: 'solid',
     });
     if (enters && exits) {
-      edges.push(straight(isBezierTarget ? 'up' : 'full'));
+      // A genuine through-lane (continues above AND below) must always ink a
+      // continuous vertical, even when a sibling's line bends INTO it here. The
+      // incoming bezier is a DIFFERENT line and only meets this lane's bottom at
+      // a point (a diagonal), so downgrading to 'up' dropped the lane's own
+      // bottom-half vertical → a visible gap above the next node (reported bug).
+      edges.push(straight('full'));
     } else if (enters && !exits) {
       edges.push(straight('up'));
     } else if (!enters && exits && !isBezierTarget) {
       edges.push(straight('down'));
     }
-    // !enters && !exits, or born bezier target: nothing straight (bezier/node draws it).
+    // !enters && !exits, or born bezier target: nothing straight (the bezier IS
+    // this lane's entry, or the node draws it).
   }
 
   // --- Own-lane segments around the commit dot ---
