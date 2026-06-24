@@ -10,6 +10,20 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.3] - 2026-06-24
+
+### Added
+
+- Containing branches in commit details, a log branch filter, and highlighting of commits common to a selected branch.
+
+### Fixed
+
+- Squash keeps your combined message; graph edge gaps, stray `HEAD` branch entries, the filter bar auto-opening, and Git Console command spam.
+
+### Changed
+
+- Git operations now run through a typed error-handling boundary.
+
 ## [0.2.2] - 2026-06-22
 
 ### Added
