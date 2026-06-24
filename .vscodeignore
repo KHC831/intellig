@@ -23,7 +23,15 @@
 src/**
 test/**
 workspace-notes/**
-node_modules/**
+# Do NOT blanket-exclude node_modules: the extension is NOT bundled (tsc only),
+# so vsce must ship the production dependencies (e.g. `neverthrow`). vsce already
+# packages only prod deps and prunes devDependencies; excluding all of
+# node_modules drops the runtime deps and breaks activation
+# ("require('neverthrow')" fails → no view data provider). Verify with
+# `npx @vscode/vsce ls | grep neverthrow` after any change here.
+# @vscode/codicons is a prod dep but is NOT require()'d — the extension ships
+# the font as media/codicon.ttf, so its ~600-file icon set is pure package bloat.
+node_modules/@vscode/codicons/**
 docs/**
 scripts/**
 .eslintrc.json
