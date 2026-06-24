@@ -44,5 +44,7 @@ workspace-notes/
 scratch/
 out-test/
 
-# Local packaged-extension dir produced by a dogfood/package build.
-intellig-0.2.2/
+# Local packaged-extension dirs produced by a dogfood/package build
+# (`vsce package` unpacked output). Glob so every version is covered;
+# `.vsix` files themselves are already ignored above.
+intellig-*/

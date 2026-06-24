@@ -40,3 +40,9 @@ AGENT_WORKSPACE.md
 out/test/**
 out/**/*.test.js
 out-test/**
+# Build artifacts — packaged .vsix files and any unpacked package dirs must not
+# get swept back into a new package (0.2.3 shipped them by accident). The second
+# glob is required: vsce matches per-file, so `intellig*` alone catches the root
+# .vsix but not the CONTENTS of an unpacked `intellig-*/` directory.
+intellig*
+intellig*/**
