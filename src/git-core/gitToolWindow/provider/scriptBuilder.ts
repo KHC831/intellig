@@ -554,25 +554,13 @@ export function buildInlineScript(): string {
             });
             refreshSelectedCount();
           }
-          // Ref-aware filter options: populate the branch + author
-          // datalists from the live repo so the filter inputs autocomplete.
+          // Ref-aware filter options: populate the top branch-filter dropdown
+          // from the live repo. (The filter-bar fields are plain free-text — the
+          // native <datalist> autocompletes were removed because Chromium renders
+          // their popup in an unstyleable UA layer; the top selector is the
+          // styled branch picker.)
           if (message.type === 'logFilterOptionsReady') {
-            // Build <option> nodes via the DOM so the value crosses as a property
-            // (injection-proof — no HTML interpretation, no hand-rolled escaping).
-            const fillDatalist = function(id, values) {
-              const datalist = document.getElementById(id);
-              if (!datalist || !Array.isArray(values)) { return; }
-              datalist.replaceChildren();
-              values.forEach(function(v) {
-                const option = document.createElement('option');
-                option.value = String(v);
-                datalist.appendChild(option);
-              });
-            };
-            fillDatalist('filter-branch-options', message.branches);
-            fillDatalist('filter-author-options', message.contributors);
-
-            // Populate the branch-filter dropdown from the same ref-aware list,
+            // Populate the branch-filter dropdown from the ref-aware list,
             // preserving the active branch carried in data-selected-branch (and
             // appending it if it is outside the fetched window, so the selection
             // holds). Built via createElement — value/textContent cross as data.
@@ -1056,6 +1044,12 @@ export function buildInlineScript(): string {
           const filterBar = document.getElementById('log-filter-bar');
           if (filterBar) {
             filterBar.hidden = !filterBar.hidden;
+            // Report the new expanded state so a later host re-render preserves
+            // it (the host no longer derives bar visibility from filter-is-set,
+            // which used to pop the bar open when a branch was picked).
+            vscode.postMessage({ type: 'setLogFilterBarExpanded', expanded: !filterBar.hidden });
+            const toggleBtn = document.querySelector('[data-action="toggleLogFilters"]');
+            if (toggleBtn) { toggleBtn.setAttribute('aria-expanded', String(!filterBar.hidden)); }
             // When opening the bar, ask the host for ref-aware branch +
             // author options to populate the datalists.
             if (!filterBar.hidden) {

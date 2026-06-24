@@ -272,6 +272,17 @@ export function parseBranches(output: string, separator: string = '\x1f'): IBran
       continue;
     }
 
+    // Skip git's HEAD pointers: the bare `HEAD` and the per-remote symref
+    // `refs/remotes/<remote>/HEAD` (emitted by `git branch -a` as
+    // `origin/HEAD -> origin/main`). Neither is a selectable branch — git4idea
+    // strips them too (GitBranchUtil.getBranchNamesAndRemoveHead). Detached
+    // HEAD is the parenthesized pseudo-ref filtered above and is surfaced
+    // separately as a status label, not as a branch.
+    const trimmedRefname = refname.trim();
+    if (trimmedRefname === 'HEAD' || /^refs\/remotes\/[^/]+\/HEAD$/.test(trimmedRefname)) {
+      continue;
+    }
+
     const isHead = head === '*';
 
     let name = refname;

@@ -289,6 +289,13 @@ export interface IExtendedLogState extends ILogState {
 }
 
 /**
+ * How long a fetched branch-filter option list stays fresh. Long enough to
+ * collapse a per-render request burst, short enough that a new branch shows up
+ * promptly after the user creates one.
+ */
+const LOG_FILTER_OPTIONS_TTL_MS = 3000;
+
+/**
  * Git Tool Window Provider implementation.
  */
 export class GitToolWindowProvider
@@ -360,6 +367,19 @@ export class GitToolWindowProvider
    * highlight from re-applying after a clear.
    */
   private _commonHighlightGen = 0;
+  /**
+   * Whether the advanced log-filter bar is expanded. Driven solely by the
+   * user's explicit "Filter" toggle — NOT by whether a filter is set. Setting a
+   * filter via the branch-filter dropdown (or any non-bar path) must not pop the
+   * bar open, so its visibility on re-render reads this, not `filter !== undefined`.
+   */
+  private _logFilterBarExpanded = false;
+  /**
+   * Short-lived cache of the branch-filter dropdown options, keyed by the repo
+   * scope. Collapses the per-render `requestLogFilterOptions` storm so a refresh
+   * burst can't re-run `git branch -a` on every webview render.
+   */
+  private _logFilterOptionsCache?: { key: string; branches: string[]; at: number };
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
   private _availableRepositories: IRepository[] = [];
@@ -1704,6 +1724,13 @@ export class GitToolWindowProvider
         // surface as an unhandled rejection.
         void this._handleRequestLogFilterOptions().catch(() => {});
         break;
+      case 'setLogFilterBarExpanded':
+        // The webview flips the bar's visibility client-side for responsiveness
+        // and reports the new state here so a subsequent host re-render preserves
+        // it (instead of re-deriving visibility from whether a filter is set,
+        // which popped the bar open whenever a branch was chosen from the dropdown).
+        this._logFilterBarExpanded = (message as { expanded?: unknown }).expanded === true;
+        break;
       case 'clearLogFilter':
         // Fired by the "Clear filter" button on the filtered-empty
         // graph state. Clearing is just applying a null filter, which
@@ -1943,15 +1970,25 @@ export class GitToolWindowProvider
     // repo's branches would silently scope the graph to one repo. A single-repo
     // scope lists just that repo's branches, unchanged.
     const branchSources = this.isAllReposSelected() ? this._availableRepositories : [repo];
+    // Coalesce per-render re-requests. The inline init script re-fires this on
+    // EVERY webview render (the dropdown is re-rendered empty each time), so
+    // without a short cache a render/refresh burst spams `git branch -a`. Serve
+    // a recent result for the same repo scope instead of re-running git.
+    const cacheKey = branchSources.map((r) => r.rootUri.fsPath).join(' ');
+    const now = Date.now();
+    const cached = this._logFilterOptionsCache;
+    if (cached && cached.key === cacheKey && now - cached.at < LOG_FILTER_OPTIONS_TTL_MS) {
+      this._postLogFilterOptions(cached.branches);
+      return;
+    }
     // Per-root catch: a hard exec rejection on one root (e.g. an unmounted /
     // removed multi-root → cwd ENOENT, spawn failure) must not discard the
     // healthy roots' branches or escape as an unhandled rejection. Each bad
     // root contributes [] and the union survives. `getBranches` already returns
     // [] on a non-zero git exit; this guards the throw path.
-    const [perRepoBranches, contributors] = await Promise.all([
-      Promise.all(branchSources.map((r) => gitService.getBranches(r).catch(() => []))),
-      gitService.getLogContributors(repo).catch(() => []),
-    ]);
+    const perRepoBranches = await Promise.all(
+      branchSources.map((r) => gitService.getBranches(r).catch(() => []))
+    );
     let branchNames: string[];
     if (branchSources.length > 1) {
       const union = new Set<string>();
@@ -1964,14 +2001,16 @@ export class GitToolWindowProvider
     } else {
       branchNames = perRepoBranches[0].map((b) => b.name);
     }
+    this._logFilterOptionsCache = { key: cacheKey, branches: branchNames, at: Date.now() };
+    this._postLogFilterOptions(branchNames);
+  }
+
+  /** Post the branch-filter dropdown options to the webview (if attached). */
+  private _postLogFilterOptions(branches: string[]): void {
     if (!this._view) {
       return;
     }
-    void this._view.webview.postMessage({
-      type: 'logFilterOptionsReady',
-      branches: branchNames,
-      contributors,
-    });
+    void this._view.webview.postMessage({ type: 'logFilterOptionsReady', branches });
   }
 
   /**
@@ -3558,14 +3597,13 @@ ${bodyMarkup}
 
     return `
         <div class="log-filter-toolbar">
-          <button type="button" class="log-filter-toggle${active ? ' active' : ''}" data-action="toggleLogFilters" aria-label="Toggle log filters" aria-expanded="${active}" title="Filter commits">Filter</button>
+          <button type="button" class="log-filter-toggle${active ? ' active' : ''}" data-action="toggleLogFilters" aria-label="Toggle log filters" aria-expanded="${this._logFilterBarExpanded}" title="Filter commits">Filter</button>
         </div>
-        <div id="log-filter-bar" class="log-filter-bar"${active ? '' : ' hidden'} role="group" aria-label="Log filters">
+        <div id="log-filter-bar" class="log-filter-bar"${this._logFilterBarExpanded ? '' : ' hidden'} role="group" aria-label="Log filters">
           <div class="log-filter-row">
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-branch">Branch</label>
-              <input type="text" id="filter-branch" class="log-filter-input" list="filter-branch-options" data-action="filterKeydown" placeholder="Branch, tag, or range (A..B)" value="${branchOrRange}" autocomplete="off" />
-              <datalist id="filter-branch-options"></datalist>
+              <input type="text" id="filter-branch" class="log-filter-input" data-action="filterKeydown" placeholder="Branch, tag, or range (A..B)" value="${branchOrRange}" autocomplete="off" />
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-search">Message / Hash</label>
@@ -3577,8 +3615,7 @@ ${bodyMarkup}
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-author">Author</label>
-              <input type="text" id="filter-author" class="log-filter-input" list="filter-author-options" data-action="filterKeydown" placeholder="Author name or email" value="${author}" autocomplete="off" />
-              <datalist id="filter-author-options"></datalist>
+              <input type="text" id="filter-author" class="log-filter-input" data-action="filterKeydown" placeholder="Author name or email" value="${author}" autocomplete="off" />
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-path">Path</label>
@@ -3586,7 +3623,7 @@ ${bodyMarkup}
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-cherry-compare">Cherry-compare with</label>
-              <input type="text" id="filter-cherry-compare" class="log-filter-input" list="filter-branch-options" data-action="filterKeydown" placeholder="Branch or ref (highlights cherry-picked)" value="${cherryCompare}" autocomplete="off" />
+              <input type="text" id="filter-cherry-compare" class="log-filter-input" data-action="filterKeydown" placeholder="Branch or ref (highlights cherry-picked)" value="${cherryCompare}" autocomplete="off" />
             </div>
           </div>
           <div class="log-filter-row">
@@ -3597,6 +3634,12 @@ ${bodyMarkup}
             <div class="log-filter-group log-filter-group-date">
               <label class="log-filter-label" for="filter-until">Until</label>
               <input type="date" id="filter-until" class="log-filter-input log-filter-date" data-action="filterKeydown" value="${until}" />
+            </div>
+            <div class="log-filter-group log-filter-group-parents">
+              <label class="log-filter-label">Parents</label>
+              <input type="number" id="filter-min-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Min" min="0" value="${minParents}" />
+              <span class="log-filter-parents-sep">–</span>
+              <input type="number" id="filter-max-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Max" min="0" value="${maxParents}" />
             </div>
             <div class="log-filter-group log-filter-group-check">
               <label class="log-filter-check-label" for="filter-no-merges">
@@ -3612,12 +3655,6 @@ ${bodyMarkup}
               <label class="log-filter-check-label" for="filter-simplify-merges">
                 <input type="checkbox" id="filter-simplify-merges" class="log-filter-check"${simplifyMerges ? ' checked' : ''} /> Simplify Merges
               </label>
-            </div>
-            <div class="log-filter-group log-filter-group-parents">
-              <label class="log-filter-label">Parents</label>
-              <input type="number" id="filter-min-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Min" min="0" value="${minParents}" />
-              <span class="log-filter-parents-sep">–</span>
-              <input type="number" id="filter-max-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Max" min="0" value="${maxParents}" />
             </div>
           </div>
           <div class="log-filter-actions">

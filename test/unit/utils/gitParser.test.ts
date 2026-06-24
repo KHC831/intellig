@@ -920,6 +920,50 @@ index 1234567,abcdefg..fedcba9
       assert.deepStrictEqual(result, [], 'mid-cherry-pick parenthesized label must be filtered');
     });
 
+    it('parseBranches-remote-head: remotes/<remote>/HEAD symref → filtered (matches git4idea)', () => {
+      // `git branch -a --format` emits the per-remote HEAD pointer
+      // `refs/remotes/origin/HEAD` (shown by `git branch -a` as
+      // `origin/HEAD -> origin/main`). It is not a selectable branch; git4idea
+      // strips it (GitBranchUtil.getBranchNamesAndRemoveHead, :126-129).
+      const output = [
+        'refs/heads/main|aaa4567890123456789012345678901234567890abc||*',
+        'refs/remotes/origin/HEAD|aaa4567890123456789012345678901234567890abc||',
+        'refs/remotes/origin/main|aaa4567890123456789012345678901234567890abc||',
+      ].join('\n');
+      const result = parseBranches(output, '|');
+      assert.deepStrictEqual(
+        result.map((b) => b.name),
+        ['main', 'origin/main'],
+        'origin/HEAD symref must be excluded from the branch list'
+      );
+    });
+
+    it('parseBranches-bare-head: a bare `HEAD` ref → filtered', () => {
+      const output = [
+        'HEAD|aaa4567890123456789012345678901234567890abc||',
+        'refs/heads/main|aaa4567890123456789012345678901234567890abc||*',
+      ].join('\n');
+      const result = parseBranches(output, '|');
+      assert.deepStrictEqual(
+        result.map((b) => b.name),
+        ['main']
+      );
+    });
+
+    it('parseBranches-head-substring: real branches merely CONTAINING "HEAD" survive', () => {
+      // Only the exact HEAD pointers are stripped — not names containing HEAD.
+      const output = [
+        'refs/heads/HEADER|aaa4567890123456789012345678901234567890abc||*',
+        'refs/remotes/origin/feature-HEAD|aaa4567890123456789012345678901234567890abc||',
+      ].join('\n');
+      const result = parseBranches(output, '|');
+      assert.deepStrictEqual(
+        result.map((b) => b.name),
+        ['HEADER', 'origin/feature-HEAD'],
+        'branches merely containing HEAD must NOT be filtered'
+      );
+    });
+
     it('parseBranches-no-regression: existing local + remote fixtures parse unchanged (no over-filtering)', () => {
       // Pin we did NOT widen the filter so it eats real branches.
       // Note: git itself accepts `(` in refnames (`git check-ref-format

@@ -1,16 +1,16 @@
 /**
  * Structural guard for the inline `logFilterOptionsReady` handler that populates
- * the branch + author filter datalists.
+ * the top branch-filter `<select>`.
  *
  * As part of the string→DOM webview migration, the handler must build the
  * `<option>` nodes via `document.createElement('option')` + the injection-proof
- * `.value` property, NOT by assigning an interpolated HTML string to
- * `datalist.innerHTML`. Building via the DOM removes the hand-rolled `escapeAttr`
- * helper (the property setter cannot be HTML-interpreted) and matches every other
- * migrated webview.
+ * `.value`/`.textContent` properties, NOT by assigning an interpolated HTML
+ * string to `.innerHTML`. (The filter-bar Branch/Author/Cherry-compare fields
+ * no longer use native `<datalist>` autocompletes — those were removed because
+ * Chromium renders the datalist popup in an unstyleable UA layer.)
  *
- * The guard pins that contract: the datalist branch must use `createElement`
- * and must not assign `.innerHTML`.
+ * The guard pins that contract: the branch-select population must use
+ * `createElement` and must not assign `.innerHTML`.
  */
 
 import '../setup';
@@ -53,7 +53,7 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
   return null;
 }
 
-describe('GitToolWindowProvider - filter datalists built via createElement (DOM migration)', () => {
+describe('GitToolWindowProvider - branch-filter select built via createElement (DOM migration)', () => {
   let provider: GitToolWindowProvider;
   let block: string;
 
@@ -83,7 +83,7 @@ describe('GitToolWindowProvider - filter datalists built via createElement (DOM 
   it('does not assign innerHTML to the datalists', () => {
     assert.ok(
       !/\.innerHTML\s*=/.test(block),
-      'logFilterOptionsReady must not populate the datalists via innerHTML — use DOM nodes + .value'
+      'logFilterOptionsReady must not populate the branch-filter select via innerHTML — use DOM nodes + .value'
     );
   });
 });

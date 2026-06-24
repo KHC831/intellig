@@ -792,6 +792,30 @@ describe('Log View', () => {
       assert.ok(/id="log-filter-bar"[^>]*\shidden/.test(html), 'filter bar starts hidden');
     });
 
+    it('stays collapsed when a filter is set via a non-bar path (no auto-pop)', () => {
+      // Regression: picking a branch from the top selector sets filter.branch;
+      // the advanced filter bar used to un-hide whenever a filter existed
+      // (`active = filter !== undefined`), popping open unexpectedly.
+      provider.setLogFilter({ branch: 'feature/x' });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        /id="log-filter-bar"[^>]*\shidden/.test(html),
+        'bar must stay collapsed when a filter is set but the user did not toggle it open'
+      );
+    });
+
+    it('opens only after an explicit toggle (setLogFilterBarExpanded message)', () => {
+      (
+        provider as unknown as { _handleWebviewMessage: (m: unknown) => void }
+      )._handleWebviewMessage({ type: 'setLogFilterBarExpanded', expanded: true });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        !/id="log-filter-bar"[^>]*\shidden/.test(html),
+        'bar is shown after an explicit expand toggle'
+      );
+      assert.ok(html.includes('aria-expanded="true"'), 'toggle button reflects expanded state');
+    });
+
     it('rehydrates the inputs from an active filter so a re-render keeps the values', () => {
       provider.setLogFilter({ author: 'Jane Smith', searchText: 'refactor', path: 'src/' });
       const html = provider._getLogFilterBarHtml();
@@ -812,11 +836,14 @@ describe('Log View', () => {
       assert.ok(html.includes('data-action="toggleLogFilters"'), 'toggle button present');
     });
 
-    it('emits a datalist-backed branch input first (IntelliJ branch-primary order)', () => {
+    it('emits a plain free-text branch input first (no native datalist popup)', () => {
       const html = provider._getLogFilterBarHtml();
       assert.ok(html.includes('id="filter-branch"'), 'has branch input');
-      assert.ok(html.includes('list="filter-branch-options"'), 'branch input wired to datalist');
-      assert.ok(html.includes('id="filter-branch-options"'), 'branch datalist present');
+      // The native <datalist> autocomplete was removed (Chromium renders its
+      // popup in an unstyleable UA layer); branch picking lives in the top
+      // branch-filter <select>, this field stays free-text for ranges/refs.
+      assert.ok(!html.includes('list="filter-branch-options"'), 'branch input not datalist-wired');
+      assert.ok(!html.includes('id="filter-branch-options"'), 'branch datalist removed');
       // Branch comes before Author in the filter row.
       assert.ok(
         html.indexOf('id="filter-branch"') < html.indexOf('id="filter-author"'),
@@ -824,10 +851,11 @@ describe('Log View', () => {
       );
     });
 
-    it('backs the author input with a datalist for ref-aware autocomplete', () => {
+    it('author input is plain free-text (no native datalist popup)', () => {
       const html = provider._getLogFilterBarHtml();
-      assert.ok(html.includes('list="filter-author-options"'), 'author input wired to datalist');
-      assert.ok(html.includes('id="filter-author-options"'), 'author datalist present');
+      assert.ok(html.includes('id="filter-author"'), 'has author input');
+      assert.ok(!html.includes('list="filter-author-options"'), 'author input not datalist-wired');
+      assert.ok(!html.includes('id="filter-author-options"'), 'author datalist removed');
     });
 
     it('rehydrates the branch input from an active filter', () => {
@@ -980,11 +1008,11 @@ describe('Log View', () => {
       assert.ok(html.includes('id="filter-cherry-compare"'), 'has cherry-compare input');
     });
 
-    it('backs the cherry-compare input with the shared branch datalist', () => {
+    it('cherry-compare input is plain free-text (no native datalist popup)', () => {
       const html = provider._getLogFilterBarHtml();
       assert.ok(
-        /id="filter-cherry-compare"[^>]*list="filter-branch-options"/.test(html),
-        'cherry-compare input reuses filter-branch-options datalist'
+        !/id="filter-cherry-compare"[^>]*list=/.test(html),
+        'cherry-compare input is not datalist-wired'
       );
     });
 

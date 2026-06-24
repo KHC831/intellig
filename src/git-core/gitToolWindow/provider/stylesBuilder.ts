@@ -457,15 +457,15 @@ export function buildInlineStyles(): string {
       }
 
       .log-filter-bar {
-        padding: 8px;
+        padding: 6px 8px;
         background-color: var(--vscode-input-background);
         border-bottom: 1px solid var(--vscode-panel-border);
       }
 
       .log-filter-row {
         display: flex;
-        gap: 12px;
-        margin-bottom: 8px;
+        gap: 10px;
+        margin-bottom: 6px;
         flex-wrap: wrap;
       }
 
@@ -487,12 +487,21 @@ export function buildInlineStyles(): string {
 
       .log-filter-group-parents {
         display: flex;
+        /* Override .log-filter-group's column direction so the label + Min/Max
+           sit side by side on one row (they were stacking vertically). */
+        flex-direction: row;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
+        /* Size to content and don't inherit .log-filter-group's flex:1 / 120px
+           min-width, which stretched the group and clipped the Max field. */
+        flex: 0 0 auto;
+        min-width: 0;
       }
 
       .log-filter-parents-input {
-        width: 48px;
+        /* Wide enough for the "Min"/"Max" placeholder plus the number spinner;
+           the two sit side by side on one line. */
+        width: 64px;
       }
 
       .log-filter-parents-sep {
