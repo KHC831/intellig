@@ -240,6 +240,21 @@ export function projectRow(
     }
     return colorForRow(iv.startRow, lane);
   };
+
+  // Color a far-parent incoming bend (the top-half curve landing a long
+  // first-parent line into its parent) by the line it continues: the nearest
+  // commit ON the source lane above this row — the child whose first-parent
+  // edge ran straight down to here. That straight portion is contiguous on the
+  // source lane (the lane is reserved for it), so the first node found scanning
+  // up is the child. Falls back to the lane color if the child is off-window.
+  const colorForIncomingBend = (lane: number): string => {
+    for (let r = rowIndex - 1; r >= 0; r--) {
+      if (nodes[r]?.graphColumn === lane) {
+        return colorForRow(r, lane);
+      }
+    }
+    return getColumnColor(lane);
+  };
   const nodeColor = colorForRow(rowIndex, ownLane);
 
   // Cross-lane bezier targets DRAWN at this row. A far-parent line (endRow on a
@@ -416,10 +431,16 @@ export function projectRow(
         targetLane: ownLane,
         curved: true,
         // First-parent far edge → L4 source-lane color: the child's chain that
-        // owns the source lane.
+        // owns the source lane. `colorForLane` can't see it here — the source
+        // lane's interval ENDS at the row above this parent row (the bend lives
+        // here, not a straight), so it isn't in this row's interval lookup and
+        // falls back to the lane color. The bend is the continuation of the
+        // straight far line directly above it, so color it like that line: the
+        // nearest commit on the source lane above this row (the child whose
+        // first-parent line lands here).
         type: 'commit',
         style: 'solid',
-        color: colorForLane(sourceLane),
+        color: colorForIncomingBend(sourceLane),
       });
     }
   }

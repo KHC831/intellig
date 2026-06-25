@@ -557,4 +557,77 @@ describe('Property — node color equals its own first-parent line color (any DA
       { numRuns: 500 }
     );
   });
+
+  it('renderer: every curve (merge/fork/far-parent bend) matches the branch it connects', () => {
+    // The bends going INTO and OUT of a branch must carry the right color:
+    //   - an outgoing first-parent bend (a commit whose mainline forks to
+    //     another lane) keeps the SOURCE node's color (its own spine);
+    //   - a merge/branch bend takes the DESTINATION node's color (the branch it
+    //     joins);
+    //   - a far-parent INCOMING bend (the top-half landing a long first-parent
+    //     line into its parent) continues that line — the CHILD's color (the
+    //     nearest commit on the source lane above). This last one regressed to
+    //     the lane fallback because the source lane's interval ends one row above
+    //     the parent, so it wasn't in the parent row's interval lookup.
+    fc.assert(
+      fc.property(dagArb, (dag) => {
+        const nodes = generateCommitGraph(
+          dag.commits,
+          dag.branchMap,
+          undefined,
+          undefined,
+          dag.headName,
+          dag.headHash
+        );
+        const models = buildGraphPrintModel(nodes);
+        for (let r = 0; r < models.length; r++) {
+          for (const e of models[r].edges) {
+            if (e.curved !== true) {
+              continue;
+            }
+            if (e.half === 'up') {
+              // Far-parent incoming bend: expect the child's color (nearest node
+              // on the source lane above this parent row).
+              let child = -1;
+              for (let rr = r - 1; rr >= 0; rr--) {
+                if (nodes[rr].graphColumn === e.fromLane) {
+                  child = rr;
+                  break;
+                }
+              }
+              if (child < 0) {
+                continue; // child off-window
+              }
+              assert.strictEqual(
+                e.color,
+                models[child].node.color,
+                `row ${r}: far-parent incoming bend from lane ${e.fromLane} is ${e.color}, ` +
+                  `expected child row ${child} (${nodes[child].commit.hash}) color ${models[child].node.color}`
+              );
+            } else if (e.type === 'commit') {
+              // Outgoing first-parent bend → source node color.
+              assert.strictEqual(
+                e.color,
+                models[r].node.color,
+                `row ${r}: outgoing first-parent bend is ${e.color}, expected node color ${models[r].node.color}`
+              );
+            } else {
+              // Merge/branch bend → destination (parent) node color.
+              const parent = e.edge?.parent;
+              if (parent?.kind !== 'inWindow') {
+                continue; // off-window parent → destination lane fallback
+              }
+              assert.strictEqual(
+                e.color,
+                models[parent.row].node.color,
+                `row ${r}: merge bend to lane ${e.targetLane} is ${e.color}, expected parent ` +
+                  `row ${parent.row} (${nodes[parent.row].commit.hash}) color ${models[parent.row].node.color}`
+              );
+            }
+          }
+        }
+      }),
+      { numRuns: 500 }
+    );
+  });
 });
