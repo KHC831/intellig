@@ -157,6 +157,49 @@ describe('branchColors — ownership', () => {
     );
   });
 
+  it('IntelliJ tier: a remote branch owns the shared base over a local branch', () => {
+    // Two branches fork from a shared base: a REMOTE branch (newer/topmost) and
+    // a LOCAL branch (older). Tier beats row — the remote branch (published
+    // history) is processed first and claims the shared base, mirroring
+    // GitBranchLayoutComparator (REMOTE_BRANCH outranks LOCAL_BRANCH).
+    const nodes = [
+      node('rTip', ['base'], [{ name: 'origin/feature', type: 'remote' }]), // row 0
+      node('lTip', ['base'], [{ name: 'local-feature', type: 'local' }]), // row 1
+      node('base', []),
+    ];
+    const colors = computeBranchColors(nodes);
+    assert.strictEqual(
+      colors.get('rTip'),
+      colors.get('base'),
+      'remote branch owns the shared base'
+    );
+    assert.notStrictEqual(
+      colors.get('lTip'),
+      colors.get('base'),
+      'local branch keeps only its tip'
+    );
+  });
+
+  it('IntelliJ tier: origin/main (remote trunk) outranks a topmost local feature', () => {
+    // The local feature is the NEWEST tip, but origin/main is a higher tier, so
+    // origin/main owns the shared mainline below the fork (remote trunk = tier 0).
+    const nodes = [
+      node('fTip', ['shared'], [{ name: 'feature', type: 'local' }]), // row 0 (newest)
+      node('omTip', ['shared'], [{ name: 'origin/main', type: 'remote' }]), // row 1
+      node('shared', ['base']),
+      node('base', []),
+    ];
+    const colors = computeBranchColors(nodes);
+    const trunk = colors.get('omTip');
+    assert.strictEqual(colors.get('shared'), trunk, 'remote trunk owns the shared mainline');
+    assert.strictEqual(colors.get('base'), trunk, 'remote trunk owns the shared base too');
+    assert.notStrictEqual(
+      colors.get('fTip'),
+      trunk,
+      'the topmost local feature keeps its own color despite being newer'
+    );
+  });
+
   it('first-parent only — a merged side branch does not recolor the mainline', () => {
     const nodes = [
       node('mTip', ['mp', 'sTip'], [{ name: 'main', type: 'local' }]), // row 0 → P[0]
