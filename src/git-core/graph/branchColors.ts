@@ -9,14 +9,15 @@
  *     so it works directly in SVG `stroke=`/`fill=` presentation attributes).
  *   - {@link computeBranchColors} — assigns each branch a palette color by
  *     display order (cycling, so adjacent branches differ), then owns each commit
- *     by the MOST-SPECIFIC branch
- *     that contains it (the branch whose tip is the lowest/oldest that still
- *     reaches it via first-parent), first-writer-wins. See the locked rule:
- *       • Y fork: each arm = its own color; the common parent + shared base take
- *         the older-tipped branch (e.g. the long-lived `main`).
- *       • Full overlap: the line splits at the shorter branch's tip — the longer
- *         branch's unique commits above keep its color, the shorter tip + the
- *         shared base below take the shorter branch's color.
+ *     via a first-writer-wins walk down first parents, processing tips in
+ *     priority order:
+ *       • Trunk (`main`/`master`, incl. `origin/*`) FIRST — it claims its whole
+ *         first-parent spine, so the shared mainline stays a SINGLE color and a
+ *         feature merged into main never recolors a segment of the trunk below
+ *         its fork. New colors appear only at each branch's divergence point.
+ *       • Among non-trunk branches, the lowest/oldest tip first: a Y fork's
+ *         arms each keep their own color over the shared base; on a full overlap
+ *         the line splits at the shorter branch's tip.
  *
  * Pure (no DOM, no I/O, deterministic) so it is directly unit/property-testable.
  * The rendering integration (threading the color through the print model + the
@@ -60,6 +61,23 @@ export interface IColorNode {
 export interface IBranchColorOptions {
   /** Name of the currently checked-out branch, if known (a same-row tiebreak). */
   headBranchName?: string;
+}
+
+/**
+ * Trunk refs — `master`/`main` and their `origin/` (or any single remote
+ * prefix) variants. IntelliJ `GitBranchLayoutComparator` ranks these highest
+ * for graph layout, ABOVE the checked-out branch and regardless of tip age, so
+ * the shared mainline is laid on one backbone. We mirror that for ownership:
+ * the trunk claims its whole first-parent spine first, so the mainline stays a
+ * single color and feature colors begin only at each divergence point.
+ */
+function isTrunkRef(refName: string): boolean {
+  if (refName === 'main' || refName === 'master') {
+    return true;
+  }
+  const slash = refName.indexOf('/');
+  const tail = slash >= 0 ? refName.slice(slash + 1) : refName;
+  return tail === 'main' || tail === 'master';
 }
 
 /** Pick the representative ref for a tip commit (drives that chain's color). */
@@ -130,12 +148,21 @@ export function computeBranchColors(
       tipColor.set(tip.hash, GRAPH_BRANCH_COLORS[index % GRAPH_BRANCH_COLORS.length]);
     });
 
-  // Ownership priority — first-writer-wins claims the MOST-SPECIFIC branch:
-  // lowest/oldest tip first (largest row index). A shorter branch claims the
-  // shared base before a longer branch overruns it (scenario 2); for a Y fork
-  // the older-tipped branch (e.g. the long-lived `main`) owns the shared trunk
-  // while the newer arm keeps its own color (scenario 1).
+  // Ownership priority — first-writer-wins, processed in this order:
+  //   1. Trunk (`main`/`master`) FIRST, so it claims its entire first-parent
+  //      spine and the shared mainline stays ONE color — a feature merged into
+  //      main no longer recolors a segment of the trunk below its fork. New
+  //      colors appear only at each branch's divergence point. (IntelliJ
+  //      GitBranchLayoutComparator ranks master/main above checkout and age.)
+  //   2. Among non-trunk branches, the lowest/oldest tip first (largest row):
+  //      a shorter branch claims the shared base before a longer branch overruns
+  //      it (scenario 2); a Y fork's newer arm keeps its own color (scenario 1).
   tips.sort((a, b) => {
+    const aTrunk = isTrunkRef(a.refName) ? 0 : 1;
+    const bTrunk = isTrunkRef(b.refName) ? 0 : 1;
+    if (aTrunk !== bTrunk) {
+      return aTrunk - bTrunk;
+    }
     if (a.row !== b.row) {
       return b.row - a.row;
     }
