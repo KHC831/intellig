@@ -493,4 +493,68 @@ describe('Property — node color equals its own first-parent line color (any DA
       { numRuns: 500 }
     );
   });
+
+  it('renderer: a pass-through segment between two SAME-color same-lane nodes shares that color', () => {
+    // Reported edge case: a branch's long vertical line (a far-parent / transit
+    // segment in a lane) was a DIFFERENT color than the nodes it connects. Root
+    // cause: the pass-through color was taken from the lane interval's global
+    // top commit, which can be a FOREIGN commit — a side branch higher up the
+    // same merged interval, or a merge tip feeding the lane from another column
+    // — so a mainline segment between two trunk commits got a side branch's
+    // color. Invariant: when the nearest same-lane nodes ABOVE and BELOW a
+    // straight pass-through are the same color, the segment MUST be that color
+    // (a contiguous chain run is one color; color only changes AT a junction
+    // node, where above != below — exempted here).
+    fc.assert(
+      fc.property(dagArb, (dag) => {
+        const nodes = generateCommitGraph(
+          dag.commits,
+          dag.branchMap,
+          undefined,
+          undefined,
+          dag.headName,
+          dag.headHash
+        );
+        const models = buildGraphPrintModel(nodes);
+        for (let r = 0; r < models.length; r++) {
+          for (const e of models[r].edges) {
+            // Straight pass-through in a lane that is NOT this row's own column.
+            if (e.curved !== false || e.lane === nodes[r].graphColumn) {
+              continue;
+            }
+            let above = -1;
+            for (let rr = r; rr >= 0; rr--) {
+              if (nodes[rr].graphColumn === e.lane) {
+                above = rr;
+                break;
+              }
+            }
+            let below = -1;
+            for (let rr = r + 1; rr < nodes.length; rr++) {
+              if (nodes[rr].graphColumn === e.lane) {
+                below = rr;
+                break;
+              }
+            }
+            if (above < 0 || below < 0) {
+              continue; // tip/parent off-window — no two endpoints to compare
+            }
+            const aboveColor = models[above].node.color;
+            const belowColor = models[below].node.color;
+            if (aboveColor !== belowColor) {
+              continue; // genuine junction — color legitimately changes here
+            }
+            assert.strictEqual(
+              e.color,
+              belowColor,
+              `row ${r} lane ${e.lane}: pass-through ${e.color} != the shared color ` +
+                `${belowColor} of the nodes it connects (above row ${above} ` +
+                `${nodes[above].commit.hash}, below row ${below} ${nodes[below].commit.hash}).`
+            );
+          }
+        }
+      }),
+      { numRuns: 500 }
+    );
+  });
 });
