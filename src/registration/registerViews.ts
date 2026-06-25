@@ -37,6 +37,7 @@ import {
   resolveLogHeadAnchor,
   wireRebasePausedWarning,
   provideGitShowContent,
+  buildCommitFileDiffUris,
 } from './wiring';
 import { createInProgressStatusBar } from '../ui-shell/InProgressStatusBar';
 import {
@@ -951,9 +952,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           const diffs = await gitService.getCommitDiff(repo, commitHash);
           const fileDiff = diffs.find((d) => d.path === filePath || d.oldPath === filePath);
           if (fileDiff) {
-            const parentRef = commitHash + '~1';
-            const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${parentRef}`);
-            const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${commitHash}`);
+            // Encode the resolved repo root so the content provider resolves the
+            // diff against the repo that actually owns this commit (vs. guessing
+            // in a multi-root workspace — which prompted for a repo and opened a
+            // blank or all-added "all green" diff on a wrong/empty resolution).
+            const { leftUri, rightUri } = buildCommitFileDiffUris(
+              filePath,
+              commitHash,
+              repo.rootUri.fsPath
+            );
             // Bare (re-throws) into the surrounding catch, which also covers
             // `getCommitDiff` above.
             await openRevisionDiff({

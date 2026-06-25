@@ -3,6 +3,7 @@ import type { IGitService, IGitServiceCli, IRepository } from '../services';
 import { buildGitArgs } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
 import { resolveRepo } from '../utils/resolveRepo';
+import { buildIntelligGitUri } from '../commands/registration/explorerCommands';
 
 /**
  * The repository SCOPE the Git tool window drives both downstream views with.
@@ -209,6 +210,30 @@ export async function resolveRepoForCommitDiff(
     }
   }
   return undefined;
+}
+
+/**
+ * Build the left/right `intellig-git:` URIs for the "Changed files"
+ * double-click diff of `filePath` at `commitHash`, comparing the commit
+ * against its first parent (`<hash>~1`).
+ *
+ * Both URIs encode `repoRootFsPath` (the repo resolved by
+ * {@link resolveRepoForCommitDiff}) so the content provider resolves the diff
+ * against the repo that actually owns the commit. Omitting the root left the
+ * provider to GUESS in a multi-root workspace — prompting for a repo and, on a
+ * wrong/empty resolution, opening a blank or all-added ("all green") diff.
+ *
+ * @internal — exported for `src/test/unit/extension/commitFileDiffUris.test.ts`.
+ */
+export function buildCommitFileDiffUris(
+  filePath: string,
+  commitHash: string,
+  repoRootFsPath: string
+): { leftUri: vscode.Uri; rightUri: vscode.Uri } {
+  return {
+    leftUri: buildIntelligGitUri(filePath, `${commitHash}~1`, repoRootFsPath),
+    rightUri: buildIntelligGitUri(filePath, commitHash, repoRootFsPath),
+  };
 }
 
 /**
