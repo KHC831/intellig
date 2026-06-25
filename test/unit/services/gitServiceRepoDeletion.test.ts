@@ -282,6 +282,60 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
     );
   });
 
+  it('does NOT evict the repo on a TRANSIENT HEAD delete (atomic rename: HEAD still present)', async () => {
+    // Repro for the multi-repo vanishing bug: git updates a ref by renaming
+    // HEAD.lock over HEAD, which some watchers report as delete+create. The
+    // repo's `.git/HEAD` still exists, so the delete is transient and the repo
+    // must stay in the Map — otherwise an unrelated tool's git op silently
+    // drops live repos from the tool window until a window reload.
+    stubCli.setRoot('/repo', '/repo');
+    const surface = gitService as unknown as DeletionSurface;
+    surface._repoScanFs = {
+      async readdir(p: string) {
+        // The HEAD-deletion guard reads `.git`; report HEAD as still present.
+        if (p.endsWith('/.git')) {
+          return [
+            {
+              name: 'HEAD',
+              isDirectory: () => false,
+              isSymbolicLink: () => false,
+              isFile: () => true,
+            },
+          ];
+        }
+        return [];
+      },
+      async realpath(p: string): Promise<string> {
+        return p;
+      },
+    };
+
+    await surface.discoverRepository('/repo');
+    assert.strictEqual(gitService.getRepositories().length, 1, 'precondition: repo discovered');
+
+    const fired: string[] = [];
+    const sub = gitService.onDidRemoveRepository((repo) => {
+      fired.push(repo.rootUri.fsPath);
+    });
+    try {
+      findHeadWatcher('/repo')._fireDelete(Uri.file('/repo/.git/HEAD'));
+      await flushMicrotasks();
+    } finally {
+      sub.dispose();
+    }
+
+    assert.deepStrictEqual(
+      fired,
+      [],
+      'a transient HEAD delete must not fire onDidRemoveRepository'
+    );
+    assert.deepStrictEqual(
+      gitService.getRepositories().map((r) => r.rootUri.fsPath),
+      ['/repo'],
+      'the repo must remain in getRepositories() when .git/HEAD still exists'
+    );
+  });
+
   it('does NOT fire onDidRemoveRepository for already-removed repos (idempotent)', async () => {
     // If the user runs `rm -rf .git` and then the user runs it again somehow
     // (filesystem races), the second deletion event must not double-fire the

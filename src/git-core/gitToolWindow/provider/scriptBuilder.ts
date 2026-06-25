@@ -1519,6 +1519,15 @@ export function buildInlineScript(): string {
           }
         });
 
+        // Hide commit context menu when the webview loses focus. A click in
+        // another VS Code panel/editor never reaches this iframe's document, so
+        // the outside-click handler above can't fire — only a window blur can
+        // close the menu, matching native click-away behaviour.
+        window.addEventListener('blur', function() {
+          const commitContextMenu = document.getElementById('commit-context-menu');
+          if (commitContextMenu) commitContextMenu.hidden = true;
+        });
+
         // ─── Collapsed-ref popup (branch label "+N" chip) ────────────────
         // The collapsed-branch chip is a button. Activating it (click or
         // Enter/Space) opens a popup listing every collapsed ref, one row

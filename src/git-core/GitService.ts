@@ -1066,16 +1066,45 @@ export class GitService implements IGitService, IGitServiceCli {
       if (this._disposed) {
         return;
       }
-      // `removeRepositoryWatcher` now fires
-      // `onDidRemoveRepository` for every removed repo internally (the
-      // shared cleanup path used by both `.git/HEAD` deletion AND
-      // workspace-folder removal). We just delegate. Idempotency:
-      // `_repositories.has(rootPath)` short-circuits the second-fire so a
-      // duplicated delete event is a no-op.
+      // Idempotency: `_repositories.has(rootPath)` short-circuits a duplicated
+      // delete event (and the second of a delete/workspace-removal pair).
       if (!this._repositories.has(rootPath)) {
         return;
       }
-      this.removeRepositoryWatcher(rootPath);
+      // A HEAD delete event is NOT always a real repo deletion. Git updates a
+      // ref by writing `HEAD.lock` and renaming it over `HEAD`, and some file
+      // watchers (notably macOS FSEvents) surface that rename as delete+create.
+      // Evicting on every HEAD delete dropped LIVE repos from the Map when an
+      // unrelated tool ran git ops in them — they vanished from the tool window
+      // and "All Repositories" couldn't bring them back until a window reload.
+      // So verify `.git/HEAD` is actually gone before evicting; if it is still
+      // there the delete was transient and we just refresh the repo instead.
+      // `removeRepositoryWatcher` fires `onDidRemoveRepository` internally (the
+      // shared cleanup path for both HEAD deletion AND workspace-folder removal).
+      safeFireAndForget(
+        (async (): Promise<void> => {
+          let headExists: boolean;
+          try {
+            const entries = await this._repoScanFs.readdir(gitDir.fsPath, {
+              withFileTypes: true,
+            });
+            headExists = entries.some((entry) => entry.name === 'HEAD');
+          } catch {
+            // `.git` unreadable/gone → genuine deletion.
+            headExists = false;
+          }
+          if (this._disposed || !this._repositories.has(rootPath)) {
+            return;
+          }
+          if (headExists) {
+            handleChange();
+            return;
+          }
+          this.removeRepositoryWatcher(rootPath);
+        })(),
+        `GitService.setupRepositoryWatcher: confirm HEAD deletion for ${rootPath}`,
+        { outputChannel: getOutputChannel() }
+      );
     };
 
     // Per-root watchers live in `_fileWatchers` which is the sole lifecycle

@@ -3063,6 +3063,56 @@ describe('_isShowAllRootsEnabled (G8) — now derives from the repository scope'
     );
   });
 
+  it('promotes to the merged all-roots default when a SECOND repo arrives later (incremental discovery)', () => {
+    // Repro for the multi-repo discovery race: GitService loads workspace
+    // folders one at a time, so the FIRST setAvailableRepositories call can
+    // carry a single repo. The default must not lock to single-repo just
+    // because only one was known at first paint — once the rest arrive the
+    // merged view is still the right default (no explicit user choice yet).
+    setMockConfigValue('intellig', 'log.showAllRoots', undefined);
+    const surface = p as unknown as { _isShowAllRootsEnabled(): boolean };
+
+    p.setAvailableRepositories([createMockRepository('/workspace/a')] as Parameters<
+      GitToolWindowProvider['setAvailableRepositories']
+    >[0]);
+    assert.strictEqual(
+      surface._isShowAllRootsEnabled(),
+      false,
+      'a single discovered repo is not a merged view'
+    );
+
+    p.setAvailableRepositories(twoRepos());
+    assert.strictEqual(
+      surface._isShowAllRootsEnabled(),
+      true,
+      'once a second repo is discovered the default becomes the merged all-roots view'
+    );
+  });
+
+  it('does NOT override an explicit single-repo choice when more repos arrive later', () => {
+    setMockConfigValue('intellig', 'log.showAllRoots', undefined);
+    const surface = p as unknown as {
+      _handleRepositorySelection(selection: number | 'all'): void;
+      _isShowAllRootsEnabled(): boolean;
+    };
+
+    p.setAvailableRepositories(twoRepos());
+    surface._handleRepositorySelection(1); // user explicitly picks a single repo
+    assert.strictEqual(surface._isShowAllRootsEnabled(), false, 'explicit single choice');
+
+    // A third repo is discovered — the explicit choice must survive.
+    p.setAvailableRepositories([
+      createMockRepository('/workspace/a'),
+      createMockRepository('/workspace/b'),
+      createMockRepository('/workspace/c'),
+    ] as Parameters<GitToolWindowProvider['setAvailableRepositories']>[0]);
+    assert.strictEqual(
+      surface._isShowAllRootsEnabled(),
+      false,
+      'a later discovery must not clobber the user’s explicit single-repo choice'
+    );
+  });
+
   it('tracks the runtime scope: selecting "all" enables, selecting a repo disables — regardless of config', () => {
     // Config stays false; the selector becomes the runtime source of truth.
     setMockConfigValue('intellig', 'log.showAllRoots', false);

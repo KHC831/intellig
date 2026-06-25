@@ -378,11 +378,17 @@ export class GitToolWindowProvider
    */
   private _repositoryScope: 'all' | number = 0;
   /**
-   * Guards the one-time scope seeding from config. The default scope is only
-   * derived from `intellig.log.showAllRoots` on the FIRST repository
-   * population; later reloads preserve the user's runtime choice.
+   * True once the user has explicitly picked a scope from the repository
+   * selector (a specific repo OR "All Repositories"). Until then the default
+   * scope is re-derived from `intellig.log.showAllRoots` on EVERY repository
+   * population — workspace repos are discovered one at a time, so the first
+   * `setAvailableRepositories` can carry a single repo; the default must keep
+   * tracking the repo count (single → merged once a second repo arrives)
+   * rather than locking to whatever was known at first paint. An explicit
+   * choice freezes it (collapsing 'all' to single only when the workspace
+   * itself drops to one repo).
    */
-  private _scopeSeeded: boolean = false;
+  private _scopeUserChosen: boolean = false;
   /**
    * Per-commit source repository root for the merged "all roots" log,
    * keyed by commit hash. Populated from each commit's `repoRoot` tag in
@@ -2484,7 +2490,6 @@ export class GitToolWindowProvider
       ? normalizeRepoPath(previousSelected.rootUri)
       : undefined;
 
-    const hadRepositories = this._availableRepositories.length > 0;
     this._availableRepositories = repos;
 
     if (repos.length === 0) {
@@ -2499,7 +2504,7 @@ export class GitToolWindowProvider
     }
 
     const previousScope = this._repositoryScope;
-    this._resolveRepositoryScope(repos, hadRepositories);
+    this._resolveRepositoryScope(repos);
 
     this._updateWebview();
     this._onDidChangeState.fire();
@@ -2524,24 +2529,25 @@ export class GitToolWindowProvider
    * Resolve {@link _repositoryScope} after the available-repository list
    * changes.
    *
-   * - Cold start (first population): seed the default from
-   *   `intellig.log.showAllRoots` — `'all'` when the flag is on AND there's
-   *   more than one repo, otherwise the single (context) repo. The flag
-   *   defaults to ON, so a multi-root workspace opens to the merged log,
-   *   matching the branch view; setting it off scopes the log to one repo.
-   * - `'all'` scope is preserved across reloads while multiple repos remain,
-   *   and collapses to the single repo when the workspace drops to one.
-   * - A specific-repo scope tracks the identity-stable context index resolved
-   *   above.
+   * - No explicit user choice yet: re-derive the default from
+   *   `intellig.log.showAllRoots` on EVERY population — `'all'` when the flag
+   *   is on AND there's more than one repo, otherwise the single (context)
+   *   repo. The flag defaults to ON, so a multi-root workspace opens to the
+   *   merged log, matching the branch view. Re-deriving (rather than seeding
+   *   once) is what makes the default follow incremental discovery: a
+   *   single-repo first paint promotes to merged once the second repo arrives.
+   * - After an explicit choice ({@link _scopeUserChosen}): preserve it. `'all'`
+   *   is kept while multiple repos remain and collapses to the single repo when
+   *   the workspace drops to one; a specific-repo scope tracks the
+   *   identity-stable context index resolved above.
    */
-  private _resolveRepositoryScope(repos: IRepository[], hadRepositories: boolean): void {
+  private _resolveRepositoryScope(repos: IRepository[]): void {
     if (repos.length === 0) {
       this._repositoryScope = 0;
       return;
     }
 
-    if (!this._scopeSeeded && !hadRepositories) {
-      this._scopeSeeded = true;
+    if (!this._scopeUserChosen) {
       this._repositoryScope =
         repos.length > 1 && this._isShowAllRootsConfigEnabled()
           ? 'all'
@@ -2620,7 +2626,7 @@ export class GitToolWindowProvider
 
     if (selection === 'all') {
       this._repositoryScope = 'all';
-      this._scopeSeeded = true;
+      this._scopeUserChosen = true;
       this._onDidChangeState.fire();
       this._onDidChangeRepositoryScope.fire({ kind: 'all' });
       return;
@@ -2640,7 +2646,7 @@ export class GitToolWindowProvider
 
     this._selectedRepositoryIndex = clampedIndex;
     this._repositoryScope = clampedIndex;
-    this._scopeSeeded = true;
+    this._scopeUserChosen = true;
     this._onDidChangeState.fire();
 
     const selectedRepo = this._availableRepositories[clampedIndex];
