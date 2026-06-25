@@ -10,6 +10,13 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.7] - 2026-06-25
+
+### Fixed
+
+- Multi-repo: double-clicking a changed file opens the correct diff (no repo prompt, correct base).
+- Graph: the `main`/`master` line stays one color across merges; branch colors begin at each divergence point.
+
 ## [0.2.6] - 2026-06-24
 
 ### Added
