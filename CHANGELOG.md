@@ -10,6 +10,24 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.6] - 2026-06-24
+
+### Added
+
+- Branch-colored graph (one stable color per branch) and per-file `+N | -N` diff stats in the changed-files list.
+
+### Changed
+
+- IntelliJ-parity log filter row (text/branch/user/date/path in one row) and branch context-menu labels.
+
+### Fixed
+
+- Graph through-lane gap; commit menu now closes on click-away; "All Repositories" stays default during multi-repo discovery; repositories no longer vanish on transient `.git/HEAD` changes.
+
+### Removed
+
+- "Highlight commits common to a selected branch" (misleading — shaded off-window shared history).
+
 ## [0.2.5] - 2026-06-24
 
 ### Fixed
