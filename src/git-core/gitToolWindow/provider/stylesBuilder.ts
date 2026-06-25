@@ -746,14 +746,24 @@ export function buildInlineStyles(): string {
         text-align: left;
       }
 
-      /* Branch chips live in a sibling flex slot of .commit-title.
-         The flex-shrink: 0 here is the IntelliJ-parity invariant: chips 
-         are always reachable; the message ellipsises around them. The
-         :empty rule keeps the slot from occupying the 8px right margin
-         when a commit has no branches. */
+      /* Branch chips live in a flex slot between the message and the fixed
+         Author/Date columns. The slot MUST yield to those columns: with
+         flex-shrink: 0 a commit carrying several refs (or one long ref) grew
+         the slot unbounded, crushed .commit-title to zero AND pushed the
+         author/date columns past the right edge, where .commit-info's
+         overflow:hidden clipped them — the refs appeared to "cover" the title,
+         author and date. So the slot shrinks (flex-shrink: 1, min-width: 0) and
+         is capped at a fraction of the row (max-width), clipping its own
+         overflow; the message keeps ~40% and the author/date columns are always
+         visible — matching IntelliJ, where refs sit inside the Subject column
+         and never bleed into the Author/Date columns. The :empty rule keeps the
+         slot from occupying the 8px right margin when a commit has no branches. */
       .commit-branches {
         display: flex;
-        flex-shrink: 0;
+        flex-shrink: 1;
+        min-width: 0;
+        max-width: 60%;
+        overflow: hidden;
         align-items: center;
         gap: 4px;
         margin-right: 8px;
