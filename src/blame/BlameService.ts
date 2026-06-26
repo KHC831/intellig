@@ -101,11 +101,20 @@ export class BlameService implements IBlameService {
     if (this._gitService) {
       this.refreshRepoWatchers();
       this._disposables.push(
-        this._gitService.onDidChangeRepository(() => this.refreshRepoWatchers()),
+        this._gitService.onDidChangeRepository((repo) => {
+          this.refreshRepoWatchers();
+          // A commit / checkout / reset / pull moves HEAD WITHOUT changing the
+          // working-tree file bytes, so the file watcher never fires and the
+          // HEAD-keyed blame entry would stay served (up to the 30s TTL),
+          // partially defeating the inline/gutter providers' own repo-change
+          // refresh. Invalidate this repo's cache on the same signal.
+          this.invalidateRepoCache(repo.rootUri.fsPath);
+        }),
         this._gitService.onDidRemoveRepository((repo) => {
           const key = repo.rootUri.fsPath;
           this._watchers.get(key)?.dispose();
           this._watchers.delete(key);
+          this.invalidateRepoCache(key);
         })
       );
       return;
@@ -395,6 +404,20 @@ export class BlameService implements IBlameService {
    * Clear the blame cache.
    * This can be called when the repository state changes significantly.
    */
+  /**
+   * Invalidate every cached blame entry for one repository (keys are
+   * `${repoRoot}:…`). Called on `onDidChangeRepository` / `onDidRemoveRepository`
+   * so a HEAD move that doesn't touch file bytes still drops stale blame.
+   */
+  private invalidateRepoCache(repoRoot: string): void {
+    const prefix = `${repoRoot}:`;
+    for (const key of this._blameCache.keys()) {
+      if (key.startsWith(prefix)) {
+        this._blameCache.delete(key);
+      }
+    }
+  }
+
   clearCache(): void {
     this._blameCache.clear();
   }

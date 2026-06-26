@@ -11,8 +11,8 @@
 
 import * as assert from 'assert';
 import { BlameService } from '../../../src/blame/BlameService';
-import { IRepository } from '../../../src/git-core/interfaces/IGitService';
-import { Uri } from '../../mocks/vscode';
+import { IRepository, IGitService } from '../../../src/git-core/interfaces/IGitService';
+import { Uri, EventEmitter } from '../../mocks/vscode';
 
 // Mock GitCli for testing
 class MockGitCli {
@@ -358,6 +358,40 @@ describe('BlameService', () => {
           commandCount1 + 1,
           'Should execute command after cache clear'
         );
+      });
+
+      it('invalidates the cache on onDidChangeRepository (HEAD move without a file change)', async () => {
+        // A commit/checkout/reset moves HEAD but does not touch the working-tree
+        // bytes, so the file watcher never fires; the repo-change event must
+        // still drop the stale HEAD-keyed blame.
+        const repoChange = new EventEmitter<IRepository>();
+        const gitService = {
+          // BlameService reads its GitCli FROM the gitService when one is passed.
+          gitCli: mockGitCli,
+          getRepositories: (): IRepository[] => [mockRepo],
+          onDidChangeRepository: repoChange.event,
+          onDidRemoveRepository: new EventEmitter<IRepository>().event,
+        } as unknown as IGitService;
+        const svc = new BlameService(undefined, gitService);
+        mockGitCli.setMockResultByPrefix('blame --porcelain', {
+          exitCode: 0,
+          stdout: sampleBlameOutput,
+          stderr: '',
+        });
+
+        await svc.getBlame(mockRepo, 'test.ts');
+        const before = mockGitCli.executedCommands.length;
+
+        // HEAD moved on this repo.
+        repoChange.fire(mockRepo);
+
+        await svc.getBlame(mockRepo, 'test.ts');
+        assert.strictEqual(
+          mockGitCli.executedCommands.length,
+          before + 1,
+          'a repo-change must invalidate the HEAD-keyed blame so it is re-read'
+        );
+        svc.dispose();
       });
     });
   });
