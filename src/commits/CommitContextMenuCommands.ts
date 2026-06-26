@@ -2755,10 +2755,16 @@ export class CommitContextMenuCommands {
           if (stashed) {
             await this._unstash(cwd);
           }
+          // The squash has been ROLLED BACK by now — either we just aborted the
+          // live rebase, or it was a post-completion autostash-pop conflict with
+          // no rebase at all. So there's nothing to continue/abort/skip: open the
+          // dialog as resolve-only (`rebaseInProgress: false`) instead of
+          // threading the pre-abort value, which would render Continue/Abort and
+          // dead-end on "no rebase in progress".
           await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
             operation: 'rebase',
             target: 'squash',
-            rebaseInProgress: result.rebaseInProgress,
+            rebaseInProgress: false,
           });
           // abortRebase moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
