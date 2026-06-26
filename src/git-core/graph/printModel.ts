@@ -40,7 +40,21 @@ import {
  */
 export type EdgeEnd = { kind: 'inWindow'; row: number } | { kind: 'offWindow' };
 
-/** Edge identity: child row (newer) + parent end + the edge's own lane. */
+/**
+ * Edge identity: child row (newer) + parent end + the edge's own lane.
+ *
+ * RETAINED IDENTITY SEAM — not dead code. This is the deliberate Layer-3
+ * edge-identity layer of the graph print model (DAG → layout → edge-segment
+ * identity → dumb Layer-4 painter), mirroring IntelliJ's vcs-log/graph. The
+ * current Layer-4 painter ({@link graphPainter}) draws geometry from
+ * `lane/fromLane/targetLane/half/curved/color` and does NOT read `el.edge`
+ * yet, so this apparatus (plus {@link laneEdgeId} and the off-window parent
+ * tagging in {@link buildIntervalLookup}) is render-dead TODAY. It is kept as
+ * the stable per-edge identity needed for future edge-level interactivity
+ * (hover/highlight/select a specific edge) and is exercised by printModel.test
+ * at the model level. Do not delete it as "unused" — it's an architectural
+ * seam, not accidental cruft.
+ */
 export interface IGraphEdgeId {
   childRow: number;
   parent: EdgeEnd;
@@ -55,6 +69,7 @@ export type EdgeHalf = 'up' | 'down' | 'full';
  * L4 rule: `colorSource = (type === 'commit' || !curved) ? fromLane : targetLane`.
  */
 export interface IRowEdgeElement {
+  /** Retained identity seam — see {@link IGraphEdgeId}. Not read by the Layer-4 painter yet. */
   edge: IGraphEdgeId;
   half: EdgeHalf;
   /** Straight: `fromLane === targetLane === lane`. Bend: source / destination lanes. */
@@ -122,6 +137,11 @@ function buildIntervalLookup(
   return byRow;
 }
 
+/**
+ * Compute the {@link IGraphEdgeId} for a lane's segment on a row, including the
+ * off-window parent tagging. Part of the retained Layer-3 identity seam — see
+ * {@link IGraphEdgeId}; the Layer-4 painter doesn't consume the result yet.
+ */
 function laneEdgeId(
   nodes: ICommitNode[],
   iv: { startRow: number; endRow: number } | undefined,
