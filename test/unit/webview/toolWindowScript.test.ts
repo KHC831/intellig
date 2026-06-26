@@ -54,4 +54,24 @@ describe('webview: git tool-window inline script (jsdom)', () => {
       'message handling must not throw on any representative or unknown message'
     );
   });
+
+  it('wraps every interpolated hash in a [data-hash] selector with CSS.escape (L-T3)', () => {
+    // A host SHA spliced raw into '[data-hash="' + hash + '"]' would throw a
+    // SyntaxError / mis-select if it ever contained a quote. Every such selector
+    // must escape the value (matching the ResolveConflictsDialog/PushDialog
+    // pattern), so a malformed value degrades to "no match", not a thrown
+    // querySelector.
+    const script = buildInlineScript();
+    const matches = [...script.matchAll(/\[data-hash="'\s*\+\s*([\s\S]+?)\s*\+\s*'"\]/g)];
+    assert.ok(
+      matches.length >= 5,
+      `sanity: expected several data-hash selectors, got ${matches.length}`
+    );
+    for (const m of matches) {
+      assert.ok(
+        m[1].startsWith('CSS.escape('),
+        `data-hash selector value must be CSS.escape-wrapped; got: ${m[1]}`
+      );
+    }
+  });
 });

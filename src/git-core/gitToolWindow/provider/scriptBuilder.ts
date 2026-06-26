@@ -669,7 +669,7 @@ export function buildInlineScript(): string {
               r.classList.remove('selected');
               r.setAttribute('aria-selected', 'false');
             });
-            const targetRow = document.querySelector('.commit-row[data-hash="' + message.commitHash + '"]');
+            const targetRow = document.querySelector('.commit-row[data-hash="' + CSS.escape(message.commitHash) + '"]');
             if (targetRow) {
               targetRow.classList.add('selected');
               targetRow.setAttribute('aria-selected', 'true');
@@ -837,10 +837,11 @@ export function buildInlineScript(): string {
         });
 
         function scrollToCommit(commitHash) {
-          // Commit hashes are hex (host-rendered into [data-hash]), so this and
-          // the sibling '[data-hash="' + hash + '"]' selectors carry no quote /
-          // selector-injection risk.
-          const commitRow = document.querySelector('[data-hash="' + commitHash + '"]');
+          // Commit hashes are host-rendered hex, but CSS.escape the value before
+          // building the [data-hash] attribute selector so a malformed value
+          // (stray quote) degrades to "no match" rather than throwing a
+          // querySelector SyntaxError. Mirrors the sibling selectors below.
+          const commitRow = document.querySelector('[data-hash="' + CSS.escape(commitHash) + '"]');
           if (!commitRow) { return; }                       // not in DOM: no action
 
           const panel = commitRow.closest('.graph-panel');
@@ -867,7 +868,7 @@ export function buildInlineScript(): string {
         // Navigate to a commit hash in the log by selecting and scrolling to its row.
         // Used by goToParent and goToChild to jump without a host round-trip.
         function jumpToCommitHash(hash) {
-          const targetRow = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+          const targetRow = document.querySelector('.commit-row[data-hash="' + CSS.escape(hash) + '"]');
           if (!targetRow) return; // not in visible list — do nothing
           document.querySelectorAll('.commit-row.selected').forEach(function(r) {
             r.classList.remove('selected');
@@ -1296,7 +1297,7 @@ export function buildInlineScript(): string {
               event.preventDefault();
               const selectedRows = document.querySelectorAll('.graph-panel .commit-row.selected');
               if (selectedRows.length !== 1) break;
-              const currentRow = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+              const currentRow = document.querySelector('.commit-row[data-hash="' + CSS.escape(hash) + '"]');
               if (!currentRow) break;
               const parentsRaw = currentRow.getAttribute('data-parents') || '';
               const parents = parentsRaw.split(',').filter(function(h) { return h.length > 0; });
@@ -1322,7 +1323,7 @@ export function buildInlineScript(): string {
               if (childrenL.length === 1) {
                 jumpToCommitHash(childrenL[0]);
               } else {
-                const currentRowL = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+                const currentRowL = document.querySelector('.commit-row[data-hash="' + CSS.escape(hash) + '"]');
                 const rect = currentRowL ? currentRowL.getBoundingClientRect() : { right: 0, top: 0 };
                 openNavigationPopup(childrenL, rect.right, rect.top, jumpToCommitHash);
               }
@@ -1361,7 +1362,7 @@ export function buildInlineScript(): string {
               r.classList.remove('selected');
               r.setAttribute('aria-selected', 'false');
             });
-            const target = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+            const target = document.querySelector('.commit-row[data-hash="' + CSS.escape(hash) + '"]');
             if (target) {
               target.classList.add('selected');
               target.setAttribute('aria-selected', 'true');
@@ -1478,7 +1479,7 @@ export function buildInlineScript(): string {
                 const hash = commitContextMenuHashes[0];
                 if (!hash) return;
                 if (action === 'goToParent') {
-                  const row = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+                  const row = document.querySelector('.commit-row[data-hash="' + CSS.escape(hash) + '"]');
                   if (!row) return;
                   const parentsRaw = row.getAttribute('data-parents') || '';
                   const parents = parentsRaw.split(',').filter(function(h) { return h.length > 0; });
