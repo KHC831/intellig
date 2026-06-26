@@ -29,6 +29,7 @@ import {
 } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { parseGitVersion, supportsUpdateRefs, IGitVersion } from '../gitVersion';
+import { getOutputChannel } from '../../utils/outputChannel';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -586,7 +587,13 @@ export class BranchOps {
     try {
       const res = await this.ctx.gitCli.exec(['--version'], { cwd: repo.rootUri.fsPath });
       return parseGitVersion(res.stdout);
-    } catch {
+    } catch (error) {
+      // Fail open (a parse/exec quirk must not block a flag git may support) but
+      // log so a mis-detected `--update-refs` gate is diagnosable, rather than
+      // silently degrading.
+      getOutputChannel().appendLine(
+        `[git] getGitVersion failed (degrading to undefined): ${error instanceof Error ? error.message : String(error)}`
+      );
       return undefined;
     }
   }
