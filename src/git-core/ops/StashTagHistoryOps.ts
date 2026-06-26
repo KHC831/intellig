@@ -26,6 +26,7 @@ import {
   getTagFormat,
 } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
+import { getOutputChannel } from '../../utils/outputChannel';
 
 /**
  * Stash + tag + history (getLog/getCommit/getFileHistory) operations
@@ -38,6 +39,18 @@ import { IGitOpsContext } from './GitOpsContext';
  */
 export class StashTagHistoryOps {
   constructor(private readonly ctx: IGitOpsContext) {}
+
+  /**
+   * Log a non-critical read that degraded a non-zero git exit to an empty/zero
+   * value. These reads deliberately don't surface an Err (graceful degrade),
+   * but a real fault (corrupt repo, a ref that passed the guard but is gone)
+   * must leave a diagnostic trail rather than masquerade as empty history.
+   */
+  private _logSwallowedRead(operation: string, result: { exitCode: number; stderr: string }): void {
+    getOutputChannel().appendLine(
+      `[git] ${operation} exited ${result.exitCode} (degrading to empty): ${result.stderr.trim() || '<no stderr>'}`
+    );
+  }
 
   stash(repo: IRepository, message?: string, options?: IStashOptions): ResultAsync<void, GitError> {
     const args = ['stash', 'push'];
@@ -494,6 +507,7 @@ export class StashTagHistoryOps {
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     if (result.exitCode !== 0) {
+      this._logSwallowedRead('getLog', result);
       return [];
     }
 
@@ -584,6 +598,7 @@ export class StashTagHistoryOps {
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     if (result.exitCode !== 0) {
+      this._logSwallowedRead('getLogCount', result);
       return 0;
     }
     const count = parseInt(result.stdout.trim(), 10);
@@ -655,6 +670,7 @@ export class StashTagHistoryOps {
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     if (result.exitCode !== 0) {
+      this._logSwallowedRead('getFileHistory', result);
       return [];
     }
     return parseLog(result.stdout);
@@ -726,6 +742,7 @@ export class StashTagHistoryOps {
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     if (result.exitCode !== 0) {
+      this._logSwallowedRead('getLineHistory', result);
       return [];
     }
     return parseLog(result.stdout);
