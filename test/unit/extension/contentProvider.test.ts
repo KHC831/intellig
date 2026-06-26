@@ -324,6 +324,20 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
         `evil ref must ride as a rev after --end-of-options; got ${JSON.stringify(argv)}`
       );
     });
+
+    it('rejects a filePath containing `:` (would re-split the rev:path token)', async () => {
+      // The token is `${ref}:${filePath}`. A `:` inside filePath makes the
+      // rev:path meaning ambiguous; assert it before exec rather than handing
+      // git a confusing token. No in-tree producer emits a colon-bearing path
+      // (all go through repoRelativePath), so this never false-rejects.
+      const uri = buildIntelligGitUri('/test/repo/src/ev:il.ts', encodeURIComponent('HEAD'));
+
+      await assert.rejects(
+        () => provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]),
+        /file path/i
+      );
+      assert.strictEqual(mockGitCli.executed.length, 0, 'must not exec git for an invalid path');
+    });
   });
 
   it('wraps malformed percent-encoded refs in a friendly error (task #103 A2)', async () => {

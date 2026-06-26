@@ -440,6 +440,16 @@ export async function provideGitShowContent(
     throw new Error('No git ref specified in URI query');
   }
 
+  // The git-show token is `${ref}:${filePath}`. `ref` is defended by
+  // `--end-of-options` (below). `filePath` rides after the first `:`, so it
+  // can't inject a flag, but a `:` inside it would make the rev:path split
+  // ambiguous. No in-tree producer emits a colon-bearing path (all route
+  // through repoRelativePath), so reject it before exec rather than hand git a
+  // confusing token.
+  if (filePath.includes(':')) {
+    throw new Error(`Invalid file path in intellig-git URI (contains ':'): ${filePath}`);
+  }
+
   // Prefer the explicit repoRoot the producer encoded — the only reliable
   // hint when `filePath` is repo-relative. Fall back to the legacy chain:
   // the path hint (works only for absolute paths), the active editor, then
