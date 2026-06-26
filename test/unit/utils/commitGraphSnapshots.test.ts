@@ -2068,7 +2068,7 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     );
   });
 
-  it('snap-13f: CSS contract — .tag-label uses gitDecoration-modifiedResourceForeground + #6897BB fallback', () => {
+  it('snap-13f: CSS contract — .tag-label is a fixed readable green (#2e7d32) with white text', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -2078,38 +2078,22 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
       asWebviewUri: (uri: import('vscode').Uri) => uri,
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
-    // The `.tag-label` background-color rule pre-existed
-    // (`var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)`).
-    // It survives the chip-family widening (snap-13f).
+    // The tag badge uses a FIXED mid-dark green rather than the theme's
+    // gitDecoration-modifiedResourceForeground, which resolves to a light tan
+    // on the default dark theme where white text is unreadable (~1.7:1).
+    // #2e7d32 keeps white text at ~5.2:1 (WCAG AA) on both themes.
     assert.ok(
-      /\.tag-label\s*\{[^}]*var\(--vscode-gitDecoration-modifiedResourceForeground/.test(fullHtml),
-      `inline CSS for .tag-label must use var(--vscode-gitDecoration-modifiedResourceForeground)`
+      /\.tag-label\s*\{[^}]*background-color:\s*#2e7d32/.test(fullHtml),
+      `inline CSS for .tag-label must use the fixed green #2e7d32 background`
     );
     assert.ok(
-      /\.tag-label\s*\{[^}]*#6897BB/.test(fullHtml),
-      `inline CSS for .tag-label must keep #6897BB as the fallback hex`
+      /\.tag-label\s*\{[^}]*color:\s*#fff\b/.test(fullHtml),
+      `inline CSS for .tag-label must use white text on the green`
     );
-    // Chip-family 200px cap now extends to .tag-label.
+    // Chip-family 200px cap still extends to .tag-label.
     assert.ok(
-      /\.tag-label[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
-        /\.branch-label-local\s*,\s*\.branch-label-remote\s*,\s*\.tag-label[\s\S]*?max-width:\s*200px/.test(
-          fullHtml
-        ),
-      'Wave K must extend the 200px cap to .tag-label'
-    );
-    // Chip-family theme symmetry. The `.tag-label`
-    // foreground colour must use `var(--vscode-badge-foreground, white)`
-    // matching the `.branch-label-*` family. Earlier it used a raw `white`
-    // token which loses theme adherence on light / hi-contrast themes
-    // where the theme overrides badge-foreground. Pinned here so the
-    // colour-token contract for the entire chip family is locked.
-    assert.ok(
-      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground/.test(fullHtml),
-      'inline CSS for .tag-label must use var(--vscode-badge-foreground) for chip-family theme symmetry'
-    );
-    assert.ok(
-      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground,\s*white\)/.test(fullHtml),
-      'inline CSS for .tag-label must keep `white` as the badge-foreground fallback'
+      /\.tag-label[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'the 200px cap must still apply to .tag-label'
     );
   });
 

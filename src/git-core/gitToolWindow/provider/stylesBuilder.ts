@@ -739,7 +739,7 @@ export function buildInlineStyles(): string {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
         line-height: 24px;
         flex: 1;
         min-width: 0;
@@ -980,6 +980,7 @@ export function buildInlineStyles(): string {
         text-overflow: ellipsis;
         white-space: nowrap;
         vertical-align: middle;
+        font-size: var(--vscode-font-size);
       }
 
       /* Local + remote chips: sizing/spacing + white text. The background is set
@@ -988,7 +989,7 @@ export function buildInlineStyles(): string {
          the chip's aria-label, not a fixed hue. */
       .branch-label-local,
       .branch-label-remote {
-        font-size: 11px;
+        font-size: var(--vscode-font-size);
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
@@ -1053,15 +1054,15 @@ export function buildInlineStyles(): string {
         text-decoration: underline;
       }
 
-      /* Chip-family theme symmetry. The .branch-label-* family uses
-         var(--vscode-badge-foreground, ...) for the chip text colour;
-         .tag-label was the only chip still using a raw white token, which
-         loses theme adherence on light and hi-contrast themes where
-         badge-foreground is overridden. Match the rest of the chip family.
-         snap-13f foreground assertion pins this. */
+      /* Tag badge: a fixed readable green with white text. The previous
+         theme-variable background (gitDecoration-modifiedResourceForeground)
+         resolves to a LIGHT tan (#E2C08D) on the default dark theme, where
+         white text is ~1.7:1 contrast — unreadable. A fixed mid-dark green
+         (#2e7d32) keeps white text at ~5.2:1 (WCAG AA) on BOTH dark and light
+         themes, and reads as the conventional "tag" colour. snap-13f pins it. */
       .tag-label {
-        background-color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);
-        color: var(--vscode-badge-foreground, white);
+        background-color: #2e7d32;
+        color: #fff;
       }
 
       /* Tag name-on-hover (IntelliJ "Tag Names off" default). The tag is an
