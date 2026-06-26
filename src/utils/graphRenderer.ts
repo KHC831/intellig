@@ -9,7 +9,7 @@
  * lives in src/git-core/graph/graphPainter.ts.
  */
 
-import { ICommitNode, getMaxGraphColumn } from '../git-core/commitGraph';
+import { ICommitNode } from '../git-core/commitGraph';
 import { getOutputChannel } from './outputChannel';
 
 /** Upper bound on a renderable lane index (defense against a corrupt index). */
@@ -381,27 +381,6 @@ export function computeLaneContinuesBelow(
     }
   }
   return result;
-}
-
-/**
- * Compute the total pixel width needed for the graph column.
- *
- * Uses the maximum lane index across all nodes (considering graphColumn
- * and all graphLine fromColumn/toColumn values) to determine how wide
- * the graph SVG needs to be.
- *
- * Formula: (maxColumn + 1) * columnWidth + padding * 2
- *
- * @param nodes - Array of ICommitNode to measure
- * @param config - The graph render configuration
- * @returns The total width in pixels, or 0 if the nodes array is empty
- */
-export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConfig): number {
-  if (nodes.length === 0) {
-    return 0;
-  }
-  const maxCol = getMaxGraphColumn(nodes);
-  return (maxCol + 1) * config.columnWidth + config.padding * 2;
 }
 
 /**

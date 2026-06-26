@@ -14,10 +14,9 @@ import {
   DEFAULT_GRAPH_CONFIG,
   getColumnX,
   computeActiveLanes,
-  computeGraphWidth,
 } from '../../src/utils/graphRenderer';
 import { paintFabricatedRow } from '../support/printModelTestKit';
-import { ICommitNode, getColumnColor, getMaxGraphColumn } from '../../src/git-core/commitGraph';
+import { ICommitNode, getColumnColor } from '../../src/git-core/commitGraph';
 import { ICommit } from '../../src/git-core/interfaces/IGitService';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -899,86 +898,6 @@ function arbitraryCommitNodeArray(
       });
   });
 }
-
-// ─── Property Tests for computeGraphWidth and computeActiveLanes ──────────────
-
-describe('Feature: git-graph-visualization - computeGraphWidth Property Tests', () => {
-  describe('Property 6: Dynamic graph width computation', () => {
-    /**
-     *
-     * For any non-empty ICommitNode[] array and valid IGraphRenderConfig,
-     * computeGraphWidth(nodes, config) SHALL return
-     * (maxColumn + 1) * config.columnWidth + config.padding * 2,
-     * where maxColumn is the maximum value among all node.graphColumn
-     * and all line.fromColumn / line.toColumn across all nodes.
-     */
-    it('Feature: git-graph-visualization, Property 6: Dynamic graph width computation', () => {
-      fc.assert(
-        fc.property(
-          arbitraryCommitNodeArray(10, 8),
-          arbitraryGraphRenderConfig(),
-          (nodes, config) => {
-            const width = computeGraphWidth(nodes, config);
-
-            // Compute the expected maxColumn using getMaxGraphColumn
-            const maxCol = getMaxGraphColumn(nodes);
-
-            const expectedWidth = (maxCol + 1) * config.columnWidth + config.padding * 2;
-
-            assert.strictEqual(
-              width,
-              expectedWidth,
-              `computeGraphWidth should return (${maxCol} + 1) * ${config.columnWidth} + ${config.padding} * 2 = ${expectedWidth}, ` +
-                `but got ${width}`
-            );
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-
-    it('Feature: git-graph-visualization, Property 6: Dynamic graph width computation — empty array returns 0', () => {
-      fc.assert(
-        fc.property(arbitraryGraphRenderConfig(), (config) => {
-          const width = computeGraphWidth([], config);
-          assert.strictEqual(width, 0, 'computeGraphWidth should return 0 for empty arrays');
-        }),
-        { numRuns: 100 }
-      );
-    });
-
-    it('Feature: git-graph-visualization, Property 6: Dynamic graph width computation — width accounts for graphLine columns', () => {
-      fc.assert(
-        fc.property(
-          arbitraryCommitNodeArray(10, 8),
-          arbitraryGraphRenderConfig(),
-          (nodes, config) => {
-            const width = computeGraphWidth(nodes, config);
-
-            // Manually compute maxColumn by scanning all graphColumns and graphLine columns
-            let manualMaxCol = 0;
-            for (const node of nodes) {
-              manualMaxCol = Math.max(manualMaxCol, node.graphColumn);
-              for (const line of node.graphLines) {
-                manualMaxCol = Math.max(manualMaxCol, line.fromColumn, line.toColumn);
-              }
-            }
-
-            const expectedWidth = (manualMaxCol + 1) * config.columnWidth + config.padding * 2;
-
-            assert.strictEqual(
-              width,
-              expectedWidth,
-              `Width should account for max column across graphColumns and graphLines. ` +
-                `Manual maxCol=${manualMaxCol}, expected width=${expectedWidth}, got ${width}`
-            );
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-  });
-});
 
 describe('Feature: git-graph-visualization - computeActiveLanes Property Tests', () => {
   describe('Property 7: Active lane computation invariants', () => {

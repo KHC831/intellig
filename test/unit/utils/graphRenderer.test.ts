@@ -15,7 +15,6 @@ import {
   DEFAULT_GRAPH_CONFIG,
   getColumnX,
   computeActiveLanes,
-  computeGraphWidth,
 } from '../../../src/utils/graphRenderer';
 import { paintFabricatedRow, paintDagRow } from '../../support/printModelTestKit';
 import { ICommitNode, getColumnColor } from '../../../src/git-core/commitGraph';
@@ -358,82 +357,6 @@ describe('computeActiveLanes()', () => {
 
     // Row 3: lane 0 active (A is here)
     assert.ok(result.get(3)!.has(0));
-  });
-});
-
-describe('computeGraphWidth()', () => {
-  it('should return 0 for empty nodes array', () => {
-    assert.strictEqual(computeGraphWidth([], DEFAULT_GRAPH_CONFIG), 0);
-  });
-
-  it('should compute correct width for single node at column 0', () => {
-    const nodes: ICommitNode[] = [makeNode('aaa', [], 0)];
-    // maxCol = 0, width = (0 + 1) * 20 + 10 * 2 = 20 + 20 = 40
-    assert.strictEqual(computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG), 40);
-  });
-
-  it('should compute correct width for single node at column 2', () => {
-    const nodes: ICommitNode[] = [makeNode('aaa', [], 2)];
-    // maxCol = 2, width = (2 + 1) * 20 + 10 * 2 = 60 + 20 = 80
-    assert.strictEqual(computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG), 80);
-  });
-
-  it('should consider graphLines fromColumn and toColumn for max column', () => {
-    // Node at column 0 but has a graphLine going to column 3
-    const nodes: ICommitNode[] = [
-      makeNode('aaa', ['bbb'], 0, [{ fromColumn: 0, toColumn: 3, type: 'merge' }]),
-      makeNode('bbb', [], 3),
-    ];
-    // maxCol = 3, width = (3 + 1) * 20 + 10 * 2 = 80 + 20 = 100
-    assert.strictEqual(computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG), 100);
-  });
-
-  it('should use the maximum column across all nodes', () => {
-    const nodes: ICommitNode[] = [
-      makeNode('aaa', [], 0),
-      makeNode('bbb', [], 4),
-      makeNode('ccc', [], 1),
-    ];
-    // maxCol = 4, width = (4 + 1) * 20 + 10 * 2 = 100 + 20 = 120
-    assert.strictEqual(computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG), 120);
-  });
-
-  it('should work with custom config', () => {
-    const config: IGraphRenderConfig = {
-      columnWidth: 30,
-      rowHeight: 40,
-      nodeRadius: 8,
-      padding: 15,
-      lineWidth: 3,
-    };
-    const nodes: ICommitNode[] = [makeNode('aaa', [], 1)];
-    // maxCol = 1, width = (1 + 1) * 30 + 15 * 2 = 60 + 30 = 90
-    assert.strictEqual(computeGraphWidth(nodes, config), 90);
-  });
-
-  it('should follow the formula: (maxCol + 1) * columnWidth + padding * 2', () => {
-    const config: IGraphRenderConfig = {
-      columnWidth: 25,
-      rowHeight: 36,
-      nodeRadius: 7,
-      padding: 12,
-      lineWidth: 2,
-    };
-    const nodes: ICommitNode[] = [makeNode('aaa', [], 0), makeNode('bbb', [], 3)];
-    // maxCol = 3, expected = (3 + 1) * 25 + 12 * 2 = 100 + 24 = 124
-    const expected = (3 + 1) * config.columnWidth + config.padding * 2;
-    assert.strictEqual(computeGraphWidth(nodes, config), expected);
-  });
-
-  it('should handle linear history correctly', () => {
-    // 3 commits all in column 0
-    const nodes: ICommitNode[] = [
-      makeNode('ccc', ['bbb'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]),
-      makeNode('bbb', ['aaa'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]),
-      makeNode('aaa', [], 0),
-    ];
-    // maxCol = 0, width = (0 + 1) * 20 + 10 * 2 = 20 + 20 = 40
-    assert.strictEqual(computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG), 40);
   });
 });
 

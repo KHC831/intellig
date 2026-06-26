@@ -19,17 +19,14 @@ import {
 import {
   buildGraphPrintModel,
   projectRow,
-  computeGraphWidthFromModels,
   IRowEdgeElement,
   type IRowProjectionContext,
 } from '../../../src/git-core/graph/printModel';
 import {
-  computeGraphWidth,
   computeActiveLanes,
   computeLaneContinuesFromAbove,
   computeLaneContinuesBelow,
   collectMergedLaneIntervals,
-  DEFAULT_GRAPH_CONFIG,
 } from '../../../src/utils/graphRenderer';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
@@ -86,40 +83,6 @@ describe('print model — edge identity (off-window vs in-window)', () => {
       [],
       'a side branch ending on the bottom row must not be tagged off-window'
     );
-  });
-});
-
-describe('print model — graph width (model-based vs legacy agree, no drift)', () => {
-  const cfg = DEFAULT_GRAPH_CONFIG;
-  const widthBoth = (commits: ICommit[]): { model: number; legacy: number } => {
-    const nodes = generateCommitGraph(commits);
-    return {
-      model: computeGraphWidthFromModels(buildGraphPrintModel(nodes), cfg.columnWidth, cfg.padding),
-      legacy: computeGraphWidth(nodes, cfg),
-    };
-  };
-
-  it('agree exactly on a multi-lane DAG with no far-parent bends', () => {
-    // n0 merges n1 (lane 0) + n2 (lane 1); no far-parent bend source lanes, so
-    // the model-based width and the legacy max-column width must be identical.
-    const { model, legacy } = widthBoth([c('n0', ['n1', 'n2']), c('n1', []), c('n2', [])]);
-    assert.strictEqual(model, legacy, 'widths must agree when there are no far-parent bend lanes');
-  });
-
-  it('model-based width is never narrower than the legacy width (bend-source superset)', () => {
-    // The production path uses computeGraphWidthFromModels, which also counts
-    // far-parent bend SOURCE lanes the legacy getMaxGraphColumn pass omitted. It
-    // must therefore always be >= legacy, so the two cannot silently diverge in a
-    // way that re-clips outer lanes.
-    const dags: ICommit[][] = [
-      [c('n0', ['n1']), c('n1', ['n2']), c('n2', [])],
-      [c('n0', ['n3', 'n1']), c('n1', ['n2']), c('n2', ['n3']), c('n3', [])],
-      [c('n0', ['n1', 'n2']), c('n1', ['n4']), c('n2', ['n3']), c('n3', ['n4']), c('n4', [])],
-    ];
-    for (const d of dags) {
-      const { model, legacy } = widthBoth(d);
-      assert.ok(model >= legacy, `model width ${model} must be >= legacy width ${legacy}`);
-    }
   });
 });
 
