@@ -31,8 +31,8 @@ describe('Graph Renderer - Core Types and Config', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.rowHeight, 24);
     });
 
-    it('should have nodeRadius of 4 (IntelliJ-snug, not oversized)', () => {
-      assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 4);
+    it('should have nodeRadius of 3.5 (IntelliJ-snug, not oversized)', () => {
+      assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 3.5);
     });
 
     it('should have padding of 10', () => {
@@ -1212,22 +1212,20 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
         config
       );
       const circles = extractCircles(svg);
-      // Terminal node renders 3 circles: bg circle at ringRadius, white-stroke ring (fill="none", not matched here),
-      // and inner filled circle at nodeRadius. extractCircles matches filled circles only (fill !== "none").
+      // Terminal node renders a bg disc at ringRadius and an inner disc at
+      // nodeRadius (the white ring between them is fill="none", matched elsewhere).
       const filledCircles = circles.filter((c) => c.fill !== 'none');
-      // There should be a bg circle (ringRadius) and an inner circle (nodeRadius)
       assert.ok(
         filledCircles.length >= 2,
         `Terminal node should have at least 2 filled circles (bg + inner), got ${filledCircles.length}`
       );
-      // The inner circle should have r === nodeRadius
       const innerCircle = filledCircles.find((c) => c.r === config.nodeRadius.toString());
       assert.ok(innerCircle, 'Terminal node should have an inner filled circle at nodeRadius');
       assert.strictEqual(innerCircle.cx, col0X.toString());
       assert.strictEqual(innerCircle.cy, centerYNum.toString());
     });
 
-    it('should render an outer ring circle with radius nodeRadius + 2 (Req 2.1)', () => {
+    it('should render an outer ring circle with radius nodeRadius + 1.5 (Req 2.1)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
@@ -1236,11 +1234,11 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       );
       const rings = extractRingCircles(svg);
       assert.strictEqual(rings.length, 1, 'Terminal node should have exactly 1 outer ring circle');
-      const expectedRingRadius = (config.nodeRadius + 2).toString();
+      const expectedRingRadius = (config.nodeRadius + 1.5).toString();
       assert.strictEqual(
         rings[0].r,
         expectedRingRadius,
-        `Ring radius should be nodeRadius + 2 = ${expectedRingRadius}`
+        `Ring radius should be nodeRadius + 1.5 = ${expectedRingRadius}`
       );
       assert.strictEqual(rings[0].cx, col0X.toString(), 'Ring should be centered at commit x');
       assert.strictEqual(rings[0].cy, centerYNum.toString(), 'Ring should be centered at commit y');
@@ -1254,12 +1252,11 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
         config
       );
       const rings = extractRingCircles(svg);
-      // The outer ring now uses a white stroke for contrast, with a filled bg circle behind it in lane color
       assert.strictEqual(rings[0].stroke, '#ffffff', 'Ring stroke should be white for contrast');
       // Verify the bg circle behind the ring uses the lane color
       const circles = extractCircles(svg);
       const expectedColor = getColumnColor(0);
-      const ringRadius = (config.nodeRadius + 2).toString();
+      const ringRadius = (config.nodeRadius + 1.5).toString();
       const bgCircle = circles.find((c) => c.r === ringRadius && c.fill === expectedColor);
       assert.ok(bgCircle, 'Should have a background circle at ring radius with lane color fill');
     });
@@ -1454,6 +1451,11 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       assert.strictEqual(rings.length, 1, 'Should have 1 outer ring');
       assert.strictEqual(rings[0].cx, col2X.toString(), 'Ring should be at column 2 x');
       assert.strictEqual(rings[0].stroke, '#ffffff', 'Ring should use white stroke for contrast');
+      assert.strictEqual(
+        rings[0].r,
+        (config.nodeRadius + 1.5).toString(),
+        'Ring radius should be nodeRadius + 1.5'
+      );
       // Verify the bg circle behind the ring uses column 2 lane color
       const circleRegex2 =
         /<circle\s+cx="([^"]+)"\s+cy="([^"]+)"\s+r="([^"]+)"\s+fill="([^"]+)"\s+stroke="([^"]+)"\s+stroke-width="[^"]+"\s*\/>/g;
@@ -1462,7 +1464,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       while ((match2 = circleRegex2.exec(svg)) !== null) {
         allCircles.push({ cx: match2[1], r: match2[3], fill: match2[4] });
       }
-      const ringRadius = (config.nodeRadius + 2).toString();
+      const ringRadius = (config.nodeRadius + 1.5).toString();
       const bgCircle = allCircles.find(
         (c) => c.cx === col2X.toString() && c.r === ringRadius && c.fill === expectedColor
       );

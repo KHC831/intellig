@@ -43,18 +43,16 @@ export type ActiveLaneMap = Map<number, Set<number>>;
  *
  * - columnWidth: 20px between lanes
  * - rowHeight: 32px per row
- * - nodeRadius: 4px commit circles
+ * - nodeRadius: 3.5px commit circles
  * - padding: 10px horizontal padding
  * - lineWidth: 2px stroke width
  */
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
   columnWidth: 20,
   rowHeight: 24,
-  // 4px commit dot — IntelliJ-snug. (Was briefly 5px to keep the dot from
-  // blending into the line, but that read as oversized vs IntelliJ's
-  // tighter nodes — reported. 4px against the 2px line still leaves a clear
-  // ~1px halo while matching IntelliJ's proportions.)
-  nodeRadius: 4,
+  // 3.5px commit dot — IntelliJ-snug against the 2px line. (Was briefly 5px,
+  // which read as oversized vs IntelliJ's tighter nodes.)
+  nodeRadius: 3.5,
   padding: 10,
   lineWidth: 2,
 };

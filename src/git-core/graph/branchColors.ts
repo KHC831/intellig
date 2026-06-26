@@ -5,8 +5,8 @@
  * comes from the branch it belongs to (the head its first-parent chain leads up
  * to), not from its lane/column index. This module is the pure core:
  *
- *   - {@link GRAPH_BRANCH_COLORS} — a bright, VS-Code-toned fixed hex palette (hex
- *     so it works directly in SVG `stroke=`/`fill=` presentation attributes).
+ *   - {@link GRAPH_BRANCH_COLORS} — a 6-hue colorblind-safe fixed hex palette
+ *     (hex so it works directly in SVG `stroke=`/`fill=` presentation attributes).
  *   - {@link computeBranchColors} — assigns each branch a palette color by
  *     display order (cycling, so adjacent branches differ), then owns each commit
  *     via a first-writer-wins walk down first parents, processing tips in
@@ -36,23 +36,23 @@
 import { buildGraphLayout, linearGraphFromDownAdjacency } from './graphLayout';
 
 /**
- * Bright, vivid branch palette (fixed hex — usable directly in SVG
- * `stroke=`/`fill=` presentation attributes, where `var()` does not resolve).
- * 8 saturated hues tuned to match the vibrancy of VS Code's default theme
- * (the earlier earthy/natural set read as dull against it). Ordered so adjacent
- * palette indices stay distinguishable; branches reuse colors past that. Each
- * hue is a mid-tone — light enough to pop on the dark default theme, dark
- * enough to keep contrast on a light theme.
+ * Branch palette (fixed hex — usable directly in SVG `stroke=`/`fill=`
+ * presentation attributes, where `var()` does not resolve). A 6-hue
+ * colorblind-safe set — Paul Tol's "bright" qualitative scheme, minus its red
+ * (the main red-green confusion hue) and grey. Distinguishable under
+ * deuteranopia / protanopia / tritanopia, and mid-toned so each reads on both
+ * the dark and light default themes. Ordered to ALTERNATE warm/cool so adjacent
+ * palette indices (consecutive branches down the view) get maximum contrast;
+ * branches reuse colors past 6, which is ample — a graph rarely shows more
+ * concurrent lanes, and the rotation keeps neighbors distinct.
  */
 export const GRAPH_BRANCH_COLORS: readonly string[] = [
-  '#3fb950', // green
-  '#4c9df5', // blue
-  '#e8843a', // orange
-  '#b771e0', // purple
-  '#c79324', // amber
-  '#1fa8a3', // teal
-  '#6e7681', // slate
-  '#ec5f78', // pink
+  '#4477aa', // blue
+  '#ee7733', // orange
+  '#66ccee', // cyan
+  '#ccbb44', // yellow
+  '#aa3377', // purple
+  '#228833', // green
 ];
 
 /** A branch ref tip (name + kind), as carried on a commit node. */
