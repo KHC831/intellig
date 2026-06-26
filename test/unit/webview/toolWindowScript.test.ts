@@ -55,11 +55,12 @@ describe('webview: git tool-window inline script (jsdom)', () => {
     );
   });
 
-  it('wraps every interpolated hash in a [data-hash] selector with CSS.escape (L-T3)', () => {
+  it('escapes every interpolated hash in a [data-hash] selector via cssEscapeHash (L-T3)', () => {
     // A host SHA spliced raw into '[data-hash="' + hash + '"]' would throw a
     // SyntaxError / mis-select if it ever contained a quote. Every such selector
-    // must escape the value (matching the ResolveConflictsDialog/PushDialog
-    // pattern), so a malformed value degrades to "no match", not a thrown
+    // must route the value through the script's cssEscapeHash helper (which
+    // prefers the native CSS.escape and falls back when the global CSS is
+    // absent), so a malformed value degrades to "no match", not a thrown
     // querySelector.
     const script = buildInlineScript();
     const matches = [...script.matchAll(/\[data-hash="'\s*\+\s*([\s\S]+?)\s*\+\s*'"\]/g)];
@@ -69,8 +70,8 @@ describe('webview: git tool-window inline script (jsdom)', () => {
     );
     for (const m of matches) {
       assert.ok(
-        m[1].startsWith('CSS.escape('),
-        `data-hash selector value must be CSS.escape-wrapped; got: ${m[1]}`
+        m[1].startsWith('cssEscapeHash('),
+        `data-hash selector value must be cssEscapeHash-wrapped; got: ${m[1]}`
       );
     }
   });
