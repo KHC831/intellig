@@ -2162,6 +2162,23 @@ describe('_getBranchLabelsHtml', () => {
     });
   });
 
+  describe('chip icon color — validated before inlining into the style attribute', () => {
+    it('inlines a valid hex color', () => {
+      const node = makeNode(['main']);
+      const colors = new Map([[node.commit.hash, '#aabbcc']]);
+      const html = provider._getBranchLabelsHtml(node, colors);
+      assert.ok(html.includes('style="color:#aabbcc"'), 'a valid hex color is inlined');
+    });
+
+    it('drops a non-hex color so it cannot inject into the style attribute', () => {
+      const node = makeNode(['main']);
+      const colors = new Map([[node.commit.hash, 'red;"></span><script>x</script>']]);
+      const html = provider._getBranchLabelsHtml(node, colors);
+      assert.ok(!html.includes('<script>'), 'a malicious value must not reach the output');
+      assert.ok(!html.includes('style="color:red'), 'a non-hex color must not be inlined');
+    });
+  });
+
   describe('local branch labels', () => {
     it('should render a local branch with branch-label-local class', () => {
       const node = makeNode(['main']);

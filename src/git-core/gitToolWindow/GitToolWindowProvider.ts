@@ -3824,7 +3824,11 @@ ${bodyMarkup}
     // ties the chip to its graph line. The current-branch chip adds a ring +
     // bold (`.branch-label-head`).
     const chipColor = branchColors?.get(node.commit.hash);
-    const iconColorAttr = chipColor ? ` style="color:${chipColor}"` : '';
+    // Defense-in-depth: only inline a VALIDATED hex color into the `style`
+    // attribute. `branchColors` is a controlled palette today, but a future
+    // ref-derived value must never become CSS injection inside an inline style.
+    const iconColorAttr =
+      chipColor && /^#[0-9a-fA-F]{3,8}$/.test(chipColor) ? ` style="color:${chipColor}"` : '';
 
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
