@@ -114,6 +114,36 @@ describe('ShelfService', () => {
       );
     });
 
+    it('warns for a staged file with a NON-ASCII name (the -z path)', async () => {
+      // A staged unicode-named file is C-quoted under default core.quotePath, so
+      // without -z the warning's path-set wouldn't match the verbatim selection
+      // and the file would be silently omitted.
+      const unicodeName = 'café.ts';
+      const unicodeFile = path.join(testRepoPath, unicodeName);
+      fs.writeFileSync(unicodeFile, 'staged unicode\n');
+      await gitCli.exec(['add', '--', unicodeName], { cwd: testRepoPath });
+      fs.appendFileSync(unicodeFile, 'plus unstaged\n');
+
+      const warnings: string[] = [];
+      const original = vscode.window.showWarningMessage;
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
+        message: string
+      ): Promise<undefined> => {
+        warnings.push(message);
+        return Promise.resolve(undefined);
+      };
+      try {
+        await shelfService.shelve(mockRepo, 'Unicode', { files: [unicodeName] });
+      } finally {
+        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
+      }
+
+      assert.ok(
+        warnings.some((w) => w.includes(unicodeName) && /staged/i.test(w)),
+        `expected a staged-content warning naming ${unicodeName}; got: ${JSON.stringify(warnings)}`
+      );
+    });
+
     it('does NOT warn when no selected file has staged content', async () => {
       const testFile = path.join(testRepoPath, 'test.txt');
       fs.writeFileSync(testFile, 'only unstaged\n'); // unstaged only, nothing cached

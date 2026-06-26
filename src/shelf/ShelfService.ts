@@ -551,14 +551,15 @@ export class ShelfService implements IShelfService {
     // entirely. Warn so the shelf is never SILENTLY incomplete. (Capturing the
     // full change vs HEAD + a change-aware revert round-trip is a deferred
     // follow-up that owes real-git e2e coverage.)
-    const stagedResult = await this._gitCli.exec(['diff', '--cached', '--name-only'], { cwd });
+    // `-z` (NUL-separated, paths verbatim) so a staged file with a non-ASCII /
+    // space / special name isn't C-quoted — otherwise it wouldn't match the
+    // `-z`-clean paths in `filesToShelve` and the warning would silently miss it
+    // (the same M-P1 quoting class). Mirrors the status/diff -z hardening.
+    const stagedResult = await this._gitCli.exec(['diff', '--cached', '--name-only', '-z'], {
+      cwd,
+    });
     if (stagedResult.exitCode === 0) {
-      const stagedSet = new Set(
-        stagedResult.stdout
-          .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
-      );
+      const stagedSet = new Set(stagedResult.stdout.split('\0').filter((name) => name.length > 0));
       const stagedSelected = filesToShelve.filter((file) => stagedSet.has(file));
       if (stagedSelected.length > 0) {
         void vscode.window.showWarningMessage(
