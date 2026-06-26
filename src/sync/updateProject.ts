@@ -3,7 +3,7 @@ import type {
   IRepository,
   RepositoryState,
 } from '../git-core/interfaces/IGitService';
-import { combinedGitErrorText } from '../git-core/gitError';
+import { combinedGitErrorText, sanitizeGitError } from '../git-core/gitError';
 
 /**
  * Inputs for the Update Project preflight guard — the subset of repository
@@ -261,6 +261,8 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
       await deps.gitService.reloadRepository(repo);
       results.push({ name, rootPath, branch, rebase, incoming, status: 'updated' });
     } catch (error) {
+      // Scrub credentials before the message lands in the Update Info tab: a
+      // push/pull/fetch stderr can embed `user:token@host` in a remote URL.
       const message = error instanceof Error ? error.message : 'Unknown error';
       results.push({
         name,
@@ -269,7 +271,7 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
         rebase,
         incoming: 0,
         status: isUpdateConflict(error) ? 'conflict' : 'error',
-        detail: message,
+        detail: sanitizeGitError(message),
       });
     }
   }
