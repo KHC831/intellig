@@ -1861,6 +1861,16 @@ export class GitToolWindowProvider
           filter.branch = webviewFilter.branch;
         }
       }
+      // `searchText` / `author` / `path` do NOT get the branch's leading-`-`/`.`
+      // guard, and that asymmetry is intentional: `branch` is threaded as a
+      // POSITIONAL `git log <ref>` (so a leading `-` would be a flag), whereas
+      // these three reach git ONLY in injection-safe positions downstream —
+      // `--author=<v>` / `--grep=<v>` (`=`-bound, value can't split into its own
+      // argv token) and `path` after the `--` pathspec separator. Applying the
+      // ref guard here would also wrongly reject legitimate values: a `.`-leading
+      // dotfile path (`.github/…`) and a search term that starts with `-`. The
+      // safe-position contract is pinned by the getLog argv tests
+      // (getLogPathFilter / getLogMatchMode).
       if (webviewFilter.searchText) {
         filter.searchText = webviewFilter.searchText;
         // Mode flags only matter alongside search text; a toggle with no text
