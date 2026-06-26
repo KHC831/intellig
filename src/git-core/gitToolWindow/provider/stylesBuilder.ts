@@ -1185,7 +1185,7 @@ export function buildInlineStyles(): string {
         margin: 0;
         white-space: pre-wrap;
         font-family: var(--vscode-editor-font-family, monospace);
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
         background-color: var(--vscode-textBlockQuote-background);
         padding: 8px;
         border-radius: 3px;
@@ -1454,20 +1454,28 @@ export function buildInlineStyles(): string {
         padding: 8px;
       }
 
+      /* Detail content / labels / values + the "Changed Files (N)" heading all
+         follow the editor font size so the whole panel scales with it. */
       .details-metadata {
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
+      }
+
+      .details-changed-files h4 {
+        margin: 0 0 8px 0;
+        font-size: var(--vscode-font-size);
+        font-weight: 600;
       }
 
       .file-name {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
       }
 
       .file-directory {
         color: var(--vscode-descriptionForeground);
-        font-size: 11px;
+        font-size: calc(var(--vscode-font-size) - 1px);
         margin-left: 6px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1481,17 +1489,18 @@ export function buildInlineStyles(): string {
 
       .old-path {
         color: var(--vscode-descriptionForeground);
-        font-size: 11px;
+        font-size: calc(var(--vscode-font-size) - 1px);
         text-decoration: line-through;
       }
 
-      /* Per-file line diff stat: "(+N | -M)" — additions green, deletions red. */
+      /* Per-file line diff stat: "(+N | -M)" — additions green, deletions red.
+         One step below the file name (var(--vscode-font-size) - 1px). */
       .changed-file-stats {
         /* Sits immediately to the right of the file name (not pushed to the row's
            far edge). */
         margin-left: 6px;
         flex: 0 0 auto;
-        font-size: 11px;
+        font-size: calc(var(--vscode-font-size) - 1px);
         white-space: nowrap;
         color: var(--vscode-descriptionForeground);
       }
