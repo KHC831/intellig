@@ -166,6 +166,13 @@ export interface IRowProjectionContext {
   hasFocusedBranch: boolean;
   /** Full node list — for hash-keyed parent resolution + off-window edge identity. */
   nodes: ICommitNode[];
+  /**
+   * `commitHash → rowIndex` for the whole window. Optional: when omitted (e.g.
+   * direct projectRow unit tests) it's derived locally. {@link buildGraphPrintModel}
+   * builds it ONCE and threads it in so per-edge parent resolution
+   * ({@link findParentRow}) is O(1) instead of rebuilding an O(N) map per bend.
+   */
+  hashToRow?: ReadonlyMap<string, number>;
   /** Merged interval covering each lane at this row, for pass-through edge identity. */
   intervalByLane: Map<number, { startRow: number; endRow: number }>;
   /**
@@ -197,6 +204,9 @@ export function projectRow(
     nodes,
     intervalByLane: ivLookup,
   } = ctx;
+  // Built once by buildGraphPrintModel and threaded in; derived locally only on
+  // the direct-projectRow test path so per-bend parent lookup stays O(1).
+  const hashToRow = ctx.hashToRow ?? buildHashToRow(nodes);
 
   const edges: IRowEdgeElement[] = [];
   const bottomInkLanes = new Set<number>();
@@ -387,7 +397,7 @@ export function projectRow(
     if (line.endRow !== undefined && line.endRow !== rowIndex) {
       continue; // far-parent line bends at the parent row, not here
     }
-    const parentRow = findParentRow(nodes, node, line.toColumn, rowIndex);
+    const parentRow = findParentRow(nodes, hashToRow, node, line.toColumn, rowIndex);
     // L4 color source: a first-parent ('commit') bend keeps the SOURCE branch
     // color (this node); a merge/branch bend takes the DESTINATION branch color
     // (the parent it joins), falling back to the destination lane off-window.
@@ -567,6 +577,7 @@ export function buildGraphPrintModel(
   const bendsLandingBelowMap = computeBendsLandingBelowMap(nodes);
   const terminalNodes = computeTerminalNodes(nodes);
   const intervalLookup = buildIntervalLookup(nodes);
+  const hashToRow = buildHashToRow(nodes);
   const hasFocusedBranch = nodes.some((n) => n.onFocusedBranchPath === true);
 
   return nodes.map((node, rowIndex) =>
@@ -583,26 +594,34 @@ export function buildGraphPrintModel(
       nodes,
       intervalByLane:
         intervalLookup.get(rowIndex) ?? new Map<number, { startRow: number; endRow: number }>(),
+      hashToRow,
       branchColors,
     })
   );
 }
 
-/**
- * Resolve which in-window parent row a bending line targets — hash-keyed (never
- * "any later parent by lane match"), mirroring the lookup the interval builder
- * uses. Returns undefined for an off-window parent.
- */
-function findParentRow(
-  nodes: ICommitNode[],
-  node: ICommitNode,
-  toColumn: number,
-  rowIndex: number
-): number | undefined {
+/** Build the `commitHash → rowIndex` lookup for a window (O(N), once). */
+function buildHashToRow(nodes: ICommitNode[]): Map<string, number> {
   const hashToRow = new Map<string, number>();
   for (let i = 0; i < nodes.length; i++) {
     hashToRow.set(nodes[i].commit.hash, i);
   }
+  return hashToRow;
+}
+
+/**
+ * Resolve which in-window parent row a bending line targets — hash-keyed (never
+ * "any later parent by lane match"), mirroring the lookup the interval builder
+ * uses. Returns undefined for an off-window parent. Takes a prebuilt
+ * `hashToRow` so a window with many bends doesn't rebuild the map per edge.
+ */
+function findParentRow(
+  nodes: ICommitNode[],
+  hashToRow: ReadonlyMap<string, number>,
+  node: ICommitNode,
+  toColumn: number,
+  rowIndex: number
+): number | undefined {
   for (const parentHash of node.commit.parents) {
     const pr = hashToRow.get(parentHash);
     if (pr !== undefined && pr > rowIndex && nodes[pr].graphColumn === toColumn) {
