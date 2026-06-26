@@ -27,14 +27,22 @@ import { Uri } from '../../mocks/vscode';
 
 /** Test seam onto the private binary restore/revert helpers under audit. */
 interface ShelfSecuritySurface {
-  restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): boolean;
+  restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<boolean>;
   revertBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<void>;
 }
 
-/** Inert GitCli stub — these specs never exercise the git path. */
+/**
+ * GitCli stub for the path-containment specs. The deletion-unshelve guard
+ * (L-SH5) compares the HEAD blob hash (`rev-parse HEAD:<path>`) to the working
+ * file's hash (`hash-object`); returning the SAME non-empty sha for both makes
+ * an in-repo file read as the pristine HEAD version so the legitimate
+ * "re-apply the deletion" path still deletes. Path-escape specs return false at
+ * the lexical guard before any git call, so this stub never affects them. The
+ * content-aware L-SH5 scenarios live in a dedicated real-git test.
+ */
 function createStubGitCli(): GitCli {
   return {
-    exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
+    exec: async () => ({ exitCode: 0, stdout: 'sameblobsha\n', stderr: '', combined: '' }),
     getRepositoryRoot: (p: string) => okAsync(p),
     onCommandExecuted: () => ({ dispose: () => {} }),
     dispose() {},
@@ -75,7 +83,7 @@ describe('ShelfService — binary restore/revert path containment', () => {
 
   // Reach the private restore/revert helpers directly — they are the security
   // boundary; the public unshelve path funnels every binary entry through them.
-  function restore(file: IShelfFile): boolean {
+  function restore(file: IShelfFile): Promise<boolean> {
     return surface.restoreBinaryShelfFile(repo, file);
   }
   async function revert(file: IShelfFile): Promise<void> {
@@ -83,10 +91,10 @@ describe('ShelfService — binary restore/revert path containment', () => {
   }
 
   describe('restoreBinaryShelfFile', () => {
-    it('refuses a relative traversal path and writes nothing outside the repo', () => {
+    it('refuses a relative traversal path and writes nothing outside the repo', async () => {
       // `../../evil.txt` from <sandbox>/work/repo resolves to <sandbox>/evil.txt.
       const escaped = path.join(sandbox, 'evil.txt');
-      const result = restore({
+      const result = await restore({
         path: '../../evil.txt',
         diff: '',
         isBinary: true,
@@ -97,9 +105,9 @@ describe('ShelfService — binary restore/revert path containment', () => {
       assert.ok(!fs.existsSync(escaped), 'traversal target must not be written');
     });
 
-    it('refuses an absolute path and writes nothing there', () => {
+    it('refuses an absolute path and writes nothing there', async () => {
       const abs = path.join(sandbox, 'abs-target.txt');
-      const result = restore({
+      const result = await restore({
         path: abs,
         diff: '',
         isBinary: true,
@@ -110,10 +118,10 @@ describe('ShelfService — binary restore/revert path containment', () => {
       assert.ok(!fs.existsSync(abs), 'absolute target must not be written');
     });
 
-    it('refuses a traversal path on the deleted branch and deletes nothing', () => {
+    it('refuses a traversal path on the deleted branch and deletes nothing', async () => {
       const escaped = path.join(sandbox, 'keepme.txt');
       fs.writeFileSync(escaped, 'precious');
-      const result = restore({
+      const result = await restore({
         path: '../../keepme.txt',
         diff: '',
         isBinary: true,
@@ -123,9 +131,9 @@ describe('ShelfService — binary restore/revert path containment', () => {
       assert.ok(fs.existsSync(escaped), 'out-of-repo file must not be deleted');
     });
 
-    it('still writes a legitimate in-repo binary file', () => {
+    it('still writes a legitimate in-repo binary file', async () => {
       const target = path.join(repoRoot, 'assets', 'logo.png');
-      const result = restore({
+      const result = await restore({
         path: 'assets/logo.png',
         diff: '',
         isBinary: true,
@@ -136,10 +144,10 @@ describe('ShelfService — binary restore/revert path containment', () => {
       assert.strictEqual(fs.readFileSync(target).toString(), 'realbytes');
     });
 
-    it('still deletes a legitimate in-repo file on the deleted branch', () => {
+    it('still deletes a legitimate in-repo file on the deleted branch', async () => {
       const target = path.join(repoRoot, 'gone.bin');
       fs.writeFileSync(target, 'bytes');
-      const result = restore({
+      const result = await restore({
         path: 'gone.bin',
         diff: '',
         isBinary: true,
@@ -165,9 +173,9 @@ describe('ShelfService — binary restore/revert path containment', () => {
       fs.symlinkSync(outside, path.join(repoRoot, 'link'), 'dir');
     });
 
-    it('restore refuses to write through an in-repo symlink that escapes the repo', () => {
+    it('restore refuses to write through an in-repo symlink that escapes the repo', async () => {
       const escaped = path.join(outside, 'evil.txt');
-      const result = restore({
+      const result = await restore({
         path: 'link/evil.txt',
         diff: '',
         isBinary: true,
@@ -178,10 +186,10 @@ describe('ShelfService — binary restore/revert path containment', () => {
       assert.ok(!fs.existsSync(escaped), 'must not write through the escaping symlink');
     });
 
-    it('restore refuses to delete an out-of-repo file reached via an in-repo symlink', () => {
+    it('restore refuses to delete an out-of-repo file reached via an in-repo symlink', async () => {
       const escaped = path.join(outside, 'keep.txt');
       fs.writeFileSync(escaped, 'precious');
-      const result = restore({
+      const result = await restore({
         path: 'link/keep.txt',
         diff: '',
         isBinary: true,
@@ -213,14 +221,14 @@ describe('ShelfService — binary restore/revert path containment', () => {
     // refuse to follow a final-component symlink (O_NOFOLLOW), and the delete
     // must refuse a non-regular final component (lstat).
 
-    it('restore does NOT write through a final-component symlink (in-repo target untouched)', () => {
+    it('restore does NOT write through a final-component symlink (in-repo target untouched)', async () => {
       const secret = path.join(repoRoot, 'secret.bin');
       fs.writeFileSync(secret, 'original');
       // `<repo>/target.bin` → `<repo>/secret.bin`: lexically + realpath inside
       // the repo, so the containment guard passes; only O_NOFOLLOW stops it.
       fs.symlinkSync(secret, path.join(repoRoot, 'target.bin'), 'file');
 
-      const result = restore({
+      const result = await restore({
         path: 'target.bin',
         diff: '',
         isBinary: true,
@@ -236,13 +244,13 @@ describe('ShelfService — binary restore/revert path containment', () => {
       );
     });
 
-    it('restore does NOT delete a final-component symlink on the deleted branch', () => {
+    it('restore does NOT delete a final-component symlink on the deleted branch', async () => {
       const secret = path.join(repoRoot, 'secret2.bin');
       fs.writeFileSync(secret, 'precious');
       const link = path.join(repoRoot, 'del.bin');
       fs.symlinkSync(secret, link, 'file');
 
-      const result = restore({
+      const result = await restore({
         path: 'del.bin',
         diff: '',
         isBinary: true,

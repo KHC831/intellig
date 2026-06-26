@@ -684,7 +684,7 @@ export class ShelfService implements IShelfService {
       // Binary files restore by writing their stored bytes (or deleting the
       // path) rather than applying a text patch.
       if (file.isBinary) {
-        if (this.restoreBinaryShelfFile(repo, file)) {
+        if (await this.restoreBinaryShelfFile(repo, file)) {
           appliedCleanly.push(file.path);
         } else {
           conflicts.push(file.path);
@@ -1258,7 +1258,7 @@ export class ShelfService implements IShelfService {
    * for an added/modified entry, or deletes the path for a deleted entry. Bytes
    * are written via `fs` so they round-trip exactly. Returns `true` on success.
    */
-  private restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): boolean {
+  private async restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<boolean> {
     if (!isShelfFilePathWithinRepo(repo.rootUri.fsPath, file.path)) {
       this._logger.error('Refusing to restore shelved binary file outside repository root', {
         path: file.path,
@@ -1273,6 +1273,35 @@ export class ShelfService implements IShelfService {
         // window, then refuse a non-regular (symlinked) final component.
         if (!isShelfFilePathWithinRepo(root, file.path)) {
           return false;
+        }
+        // Re-applying a shelved deletion unlinks the path. If the user recreated
+        // a file there after shelving the deletion, deleting it would silently
+        // lose their work. Only delete when the on-disk file is the PRISTINE
+        // HEAD version (a clean re-apply); compare the HEAD blob hash against the
+        // working file's hash. Hash compare (not `git diff HEAD`) is required so
+        // an UNTRACKED recreation is caught too. Fail-closed: a positive match
+        // is the ONLY case that deletes — a differing file, a missing HEAD blob
+        // (nothing to match against), or a hash error all PRESERVE the file and
+        // report a conflict (the unshelve loop counts a false return as one).
+        if (fs.existsSync(absPath)) {
+          const headBlob = await this._gitCli.exec(['rev-parse', `HEAD:${file.path}`], {
+            cwd: root,
+            throwOnError: false,
+          });
+          const diskBlob = await this._gitCli.exec(['hash-object', '--', absPath], {
+            cwd: root,
+            throwOnError: false,
+          });
+          const headSha = headBlob.exitCode === 0 ? headBlob.stdout.trim() : '';
+          const diskSha = diskBlob.exitCode === 0 ? diskBlob.stdout.trim() : '';
+          const isPristineHeadVersion = headSha !== '' && headSha === diskSha;
+          if (!isPristineHeadVersion) {
+            this._logger.warn(
+              'Refusing to delete a recreated file on deletion-unshelve; preserving it and reporting a conflict',
+              { path: file.path }
+            );
+            return false;
+          }
         }
         unlinkRegularFile(absPath);
         return true;
