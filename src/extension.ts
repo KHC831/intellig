@@ -53,6 +53,7 @@ import { GitScmProvider } from './scm/GitScmProvider';
 export {
   loadAllPanelDataCore,
   wireRepositorySelection,
+  wireAvailableRepositorySync,
   resolveCommitRepoByRoot,
   resolveRepoForCommitDiff,
   resolveLogHeadAnchor,

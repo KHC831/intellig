@@ -32,6 +32,7 @@ import { createCoalescedRunner } from './coalesceAsync';
 import {
   loadAllPanelDataCore,
   wireRepositorySelection,
+  wireAvailableRepositorySync,
   resolveCommitRepoByRoot,
   resolveRepoForCommitDiff,
   resolveLogHeadAnchor,
@@ -1291,26 +1292,20 @@ export function setupEventListeners(ctx: IViewRegistrationContext): void {
     );
   }
 
-  // Listen for workspace folder changes and update the repository list
-  const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
-    getLogger().child({ component: 'extension' }).info('workspace folders changed', {
-      added: event.added.length,
-      removed: event.removed.length,
-    });
-
-    // Update the repository list when workspace folders change
-    if (ctx.services && ctx.gitToolWindowProvider) {
-      const gitService = ctx.services.gitService;
-
-      // Discover repositories from all current workspace folders
-      for (const folder of event.added) {
-        await gitService.getRepository(folder.uri);
-      }
-
-      const repositories = gitService.getRepositories();
-      ctx.gitToolWindowProvider.setAvailableRepositories(repositories);
-    }
-  });
+  // Keep the repository selector in sync with GitService's authoritative repo
+  // set. GitService owns workspace-folder discovery + watcher lifecycle (its own
+  // onDidChangeWorkspaceFolders listener); the tool window only needs to follow
+  // the resulting set — including nested repos discovered asynchronously — which
+  // `wireAvailableRepositorySync` derives from onDidChangeRepository /
+  // onDidRemoveRepository, pushing only when the root set changes.
+  if (ctx.services && ctx.gitToolWindowProvider) {
+    ctx.context.subscriptions.push(
+      ...wireAvailableRepositorySync({
+        provider: ctx.gitToolWindowProvider,
+        gitService: ctx.services.gitService,
+      })
+    );
+  }
 
   // Listen for configuration changes
   const configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
@@ -1327,9 +1322,5 @@ export function setupEventListeners(ctx: IViewRegistrationContext): void {
   });
 
   // Register all listeners with the extension context
-  ctx.context.subscriptions.push(
-    workspaceFoldersListener,
-    configurationListener,
-    activeEditorListener
-  );
+  ctx.context.subscriptions.push(configurationListener, activeEditorListener);
 }
