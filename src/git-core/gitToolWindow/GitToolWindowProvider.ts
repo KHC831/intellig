@@ -834,15 +834,15 @@ export class GitToolWindowProvider
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    // Handle visibility changes
-    webviewView.onDidChangeVisibility(
-      () => {
+    // Handle visibility changes. Scoped to this resolve cycle (drained on the
+    // view's onDidDispose) so a hide→show re-resolve doesn't accumulate a fresh
+    // visibility listener each time.
+    this._registerPerResolve(
+      webviewView.onDidChangeVisibility(() => {
         if (webviewView.visible) {
           this._updateWebview();
         }
-      },
-      undefined,
-      this._disposables
+      })
     );
 
     // Fire the initial data request event so the extension host can

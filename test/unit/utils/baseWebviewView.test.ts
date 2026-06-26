@@ -32,6 +32,7 @@ class TestView extends BaseWebviewView {
   };
   public messagesReceived: unknown[] = [];
   public onResolveInvocations = 0;
+  public perResolveDrains = 0;
 
   protected override _getBodyParts(): { body: string; script: string } {
     return this.bodyParts;
@@ -43,6 +44,14 @@ class TestView extends BaseWebviewView {
 
   protected override _onResolve(): void {
     this.onResolveInvocations++;
+    // Mirror a subclass that wires a per-resolve listener (e.g.
+    // onDidChangeVisibility): register it through the per-resolve seam so a
+    // re-resolve cycle drains it rather than leaking.
+    this._registerPerResolve({
+      dispose: () => {
+        this.perResolveDrains++;
+      },
+    });
   }
 
   // Test accessors --------------------------------------------------------
@@ -370,6 +379,46 @@ describe('BaseWebviewView', () => {
         assert.ok(view.getView() !== undefined);
         fake._disposeEmitter.fire();
         assert.strictEqual(view.getView(), undefined);
+      } finally {
+        view.dispose();
+      }
+    });
+
+    it('drains per-resolve listeners on view dispose (no accumulation across re-resolve cycles)', () => {
+      const view = new TestView(Uri.file('/ext'));
+      const messageListenerCount = (f: FakeView): number =>
+        (f.webview._messageEmitter as unknown as { listeners: unknown[] }).listeners.length;
+
+      try {
+        // A sidebar view hidden then re-shown is re-resolved each cycle. Each
+        // cycle gets a FRESH WebviewView (as VS Code does); the per-resolve
+        // listeners of the disposed view must be torn down, not leaked.
+        for (let cycle = 0; cycle < 5; cycle++) {
+          const fake = makeFakeView();
+          view.resolveWebviewView(
+            fake as unknown as vscode.WebviewView,
+            {} as vscode.WebviewViewResolveContext,
+            {} as vscode.CancellationToken
+          );
+          assert.strictEqual(
+            messageListenerCount(fake),
+            1,
+            `cycle ${cycle}: resolve wires exactly one message listener`
+          );
+
+          fake._disposeEmitter.fire();
+
+          assert.strictEqual(
+            messageListenerCount(fake),
+            0,
+            `cycle ${cycle}: onDidDispose must drain the per-resolve message listener`
+          );
+          assert.strictEqual(
+            view.perResolveDrains,
+            cycle + 1,
+            `cycle ${cycle}: the subclass per-resolve listener must be drained exactly once per cycle`
+          );
+        }
       } finally {
         view.dispose();
       }
