@@ -700,7 +700,7 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
 
 // ─── merge-commit mainline (-m <parent>) prompt ──────────────────────────────
 
-describe('CommitContextMenuCommands — merge-commit mainline prompt (H-3)', () => {
+describe('CommitContextMenuCommands — merge-commit mainline prompt', () => {
   const mergeHash = 'abcdef01abcdef01abcdef01abcdef01abcdef01';
 
   // Build a service whose `getCommit` reports `mergeHash` as a merge (2
@@ -804,7 +804,7 @@ describe('CommitContextMenuCommands — merge-commit mainline prompt (H-3)', () 
 
 // ─── — multi-root repo resolution ────────────────────────────────────
 
-describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () => {
+describe('CommitContextMenuCommands — multi-root repo resolution', () => {
   const testHash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80123';
 
   function makeMultiRepoGitService(repos: IRepository[]): IGitService & { calls: string[] } {
