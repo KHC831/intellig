@@ -301,6 +301,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getLogger().info('extension activated');
   } catch (error) {
     getLogger().error('failed to activate', error instanceof Error ? error : undefined);
+    // Drop the (now disposed / half-built) singleton so a retry or a later
+    // getServices() builds a fresh container instead of reusing a poisoned one.
+    resetExtensionServices();
+    extensionServices = undefined;
     void vscode.window.showErrorMessage(
       formatActionFailureToast('Failed to activate IntelliG extension', error)
     );

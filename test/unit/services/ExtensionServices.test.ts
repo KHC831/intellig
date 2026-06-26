@@ -4,6 +4,7 @@ import {
   getExtensionServices,
   resetExtensionServices,
 } from '../../../src/services/ExtensionServices';
+import { GitService } from '../../../src/git-core/GitService';
 
 describe('ExtensionServices', () => {
   // Reset the singleton before each test
@@ -53,6 +54,48 @@ describe('ExtensionServices', () => {
 
       // Should only have one subscription
       assert.strictEqual(mockSubscriptions.length, 1);
+    });
+
+    it('disposes already-constructed services when initialization fails partway', async () => {
+      // A constructor between GitService (which starts watchers + workspace
+      // listeners) and the end of init can throw; the catch must dispose what
+      // was already built, or the GitService leaks its watchers/listeners with
+      // no owner. `workspaceState` is read late (BlameOptionsSource), after the
+      // GitService is constructed — a throwing getter injects a realistic
+      // mid-init failure.
+      const services = new ExtensionServices();
+      const throwingContext = {
+        subscriptions: [],
+        get workspaceState(): never {
+          throw new Error('injected init failure');
+        },
+      } as unknown as import('vscode').ExtensionContext;
+
+      let gitDisposeCalls = 0;
+      const originalDispose = GitService.prototype.dispose;
+      (GitService.prototype as unknown as { dispose: () => void }).dispose = function (
+        this: GitService
+      ): void {
+        gitDisposeCalls += 1;
+        originalDispose.call(this);
+      };
+
+      try {
+        await assert.rejects(() => services.initialize(throwingContext), /injected init failure/);
+      } finally {
+        (GitService.prototype as unknown as { dispose: () => void }).dispose = originalDispose;
+      }
+
+      assert.strictEqual(
+        gitDisposeCalls,
+        1,
+        'the partially-built GitService must be disposed on init failure'
+      );
+      assert.strictEqual(
+        services.isDisposed,
+        true,
+        'a failed initialize must leave the container disposed (no leaked listeners)'
+      );
     });
 
     it('should reject if disposed', async () => {

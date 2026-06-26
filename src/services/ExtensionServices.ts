@@ -293,6 +293,12 @@ export class ExtensionServices implements IExtensionServices {
         'failed to initialize extension services',
         error instanceof Error ? error : undefined
       );
+      // Dispose anything already constructed so a partial init doesn't leak the
+      // GitService's `.git/` watchers + workspace listeners (and other partial
+      // services) with no owner. `dispose()` is null-safe and idempotent; it
+      // also marks the container disposed, so the activate-level catch must drop
+      // the singleton (`resetExtensionServices`) to let a retry build fresh.
+      this.dispose();
       return Promise.reject(error);
     }
   }
