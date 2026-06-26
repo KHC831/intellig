@@ -219,6 +219,18 @@ describe('Wave I — GitService argv-injection safety', () => {
       assert.ok(cmd, 'push command must be issued');
       assertEndOfOptionsBeforeRef(cmd.args, HOSTILE_REF, 'push.branch');
     });
+
+    it('separates a delete refspec (:branch) with --end-of-options so a flag-like leaf cannot inject', async () => {
+      // The remote-branch delete path (`_handleDeleteRemote`) pushes
+      // `branch: ':<leaf>'`, bypassing the dialog's isValidPushRef guard. Its
+      // safety rests entirely on the ops layer splicing --end-of-options before
+      // the refspec — pin that so a flag-like leaf can't become an argv flag.
+      const deleteRefspec = ':-evil-leaf';
+      await gitService.push(mockRepo, { remote: 'origin', branch: deleteRefspec });
+      const cmd = mockGitCli.findCommand('push');
+      assert.ok(cmd, 'push command must be issued');
+      assertEndOfOptionsBeforeRef(cmd.args, deleteRefspec, 'push.delete-refspec');
+    });
   });
 
   describe('getCommit()', () => {
