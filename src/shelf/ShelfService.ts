@@ -1540,7 +1540,11 @@ export class ShelfService implements IShelfService {
       }
 
       // Write storage file atomically (write-to-temp + rename). See
-      // {@link atomicWriteFileSync} for the crash-during-write rationale.
+      // {@link atomicWriteFileSync} for the crash-during-write rationale — and
+      // its "Limitations" note: this is last-writer-wins ACROSS WINDOWS, so two
+      // VS Code windows on the same repo saving the shelf near-simultaneously
+      // can silently overwrite each other (knowingly accepted; no cross-window
+      // lock).
       const content = JSON.stringify(serializeShelfForDisk(storage), null, 2);
       atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {

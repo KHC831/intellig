@@ -51,15 +51,22 @@
  *
  * ### Limitations
  *
- * - **Not a concurrent-writer serializer.** Protection is against partial
- *   content visibility at `targetPath`, NOT against two writers racing.
- *   If window A and window B both read the file, mutate their copies,
- *   and call `atomicWriteFileSync` close in time, the last rename wins
- *   and the earlier writer's changes are silently overwritten
- *   (last-writer-wins). Callers that serve multiple VS Code windows and
- *   need read-modify-write atomicity must coordinate externally — e.g.
- *   via an OS file lock or by funnelling writes through VS Code's
- *   workspace state.
+ * - **Not a concurrent-writer serializer (cross-window data-loss vector).**
+ *   Protection is against partial content visibility at `targetPath`, NOT
+ *   against two writers racing. If window A and window B both read the file,
+ *   mutate their copies, and call `atomicWriteFileSync` close in time, the
+ *   last rename wins and the earlier writer's changes are **silently lost**
+ *   (last-writer-wins). For the JSON state files this helper backs
+ *   (`intellig-shelf.json`, `intellig-changelists.json`), that means a shelf
+ *   or changelist created in one window can vanish if another window saves
+ *   over it — a real, if rare (two windows on the SAME repo mutating the same
+ *   store near-simultaneously), data-loss path. This is a **knowingly accepted
+ *   limitation**: an OS file lock is platform-fraught (flock/byte-range
+ *   semantics differ across OS/filesystems/NFS) and a workspace-state
+ *   migration is a large architectural change disproportionate to the rarity.
+ *   Callers that need cross-window read-modify-write atomicity must coordinate
+ *   externally — an OS file lock or funnelling writes through VS Code's
+ *   workspace state — rather than relying on this helper.
  *
  * - **Node-process-crash safe, not OS-crash safe.** Between a successful
  *   `renameSync` return and the OS flushing page cache to disk, a power
