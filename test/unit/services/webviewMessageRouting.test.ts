@@ -506,6 +506,13 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
   });
 
   describe('doubleClickFile message', () => {
+    // `_handleCommitFileDoubleClick` now drops a double-click whose commit hash
+    // is no longer in the rendered `commitNodes` (stale-hash guard). Pre-populate
+    // the referenced commit so the positive path fires.
+    beforeEach(() => {
+      provider.updateLogState([createMockCommit('abc1234567890', 'First commit')]);
+    });
+
     it('should fire onDidRequestCommitDiff event with commit hash and file path', (done) => {
       const disposable = provider.onDidRequestCommitDiff((event) => {
         assert.strictEqual(event.commitHash, 'abc1234567890');

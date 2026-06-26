@@ -216,6 +216,49 @@ export type LogContextAction =
   | 'goToChild';
 
 /**
+ * Runtime allow-list of every {@link LogContextAction}. Kept exhaustive by
+ * `satisfies Record<LogContextAction, true>` — adding a union arm without a
+ * matching entry is a COMPILE error, so the message-boundary validator
+ * ({@link isLogContextAction}) can never silently miss a new action.
+ */
+const LOG_CONTEXT_ACTIONS = {
+  copyHash: true,
+  createPatch: true,
+  cherryPick: true,
+  checkoutRevision: true,
+  showRepoAtRevision: true,
+  compareWithLocal: true,
+  resetToHere: true,
+  revert: true,
+  undoCommit: true,
+  dropCommit: true,
+  editCommitMessage: true,
+  interactiveRebase: true,
+  squashCommits: true,
+  compareVersions: true,
+  fixup: true,
+  squashInto: true,
+  compareWithBranch: true,
+  pushUpToCommit: true,
+  newBranch: true,
+  newTag: true,
+  goToParent: true,
+  goToChild: true,
+} satisfies Record<LogContextAction, true>;
+
+/**
+ * Boundary validator: is `value` a known {@link LogContextAction}? Used to
+ * allow-list the untrusted webview `action` before emitting it (some arms —
+ * drop/reset/rebase — are destructive), so the guarantee doesn't rest on the
+ * downstream consumer's switch staying exhaustive + default-safe.
+ */
+export function isLogContextAction(value: unknown): value is LogContextAction {
+  return (
+    typeof value === 'string' && Object.prototype.hasOwnProperty.call(LOG_CONTEXT_ACTIONS, value)
+  );
+}
+
+/**
  * Extended Log state with commit nodes for graph visualization
  */
 export interface IExtendedLogState extends ILogState {
@@ -1658,8 +1701,12 @@ export class GitToolWindowProvider
         void vscode.commands.executeCommand('git.init');
         break;
       case 'commitContextMenu':
-        if (message.action && message.commitHashes) {
-          this._handleCommitContextMenu(message.action as LogContextAction, message.commitHashes);
+        // Allow-list the untrusted `action` at the boundary (some arms —
+        // drop/reset/rebase — are destructive); an unknown action is dropped
+        // rather than cast-and-fired on the assumption the downstream switch
+        // stays exhaustive + default-safe.
+        if (isLogContextAction(message.action) && message.commitHashes) {
+          this._handleCommitContextMenu(message.action, message.commitHashes);
         }
         break;
       case 'doubleClickFile':
@@ -2709,6 +2756,15 @@ export class GitToolWindowProvider
    * Handle double-click on a file in commit details
    */
   private _handleCommitFileDoubleClick(commitHash: string, filePath: string): void {
+    // Posture parity with `_handleCommitContextMenu`: only fire for a commit
+    // still in the rendered list, so a hash that drifted (refresh / force-push /
+    // filter change since the row was shown) can't reach `getCommit`. The diff
+    // path is read-only and already contained downstream, so a stale hash is
+    // dropped silently (no toast) rather than nagging on a read-only action.
+    const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
+    if (!known.has(commitHash)) {
+      return;
+    }
     this._onDidRequestCommitDiff.fire({
       commitHash,
       filePath,
