@@ -6,6 +6,7 @@ import { ShelfService, createShelfService } from '../../../src/shelf/ShelfServic
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { IShelveSelection, IShelfItem } from '../../../src/shelf/interfaces/IShelfService';
 import { GitCli } from '../../../src/git-core/gitCli';
+import * as vscode from 'vscode';
 import { Uri } from '../../mocks/vscode';
 
 /**
@@ -83,6 +84,55 @@ describe('ShelfService', () => {
       assert.strictEqual(shelfItem.files.length, 1, 'Shelf item should have one file');
       assert.strictEqual(shelfItem.files[0].path, 'test.txt', 'File path should be correct');
       assert.ok(shelfItem.files[0].diff.length > 0, 'File should have diff content');
+    });
+
+    it('warns that staged content is not included when a selected file has staged changes', async () => {
+      const testFile = path.join(testRepoPath, 'test.txt');
+      // Stage a change (cached), then add a further unstaged tweak so the shelve
+      // still has an unstaged diff to capture (and thus doesn't throw).
+      fs.writeFileSync(testFile, 'staged change\n');
+      await gitCli.exec(['add', 'test.txt'], { cwd: testRepoPath });
+      fs.appendFileSync(testFile, 'plus unstaged\n');
+
+      const warnings: string[] = [];
+      const original = vscode.window.showWarningMessage;
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
+        message: string
+      ): Promise<undefined> => {
+        warnings.push(message);
+        return Promise.resolve(undefined);
+      };
+      try {
+        await shelfService.shelve(mockRepo, 'Partial', { files: ['test.txt'] });
+      } finally {
+        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
+      }
+
+      assert.ok(
+        warnings.some((w) => w.includes('test.txt') && /staged/i.test(w)),
+        `expected a staged-content warning naming test.txt; got: ${JSON.stringify(warnings)}`
+      );
+    });
+
+    it('does NOT warn when no selected file has staged content', async () => {
+      const testFile = path.join(testRepoPath, 'test.txt');
+      fs.writeFileSync(testFile, 'only unstaged\n'); // unstaged only, nothing cached
+
+      const warnings: string[] = [];
+      const original = vscode.window.showWarningMessage;
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
+        message: string
+      ): Promise<undefined> => {
+        warnings.push(message);
+        return Promise.resolve(undefined);
+      };
+      try {
+        await shelfService.shelve(mockRepo, 'Clean', { files: ['test.txt'] });
+      } finally {
+        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
+      }
+
+      assert.deepStrictEqual(warnings, [], 'no staged-content warning when nothing is staged');
     });
 
     it('should revert changes after shelving', async () => {

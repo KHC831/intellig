@@ -545,6 +545,29 @@ export class ShelfService implements IShelfService {
       throw new Error('No files found to shelve');
     }
 
+    // The per-file diff below captures the UNSTAGED working-tree change only
+    // (`git diff -- <file>`), so any STAGED content for a selected file is not
+    // included in the shelf — a fully-staged file would even be skipped
+    // entirely. Warn so the shelf is never SILENTLY incomplete. (Capturing the
+    // full change vs HEAD + a change-aware revert round-trip is a deferred
+    // follow-up that owes real-git e2e coverage.)
+    const stagedResult = await this._gitCli.exec(['diff', '--cached', '--name-only'], { cwd });
+    if (stagedResult.exitCode === 0) {
+      const stagedSet = new Set(
+        stagedResult.stdout
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+      );
+      const stagedSelected = filesToShelve.filter((file) => stagedSet.has(file));
+      if (stagedSelected.length > 0) {
+        void vscode.window.showWarningMessage(
+          `Staged changes are not included in the shelf for: ${stagedSelected.join(', ')}. ` +
+            `Unstage them (e.g. git reset) to shelve the full change.`
+        );
+      }
+    }
+
     // Create shelf files with diffs
     const shelfFiles: IShelfFile[] = [];
 
