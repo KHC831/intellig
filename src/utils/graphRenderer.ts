@@ -10,6 +10,22 @@
  */
 
 import { ICommitNode, getMaxGraphColumn } from '../git-core/commitGraph';
+import { getOutputChannel } from './outputChannel';
+
+/** Upper bound on a renderable lane index (defense against a corrupt index). */
+const MAX_LANE = 1000;
+
+/**
+ * One-shot throttle: a pathological window (or corrupt index) that drops lanes
+ * logs once per session rather than on every per-segment `isValidLane` check in
+ * the render hot loop. Reset between tests via {@link __resetLaneWarningForTest}.
+ */
+let laneWarningEmitted = false;
+
+/** TestSurface: reset the once-per-session lane-drop warning throttle. */
+export function __resetLaneWarningForTest(): void {
+  laneWarningEmitted = false;
+}
 
 /**
  * Configuration for graph rendering dimensions and styling.
@@ -398,5 +414,19 @@ export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConf
  * @returns True if the lane index is valid for rendering
  */
 export function isValidLane(lane: number): boolean {
-  return Number.isFinite(lane) && lane >= 0 && lane <= 1000;
+  if (Number.isFinite(lane) && lane >= 0 && lane <= MAX_LANE) {
+    return true;
+  }
+  // Out-of-range (negative, non-finite, or beyond the cap) lanes are still
+  // dropped — clamping distinct lanes onto column MAX_LANE would collide them,
+  // which is worse than omitting a (practically unreachable) pathological lane.
+  // But log once so a genuinely corrupt index leaves a diagnostic trail instead
+  // of silently missing graph lines.
+  if (!laneWarningEmitted) {
+    laneWarningEmitted = true;
+    getOutputChannel().appendLine(
+      `[graph] dropping out-of-range lane index ${lane} (valid range 0..${MAX_LANE}); a graph line may be missing`
+    );
+  }
+  return false;
 }
