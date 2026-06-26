@@ -202,59 +202,61 @@ export function projectRow(
   const bottomInkLanes = new Set<number>();
   const chevronLanes = new Set<number>();
 
-  // Per-branch color resolution. A segment takes its OWNING commit's branch
-  // color; with no owning branch (or no branchColors supplied) it falls back to
-  // the lane color, so behavior is unchanged when branch coloring is off.
+  // Per-branch color resolution. NOTE: `nodes` is the whole window in display
+  // order, so a node's row index IS its array index (`nodes[row]` ↔ row `row`);
+  // the helpers below rely on that to map a row to its commit/lane and back.
+  //
+  // `colorForRow` is the leaf primitive: a single row's hash → owning-branch
+  // color, falling back to the lane color when no branch owns it (or no
+  // branchColors supplied) — so behavior is unchanged when coloring is off.
   const branchColors = ctx.branchColors;
   const colorForRow = (row: number, fallbackLane: number): string => {
     const hash = nodes[row]?.commit.hash;
     const c = hash !== undefined ? branchColors?.get(hash) : undefined;
     return c ?? getColumnColor(fallbackLane);
   };
-  // A pass-through segment takes the color of the chain it DESCENDS FROM: the
-  // nearest commit ON this lane at or above the current row, within this lane's
-  // interval. Coloring by the interval's `startRow` (its global top) was wrong
-  // when that top is a FOREIGN commit — a side branch higher up the same merged
-  // interval, or a merge/branch tip that only feeds this lane from another
-  // column. That painted, e.g., a mainline segment between two trunk commits
-  // with a side branch's color (the reported "long line a different color than
-  // the nodes it connects"). Walking up to the owning node colors the segment to
-  // match the node it flows out of, and — at a genuine fork/merge — changes
-  // color only AT the junction node, exactly like IntelliJ.
-  const colorForLane = (lane: number): string => {
-    const iv = ivLookup.get(lane);
-    if (!iv) {
-      return getColumnColor(lane);
-    }
-    for (let r = rowIndex; r >= iv.startRow; r--) {
-      if (nodes[r]?.graphColumn === lane) {
-        return colorForRow(r, lane);
-      }
-    }
-    // No owning node above in this interval (tip off the top of the window, or a
-    // pure transit edge) → the node it descends INTO below, else the lane color.
-    for (let r = rowIndex + 1; r <= iv.endRow; r++) {
-      if (nodes[r]?.graphColumn === lane) {
-        return colorForRow(r, lane);
-      }
-    }
-    return colorForRow(iv.startRow, lane);
-  };
 
-  // Color a far-parent incoming bend (the top-half curve landing a long
-  // first-parent line into its parent) by the line it continues: the nearest
-  // commit ON the source lane above this row — the child whose first-parent
-  // edge ran straight down to here. That straight portion is contiguous on the
-  // source lane (the lane is reserved for it), so the first node found scanning
-  // up is the child. Falls back to the lane color if the child is off-window.
-  const colorForIncomingBend = (lane: number): string => {
-    for (let r = rowIndex - 1; r >= 0; r--) {
+  // `ownerColorForLaneAt` is THE single owner-lookup primitive every drawable
+  // element resolves through (it replaced three ad-hoc lane walks). It bridges
+  // lane TOPOLOGY to branch-color OWNERSHIP: it walks the lane to the nearest
+  // node sitting ON it — searching from `from` up toward `lo`, else down toward
+  // `hi` — and returns that owning commit's branch color via `colorForRow`. The
+  // bridge only stays sound because both layers follow the first-parent spine
+  // (see ADR-013 section 4, "the lane ↔ branch-color bridge invariant"): a
+  // commit's spine sits on one lane, and ownership propagates down first parents.
+  // Bounds keep the search inside ONE lane interval so an unrelated later reuse
+  // of the same lane can't bleed its color in. Node dot, straight pass-through,
+  // first-parent bend, and far-parent incoming bend all resolve through this, so
+  // a segment can never disagree with the node it connects — elements that share
+  // a lane share an owner by construction. Falls back to the lane color when no
+  // node owns the lane in range (tip/parent off-window).
+  const ownerColorForLaneAt = (lane: number, from: number, lo: number, hi: number): string => {
+    for (let r = from; r >= lo; r--) {
+      if (nodes[r]?.graphColumn === lane) {
+        return colorForRow(r, lane);
+      }
+    }
+    for (let r = from + 1; r <= hi; r++) {
       if (nodes[r]?.graphColumn === lane) {
         return colorForRow(r, lane);
       }
     }
     return getColumnColor(lane);
   };
+
+  // `colorForLane` is the interval-bound wrapper for a pass-through segment: it
+  // just supplies `ownerColorForLaneAt` with this lane's merged-interval bounds,
+  // so color changes only AT a fork/merge junction node, exactly like IntelliJ —
+  // never mid-run with a foreign top commit's color (the reported "long line a
+  // different color than the nodes it connects").
+  const colorForLane = (lane: number): string => {
+    const iv = ivLookup.get(lane);
+    if (!iv) {
+      return getColumnColor(lane);
+    }
+    return ownerColorForLaneAt(lane, rowIndex, iv.startRow, iv.endRow);
+  };
+
   const nodeColor = colorForRow(rowIndex, ownLane);
 
   // Cross-lane bezier targets DRAWN at this row. A far-parent line (endRow on a
@@ -430,17 +432,15 @@ export function projectRow(
         fromLane: sourceLane,
         targetLane: ownLane,
         curved: true,
-        // First-parent far edge → L4 source-lane color: the child's chain that
-        // owns the source lane. `colorForLane` can't see it here — the source
-        // lane's interval ENDS at the row above this parent row (the bend lives
-        // here, not a straight), so it isn't in this row's interval lookup and
-        // falls back to the lane color. The bend is the continuation of the
-        // straight far line directly above it, so color it like that line: the
-        // nearest commit on the source lane above this row (the child whose
-        // first-parent line lands here).
+        // First-parent far edge → the child's chain that owns the source lane.
+        // The source lane's interval ENDS at the row above this parent (the bend
+        // lives here, not a straight), so `colorForLane` can't see it; the bend
+        // continues the straight far line directly above, so use the same owner
+        // lookup over the rows ABOVE this one: the nearest commit on the source
+        // lane there is the child whose first-parent line lands here.
         type: 'commit',
         style: 'solid',
-        color: colorForIncomingBend(sourceLane),
+        color: ownerColorForLaneAt(sourceLane, rowIndex - 1, 0, rowIndex - 1),
       });
     }
   }

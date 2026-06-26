@@ -117,6 +117,12 @@ export class GraphLayout {
 /**
  * Port of `GraphLayoutBuilder.build(graph, branches, comparator)`.
  *
+ * The engine is FULL-DAG-capable (it walks whatever down-adjacency `graph`
+ * exposes) and assumes nothing about first-parent semantics. The production
+ * color caller (`branchColors.ts`) happens to feed it a FIRST-PARENT-ONLY graph
+ * by deliberate choice, to keep ownership on the mainline spine — that is the
+ * CALLER's policy, not a constraint of this function.
+ *
  * @param graph      the linear graph.
  * @param branches   node indices of branch heads to include as layout heads
  *                   (IntelliJ adds these on top of the graph's own heads, so a

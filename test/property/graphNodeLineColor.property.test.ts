@@ -102,9 +102,18 @@ const dagArb: fc.Arbitrary<GenDag> = fc
     headIsTrunk: fc.boolean(),
     // Models how HEAD identity reaches the algorithm:
     //   'name'     — branch name resolvable in branchMap (happy path)
-    //   'detached' — no name (undefined), only the SHA (detached HEAD)
-    //   'noBranchMap' — getBranches failed: empty branchMap, SHA only
-    headMode: fc.constantFrom('name', 'detached', 'noBranchMap'),
+    //   'detached' — no name (undefined), only the SHA (detached HEAD); the
+    //                branchMap is still populated, so branch coloring runs
+    //   'noBranchMap' — getBranches failed: EMPTY branchMap, SHA only; no branch
+    //                owns anything, so the branch-color path does no work
+    // Weighted so the branch-ownership path (name/detached, both keep refs) is
+    // exercised on the large majority of runs while the empty-branchMap fault
+    // mode stays covered but rare — `fc.oneof` weights select frequency.
+    headMode: fc.oneof(
+      { weight: 8, arbitrary: fc.constant('name') },
+      { weight: 8, arbitrary: fc.constant('detached') },
+      { weight: 1, arbitrary: fc.constant('noBranchMap') }
+    ),
   })
   .map(({ trunkLen, sideBranches, headPick, headIsTrunk, headMode }) => {
     // Trunk commits: T0 (newest) .. T{trunkLen-1} (oldest). Ti's parent is
@@ -624,6 +633,94 @@ describe('Property — node color equals its own first-parent line color (any DA
                   `row ${parent.row} (${nodes[parent.row].commit.hash}) color ${models[parent.row].node.color}`
               );
             }
+          }
+        }
+      }),
+      { numRuns: 500 }
+    );
+  });
+
+  it('renderer: ONE owner per lane-segment — every element on a lane equals the color of the nearest node owning that lane there', () => {
+    // The load-bearing guard that retires the segment/bend-color-disagrees-with-
+    // its-node bug class BY CONSTRUCTION. The print model resolves every element's
+    // color through a SINGLE owner lookup (`ownerColorForLaneAt`): the nearest
+    // commit ON that lane within the relevant span. So for ANY drawable element —
+    // a node dot, a straight pass-through, a first-parent bend, or a far-parent
+    // incoming bend — its color MUST equal the color of the node that owns the
+    // lane it occupies at that row. If three ad-hoc lane walks ever diverge again,
+    // this fails over random DAGs.
+    fc.assert(
+      fc.property(dagArb, (dag) => {
+        const nodes = generateCommitGraph(
+          dag.commits,
+          dag.branchMap,
+          undefined,
+          undefined,
+          dag.headName,
+          dag.headHash
+        );
+        const models = buildGraphPrintModel(nodes);
+        // The owning node of `lane`, searching up from `from` toward `loBound`,
+        // then down toward `hiBound` — the same nearest-node-on-this-lane span
+        // the print model walks. Bounds keep the search inside ONE lane interval
+        // so an unrelated later reuse of the same lane can't be picked up.
+        const ownerColorIn = (
+          lane: number,
+          from: number,
+          loBound: number,
+          hiBound: number
+        ): string | undefined => {
+          for (let rr = from; rr >= loBound; rr--) {
+            if (nodes[rr].graphColumn === lane) {
+              return models[rr].node.color;
+            }
+          }
+          for (let rr = from + 1; rr <= hiBound; rr++) {
+            if (nodes[rr].graphColumn === lane) {
+              return models[rr].node.color;
+            }
+          }
+          return undefined;
+        };
+        for (let r = 0; r < models.length; r++) {
+          // The node dot owns its own lane at its own row, trivially.
+          for (const e of models[r].edges) {
+            // Merge/branch bends join a foreign destination and are exempt
+            // (covered by the curve test). Every remaining element traces back to
+            // ONE owning node:
+            //   - a far-parent incoming bend (curved, up) continues the line on
+            //     its SOURCE lane above this parent row;
+            //   - an outgoing first-parent bend (curved, down, 'commit') is its
+            //     own SOURCE node's spine — owned by row r on the source lane;
+            //   - a straight pass-through is owned by the nearest node on its lane
+            //     WITHIN its own interval (childRow..parent row from edge identity).
+            if (e.curved && e.type !== 'commit') {
+              continue;
+            }
+            let owner: string | undefined;
+            if (e.curved && e.half === 'up') {
+              // Incoming far-parent bend: the child whose first-parent line lands
+              // here, nearest node on the source lane strictly above this row.
+              owner = ownerColorIn(e.fromLane, r - 1, 0, r - 1);
+            } else if (e.curved) {
+              // Outgoing first-parent bend = the source node's own spine.
+              owner = models[r].node.color;
+            } else {
+              // Straight segment: bound the owner search to this lane's interval,
+              // taken from the edge's own identity (no separate interval calc).
+              const lo = e.edge.childRow;
+              const hi = e.edge.parent.kind === 'inWindow' ? e.edge.parent.row : nodes.length - 1;
+              owner = ownerColorIn(e.lane, r, lo, hi);
+            }
+            if (owner === undefined) {
+              continue; // owning node off-window → lane-color fallback, exempt
+            }
+            assert.strictEqual(
+              e.color,
+              owner,
+              `row ${r} lane ${e.lane} (curved=${e.curved}, half=${e.half}, type=${e.type}): ` +
+                `element color ${e.color} != owner-of-lane color ${owner}`
+            );
           }
         }
       }),

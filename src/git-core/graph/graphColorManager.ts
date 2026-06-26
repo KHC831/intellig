@@ -1,7 +1,15 @@
 /**
- * Faithful port of IntelliJ's color-by-head logic —
- * `GraphColorManagerImpl.getColor` + `GraphColorGetterByHead.getNodeColor`
- * (platform/vcs-log).
+ * TEST-ONLY characterization fixture — NOT the production color source.
+ *
+ * Production graph colors come from the fixed palette in `branchColors.ts`
+ * (`GRAPH_BRANCH_COLORS` + `computeBranchColors`), which assigns palette hexes by
+ * branch display order. This module instead reproduces IntelliJ's INTERNAL
+ * color-by-head MATH (`GraphColorManagerImpl.getColor` +
+ * `GraphColorGetterByHead.getNodeColor`, platform/vcs-log) — a `java.lang.String`
+ * hashCode of the ref name. We port it solely so `graphColorManager.test.ts` can
+ * pin the layout engine's head-ownership against IntelliJ's exact integer values;
+ * it has no production importer and MUST NOT be wired into one (doing so would
+ * paint commits with raw Java hashCodes instead of the tuned palette).
  *
  * The color of a node is the color of the HEAD that owns its layout fragment:
  *   - on the head's own (main) fragment — `headFragmentIndex == fragmentIndex`
@@ -9,8 +17,7 @@
  *     (`firstRef.name.hashCode()`);
  *   - on any other fragment, the color IS the fragment (layout) index.
  *
- * Ported so the ColorManager unit test can assert against IntelliJ's exact
- * values. `javaStringHashCode` reproduces `java.lang.String.hashCode()` so the
+ * `javaStringHashCode` reproduces `java.lang.String.hashCode()` so the
  * ref-name → color mapping matches byte-for-byte.
  */
 

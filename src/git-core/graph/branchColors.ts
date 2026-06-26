@@ -33,6 +33,8 @@
  * SVG painter, and the chips) lives elsewhere.
  */
 
+import { buildGraphLayout, linearGraphFromDownAdjacency } from './graphLayout';
+
 /**
  * Bright, vivid branch palette (fixed hex — usable directly in SVG
  * `stroke=`/`fill=` presentation attributes, where `var()` does not resolve).
@@ -147,6 +149,27 @@ function pickRef(refs: readonly IColorRef[], headBranchName?: string): IColorRef
  * parent. Commits absent from the map have no owning branch (detached / not on
  * any branch's first-parent chain) — the caller falls back to a lane color.
  *
+ * Ownership is delegated to the ported IntelliJ engine ({@link buildGraphLayout},
+ * `GraphLayout.getOneOfHeadNodeIndex`) so "which head owns this commit" is
+ * answered by the SAME code IntelliJ's own layout tests exercise, rather than a
+ * separately-maintained walk. We feed it a FIRST-PARENT-ONLY graph (each node's
+ * single down-edge is its `parents[0]`) so ownership follows the mainline spine —
+ * a merged side branch never recolors the trunk below its fork. The heads are
+ * the ref-bearing tips, ordered by the same `(layout tier, row, name)` priority
+ * the coloring has always used:
+ *
+ *   1. IntelliJ layout TIER ({@link layoutPriority}): remote trunk → remote
+ *      branch → local trunk → local branch. The more important branch is
+ *      processed first and owns the shared subgraph below a divergence, so the
+ *      mainline stays ONE color and a published branch outranks a local one.
+ *   2. Within a tier, the NEWEST/topmost tip first (smallest row): the topmost
+ *      tip owns its whole first-parent chain down to the first commit a
+ *      higher-priority branch already claimed. A Y fork's newer arm keeps its own
+ *      color over the shared base; a fully OVERLAPPING line collapses to ONE
+ *      color (the engine gives a linear graph a single head when the topmost tip
+ *      sorts first — `GraphLayoutBuilderHeadOrderTest.linearGraph`).
+ *   3. Name, as a final stable tiebreak.
+ *
  * @param nodes display-ordered commit nodes (newest first; index = row).
  */
 export function computeBranchColors(
@@ -154,83 +177,93 @@ export function computeBranchColors(
   options: IBranchColorOptions = {}
 ): Map<string, string> {
   const { headBranchName } = options;
-  const rowOf = new Map<string, number>();
-  const nodeOf = new Map<string, IColorNode>();
+  const indexOf = new Map<string, number>();
   for (let i = 0; i < nodes.length; i++) {
-    rowOf.set(nodes[i].hash, i);
-    nodeOf.set(nodes[i].hash, nodes[i]);
+    indexOf.set(nodes[i].hash, i);
   }
 
-  // Collect branch tips (commits that have refs).
+  // Branch tips (ref-bearing commits) and their representative ref. The tip's
+  // node index seeds a layout head; `priority`/`refName` order those heads.
   interface ITip {
-    hash: string;
-    row: number;
+    index: number;
     refName: string;
     priority: number;
   }
   const tips: ITip[] = [];
-  for (const node of nodes) {
-    const ref = pickRef(node.refs, headBranchName);
+  for (let i = 0; i < nodes.length; i++) {
+    const ref = pickRef(nodes[i].refs, headBranchName);
     if (!ref) {
       continue;
     }
-    tips.push({
-      hash: node.hash,
-      row: rowOf.get(node.hash)!,
-      refName: ref.name,
-      priority: layoutPriority(ref),
-    });
+    tips.push({ index: i, refName: ref.name, priority: layoutPriority(ref) });
   }
 
-  // Assign each tip a palette color by DISPLAY order (newest tip first), cycling
-  // the palette so consecutive branches down the view get distinct, rotating
-  // colors — never `color1 → color2 → color1` for three adjacent branches (which
-  // reads as if the 1st and 3rd are related). Stable for a given window.
-  const tipColor = new Map<string, string>();
+  // Assign each tip a palette color by DISPLAY order (newest tip first = smallest
+  // index), cycling the palette so consecutive branches down the view get
+  // distinct, rotating colors — never `color1 → color2 → color1` for three
+  // adjacent branches (which reads as if the 1st and 3rd are related).
+  const tipColor = new Map<number, string>();
   [...tips]
-    .sort((a, b) => a.row - b.row)
-    .forEach((tip, index) => {
-      tipColor.set(tip.hash, GRAPH_BRANCH_COLORS[index % GRAPH_BRANCH_COLORS.length]);
+    .sort((a, b) => a.index - b.index)
+    .forEach((tip, n) => {
+      tipColor.set(tip.index, GRAPH_BRANCH_COLORS[n % GRAPH_BRANCH_COLORS.length]);
     });
 
-  // Ownership priority — first-writer-wins, processed in this order:
-  //   1. By IntelliJ layout tier (see `layoutPriority`): remote trunk →
-  //      remote branch → local trunk → local branch. The more important branch
-  //      is processed first, so it claims the shared subgraph below a divergence
-  //      and the mainline stays ONE color — a feature merged into main never
-  //      recolors the trunk below its fork, and a published (remote) branch owns
-  //      a shared line over a local one. (Mirrors GitBranchLayoutComparator.)
-  //   2. Within a tier, the NEWEST/topmost tip first (smallest row): the topmost
-  //      tip walks its whole first-parent chain and owns every commit down to
-  //      the first one a higher-priority branch already claimed. A Y fork's
-  //      newer arm keeps its own color over the shared base (scenario 1); a fully
-  //      OVERLAPPING line — several same-tier tips stacked on one chain with no
-  //      divergence — collapses to ONE color, the topmost tip's, because that tip
-  //      reaches every commit below it before the lower tips run (IntelliJ's
-  //      GraphLayoutBuilder gives a linear graph a single head when the topmost
-  //      tip sorts first). Oldest-first split each one-commit segment into its
-  //      own color — the "5 colors on one line" bug.
-  //   3. Name, as a final stable tiebreak.
-  tips.sort((a, b) => {
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
-    }
-    if (a.row !== b.row) {
-      return a.row - b.row;
-    }
-    return a.refName.localeCompare(b.refName);
+  // Build the FIRST-PARENT-ONLY linear graph: each node's lone down-edge is its
+  // first parent, if in-window. Full-DAG edges would let a merged side branch
+  // change the trunk's ownership; first-parent-only keeps it on the spine.
+  const downAdjacency: number[][] = nodes.map((node) => {
+    const firstParent = node.parents.length > 0 ? indexOf.get(node.parents[0]) : undefined;
+    return firstParent === undefined ? [] : [firstParent];
   });
+  const graph = linearGraphFromDownAdjacency(downAdjacency);
 
-  const colorByHash = new Map<string, string>();
+  // Order heads by the coloring priority above. `buildGraphLayout` processes
+  // heads in this comparator order, so the more important / topmost tip claims a
+  // shared chain first — exactly the old first-writer-wins walk.
+  const priorityOf = new Map<number, ITip>();
   for (const tip of tips) {
-    const color = tipColor.get(tip.hash)!;
-    // Walk down the first-parent chain, claiming until we hit a commit a
-    // higher-priority (more-specific) branch already owns, or leave the window.
-    let cursor: string | undefined = tip.hash;
-    while (cursor !== undefined && !colorByHash.has(cursor)) {
-      colorByHash.set(cursor, color);
-      const node = nodeOf.get(cursor);
-      cursor = node && node.parents.length > 0 ? node.parents[0] : undefined;
+    priorityOf.set(tip.index, tip);
+  }
+  const comparator = (a: number, b: number): number => {
+    const ta = priorityOf.get(a);
+    const tb = priorityOf.get(b);
+    // Ref-less graph heads (no tip) sort after every ref tip and amongst
+    // themselves by index, a stable order; they own only commits no branch
+    // reaches, which stay uncolored.
+    if (!ta || !tb) {
+      if (ta) {
+        return -1;
+      }
+      if (tb) {
+        return 1;
+      }
+      return a - b;
+    }
+    if (ta.priority !== tb.priority) {
+      return ta.priority - tb.priority;
+    }
+    if (a !== b) {
+      return a - b;
+    }
+    return ta.refName.localeCompare(tb.refName);
+  };
+
+  const layout = buildGraphLayout(
+    graph,
+    tips.map((t) => t.index),
+    comparator
+  );
+
+  // A commit's owner is the head its layout fragment belongs to; color it by
+  // that head's palette color. An owner with no ref (a ref-less graph head)
+  // means no branch reaches the commit — leave it uncolored (lane fallback).
+  const colorByHash = new Map<string, string>();
+  for (let i = 0; i < nodes.length; i++) {
+    const owner = layout.getOneOfHeadNodeIndex(i);
+    const color = tipColor.get(owner);
+    if (color !== undefined) {
+      colorByHash.set(nodes[i].hash, color);
     }
   }
 

@@ -229,4 +229,59 @@ describe('branchColors — ownership', () => {
     assert.strictEqual(colors.get('t'), P[0]);
     assert.strictEqual(colors.get('p'), P[0]);
   });
+
+  it('characterization: exact hash→hex map on a multi-merge / multi-tier / off-window DAG', () => {
+    // A permanent regression guard pinning the WHOLE-MAP output byte-for-byte —
+    // the standing fixture replacing the one-off 5000-DAG differential that
+    // proved the engine-backed rewrite output-identical to the old inline walk.
+    // It exercises every ownership axis at once so silent ownership OR palette
+    // drift is caught:
+    //   • a trunk (local `main`) with TWO merges on its first-parent spine;
+    //   • a local feature branch merged into the trunk;
+    //   • a REMOTE branch (higher layout tier than the local trunk);
+    //   • an OFF-WINDOW first parent (m3 → `offwin`, not in the window).
+    //
+    //   row 0  m0     main (local trunk)        parents [m1, f2tip]  (merge)
+    //   row 1  f2tip  feature (local)           parents [m2]
+    //   row 2  m1     —                         parents [m2]
+    //   row 3  m2     —                         parents [m3, f1tip]  (merge)
+    //   row 4  f1tip  origin/featureX (remote)  parents [m3]
+    //   row 5  m3     —                         parents [offwin]     (off-window)
+    const nodes = [
+      node('m0', ['m1', 'f2tip'], [{ name: 'main', type: 'local' }]),
+      node('f2tip', ['m2'], [{ name: 'feature', type: 'local' }]),
+      node('m1', ['m2']),
+      node('m2', ['m3', 'f1tip']),
+      node('f1tip', ['m3'], [{ name: 'origin/featureX', type: 'remote' }]),
+      node('m3', ['offwin']),
+    ];
+    const colors = computeBranchColors(nodes);
+
+    // Exact, whole-map pin. Tips take palette colors by display (row) order:
+    // m0 → P[0], f2tip → P[1], f1tip → P[2].
+    assert.deepStrictEqual(
+      Object.fromEntries(colors),
+      {
+        m0: P[0], // trunk tip
+        m1: P[0], // trunk spine below the feature-2 fork — main owns it
+        m2: P[0], // trunk merge commit — main owns it
+        f2tip: P[1], // merged local feature keeps its own color
+        f1tip: P[2], // remote branch tip
+        // m3 (off-window first parent) is owned by the REMOTE branch, not main:
+        // origin/featureX is a higher tier (remote) than local trunk, so it
+        // claims the shared base it reaches via first parent.
+        m3: P[2],
+      },
+      'whole hash→hex ownership map drifted'
+    );
+
+    // Independent structural cross-checks (so the pin is not a pure echo):
+    // the trunk spine is ONE color across both merges …
+    assert.strictEqual(new Set([colors.get('m0'), colors.get('m1'), colors.get('m2')]).size, 1);
+    // … the two merged side branches each keep a DISTINCT color from the trunk …
+    assert.notStrictEqual(colors.get('f2tip'), colors.get('m0'));
+    assert.notStrictEqual(colors.get('f1tip'), colors.get('m0'));
+    // … and the remote branch (higher tier) owns the off-window-rooted base m3.
+    assert.strictEqual(colors.get('m3'), colors.get('f1tip'));
+  });
 });
