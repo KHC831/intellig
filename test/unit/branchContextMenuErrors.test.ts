@@ -518,6 +518,42 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       assert.ok(forceUsed, 'Force checkout should have been used');
     });
+
+    it('rebases onto the prior COMMIT sha (not literal HEAD) when the prior HEAD was detached', async () => {
+      installInfoMessageTracker();
+      const rebaseTargets: string[] = [];
+      const priorSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+      const gitService = createMockGitService({
+        checkout: () => okAsync(undefined),
+        rebaseBranch: async (_repo: IRepository, onto: string): Promise<IBasicRebaseResult> => {
+          rebaseTargets.push(onto);
+          return { success: true };
+        },
+      });
+      const provider = new BranchTreeProvider(gitService);
+      const detachedRepo = {
+        rootUri: Uri.file('/test-repo'),
+        state: 'idle',
+        // Detached: no branch name, only a commit sha.
+        head: { commit: priorSha, ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+      provider.getRepository = (): IRepository => detachedRepo;
+      const commands = new BranchContextMenuCommands(gitService, provider);
+
+      await invokePrivateHandler(
+        commands,
+        '_handleCheckoutAndRebase',
+        createLocalBranchTreeItem('feature/x')
+      );
+
+      assert.deepStrictEqual(
+        rebaseTargets,
+        [priorSha],
+        'must rebase onto the prior commit sha, not the literal HEAD (a no-op)'
+      );
+    });
   });
 
   // ─── Remote-branch checkout-and-rebase: avoid detached HEAD ──────────────

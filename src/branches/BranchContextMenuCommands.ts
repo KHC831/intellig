@@ -1678,8 +1678,15 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // Store the current branch name before checkout
-    const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
+    // Store the revision to rebase onto BEFORE checkout. When HEAD is attached
+    // that's the branch name; when DETACHED there's no branch name, so capture
+    // the prior COMMIT sha — rebasing onto the literal 'HEAD' would target the
+    // just-moved HEAD (a no-op / nonsensical target).
+    const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || repo.head?.commit;
+    if (!previousCurrentBranch) {
+      void vscode.window.showErrorMessage('Cannot determine the previous revision to rebase onto.');
+      return;
+    }
 
     // Resolve the actual checkout target:
     //   - Local branch  → check out by name (`git checkout main`).
