@@ -319,6 +319,27 @@ describe('GitService.cherryPick — variants', () => {
       assert.ok(result.conflicts.includes('src/bar.ts'));
     });
 
+    it('reports both-added (AA) and both-deleted (DD) unmerged entries as conflicts', async () => {
+      // A cherry-pick can leave AA / DD unmerged paths (neither column is 'U'),
+      // which a U-only filter silently drops. Detect conflicts consistently with
+      // every other site via isConflictedStatus.
+      const { gitService, mockGitCli } = installGitService();
+      mockGitCli.setMockResult('cherry-pick --end-of-options abc1234', {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'CONFLICT (add/add): Merge conflict in src/both.ts',
+      });
+      mockGitCli.setMockResult('status --porcelain -z', {
+        exitCode: 0,
+        stdout: 'AA src/both.ts\0DD src/gone.ts\0',
+        stderr: '',
+      });
+      const result = (await gitService.cherryPick(makeRepo(), ['abc1234']))._unsafeUnwrap();
+      assert.strictEqual(result.success, false);
+      assert.ok(result.conflicts);
+      assert.deepStrictEqual(result.conflicts.sort(), ['src/both.ts', 'src/gone.ts']);
+    });
+
     it('conflict during --no-commit cherry-pick: same behaviour', async () => {
       const { gitService, mockGitCli } = installGitService();
       mockGitCli.setMockResult('cherry-pick --no-commit --end-of-options abc1234', {

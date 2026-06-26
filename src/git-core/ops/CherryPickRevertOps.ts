@@ -8,7 +8,7 @@ import {
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
 import { GitError, InvalidArgumentError, classifyGitCommandError } from '../errors';
-import { parseStatus } from '../gitParser';
+import { parseStatus, isConflictedStatus } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -257,7 +257,7 @@ export class CherryPickRevertOps {
       cwd: repo.rootUri.fsPath,
     });
     return parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
   }
 
