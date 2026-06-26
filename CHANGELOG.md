@@ -10,6 +10,19 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.8] - 2026-06-26
+
+### Changed
+
+- Colorblind-safe graph branch coloring — one stable color per branch across lines, nodes, and chips.
+- Branch & tag labels are now neutral chips with a colored icon and foreground text (transparent tag chip), readable on any theme.
+- Commit message text and branch/tag chips scale with the editor font size.
+- Commit details: the subject is shown in bold and the redundant "Message:" label was removed.
+
+### Fixed
+
+- The current-branch ring is no longer clipped at the chip edges.
+
 ## [0.2.7] - 2026-06-25
 
 ### Fixed
