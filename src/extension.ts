@@ -333,9 +333,10 @@ export function deactivate(): void {
       rebaseEditor = undefined;
     }
 
-    // Dispose the Rebase Progress View
+    // Release the Rebase Progress View. It is registered on
+    // context.subscriptions (registerViews), so VS Code disposes it after
+    // deactivate() returns — null the ref only to avoid a double-dispose.
     if (rebaseProgressView) {
-      rebaseProgressView.dispose();
       rebaseProgressView = undefined;
     }
 
@@ -345,9 +346,8 @@ export function deactivate(): void {
       inlineBlameProvider = undefined;
     }
 
-    // Dispose the Gutter Blame Provider
+    // Release the Gutter Blame Provider — context.subscriptions owns disposal.
     if (gutterBlameProvider) {
-      gutterBlameProvider.dispose();
       gutterBlameProvider = undefined;
     }
 
@@ -369,27 +369,23 @@ export function deactivate(): void {
       branchPopup = undefined;
     }
 
-    // Dispose the Stash View
+    // Release the Stash View — context.subscriptions owns disposal.
     if (stashView) {
-      stashView.dispose();
       stashView = undefined;
     }
 
-    // Dispose the Shelf View
+    // Release the Shelf View — context.subscriptions owns disposal.
     if (shelfView) {
-      shelfView.dispose();
       shelfView = undefined;
     }
 
-    // Dispose the Branch Comparison View
+    // Release the Branch Comparison View — context.subscriptions owns disposal.
     if (branchComparisonView) {
-      branchComparisonView.dispose();
       branchComparisonView = undefined;
     }
 
-    // Dispose the Status Bar Service
+    // Release the Status Bar Service — context.subscriptions owns disposal.
     if (statusBarService) {
-      statusBarService.dispose();
       statusBarService = undefined;
     }
 
@@ -403,9 +399,8 @@ export function deactivate(): void {
       notificationService = undefined;
     }
 
-    // Dispose the Keymap Service
+    // Release the Keymap Service — context.subscriptions owns disposal.
     if (keymapService) {
-      keymapService.dispose();
       keymapService = undefined;
     }
 
