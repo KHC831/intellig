@@ -32,6 +32,7 @@ import {
 } from './services';
 import type { IRepository, IPushPreselect, IRebaseDialogPreselect } from './services';
 import { CommitContextMenuCommands } from './commits';
+import { isValidRefNameFormat } from './branches/branchNameValidator';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
 import { runKeymapMigrationSafe } from './utils/keymapMigration';
@@ -917,9 +918,11 @@ export function validateBranchName(value: string): string | undefined {
   if (!value || !value.trim()) {
     return 'Branch name cannot be empty';
   }
-  // Security: reject leading `-` (git parses `-foo` as a CLI flag) and
-  // leading `.` (invalid per git-check-ref-format).
-  if (!/^(?![-.])[\w\-./]+$/.test(value)) {
+  // Delegate to the single check-ref-format validator (branchNameValidator),
+  // which — unlike the prior inline `[\w\-./]+` regex — also rejects `..`, `//`,
+  // a trailing `/`/`.`/`.lock`, `./`/`/.`, leading `-`/`.`/`/`, `@{`, and
+  // control/special chars. One source of truth across every "New Branch…" entry.
+  if (!isValidRefNameFormat(value)) {
     return 'Branch name contains invalid characters';
   }
   return undefined;
