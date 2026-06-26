@@ -2450,16 +2450,23 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      // Chip backgrounds are now set INLINE per branch color (so a chip matches
-      // its graph line); the shared CSS no longer hardcodes the local green and
-      // only sets white text.
+      // Option C: chips are a neutral badge with foreground text; the branch
+      // color rides on the icon (inline). No hardcoded green fill, no white-on-fill.
       assert.ok(
         !html.includes('background: #499C54'),
-        'the old hardcoded local-green background must be gone (color is inline now)'
+        'the old hardcoded local-green background must be gone'
       );
       assert.ok(
-        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*#fff/i.test(html),
-        'Local/remote chips must keep white text for legibility on the branch-color fill'
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*background:\s*var\(--vscode-badge-background/i.test(
+          html
+        ),
+        'Local/remote chips must use a neutral badge background'
+      );
+      assert.ok(
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*var\(--vscode-foreground/i.test(
+          html
+        ),
+        'Local/remote chips must use the theme foreground text'
       );
     });
 

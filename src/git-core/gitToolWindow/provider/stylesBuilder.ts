@@ -945,8 +945,9 @@ export function buildInlineStyles(): string {
          Prepended FIRST (leftmost) in the .commit-branches flex slot. */
       .branch-label-head {
         display: inline-block;
-        color: #fff;
-        font-size: 11px;
+        background: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-foreground, #ccc);
+        font-size: var(--vscode-font-size);
         font-weight: 700;
         padding: 1px 5px;
         border-radius: 3px;
@@ -987,13 +988,17 @@ export function buildInlineStyles(): string {
          INLINE per chip to the commit's owning-branch color (earthy palette), so
          a chip matches the graph line it sits on; local vs remote is conveyed by
          the chip's aria-label, not a fixed hue. */
+      /* Option C (IntelliJ LabelPainter): chips are a NEUTRAL badge with
+         foreground text; the branch color rides on the icon (set inline), not
+         the fill — so the name is always readable on any theme/branch color. */
       .branch-label-local,
       .branch-label-remote {
         font-size: var(--vscode-font-size);
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
-        color: #fff;
+        background: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-foreground, #ccc);
       }
 
       /* Collapsed-summary chip ("+N"): rendered when a commit has more
@@ -1054,15 +1059,17 @@ export function buildInlineStyles(): string {
         text-decoration: underline;
       }
 
-      /* Tag badge: a fixed readable green with white text. The previous
-         theme-variable background (gitDecoration-modifiedResourceForeground)
-         resolves to a LIGHT tan (#E2C08D) on the default dark theme, where
-         white text is ~1.7:1 contrast — unreadable. A fixed mid-dark green
-         (#2e7d32) keeps white text at ~5.2:1 (WCAG AA) on BOTH dark and light
-         themes, and reads as the conventional "tag" colour. snap-13f pins it. */
+      /* Tag chip — Option C (IntelliJ): a neutral badge with foreground text;
+         the green rides on the tag ICON (below), not the fill. Always readable
+         regardless of theme. snap-13f pins it. */
       .tag-label {
-        background-color: #2e7d32;
-        color: #fff;
+        background-color: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-foreground, #ccc);
+      }
+
+      /* The tag's conventional green lives on the icon now (the chip is neutral). */
+      .tag-label i.codicon {
+        color: #2e7d32;
       }
 
       /* Tag name-on-hover (IntelliJ "Tag Names off" default). The tag is an
