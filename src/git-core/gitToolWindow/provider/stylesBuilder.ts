@@ -957,7 +957,10 @@ export function buildInlineStyles(): string {
         text-overflow: ellipsis;
         white-space: nowrap;
         vertical-align: middle;
-        box-shadow: 0 0 0 1.5px var(--vscode-foreground, #ffffff);
+        /* INSET ring so the current-branch outline is drawn INSIDE the chip box.
+           An outset ring is clipped by the .commit-branches overflow:hidden —
+           cut off top/bottom, and on the right for the last chip. */
+        box-shadow: inset 0 0 0 1.5px var(--vscode-foreground, #ffffff);
       }
 
       /* Cap chip width with CSS ellipsis. Without a cap, a 70-char branch
