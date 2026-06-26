@@ -420,10 +420,13 @@ export function buildInlineScript(): string {
             return r;
           };
 
-          const msgRow = row('Message:');
-          msgRow.classList.add('message-row');
+          // Commit message — subject in BOLD, body below; no "Message:" label
+          // (IntelliJ shows the subject as the header, not a labeled field).
+          const msgRow = make('div', 'detail-row message-row');
           const pre = make('pre', 'detail-value commit-full-message');
-          appendTokens(pre, model.messageTokens);
+          const subject = make('span', 'commit-subject');
+          appendTokens(subject, model.messageTokens);
+          pre.appendChild(subject);
           if (model.bodyTokens) {
             pre.appendChild(document.createTextNode('\\n\\n'));
             appendTokens(pre, model.bodyTokens);

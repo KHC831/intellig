@@ -170,11 +170,16 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       assert.ok(html.includes('Date:'), 'Should have Date label');
     });
 
-    it('should have a "Message:" label', () => {
+    it('renders the subject in bold with NO "Message:" label (IntelliJ-style)', () => {
       const details = makeCommitDetails();
       const html = renderDetails(provider, details);
 
-      assert.ok(html.includes('Message:'), 'Should have Message label');
+      assert.ok(!html.includes('Message:'), 'should NOT render a "Message:" field label');
+      assert.ok(
+        html.includes('commit-subject'),
+        'subject is rendered in a .commit-subject element (bold)'
+      );
+      assert.ok(html.includes('Fix authentication bug'), 'subject text is present');
     });
   });
 

@@ -3741,11 +3741,14 @@ ${bodyMarkup}
     const inlineBranches: IBranchRef[] = orderedBranches.slice(0, MAX_INLINE_BRANCH_CHIPS);
     const collapsedBranches: IBranchRef[] = orderedBranches.slice(MAX_INLINE_BRANCH_CHIPS);
 
-    // All chips on this commit take the commit's OWNING-branch color (so a chip
-    // matches the graph line it sits on). The current-branch chip is set apart
-    // by a ring + bold (`.branch-label-head`), not a different hue.
+    // Option C (IntelliJ `LabelPainter`): the owning-branch color is the chip
+    // ICON's color, NOT a chip fill. The chip stays a neutral badge with
+    // foreground text (set in CSS), so the branch name is always readable
+    // regardless of how light the branch color is — while the colored icon still
+    // ties the chip to its graph line. The current-branch chip adds a ring +
+    // bold (`.branch-label-head`).
     const chipColor = branchColors?.get(node.commit.hash);
-    const chipStyleAttr = chipColor ? ` style="background:${chipColor}"` : '';
+    const iconColorAttr = chipColor ? ` style="color:${chipColor}"` : '';
 
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
@@ -3800,10 +3803,10 @@ ${bodyMarkup}
       // data-branch-name carries the unescaped name so the inline
       // script's partial-update handler can match by attribute. The
       // attribute value goes through the same _escapeHtml the chip text
-      // uses so reflective injection is impossible. `chipStyleAttr` sets the
-      // per-branch background (a controlled palette hex) so the chip matches
-      // its graph line.
-      return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}${chipStyleAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
+      // uses so reflective injection is impossible. `iconColorAttr` tints the
+      // chip ICON with the controlled palette hex so the chip ties to its
+      // graph line; the chip itself is a neutral badge (CSS).
+      return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}><i class="codicon ${iconClass}"${iconColorAttr} aria-hidden="true"></i>${escapedName}</span>`;
     });
 
     // Tag chips render LAST (rightmost) so branch

@@ -1597,7 +1597,7 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     provider.dispose();
   });
 
-  it('snap-12e: chip background is set inline per branch color; CSS no longer hardcodes green/violet, only white text', () => {
+  it('snap-12e: chips are a neutral badge with foreground text; branch color rides on the icon (Option C)', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -1608,30 +1608,45 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Chips now take the commit's owning-branch color (set INLINE), so a chip
-    // matches its graph line. The shared chip CSS no longer hardcodes the old
-    // per-ref-kind green/violet — it only sets white text + sizing.
+    // Option C (IntelliJ LabelPainter): no per-ref-kind colored fill — the chip
+    // is a neutral badge with foreground text; the branch color is set inline on
+    // the icon. So the old hardcoded green/violet fill AND the white-on-fill text
+    // are both gone.
     assert.ok(
-      !/\.branch-label-local\s*\{[^}]*background:\s*#499C54/i.test(fullHtml),
-      'the old hardcoded local-green background must be gone (color is inline now)'
+      !/background:\s*#499C54/i.test(fullHtml),
+      'the old hardcoded local-green background must be gone'
     );
     assert.ok(
       !/background:\s*#9876AA/i.test(fullHtml),
-      'the old hardcoded remote-violet background must be gone (color is inline now)'
+      'the old hardcoded remote-violet background must be gone'
     );
     assert.ok(
-      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*#fff/i.test(fullHtml),
-      'shared chip CSS must keep white text for legibility on the branch-color fill'
+      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*background:\s*var\(--vscode-badge-background/i.test(
+        fullHtml
+      ),
+      'chips must use a neutral badge background'
+    );
+    assert.ok(
+      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*var\(--vscode-foreground/i.test(
+        fullHtml
+      ),
+      'chip text must use the theme foreground'
     );
   });
 
-  it('snap-12e-2: a rendered chip carries an inline background = the commit branch color', () => {
+  it('snap-12e-2: a rendered chip tints its ICON with the commit branch color (no fill)', () => {
     const node = nodeWithBranches('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ['feature']);
     const colors = new Map<string, string>([[node.commit.hash, '#2f8f4e']]);
     const html = provider._getBranchLabelsHtml(node, colors);
     assert.ok(
-      /<span class="branch-label-local"[^>]*style="background:#2f8f4e"/.test(html),
-      `chip must carry the inline branch-color background; got: ${html}`
+      /<span class="branch-label-local"[^>]*><i class="codicon codicon-git-branch" style="color:#2f8f4e"/.test(
+        html
+      ),
+      `chip icon must carry the inline branch color; got: ${html}`
+    );
+    assert.ok(
+      !/<span class="branch-label-local"[^>]*style="background:/.test(html),
+      `chip span must NOT carry an inline background fill; got: ${html}`
     );
   });
 });
@@ -2068,7 +2083,7 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     );
   });
 
-  it('snap-13f: CSS contract — .tag-label uses gitDecoration-modifiedResourceForeground + #6897BB fallback', () => {
+  it('snap-13f: CSS contract — .tag-label is a neutral chip with foreground text + green icon (Option C)', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -2078,38 +2093,25 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
       asWebviewUri: (uri: import('vscode').Uri) => uri,
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
-    // The `.tag-label` background-color rule pre-existed
-    // (`var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)`).
-    // It survives the chip-family widening (snap-13f).
+    // Option C (IntelliJ LabelPainter): the tag chip is a neutral badge with
+    // foreground text; the conventional green rides on the tag ICON, so the
+    // name is readable on any theme.
     assert.ok(
-      /\.tag-label\s*\{[^}]*var\(--vscode-gitDecoration-modifiedResourceForeground/.test(fullHtml),
-      `inline CSS for .tag-label must use var(--vscode-gitDecoration-modifiedResourceForeground)`
+      /\.tag-label\s*\{[^}]*background-color:\s*transparent/.test(fullHtml),
+      `.tag-label must have a transparent (no-fill) background`
     );
     assert.ok(
-      /\.tag-label\s*\{[^}]*#6897BB/.test(fullHtml),
-      `inline CSS for .tag-label must keep #6897BB as the fallback hex`
-    );
-    // Chip-family 200px cap now extends to .tag-label.
-    assert.ok(
-      /\.tag-label[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
-        /\.branch-label-local\s*,\s*\.branch-label-remote\s*,\s*\.tag-label[\s\S]*?max-width:\s*200px/.test(
-          fullHtml
-        ),
-      'Wave K must extend the 200px cap to .tag-label'
-    );
-    // Chip-family theme symmetry. The `.tag-label`
-    // foreground colour must use `var(--vscode-badge-foreground, white)`
-    // matching the `.branch-label-*` family. Earlier it used a raw `white`
-    // token which loses theme adherence on light / hi-contrast themes
-    // where the theme overrides badge-foreground. Pinned here so the
-    // colour-token contract for the entire chip family is locked.
-    assert.ok(
-      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground/.test(fullHtml),
-      'inline CSS for .tag-label must use var(--vscode-badge-foreground) for chip-family theme symmetry'
+      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-foreground/.test(fullHtml),
+      `.tag-label text must use the theme foreground`
     );
     assert.ok(
-      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground,\s*white\)/.test(fullHtml),
-      'inline CSS for .tag-label must keep `white` as the badge-foreground fallback'
+      /\.tag-label i\.codicon\s*\{[^}]*color:\s*#2e7d32/.test(fullHtml),
+      `the tag green must live on the .tag-label icon`
+    );
+    // Chip-family 200px cap still extends to .tag-label.
+    assert.ok(
+      /\.tag-label[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'the 200px cap must still apply to .tag-label'
     );
   });
 

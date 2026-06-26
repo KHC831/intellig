@@ -2450,16 +2450,23 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      // Chip backgrounds are now set INLINE per branch color (so a chip matches
-      // its graph line); the shared CSS no longer hardcodes the local green and
-      // only sets white text.
+      // Option C: chips are a neutral badge with foreground text; the branch
+      // color rides on the icon (inline). No hardcoded green fill, no white-on-fill.
       assert.ok(
         !html.includes('background: #499C54'),
-        'the old hardcoded local-green background must be gone (color is inline now)'
+        'the old hardcoded local-green background must be gone'
       );
       assert.ok(
-        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*#fff/i.test(html),
-        'Local/remote chips must keep white text for legibility on the branch-color fill'
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*background:\s*var\(--vscode-badge-background/i.test(
+          html
+        ),
+        'Local/remote chips must use a neutral badge background'
+      );
+      assert.ok(
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*color:\s*var\(--vscode-foreground/i.test(
+          html
+        ),
+        'Local/remote chips must use the theme foreground text'
       );
     });
 
@@ -2505,8 +2512,14 @@ describe('_getBranchLabelsHtml', () => {
         []
       );
 
-      // Both classes share the same sizing/spacing properties
-      assert.ok(html.includes('font-size: 11px'), 'Should include font-size 11px');
+      // Both classes share the same sizing/spacing properties. Font size now
+      // follows the editor font (var(--vscode-font-size)) so chips scale with it.
+      assert.ok(
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*font-size:\s*var\(--vscode-font-size\)/.test(
+          html
+        ),
+        'branch labels should use var(--vscode-font-size)'
+      );
       assert.ok(html.includes('padding: 1px 5px'), 'Should include padding 1px 5px');
       assert.ok(html.includes('border-radius: 3px'), 'Should include border-radius 3px');
       assert.ok(html.includes('margin-left: 4px'), 'Should include margin-left 4px');

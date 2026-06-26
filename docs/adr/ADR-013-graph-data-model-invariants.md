@@ -257,6 +257,36 @@ should not produce bezier curves` and `should return at least 8
 distinct colors` (the L4 markers tracked by the
   `lanesPinned.audit.test.ts` Phase 0 audit).
 
+#### The lane ↔ branch-color bridge invariant (L4 corollary)
+
+Two independent layers cooperate to color a segment, and a single
+load-bearing invariant holds them together:
+
+> A commit's first-parent-spine lane (the lane `commitGraph.ts`
+> topology puts it on) is exactly the lane its branch-color owner
+> colors.
+
+`computeBranchColors` (`branchColors.ts`) decides OWNERSHIP — which
+head owns each commit — over a FIRST-PARENT-ONLY graph fed to the
+ported `buildGraphLayout` engine. `printModel.ts`'s `projectRow`
+resolves a SEGMENT's color via `ownerColorForLaneAt`, which walks the
+lane TOPOLOGY to the nearest commit on that lane and looks its hash up
+in the same color map. The two only agree because both follow the
+first-parent spine: ownership propagates down first parents, and a
+commit's spine sits on a single lane (spec 8 L1, section 2 above). If
+either side stopped following first parents — full-DAG ownership in
+`branchColors`, or a lane walk that crossed a fork — a segment could be
+colored by a commit that does not own its lane, reviving the
+"segment a different color than the node it connects" bug class.
+
+`ownerColorForLaneAt` is the single owner-lookup primitive on the
+print-model side (it replaced three ad-hoc lane walks); it carries a
+comment pointing back to this corollary. The bridge is pinned by the
+`renderer: ONE owner per lane-segment …` property in
+`test/property/graphNodeLineColor.property.test.ts`, which asserts over
+random DAGs that every element's color equals the color of the node
+owning its lane there.
+
 ### 5. The lanesPinned audit cross-references this ADR
 
 `src/test/unit/audit/lanesPinned.audit.test.ts` is the meta-test

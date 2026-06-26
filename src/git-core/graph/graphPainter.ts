@@ -103,7 +103,10 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
     }
 
     if (model.node.isTerminal) {
-      const ringRadius = nodeRadius + 2;
+      // The tip/terminal node is emphasized with a white ring just OUTSIDE the
+      // colored disc. The disc is filled out to the ring radius so the node
+      // reads as one solid dot with a white outline.
+      const ringRadius = nodeRadius + 1.5;
       elements.push(
         `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1.5"${opacityAttr}/>`
       );

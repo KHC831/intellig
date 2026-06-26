@@ -35,10 +35,13 @@ describe('branchColors — palette', () => {
 
 describe('branchColors — rotation (adjacent branches differ)', () => {
   it('assigns consecutive palette colors down the view — never color1→color2→color1', () => {
-    // Three branch tips stacked in display order, then a shared base.
+    // Three branches that genuinely DIVERGE (each forks off a shared base), so
+    // all three colors are actually rendered on distinct lines. (A stack of
+    // tips on a SINGLE overlapping chain collapses to one color — see the
+    // "full overlap" ownership test — so it can't exercise palette rotation.)
     const nodes = [
-      node('b0', ['b1'], [{ name: 'br0', type: 'local' }]),
-      node('b1', ['b2'], [{ name: 'br1', type: 'local' }]),
+      node('b0', ['base'], [{ name: 'br0', type: 'local' }]),
+      node('b1', ['base'], [{ name: 'br1', type: 'local' }]),
       node('b2', ['base'], [{ name: 'br2', type: 'local' }]),
       node('base', []),
     ];
@@ -119,23 +122,82 @@ describe('branchColors — ownership', () => {
     assert.notStrictEqual(colors.get('newTip'), colors.get('trunkTip'));
   });
 
-  it('scenario 2 (full overlap): line splits at the shorter branch tip', () => {
+  it('scenario 2 (full overlap, no divergence): the whole line is ONE color', () => {
+    // Several branch tips stacked on a SINGLE first-parent chain, no fork and no
+    // merge — feature-b is simply ahead of feature-a on the same line. IntelliJ
+    // collapses such a linear graph to a single head (the topmost tip) when that
+    // tip is processed first, so the entire line is one color. The old
+    // oldest-tip-first rule split it into a per-tip-segment rainbow (the
+    // "5 colors on one line" bug); newest-tip-first lets feature-b's tip claim
+    // the whole chain.
     const nodes = [
       node('bTip', ['m1'], [{ name: 'feature-b', type: 'local' }]), // row 0 → P[0]
       node('m1', ['aTip']),
-      node('aTip', ['s1'], [{ name: 'feature-a', type: 'local' }]), // row 2 → P[1]
+      node('aTip', ['s1'], [{ name: 'feature-a', type: 'local' }]), // row 2
       node('s1', ['Pp']),
       node('Pp', []),
     ];
     const colors = computeBranchColors(nodes);
-    // feature-b's unique commits keep its color
+    // The topmost tip (feature-b) owns every commit down the overlapping chain.
     assert.strictEqual(colors.get('bTip'), P[0]);
     assert.strictEqual(colors.get('m1'), P[0]);
-    // feature-a's tip + shared base take its color (the split)
-    assert.strictEqual(colors.get('aTip'), P[1], 'shorter-branch tip owns from here down');
-    assert.strictEqual(colors.get('s1'), P[1]);
-    assert.strictEqual(colors.get('Pp'), P[1]);
-    assert.notStrictEqual(colors.get('m1'), colors.get('aTip'), 'the two halves differ');
+    assert.strictEqual(colors.get('aTip'), P[0], 'no divergence → no new color at feature-a');
+    assert.strictEqual(colors.get('s1'), P[0]);
+    assert.strictEqual(colors.get('Pp'), P[0]);
+    // Exactly one distinct color across the whole line.
+    assert.strictEqual(
+      new Set([
+        colors.get('bTip'),
+        colors.get('m1'),
+        colors.get('aTip'),
+        colors.get('s1'),
+        colors.get('Pp'),
+      ]).size,
+      1
+    );
+  });
+
+  it('IntelliJ tier: a remote branch owns the shared base over a local branch', () => {
+    // Two branches fork from a shared base: a REMOTE branch (newer/topmost) and
+    // a LOCAL branch (older). Tier beats row — the remote branch (published
+    // history) is processed first and claims the shared base, mirroring
+    // GitBranchLayoutComparator (REMOTE_BRANCH outranks LOCAL_BRANCH).
+    const nodes = [
+      node('rTip', ['base'], [{ name: 'origin/feature', type: 'remote' }]), // row 0
+      node('lTip', ['base'], [{ name: 'local-feature', type: 'local' }]), // row 1
+      node('base', []),
+    ];
+    const colors = computeBranchColors(nodes);
+    assert.strictEqual(
+      colors.get('rTip'),
+      colors.get('base'),
+      'remote branch owns the shared base'
+    );
+    assert.notStrictEqual(
+      colors.get('lTip'),
+      colors.get('base'),
+      'local branch keeps only its tip'
+    );
+  });
+
+  it('IntelliJ tier: origin/main (remote trunk) outranks a topmost local feature', () => {
+    // The local feature is the NEWEST tip, but origin/main is a higher tier, so
+    // origin/main owns the shared mainline below the fork (remote trunk = tier 0).
+    const nodes = [
+      node('fTip', ['shared'], [{ name: 'feature', type: 'local' }]), // row 0 (newest)
+      node('omTip', ['shared'], [{ name: 'origin/main', type: 'remote' }]), // row 1
+      node('shared', ['base']),
+      node('base', []),
+    ];
+    const colors = computeBranchColors(nodes);
+    const trunk = colors.get('omTip');
+    assert.strictEqual(colors.get('shared'), trunk, 'remote trunk owns the shared mainline');
+    assert.strictEqual(colors.get('base'), trunk, 'remote trunk owns the shared base too');
+    assert.notStrictEqual(
+      colors.get('fTip'),
+      trunk,
+      'the topmost local feature keeps its own color despite being newer'
+    );
   });
 
   it('first-parent only — a merged side branch does not recolor the mainline', () => {
@@ -166,5 +228,60 @@ describe('branchColors — ownership', () => {
     const colors = computeBranchColors(nodes, { headBranchName: 'main' });
     assert.strictEqual(colors.get('t'), P[0]);
     assert.strictEqual(colors.get('p'), P[0]);
+  });
+
+  it('characterization: exact hash→hex map on a multi-merge / multi-tier / off-window DAG', () => {
+    // A permanent regression guard pinning the WHOLE-MAP output byte-for-byte —
+    // the standing fixture replacing the one-off 5000-DAG differential that
+    // proved the engine-backed rewrite output-identical to the old inline walk.
+    // It exercises every ownership axis at once so silent ownership OR palette
+    // drift is caught:
+    //   • a trunk (local `main`) with TWO merges on its first-parent spine;
+    //   • a local feature branch merged into the trunk;
+    //   • a REMOTE branch (higher layout tier than the local trunk);
+    //   • an OFF-WINDOW first parent (m3 → `offwin`, not in the window).
+    //
+    //   row 0  m0     main (local trunk)        parents [m1, f2tip]  (merge)
+    //   row 1  f2tip  feature (local)           parents [m2]
+    //   row 2  m1     —                         parents [m2]
+    //   row 3  m2     —                         parents [m3, f1tip]  (merge)
+    //   row 4  f1tip  origin/featureX (remote)  parents [m3]
+    //   row 5  m3     —                         parents [offwin]     (off-window)
+    const nodes = [
+      node('m0', ['m1', 'f2tip'], [{ name: 'main', type: 'local' }]),
+      node('f2tip', ['m2'], [{ name: 'feature', type: 'local' }]),
+      node('m1', ['m2']),
+      node('m2', ['m3', 'f1tip']),
+      node('f1tip', ['m3'], [{ name: 'origin/featureX', type: 'remote' }]),
+      node('m3', ['offwin']),
+    ];
+    const colors = computeBranchColors(nodes);
+
+    // Exact, whole-map pin. Tips take palette colors by display (row) order:
+    // m0 → P[0], f2tip → P[1], f1tip → P[2].
+    assert.deepStrictEqual(
+      Object.fromEntries(colors),
+      {
+        m0: P[0], // trunk tip
+        m1: P[0], // trunk spine below the feature-2 fork — main owns it
+        m2: P[0], // trunk merge commit — main owns it
+        f2tip: P[1], // merged local feature keeps its own color
+        f1tip: P[2], // remote branch tip
+        // m3 (off-window first parent) is owned by the REMOTE branch, not main:
+        // origin/featureX is a higher tier (remote) than local trunk, so it
+        // claims the shared base it reaches via first parent.
+        m3: P[2],
+      },
+      'whole hash→hex ownership map drifted'
+    );
+
+    // Independent structural cross-checks (so the pin is not a pure echo):
+    // the trunk spine is ONE color across both merges …
+    assert.strictEqual(new Set([colors.get('m0'), colors.get('m1'), colors.get('m2')]).size, 1);
+    // … the two merged side branches each keep a DISTINCT color from the trunk …
+    assert.notStrictEqual(colors.get('f2tip'), colors.get('m0'));
+    assert.notStrictEqual(colors.get('f1tip'), colors.get('m0'));
+    // … and the remote branch (higher tier) owns the off-window-rooted base m3.
+    assert.strictEqual(colors.get('m3'), colors.get('f1tip'));
   });
 });

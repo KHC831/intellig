@@ -66,12 +66,6 @@ export function buildInlineStyles(): string {
         border: 0;
       }
 
-      .git-tool-window {
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-      }
-
       /* No Repository Message */
       .no-repository {
         display: flex;
@@ -99,167 +93,6 @@ export function buildInlineStyles(): string {
 
       .init-repo-button:focus {
         outline: 1px solid var(--vscode-focusBorder);
-      }
-
-      /* Local Changes Toolbar */
-      .local-changes-toolbar {
-        display: flex;
-        justify-content: flex-end;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--vscode-panel-border);
-        background-color: var(--vscode-sideBar-background);
-      }
-
-      .toolbar-button {
-        padding: 4px 8px;
-        background: transparent;
-        color: var(--vscode-foreground);
-        border: none;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 14px;
-      }
-
-      .toolbar-button:hover {
-        background-color: var(--vscode-toolbar-hoverBackground);
-      }
-
-      /* Local Changes Content */
-      .local-changes-content {
-        flex: 1;
-        overflow: auto;
-        padding: 4px;
-      }
-
-      /* Changelist Styles */
-      .changelist {
-        margin-bottom: 4px;
-        border-radius: 3px;
-        transition: background-color 0.2s ease;
-      }
-
-      .changelist.drag-over {
-        background-color: var(--vscode-list-dropBackground);
-        outline: 2px dashed var(--vscode-focusBorder);
-      }
-
-      .changelist-header {
-        display: flex;
-        align-items: center;
-        padding: 6px 8px;
-        cursor: pointer;
-        border-radius: 3px;
-        user-select: none;
-      }
-
-      .changelist-header:hover {
-        background-color: var(--vscode-list-hoverBackground);
-      }
-
-      .changelist-header:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-      }
-
-      .expand-icon {
-        width: 16px;
-        font-size: 10px;
-        color: var(--vscode-foreground);
-        flex-shrink: 0;
-      }
-
-      .changelist-name {
-        flex: 1;
-        font-weight: 500;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .file-count {
-        color: var(--vscode-descriptionForeground);
-        font-size: 0.9em;
-        margin-left: 8px;
-      }
-
-      .default-badge {
-        font-size: 10px;
-        padding: 1px 4px;
-        margin-left: 8px;
-        background-color: var(--vscode-badge-background);
-        color: var(--vscode-badge-foreground);
-        border-radius: 3px;
-      }
-
-      .changelist-files {
-        margin-left: 8px;
-        padding-left: 8px;
-        border-left: 1px solid var(--vscode-panel-border);
-      }
-
-      /* File Item Styles - IntelliJ-style */
-      .file-item {
-        display: flex;
-        align-items: center;
-        padding: 3px 8px;
-        cursor: pointer;
-        border-radius: 3px;
-        user-select: none;
-        transition: background-color 0.1s ease;
-      }
-
-      .file-item:hover {
-        background-color: var(--vscode-list-hoverBackground);
-      }
-
-      .file-item:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-      }
-
-      .file-item.selected {
-        background-color: var(--vscode-list-activeSelectionBackground);
-        color: var(--vscode-list-activeSelectionForeground);
-      }
-
-      .file-item.dragging {
-        opacity: 0.5;
-      }
-
-      .file-status {
-        width: 16px;
-        height: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 11px;
-        font-weight: bold;
-        margin-right: 6px;
-        flex-shrink: 0;
-      }
-
-      .file-path {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 13px;
-      }
-
-      .file-dir {
-        color: var(--vscode-descriptionForeground);
-        font-size: 11px;
-        margin-left: 8px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: 150px;
-      }
-
-      .staged-indicator {
-        color: var(--intellij-added);
-        margin-left: 4px;
-        font-size: 10px;
       }
 
       /* Context Menu Styles */
@@ -306,20 +139,10 @@ export function buildInlineStyles(): string {
         display: none;
       }
 
-      .context-menu-arrow {
-        margin-left: auto;
-        font-size: 10px;
-        color: var(--vscode-descriptionForeground);
-      }
-
       .context-menu-separator {
         height: 1px;
         background-color: var(--vscode-menu-separatorBackground);
         margin: 4px 0;
-      }
-
-      .context-menu-submenu {
-        position: relative;
       }
 
       /* Empty/Placeholder Messages */
@@ -353,22 +176,6 @@ export function buildInlineStyles(): string {
       }
       .graph-empty-action:hover {
         background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
-      }
-
-      /* Log View Styles: IntelliJ-style log layout */
-      .log-container {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-      }
-
-      .log-toolbar {
-        display: flex;
-        justify-content: flex-end;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--vscode-panel-border);
-        background-color: var(--vscode-sideBar-background);
-        gap: 4px;
       }
 
       /* ─── Log filter row (IntelliJ VcsLogClassicFilterUi) ─────────────── */
@@ -626,26 +433,6 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-button-hoverBackground);
       }
 
-      .log-split-view {
-        display: flex;
-        flex: 1;
-        overflow: hidden;
-      }
-
-      .log-commit-list {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-        min-width: 300px;
-      }
-
-      .log-details-panel {
-        width: 350px;
-        border-left: 1px solid var(--vscode-panel-border);
-        overflow-y: auto;
-        background-color: var(--vscode-sideBar-background);
-      }
-
       /* Commit Row Styles */
       .commit-row {
         display: flex;
@@ -713,10 +500,6 @@ export function buildInlineStyles(): string {
         display: none;
       }
 
-      .graph-svg {
-        display: block;
-      }
-
       /* Commit Info Styles */
       .commit-info {
         flex: 1;
@@ -739,21 +522,31 @@ export function buildInlineStyles(): string {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
         line-height: 24px;
         flex: 1;
         min-width: 0;
         text-align: left;
       }
 
-      /* Branch chips live in a sibling flex slot of .commit-title.
-         The flex-shrink: 0 here is the IntelliJ-parity invariant: chips 
-         are always reachable; the message ellipsises around them. The
-         :empty rule keeps the slot from occupying the 8px right margin
-         when a commit has no branches. */
+      /* Branch chips live in a flex slot between the message and the fixed
+         Author/Date columns. The slot MUST yield to those columns: with
+         flex-shrink: 0 a commit carrying several refs (or one long ref) grew
+         the slot unbounded, crushed .commit-title to zero AND pushed the
+         author/date columns past the right edge, where .commit-info's
+         overflow:hidden clipped them — the refs appeared to "cover" the title,
+         author and date. So the slot shrinks (flex-shrink: 1, min-width: 0) and
+         is capped at a fraction of the row (max-width), clipping its own
+         overflow; the message keeps ~40% and the author/date columns are always
+         visible — matching IntelliJ, where refs sit inside the Subject column
+         and never bleed into the Author/Date columns. The :empty rule keeps the
+         slot from occupying the 8px right margin when a commit has no branches. */
       .commit-branches {
         display: flex;
-        flex-shrink: 0;
+        flex-shrink: 1;
+        min-width: 0;
+        max-width: 60%;
+        overflow: hidden;
         align-items: center;
         gap: 4px;
         margin-right: 8px;
@@ -761,15 +554,6 @@ export function buildInlineStyles(): string {
 
       .commit-branches:empty {
         display: none;
-      }
-
-      .commit-meta {
-        display: flex;
-        flex-direction: row;
-        gap: 12px;
-        font-size: 11px;
-        color: var(--vscode-descriptionForeground);
-        line-height: 1.2;
       }
 
       /* Author column: fixed-width, LEFT-aligned — consistent with every other
@@ -907,27 +691,6 @@ export function buildInlineStyles(): string {
         user-select: none;
       }
 
-      /* Branch and Tag Labels */
-      .commit-label {
-        display: inline-block;
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-size: 10px;
-        font-weight: 500;
-        margin-right: 4px;
-        flex-shrink: 0;
-      }
-
-      .branch-label {
-        background-color: var(--vscode-badge-background);
-        color: var(--vscode-badge-foreground);
-      }
-
-      .branch-label.head-label {
-        background-color: var(--vscode-gitDecoration-addedResourceForeground, #629755);
-        color: white;
-      }
-
       /* The current (HEAD) branch chip. Its fill is the branch color (set
          inline, like every chip, so the chip matches its graph line); it's set
          apart from the other chips by a bold name + a light ring rather than a
@@ -935,8 +698,9 @@ export function buildInlineStyles(): string {
          Prepended FIRST (leftmost) in the .commit-branches flex slot. */
       .branch-label-head {
         display: inline-block;
-        color: #fff;
-        font-size: 11px;
+        background: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-foreground, #ccc);
+        font-size: var(--vscode-font-size);
         font-weight: 700;
         padding: 1px 5px;
         border-radius: 3px;
@@ -946,7 +710,10 @@ export function buildInlineStyles(): string {
         text-overflow: ellipsis;
         white-space: nowrap;
         vertical-align: middle;
-        box-shadow: 0 0 0 1.5px var(--vscode-foreground, #ffffff);
+        /* INSET ring so the current-branch outline is drawn INSIDE the chip box.
+           An outset ring is clipped by the .commit-branches overflow:hidden —
+           cut off top/bottom, and on the right for the last chip. */
+        box-shadow: inset 0 0 0 1.5px var(--vscode-foreground, #ffffff);
       }
 
       /* Cap chip width with CSS ellipsis. Without a cap, a 70-char branch
@@ -970,19 +737,24 @@ export function buildInlineStyles(): string {
         text-overflow: ellipsis;
         white-space: nowrap;
         vertical-align: middle;
+        font-size: var(--vscode-font-size);
       }
 
       /* Local + remote chips: sizing/spacing + white text. The background is set
          INLINE per chip to the commit's owning-branch color (earthy palette), so
          a chip matches the graph line it sits on; local vs remote is conveyed by
          the chip's aria-label, not a fixed hue. */
+      /* Option C (IntelliJ LabelPainter): chips are a NEUTRAL badge with
+         foreground text; the branch color rides on the icon (set inline), not
+         the fill — so the name is always readable on any theme/branch color. */
       .branch-label-local,
       .branch-label-remote {
-        font-size: 11px;
+        font-size: var(--vscode-font-size);
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
-        color: #fff;
+        background: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-foreground, #ccc);
       }
 
       /* Collapsed-summary chip ("+N"): rendered when a commit has more
@@ -1043,15 +815,18 @@ export function buildInlineStyles(): string {
         text-decoration: underline;
       }
 
-      /* Chip-family theme symmetry. The .branch-label-* family uses
-         var(--vscode-badge-foreground, ...) for the chip text colour;
-         .tag-label was the only chip still using a raw white token, which
-         loses theme adherence on light and hi-contrast themes where
-         badge-foreground is overridden. Match the rest of the chip family.
-         snap-13f foreground assertion pins this. */
+      /* Tag chip — Option C (IntelliJ): a transparent (no-fill) chip; the green
+         rides on the tag ICON (below) and the name is foreground text, so the
+         tag reads as just a colored icon + name with no badge box. snap-13f
+         pins it. */
       .tag-label {
-        background-color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);
-        color: var(--vscode-badge-foreground, white);
+        background-color: transparent;
+        color: var(--vscode-foreground, #ccc);
+      }
+
+      /* The tag's conventional green lives on the icon now (the chip is neutral). */
+      .tag-label i.codicon {
+        color: #2e7d32;
       }
 
       /* Tag name-on-hover (IntelliJ "Tag Names off" default). The tag is an
@@ -1097,43 +872,6 @@ export function buildInlineStyles(): string {
       }
 
       /* Commit Details Panel */
-      .commit-details {
-        padding: 12px;
-      }
-
-      .commit-details-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 12px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid var(--vscode-panel-border);
-      }
-
-      .commit-details-header h3 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .close-details-button {
-        background: transparent;
-        border: none;
-        color: var(--vscode-foreground);
-        font-size: 18px;
-        cursor: pointer;
-        padding: 0 4px;
-        line-height: 1;
-      }
-
-      .close-details-button:hover {
-        color: var(--vscode-errorForeground);
-      }
-
-      .commit-details-content {
-        font-size: 12px;
-      }
-
       .detail-row {
         margin-bottom: 8px;
       }
@@ -1174,7 +912,7 @@ export function buildInlineStyles(): string {
         margin: 0;
         white-space: pre-wrap;
         font-family: var(--vscode-editor-font-family, monospace);
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
         background-color: var(--vscode-textBlockQuote-background);
         padding: 8px;
         border-radius: 3px;
@@ -1182,23 +920,18 @@ export function buildInlineStyles(): string {
         overflow-y: auto;
       }
 
+      /* Commit subject (first line) rendered bold as the message header —
+         IntelliJ shows the subject in bold above the body, with no "Message:"
+         field label. */
+      .commit-subject {
+        font-weight: 600;
+      }
+
       .message-row {
         margin-top: 12px;
       }
 
       /* Changed Files Section */
-      .changed-files-section {
-        margin-top: 16px;
-        padding-top: 12px;
-        border-top: 1px solid var(--vscode-panel-border);
-      }
-
-      .changed-files-section h4 {
-        margin: 0 0 8px 0;
-        font-size: 12px;
-        font-weight: 600;
-      }
-
       .changed-files-list {
         max-height: 200px;
         overflow-y: auto;
@@ -1252,28 +985,6 @@ export function buildInlineStyles(): string {
          the whole subtree hides in a single class toggle (no per-row work). */
       .changed-dir-children.changed-dir-collapsed {
         display: none;
-      }
-
-      .changed-file-status {
-        width: 16px;
-        font-size: 11px;
-        font-weight: bold;
-        margin-right: 6px;
-        flex-shrink: 0;
-      }
-
-      .changed-file-path {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 12px;
-      }
-
-      .loading-message {
-        color: var(--vscode-descriptionForeground);
-        font-style: italic;
-        padding: 8px;
       }
 
       /* Root column (G8) — repo basename shown when intellig.log.showAllRoots is true */
@@ -1337,130 +1048,28 @@ export function buildInlineStyles(): string {
         to { transform: rotate(360deg); }
       }
 
-      /* Drag and Drop Visual Feedback */
-      .drag-ghost {
-        position: fixed;
-        pointer-events: none;
-        z-index: 1001;
-        background-color: var(--vscode-list-activeSelectionBackground);
-        color: var(--vscode-list-activeSelectionForeground);
-        padding: 4px 8px;
-        border-radius: 3px;
-        font-size: 12px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      }
-
-      /* Branch Panel Styles*/
-      .branch-panel {
-        padding: 4px 0;
-        font-size: 13px;
-      }
-
-      .branch-category {
-        margin-bottom: 2px;
-      }
-
-      .branch-category-header {
-        display: flex;
-        align-items: center;
-        padding: 4px 8px;
-        cursor: pointer;
-        user-select: none;
-        font-weight: 600;
-        font-size: 11px;
-        text-transform: uppercase;
-        color: var(--vscode-descriptionForeground);
-        letter-spacing: 0.5px;
-      }
-
-      .branch-category-header:hover {
-        background-color: var(--vscode-list-hoverBackground);
-      }
-
-      .branch-category-header:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-      }
-
-      .branch-category-children {
-        padding-left: 8px;
-      }
-
-      .branch-category-name {
-        margin-left: 4px;
-      }
-
-      .branch-remote-group {
-        margin-left: 8px;
-      }
-
-      .branch-item {
-        display: flex;
-        align-items: center;
-        padding: 3px 8px 3px 16px;
-        cursor: pointer;
-        border-radius: 3px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .branch-item:hover {
-        background-color: var(--vscode-list-hoverBackground);
-      }
-
-      .branch-item:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-      }
-
-      .branch-head-item {
-        font-weight: 600;
-      }
-
-      .branch-icon {
-        width: 16px;
-        margin-right: 6px;
-        flex-shrink: 0;
-        font-size: 12px;
-        text-align: center;
-      }
-
-      .branch-name {
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .branch-detached-label {
-        color: var(--vscode-descriptionForeground);
-        font-style: italic;
-        margin-left: 6px;
-        font-size: 11px;
-      }
-
       /* Details Panel Styles */
       .details-panel {
         padding: 8px;
       }
 
+      /* Detail content / labels / values + the "Changed Files (N)" heading all
+         follow the editor font size so the whole panel scales with it. */
       .details-metadata {
-        font-size: 12px;
+        font-size: var(--vscode-font-size);
+      }
+
+      .details-changed-files h4 {
+        margin: 0 0 8px 0;
+        font-size: var(--vscode-font-size);
+        font-weight: 600;
       }
 
       .file-name {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 12px;
-      }
-
-      .file-directory {
-        color: var(--vscode-descriptionForeground);
-        font-size: 11px;
-        margin-left: 6px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        font-size: var(--vscode-font-size);
       }
 
       .rename-arrow {
@@ -1470,17 +1079,18 @@ export function buildInlineStyles(): string {
 
       .old-path {
         color: var(--vscode-descriptionForeground);
-        font-size: 11px;
+        font-size: calc(var(--vscode-font-size) - 1px);
         text-decoration: line-through;
       }
 
-      /* Per-file line diff stat: "(+N | -M)" — additions green, deletions red. */
+      /* Per-file line diff stat: "(+N | -M)" — additions green, deletions red.
+         One step below the file name (var(--vscode-font-size) - 1px). */
       .changed-file-stats {
         /* Sits immediately to the right of the file name (not pushed to the row's
            far edge). */
         margin-left: 6px;
         flex: 0 0 auto;
-        font-size: 11px;
+        font-size: calc(var(--vscode-font-size) - 1px);
         white-space: nowrap;
         color: var(--vscode-descriptionForeground);
       }
@@ -1621,10 +1231,6 @@ export function buildThreePanelStyles(): string {
         height: 100%;
       }
 
-      #branch-panel {
-        border-right: none;
-      }
-
       #graph-panel {
         border-right: none;
       }
@@ -1708,11 +1314,6 @@ export function buildThreePanelStyles(): string {
       body.resizing {
         user-select: none;
         cursor: col-resize;
-      }
-
-      body.resizing-vertical {
-        user-select: none;
-        cursor: row-resize;
       }
     `;
 }
