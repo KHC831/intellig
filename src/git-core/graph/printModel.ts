@@ -106,10 +106,7 @@ export interface IRowPrintModel {
  */
 function buildIntervalLookup(
   nodes: ICommitNode[],
-  mergedIntervals: Map<
-    number,
-    Array<{ startRow: number; endRow: number }>
-  > = collectMergedLaneIntervals(nodes)
+  mergedIntervals: Map<number, Array<{ startRow: number; endRow: number }>>
 ): Map<number, Map<number, { startRow: number; endRow: number }>> {
   const byRow = new Map<number, Map<number, { startRow: number; endRow: number }>>();
   for (let i = 0; i < nodes.length; i++) {
