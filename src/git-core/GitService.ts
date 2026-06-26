@@ -116,6 +116,14 @@ export class GitService implements IGitService, IGitServiceCli {
   /** In-flight `loadRepository` promises, keyed by rootPath. */
   private _reloading: Map<string, Promise<IRepository>> = new Map();
   /**
+   * Per-rootPath removal counter, bumped whenever a root is torn down
+   * ({@link removeRepositoryWatcher}). A `loadRepository` captures the count at
+   * entry and re-checks it before its final cache-write/announce: if the root
+   * was removed while the load was in flight (rapid add→remove), the resolved
+   * load must NOT resurrect it (re-cache + re-watch + re-fire).
+   */
+  private _removalGeneration: Map<string, number> = new Map();
+  /**
    * In-flight `getStatus` promises, keyed by rootPath. On activation several
    * subscribers (SCM provider, changelist + shelf views) request the same
    * repo's status at once; each `git status --porcelain` walks the whole work
@@ -715,6 +723,10 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   private async loadRepository(rootPath: string): Promise<IRepository> {
     const options: IGitCommandOptions = { cwd: rootPath };
+    // Snapshot the removal counter at entry; if the root is torn down while
+    // this load is in flight, the post-await guard below skips the cache-write
+    // + announce so a removed root isn't resurrected.
+    const removalGenAtEntry = this._removalGeneration.get(rootPath) ?? 0;
 
     // Get HEAD information.
     //
@@ -899,6 +911,15 @@ export class GitService implements IGitService, IGitServiceCli {
     // `invalidateCache`: a reload (`reloadRepository` / `_performDebouncedRefresh`)
     // deletes the cache entry but keeps the watcher, so a reload is NOT a first
     // insertion and those paths still own their single post-reload fire.
+    // Zombie guard: if this root was disposed/removed while the load ran (the
+    // service tore down, or a folder was removed before discovery resolved), do
+    // NOT resurrect it — skip the cache-write, watcher install, and announce.
+    // Returning the parsed snapshot still satisfies the in-flight caller; it
+    // just never re-enters `_repositories`.
+    if (this._disposed || (this._removalGeneration.get(rootPath) ?? 0) !== removalGenAtEntry) {
+      return repository;
+    }
+
     const isFirstInsertion = !this._fileWatchers.has(rootPath);
 
     // Cache the repository
@@ -907,7 +928,7 @@ export class GitService implements IGitService, IGitServiceCli {
       lastUpdated: Date.now(),
     });
 
-    if (isFirstInsertion && !this._disposed) {
+    if (isFirstInsertion) {
       this.setupRepositoryWatcher(rootPath);
       this._logger.info('repository discovered', { rootPath });
       this._onDidChangeRepository.fire(repository);
@@ -1323,6 +1344,10 @@ export class GitService implements IGitService, IGitServiceCli {
         this._refreshTimers.delete(key);
       }
       this._reloading.delete(key);
+      // Bump the removal counter so an in-flight `loadRepository` (tracked in
+      // `_reloading`) that resolves AFTER this teardown sees the change and
+      // skips its cache-write/announce instead of resurrecting the root.
+      this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
     }
 
     // Fire `onDidRemoveRepository` for EVERY
@@ -1354,6 +1379,9 @@ export class GitService implements IGitService, IGitServiceCli {
     }
     for (const key of repoKeysToRemove) {
       this._repositories.delete(key);
+      // Cover a cached root with no in-flight reload entry (not in
+      // stateKeysToRemove): still bump so any later load can't resurrect it.
+      this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
     }
     if (!this._disposed) {
       for (const repo of reposToFire) {
