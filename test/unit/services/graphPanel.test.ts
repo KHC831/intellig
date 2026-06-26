@@ -222,6 +222,41 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
+    it('caps the branch-chip slot so refs never cover the title/author/date columns', () => {
+      // Regression: with flex-shrink: 0 a commit carrying several refs (or one
+      // long ref) grew the .commit-branches slot unbounded, crushing the title
+      // and pushing the fixed author/date columns past the right edge where
+      // .commit-info's overflow:hidden clipped them — the refs "covered" the
+      // title, author and date. The slot must yield to the fixed columns:
+      // shrinkable, min-width:0, capped width, and clipping its own overflow.
+      const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
+
+      const branchRuleMatch = styles.match(/\.commit-branches\s*\{([^}]+)\}/);
+      assert.ok(branchRuleMatch, '.commit-branches CSS rule must exist');
+      const branchRule = branchRuleMatch[1];
+
+      assert.ok(
+        /flex-shrink:\s*1/.test(branchRule),
+        `.commit-branches must shrink (flex-shrink: 1) so it yields to the fixed author/date columns, got: "${branchRule.trim()}"`
+      );
+      assert.ok(
+        !/flex-shrink:\s*0/.test(branchRule),
+        '.commit-branches must NOT declare flex-shrink: 0 (that lets refs push the columns off-screen)'
+      );
+      assert.ok(
+        /min-width:\s*0/.test(branchRule),
+        '.commit-branches must declare min-width: 0 so it can shrink below its content size'
+      );
+      assert.ok(
+        /max-width:/.test(branchRule),
+        '.commit-branches must cap its width so refs never dominate the row'
+      );
+      assert.ok(
+        /overflow:\s*hidden/.test(branchRule),
+        '.commit-branches must clip its own overflow so chips never bleed into the author/date columns'
+      );
+    });
+
     it('renders the commit date via formatCommitDate (locale-aware absolute timestamp)', () => {
       // formatCommitDate always emits a locale-aware absolute timestamp
       // (date + time, no seconds) — never a relative "2h"/"yesterday".

@@ -493,4 +493,141 @@ describe('Property — node color equals its own first-parent line color (any DA
       { numRuns: 500 }
     );
   });
+
+  it('renderer: a pass-through segment between two SAME-color same-lane nodes shares that color', () => {
+    // Reported edge case: a branch's long vertical line (a far-parent / transit
+    // segment in a lane) was a DIFFERENT color than the nodes it connects. Root
+    // cause: the pass-through color was taken from the lane interval's global
+    // top commit, which can be a FOREIGN commit — a side branch higher up the
+    // same merged interval, or a merge tip feeding the lane from another column
+    // — so a mainline segment between two trunk commits got a side branch's
+    // color. Invariant: when the nearest same-lane nodes ABOVE and BELOW a
+    // straight pass-through are the same color, the segment MUST be that color
+    // (a contiguous chain run is one color; color only changes AT a junction
+    // node, where above != below — exempted here).
+    fc.assert(
+      fc.property(dagArb, (dag) => {
+        const nodes = generateCommitGraph(
+          dag.commits,
+          dag.branchMap,
+          undefined,
+          undefined,
+          dag.headName,
+          dag.headHash
+        );
+        const models = buildGraphPrintModel(nodes);
+        for (let r = 0; r < models.length; r++) {
+          for (const e of models[r].edges) {
+            // Straight pass-through in a lane that is NOT this row's own column.
+            if (e.curved !== false || e.lane === nodes[r].graphColumn) {
+              continue;
+            }
+            let above = -1;
+            for (let rr = r; rr >= 0; rr--) {
+              if (nodes[rr].graphColumn === e.lane) {
+                above = rr;
+                break;
+              }
+            }
+            let below = -1;
+            for (let rr = r + 1; rr < nodes.length; rr++) {
+              if (nodes[rr].graphColumn === e.lane) {
+                below = rr;
+                break;
+              }
+            }
+            if (above < 0 || below < 0) {
+              continue; // tip/parent off-window — no two endpoints to compare
+            }
+            const aboveColor = models[above].node.color;
+            const belowColor = models[below].node.color;
+            if (aboveColor !== belowColor) {
+              continue; // genuine junction — color legitimately changes here
+            }
+            assert.strictEqual(
+              e.color,
+              belowColor,
+              `row ${r} lane ${e.lane}: pass-through ${e.color} != the shared color ` +
+                `${belowColor} of the nodes it connects (above row ${above} ` +
+                `${nodes[above].commit.hash}, below row ${below} ${nodes[below].commit.hash}).`
+            );
+          }
+        }
+      }),
+      { numRuns: 500 }
+    );
+  });
+
+  it('renderer: every curve (merge/fork/far-parent bend) matches the branch it connects', () => {
+    // The bends going INTO and OUT of a branch must carry the right color:
+    //   - an outgoing first-parent bend (a commit whose mainline forks to
+    //     another lane) keeps the SOURCE node's color (its own spine);
+    //   - a merge/branch bend takes the DESTINATION node's color (the branch it
+    //     joins);
+    //   - a far-parent INCOMING bend (the top-half landing a long first-parent
+    //     line into its parent) continues that line — the CHILD's color (the
+    //     nearest commit on the source lane above). This last one regressed to
+    //     the lane fallback because the source lane's interval ends one row above
+    //     the parent, so it wasn't in the parent row's interval lookup.
+    fc.assert(
+      fc.property(dagArb, (dag) => {
+        const nodes = generateCommitGraph(
+          dag.commits,
+          dag.branchMap,
+          undefined,
+          undefined,
+          dag.headName,
+          dag.headHash
+        );
+        const models = buildGraphPrintModel(nodes);
+        for (let r = 0; r < models.length; r++) {
+          for (const e of models[r].edges) {
+            if (e.curved !== true) {
+              continue;
+            }
+            if (e.half === 'up') {
+              // Far-parent incoming bend: expect the child's color (nearest node
+              // on the source lane above this parent row).
+              let child = -1;
+              for (let rr = r - 1; rr >= 0; rr--) {
+                if (nodes[rr].graphColumn === e.fromLane) {
+                  child = rr;
+                  break;
+                }
+              }
+              if (child < 0) {
+                continue; // child off-window
+              }
+              assert.strictEqual(
+                e.color,
+                models[child].node.color,
+                `row ${r}: far-parent incoming bend from lane ${e.fromLane} is ${e.color}, ` +
+                  `expected child row ${child} (${nodes[child].commit.hash}) color ${models[child].node.color}`
+              );
+            } else if (e.type === 'commit') {
+              // Outgoing first-parent bend → source node color.
+              assert.strictEqual(
+                e.color,
+                models[r].node.color,
+                `row ${r}: outgoing first-parent bend is ${e.color}, expected node color ${models[r].node.color}`
+              );
+            } else {
+              // Merge/branch bend → destination (parent) node color.
+              const parent = e.edge?.parent;
+              if (parent?.kind !== 'inWindow') {
+                continue; // off-window parent → destination lane fallback
+              }
+              assert.strictEqual(
+                e.color,
+                models[parent.row].node.color,
+                `row ${r}: merge bend to lane ${e.targetLane} is ${e.color}, expected parent ` +
+                  `row ${parent.row} (${nodes[parent.row].commit.hash}) color ${models[parent.row].node.color}`
+              );
+            }
+          }
+        }
+      }),
+      { numRuns: 500 }
+    );
+  });
 });
