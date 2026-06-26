@@ -1193,6 +1193,13 @@ export function buildInlineStyles(): string {
         overflow-y: auto;
       }
 
+      /* Commit subject (first line) rendered bold as the message header —
+         IntelliJ shows the subject in bold above the body, with no "Message:"
+         field label. */
+      .commit-subject {
+        font-weight: 600;
+      }
+
       .message-row {
         margin-top: 12px;
       }
