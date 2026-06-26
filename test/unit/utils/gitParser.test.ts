@@ -327,6 +327,24 @@ describe('Git Parser Utilities', () => {
       assert.strictEqual(result[1].date.getTime(), Date.UTC(2023, 0, 2, 3, 4, 5));
     });
 
+    it('parses the optional appended %H sha (4th field) and leaves it undefined when absent', () => {
+      const sep = '\x1f';
+      const withHash = [
+        'stash@{0}',
+        '2024-05-01 12:00:00 +0000',
+        'WIP on main: abc1234 msg',
+        'a'.repeat(40),
+      ].join(sep);
+      const withoutHash = ['stash@{1}', '2023-01-02 03:04:05 +0000', 'On feature: def msg'].join(
+        sep
+      );
+      const result = parseStashList(`${withHash}\n${withoutHash}\n`);
+
+      assert.strictEqual(result.length, 2);
+      assert.strictEqual(result[0].hash, 'a'.repeat(40), 'sha parsed from the 4th field');
+      assert.strictEqual(result[1].hash, undefined, 'no sha field → hash undefined');
+    });
+
     it('still parses the legacy `stash@{N}: WIP on branch: msg` form (no separator)', () => {
       const output =
         'stash@{0}: WIP on main: abc1234 Some commit message\nstash@{1}: On feature: def5678 Another message\n';

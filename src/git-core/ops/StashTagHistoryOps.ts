@@ -61,14 +61,15 @@ export class StashTagHistoryOps {
   }
 
   stashList(repo: IRepository): ResultAsync<IStash[], GitError> {
-    // `--format=%gd<sep>%ci<sep>%gs` carries the stash's real committer date
-    // (`%ci`); plain `git stash list` has no date, so parseStashList would
-    // stamp every entry with the current time. `\x1f` separator matches the
+    // `--format=%gd<sep>%ci<sep>%gs<sep>%H` carries the stash's real committer
+    // date (`%ci`) and its commit sha (`%H`). The sha is APPENDED last so the
+    // first three fields keep their positions (back-compat for any caller/parser
+    // fixture on the older 3-field form). `\x1f` separator matches the
     // log/tag/branch formats. `git stash list` exits 0 on any repo, so a
     // non-zero exit is a genuine failure → degraded empty list (the facade
     // logs + returns []). A spawn/system fault rejects exec → classified Err.
     return ResultAsync.fromPromise(
-      this.ctx.gitCli.exec(['stash', 'list', '--format=%gd\x1f%ci\x1f%gs'], {
+      this.ctx.gitCli.exec(['stash', 'list', '--format=%gd\x1f%ci\x1f%gs\x1f%H'], {
         cwd: repo.rootUri.fsPath,
       }),
       classifyGitCommandError

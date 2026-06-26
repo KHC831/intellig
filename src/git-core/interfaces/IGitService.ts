@@ -232,6 +232,13 @@ export interface IStash {
   message: string;
   date: Date;
   branch?: string;
+  /**
+   * The stash's commit sha. Stable across stack renumbering (unlike `index`),
+   * so a destructive action can re-validate that `stash@{index}` still points at
+   * the stash the user selected before mutating it. Optional: the legacy
+   * stash-list form (no hash field) leaves it undefined.
+   */
+  hash?: string;
 }
 
 /**

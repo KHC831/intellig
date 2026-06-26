@@ -2522,7 +2522,11 @@ describe('GitService - Stash Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['stash', 'list', '--format=%gd\x1f%ci\x1f%gs']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'stash',
+          'list',
+          '--format=%gd\x1f%ci\x1f%gs\x1f%H',
+        ]);
       });
 
       it('should pass the correct working directory', async () => {
@@ -2534,7 +2538,7 @@ describe('GitService - Stash Operations', () => {
       });
 
       it('should return empty array when no stashes exist', async () => {
-        mockGitCli.setMockResult('stash list --format=%gd\x1f%ci\x1f%gs', {
+        mockGitCli.setMockResult('stash list --format=%gd\x1f%ci\x1f%gs\x1f%H', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -2545,7 +2549,7 @@ describe('GitService - Stash Operations', () => {
       });
 
       it('should parse stash list correctly', async () => {
-        mockGitCli.setMockResult('stash list --format=%gd\x1f%ci\x1f%gs', {
+        mockGitCli.setMockResult('stash list --format=%gd\x1f%ci\x1f%gs\x1f%H', {
           exitCode: 0,
           stdout:
             'stash@{0}\x1f2024-05-01 12:00:00 +0000\x1fWIP on main: abc1234 Some commit message\nstash@{1}\x1f2023-01-02 03:04:05 +0000\x1fOn feature: def5678 Another message\n',

@@ -509,8 +509,10 @@ export function parseStashList(output: string, separator: string = '\x1f'): ISta
 
   for (const line of lines) {
     if (line.includes(separator)) {
-      // Dated format: `%gd<sep>%ci<sep>%gs`.
-      const [selector, dateStr, subject = ''] = line.split(separator);
+      // Dated format: `%gd<sep>%ci<sep>%gs[<sep>%H]`. The sha is the optional
+      // 4th field (appended for stash re-validation); older 3-field input leaves
+      // it undefined.
+      const [selector, dateStr, subject = '', hashField] = line.split(separator);
       const indexMatch = selector.match(/stash@\{(\d+)\}/);
       if (!indexMatch) {
         continue;
@@ -519,12 +521,14 @@ export function parseStashList(output: string, separator: string = '\x1f'): ISta
       const branch = subjectMatch ? subjectMatch[1] : undefined;
       const message = subjectMatch ? subjectMatch[2] : subject;
       const parsedDate = new Date(dateStr);
+      const hash = hashField?.trim() ? hashField.trim() : undefined;
       stashes.push({
         index: parseInt(indexMatch[1], 10),
         message: message || (branch ? `WIP on ${branch}` : ''),
         // Fall back to the current time only when %ci is unparseable.
         date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
         branch,
+        ...(hash ? { hash } : {}),
       });
       continue;
     }
