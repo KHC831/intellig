@@ -474,7 +474,7 @@ export class BranchOps {
   ): Promise<IBasicRebaseResult> {
     // `onto` is user-controlled; splice via buildGitArgs. `--autostash` makes
     // git stash a dirty working tree before replaying and re-apply it after,
-    // so a dirty tree no longer dead-ends on "cannot rebase: you have unstaged
+    // so a dirty tree doesn't dead-end on "cannot rebase: you have unstaged
     // changes". The optional git4idea-parity flags follow, in GitRebaseOption
     // declaration order. buildGitArgs places all flags between the subcommand
     // and `--end-of-options`, emitting e.g.

@@ -551,7 +551,7 @@ describe('ResolveConflictsDialog', () => {
   });
 
   /**
-   * TL-11 regression: every `showErrorMessage` site in ResolveConflictsDialog
+   * Regression: every `showErrorMessage` site in ResolveConflictsDialog
    * that surfaces git stderr or a caught `Error.message` must run through
    * `sanitizeGitError` so credentials embedded in remote URLs
    * (https://user:token@host…) don't leak into the user's notification
@@ -857,9 +857,9 @@ describe('ResolveConflictsDialog', () => {
   // rebase Continue through gitService.rebaseContinue (which returns the next
   // commit's conflicts as data) rather than a raw `rebase --continue` exec
   // (which THROWS on the expected non-zero when the rebase stops at the next
-  // commit). Pre-fix, the raw exec dead-ended the common multi-commit rebase:
-  // an error toast + a stale "all resolved" dialog, and the new conflicts
-  // never appeared.
+  // commit). A raw exec would dead-end the common multi-commit rebase:
+  // an error toast + a stale "all resolved" dialog, with the new conflicts
+  // never appearing.
   describe('H1 — rebase Continue multi-commit loop', () => {
     function makeRebaseDialog(): ResolveConflictsDialog {
       return new ResolveConflictsDialog(

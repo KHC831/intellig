@@ -189,7 +189,7 @@ describe('sanitizeGitError', () => {
     assert.strictEqual(sanitizeGitError(raw), raw);
   });
 
-  // Senior-wave4 LOW #4 — home-dir path stripping. fs errnos leak
+  // Home-dir path stripping. fs errnos leak
   // `/Users/<name>/…` and `/home/<name>/…` into toasts, structured
   // errors, logs, and screen recordings.
   describe('home-dir path stripping', () => {
@@ -257,11 +257,11 @@ describe('sanitizeGitError', () => {
       assert.ok(scrubbed.includes('<redacted>@github.com'));
     });
 
-    // Senior-wave4-r2 LOW #1 — regex must not over-match mid-path
+    // Regex must not over-match mid-path
     // occurrences of `Users`/`home` inside a legitimate repo tree. A
     // project literally named `/tmp/repo/Users/alice/data/…` or
     // `/srv/checkout/home/bob/…` is legal and has nothing to do with
-    // a user's home directory; previously the regex rewrote both to
+    // a user's home directory; the regex must NOT rewrite either to
     // garbage (`/tmp/repo~/data/…`).
     describe('left-anchor: does NOT over-match embedded /Users/ or /home/', () => {
       it('leaves /repo/Users/alice/data/ alone (not preceded by a delimiter that signals root)', () => {
@@ -305,7 +305,7 @@ describe('sanitizeGitError', () => {
       });
     });
 
-    // Senior-wave4-r2 OBS #1 — VS Code frequently normalises Windows
+    // VS Code frequently normalises Windows
     // paths to forward slashes (URI-derived strings, stderr from git
     // compiled with forward-slash support, etc.). The backslash-only
     // regex left `C:/Users/<name>/` matching the POSIX pass's middle
@@ -331,12 +331,11 @@ describe('sanitizeGitError', () => {
       });
     });
 
-    // Senior-wave4-r3 LOW #1 — Windows regexes (both backslash and
-    // forward-slash) previously lacked the left-anchor the POSIX regex
-    // had, so any bigram `<letter>:` embedded inside a token would be
-    // mis-matched as a drive-letter prefix and collapse the surrounding
-    // characters. Example: `log:/Users/alice/x` greedily matched
-    // `g:/Users/alice/` → `lo~/x`. Fix mirrors the POSIX anchor.
+    // Windows regexes (both backslash and forward-slash) carry the same
+    // left-anchor as the POSIX regex, so a bigram `<letter>:` embedded inside
+    // a token is NOT mis-matched as a drive-letter prefix collapsing the
+    // surrounding characters. Without the anchor, `log:/Users/alice/x` would
+    // greedily match `g:/Users/alice/` → `lo~/x`.
     describe('Windows left-anchor: does NOT over-match mid-token drive-letter bigrams', () => {
       it('leaves "log:/Users/alice/x" alone (g: inside log: is not a drive letter)', () => {
         const raw = 'log:/Users/alice/x';
@@ -391,8 +390,8 @@ describe('sanitizeGitError', () => {
   });
 });
 
-// follow-up. Senior-wave9 found 18 reachable command
-// handlers in extension.ts that bypass the structural guard's allowlist
+// 18 reachable command
+// handlers in extension.ts bypass the structural guard's allowlist
 // regex by inlining the err-derived ternary directly into the toast
 // template:
 //

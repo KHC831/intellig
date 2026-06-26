@@ -1,17 +1,14 @@
 /**
- * Tests for split-case ignored-folder matching (#214).
+ * Tests for split-case ignored-folder matching.
  *
- * **Background (#214):** the basename comparison was originally
- * uniformly case-sensitive, so on Windows a `.GIT` folder slipped past
- * the filter and the scanner spawned `git rev-parse --show-toplevel`
- * against it (or worse, descended into `NODE_MODULES`).
- *
- * **Case-sensitivity refinement:** the blanket case-insensitive policy
- * silently regressed Linux. A user with `Build/projectA/.git` had the
- * repo discovered under the original case-sensitive compare (Linux fs is
- * case-sensitive; `Build` ≠ `build` so not filtered) but the
- * case-insensitive policy made `Build` match `build` in
- * the lowercased ignored set. Same for `Out/`, `Target/`, `Vendor/`,
+ * Why split case: a uniformly case-sensitive basename comparison lets a
+ * Windows `.GIT` folder slip past the filter, so the scanner spawns
+ * `git rev-parse --show-toplevel` against it (or descends into
+ * `NODE_MODULES`). But a blanket case-insensitive policy regresses Linux: a
+ * user with `Build/projectA/.git` wants the repo discovered (Linux fs is
+ * case-sensitive; `Build` ≠ `build`, so it isn't an ignored build dir), yet a
+ * case-insensitive policy makes `Build` match `build` in the lowercased
+ * ignored set. Same for `Out/`, `Target/`, `Vendor/`,
  * `Dist/` — common Pascal-case directories in C#/.NET, Rust, Java.
  *
  * **Contract:** split case policy.
@@ -24,7 +21,7 @@
  *     Windows users don't have to guess on-disk casing.
  *
  * Each split-case spec was authored RED-first and confirmed failing before the
- * split was wired in. See AGENT_WORKSPACE.md for the verbatim red captures.
+ * split was wired in.
  */
 
 import '../../setup';

@@ -36,7 +36,7 @@ function stubGitService(): IGitService {
     throw new Error(`stubGitService.${name} should not be called in smoke test`);
   };
   // Returning `any` here and shaping at the call site keeps us from having to
-  // enumerate every IGitService method (there are dozens post-TL-15). We
+  // enumerate every IGitService method (there are dozens). We
   // satisfy the compiler with a Proxy that throws on any unexpected access.
   const handler: ProxyHandler<object> = {
     get(_t, prop: string) {

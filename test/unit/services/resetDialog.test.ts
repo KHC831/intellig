@@ -831,11 +831,10 @@ describe('ResetDialog', () => {
     });
   });
 
-  // TL-72 (Wave 9) — `_executeReset` catch block must run the raw
-  // git stderr through `sanitizeGitError` before pushing it into the
-  // showErrorMessage toast template. Pre-fix, ResetDialog.ts:406
-  // concatenated `error.message` directly, leaking credentialed remote
-  // URLs and POSIX home paths into the user's notification history.
+  // `_executeReset` catch block must run the raw git stderr through
+  // `sanitizeGitError` before pushing it into the showErrorMessage toast
+  // template, so credentialed remote URLs and POSIX home paths don't leak
+  // into the user's notification history.
   describe('TL-72 — error toast sanitization', () => {
     it('reset failure toast sanitizes credentialed URL + home path', async () => {
       const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';

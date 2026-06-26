@@ -529,10 +529,11 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    // TL-33: the CONFLICT-marker-count property tests for _handlePullUsingRebase
-    // and _handlePullUsingMerge were retired along with the _parseConflictCount
-    // helper. In production the `_conflictResolutionService` is always wired
-    // (see `ExtensionServices.initialize`), so the pull fallback now probes
+    // There are no CONFLICT-marker-count property tests for
+    // _handlePullUsingRebase and _handlePullUsingMerge: the
+    // `_parseConflictCount` helper does not exist. In production the
+    // `_conflictResolutionService` is always wired
+    // (see `ExtensionServices.initialize`), so the pull fallback probes
     // the working tree via `getConflictedFiles` instead of counting CONFLICT
     // markers in an error string. Positive probe-path coverage lives in
     // `branchContextMenu.fixes.test.ts`; the regression for the old regex

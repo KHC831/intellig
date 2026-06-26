@@ -831,21 +831,18 @@ describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict serv
   });
 });
 
-// ─── Tests: Wave-3- Finding #2 probe swallows pull error ───────────────────
+// ─── Tests: probe swallows pull error ──────────────────────────────────────
 
 /**
- * Wave-3- Finding #2 coverage: the pull-fallback path's `getConflictedFiles`
- * probe lives inside the outer `catch(error)` block. If the probe itself
- * throws (git process crash, transient fs/access issue, conflict-service
- * bug), control used to escape the outer catch before the generic
- * `showErrorMessage('Failed to pull using …')` ran — the user saw nothing
- * and the original pull failure was silently swallowed.
- *
- * The fix wraps the probe + dialog handoff in an inner try/catch that
- * logs-and-falls-through to the generic error. This suite locks that in:
- * when the probe throws, the outer error toast still fires, the resolve
- * dialog is NOT opened, and the probe error is captured via
- * `console.error` for debugging.
+ * Coverage for the pull-fallback path's `getConflictedFiles` probe, which
+ * lives inside the outer `catch(error)` block. If the probe itself throws
+ * (git process crash, transient fs/access issue, conflict-service bug), an
+ * inner try/catch logs-and-falls-through to the generic
+ * `showErrorMessage('Failed to pull using …')` so the original pull failure
+ * still surfaces rather than being silently swallowed. This suite locks that
+ * in: when the probe throws, the outer error toast still fires, the resolve
+ * dialog is NOT opened, and the probe error is captured via the structured
+ * Logger for debugging.
  */
 describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull error', () => {
   function makePullThrowingGitService(err: Error): MockGitService {
@@ -957,9 +954,8 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       );
 
       // Probe error captured via the structured Logger for debugging
-      // (formerly via `console.error`; routed the call through
-      // the BranchContextMenuCommands child logger). Walk the rendered
-      // OutputChannel lines for the probe-error message.
+      // (routed through the BranchContextMenuCommands child logger).
+      // Walk the rendered OutputChannel lines for the probe-error message.
       const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
       const probeRecord = records.find(
         (r) =>

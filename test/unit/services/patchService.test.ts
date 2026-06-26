@@ -557,7 +557,7 @@ describe('PatchService.createPatchFromLocalChanges', () => {
         stagedOnly: true,
       });
       assert.strictEqual(fs.readFileSync(outPath, 'utf-8'), 'FILE_DIFF\n');
-      // TL-38: atomicWriteFile must clean up its sibling-tmp file so no
+      // atomicWriteFile must clean up its sibling-tmp file so no
       // `.out.patch.tmp-<pid>-*` garbage remains in the directory.
       const debris = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp-'));
       assert.strictEqual(debris.length, 0, `unexpected tmp debris: ${debris.join(', ')}`);
@@ -570,7 +570,7 @@ describe('PatchService.createPatchFromLocalChanges', () => {
     }
   });
 
-  // TL-38: fault injection — a failing atomic write must surface a
+  // Fault injection — a failing atomic write must surface a
   // sanitised toast inside the service (so callers don't have to re-toast)
   // AND throw a typed `PatchWriteFailed` so extension.ts can distinguish
   // write-only failure from other errors and suppress its own redundant
@@ -619,7 +619,7 @@ describe('PatchService.createPatchFromLocalChanges', () => {
         true,
         'PatchWriteFailed must carry userNotified=true sentinel'
       );
-      // Senior-wave4 OBS #7: `{ cause: err }` wiring must survive future
+      // `{ cause: err }` wiring must survive future
       // refactors so downstream debuggers can still walk the chain to the
       // original ENOENT/EBUSY. Asserting the shape here pins it.
       assert.ok(

@@ -60,7 +60,7 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
       `historyTabStyles() must emit the exact .history-commit-row grid rule.\nExpected to contain:\n${EXPECTED_ROW_RULE}\nGot:\n${css}`
     );
 
-    // The grid must NOT regress to the pre-fix bare-track form (slack between
+    // The grid must NOT use the bare-track form (slack between
     // author and date, no minmax on the subject).
     assert.ok(
       !css.includes('grid-template-columns: 7ch 1fr 14ch 10ch'),

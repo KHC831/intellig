@@ -1,5 +1,5 @@
 /**
- * Unit tests for `scripts/prepublish-guard.mjs` — TL-93 data-driven
+ * Unit tests for `scripts/prepublish-guard.mjs` — data-driven
  * placeholder-fingerprint dispatch.
  *
  * Each fingerprint rule type (`minMarkers`, `sha256`, `regex`,
@@ -10,11 +10,8 @@
  * and we assert exit code + stderr against the rule's expected
  * fail message.
  *
- * RED→GREEN evidence: each spec was first added with the production
- * guard still on the old hardcoded-constants implementation; the
- * dispatch on entry.rule did not exist, so the tests failed (RED).
- * Adding the JSON-driven `runFingerprint(...)` dispatcher turned
- * them GREEN.
+ * The dispatch on `entry.rule` selects the JSON-driven `runFingerprint(...)`
+ * handler per rule type.
  *
  * Why subprocess (not import): the guard is an executable script
  * with side effects (`process.exit`). Importing it would terminate
@@ -410,7 +407,7 @@ describe('scripts/prepublish-guard.mjs — TL-93 data-driven dispatch', () => {
       // the `regex` case. A future maintainer who migrates the changelog
       // placeholder to `literal` (because YYYY-MM-DD is a fine literal)
       // would silently lose the short-circuit unless tag handling is
-      // shared. RED on the pre-fix code path.
+      // shared.
       const ws = buildWorkspaceWithMismatchedChangelog();
       try {
         const statePath = writeState(ws, {

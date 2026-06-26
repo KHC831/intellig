@@ -750,10 +750,9 @@ describe('PullDialog — runPullDialog', () => {
   });
 
   // non-conflict pull failure must run through
-  // sanitizeGitError before the toast is rendered. Pre-fix the catch
-  // block at PullDialog.ts:407 concatenated raw `error.message` into
-  // the showErrorMessage template, leaking credentialed remote URLs
-  // and POSIX home paths into the user's notification history.
+  // sanitizeGitError before the toast is rendered. Concatenating raw
+  // `error.message` into the showErrorMessage template would leak credentialed
+  // remote URLs and POSIX home paths into the user's notification history.
   it('TL-72 — non-conflict pull error toast sanitizes credentialed URL + home path', async () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

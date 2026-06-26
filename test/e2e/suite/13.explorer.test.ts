@@ -218,9 +218,9 @@ describe('e2e — explorer context-menu commands (nested repo, real git state)',
     await vscode.commands.executeCommand('intellig.explorer.showDiff', uriFor('file0.txt'));
 
     assert.ok(diffTabCount() > before, 'showDiff should open a diff editor tab');
-    // The left pane must resolve to the committed HEAD content. Pre-fix the
-    // provider couldn't find the repo (repo-relative path + ancestor workspace
-    // folder) and the pane was empty/errored.
+    // The left pane must resolve to the committed HEAD content. If the
+    // provider can't find the repo (repo-relative path + ancestor workspace
+    // folder), the pane is empty/errored.
     const left = await readLatestDiffOriginal();
     assert.ok(
       left.includes('content-0'),

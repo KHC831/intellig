@@ -414,19 +414,17 @@ describe('Stash Drop Removal Property Tests', () => {
     });
 
     /**
-     * TR-7 regression: seed -1426149163 shrank to three stashes with messages
+     * Regression: seed -1426149163 shrank to three stashes with messages
      * ["!", "q", "q"] dropped at index 0. Because `MockGitService.stash` uses
      * `unshift`, the resulting `stashList` is LIFO — `["q", "q", "!"]` — so
      * dropping index 0 removes one of the two "q" stashes but the message
-     * "q" still appears in the remaining list via the other stash. The
-     * original assertion `!remainingMessages.includes(droppedMessage)` then
-     * incorrectly fires. The fix is a multiset comparison (one occurrence
-     * removed, not "no occurrences remain").
+     * "q" still appears in the remaining list via the other stash. A naive
+     * `!remainingMessages.includes(droppedMessage)` assertion would
+     * incorrectly fire; the correct check is a multiset comparison (one
+     * occurrence removed, not "no occurrences remain").
      *
      * We assert the concrete counterexample directly so the regression
      * survives fast-check seed drift.
-     *
-     * See .agent/reviews/TEST_RUN_REPORT_ROUND4.md TR-7.
      */
     it('TR-7 regression: duplicate stash messages with LIFO drop tracks correctly', () => {
       const gitService = new MockGitService();
@@ -466,7 +464,7 @@ describe('Stash Drop Removal Property Tests', () => {
     });
 
     /**
-     * TR-7 regression: the original seed -1426149163 itself, in case the
+     * Regression: the original seed -1426149163 itself, in case the
      * counterexample form above is ever edited out.
      */
     it('TR-7 regression: seed -1426149163 does not flake the drop-isolation property', () => {

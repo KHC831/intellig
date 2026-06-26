@@ -1,9 +1,9 @@
 /**
- * Tests for `GitService` configuration-change rediscovery (#211).
+ * Tests for `GitService` configuration-change rediscovery.
  *
- * Bug: originally, `intellig.repositoryScanMaxDepth` and
- * `intellig.repositoryScanIgnoredFolders` were read once at workspace-folder-add
- * time (or initial extension activation). Mid-session config changes had no
+ * Without rediscovery, `intellig.repositoryScanMaxDepth` and
+ * `intellig.repositoryScanIgnoredFolders` are read once at workspace-folder-add
+ * time (or initial extension activation), so mid-session config changes have no
  * effect until window reload.
  *
  * Register `vscode.workspace.onDidChangeConfiguration` on the GitService
@@ -13,8 +13,7 @@
  * repos do NOT re-fire.
  *
  * Each spec was authored RED-first and confirmed failing before the
- * configuration-change listener was registered. See AGENT_WORKSPACE.md for
- * the verbatim red-message captures.
+ * configuration-change listener was registered.
  */
 
 import '../../setup';

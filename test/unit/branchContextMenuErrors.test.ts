@@ -522,11 +522,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
   // ─── Remote-branch checkout-and-rebase: avoid detached HEAD ──────────────
   //
-  // Symptom: right-clicking a remote branch (e.g. `origin/main`) and choosing
-  // "Checkout and Rebase onto '{current}'" left the working copy at a
-  // DETACHED HEAD, because the handler used to run
-  // `git checkout origin/main` directly. A remote-tracking ref isn't a local
-  // branch — git resolves it and detaches HEAD at the target commit.
+  // Failure mode: right-clicking a remote branch (e.g. `origin/main`) and
+  // choosing "Checkout and Rebase onto '{current}'" leaves the working copy at
+  // a DETACHED HEAD if the handler runs `git checkout origin/main` directly. A
+  // remote-tracking ref isn't a local branch — git resolves it and detaches
+  // HEAD at the target commit.
   //
   // IntelliJ-parity fix: when the click target is a remote branch, create or
   // fast-forward a LOCAL tracking branch of the same leaf name and check
@@ -918,7 +918,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         { path: 'wip.ts', indexStatus: ' ', workTreeStatus: 'M' } as IFileStatus,
       ];
       const gitService = createMockGitService({
-        // Dirty working tree — the old pre-check short-circuited here.
+        // Dirty working tree.
         getStatus: async () => dirtyStatus,
         rebaseBranch: async (): Promise<IBasicRebaseResult> => {
           rebaseCalls++;
@@ -1072,9 +1072,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       }
     });
 
-    // TL-33: tests for the `_parseConflictCount` fallback path were removed.
-    // The pull-throws-with-CONFLICT-markers branch no longer stringifies a
-    // count out of the error text; when `_conflictResolutionService` is
+    // There is no `_parseConflictCount` fallback to test: the
+    // pull-throws-with-CONFLICT-markers branch does not stringify a
+    // count out of the error text. When `_conflictResolutionService` is
     // wired (always true in production — see `ExtensionServices.initialize`)
     // conflict detection probes the working tree via `getConflictedFiles`,
     // and when the service is absent (test-only constructor shape) the code
@@ -1335,7 +1335,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
-  // TL-72 (Wave 9) — every BranchContextMenuCommands action-path catch
+  // Every BranchContextMenuCommands action-path catch
   // block must run the raw git stderr through `sanitizeGitError`. This
   // file has 21 such sites (checkout / merge / rebase / push / pull /
   // delete / rename / create / etc.) — instead of a per-site spec we

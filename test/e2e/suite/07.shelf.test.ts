@@ -6,12 +6,9 @@
  *                                  prompting. Depends on
  *                                  `ChangelistService.reconcileWithGitStatus()`
  *                                  running so the active changelist has
- *                                  the dirty files; reconcile is now
- *                                  always-on after fix/changelist-
- *                                  gitservice-wiring (before that fix,
- *                                  this spec was infeasible — see the
- *                                  coder-tier2-e2e writeup in
- *                                  AGENT_WORKSPACE.md).
+ *                                  the dirty files; reconcile is
+ *                                  always-on, which makes this spec
+ *                                  feasible.
  *   - `intellig.unshelve.silent` — unshelves the single pending entry
  *                                  without prompting.
  *   - `intellig.showShelfList`   — opens the shelf quick pick.

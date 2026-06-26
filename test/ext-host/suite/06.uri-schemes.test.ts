@@ -31,9 +31,7 @@
  *        changed its error shape, the probe would warn us instead of
  *        silently passing for every scheme.
  *
- * Retroactive validation:
- *   Running this suite against the pre-fix tip (before the urischeme coder
- *   lands their fix) is not applicable — this suite only probes REGISTERED
+ * This suite only probes REGISTERED
  *   schemes for the positive path. The static audit (invariant A-static)
  *   catches the `git-show:` use sites directly. This runtime probe's job is
  *   to catch the OTHER half: a case where someone registers a provider but

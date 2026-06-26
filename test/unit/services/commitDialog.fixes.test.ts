@@ -588,15 +588,14 @@ describe('CommitDialog — recent messages + author + gear', () => {
     });
   });
 
-  // TL-72 (Wave 9) — every CommitDialog action-path catch block must
-  // run the raw git stderr through `sanitizeGitError` before pushing
-  // it into the showErrorMessage toast. Pre-fix, six call-sites in
-  // CommitDialog.ts (commit failure + stage/unstage/stage-hunk/unstage-hunk
-  // /stage-lines failures) concatenated `error.message` directly into
-  // the toast template, leaking credentialed remote URLs and POSIX
-  // home paths into the user's notification history. Each spec drives
-  // the corresponding private handler directly through the dialog
-  // instance and asserts the sanitised toast surface.
+  // Every CommitDialog action-path catch block must run the raw git stderr
+  // through `sanitizeGitError` before pushing it into the showErrorMessage
+  // toast. Six call-sites in CommitDialog.ts (commit failure +
+  // stage/unstage/stage-hunk/unstage-hunk/stage-lines failures) surface git
+  // stderr that can carry credentialed remote URLs and POSIX home paths, so
+  // each must be sanitised to keep them out of the user's notification
+  // history. Each spec drives the corresponding private handler directly
+  // through the dialog instance and asserts the sanitised toast surface.
   describe('CommitDialog TL-72 — action-path toasts route through sanitizeGitError', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

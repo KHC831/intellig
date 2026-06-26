@@ -135,9 +135,10 @@ describe('gatherCheckinContext', () => {
   });
 
   it('surfaces a status-read failure instead of silently passing the conflict check', async () => {
-    // Regression: a getStatus throw used to swallow to files:[], so the
-    // unresolved-merge check saw no conflicts and the commit proceeded with no
-    // warning (fail-open). Now the failure is captured + surfaced as a warning.
+    // Regression: a getStatus throw must NOT swallow to files:[] — that would
+    // make the unresolved-merge check see no conflicts and let the commit
+    // proceed with no warning (fail-open). The failure is captured + surfaced
+    // as a warning.
     const git = {
       getStatus: async () => {
         throw new Error('status read failed');

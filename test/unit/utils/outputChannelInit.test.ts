@@ -1,18 +1,13 @@
 /**
- * TL-66 (Cluster C) — `initOutputChannel` registration idempotence
- * with a module-level flag instead of `context.subscriptions.includes()`.
+ * `initOutputChannel` registration idempotence via a module-level flag
+ * instead of `context.subscriptions.includes()`.
  *
- * Pre-fix, `initOutputChannel(context)` guarded against
- * double-registration with `if (!context.subscriptions.includes(channel))`.
- * `Array.includes()` is O(n) over `context.subscriptions`, which can be
- * 50+ items in a real activation. Cheap but unprincipled — it scans the
- * whole subscription list on every call.
+ * A module-level `_channelRegistered` boolean flag short-circuits repeat
+ * calls: the first call registers (push + flag flip) and every subsequent
+ * call early-returns without scanning `context.subscriptions` (which can be
+ * 50+ items in a real activation, making an `Array.includes()` guard O(n)).
  *
- * Post-fix, a module-level `_channelRegistered` boolean flag short-circuits
- * subsequent calls. The first call registers (push + flag flip). Every
- * subsequent call early-returns without scanning subscriptions.
- *
- * The TestSurface seam `__resetOutputChannelForTest()` (TL-58) also
+ * The TestSurface seam `__resetOutputChannelForTest()` also
  * resets the flag so each test gets a clean slate.
  */
 

@@ -21,7 +21,7 @@
  *      8-cell resolver matrix, the enum guard, and the inspect()-based
  *      user-set-preset reader.
  *   3. The static class members `KeymapService._resolveKeymap` /
- *      `KeymapService._validatePreset` are gone — the old surface must
+ *      `KeymapService._validatePreset` do not exist — that surface must
  *      not silently re-emerge as a parallel call path.
  */
 
@@ -49,8 +49,8 @@ describe('KeymapService — free-function helpers (TL-97)', () => {
 
     it('does not expose the legacy static class members KeymapService._resolveKeymap / _validatePreset', () => {
       // Behavioural pin: a future revival of the static surface would
-      // re-introduce the drift closed. The new surface is the free
-      // functions; the old statics must not silently coexist.
+      // re-introduce the drift. The surface is the free functions; static
+      // equivalents must not silently coexist.
       const klass = keymapModule.KeymapService as unknown as Record<string, unknown>;
       assert.strictEqual(
         klass._resolveKeymap,

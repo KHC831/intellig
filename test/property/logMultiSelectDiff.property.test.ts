@@ -274,7 +274,7 @@ describe('Log Multi-Select Diff Property Tests', () => {
     /**
      * Get the file state at a specific commit (cumulative state).
      *
-     * TR-3 follow-up: the walk guards against cycles in the parent chain
+     * The walk guards against cycles in the parent chain
      * with a `visited` set. Fast-check's shrinker can (and does) produce
      * arbitrary hash inputs where two commits in the history end up with
      * the same hash, making a commit its own ancestor. Without the guard
@@ -386,7 +386,7 @@ describe('Log Multi-Select Diff Property Tests', () => {
       // is causally wrong: a delete-commit whose hash starts with '0' can
       // sort before its own parent modify-commit, breaking the
       // base-state → final-state reduction below. See
-      // `src/utils/commitSort.ts` and the TR-5 regression seed
+      // `src/utils/commitSort.ts` and the regression seed
       // (-1310953740) pinned above.
       const sortedCommits = sortCommitsStable(commits);
 
@@ -516,14 +516,13 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
   describe('Property 28: Log Multi-Select Diff', () => {
     /**
-     * TR-4 regression: these two seeds reliably flaked the "order does not
+     * Regression: these two seeds reliably flaked the "order does not
      * matter" property (line ~598) under V8's unstable sort when the arbitrary
-     * generated commits with tied `commitDate.getTime()` values. The fix was
-     * a stable-sort tie-breaker on `hash.localeCompare(b.hash)` inside
-     * `MockMultiCommitDiffService.getMultiCommitDiff`. These explicit-seed
-     * assertions guard against regression if someone removes the tie-breaker.
-     *
-     * See .agent/reviews/TEST_RUN_REPORT_ROUND2.md TR-4.
+     * generated commits with tied `commitDate.getTime()` values. A stable-sort
+     * tie-breaker on `hash.localeCompare(b.hash)` inside
+     * `MockMultiCommitDiffService.getMultiCommitDiff` fixes it. These
+     * explicit-seed assertions guard against regression if someone removes
+     * the tie-breaker.
      */
     it('TR-4 regression: seed -1652220625 does not flake the order-invariance property', () => {
       fc.assert(
@@ -576,20 +575,16 @@ describe('Log Multi-Select Diff Property Tests', () => {
     });
 
     /**
-     * TR-5 regression: the Round-2 hash-alphabetical tie-breaker fixed the
-     * flake but was causally wrong — when the `dateArb` generated two
-     * identical `commitDate` values and the delete-commit's hash sorted
-     * before its parent's hash, the tie-breaker put the delete ahead of
-     * its parent in the "oldest → newest" range. `baseState` then resolved
-     * to the post-modify state (via the child's own parent pointer) and
-     * `finalState` resolved to the same post-modify state (via the parent
-     * itself), so the deletion vanished from the combined diff.
-     *
-     * The Round-3 fix introduces `sortCommitsStable` with a topological
-     * tie-breaker (parent-before-child) inside each date-tied group. This
-     * seed is the minimal reproduction reported by the test runner.
-     *
-     * See .agent/reviews/TEST_RUN_REPORT_ROUND3.md TR-5.
+     * Regression: a plain hash-alphabetical tie-breaker is causally wrong —
+     * when `dateArb` generates two identical `commitDate` values and the
+     * delete-commit's hash sorts before its parent's hash, the tie-breaker
+     * puts the delete ahead of its parent in the "oldest → newest" range.
+     * `baseState` then resolves to the post-modify state (via the child's own
+     * parent pointer) and `finalState` resolves to the same post-modify state
+     * (via the parent itself), so the deletion vanishes from the combined
+     * diff. `sortCommitsStable` instead uses a topological tie-breaker
+     * (parent-before-child) inside each date-tied group. This seed is the
+     * minimal reproduction.
      */
     it('TR-5 regression: seed -1310953740 does not flake the file-deletion property', () => {
       fc.assert(

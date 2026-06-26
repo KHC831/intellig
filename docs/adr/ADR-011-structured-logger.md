@@ -254,7 +254,7 @@ would belong on `ExtensionServices`.
   the four criteria each map to a concrete mechanism
   (`__resetLoggerForTest`, the `context.subscriptions` registrations,
   the pre-`initialize` activation order, the cross-cutting consumer
-  set), and `src/test/unit/utils/logger/adr002Conformance.test.ts`
+  set), and `test/unit/utils/logger/adr002Conformance.test.ts`
   pins them.
 
 ### Negative / costs

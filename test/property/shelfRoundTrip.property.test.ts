@@ -497,14 +497,13 @@ describe('Shelf Round-Trip Property Tests', () => {
     /**
      * Property: Multiple shelf and unshelve operations maintain consistency.
      *
-     * TR-9 regression (Gap-D 10× stress, seed -836909896): the original
-     * implementation keyed `originalChangesMap` by `namesArray[i]`, which
-     * collapsed duplicate names into a single entry. When the fast-check
-     * generator produced two entries with the same name (e.g.
-     * `namesArray = ['!','! ','_','_']`), the later shelve overwrote the
+     * Regression (seed -836909896): keying `originalChangesMap` by
+     * `namesArray[i]` collapses duplicate names into a single entry. When the
+     * fast-check generator produces two entries with the same name (e.g.
+     * `namesArray = ['!','! ','_','_']`), the later shelve overwrites the
      * earlier map entry, so comparing the earlier unshelve against
-     * `originalChangesMap.get(namesArray[i])` used the wrong expected
-     * contents — same map-key-collision class as TR-6/TR-7.
+     * `originalChangesMap.get(namesArray[i])` uses the wrong expected
+     * contents — a map-key-collision class.
      *
      * Track original changes by array index, not by name. This is
      * seed-independent; no synthetic block needed because the change is
@@ -519,7 +518,7 @@ describe('Shelf Round-Trip Property Tests', () => {
             // Setup
             const shelfService = new MockShelfService();
 
-            // TR-9: key by array index (unique), not by name (can collide).
+            // Key by array index (unique), not by name (can collide).
             const originalChangesList: IShelfFile[][] = [];
 
             // Act: Create multiple shelf items
@@ -563,10 +562,10 @@ describe('Shelf Round-Trip Property Tests', () => {
     });
 
     /**
-     * TR-9 regression: seed -836909896 (Gap-D 10× stress) shrank to
+     * Regression: seed -836909896 shrank to
      * `namesArray = ['!','! ','_','_']` — two duplicated shelf names
-     * collapsing the earlier entries in the map-keyed bookkeeping. The
-     * fix above keys by index, not name; this pinned block catches any
+     * collapsing the earlier entries in the map-keyed bookkeeping. Keying
+     * by index (not name) avoids it; this pinned block catches any
      * re-introduction of name-keyed bookkeeping.
      *
      * See `test/property/pinnedSeeds.md` for the full catalog.
@@ -602,7 +601,7 @@ describe('Shelf Round-Trip Property Tests', () => {
     });
 
     /**
-     * TR-9 regression (synthetic): duplicate shelf names must not collapse
+     * Regression (synthetic): duplicate shelf names must not collapse
      * the expected-changes bookkeeping.
      */
     it('TR-9 regression (synthetic): duplicate shelf names do not collapse restore bookkeeping', () => {

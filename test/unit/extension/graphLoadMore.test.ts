@@ -3,8 +3,8 @@
  * wiring.
  *
  * The webview's `loadMoreCommits` → provider `onDidRequestLoadMoreCommits`
- * emitter used to have NO subscriber, so the graph was hard-capped at the
- * first page. These specs pin the missing subscriber:
+ * emitter must have a subscriber; without one the graph is hard-capped at the
+ * first page. These specs pin that subscriber:
  *   - the controller grows the limit by one page per load-more, re-runs the
  *     SAME scoped load, and resets on a fresh load;
  *   - it no-ops until a fresh load establishes the active repo/filter;

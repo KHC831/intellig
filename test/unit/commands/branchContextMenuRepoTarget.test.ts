@@ -4,10 +4,10 @@
  *
  * In a multi-root workspace the Branches tree groups branches under per-repo
  * nodes, and branch names collide across repos (every repo has `main` /
- * `master` / `develop`). Before the fix, every handler resolved the repo via
+ * `master` / `develop`). If a handler resolved the repo via
  * `branchTreeProvider.getRepository()` (the context repo) and ignored which
- * repo node the clicked branch belonged to — so right-clicking `main` under
- * repo B and choosing Delete/Rename/Checkout hit repo A's `main`. That is
+ * repo node the clicked branch belonged to, right-clicking `main` under
+ * repo B and choosing Delete/Rename/Checkout would hit repo A's `main` —
  * wrong-repo data loss / history damage.
  *
  * The contract pinned here: a leaf carrying `repository === repoB` drives the

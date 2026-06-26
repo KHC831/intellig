@@ -541,9 +541,9 @@ diff --git a/file2.ts b/file2.ts
 
     // ─── Combined-diff (merge commit) support — Bug A ──────────────────────
     // `git show <merge-hash>` emits combined-diff output: `diff --cc <path>`
-    // headers (no a/…b/ prefixes) and `@@@` hunks. The old splitter keyed on
-    // `^diff --git ` and dropped these entirely, so merge commits rendered
-    // "No changed files". parseDiff must now capture them.
+    // headers (no a/…b/ prefixes) and `@@@` hunks. A splitter keyed only on
+    // `^diff --git ` would drop these entirely, making merge commits render
+    // "No changed files"; parseDiff must capture them.
     it('should parse a single-file combined (merge) diff', () => {
       const output = `diff --cc src/foo.ts
 index 1234567,abcdefg..fedcba9
@@ -900,10 +900,10 @@ index 1234567,abcdefg..fedcba9
 
     it('parseBranches-detached-5: detached pseudo-ref as ONLY entry → returns empty array', () => {
       // Pin the edge case where the user is detached and the only line
-      // git emits is the pseudo-ref. Pre-fix this would hand back a
-      // 1-element list with a parenthesized name; post-fix the result
-      // is empty so the UI shows zero branches and falls back to
-      // `repo.head?.commit` for detached display.
+      // git emits is the pseudo-ref. The result must be empty so the UI
+      // shows zero branches and falls back to `repo.head?.commit` for
+      // detached display, rather than a 1-element list with a parenthesized
+      // name.
       const output = '(HEAD detached from origin/main)|deadbeefdeadbeefdeadbeefdeadbeefdeadbeef||*';
       const result = parseBranches(output, '|');
       assert.deepStrictEqual(result, []);

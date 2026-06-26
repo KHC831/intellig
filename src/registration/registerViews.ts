@@ -457,7 +457,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           //
           // Render NOW with the total unknown (undefined → "all loaded", no
           // spinner). The exact total folds in below when its background promise
-          // resolves — first paint no longer waits on the count.
+          // resolves — first paint renders without waiting on the count.
           ctx.gitToolWindowProvider.updateLogState(
             commits,
             branchMap,
@@ -523,9 +523,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       }
     };
 
-    // Now that the single-repo loader exists, build the load-more controller
-    // (its reload re-runs that loader at the grown limit) and subscribe it to
-    // the provider's previously-dead `onDidRequestLoadMoreCommits` emitter.
+    // Build the load-more controller (its reload re-runs the single-repo
+    // loader at the grown limit) and subscribe it to the provider's
+    // `onDidRequestLoadMoreCommits` emitter.
     const graphLoadMore: IGraphLoadMoreController<LogFilter> =
       createGraphLoadMoreController<LogFilter>(
         GRAPH_INITIAL_PAGE,
@@ -1268,7 +1268,7 @@ export function setupEventListeners(ctx: IViewRegistrationContext): void {
     // Persistent companion to the transient rebase toast: a status-bar item
     // that stays visible for ANY in-progress op (merge / rebase / cherry-pick
     // / revert) until it's resolved, clicking through to the unified
-    // Resolve-Conflicts surface (#28).
+    // Resolve-Conflicts surface.
     ctx.context.subscriptions.push(
       createInProgressStatusBar({
         getRepositories: () => ctx.services!.gitService.getRepositories(),

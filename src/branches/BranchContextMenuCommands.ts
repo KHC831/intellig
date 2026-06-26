@@ -1523,13 +1523,13 @@ export class BranchContextMenuCommands {
     if (this._pushDialogOpener) {
       // Thread the clicked branch's OWN upstream so a non-HEAD branch that
       // already tracks a remote keeps it in the dialog instead of being forced
-      // to --set-upstream against the fallback remote (issue #19).
+      // to --set-upstream against the fallback remote.
       this._pushDialogOpener({
         repo,
         branch: item.branch.name,
         upstream: item.branch.upstream,
         // Thread the clicked branch's OWN divergence so a non-HEAD row shows
-        // its real ahead/behind and the force-with-lease flip fires (#19b).
+        // its real ahead/behind and the force-with-lease flip fires.
         ahead: item.branch.ahead,
         behind: item.branch.behind,
       });

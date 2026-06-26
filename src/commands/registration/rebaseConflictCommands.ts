@@ -230,9 +230,8 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
       void vscode.window.showInformationMessage('Commit skipped.');
-      // rebaseSkip moved HEAD; reload + refresh
-      // (this site previously had neither call, leaving the log graph
-      // showing the pre-skip rebase position).
+      // rebaseSkip moved HEAD; reload + refresh so the log graph reflects
+      // the new rebase position rather than the pre-skip one.
       await gitService.reloadRepository(repo);
       if (ctx.gitToolWindowProvider) {
         ctx.gitToolWindowProvider.refresh();
@@ -658,8 +657,8 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
   // Interactive checkbox pre-checked. `arg.onto` lets callers (e.g.
   // "Interactive Rebase from Here") preselect a commit/branch target; the
   // bare-palette invocation leaves it unset and the dialog defaults to the
-  // first available branch. Branch selection now lives in the dialog's Onto
-  // dropdown, so this handler no longer runs its own QuickPick.
+  // first available branch. Branch selection lives in the dialog's Onto
+  // dropdown, so this handler doesn't run its own QuickPick.
   const interactiveRebaseCommand = registerLoggedCommand(
     'intellig.rebase.interactive',
     async (arg?: { onto?: string }) => {

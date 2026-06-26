@@ -1,5 +1,5 @@
 /**
- * Unit tests for `scripts/check-publish-vsix.sh` (TL-95).
+ * Unit tests for `scripts/check-publish-vsix.sh`.
  *
  * The guard refuses to publish a vsix whose filename matches
  * `*-dogfood.vsix`, and is a no-op for any other filename.
@@ -107,8 +107,8 @@ describe('scripts/check-publish-vsix.sh — TL-95 dogfood filename guard', () =>
   });
 
   it('does not require the file to exist on disk (filename-only guard)', () => {
-    // The intentional design (per TL-95 maintenance contract section 2): this
-    // script validates filenames, not file existence. A non-existent
+    // The intentional design: this script validates filenames, not file
+    // existence. A non-existent
     // *-dogfood.vsix path still trips. The downstream `vsce publish`
     // is what asserts the file actually exists.
     const r = runScript(['/no/such/dir/intellig-0.0.0-dogfood.vsix']);

@@ -4,11 +4,7 @@
  * Feature: branch-context-menu, Property 5: Show Diff uses the correct branch
  * reference and opens one `vscode.diff` tab per user-selected file.
  *
- * History:
- *  - Previously: the handler opened a single whole-repo diff against a synthetic
- *    `git-branch://<ref>` URI. The old property tests asserted "exactly one
- *    vscode.diff call" and a URI path containing the branch ref.
- *  - Now: the handler lists changed files via
+ * The handler lists changed files via
  *    `GitService.getChangedFilesAgainstWorkingTree`, shows a multi-select
  *    QuickPick, and for each pick opens a `vscode.diff` tab with
  *      left  = `intellig-git:<filePath>?<encodeURIComponent(branchRef)>`
