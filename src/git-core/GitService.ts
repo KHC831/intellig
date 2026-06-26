@@ -47,6 +47,7 @@ import {
   isPathInsideOrEqual,
   repoRootFromGitDir,
   isNewRepoPathIgnored,
+  resolveWorktreeGitDir,
 } from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
 import { sanitizeGitError } from './gitError';
@@ -1047,7 +1048,12 @@ export class GitService implements IGitService, IGitServiceCli {
       return;
     }
 
-    const gitDir = vscode.Uri.file(`${rootPath}/.git`);
+    // Root the watchers at the per-worktree git directory. For a normal
+    // checkout this is `<root>/.git` (a directory); for a LINKED WORKTREE or
+    // submodule `<root>/.git` is a FILE holding a `gitdir:` pointer — globbing
+    // it directly would match nothing (no live refresh) and `handleHeadDelete`'s
+    // readdir would throw on a file. `resolveWorktreeGitDir` follows the pointer.
+    const gitDir = vscode.Uri.file(resolveWorktreeGitDir(rootPath));
 
     const handleChange = (): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
