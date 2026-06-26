@@ -105,13 +105,17 @@ export interface IRowPrintModel {
  * tagged off-window when the lane runs off the bottom of the loaded slice).
  */
 function buildIntervalLookup(
-  nodes: ICommitNode[]
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
 ): Map<number, Map<number, { startRow: number; endRow: number }>> {
   const byRow = new Map<number, Map<number, { startRow: number; endRow: number }>>();
   for (let i = 0; i < nodes.length; i++) {
     byRow.set(i, new Map());
   }
-  for (const [lane, intervals] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, intervals] of mergedIntervals) {
     for (const iv of intervals) {
       for (let row = iv.startRow; row <= iv.endRow; row++) {
         byRow.get(row)?.set(lane, iv);
@@ -569,14 +573,19 @@ export function buildGraphPrintModel(
   const branchColors =
     options.branchColors ??
     computeBranchColors(colorNodesFrom(nodes), { headBranchName: options.headBranchName });
-  const activeLaneMap = computeActiveLanes(nodes);
-  const continuesFromAboveMap = computeLaneContinuesFromAbove(nodes);
-  const continuesBelowMap = computeLaneContinuesBelow(nodes);
+  // Compute the merged lane intervals ONCE and derive all four interval-driven
+  // maps from it — `computeActiveLanes`, both continues-* maps, and the
+  // per-row interval lookup each used to rebuild it independently (5 walks per
+  // render), which scales badly as the loaded window grows via "load more".
+  const mergedIntervals = collectMergedLaneIntervals(nodes);
+  const activeLaneMap = computeActiveLanes(nodes, mergedIntervals);
+  const continuesFromAboveMap = computeLaneContinuesFromAbove(nodes, mergedIntervals);
+  const continuesBelowMap = computeLaneContinuesBelow(nodes, mergedIntervals);
   const childCountMap = computeChildCountMap(nodes);
   const incomingBendsMap = computeIncomingBendsMap(nodes);
   const bendsLandingBelowMap = computeBendsLandingBelowMap(nodes);
   const terminalNodes = computeTerminalNodes(nodes);
-  const intervalLookup = buildIntervalLookup(nodes);
+  const intervalLookup = buildIntervalLookup(nodes, mergedIntervals);
   const hashToRow = buildHashToRow(nodes);
   const hasFocusedBranch = nodes.some((n) => n.onFocusedBranchPath === true);
 

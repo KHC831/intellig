@@ -288,12 +288,18 @@ export function collectMergedLaneIntervals(
 /**
  * Active lanes per row index: every row covered by any lane's merged interval.
  */
-export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
+export function computeActiveLanes(
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
+): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
     result.set(i, new Set());
   }
-  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, merged] of mergedIntervals) {
     for (const iv of merged) {
       for (let row = iv.startRow; row <= iv.endRow; row++) {
         result.get(row)!.add(lane);
@@ -310,12 +316,18 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
  * is NOT reported here, letting the renderer distinguish a genuine transiting
  * through-line at a branch-split row from a reused lane.
  */
-export function computeLaneContinuesFromAbove(nodes: ICommitNode[]): ActiveLaneMap {
+export function computeLaneContinuesFromAbove(
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
+): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
     result.set(i, new Set());
   }
-  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, merged] of mergedIntervals) {
     for (const iv of merged) {
       for (let row = iv.startRow + 1; row <= iv.endRow; row++) {
         result.get(row)!.add(lane);
@@ -334,12 +346,18 @@ export function computeLaneContinuesFromAbove(nodes: ICommitNode[]): ActiveLaneM
  * `false` here — letting the renderer truncate a dying lane cleanly instead of
  * mistaking the reused line below for a continuation.
  */
-export function computeLaneContinuesBelow(nodes: ICommitNode[]): ActiveLaneMap {
+export function computeLaneContinuesBelow(
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
+): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
     result.set(i, new Set());
   }
-  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, merged] of mergedIntervals) {
     for (const iv of merged) {
       for (let row = iv.startRow; row <= iv.endRow - 1; row++) {
         result.get(row)!.add(lane);
