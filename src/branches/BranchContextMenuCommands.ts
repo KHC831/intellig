@@ -2657,8 +2657,16 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    // Choose the target remote (default = origin / first; prompt when several
+    // exist), mirroring `_handleTagPush` — don't silently hardcode origin in a
+    // multi-remote repo. Cancel aborts.
+    const targetRemote = await this._chooseTargetRemote(repo);
+    if (!targetRemote) {
+      return;
+    }
+
     const confirm = await vscode.window.showWarningMessage(
-      `Delete remote tag '${item.tag.name}' from origin?`,
+      `Delete remote tag '${item.tag.name}' from ${targetRemote}?`,
       { modal: true },
       'Delete from Remote'
     );
@@ -2668,14 +2676,14 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteRemoteTag(repo, item.tag.name).match(
+      await this._gitService.deleteRemoteTag(repo, item.tag.name, targetRemote).match(
         () => undefined,
         (e) => {
           throw e;
         }
       );
       void vscode.window.showInformationMessage(
-        `Deleted remote tag '${item.tag.name}' from origin`
+        `Deleted remote tag '${item.tag.name}' from ${targetRemote}`
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
