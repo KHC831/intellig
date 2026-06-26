@@ -1084,7 +1084,7 @@ describe('StashView — diff picker basename collision', () => {
   });
 });
 
-describe('StashView — setRepository seam (M-B5)', () => {
+describe('StashView — setRepository seam', () => {
   it('binds the repo with no UI side effect so a later refresh targets it', async () => {
     const repo = makeRepo();
     const git = makeGitService({ stashes: [] });

@@ -422,7 +422,7 @@ describe('Log View', () => {
     });
   });
 
-  describe('isLogContextAction — boundary allow-list (M-T3)', () => {
+  describe('isLogContextAction — boundary allow-list', () => {
     it('accepts every known action, including destructive ones', () => {
       for (const a of [
         'copyHash',
@@ -472,7 +472,7 @@ describe('Log View', () => {
     });
   });
 
-  describe('_handleCommitFileDoubleClick — stale-hash guard (M-T2)', () => {
+  describe('_handleCommitFileDoubleClick — stale-hash guard', () => {
     type DblClickSurface = {
       _extendedLogState: { commitNodes: { commit: { hash: string; parents: string[] } }[] };
       _handleCommitFileDoubleClick: (hash: string, path: string) => void;

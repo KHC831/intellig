@@ -1,5 +1,5 @@
 /**
- * L-G2 — isValidLane no longer silently drops out-of-range lanes.
+ * isValidLane no longer silently drops out-of-range lanes.
  *
  * A pathological window with >1000 concurrent lanes (or a corrupt index) would
  * have its edges/nodes dropped with no diagnostic. The predicate still returns
@@ -16,7 +16,7 @@ function loggedLines(): string[] {
   return (getOutputChannel() as unknown as { _lines: string[] })._lines;
 }
 
-describe('isValidLane — out-of-range diagnostics (L-G2)', () => {
+describe('isValidLane — out-of-range diagnostics', () => {
   beforeEach(() => {
     __resetOutputChannelForTest();
     __resetLaneWarningForTest();

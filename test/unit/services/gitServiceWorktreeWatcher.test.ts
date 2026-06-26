@@ -1,5 +1,5 @@
 /**
- * L-B3 regression — the file watchers must be rooted at the per-worktree
+ * Regression — the file watchers must be rooted at the per-worktree
  * git directory.
  *
  * In a normal checkout `<root>/.git` is a directory and IS the git dir, so the
@@ -26,7 +26,7 @@ interface WatcherSetupSurface {
   setupRepositoryWatcher: (root: string) => void;
 }
 
-describe('GitService — worktree-aware watcher rooting (L-B3)', () => {
+describe('GitService — worktree-aware watcher rooting', () => {
   let base: string;
   let gitService: GitService;
   let baselineWatcherCount: number;

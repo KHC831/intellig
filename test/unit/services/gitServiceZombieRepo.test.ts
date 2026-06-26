@@ -5,7 +5,7 @@
  * Race: a folder is added → `discoverRepository` starts `loadRepository`
  * (enrolled in `_reloading`) → the user removes the folder before it resolves →
  * `removeRepositoryWatcher` clears the maps → the in-flight load resolves and
- * (pre-fix) unconditionally re-`set`s `_repositories` AND — since the H-2 funnel
+ * (pre-fix) unconditionally re-`set`s `_repositories` AND — since the load-repository funnel
  * landed — re-installs the `.git/` watcher and re-fires `onDidChangeRepository`.
  * The result is a stale, un-removable zombie repo.
  *

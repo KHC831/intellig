@@ -33,12 +33,12 @@ interface ShelfSecuritySurface {
 
 /**
  * GitCli stub for the path-containment specs. The deletion-unshelve guard
- * (L-SH5) compares the HEAD blob hash (`rev-parse HEAD:<path>`) to the working
+ * compares the HEAD blob hash (`rev-parse HEAD:<path>`) to the working
  * file's hash (`hash-object`); returning the SAME non-empty sha for both makes
  * an in-repo file read as the pristine HEAD version so the legitimate
  * "re-apply the deletion" path still deletes. Path-escape specs return false at
  * the lexical guard before any git call, so this stub never affects them. The
- * content-aware L-SH5 scenarios live in a dedicated real-git test.
+ * content-aware deletion-recreation scenarios live in a dedicated real-git test.
  */
 function createStubGitCli(): GitCli {
   return {

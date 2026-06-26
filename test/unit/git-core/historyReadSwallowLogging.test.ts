@@ -1,5 +1,5 @@
 /**
- * L-O2 — the non-critical history reads degrade a non-zero git exit to an
+ * The non-critical history reads degrade a non-zero git exit to an
  * empty/zero value (graceful degrade, unlike the list ops that return Err), but
  * they must LOG the swallowed stderr first so a real fault (corrupt repo, a ref
  * that passed the guard but doesn't exist) leaves a diagnostic trail instead of
@@ -37,7 +37,7 @@ function loggedLines(): string[] {
 const repo = (root: string): IRepository =>
   ({ rootUri: { fsPath: root } }) as unknown as IRepository;
 
-describe('StashTagHistoryOps — history reads log swallowed non-zero exits (L-O2)', () => {
+describe('StashTagHistoryOps — history reads log swallowed non-zero exits', () => {
   beforeEach(() => {
     __resetOutputChannelForTest();
   });

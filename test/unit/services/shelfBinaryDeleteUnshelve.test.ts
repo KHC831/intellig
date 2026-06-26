@@ -1,5 +1,5 @@
 /**
- * L-SH5 — re-applying a shelved binary DELETION must not silently destroy a
+ * Re-applying a shelved binary DELETION must not silently destroy a
  * file the user recreated at that path after shelving.
  *
  * restoreBinaryShelfFile('deleted') unlinks the path. The guard only deletes
@@ -34,7 +34,7 @@ const deletedEntry = (p: string): IShelfFile => ({
   binaryStatus: 'deleted',
 });
 
-describe('ShelfService — binary deletion-unshelve preserves recreated files (L-SH5)', () => {
+describe('ShelfService — binary deletion-unshelve preserves recreated files', () => {
   let repoPath: string;
   let gitCli: GitCli;
   let svc: ShelfService;

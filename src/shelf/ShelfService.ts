@@ -554,7 +554,7 @@ export class ShelfService implements IShelfService {
     // `-z` (NUL-separated, paths verbatim) so a staged file with a non-ASCII /
     // space / special name isn't C-quoted — otherwise it wouldn't match the
     // `-z`-clean paths in `filesToShelve` and the warning would silently miss it
-    // (the same M-P1 quoting class). Mirrors the status/diff -z hardening.
+    // (the same NUL-delimited quoting class). Mirrors the status/diff -z hardening.
     const stagedResult = await this._gitCli.exec(['diff', '--cached', '--name-only', '-z'], {
       cwd,
     });

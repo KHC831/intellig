@@ -252,7 +252,7 @@ describe('GitScmProvider — lifecycle', () => {
   });
 });
 
-describe('GitScmProvider — accept-commit status-read failure (M-B3)', () => {
+describe('GitScmProvider — accept-commit status-read failure', () => {
   it('aborts the accept + surfaces an error and does NOT commit when getStatus fails', async () => {
     const repo = repoAt('/repo');
     let commitCalled = false;

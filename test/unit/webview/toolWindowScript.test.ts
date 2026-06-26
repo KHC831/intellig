@@ -55,7 +55,7 @@ describe('webview: git tool-window inline script (jsdom)', () => {
     );
   });
 
-  it('escapes every interpolated hash in a [data-hash] selector via cssEscapeHash (L-T3)', () => {
+  it('escapes every interpolated hash in a [data-hash] selector via cssEscapeHash', () => {
     // A host SHA spliced raw into '[data-hash="' + hash + '"]' would throw a
     // SyntaxError / mis-select if it ever contained a quote. Every such selector
     // must route the value through the script's cssEscapeHash helper (which

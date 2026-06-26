@@ -1,5 +1,5 @@
 /**
- * Wiring test for `wireAvailableRepositorySync` (L-B5).
+ * Wiring test for `wireAvailableRepositorySync`.
  *
  * The Git tool window's available-repository list must follow GitService's
  * authoritative repository set — which includes NESTED repos discovered
@@ -61,7 +61,7 @@ function makeHarness(initial: IRepository[]) {
   };
 }
 
-describe('wireAvailableRepositorySync (L-B5)', () => {
+describe('wireAvailableRepositorySync', () => {
   it('pushes the full nested-aware repo set when discovery adds a repo', () => {
     const root = repoAt('/ws/root');
     const h = makeHarness([root]);

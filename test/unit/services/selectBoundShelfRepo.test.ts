@@ -25,7 +25,7 @@ function repoAt(fsPath: string): IRepository {
   };
 }
 
-describe('selectBoundShelfRepo — Shelf/Stash repo targeting (M-B5)', () => {
+describe('selectBoundShelfRepo — Shelf/Stash repo targeting', () => {
   const a = repoAt('/ws/a');
   const b = repoAt('/ws/b');
 
