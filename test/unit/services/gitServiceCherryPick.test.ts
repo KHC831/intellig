@@ -182,9 +182,9 @@ describe('GitService.cherryPick — variants', () => {
     it('runs cherry-pick --no-commit, then unstages + restores non-selected files', async () => {
       const { gitService, mockGitCli } = installGitService();
       // Commit touches: a.ts, b.ts, c.ts. User keeps only a.ts.
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\nc.ts\n',
+        stdout: 'a.ts\0b.ts\0c.ts\0',
         stderr: '',
       });
 
@@ -213,6 +213,7 @@ describe('GitService.cherryPick — variants', () => {
       assert.deepStrictEqual(show.args, [
         'show',
         '--name-only',
+        '-z',
         '--format=',
         '--end-of-options',
         'abc1234',
@@ -228,11 +229,37 @@ describe('GitService.cherryPick — variants', () => {
       assert.deepStrictEqual(checkout.args, ['checkout', '--', 'b.ts', 'c.ts']);
     });
 
+    it('collects touched files with show --name-only -z, keeping a non-ASCII name verbatim', async () => {
+      // Without -z, `git show --name-only` C-quotes a non-ASCII path
+      // (`"caf\303\251.ts"`), so it never matches the user's real selection and
+      // the index-narrowing restores the wrong file. -z + NUL split keeps the
+      // name verbatim so the selected file is kept and only the rest are dropped.
+      const { gitService, mockGitCli } = installGitService();
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
+        exitCode: 0,
+        stdout: 'café.ts\0other.ts\0',
+        stderr: '',
+      });
+
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], { files: ['café.ts'] })
+      )._unsafeUnwrap();
+
+      assert.strictEqual(result.success, true);
+      // café.ts is kept (matched verbatim); only other.ts is dropped.
+      const reset = mockGitCli.findCommand(['reset', 'HEAD']);
+      assert.ok(reset, 'a reset should narrow the index to drop non-selected files');
+      assert.deepStrictEqual(reset.args, ['reset', 'HEAD', '--', 'other.ts']);
+      const checkout = mockGitCli.findCommand(['checkout', '--']);
+      assert.ok(checkout);
+      assert.deepStrictEqual(checkout.args, ['checkout', '--', 'other.ts']);
+    });
+
     it('forces --no-commit even when caller did not request it', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\n',
+        stdout: 'a.ts\0b.ts\0',
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234'], {
@@ -260,9 +287,9 @@ describe('GitService.cherryPick — variants', () => {
 
     it('files subset equal to all touched files skips the reset/checkout', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\n',
+        stdout: 'a.ts\0b.ts\0',
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234'], { files: ['a.ts', 'b.ts'] });
@@ -273,14 +300,14 @@ describe('GitService.cherryPick — variants', () => {
 
     it('multi-commit: unions touched files across every commit', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\n',
+        stdout: 'a.ts\0b.ts\0',
         stderr: '',
       });
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options def5678', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options def5678', {
         exitCode: 0,
-        stdout: 'b.ts\nc.ts\n',
+        stdout: 'b.ts\0c.ts\0',
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234', 'def5678'], {
