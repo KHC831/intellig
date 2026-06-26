@@ -299,7 +299,7 @@ export class RemoteOps {
     }
     if (options?.autostash) {
       // `--autostash` makes git stash a dirty working tree before integrating
-      // and re-apply it after, so an uncommitted change no longer dead-ends
+      // and re-apply it after, so an uncommitted change doesn't dead-end
       // pull on "cannot pull with rebase: you have unstaged changes" /
       // local-changes-overwrite (mirrors rebaseBranch's `--autostash`).
       flags.push('--autostash');

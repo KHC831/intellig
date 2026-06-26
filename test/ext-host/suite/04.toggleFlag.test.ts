@@ -14,7 +14,7 @@
  *       does not throw — i.e. live rebinding of the tool window works.
  *
  * This catches regressions where flag-toggle code path throws or corrupts
- * view registration state (the failure mode TL-16 is meant to prevent).
+ * view registration state (the failure mode this spec guards against).
  */
 
 import * as assert from 'assert';

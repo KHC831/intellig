@@ -1,12 +1,12 @@
 /**
  * Unit coverage for `repoRelativePath` — the explorer-command path fix.
  *
- * The explorer Git handlers used to derive the git pathspec with
- * `vscode.workspace.asRelativePath`, which is relative to the WORKSPACE FOLDER
- * and so wrong whenever the repo root differs from the folder (a nested repo /
- * submodule, or a multi-root workspace where the folder name is prefixed). git
- * runs the op under `cwd = repo.rootUri.fsPath`, so it needs a REPO-root-
- * relative path. `repoRelativePath` produces exactly that.
+ * The explorer Git handlers derive the git pathspec with `repoRelativePath`,
+ * not `vscode.workspace.asRelativePath`: the latter is relative to the
+ * WORKSPACE FOLDER and so wrong whenever the repo root differs from the folder
+ * (a nested repo / submodule, or a multi-root workspace where the folder name
+ * is prefixed). git runs the op under `cwd = repo.rootUri.fsPath`, so it needs
+ * a REPO-root-relative path, which `repoRelativePath` produces.
  *
  * These tests pin the pure relative-path logic and the outside-repo fallback.
  * Symlink canonicalization (macOS `/var` → `/private/var`, where git reports

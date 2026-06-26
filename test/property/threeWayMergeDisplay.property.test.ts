@@ -911,18 +911,16 @@ describe('Three-Way Merge Display Property Tests', () => {
     });
 
     /**
-     * TR-6 regression: seed -1397824335 shrank to the counterexample below,
+     * Regression: seed -1397824335 shrank to the counterexample below,
      * where two conflicts share `baseContent = ":"` but only the second is
-     * resolved. The original assertion looked up merge conflicts by
-     * `baseContent` equality and therefore matched the *first* (unresolved)
-     * region, then asserted that its id was in `resolvedConflicts` — which
-     * it wasn't. The fix is to look up by stable `id` instead.
+     * resolved. Looking up merge conflicts by `baseContent` equality matches
+     * the *first* (unresolved) region and then asserts that its id is in
+     * `resolvedConflicts` — which it isn't; looking up by stable `id`
+     * instead avoids the mismatch.
      *
      * Asserting the counterexample directly (rather than pinning only the
      * fast-check seed) means this regression catches the bug deterministically
      * regardless of fast-check version-to-version seed drift.
-     *
-     * See .agent/reviews/TEST_RUN_REPORT_ROUND4.md TR-6.
      */
     it('TR-6 regression: duplicate baseContent with mixed resolved status tracks correctly', () => {
       const mergeService = new MockMergeViewService();
@@ -974,7 +972,7 @@ describe('Three-Way Merge Display Property Tests', () => {
     });
 
     /**
-     * TR-6 regression: the original seed -1397824335 itself, in case the
+     * Regression: the original seed -1397824335 itself, in case the
      * counterexample form above is ever edited out by mistake.
      */
     it('TR-6 regression: seed -1397824335 does not flake the resolved-tracking property', () => {

@@ -125,15 +125,13 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
     };
 
     const messageSubscription = webviewView.webview.onDidReceiveMessage((message: unknown) => {
-      // A `void this._handleMessage(message)` used to silently swallow
-      // async rejections here. Audit of subclass handlers
-      // (CommitToolWindow._handleWebviewMessage and
-      // GitToolWindowProvider._handleWebviewMessage) showed they each
-      // internalise user-visible errors already (toasts surfaced from
-      // within the handler + postMessage failure results), so a
-      // handler-level reject is a bug signal rather than a direct
-      // user-facing failure — log with context so it's grep-able in
-      // the extension host output.
+      // Log async rejections from `_handleMessage` rather than swallowing them.
+      // Subclass handlers (CommitToolWindow._handleWebviewMessage and
+      // GitToolWindowProvider._handleWebviewMessage) each internalise
+      // user-visible errors already (toasts surfaced from within the handler +
+      // postMessage failure results), so a handler-level reject is a bug signal
+      // rather than a direct user-facing failure — log with context so it's
+      // grep-able in the extension host output.
       try {
         safeFireAndForget(
           Promise.resolve(this._handleMessage(message)),

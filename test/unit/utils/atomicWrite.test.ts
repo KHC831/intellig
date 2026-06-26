@@ -1,5 +1,5 @@
 /**
- * TL-6 — unit tests for the atomic-write helper.
+ * Unit tests for the atomic-write helper.
  *
  * Exercises the three guarantees callers rely on:
  *   1. Happy path — content lands at targetPath, no debris.
@@ -163,7 +163,7 @@ describe('atomicWriteFileSync', () => {
   });
 });
 
-// TL-37 — async variant covering the same invariants. Used by
+// Async variant covering the same invariants. Used by
 // MergeView.markResolved, which runs on the extension-host event loop
 // and cannot block on sync I/O.
 describe('atomicWriteFile (async)', () => {

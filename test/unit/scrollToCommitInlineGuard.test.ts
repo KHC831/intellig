@@ -123,8 +123,8 @@ describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () =>
   });
 
   it('does not call scrollIntoView unconditionally inside the panel-present branch', () => {
-    // Regression guard: the pre-fix bug ran scrollIntoView every time. Inside
-    // the panel-present path the ONLY scrollIntoView must be the guarded one,
+    // Regression guard: inside the panel-present path the ONLY scrollIntoView
+    // must be the guarded one (an unconditional call would scroll every time),
     // so a `scrollIntoView` must never appear without a preceding
     // `!fullyVisible` check on the same path. We assert every scrollIntoView
     // occurrence in the body is either the guarded one or the panel-missing

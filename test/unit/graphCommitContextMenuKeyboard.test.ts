@@ -1,13 +1,12 @@
 /**
  * Runtime (jsdom) regression test for the keyboard ContextMenu-key redirect
- * in the Git tool window inline script (W1 follow-up).
+ * in the Git tool window inline script.
  *
- * The keyboard `ContextMenu` key on a focused commit row previously called the
- * dead `showLogContextMenu`, which targeted a `#log-context-menu` element this
- * provider never renders — so the key was a silent no-op. The W1 cleanup
- * redirected it to the LIVE `showCommitContextMenu`, which reveals the rendered
- * `#commit-context-menu`. This pins that behaviour so the redirect can't
- * silently regress to the dead menu.
+ * The keyboard `ContextMenu` key on a focused commit row must call the LIVE
+ * `showCommitContextMenu` (which reveals the rendered `#commit-context-menu`),
+ * not the dead `showLogContextMenu` (which targets a `#log-context-menu`
+ * element this provider never renders, making the key a silent no-op). This
+ * pins that behaviour so the redirect can't silently regress to the dead menu.
  */
 
 import '../setup';

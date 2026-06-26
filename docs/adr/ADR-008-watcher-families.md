@@ -212,11 +212,11 @@ the constructor grows by one — no other site change.
 
 ### Companion specs (R1 / L4)
 
-- `src/test/unit/services/gitServiceWatcherFamilies.test.ts` — pins the
+- `test/unit/services/gitServiceWatcherFamilies.test.ts` — pins the
   registry contract (3 specs): registry exposed, walker disposes a
   synthetic third-map entry, path-child rule honored across all
   registered maps.
-- `src/test/unit/services/gitServiceRepoDeletion.test.ts` — pins the
+- `test/unit/services/gitServiceRepoDeletion.test.ts` — pins the
   TL-88 + R1/C1 contract (9 specs): `onDidRemoveRepository` fires on
   both removal causes (`.git/HEAD` deletion AND workspace-folder
   removal), is idempotent, doesn't fire for sibling-prefix paths,

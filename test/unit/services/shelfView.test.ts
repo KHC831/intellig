@@ -770,10 +770,10 @@ describe('ShelfView', () => {
       }
     });
 
-    // TL-64: aggregate toast "N patch file(s) could not be imported"
+    // The aggregate toast "N patch file(s) could not be imported"
     // is informative-only. The per-file sanitized error lives in the
-    // returned result[], but nothing downstream rendered it before —
-    // users had no way to see which file failed with what error. Route
+    // returned result[]; without routing it out, users have no way to see
+    // which file failed with what error. Route
     // each failed patch's sanitized error into the shared OutputChannel
     // as a separate `appendLine` so `Output → IntelliG` shows the
     // filename + error. Keep the toast text unchanged.
@@ -853,7 +853,7 @@ describe('ShelfView', () => {
       }
     });
 
-    // TL-55: sanitize importPatches error path. Per-file import failures
+    // Sanitize importPatches error path. Per-file import failures
     // embed their raw Error message into the structured result; `git
     // apply`/`git am` can surface credentialed remote URLs (from patch
     // headers) and /Users/<name> absolute paths, both of which must be
@@ -894,12 +894,11 @@ describe('ShelfView', () => {
     });
   });
 
-  // TL-42: refresh() returns { error? } so callers can surface a refresh
+  // refresh() returns { error? } so callers can surface a refresh
   // failure immediately rather than leaving it latent in _state.error until
-  // the next shelf-list open. TL-56 then removed the redundant _state.error
-  // mirror: no production consumer reads IShelfViewState.error (the sole
-  // reader, _showShelfList, already surfaces refreshResult.error directly).
-  // These specs pin the three behaviours now:
+  // the next shelf-list open. No production consumer reads
+  // IShelfViewState.error (the sole reader, _showShelfList, surfaces
+  // refreshResult.error directly). These specs pin the three behaviours:
   //   (a) success → resolves with `{}` (no error field)
   //   (b) service-throw → resolves with { error: sanitized }
   //   (c) sanitization — credentialed URL in the service error surfaces
@@ -916,11 +915,11 @@ describe('ShelfView', () => {
       assert.deepStrictEqual(result, {});
     });
 
-    // TL-56 invariant: getState() MUST NOT expose an `error` field. The
-    // canonical error channel is the refresh() return value; an
-    // additional sideband on IShelfViewState was unused in production
-    // and created the risk that a future caller would read the
-    // latent-until-next-refresh value instead of the live one.
+    // getState() MUST NOT expose an `error` field. The canonical error
+    // channel is the refresh() return value; an additional sideband on
+    // IShelfViewState would be unread in production and risks a future
+    // caller reading the latent-until-next-refresh value instead of the
+    // live one.
     it('getState() does not expose an error field — refresh() is the sole error channel', async () => {
       // After a successful refresh
       svc._items.push({
@@ -983,10 +982,10 @@ describe('ShelfView', () => {
     });
   });
 
-  // TL-42: verify user-facing callers (unshelve/delete/shelve/importPatches)
-  // surface a refresh() failure as a warning toast. Previously refresh
-  // failures would sit latent in _state.error until the next shelf-list
-  // open, so a stale view after unshelve had no user-visible trace.
+  // Verify user-facing callers (unshelve/delete/shelve/importPatches)
+  // surface a refresh() failure as a warning toast, so a stale view after
+  // unshelve has a user-visible trace rather than a failure sitting latent
+  // in _state.error until the next shelf-list open.
   describe('refresh-failure surfacing in user-facing callers', () => {
     it('unshelve emits a warning toast when the post-action refresh fails', async () => {
       svc._items.push({
@@ -1033,10 +1032,9 @@ describe('ShelfView', () => {
       }
     });
 
-    // TL-63: parallel specs for showShelveDialog + importPatches +
-    // _showShelfList to close the coverage gap identified by tech-lead-
-    // wave6. These all pass on current code (the surfacing code lives
-    // at each call site already); they're explicitly GREEN-FIRST,
+    // Parallel specs for showShelveDialog + importPatches +
+    // _showShelfList. These all pass on current code (the surfacing code
+    // lives at each call site already); they're explicitly GREEN-FIRST,
     // locking in the behaviour so a future regression that drops the
     // warning toast fails a pinned spec instead of sliding through.
     it('showShelveDialog emits a warning toast when the post-action refresh fails', async () => {
@@ -1225,11 +1223,11 @@ describe('ShelfView', () => {
     });
   });
 
-  // TL-72 (Wave 9) — close the boundary on the two remaining
-  // ShelfView action paths (`showShelveDialog`, `viewShelfItem`)
-  // whose catch blocks pre-fix concatenated raw `error.message`
+  // Close the boundary on the two remaining ShelfView action paths
+  // (`showShelveDialog`, `viewShelfItem`) whose catch blocks must run raw
+  // `error.message` through `sanitizeGitError` rather than concatenating it
   // straight into the toast template. Mirrors the unshelve /
-  // deleteShelfItem / renameShelfItem coverage from Wave 4 (TL-46).
+  // deleteShelfItem / renameShelfItem coverage.
   describe('TL-72 — action-path toasts route through sanitizeGitError', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

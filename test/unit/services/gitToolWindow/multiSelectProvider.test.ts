@@ -77,22 +77,20 @@ describe('Wave A — provider integration', () => {
     provider.dispose();
   });
 
-  // ─── A0: inline script no longer hard-disables editCommitMessage ─────────
+  // ─── A0: inline script does not hard-disable editCommitMessage ───────────
   describe('A0 — editCommitMessage no longer unconditionally disabled', () => {
     it('inline script does NOT contain a hard-disable line for editCommitMessage', () => {
-      // The bug at line 3650-3652 was an unconditional
-      // `editMsgItem.classList.add('disabled')`. After the disable
-      // call must be guarded by `!isSingleCommit` (or equivalent), so it
-      // is conditional, not free-standing.
+      // The `editMsgItem.classList.add('disabled')` call must be guarded by
+      // `!isSingleCommit` (or equivalent), so it is conditional, not
+      // free-standing.
       const html = provider._getThreePanelHtmlContent(
         { cspSource: 'test:' } as unknown as import('vscode').Webview,
         []
       );
 
-      // Match the pre-fix pattern: `editMsgItem.classList.add('disabled')`
-      // appearing as a top-level statement (not inside an `if (!...)` block).
-      // We grep for the line shape and assert NO occurrence is unconditional.
-      // The fix wraps it in `if (!isSingleCommit)`; older bug had it bare.
+      // Match a bare `editMsgItem.classList.add('disabled')` top-level
+      // statement (not inside an `if (!...)` block) and assert NO occurrence
+      // is unconditional. A guarded `if (!isSingleCommit)` form is allowed.
       const bareDisable = /editMsgItem\.classList\.add\(['"]disabled['"]\);(?!\s*\/\/ guarded)/;
       const inlineMatch = bareDisable.exec(html);
       if (inlineMatch) {

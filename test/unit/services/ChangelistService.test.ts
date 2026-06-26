@@ -12,7 +12,7 @@ import { GitCli } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
 
 /**
- * Minimal fake-timer shim — TR-2.
+ * Minimal fake-timer shim.
  *
  * Replaces `setTimeout` / `clearTimeout` on `globalThis` with a deterministic
  * queue driven by {@link installFakeTimers}`.tick()`. Scoped to the current
@@ -1092,7 +1092,7 @@ describe('ChangelistService', () => {
     });
 
     it('onDidChangeRepository triggers debounced reconcile', async () => {
-      // TR-2: use a local fake-timer shim instead of waiting out the real
+      // Use a local fake-timer shim instead of waiting out the real
       // 300 ms debounce. Drops test time from ~400 ms to <5 ms and makes
       // the assertion deterministic regardless of event-loop scheduling.
       const fake = installFakeTimers();

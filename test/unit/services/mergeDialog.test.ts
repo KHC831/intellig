@@ -451,10 +451,9 @@ describe('MergeDialog — lifecycle', () => {
 
   // `_executeMerge` catch block must run the raw
   // git stderr through `sanitizeGitError` before pushing it into the
-  // showErrorMessage toast template. Pre-fix, MergeDialog.ts:407
-  // concatenated `error.message` directly, so credentialed remote URLs
+  // showErrorMessage toast template. Without this, credentialed remote URLs
   // (e.g. https://x:token@github.com/o/r.git in `fatal: unable to
-  // access`) and POSIX home paths leaked into the user's notification
+  // access`) and POSIX home paths leak into the user's notification
   // history.
   it('TL-72 — merge failure toast sanitizes credentialed URL + home path', async () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';

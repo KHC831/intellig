@@ -467,7 +467,7 @@ export class PushDialog extends BaseWebviewPanel {
       // remote ref (a destructive cross-ref push when HEAD ≠ the clicked
       // branch). When the clicked branch IS the current HEAD we use HEAD's
       // upstream; otherwise we use the clicked branch's OWN upstream threaded
-      // in via `preselect.upstream` (issue #19) so an already-tracking branch
+      // in via `preselect.upstream` so an already-tracking branch
       // keeps its remote instead of being forced to --set-upstream against the
       // fallback. A clicked branch with no upstream still falls through to a
       // new-upstream push (target = branch itself).
@@ -479,7 +479,7 @@ export class PushDialog extends BaseWebviewPanel {
 
       // A clicked non-HEAD branch reports its OWN divergence (threaded via
       // preselect), not the resolved HEAD's — otherwise a diverged non-HEAD
-      // branch shows 0/0 and the force-with-lease auto-flip never fires (#19b).
+      // branch shows 0/0 and the force-with-lease auto-flip never fires.
       const fromClickedBranch = isPreselectedBranchRow && !clickedIsHead;
       const ahead = fromClickedBranch ? (preselect?.ahead ?? 0) : (repo.head?.ahead ?? 0);
       const behind = fromClickedBranch ? (preselect?.behind ?? 0) : (repo.head?.behind ?? 0);

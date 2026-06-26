@@ -1,10 +1,9 @@
 /**
- * Regression tests for the `intellig-git:` URI content provider (task #92, A1).
+ * Regression tests for the `intellig-git:` URI content provider.
  *
- * Senior retro of Change A flagged a pre-existing bug newly reachable through
- * BranchComparisonView: producers across the codebase encode the ref with
- * `encodeURIComponent(ref)`, but the provider used to read `uri.query` raw.
- * A ref containing `/` (e.g. `origin/main`) round-tripped as `origin%2Fmain`,
+ * Producers across the codebase encode the ref with `encodeURIComponent(ref)`,
+ * so the provider must decode `uri.query` rather than reading it raw. A ref
+ * containing `/` (e.g. `origin/main`) otherwise round-trips as `origin%2Fmain`,
  * which `git show` cannot resolve.
  *
  * These tests exercise the exported helper `provideGitShowContent` directly
@@ -230,8 +229,8 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     // REPO-root-relative path. Seed a SECOND repo so the provider's single-repo
     // fallback cannot apply, and point the workspace-folder fallback at that
     // OTHER repo: only honoring the encoded repoRoot resolves the right root.
-    // (Pre-fix, the provider ignored repoRoot, fell through to the workspace
-    // folder, and ran `git show` under `/test/other` — wrong repo.)
+    // (Ignoring repoRoot would fall through to the workspace folder and run
+    // `git show` under `/test/other` — the wrong repo.)
     const otherRoot = '/test/other';
     (gitService as any)._repositories.set(otherRoot, {
       repository: { ...mockRepo, rootUri: Uri.file(otherRoot) },
@@ -342,10 +341,10 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
 
   it('wraps malformed percent-encoded refs in a friendly error (task #103 A2)', async () => {
     // `%GG` is not a valid percent-escape, so `decodeURIComponent` throws
-    // `URIError: URI malformed`. Pre-fix, that raw URIError bubbled up and
-    // obscured the contract violation; post-fix, the provider wraps it in
-    // a friendly `Error` that names both the scheme and the offending query
-    // so logs and error handlers point at the producer bug, not the decode.
+    // `URIError: URI malformed`. The provider wraps it in a friendly `Error`
+    // that names both the scheme and the offending query so logs and error
+    // handlers point at the producer bug, not the decode — rather than letting
+    // the raw URIError bubble up and obscure the contract violation.
     const uri = buildIntelligGitUri('/test/repo/src/foo.ts', '%GG');
 
     await assert.rejects(

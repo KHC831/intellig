@@ -2586,7 +2586,7 @@ export class CommitContextMenuCommands {
     if (commitHashes.length < 2) {
       // Squash needs ≥ 2 commits. Surface a toast so the user knows
       // their click was received but the action requires more
-      // selection — previously a silent return.
+      // selection.
       log.warn('squash aborted: fewer than 2 commits selected', {
         commitHashesCount: commitHashes.length,
       });

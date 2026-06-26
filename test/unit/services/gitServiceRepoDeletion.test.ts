@@ -1,12 +1,12 @@
 /**
- * Tests for mid-session repository deletion (#213).
+ * Tests for mid-session repository deletion.
  *
- * Bug: originally, running `rm -rf .git` inside a discovered repo left
- * orphan watchers + a stale `_repositories` entry until window reload.
- * Subsequent commands against the (now-non-)repo would either fail with
+ * Without deletion detection, running `rm -rf .git` inside a discovered repo
+ * leaves orphan watchers + a stale `_repositories` entry until window reload.
+ * Subsequent commands against the (now-non-)repo either fail with
  * confusing "fatal: not a git repository" toasts or, worse, the
- * `.git/HEAD` watcher would re-trigger reloads that all-failed-silently.
- * The repo also stayed visible in tool-window pickers despite no longer
+ * `.git/HEAD` watcher re-triggers reloads that all-fail-silently.
+ * The repo also stays visible in tool-window pickers despite no longer
  * existing.
  *
  * Extend the per-repo watcher to detect deletion of `.git/HEAD`
@@ -18,8 +18,7 @@
  * repo from their UI without polling.
  *
  * Each spec was authored RED-first and confirmed failing before the
- * deletion-detection wiring was added. See AGENT_WORKSPACE.md for the
- * verbatim red-message captures.
+ * deletion-detection wiring was added.
  */
 
 import '../../setup';

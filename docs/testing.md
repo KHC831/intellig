@@ -9,10 +9,10 @@ a test without rotting the production API.
 
 | Layer    | Path                   | CI lane                                    | VS Code host? | Real git? | Driver     | Approx. count |
 | -------- | ---------------------- | ------------------------------------------ | ------------- | --------- | ---------- | ------------: |
-| Unit     | `src/test/unit/**`     | `test:unit`                                | no            | no        | Mocha      |          2542 |
-| Property | `src/test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check |          3158 |
-| Ext-host | `src/test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha      |            22 |
-| E2E      | `src/test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha      |            36 |
+| Unit     | `test/unit/**`     | `test:unit`                                | no            | no        | Mocha      |          2542 |
+| Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check |          3158 |
+| Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha      |            22 |
+| E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha      |            36 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -27,7 +27,7 @@ a test without rotting the production API.
   idle invariants. These are the only tests that can catch
   "extension.activate() threw silently in the host."
 - **E2E** — real VS Code host **and** real temp-dir git fixtures.
-  Per-test isolated via `src/test/e2e/support/Fixture.ts` +
+  Per-test isolated via `test/e2e/support/Fixture.ts` +
   `workspaceHelper.ts`. Use for command flows that exercise real git
   state transitions. These are slow; budget carefully.
 
@@ -53,8 +53,8 @@ prompt.
 **Decision (Option B + compatibility alias): the aggregate _harness_ is
 retired, but `npm test` survives as a thin alias.** The legacy aggregate
 host — the old `test` script's `node ./out/test/runTest.js` entry point,
-its launcher `src/test/runTest.ts`, and its recursive Mocha loader
-`src/test/suite/index.ts` — has been **removed**. It booted a real
+its launcher `test/runTest.ts`, and its recursive Mocha loader
+`test/suite/index.ts` — has been **removed**. It booted a real
 Extension Host with no launch args (so it stalled on the workspace-trust
 modal) and dragged the mock-`vscode` unit/property suites into that host;
 CI never invoked it, and its only host spec was already covered by the
@@ -65,7 +65,7 @@ is **retained as an alias** over the in-process lanes plus lint rather
 than removed:
 
 ```
-test = lint (--max-warnings 0) → test:unit → test:property
+test = lint (--max-warnings 0) → compile → check:all → test:unit → test:property
 ```
 
 `npm test` therefore runs the fast, headless, in-process gates (the same
@@ -108,9 +108,10 @@ is low.
 ## section 2. Test-infra locations
 
 ```
-src/test/
+test/
 ├── mocks/         ← module-resolution substitutes (resolved at build time)
 ├── typed/         ← typed accessors for unit + property suites
+├── helpers/       ← DOM / webview test harness helpers
 ├── e2e/support/   ← E2E fixtures, stubs, workspace helper
 ├── unit/          ← unit suites
 ├── property/      ← property suites
@@ -118,16 +119,18 @@ src/test/
 └── e2e/           ← end-to-end suites
 ```
 
-- **`src/test/mocks/`** — module-resolution substitutes. `vscode.ts` is
+- **`test/mocks/`** — module-resolution substitutes. `vscode.ts` is
   hoisted by the test runner to replace `import * as vscode` in the
   graph. Anything that an import statement resolves to, for test
   purposes, lives here.
-- **`src/test/typed/`** — typed bridges into private state (e.g.
+- **`test/typed/`** — typed bridges into private state (e.g.
   `writableWindow` for casting to a `vscode.window` override surface,
   `invokePrivateHandler` for driving a tree-view's private command
-  dispatcher). Used by unit + property suites. (Formerly `helpers/`;
-  renamed under TL-26 so the intent is evident from the path.)
-- **`src/test/e2e/support/`** — E2E-only: `Fixture`, `workspaceHelper`,
+  dispatcher). Used by unit + property suites.
+- **`test/helpers/`** — DOM / webview test harness helpers
+  (`webviewHarness`, `detailsPanelDom`, `mockWebviewContext`,
+  `webviewHtml`) for exercising rendered webview output.
+- **`test/e2e/support/`** — E2E-only: `Fixture`, `workspaceHelper`,
   test-process stubs. Depends on VS Code + real filesystem.
 
 ## section 3. The TestSurface idiom
@@ -152,15 +155,15 @@ No kitchen-sink surfaces.
 
 **Exemplars on main:**
 
-- `src/test/unit/services/resetDialog.test.ts` — `ResetDialogInternals`
+- `test/unit/services/resetDialog.test.ts` — `ResetDialogInternals`
   (2 fields; drives `_onMessage` + reads `_panel.webview.html`).
-- `src/test/unit/services/commitToolWindow.test.ts` —
+- `test/unit/services/commitToolWindow.test.ts` —
   `CommitToolWindowTestSurface` (drives handler dispatch under a stub
   webview).
-- `src/test/e2e/support/workspaceHelper.ts` —
+- `test/e2e/support/workspaceHelper.ts` —
   `GitServiceWorkspaceHelperSurface` (enumerates repos + drops watchers
   during per-test teardown).
-- `src/test/unit/services/rebaseSkip.test.ts` —
+- `test/unit/services/rebaseSkip.test.ts` —
   `GitServiceGitCliTestSurface` (injects a scripted CLI into a real
   `GitService` instance).
 
@@ -190,8 +193,8 @@ export function __resetOutputChannelForTest(): void {
 3. **Pair with a structural CI guard** that greps `src/` for the
    literal name and fails the build on any production caller. The
    canonical example is
-   `scripts/check-output-channel-test-surface.sh` (registered as
-   `npm run check:output-channel-test-surface`; wired into
+   `scripts/check-test-only-surface.sh` (registered as
+   `npm run check:test-only-surface`; wired into `check:all` and
    `.github/workflows/ci.yml` alongside the other `check:*` guards).
 
 **When to use the prefix vs. the interface:**
@@ -208,7 +211,7 @@ exports follow a different naming (`migrateStorageForTest`,
 `serializeStorageForDisk`, `migrateShelfStorageForTest`,
 `serializeShelfForDisk`) — they predate the prefix convention and
 are kept as-is to avoid churn. New test-only module exports MUST use
-the `__*ForTest` prefix. A future sweep TL may rename the
+the `__*ForTest` prefix. A future sweep may rename the
 grandfathered set; until then, run `git grep -nE 'export function
 (.*ForTest|serialize.*ForDisk)' src/` to enumerate the current
 inventory.
@@ -249,17 +252,17 @@ Why this is preferred over the alternatives:
 Exemplars:
 
 - `createErrorThrowingGitService` in
-  `src/test/property/commitContextMenuErrors.property.test.ts`.
+  `test/property/commitContextMenuErrors.property.test.ts`.
 - `createErrorThrowingMockGitService` in
-  `src/test/property/branchContextMenuErrors.property.test.ts`.
+  `test/property/branchContextMenuErrors.property.test.ts`.
 
 ## section 4. Decision rules — where does my new test helper go?
 
 | Scenario                                                    | Put it in                |
 | ----------------------------------------------------------- | ------------------------ |
-| Crosses unit + property (typed accessor into private state) | `src/test/typed/`        |
-| E2E-only (fixtures, workspace juggling)                     | `src/test/e2e/support/`  |
-| Replaces a module import at resolution time                 | `src/test/mocks/`        |
+| Crosses unit + property (typed accessor into private state) | `test/typed/`        |
+| E2E-only (fixtures, workspace juggling)                     | `test/e2e/support/`  |
+| Replaces a module import at resolution time                 | `test/mocks/`        |
 | One-off for a single test file                              | Inline in that test file |
 
 If a helper would be used only once, don't extract it. The overhead of
@@ -381,8 +384,8 @@ Reference implementations:
 
 Reference property suites:
 
-- `src/test/property/changelistStorageRoundTrip.property.test.ts`
-- `src/test/property/shelfStorageRoundTrip.property.test.ts`
+- `test/property/changelistStorageRoundTrip.property.test.ts`
+- `test/property/shelfStorageRoundTrip.property.test.ts`
 
 ### 7.2. Atomic-write testing patterns
 
@@ -408,7 +411,7 @@ Three test patterns give us confidence these sites stay honest:
 2. **Real-fs integration — `mkdtemp` + happy path + fault injection.**
    Integration tests (`patchService.test.ts`,
    `shelfView.test.ts` `createPatchFromShelf`,
-   `commitContextMenu.test.ts`) use a real
+   `CommitContextMenuCommands.test.ts`) use a real
    `fs.mkdtempSync(os.tmpdir() + '/...-')` workspace, call through the
    public API, read the resulting file, and assert content. For the
    fault-injection half, they point the save dialog at a path whose
@@ -425,10 +428,10 @@ Three test patterns give us confidence these sites stay honest:
 
 Reference test files:
 
-- `src/test/unit/services/patchService.test.ts` (integration + atomic)
-- `src/test/unit/services/shelfView.test.ts` (`createPatchFromShelf` —
-  TL-38 atomic write)
-- `src/test/unit/commands/CommitContextMenuCommands.test.ts`
+- `test/unit/services/patchService.test.ts` (integration + atomic)
+- `test/unit/services/shelfView.test.ts` (`createPatchFromShelf` —
+  atomic write)
+- `test/unit/commands/CommitContextMenuCommands.test.ts`
   (commit-context patch export: atomic write + fault injection)
-- `src/test/unit/utils/atomicWrite.test.ts` (unit-level fault injection
+- `test/unit/utils/atomicWrite.test.ts` (unit-level fault injection
   via `IAtomicWriteFsAsync`)

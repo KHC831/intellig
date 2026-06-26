@@ -616,7 +616,8 @@ describe('ConflictResolutionService', () => {
       assert.strictEqual(conflictService.getConflictsActive(), true);
 
       // Clear repo B — aggregate should STAY true because repo A is still
-      // conflicted. This is the bug the old single-bool impl hit.
+      // conflicted. A single-bool implementation would incorrectly flip it
+      // to false here.
       await (
         conflictService as unknown as {
           _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;

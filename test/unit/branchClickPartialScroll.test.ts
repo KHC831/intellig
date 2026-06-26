@@ -3,14 +3,13 @@
  *
  * Feature: git-graph-branch-click-scroll,
  *
- * D1 of the design replaces the full re-render that `_handleBranchClick`
- * previously performed (`_updateWebview()`, which reassigns the webview HTML
- * and resets `.graph-panel` scrollTop to the top) with the partial-update
- * path: `selectCommit(hash)` (posts `selectGraphRow` + `updateDetailsPanel` +
+ * `_handleBranchClick` uses the partial-update path rather than a full
+ * re-render: `selectCommit(hash)` (posts `selectGraphRow` + `updateDetailsPanel` +
  * `updateMenuEnableState`) followed by `_scrollWebviewToCommit(hash)` (posts
- * `{ type: 'scrollToCommit', commitHash }`). Avoiding the full re-render keeps
- * the panel's scroll position intact so the now visibility-aware inline
- * `scrollToCommit` can measure the user's real scroll position.
+ * `{ type: 'scrollToCommit', commitHash }`). A full re-render (`_updateWebview()`)
+ * would reassign the webview HTML and reset `.graph-panel` scrollTop to the top;
+ * avoiding it keeps the panel's scroll position intact so the visibility-aware
+ * inline `scrollToCommit` can measure the user's real scroll position.
  *
  * This test seeds a branch -> commit mapping, taps the webview `postMessage`
  * calls and any assignment to `view.webview.html` (a full re-render assigns

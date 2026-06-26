@@ -1,5 +1,5 @@
 /**
- * TL-10 — property tests for ChangelistService storage round-trip.
+ * Property tests for ChangelistService storage round-trip.
  *
  * Invariant under test: `load → save` preserves every key in the on-disk
  * JSON that belongs to a newer version of the extension. If an older
@@ -7,10 +7,9 @@
  * and the newer version reads it again, no forward-compat fields should
  * have been silently dropped.
  *
- * Pinned seed (below) captures the counter-example that motivated this
- * test: before TL-10, an unknown top-level key or unknown per-item key
- * was stripped by the migration step, so the subsequent save wrote back
- * a strictly narrower shape.
+ * Pinned seed (below) captures the counter-example: an unknown top-level
+ * key or unknown per-item key must not be stripped by the migration step,
+ * which would make the subsequent save write back a strictly narrower shape.
  */
 
 import * as fc from 'fast-check';
@@ -202,9 +201,9 @@ describe('ChangelistService storage round-trip — TL-10', () => {
   // ── Pinned regression ──────────────────────────────────────────────────
 
   it('pinned regression: top-level "schemaExtension" + per-item "labels" survive', () => {
-    // This hand-crafted payload is the minimal counter-example to the
-    // pre-TL-10 bug: both the top-level forward-compat marker and the
-    // per-item metadata array should round-trip unchanged.
+    // This hand-crafted payload is the minimal counter-example: both the
+    // top-level forward-compat marker and the per-item metadata array
+    // should round-trip unchanged.
     const onDisk: Record<string, unknown> = {
       version: 3,
       activeChangelistId: 'default',

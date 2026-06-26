@@ -892,8 +892,8 @@ describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () =
   }
 
   it('dropSelectedChangesFromCommit targets the repo that owns the active editor (preferActive)', async () => {
-    // Two repos: A (repositories[0], the OLD wrong answer) and B (where the
-    // active editor lives, the RIGHT answer post-fix).
+    // Two repos: A (repositories[0], the wrong answer) and B (where the
+    // active editor lives, the right answer).
     const repoA: IRepository = {
       rootUri: Uri.file('/repos/alpha'),
       state: 'idle',
@@ -938,7 +938,7 @@ describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () =
       await commands.dropSelectedChangesFromCommit(testHash);
 
       // Every destructive CLI op must have been invoked with repoB's cwd,
-      // not repoA's. Before the fix this would have been repoA.
+      // not repoA's. Targeting the context repo instead would hit repoA.
       const cwds = new Set(cli.executed.map((e) => e.options.cwd));
       assert.ok(
         cwds.has(repoB.rootUri.fsPath),

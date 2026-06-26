@@ -6595,7 +6595,7 @@ diff --git a/file2.ts b/file2.ts
       });
 
       /**
-       * SR- LOW / TR-5: when two commits share a commit date, the sort
+       * When two commits share a commit date, the sort
        * must still produce a deterministic (and topologically correct)
        * oldest/newest pick regardless of input order. A naive
        * single-key sort would leave the choice up to input ordering,

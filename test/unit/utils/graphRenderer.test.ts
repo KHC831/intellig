@@ -552,9 +552,10 @@ describe('Graph Renderer - Known Graph Topologies', () => {
   describe('Topmost merge commit pass-through guard (Bug B)', () => {
     // A merge commit at row 0 whose second parent lives on lane 1. The merge
     // line {from:0, to:1} forces lane 1 active at row 0 so the bezier has a
-    // landing lane. Before the fix, the pass-through loop drew a stub from
-    // y=0 down to centerY at lane 1's x — a detached blue line floating above
-    // the merge commit, because nothing exists above row 0 to connect to.
+    // landing lane. The pass-through loop must NOT draw a stub from
+    // y=0 down to centerY at lane 1's x: that would be a detached blue line
+    // floating above the merge commit, since nothing exists above row 0 to
+    // connect to.
     const node = makeNode('mmm', ['p1p', 'p2p'], 0, [
       { fromColumn: 0, toColumn: 0, type: 'commit' },
       { fromColumn: 0, toColumn: 1, type: 'merge' },

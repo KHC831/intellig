@@ -933,7 +933,8 @@ describe('CommitToolWindow — host behavior', () => {
       path: 'src/new.ts',
     });
 
-    // Pre-fix bug: posted the non-existent `intellig.addToVcs` (no-op).
+    // Must post `intellig.explorer.addToVcs`, not the non-existent
+    // `intellig.addToVcs` (a no-op).
     const call = executed.find((e) => e.command === 'intellig.explorer.addToVcs');
     assert.ok(
       call,
@@ -991,7 +992,7 @@ describe('CommitToolWindow — host behavior', () => {
     // preferActive branch resolves to repoB. Only the `document.uri` field
     // is exercised by the code under test; cast the partial stub through
     // `unknown` so the tighter `WritableWindow.activeTextEditor` type
-    // (TL-28) compiles without dragging in the full `vscode.TextEditor` API.
+    // compiles without dragging in the full `vscode.TextEditor` API.
     writableWindow().activeTextEditor = {
       document: { uri: Uri.file('/repo-b/src/a.ts') },
     } as unknown as vscode.TextEditor;

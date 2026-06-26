@@ -716,12 +716,10 @@ describe('RebaseProgressView', () => {
     });
   });
 
-  // TL-72 (Wave 9) — every RebaseProgressView action-path catch block
-  // must run the raw git stderr through `sanitizeGitError` before the
-  // toast is rendered. Pre-fix, four call-sites concatenated raw
-  // `error.message` into showErrorMessage templates. The four handlers
-  // (continue/abort/skip/provideRewordMessage) all surface git stderr
-  // directly, which can carry credentialed remote URLs and POSIX home
+  // Every RebaseProgressView action-path catch block must run the raw git
+  // stderr through `sanitizeGitError` before the toast is rendered. The four
+  // handlers (continue/abort/skip/provideRewordMessage) all surface git
+  // stderr directly, which can carry credentialed remote URLs and POSIX home
   // paths into the user's notification history.
   describe('TL-72 — error toast sanitization', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';

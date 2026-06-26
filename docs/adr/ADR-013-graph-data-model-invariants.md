@@ -122,19 +122,19 @@ guarantees:
 
 These guarantees are pinned by:
 
-- `src/test/property/laneStabilityAcrossReload.property.test.ts`
+- `test/property/laneStabilityAcrossReload.property.test.ts`
   — three properties (same input ⇒ same output; iteration order
   is irrelevant; HEAD's branch wins lane 0 across random K /
   depth / head-pick).
-- `src/test/property/headAncestryPromotion.property.test.ts` —
+- `test/property/headAncestryPromotion.property.test.ts` —
   divergent-sibling scenarios with both interleaved and
   branch-by-branch input orderings, plus a negative control that
   proves the property depends on the seeding pre-pass.
-- `src/test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
+- `test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
   — `seeds lane 0 from HEAD only — local + origin/main on same
 SHA share lane 0 (spec 8 L1)` and `does NOT pre-seed non-HEAD
 branch tips — second branch goes through main pass (spec 8 L1)`.
-- `src/test/unit/utils/commitGraph.test.ts` "Lane seeding from
+- `test/unit/utils/commitGraph.test.ts` "Lane seeding from
   branchMap" suite — single-input pins (`HEAD's branch tip lands
 on lane 0 even when it's not the newest commit`,
   `cross-render stability: same branchMap → same lane
@@ -210,14 +210,14 @@ only as a not-loaded-history hint on genuine leaves and keeps trunks solid,
 matching IntelliJ's trunk rendering.
 
 Pinned by the `Off-window first-parent mainline continuation` suite in
-`src/test/unit/utils/commitGraph.test.ts` (gap-fill, no-reuse, real-ink,
+`test/unit/utils/commitGraph.test.ts` (gap-fill, no-reuse, real-ink,
 the load-bearing SOLID-stub clause, both-parents-off-window leaf, non-bottom
 leaf, and the lane-width bound) and the no-orphan / width pins in
-`src/test/unit/utils/realTopoRegression.test.ts`.
+`test/unit/utils/topo/realTopoRegression.test.ts`.
 
 Pinned by:
 
-- `src/test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
+- `test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
   — `off-window parent ⇒ {fromColumn === toColumn, style:
 "dashed"} and zero new lane allocations (spec 8 L9)` and `off-window
 first parent of an in-window merge ⇒ same-lane dashed; bezier
@@ -252,7 +252,7 @@ contract that survives that extension.
 
 Pinned by:
 
-- `src/test/unit/utils/graphRenderer.test.ts` — `same-lane lines
+- `test/unit/utils/graphRenderer.test.ts` — `same-lane lines
 should not produce bezier curves` and `should return at least 8
 distinct colors` (the L4 markers tracked by the
   `lanesPinned.audit.test.ts` Phase 0 audit).
@@ -289,7 +289,7 @@ owning its lane there.
 
 ### 5. The lanesPinned audit cross-references this ADR
 
-`src/test/unit/audit/lanesPinned.audit.test.ts` is the meta-test
+`test/unit/audit/lanesPinned.audit.test.ts` is the meta-test
 that points at the named test files pinning each invariant. Phase 0
 landed it covering L1, L2, L4. Phase 1a does NOT extend its
 `INVARIANT_PINS` table — the audit's stated scope deliberately stops
@@ -389,13 +389,13 @@ exactly the algorithm boundary, so one ADR is the right altitude.
   `IGraphLine`. Phase 2 of the plan extends its tests for L4 +
   focus-dim; this ADR records the algorithm side of the contract
   the renderer relies on.
-- `src/test/property/laneStabilityAcrossReload.property.test.ts` —
+- `test/property/laneStabilityAcrossReload.property.test.ts` —
   the L1 byte-identical-reload property pins (Phase 1a).
-- `src/test/property/headAncestryPromotion.property.test.ts` — the
+- `test/property/headAncestryPromotion.property.test.ts` — the
   L1 HEAD-ancestry-promotion property pin (Phase 1a).
-- `src/test/unit/utils/commitGraph.test.ts` — the unit-level pins
+- `test/unit/utils/commitGraph.test.ts` — the unit-level pins
   for L1 + L9, including the new "Phase 1a pins" describe-block.
-- `src/test/unit/audit/lanesPinned.audit.test.ts` — the meta-audit
+- `test/unit/audit/lanesPinned.audit.test.ts` — the meta-audit
   that asserts named pin tests exist for L1, L2, L4 (Phase 0
   scope; Phase 4 extends it).
 - ADR-001 — IGitService composite freeze; the data-model freeze
@@ -405,5 +405,5 @@ exactly the algorithm boundary, so one ADR is the right altitude.
 - ADR-010 — visual parity discipline; the snapshot-test pattern
   that locks the renderer's `IGraphLine` consumption.
 - ADR-012 — topical source tree; locates `commitGraph.ts` under
-  `src/git-core/` and its tests under `src/test/unit/utils/` and
-  `src/test/property/`.
+  `src/git-core/` and its tests under `test/unit/utils/` and
+  `test/property/`.

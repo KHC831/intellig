@@ -1146,13 +1146,12 @@ describe('BranchPopup - R6-Gap-C multi-root status-bar init', () => {
   });
 });
 
-// TL-72 (Wave 9) — `_dispatchSelectedAction` catch block must run the
-// raw command-execution error through `sanitizeGitError` before
-// pushing it into the showErrorMessage toast template. Pre-fix,
-// BranchPopup.ts:986 concatenated `error.message` directly. Branch
-// commands often surface `git push`/`git pull` stderr that contains
-// credentialed remote URLs and POSIX home paths; without sanitisation
-// these leak into the user's notification history.
+// `_dispatchSelectedAction` catch block must run the raw command-execution
+// error through `sanitizeGitError` before pushing it into the
+// showErrorMessage toast template. Branch commands often surface
+// `git push`/`git pull` stderr that contains credentialed remote URLs and
+// POSIX home paths; without sanitisation these leak into the user's
+// notification history.
 describe('BranchPopup TL-72 — action-path toast routes through sanitizeGitError', () => {
   it('_dispatchSelectedAction sanitizes credentialed URL + home path in toast', async () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';

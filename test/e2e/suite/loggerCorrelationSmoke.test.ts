@@ -189,7 +189,7 @@ describe('e2e — Logger correlation-id smoke', function () {
 
     // (1) At least one record produced during the test carries a
     // `cid=` continuation line. If this fails, either
-    // `registerLoggedCommand` is no longer establishing a frame, or
+    // `registerLoggedCommand` is not establishing a frame, or
     // no service emitted an info-level record while inside the
     // handler — both of which are regressions.
     assert.ok(

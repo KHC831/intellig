@@ -2,7 +2,7 @@
  * Unit tests for the shared {@link generateNonce} helper
  * (src/utils/webviewNonce.ts).
  *
- * Covers the TL-12 contract:
+ * Covers the nonce contract:
  * - Uses `crypto.randomBytes` (via fixed 16-byte → base64url length of 22).
  * - Only emits characters from the base64url alphabet (`A-Z a-z 0-9 - _`).
  * - 100 nonces are all distinct (smoke for the CSPRNG — stronger guarantees

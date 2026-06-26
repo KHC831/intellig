@@ -664,9 +664,9 @@ describe('StashView TL-68 — refresh() returns { error? } (no _state.error side
 // the action itself succeeded, so a refresh failure is a *secondary*
 // signal — `showWarningMessage`, not `showErrorMessage`.
 //
-// Pre-fix code path: 5 of 6 callers (`showCreateDialog`, `popStash`,
-// `branchFromStash`, `renameStash`, `dropStash`) called
-// `await this.refresh();` and discarded the result, so a refresh
+// Without surfacing it, 5 of 6 callers (`showCreateDialog`, `popStash`,
+// `branchFromStash`, `renameStash`, `dropStash`) call
+// `await this.refresh();` and discard the result, so a refresh
 // failure was silent until the next list-open. This describe block
 // pins the new contract per caller.
 //
@@ -857,9 +857,9 @@ describe('StashView post-action refresh — warning toast on refresh failure', (
 
 // Every StashView action-path catch block must route the
 // raw git stderr through `sanitizeGitError` before pushing it into the
-// `showErrorMessage` toast. Pre-fix, six of these sites concatenated
-// `error.message` directly into the toast template, so a credentialed
-// remote URL or absolute home path in stderr leaked into the user's
+// `showErrorMessage` toast. Without this, six of these sites would
+// concatenate `error.message` directly into the toast template, leaking a
+// credentialed remote URL or absolute home path in stderr into the user's
 // notification history (and any user-shared bug-report screenshots).
 //
 // One spec per action site asserts both halves of the sanitiser

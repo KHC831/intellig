@@ -240,10 +240,10 @@ describe('Git CLI Utilities', () => {
 
   // ─── Result boundary: system error vs domain outcome ──────────────────
   //
-  // The query methods used to swallow EVERY failure to `undefined`/`false`,
-  // conflating a SYSTEM fault (a file handed as cwd → spawn ENOTDIR, a bug)
-  // with a DOMAIN outcome ("this dir is not a repo"). They now return a
-  // neverthrow Result so the two are distinguishable: a non-repo directory
+  // The query methods return a neverthrow Result so a SYSTEM fault (a file
+  // handed as cwd → spawn ENOTDIR, a bug) is distinguishable from a DOMAIN
+  // outcome ("this dir is not a repo"), rather than swallowing EVERY failure
+  // to `undefined`/`false` and conflating the two: a non-repo directory
   // is the expected absence (Ok(undefined) / Ok(false)), while a spawn fault
   // is a typed Err that can NEVER masquerade as "no repository".
   describe('getRepositoryRoot — Result boundary', () => {

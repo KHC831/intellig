@@ -34,11 +34,6 @@
  *   time therefore intercepts future calls even from modules that were
  *   loaded before the test file. We save and restore the original in
  *   before/after hooks.
- *
- * Retroactive validation:
- *   This suite MUST fail at commit `6d1961a^` (the commit before the
- *   watcher-loop fix). The run log from that validation is captured in the
- *   commit message for this change.
  */
 
 import * as assert from 'assert';
@@ -269,7 +264,8 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     const baselineCount = counter.spawns.length;
 
     // Trigger a single benign `.git/**` write to wake the file-system
-    // watcher. In the buggy pre-fix implementation (commit 6d1961a^):
+    // watcher. Without the watcher guards (allow-list + debounce +
+    // in-flight guard), the loop is:
     //   • the watcher subscribes to `.git/**/*` — matches everything.
     //   • the handler calls `loadRepository` on EVERY event with no debounce
     //     and no in-flight guard.

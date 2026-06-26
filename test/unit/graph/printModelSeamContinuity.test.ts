@@ -87,7 +87,7 @@ describe('print model — row-seam continuity (no unpaired bend half)', () => {
   it('far-parent first-parent bend spanning ≥2 rows pairs at every seam (reported gap)', () => {
     // A=tip, B inherits the trunk lane to E; S is a side tip whose first parent E
     // is 2 rows below on the trunk lane → a far-parent bend (endRow set). The
-    // source lane's bottom half at the row above E used to be dropped.
+    // source lane's bottom half at the row above E must not be dropped.
     const defects = seamDefects([
       c('A', ['B']),
       c('B', ['E']),

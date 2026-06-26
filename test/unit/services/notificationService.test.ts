@@ -8,10 +8,10 @@
  *   that with a module-level singleton: `getOutputChannel()` calls
  *   `createOutputChannel` exactly once per extension lifetime.
  *
- *   Pre-fix, `NotificationService.ts:100` called
+ *   If `NotificationService` called
  *   `vscode.window.createOutputChannel('IntelliG')` directly instead of
- *   going through `getOutputChannel()`. That plus the safeFireAndForget
- *   route-through produced two `IntelliG` entries in Output — a real
+ *   going through `getOutputChannel()`, that plus the safeFireAndForget
+ *   route-through would produce two `IntelliG` entries in Output — a real
  *   user-visible UX wart.
  *
  * This spec pins the invariant "only one `IntelliG` channel is constructed
@@ -73,10 +73,10 @@ describe('NotificationService — IntelliG OutputChannel singleton', () => {
       const shared = getOutputChannel();
       assert.ok(shared, 'shared singleton must exist');
 
-      // Now construct the NotificationService. Pre-fix, this call
-      // internally invoked vscode.window.createOutputChannel('IntelliG')
-      // a SECOND time, producing a distinct instance + a duplicate
-      // dropdown entry. Post-fix, it must route through
+      // Now construct the NotificationService. This call must NOT
+      // internally invoke vscode.window.createOutputChannel('IntelliG')
+      // a SECOND time (which would produce a distinct instance + a duplicate
+      // dropdown entry); it must route through
       // getOutputChannel() and reuse `shared`.
       const ns = new NotificationService();
       void ns;

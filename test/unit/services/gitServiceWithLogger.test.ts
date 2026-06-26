@@ -806,7 +806,7 @@ describe('GitService — Logger waypoint integration', () => {
   // ------------------------------------------------------------------------
   // getRepository — system fault from the repository-root probe is LOGGED,
   // never swallowed. This is the effort's core thesis: a spawn/system error
-  // (the kind that used to masquerade as "No repository found") must surface
+  // (the kind that can masquerade as "No repository found") must surface
   // as an error log AND yield undefined, not a phantom repo.
   // ------------------------------------------------------------------------
 

@@ -11,8 +11,7 @@
  * settings exposed are `intellig.repositoryScanMaxDepth` (default 1) and
  * `intellig.repositoryScanIgnoredFolders` (default []).
  *
- * Each spec was written BEFORE the wire-up and confirmed RED first; see
- * AGENT_WORKSPACE.md for the verbatim red-message captures.
+ * Each spec was written BEFORE the wire-up and confirmed RED first.
  */
 
 import '../../setup';

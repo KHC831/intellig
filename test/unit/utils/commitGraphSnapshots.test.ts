@@ -338,7 +338,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     );
 
     // Renderer SVG snapshot — m4's row carries the top-half bend, b2's row
-    // does NOT carry the old source-row bezier and DOES carry the lane-1
+    // does NOT carry a source-row bezier and DOES carry the lane-1
     // downward stub.
     const cfg = DEFAULT_GRAPH_CONFIG;
     const centerY = cfg.rowHeight / 2;
@@ -375,8 +375,8 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     // (row 7, lane 0); the source lane 1 transits rows 5 (m2) and 6 (m3). The
     // row directly above the parent (m3, row 6) MUST ink lane 1 from y=0 to
     // y=bottomY — a FULL pass-through — so its bottom meets the bend's top
-    // (lane1X, y=0) at m4's row. The pre-fix model emitted only the top half
-    // (y2=centerY), leaving the reported gap above the converging node.
+    // (lane1X, y=0) at m4's row. Emitting only the top half (y2=centerY)
+    // would leave a gap above the converging node.
     const commits = [
       mkCommit('m0', ['m1']),
       mkCommit('m1', ['m2']),
@@ -422,10 +422,10 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     //   - second parent is OFF-WINDOW on the same lane (a same-lane dashed
     //     stub line is emitted alongside the far-parent line).
     //
-    // Pre-fix: the dashed-detection rule was
+    // A dashed-detection rule of
     //   sameLaneLines.length > 0 && sameLaneLines.every(l => l.style==='dashed')
-    // which evaluated TRUE here (the only same-lane line is the off-window
-    // 2nd-parent dashed stub) — so the centerY→bottomY stub was drawn
+    // evaluates TRUE here (the only same-lane line is the off-window
+    // 2nd-parent dashed stub) — so the centerY→bottomY stub would be drawn
     // dashed even though the far-parent edge below is SOLID and runs to a
     // real, scrollable in-window fork.
     //
@@ -487,8 +487,8 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     // Synthetic topology — three side branches (lanes 1, 2, 3) all have
     // their oldest commit's first parent equal to `base` on lane 0 several
     // rows below. At base's row the renderer draws three top-half bend
-    // paths whose start-X values are getColumnX(1..3, cfg). The pre-fix
-    // CRITICAL bug: renderGraphSvg's `allColumns` accumulation only
+    // paths whose start-X values are getColumnX(1..3, cfg). The CRITICAL
+    // failure mode this guards: renderGraphSvg's `allColumns` accumulation only
     // considered activeLanes / node.graphColumn / node.graphLines.{from,to}
     // — none of which include the incoming-bend SOURCE lanes at the parent
     // row — so svgWidth omitted lanes 1..3 and the bend paths were drawn
@@ -533,8 +533,8 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     const svgWidth = Number(widthMatch[1]);
 
     // Every bend path's start-X (the source lane's centerX) must fit
-    // inside the viewport. Pre-fix, lanes 2..N landed at x ≥ svgWidth
-    // and were clipped.
+    // inside the viewport. Without this, lanes 2..N would land at x ≥ svgWidth
+    // and be clipped.
     for (const sourceLane of baseBends) {
       const startX = getColumnX(sourceLane, cfg);
       assert.ok(
@@ -797,13 +797,12 @@ describe('Wave E / E3-layout — jsdom DOM-tree snapshot', () => {
 /**
  * JS message truncation removed.
  *
- * The row template previously hard-capped the rendered message at 60
- * characters via `_truncateMessage(commit.message, 60)`, appending JS
- * `...` regardless of panel width. The fix passes the full first line
- * to the row template and lets `.commit-title { overflow:hidden;
- * text-overflow:ellipsis; white-space:nowrap }` handle responsive
- * clipping. snap-7g pins the new contract: the row HTML carries the
- * full first line of long subjects, with no embedded `...` ellipsis.
+ * The row template receives the full first line and lets
+ * `.commit-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }`
+ * handle responsive clipping, rather than hard-capping the rendered message at
+ * 60 characters via `_truncateMessage(commit.message, 60)` and appending JS
+ * `...` regardless of panel width. snap-7g pins the contract: the row HTML
+ * carries the full first line of long subjects, with no embedded `...` ellipsis.
  *
  * (`_truncateMessage` itself is still used by `_getCommitDetailsHtml`
  * for the details panel, where a hard cap is genuinely desired —
@@ -886,13 +885,13 @@ describe('Wave E / E2-bonus — row template emits full first line, CSS handles 
 /**
  * Chip max-width contract.
  *
- * Previously `.branch-label-local` and `.branch-label-remote` had no
- * `max-width` and no ellipsis. A 70-char branch name like
+ * `.branch-label-local` and `.branch-label-remote` cap chips at 200px with
+ * `text-overflow: ellipsis` (IntelliJ parity). Without a `max-width` + ellipsis,
+ * a 70-char branch name like
  * `feature/JIRA-12345-very-long-descriptive-feature-name-with-context`
- * rendered at its natural ~350px width inside the non-shrinking
+ * renders at its natural ~350px width inside the non-shrinking
  * `.commit-branches` slot, squeezing `.commit-title` (`flex:1,
- * min-width:0`) to a few characters at typical panel widths. The fix
- * caps chips at 200px with `text-overflow: ellipsis` (IntelliJ parity).
+ * min-width:0`) to a few characters at typical panel widths.
  *
  * snap-7h pins TWO contracts:
  *  1. The chip's textContent is the FULL branch name (HTML emit
@@ -1019,9 +1018,9 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
 /**
  * Detached-HEAD pseudo-ref filtering, end-to-end.
  *
- * When HEAD was detached, `parseBranches` previously returned an
- * `IBranch` with `name = '(HEAD detached at <sha>)'` and `type='local'`.
- * That fake branch propagated into:
+ * `parseBranches` filters parenthesized refnames, so a detached HEAD does
+ * NOT yield an `IBranch` with `name = '(HEAD detached at <sha>)'` and
+ * `type='local'`. Such a fake branch would otherwise propagate into:
  *   - the branch-map keyed by commit hash (extension.ts:3870-3879),
  *     which then drove the log graph chip for the detached commit
  *   - the BranchTreeProvider local-branches list, which rendered a
@@ -1030,8 +1029,7 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
  *     which got passed verbatim to `git checkout -b`, failing with
  *     `fatal: '(HEAD detached at 5eed84b)' is not a commit`
  *
- * The parser filters parenthesized refnames. The two
- * snapshots below pin the post-fix downstream contract — the chip
+ * The two snapshots below pin the downstream contract — the chip
  * for a detached commit is the EMPTY string, and the local-branches
  * list contains NO parenthesized entries — so a future regression
  * that re-introduces the leak is caught by these snapshots, not by a
@@ -1112,10 +1110,9 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
   it('snap-8b: branch-tree local-branches list contains NO parenthesized entry for a detached fixture', async () => {
     // The BranchTreeProvider's `_getLocalBranches` filters by
     // `b.type === 'local'` and maps each remaining branch onto a
-    // BranchTreeItem. Previously the parenthesized pseudo-ref was
-    // typed `'local'` and rendered as a tree item; now the
-    // parser filters it before BranchTreeProvider ever sees it, so
-    // the rendered list contains zero parenthesized entries.
+    // BranchTreeItem. The parser filters the parenthesized pseudo-ref
+    // before BranchTreeProvider ever sees it, so the rendered list
+    // contains zero parenthesized entries.
 
     const { parseBranches } = await import('../../../src/git-core/gitParser');
     const { BranchTreeProvider } = await import('../../../src/branches/BranchTreeProvider');
@@ -1383,7 +1380,7 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
     // The HEAD chip fill is the branch color (set INLINE per chip), so the CSS
-    // no longer hardcodes a yellow background; the current-branch cue is a ring
+    // does not hardcode a yellow background; the current-branch cue is a ring
     // (box-shadow) + bold weight.
     assert.ok(
       !/\.branch-label-head[\s,{][\s\S]*?background:\s*#d4a017/i.test(fullHtml),
@@ -1610,8 +1607,8 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
 
     // Option C (IntelliJ LabelPainter): no per-ref-kind colored fill — the chip
     // is a neutral badge with foreground text; the branch color is set inline on
-    // the icon. So the old hardcoded green/violet fill AND the white-on-fill text
-    // are both gone.
+    // the icon. So there is no hardcoded green/violet fill and no
+    // white-on-fill text.
     assert.ok(
       !/background:\s*#499C54/i.test(fullHtml),
       'the old hardcoded local-green background must be gone'
@@ -1744,13 +1741,12 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
 /**
  * Focused-branch chip non-colour affordance.
  *
- * Previously `.branch-label-focused` only carried `outline + font-weight:
- * 600`. WCAG 1.4.1 fails when the only differentiator is a colour
- * (focus outline) — under high-contrast themes the outline often
- * matches the chip border, making the focus invisible. The fix bumps
- * `font-weight: 700` and adds `text-decoration: underline` so the
- * affordance is visible in mono-chrome printout / colour-blind
- * users / hi-contrast themes alike.
+ * `.branch-label-focused` carries `font-weight: 700` + `text-decoration:
+ * underline` so the focus affordance is visible in mono-chrome printout /
+ * colour-blind users / hi-contrast themes alike. WCAG 1.4.1 fails when the
+ * only differentiator is a colour (a focus outline alone) — under
+ * high-contrast themes the outline often matches the chip border, making the
+ * focus invisible.
  */
 describe('Wave J R1 / MED-1 — focused chip carries bold + underline', () => {
   let provider: GitToolWindowProvider;
@@ -1797,10 +1793,10 @@ describe('Wave J R1 / MED-1 — focused chip carries bold + underline', () => {
 /**
  * Codicon font loader.
  *
- * Previously the webview HTML emitted `<i class="codicon codicon-…">`
- * glyphs on every chip but no `@font-face` declaration loaded the
- * actual TTF — every glyph rendered as an empty-box "tofu" and the
- * entire WCAG 1.4.1 non-colour affordance silently failed. This block
+ * The webview HTML emits `<i class="codicon codicon-…">` glyphs on every
+ * chip, and a `@font-face` declaration must load the actual TTF — without it
+ * every glyph renders as an empty-box "tofu" and the entire WCAG 1.4.1
+ * non-colour affordance silently fails. This block
  * pins the @font-face + .codicon utility + per-glyph codepoint rules
  * + the CSP `font-src` widening, so a regression that breaks any of
  * these layers is caught by RED test rather than an in-extension
@@ -2118,7 +2114,7 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
   it('snap-13g: tag renders as icon + name-on-hover; the name stays in the DOM (b42b14b discoverability guard)', () => {
     // IntelliJ "Tag Names off" default: the codicon-tag ICON is the
     // resting affordance; the name is revealed on hover/focus. The
-    // b42b14b discoverability guard (annotated tags are PRESENT +
+    // The tag discoverability guard (annotated tags are PRESENT +
     // DISCOVERABLE on the graph) must NOT regress: (1) the tag chip still
     // renders with its data-tag-name (present), and (2) the name is
     // reachable via title + aria-label + the in-DOM .tag-label-name span

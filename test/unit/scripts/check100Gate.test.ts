@@ -1,5 +1,5 @@
 /**
- * Unit tests for `scripts/check-100-gate.sh` — TL-96 substantive
+ * Unit tests for `scripts/check-100-gate.sh` — substantive
  * check for 1.0.0 gate condition (2): experimental flags
  * (`intellig.useCommitToolWindow`, `intellig.useTabbedGitToolWindow`)
  * must be either REMOVED entirely or have BOTH `default !== false`
@@ -11,14 +11,9 @@
  * via `INTELLIG_100_GATE_VERSION_OVERRIDE`. Both seams together
  * let us drive the script with controlled fixtures.
  *
- * RED→GREEN evidence: each spec was authored before the structural
- * gate-(2) check existed in the script; running them against the
- * pre-TL-96 script produced GREEN on the "still experimental"
- * cases (the script only walked markdown checkboxes), proving the
- * test suite would FAIL to detect the bug class. After the
- * structural Node.js block landed in the script, the
- * "still-experimental" specs went RED on pre-fix code → GREEN
- * post-fix.
+ * The "still-experimental" specs guard the bug class a checkbox-only walk
+ * misses: a flag left experimental in its description / markdownDescription
+ * must trip the gate even when its checklist checkbox looks done.
  */
 
 import '../../setup';
@@ -130,9 +125,9 @@ describe('scripts/check-100-gate.sh — pre-1.0 short-circuit', () => {
 
 describe('scripts/check-100-gate.sh — version-extraction edge cases (R1 M2 + L4)', () => {
   it('treats empty INTELLIG_100_GATE_VERSION_OVERRIDE as unset and falls back to package.json (M2)', () => {
-    // Pre-fix bash treats `${VAR:-}` as "fallback when unset OR empty".
-    // The sub-shell `node -e require('./<absolute>')` then fails on the
-    // out-of-tree fixture path. After the fix, an empty override is
+    // Bash treats `${VAR:-}` as "fallback when unset OR empty", so a naive
+    // substitution makes the sub-shell `node -e require('./<absolute>')` fail
+    // on the out-of-tree fixture path. An empty override is
     // treated as "use package.json from the configured path" — which on
     // an absolute fixture path means we still need to handle the
     // require-vs-readFileSync absolute path. The script's existing
@@ -142,8 +137,8 @@ describe('scripts/check-100-gate.sh — version-extraction edge cases (R1 M2 + L
     //   - exit 0 (pre-1.0 short-circuit if fallback succeeded), OR
     //   - exit 1 with a clear "cannot read package.json" / version
     //     parse error pointing at the configured path.
-    // The pre-fix shape — opaque ENOENT crash from a default-substituted
-    // node -e — is rejected.
+    // An opaque ENOENT crash from a default-substituted node -e must be
+    // rejected.
     const pkg = makeFixturePackageJson({
       version: '0.5.0',
       useCommitToolWindow: 'absent',
@@ -170,10 +165,10 @@ describe('scripts/check-100-gate.sh — version-extraction edge cases (R1 M2 + L
 
   it('strips pre-release tags before extracting MAJOR for the 1.0.0 comparison (L4)', () => {
     // Per semver, `1.0.0-rc.1` is < `1.0.0` but its MAJOR component is
-    // still 1 — the gate SHOULD enforce. Pre-fix `cut -d. -f1` on
+    // still 1 — the gate SHOULD enforce. A bare `cut -d. -f1` on
     // `1.0.0-rc.1` returns `1` (works by coincidence), but
     // `0.9.0-pre-1` parses as `0` → pre-1.0 short-circuit (correct).
-    // The fix should be defensive: strip the `-...` tag explicitly
+    // Be defensive: strip the `-...` tag explicitly
     // before MAJOR extraction.
     const pkg = makeFixturePackageJson({
       version: '1.0.0-rc.1',

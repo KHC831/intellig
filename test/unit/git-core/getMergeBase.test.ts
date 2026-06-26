@@ -1,8 +1,8 @@
 /**
  * DiffOps.getMergeBase — Result boundary.
  *
- * `git merge-base` now returns a neverthrow Result so a spawn/system fault
- * (the kind that used to be swallowed to `undefined`) is a typed Err and can
+ * `git merge-base` returns a neverthrow Result so a spawn/system fault
+ * (the kind that would otherwise be swallowed to `undefined`) is a typed Err and can
  * NEVER masquerade as the genuine "no common ancestor" domain absence:
  *   - common ancestor exists         → Ok(sha)
  *   - unrelated histories / unknown  → Ok(undefined)  (expected absence)

@@ -2,14 +2,15 @@
  * Unit coverage for the blame-menu git pathspec derivation.
  *
  * `_resolveBlameContext` (the shared resolver behind the `intellig.blame.*`
- * gutter-menu commands) used to derive the file's repo-relative path with a RAW
+ * gutter-menu commands) derives the file's repo-relative path through
+ * `repoRelativePath`, not a RAW
  * `path.relative(repo.rootUri.fsPath, editor.document.uri.fsPath)`. The two ends
  * sit in DIFFERENT symlink-resolution states: `gitService.getRepository` reports
  * the realpath-canonicalized root (macOS `/var` → `/private/var`, from
  * `git rev-parse --show-toplevel`), while the editor URI keeps the symlinked
  * path. A raw `path.relative` between those yields an ESCAPING `../...` pathspec
- * — git then blames a bogus path. The fix routes through `repoRelativePath`,
- * which canonicalizes both ends first.
+ * — git then blames a bogus path. `repoRelativePath` canonicalizes both ends
+ * first.
  *
  * The scenario is exercised against a REAL on-disk symlink so the
  * `fs.realpathSync.native` canonicalization is genuinely run, not mocked.

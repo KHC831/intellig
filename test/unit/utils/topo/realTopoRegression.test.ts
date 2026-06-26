@@ -10,10 +10,10 @@
  * the parent topology, which tip each branch ref points at, and which ref is
  * HEAD are preserved — that's all the lane algorithm consumes.
  *
- * This is the test that finally reproduced the bug after several rounds of
- * synthetic fixtures failed to. On the PRE-fix code this fixture produced 49
- * orphan-active-lane rows and split the mainline across 3 lanes (L0/L2/L11);
- * the fix collapses it to a single lane-0 mainline with 0 orphans. We pin
+ * Derived from real-world data after synthetic fixtures failed to reproduce
+ * the bug. On unfixed code this fixture produces 49
+ * orphan-active-lane rows and splits the mainline across 3 lanes (L0/L2/L11);
+ * correct behaviour collapses it to a single lane-0 mainline with 0 orphans. We pin
  * both invariants so a regression in either the spine pre-claim
  * (commitGraph.ts) or the bending-line interval logic (graphRenderer.ts) is
  * caught against real-world data, not just generated DAGs.
@@ -179,17 +179,17 @@ describe('Real anonymized topology — graph regression pins', () => {
       maxConcurrent = Math.max(maxConcurrent, set.size);
     }
 
-    // Pre-fix this fixture hit lane index 10 with only ~2 concurrent lanes.
     // After release, the max lane index must be bounded by the concurrent
     // count (+ a tiny slack for transient bend reservations), NOT the total
-    // number of branches ever seen.
+    // number of branches ever seen — otherwise this fixture hits lane index 10
+    // with only ~2 concurrent lanes.
     assert.ok(
       maxColIndex <= maxConcurrent + 1,
       `max lane index ${maxColIndex} must track concurrent lanes ${maxConcurrent} ` +
         `(+1 slack), not escalate with total branch count. Pre-fix this was 10.`
     );
     // And concretely, this real topology must stay compact (<= 4 lanes),
-    // matching IntelliJ — pre-fix it was 11 columns wide.
+    // matching IntelliJ (compact, not 11 columns wide).
     assert.ok(
       maxColIndex <= 4,
       `real topology must render compact (<= 4 lanes); got ${maxColIndex + 1} columns`
@@ -216,13 +216,13 @@ describe('Real anonymized topology — graph regression pins', () => {
   it('test/test2 (c0..c4): branch lane stays vertical down to its fork point at c5', () => {
     // Far-parent fork-point edge routing. The
     // divergent branch's oldest commit (c4) has its first parent (c5) on a
-    // DIFFERENT lane many rows below. Pre-fix: c4 emitted a one-row
-    // diagonal hook into the mainline at its own row, leaving lane 1
-    // active only at c4's row and the rows above it. Post-fix: lane 1
+    // DIFFERENT lane many rows below. Lane 1
     // runs straight down from c4 (row 4) to c5's row (row 22), bending
     // into lane 0 at row 22, where lane 0's own ink at the parent
     // commit absorbs the landing. The bend is drawn at the parent row
-    // by the renderer; the source row no longer carries a 1→0 bezier.
+    // by the renderer; the source row does NOT carry a 1→0 bezier. (A one-row
+    // diagonal hook into the mainline at c4's own row — leaving lane 1 active
+    // only at c4's row and above — would be wrong.)
     const nodes = build();
     const c4Row = nodes.findIndex((n) => n.commit.hash === 'c4');
     const c5Row = nodes.findIndex((n) => n.commit.hash === 'c5');
@@ -327,7 +327,7 @@ describe('Real anonymized topology — graph regression pins', () => {
       `c5 row SVG must include the top-half bend path "${expectedTopHalfBend}"; got: ${c5Svg}`
     );
 
-    // c4's row must NOT contain the OLD source-row 1→0 bottom-half bezier, and
+    // c4's row must NOT contain a source-row 1→0 bottom-half bezier, and
     // MUST contain the lane-1 downward stub (source lane stays vertical down to
     // the fork point).
     const c4Svg = svgs[c4Row];

@@ -174,8 +174,8 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('keeps a branch name containing a literal pipe as ONE row (issue #23)', () => {
-    // A pipe was the old join/split delimiter. A branch like `feat|x` must
-    // now round-trip as a single ref, not split into two spurious rows.
+    // A branch name containing a pipe must round-trip as a single ref, not
+    // split into two spurious rows.
     const { window, document } = bootDom(['origin/main', 'feat|x']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;

@@ -629,12 +629,11 @@ describe('RebaseEditor', () => {
     });
   });
 
-  // TL-72 (Wave 9) — both action-path catch blocks in RebaseEditor must
-  // run the raw git stderr through `sanitizeGitError` before pushing it
-  // into the showErrorMessage toast. Pre-fix, RebaseEditor.ts:93 (show
-  // → startInteractiveRebase failure) and :244 (_handleExecute →
-  // executeRebase failure) concatenated `error.message` directly,
-  // leaking credentialed remote URLs and POSIX home paths into the
+  // Both action-path catch blocks in RebaseEditor must run the raw git
+  // stderr through `sanitizeGitError` before pushing it into the
+  // showErrorMessage toast. The two failure paths (startInteractiveRebase
+  // failure and _handleExecute → executeRebase failure) surface git stderr
+  // that can carry credentialed remote URLs and POSIX home paths into the
   // user's notification history.
   describe('TL-72 — error toast sanitization', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';

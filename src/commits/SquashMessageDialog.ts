@@ -80,7 +80,7 @@ export class SquashMessageDialog extends BaseWebviewPanel {
       r(value);
     }
     // Dispose only once — onDidDispose feeds back into _finish via
-    // the `undefined` path, which is a no-op now that `_resolved` is
+    // the `undefined` path, which is a no-op because `_resolved` is
     // true.
     this.dispose();
   }
