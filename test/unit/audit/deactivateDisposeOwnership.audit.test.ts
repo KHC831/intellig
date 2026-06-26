@@ -119,4 +119,30 @@ describe('deactivate() disposal ownership', () => {
       });
     }
   });
+
+  // General guard (enumeration-free): catches ANY future service that is both
+  // pushed onto context.subscriptions AND manually disposed in deactivate(),
+  // even one not listed above. Extracts every `subscriptions.push(ctx.<x>)`
+  // module ref from registerViews and every `<x>.dispose()` from deactivate()
+  // and asserts the intersection is empty.
+  describe('no module ref is both context-owned and manually disposed', () => {
+    function matchAll(source: string, re: RegExp): string[] {
+      const names = new Set<string>();
+      for (const m of source.matchAll(re)) {
+        names.add(m[1]);
+      }
+      return [...names];
+    }
+
+    it('the pushed-as-disposable set and the deactivate-disposed set are disjoint', () => {
+      const pushed = new Set(matchAll(registerViews, /subscriptions\.push\(ctx\.(\w+)\)/g));
+      const disposed = matchAll(deactivateBody, /(?:^|[^.\w])(\w+)\.dispose\(\)/g);
+      const doubleOwned = disposed.filter((name) => pushed.has(name));
+      assert.deepStrictEqual(
+        doubleOwned,
+        [],
+        `each service must have one disposal owner; double-owned (pushed AND disposed): ${doubleOwned.join(', ')}`
+      );
+    });
+  });
 });
