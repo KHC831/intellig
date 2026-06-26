@@ -492,6 +492,31 @@ describe('ConflictResolutionService', () => {
       assert.strictEqual(result.success, false);
       assert.ok(result.remainingConflicts?.includes('file1.txt'));
     });
+
+    it('passes GIT_EDITOR=true to rebase --continue so the non-TTY host never hangs on the editor', async () => {
+      // After resolving a `pick`'s conflicts, `git rebase --continue` opens the
+      // editor to confirm the commit message. Under VS Code's non-TTY spawn that
+      // hangs forever (timeout 0). Suppress it the same way the dialog/merge path
+      // does: GIT_EDITOR=true commits the prepared message verbatim.
+      mockRepo.state = 'rebasing';
+      mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
+
+      let continueEnv: Record<string, string> | undefined;
+      mockGitCli.exec = (args: string[], options?: unknown): Promise<IGitCommandResult> => {
+        if (args[0] === 'rebase' && args[1] === '--continue') {
+          continueEnv = (options as { env?: Record<string, string> } | undefined)?.env;
+        }
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+      };
+
+      const result = await conflictService.completeRebase(mockRepo);
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(
+        continueEnv?.GIT_EDITOR,
+        'true',
+        'rebase --continue must run with GIT_EDITOR=true'
+      );
+    });
   });
 
   describe('abortMerge()', () => {
