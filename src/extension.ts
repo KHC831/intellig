@@ -905,9 +905,9 @@ export function openNewBranchDialog(preselect: {
 }
 
 /**
- * Validate a branch name. Matches the validator used in
- * `BranchContextMenuCommands._handleNewBranchFrom` (same regex) so behaviour
- * is consistent across all "New Branch…" entry points.
+ * Validate a branch name. Delegates to the shared `isValidRefNameFormat`
+ * (same validator the New Branch dialog uses) so behaviour is consistent
+ * across all "New Branch…" entry points.
  *
  * Exported so unit tests can exercise it directly.
  *
