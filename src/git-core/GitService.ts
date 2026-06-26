@@ -504,9 +504,24 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Get all discovered repositories.
+   * Get all discovered repositories — **identity/membership only**, NOT a
+   * freshness guarantee.
    *
-   * @returns Array of repositories
+   * Unlike {@link getCachedRepository} / {@link findOwningRepository}, this does
+   * NOT apply {@link GitService.CACHE_TTL}: a repo not touched for longer than
+   * the TTL is returned with its last-loaded `head` / `state` / `remotes`. Use
+   * this to enumerate which repositories are open (and their identities), and to
+   * subscribe to changes via {@link onDidChangeRepository}. Watchers refresh
+   * actively-used repos, so the snapshot is usually current — but a caller that
+   * makes a DECISION off a returned `head` / ahead-behind / `state` /
+   * `inProgress` (e.g. rendering ahead/behind, gating on `inProgress.kind`)
+   * must re-`await getRepository(repo.rootUri)` (or `reloadRepository`) first to
+   * read guaranteed-fresh state. The known hot caller — the push dialog —
+   * already reloads after a push (`_openPushDialog` `onPushComplete`); the
+   * rebase-paused warning's initial scan runs at activation when discovery has
+   * just loaded fresh state.
+   *
+   * @returns Array of repositories (snapshot; see freshness note above)
    */
   getRepositories(): IRepository[] {
     return Array.from(this._repositories.values()).map((cache) => cache.repository);
