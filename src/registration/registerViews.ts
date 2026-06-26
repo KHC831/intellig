@@ -61,6 +61,22 @@ const GRAPH_INITIAL_PAGE = 100;
 const GRAPH_PAGE = 500;
 
 /**
+ * Choose the repository the Shelf/Stash tab actions should target: the tool
+ * window's currently-SELECTED repo (the same selector the graph + log use), or
+ * — when there is no explicit selection — the single open repo. Returns
+ * `undefined` only when no repository is open. Pure so it's unit-testable
+ * without the full view wiring.
+ */
+export function selectBoundShelfRepo(
+  provider: { getSelectedRepository?(): IRepository | undefined } | undefined,
+  repositories: readonly IRepository[]
+): IRepository | undefined {
+  // ALLOWED: the explicit tool-window selection is preferred; repos[0] is only
+  // the single-repo / no-selection fallback, not an arbitrary multi-root pick.
+  return provider?.getSelectedRepository?.() ?? repositories[0];
+}
+
+/**
  * Register views and view providers.
  *
  * @param ctx - The view-registration context (RULE E1 bridge to the
@@ -160,19 +176,17 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Controller methods assert `_repository` — delegate to an async helper
     // that binds it on first use from the active repo.
     const bindShelfRepo = async (): Promise<IRepository | undefined> => {
-      const repos = gs.getRepositories();
-      const repo = repos[0];
+      // Target the tool window's SELECTED repo (the same selector the graph +
+      // log use), not an arbitrary first repo — otherwise unshelve/apply-stash
+      // can hit the wrong repository in a multi-root workspace.
+      const repo = selectBoundShelfRepo(ctx.gitToolWindowProvider, gs.getRepositories());
       if (!repo) {
         return undefined;
       }
-      // StashView/ShelfView expose a private _repository; they're safe to
-      // seed through their `show()` entry points, but we don't want the
-      // QuickPick side effect. Instead set the field directly via the
-      // existing public `refresh(repo)` pattern — both views accept repo
-      // via `show()` as the only path, so we fall back to `show()` for the
-      // initial binding (it's a no-op beyond storing the repo).
-      (shelfViewRef as unknown as { _repository: IRepository })._repository = repo;
-      (stashViewRef as unknown as { _repository: IRepository })._repository = repo;
+      // Bind via the views' public no-side-effect seam (no QuickPick, unlike
+      // `show()`), replacing the former private `_repository` field poke.
+      shelfViewRef.setRepository(repo);
+      stashViewRef.setRepository(repo);
       // refresh() returns { error? }; a bind-time refresh failure is
       // usually a transient FS race and won't block the caller from
       // running the subsequent unshelve/view/delete — but we mirror it

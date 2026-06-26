@@ -1083,3 +1083,27 @@ describe('StashView — diff picker basename collision', () => {
     }
   });
 });
+
+describe('StashView — setRepository seam (M-B5)', () => {
+  it('binds the repo with no UI side effect so a later refresh targets it', async () => {
+    const repo = makeRepo();
+    const git = makeGitService({ stashes: [] });
+    let listedRepo: IRepository | undefined;
+    (git as unknown as { stashList: (r: IRepository) => Promise<IStash[]> }).stashList = async (
+      r: IRepository
+    ): Promise<IStash[]> => {
+      listedRepo = r;
+      return [];
+    };
+
+    const view = createStashView(git);
+    try {
+      view.setRepository(repo);
+      const res = await view.refresh();
+      assert.strictEqual(res.error, undefined, 'refresh after setRepository succeeds');
+      assert.strictEqual(listedRepo, repo, 'refresh targets the repo bound via setRepository');
+    } finally {
+      view.dispose();
+    }
+  });
+});
