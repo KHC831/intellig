@@ -8,13 +8,29 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { generateCommitGraph } from '../../../src/git-core/commitGraph';
+import {
+  generateCommitGraph,
+  computeIncomingBendsMap,
+  computeTerminalNodes,
+  computeChildCountMap,
+  isBranchSplit,
+  type ICommitNode,
+} from '../../../src/git-core/commitGraph';
 import {
   buildGraphPrintModel,
+  projectRow,
   computeGraphWidthFromModels,
   IRowEdgeElement,
+  type IRowProjectionContext,
 } from '../../../src/git-core/graph/printModel';
-import { computeGraphWidth, DEFAULT_GRAPH_CONFIG } from '../../../src/utils/graphRenderer';
+import {
+  computeGraphWidth,
+  computeActiveLanes,
+  computeLaneContinuesFromAbove,
+  computeLaneContinuesBelow,
+  collectMergedLaneIntervals,
+  DEFAULT_GRAPH_CONFIG,
+} from '../../../src/utils/graphRenderer';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
 function c(hash: string, parents: string[]): ICommit {
@@ -104,5 +120,63 @@ describe('print model — graph width (model-based vs legacy agree, no drift)', 
       const { model, legacy } = widthBoth(d);
       assert.ok(model >= legacy, `model width ${model} must be >= legacy width ${legacy}`);
     }
+  });
+});
+
+describe('print model — projectRow hashToRow seam (threaded vs derived)', () => {
+  // Build a projectRow context for one row using the same exported helpers
+  // buildGraphPrintModel uses, so projectRow can be exercised in isolation.
+  function ctxFor(
+    nodes: ICommitNode[],
+    row: number,
+    hashToRow: ReadonlyMap<string, number> | undefined
+  ): IRowProjectionContext {
+    const merged = collectMergedLaneIntervals(nodes);
+    const intervalByLane = new Map<number, { startRow: number; endRow: number }>();
+    for (const [lane, ivs] of merged) {
+      for (const iv of ivs) {
+        if (row >= iv.startRow && row <= iv.endRow) {
+          intervalByLane.set(lane, iv);
+        }
+      }
+    }
+    return {
+      activeLanes: computeActiveLanes(nodes, merged).get(row) ?? new Set<number>(),
+      continuesFromAbove:
+        computeLaneContinuesFromAbove(nodes, merged).get(row) ?? new Set<number>(),
+      continuesBelow: computeLaneContinuesBelow(nodes, merged).get(row) ?? new Set<number>(),
+      incomingBendLanes: computeIncomingBendsMap(nodes).get(nodes[row].commit.hash) ?? new Set(),
+      bendsLandingBelow: new Set<number>(),
+      isTerminal: computeTerminalNodes(nodes).has(nodes[row].commit.hash),
+      isBranchSplit: isBranchSplit(nodes[row].commit.hash, computeChildCountMap(nodes)),
+      isLastRow: row === nodes.length - 1,
+      hasFocusedBranch: false,
+      nodes,
+      hashToRow,
+      intervalByLane,
+    };
+  }
+
+  it('a merge row projects identical edges whether hashToRow is threaded in or derived locally', () => {
+    // Merge with a second-parent bezier on a different lane → projectRow calls
+    // findParentRow, which uses hashToRow. The threaded map and the
+    // `?? buildHashToRow` fallback must yield the same row.
+    const nodes = generateCommitGraph([
+      c('m', ['a', 'b']),
+      c('a', ['base']),
+      c('b', ['base']),
+      c('base', []),
+    ]);
+    const mergeRow = 0;
+    const prebuilt = new Map(nodes.map((n, i) => [n.commit.hash, i]));
+
+    const threaded = projectRow(nodes[mergeRow], mergeRow, ctxFor(nodes, mergeRow, prebuilt));
+    const derived = projectRow(nodes[mergeRow], mergeRow, ctxFor(nodes, mergeRow, undefined));
+
+    assert.deepStrictEqual(
+      derived.edges,
+      threaded.edges,
+      'fallback-derived hashToRow must project the same edges as the threaded map'
+    );
   });
 });
