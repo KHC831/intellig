@@ -464,6 +464,31 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('revert failed'));
     });
+
+    it('surfaces the staged-leftover note when the custom-message commit fails', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        revert: () =>
+          okAsync({
+            success: false,
+            conflicts: [],
+            stagedChangesRemain: true,
+            failureReason: 'nothing to commit, working tree clean',
+          }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('revert', [testHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(
+        messages.error[0].message.includes('staged but not committed'),
+        `error must warn about the staged-but-uncommitted revert; got: ${messages.error[0].message}`
+      );
+    });
   });
 
   // ─── checkoutRevision ─────────────────────────────────────────────────────

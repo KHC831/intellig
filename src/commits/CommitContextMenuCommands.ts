@@ -1162,7 +1162,16 @@ export class CommitContextMenuCommands {
           await this._handleRevertConflicts(repo, singleResult.conflicts, commitHashes);
         } else {
           const reason = singleResult.failureReason ?? 'unknown error';
-          void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(reason)}`);
+          // The custom-message revert stages then commits separately; if the
+          // commit failed the staged revert is left in the index. Tell the user
+          // so they can commit or `git revert --abort` rather than assume the
+          // working tree is untouched.
+          const leftover = singleResult.stagedChangesRemain
+            ? ' The revert was staged but not committed — commit it or run "git revert --abort" to discard.'
+            : '';
+          void vscode.window.showErrorMessage(
+            `Failed to revert: ${sanitizeGitError(reason)}${leftover}`
+          );
         }
         await this._gitService.reloadRepository(repo);
         this._gitToolWindowProvider.refresh();

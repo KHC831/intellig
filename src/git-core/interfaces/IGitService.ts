@@ -834,6 +834,14 @@ export interface IRevertResult {
    * Sanitized error reason for non-conflict failures.
    */
   failureReason?: string;
+  /**
+   * True when a custom-message revert staged its changes (`revert --no-commit`
+   * succeeded) but the follow-up `git commit` failed: the index holds a
+   * staged-but-uncommitted revert. The op is non-atomic, so the caller is told
+   * the working state was mutated and can prompt to commit or abort rather than
+   * assume nothing changed.
+   */
+  stagedChangesRemain?: boolean;
 }
 
 /**

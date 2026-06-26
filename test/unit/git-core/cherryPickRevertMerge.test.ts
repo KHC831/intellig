@@ -119,6 +119,39 @@ describe('CherryPickRevertOps — -m mainline for merge commits (H3)', () => {
       assert.strictEqual(commit.args[mIdx + 1], 'Revert "feat: something"');
     });
 
+    it('flags stagedChangesRemain when the commit step fails after a clean stage', async () => {
+      // revert --no-commit succeeds (index now holds the staged revert), but the
+      // separate `git commit -m` fails. The op is non-atomic, so the caller must
+      // be told the working state was mutated and a staged revert is left behind.
+      const { ops } = makeMockOps([
+        { exitCode: 0, stdout: '', stderr: '' }, // revert --no-commit (clean stage)
+        { exitCode: 1, stdout: '', stderr: 'nothing to commit, working tree clean' }, // commit fails
+      ]);
+      const result = (
+        await ops.revert(repo(), ['abc1234'], { message: 'Revert "feat: x"' })
+      )._unsafeUnwrap();
+
+      assert.strictEqual(result.success, false, 'commit-step failure is a failure');
+      assert.ok(result.failureReason, 'failureReason surfaces the commit error');
+      assert.strictEqual(
+        result.stagedChangesRemain,
+        true,
+        'caller must learn the index holds a staged-but-uncommitted revert'
+      );
+    });
+
+    it('does NOT flag stagedChangesRemain when the whole custom-message revert succeeds', async () => {
+      const { ops } = makeMockOps([
+        { exitCode: 0, stdout: '', stderr: '' }, // revert --no-commit
+        { exitCode: 0, stdout: '', stderr: '' }, // git commit -m
+      ]);
+      const result = (
+        await ops.revert(repo(), ['abc1234'], { message: 'Revert "feat: x"' })
+      )._unsafeUnwrap();
+      assert.ok(result.success);
+      assert.notStrictEqual(result.stagedChangesRemain, true, 'no leftover on full success');
+    });
+
     it('message + mainline together: uses --no-commit -m 1 then git commit', async () => {
       const { ops, calls } = makeMockOps([
         { exitCode: 0, stdout: '', stderr: '' },

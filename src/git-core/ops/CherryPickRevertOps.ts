@@ -319,9 +319,13 @@ export class CherryPickRevertOps {
       if (commitResult.exitCode === 0) {
         return { success: true };
       }
+      // Non-atomic boundary: `revert --no-commit` already staged the revert, so
+      // a failed commit leaves it in the index. Surface that so the caller can
+      // prompt to commit/abort rather than assume the working tree is clean.
       return {
         success: false,
         conflicts: [],
+        stagedChangesRemain: true,
         failureReason:
           sanitizeGitError(commitResult.stderr.trim() || commitResult.stdout.trim()) || undefined,
       };
