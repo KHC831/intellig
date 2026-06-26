@@ -94,21 +94,38 @@ describe('resolveBlameRepo', () => {
     );
   });
 
-  it('falls back to the single open repo when no ancestor matches', async () => {
+  it('does NOT resolve the single open repo for a file outside it; defers to getRepository', async () => {
     const root = path.join(base, 'repo');
     const outside = path.join(base, 'elsewhere', 'y.ts');
     fs.mkdirSync(root, { recursive: true });
     fs.mkdirSync(path.dirname(outside), { recursive: true });
     fs.writeFileSync(outside, '');
 
+    // One open repo, but the target is not inside it. Blaming repos[0] would run
+    // git blame with a `../`-escaping pathspec against the wrong repo. The file
+    // genuinely outside the only open repo must not resolve to it.
     const mock = mockGitService({ repositories: [repoAt(root)], getRepositoryResult: undefined });
     const resolved = await resolveBlameRepo(mock.service, Uri.file(outside) as never);
 
+    assert.strictEqual(resolved, undefined, 'out-of-repo file must not resolve to the lone repo');
     assert.strictEqual(
-      resolved!.rootUri.fsPath,
-      Uri.file(root).fsPath,
-      'single-open-repo fallback must apply'
+      mock.getRepositoryCalls,
+      1,
+      'must defer the out-of-repo case to a fresh getRepository'
     );
+  });
+
+  it('still resolves the single open repo for a file INSIDE it (ancestor match)', async () => {
+    const root = path.join(base, 'repo');
+    const file = path.join(root, 'pkg', 'a.ts');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '');
+
+    const mock = mockGitService({ repositories: [repoAt(root)], getRepositoryResult: undefined });
+    const resolved = await resolveBlameRepo(mock.service, Uri.file(file) as never);
+
+    assert.strictEqual(resolved!.rootUri.fsPath, Uri.file(root).fsPath);
+    assert.strictEqual(mock.getRepositoryCalls, 0, 'inside the lone repo → no fresh getRepository');
   });
 
   it('falls back to fresh getRepository when multiple repos and none match', async () => {

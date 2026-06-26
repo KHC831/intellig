@@ -14,8 +14,13 @@ import { canonicalizeFsPath } from '../utils/repoRelativePath';
  *      file, compared on canonicalized (realpath'd) paths so a symlinked
  *      editor path (macOS `/var` → `/private/var`) still matches a repo root
  *      that git reported as a realpath.
- *   2. The single open repository, when exactly one is open.
- *   3. A fresh `getRepository` (spawns `git rev-parse`) as a last resort.
+ *   2. A fresh `getRepository` (spawns `git rev-parse`) as a last resort.
+ *
+ * A file that is not inside any open repository never resolves to an open repo
+ * by proximity — even when exactly one is open. Blaming an unrelated repo would
+ * run `git blame` with a `../`-escaping pathspec (wrong repo, empty result); the
+ * file must fall through to `getRepository`, which correctly returns its own repo
+ * or `undefined` when the file is outside version control entirely.
  *
  * Previously the providers used only step 3. That fresh resolution can return
  * `undefined` for a file even when its repo is open and cached — the cache is
@@ -43,10 +48,6 @@ export async function resolveBlameRepo(
   }
   if (best) {
     return best;
-  }
-
-  if (repos.length === 1) {
-    return repos[0];
   }
 
   return gitService.getRepository(uri);
