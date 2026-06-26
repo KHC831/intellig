@@ -45,7 +45,7 @@ Two related artefacts are _not_ structural guards by the rule below
 but were sometimes discussed alongside them in review notes:
 
 - **NotificationService dispose-lifecycle tests** (Wave 6, see
-  `src/test/unit/services/notificationService.test.ts`) — these are
+  `test/unit/services/notificationService.test.ts`) — these are
   per-method behaviour specs (constructor wires, `init()` registers
   with `context.subscriptions`, listeners are no-ops post-dispose),
   not a structural-shape guard. Belong under "per-site spec."
@@ -155,7 +155,7 @@ cost.
   add a guard but I don't know how to limit its scope" earlier.
 - The per-FILE spec floor keeps the guard from becoming the _only_
   evidence that the bug class is fixed — there's always a
-  behavioural witness somewhere in `src/test/`.
+  behavioural witness somewhere in `test/`.
 - Reviewers have a one-line check: _for each file the guard inspects,
   is there at least one representative spec?_ If no, that's a finding.
 
@@ -266,7 +266,7 @@ pre-sanitized | non-error-data`) is a per-guard concern, not a
   `package.json` shape alone). TL-98 (#226) tracks promoting
   gate (3) once TL-87 lands a structural marker for `.git`-
   as-file support. Companion specs:
-  `src/test/unit/scripts/check100Gate.test.ts` (11 specs: pre-1.0
+  `test/unit/scripts/check100Gate.test.ts` (11 specs: pre-1.0
   short-circuit, version-extraction edge cases, structural gate
   (2) violations + passes). False-positive log: gate (2)'s
   case-insensitive "Experimental" substring match would FP on a
@@ -293,7 +293,7 @@ pre-sanitized | non-error-data`) is a per-guard concern, not a
   validates the JSON shape independently, since the live tree
   legitimately fails the placeholder fingerprints pre-1.0.
   Companion specs:
-  `src/test/unit/scripts/prepublishGuard.test.ts` (15 specs
+  `test/unit/scripts/prepublishGuard.test.ts` (15 specs
   exercising each rule type + tag-cascade short-circuit + config-
   error surfaces + characterization of the shipped JSON state).
   False-positive log: a real LICENSE legitimately matching ≥2
@@ -334,7 +334,7 @@ pre-sanitized | non-error-data`) is a per-guard concern, not a
   vsix trips this guard the moment their publish script runs
   `npm run check:publish-vsix -- "$vsix"`. The artifact-at-rest
   layer of the placeholder-bypass defense layering. Companion
-  specs: `src/test/unit/scripts/checkPublishVsix.test.ts` (7
+  specs: `test/unit/scripts/checkPublishVsix.test.ts` (7
   specs: no-arg no-op, real publish, dogfood trip, case-
   insensitivity, basename match, filename-only, mixed-list).
   False-positive log: a legitimately-named extension whose

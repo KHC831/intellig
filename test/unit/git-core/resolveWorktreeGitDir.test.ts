@@ -2,7 +2,8 @@
  * Unit tests for `resolveWorktreeGitDir` — the synchronous git-dir resolver
  * used to place changelist/shelf storage in the correct directory.
  *
- * Regression: changelist + shelf storage previously hardcoded `<root>/.git`.
+ * Regression: changelist + shelf storage must resolve the git-dir rather than
+ * hardcoding `<root>/.git`.
  * In a LINKED WORKTREE (and submodule) `<root>/.git` is a regular FILE holding
  * a `gitdir: <path>` pointer, so reads returned empty and WRITES THREW. The
  * resolver follows the pointer so each worktree gets an isolated, writable

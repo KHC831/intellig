@@ -2153,8 +2153,8 @@ describe('_getBranchLabelsHtml', () => {
     });
 
     it('JSON-encodes a collapsed branch name containing a pipe (issue #23)', () => {
-      // A literal '|' was the old join/split delimiter. The collapsed-ref
-      // attribute must carry it as JSON so the popup handler parses it as a
+      // A branch name containing '|' must round-trip: the collapsed-ref
+      // attribute carries it as JSON so the popup handler parses it as a
       // single ref, not two. `feat|x` is the 4th branch → it collapses.
       const node = makeNode(['main', 'develop', 'origin/main', 'feat|x']);
       const html = provider._getBranchLabelsHtml(node);
@@ -2490,7 +2490,7 @@ describe('_getBranchLabelsHtml', () => {
         'Should include .branch-label-remote CSS class'
       );
       // Remote chips also take their background inline from the branch color;
-      // the old hardcoded violet is gone.
+      // there is no hardcoded violet.
       assert.ok(
         !/background:\s*#9876AA/i.test(html),
         'the old hardcoded remote-violet background must be gone (color is inline now)'

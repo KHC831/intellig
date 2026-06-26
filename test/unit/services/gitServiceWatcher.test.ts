@@ -336,8 +336,8 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
 
       // Queue a trailing-edge event so the `.finally(() => handleChange())`
       // chain has something to re-debounce once the held reload resolves —
-      // this is the exact shape that used to leak an untracked 250 ms timer
-      // onto a disposed service when a window reload landed mid-fetch.
+      // this is the exact shape that can leak an untracked 250 ms timer
+      // onto a disposed service when a window reload lands mid-fetch.
       for (let i = 0; i < 5; i++) {
         headWatcher._fireChange(Uri.file(`${rootPath}/.git/HEAD`));
       }
@@ -360,7 +360,7 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
       probe.resolveLoad();
       await flushMicrotasks();
 
-      // Advance past any timer the pre-fix code would have scheduled.
+      // Advance past any timer an unguarded path would schedule.
       timers.tick(250);
       await flushMicrotasks();
       timers.tick(250);

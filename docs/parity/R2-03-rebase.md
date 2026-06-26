@@ -21,7 +21,7 @@ Component: rebase (interactive + non-interactive), rebase options (--rebase-merg
   - `src/git-core/ops/BranchOps.ts` (rebaseBranch + rebaseSkip/Abort/Continue)
   - `src/rebase/RebaseEditor.ts` (interactive webview UI)
   - `src/rebase/RebaseDialog.ts` (rebase dialog + options + persistence)
-  - Tests: `src/test/unit/git-core/rebaseTodoTransform.test.ts` (10 transform tests incl. real git 2.50 fixture), `src/test/unit/services/rebaseOptions.test.ts` (8 argv tests), `src/test/unit/services/rebaseOptionsPersistence.test.ts` (4 persistence tests), e2e + property suites
+  - Tests: `test/unit/git-core/rebaseTodoTransform.test.ts` (10 transform tests incl. real git 2.50 fixture), `test/unit/services/rebaseOptions.test.ts` (8 argv tests), `test/unit/services/rebaseOptionsPersistence.test.ts` (4 persistence tests), e2e + property suites
 
 ## Gap table
 

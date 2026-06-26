@@ -1,25 +1,21 @@
 /**
- * Tests for `.git` as a FILE — linked worktrees & submodule worktrees
- * (#212).
+ * Tests for `.git` as a FILE — linked worktrees & submodule worktrees.
  *
- * Originally the scanner only treated `.git` as a directory, and the
- * `IRepoScanFs.Dirent` interface didn't even expose `isFile()`. The scanner
- * happened to work for the worktree case via the `resolveRepoRoot` CLI path
- * (git's `rev-parse --show-toplevel` resolves both shapes correctly), but
- * any future scan-layer enhancement that wanted to fast-path on a `.git`
- * file would have been blocked by the missing isFile() seam.
+ * `.git` is honored as a FILE as well as a directory, so a scan-layer
+ * fast-path on a `.git` file (the linked-worktree / submodule shape) is
+ * possible. The `resolveRepoRoot` CLI path (git's `rev-parse --show-toplevel`)
+ * resolves both shapes correctly regardless.
  *
- * The change:
- *   1. Extend `IRepoScanFs.Dirent` with `isFile(): boolean`.
- *   2. Honor `.git` as a FILE entry as a repo signal in the scanner —
- *      specifically, when scanning a root, the `resolveRepoRoot` callback
+ * Behaviour:
+ *   1. `IRepoScanFs.Dirent` exposes `isFile(): boolean`.
+ *   2. `.git` as a FILE entry is a repo signal in the scanner —
+ *      when scanning a root, the `resolveRepoRoot` callback
  *      (production: git CLI) returns the repo root for either shape.
- *   3. Document in `INTERNAL_IGNORED_FOLDERS` comment that the `.git` skip
- *      now applies regardless of fs entry type.
+ *   3. The `INTERNAL_IGNORED_FOLDERS` comment documents that the `.git` skip
+ *      applies regardless of fs entry type.
  *
  * Each spec was authored RED-first and confirmed failing before any
- * production code was modified. See AGENT_WORKSPACE.md for the verbatim
- * red-message captures.
+ * production code was modified.
  */
 
 import '../../setup';
@@ -38,8 +34,7 @@ interface IFsState {
 
 /**
  * In-memory fs stub that exposes `isDirectory()`, `isSymbolicLink()`, AND
- * `isFile()` per the contract. The earlier stub omitted `isFile()`,
- * which is what made this test originally RED at type-check time.
+ * `isFile()` per the contract.
  */
 function makeFsWithFiles(state: IFsState): IRepoScanFs {
   return {

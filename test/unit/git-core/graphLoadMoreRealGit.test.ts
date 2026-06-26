@@ -1,13 +1,13 @@
 /**
  * Real-git integration for scroll-to-bottom load-more.
  *
- * Reproduces the dead-emitter bug end-to-end against a live repo with MORE
- * than one page of commits, exercising the REAL pieces the fix wires together:
+ * Exercises scroll-to-bottom load-more end-to-end against a live repo with MORE
+ * than one page of commits, covering the REAL pieces it wires together:
  * `getLog` (windowed fetch), `getLogCount` (rev-list total), the load-more
  * controller, and the provider's render plumbing.
  *
- * Pre-fix, nothing subscribed to the load-more emitter, so the graph was
- * hard-capped at the first page and `hasMore` stayed stuck. Here we assert:
+ * Without a subscriber to the load-more emitter, the graph is hard-capped at
+ * the first page and `hasMore` stays stuck. Here we assert:
  *   - the first (fresh) load renders exactly one page, with the honest total
  *     and `hasMore` true (the newest page only — the oldest commit is absent);
  *   - firing the controller's load-more grows the window: the older commits

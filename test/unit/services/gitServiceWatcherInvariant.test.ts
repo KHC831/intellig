@@ -1,14 +1,11 @@
 /**
- * TL-60 (Cluster C) — unit-seam coverage of GitService's watcher
- * self-trigger invariant.
+ * Unit-seam coverage of GitService's watcher self-trigger invariant.
  *
- * Wave 1 (task #78) fixed a CRITICAL infinite-refresh-loop bug where
- * GitService's `.git/` watcher fired on the side effects of the very
- * git subprocesses GitService itself spawned during a reload (the
- * watcher saw `.git/HEAD` rewritten by `_loadRepository`'s
- * `git rev-parse`, fired again, scheduled another reload, …). The
- * production fix layered three guards inside
- * `GitService.setupRepositoryWatcher`:
+ * GitService's `.git/` watcher can fire on the side effects of the very git
+ * subprocesses GitService itself spawns during a reload (the watcher sees
+ * `.git/HEAD` rewritten by `_loadRepository`'s `git rev-parse`, fires again,
+ * and would schedule another reload, …). Three guards inside
+ * `GitService.setupRepositoryWatcher` prevent that infinite-refresh loop:
  *   1. Narrow allow-list of watched `.git/` patterns (skip `objects/**`,
  *      `logs/**`, `**\/*`).
  *   2. Debounce bursts of watcher events for 250 ms before reloading.
@@ -16,13 +13,12 @@
  *      subsequent watcher events are deferred via a `.finally(handleChange)`
  *      chain rather than starting a second reload concurrently.
  *
- * The existing ext-host smoke spec exercises (3) end-to-end on a real
- * git repo; the existing `gitServiceWatcher.test.ts` covers (1) + the
- * trailing-edge replay arm of (3). What the unit suite was MISSING is
- * a tight invariant pin on the inverse-direction case: an internal
- * watcher event that fires DURING the in-flight reload (i.e., the
- * watcher saw GitService's own `.git/` write) must NOT cause a second
- * `_onDidChangeRepository.fire()` while the reload is still running.
+ * The ext-host smoke spec exercises (3) end-to-end on a real git repo, and
+ * `gitServiceWatcher.test.ts` covers (1) + the trailing-edge replay arm of
+ * (3). This file pins the inverse-direction case: an internal watcher event
+ * that fires DURING the in-flight reload (the watcher saw GitService's own
+ * `.git/` write) must NOT cause a second `_onDidChangeRepository.fire()`
+ * while the reload is still running.
  *
  * This file owns that pin via three specs:
  *
@@ -281,7 +277,7 @@ describe('GitService — watcher self-trigger invariant (TL-60 unit seam)', () =
   // `_loadRepository` would emit by writing to `.git/HEAD`, refs/**,
   // etc.) MUST NOT cause a second `_onDidChangeRepository.fire()` while
   // the reload is still pending — that's the inverse-direction self-
-  // trigger that produced the Wave 1 infinite loop.
+  // trigger that would produce the infinite loop.
   //
   // The invariant: `fireCount` stays at 0 (or whatever its pre-flight
   // value is) while the reload is held, regardless of how many internal
@@ -336,8 +332,8 @@ describe('GitService — watcher self-trigger invariant (TL-60 unit seam)', () =
   // mixed events arrive (some are GitService's own `.git/` writes, some
   // are external), and after the held reload settles + trailing-edge
   // debounce elapses, `_onDidChangeRepository` fires EXACTLY ONCE for
-  // the entire mixed burst — debounced and coalesced. The pre-fix code
-  // would have fired N times (once per event) producing the loop.
+  // the entire mixed burst — debounced and coalesced. An unguarded path
+  // would fire N times (once per event), producing the loop.
   // -------------------------------------------------------------------------
   it('simultaneous internal + external events coalesce into exactly one fire after the held reload settles', async () => {
     const probe = wireWatcher(gitService, stubCli, rootPath);
@@ -398,7 +394,7 @@ describe('GitService — watcher self-trigger invariant (TL-60 unit seam)', () =
     );
     // Both reloads fire — the held one (now resolved) and the trailing-
     // edge one. The KEY invariant: it's a small, bounded count (<= 2),
-    // not the unbounded N-fire loop the pre-fix code produced.
+    // not the unbounded N-fire loop an unguarded path would produce.
     assert.ok(
       fireCount >= 1 && fireCount <= 2,
       `fireCount must be bounded (1 or 2), got ${fireCount} — anything higher is the self-trigger loop`

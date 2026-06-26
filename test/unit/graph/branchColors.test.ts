@@ -231,9 +231,7 @@ describe('branchColors — ownership', () => {
   });
 
   it('characterization: exact hash→hex map on a multi-merge / multi-tier / off-window DAG', () => {
-    // A permanent regression guard pinning the WHOLE-MAP output byte-for-byte —
-    // the standing fixture replacing the one-off 5000-DAG differential that
-    // proved the engine-backed rewrite output-identical to the old inline walk.
+    // A permanent regression guard pinning the WHOLE-MAP output byte-for-byte.
     // It exercises every ownership axis at once so silent ownership OR palette
     // drift is caught:
     //   • a trunk (local `main`) with TWO merges on its first-parent spine;

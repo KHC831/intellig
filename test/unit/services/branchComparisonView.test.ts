@@ -417,9 +417,9 @@ describe('BranchComparisonView TL-75 — _showComparisonResults early-return aft
 });
 
 // action-path catch-block toasts must run through
-// `sanitizeGitError`. Pre-fix, `viewCommit` and `_showFileDiffContent`
-// concatenated raw `error.message` into the toast template, so a
-// credentialed remote URL or absolute home path in stderr leaked
+// `sanitizeGitError`. Without it, `viewCommit` and `_showFileDiffContent`
+// would concatenate raw `error.message` into the toast template, so a
+// credentialed remote URL or absolute home path in stderr leaks
 // straight into the user's notification history. The refresh-path
 // (`_performComparison` line 412 area) was already sanitised in;
 // these two action paths are the residual sites.

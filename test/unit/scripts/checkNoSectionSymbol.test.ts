@@ -6,8 +6,7 @@
  * the test subtree is IN scope (test titles + doc-content assertions spell
  * the word "section"), and (d) in default (no-arg) mode scans git-TRACKED
  * files only, so an untracked/gitignored coordination scratch file
- * (AGENT_WORKSPACE.md and friends) is never flagged while a tracked glyph
- * still fails.
+ * is never flagged while a tracked glyph still fails.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -96,8 +95,8 @@ describe('check-no-section-symbol guard', () => {
       fs.writeFileSync(path.join(dir, 'docs', 'clean.md'), '# clean\nsee section 3\n', 'utf8');
       fs.writeFileSync(path.join(dir, '.gitignore'), 'IGNORED.md\n', 'utf8');
       git(dir, 'add', 'docs/clean.md', '.gitignore');
-      // Untracked AND gitignored scratch, both glyph-laden — mimics the
-      // teammates' AGENT_WORKSPACE.md that triggered the gate failure.
+      // Untracked AND gitignored scratch, both glyph-laden — mimics an
+      // untracked/gitignored coordination scratch file.
       fs.writeFileSync(path.join(dir, 'UNTRACKED.md'), `report cites ADR-009 ${GLYPH}6\n`, 'utf8');
       fs.writeFileSync(path.join(dir, 'IGNORED.md'), `report cites ADR-009 ${GLYPH}3\n`, 'utf8');
       const { status, stderr } = runGuardInDir(dir);

@@ -432,7 +432,7 @@ export function generateCommitGraph(
   // PREFER the explicit HEAD commit SHA (`headHash`, from `git rev-parse
   // HEAD`) over name-matching against the branchMap. The SHA is defined in
   // strictly more cases than the name and avoids three silent failure modes
-  // that previously disabled the entire HEAD-spine pre-claim (and let a
+  // that would otherwise disable the entire HEAD-spine pre-claim (letting a
   // divergent branch seize lane 0, splitting the mainline across colours):
   //   1. Detached HEAD — `headBranchName` is undefined, but `headHash` is
   //      still the rev-parse SHA.

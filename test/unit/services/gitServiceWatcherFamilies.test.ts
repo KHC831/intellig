@@ -1,11 +1,11 @@
 /**
  * Tests for the watcher-families registry pattern in
- * `GitService.removeRepositoryWatcher` (#219).
+ * `GitService.removeRepositoryWatcher`.
  *
- * Bug: originally, `removeRepositoryWatcher` walked two specific Maps
- * `_fileWatchers` (per-repo `.git/<entry>` watchers from) and
- * `_newRepoWatchers` (mid-session `**\/.git` watchers from)
- * by direct reference. Each new "watcher family" added to the service
+ * Without a registry, `removeRepositoryWatcher` walks two specific Maps —
+ * `_fileWatchers` (per-repo `.git/<entry>` watchers) and
+ * `_newRepoWatchers` (mid-session `**\/.git` watchers) — by direct reference.
+ * Each new "watcher family" added to the service
  * (e.g. a hypothetical "submodule init watcher" or "worktree-add
  * watcher") would silently leak unless a future contributor also
  * remembered to add that map to the cleanup loop.
@@ -15,11 +15,10 @@
  * in at construction time. `removeRepositoryWatcher(rootPath)` then
  * walks the union of all registered maps, disposing entries whose key
  * is `rootPath` itself OR a path-child of `rootPath` (matching the
- * existing nested-repo cleanup contract from / ).
+ * existing nested-repo cleanup contract).
  *
  * Each spec was authored RED-first and confirmed failing before the
- * registry refactor. See AGENT_WORKSPACE.md for the verbatim red-message
- * captures.
+ * registry refactor.
  */
 
 import '../../setup';

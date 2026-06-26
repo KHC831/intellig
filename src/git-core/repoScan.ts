@@ -239,8 +239,8 @@ export async function scanFolderForGitRepos(
   //   - {@link CASE_SENSITIVE_IGNORED_NAMES} (`out`, `dist`, `target`,
   //     `build`, `vendor`): match EXACTLY so Pascal-case build dirs on
   //     case-sensitive Linux (`Build/projectA/.git`, `Out/cargo`, etc.)
-  //     are still discovered. These were previously lowercased uniformly,
-  //     which silently filtered legitimate Linux repos.
+  //     are still discovered. Lowercasing these uniformly would
+  //     silently filter legitimate Linux repos, so they match exactly.
   //   - User-supplied `opts.ignoredFolders`: matched case-insensitively
   //     so a Windows user who configures `["mybuild"]` doesn't have to
   //     guess the on-disk casing.
@@ -302,7 +302,7 @@ export async function scanFolderForGitRepos(
 
     for (const entry of entries) {
       // Split case policy, applied BEFORE the directory-only filter so a
-      // `.git` *file* child (issue #212: linked-worktree shape) is also
+      // `.git` *file* child (the linked-worktree shape) is also
       // skipped without spawning
       // `git rev-parse --show-toplevel` against a known repo signal.
       const lowerName = entry.name.toLowerCase();

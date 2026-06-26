@@ -43,10 +43,10 @@ status block.
   lane-algorithm invariants (spec 8 L1 lane stability + HEAD-ancestry
   promotion, spec 8 L9 dashed off-window stub, spec 8 L4 same-lane stroke
   color), pinned by property + unit tests in
-  `src/test/property/laneStabilityAcrossReload.property.test.ts`,
-  `src/test/property/headAncestryPromotion.property.test.ts`, and
+  `test/property/laneStabilityAcrossReload.property.test.ts`,
+  `test/property/headAncestryPromotion.property.test.ts`, and
   the "Phase 1a pins" suite in
-  `src/test/unit/utils/commitGraph.test.ts`.
+  `test/unit/utils/commitGraph.test.ts`.
 - [ADR-014](ADR-014-ui-primitive-selection.md) — Accepted —
   UI primitive selection: webview only for the commit graph; native
   primitives (QuickPick, TreeView + context menus, SCM API, native

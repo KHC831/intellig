@@ -1024,10 +1024,10 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
             // Assert: the combined message is exactly first + separator + second.
             //
-            // TR-8 regression (R6 Gap-D 10× stress, seed -279145967): the
-            // previous form used `indexOf(commits[1].message)` to prove
-            // ordering, but when `commits[1].message` was a substring of
-            // `commits[0].message` (counterexample msg0="% ", msg1="%"),
+            // Regression (seed -279145967): an `indexOf(commits[1].message)`
+            // ordering check is unreliable when `commits[1].message` is a
+            // substring of `commits[0].message` (counterexample msg0="% ",
+            // msg1="%"),
             // `indexOf` would locate msg1 *inside* msg0 and return an index
             // smaller than or equal to the start of msg0 — making the
             // strict `firstMsgIndex < secondMsgIndex` check fail even though
@@ -1055,10 +1055,10 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
     });
 
     /**
-     * TR-8 regression: seed -279145967 (R6 Gap-D 10× stress) shrank to
+     * Regression: seed -279145967 shrank to
      * `msg0="% ", msg1="%"` — a case where `commits[1].message` is a
-     * substring of `commits[0].message`, which broke the prior
-     * `indexOf`-based ordering assertion. The fix anchors on the exact
+     * substring of `commits[0].message`, which breaks an
+     * `indexOf`-based ordering assertion. Anchor on the exact
      * join string (see the property immediately above); this pinned block
      * guards against reintroduction of the `indexOf` pattern.
      *
@@ -1102,7 +1102,7 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
     });
 
     /**
-     * TR-8 regression (synthetic): reconstruct the minimal counterexample
+     * Regression (synthetic): reconstruct the minimal counterexample
      * (msg1 is a proper substring of msg0) without relying on fast-check's
      * PRNG, so the guard survives generator reshapes that would retire
      * seed -279145967.

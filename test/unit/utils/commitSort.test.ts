@@ -1,7 +1,7 @@
 /**
  * Unit tests for {@link sortCommitsStable} (src/utils/commitSort.ts).
  *
- * Covers the TR-5 / SR- LOW contract:
+ * Covers the sort contract:
  * - Primary sort is `commitDate` ascending (oldest first).
  * - Date ties break topologically: if A is in B.parents, A sorts before B.
  * - Unrelated date-tied commits break alphabetically on hash, deterministically.

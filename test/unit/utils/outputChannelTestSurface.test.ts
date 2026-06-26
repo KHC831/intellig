@@ -1,17 +1,12 @@
 /**
- * TL-58 (Cluster C) — TestSurface idiom rename for the OutputChannel
- * singleton's test-only reset.
+ * TestSurface idiom for the OutputChannel singleton's test-only reset.
  *
- * Pre-rename, `disposeOutputChannel()` was the public name of a function
- * documented as "test-only" but lacking the project's TestSurface idiom
- * (`__*ForTest` prefix; see docs/testing.md section 3). The mismatch made the
- * function look like a normal disposal hook and invited production
- * callers to drop the cached channel mid-flight.
- *
- * Post-rename, `__resetOutputChannelForTest()` carries the contract in
- * its name. This spec pins (a) the new export exists and is callable,
- * and (b) the old export name is gone — a future revival of the old
- * name would silently re-introduce the smell.
+ * `__resetOutputChannelForTest()` carries the test-only contract in its name
+ * (the `__*ForTest` prefix; see docs/testing.md section 3), so it can't be
+ * mistaken for a normal disposal hook that a production caller might use to
+ * drop the cached channel mid-flight. This spec pins (a) the export exists and
+ * is callable, and (b) no `disposeOutputChannel`-style public name exists —
+ * reviving one would silently re-introduce the smell.
  */
 
 import '../../setup';

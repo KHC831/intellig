@@ -1337,8 +1337,8 @@ export class ShelfService implements IShelfService {
       }
     }
 
-    // TODO: Add files from changelists when ChangelistService is implemented
-    // For now, changelists are not supported
+    // TODO: also include files that live only in changelists; this currently
+    // covers shelf hunks only.
 
     return Array.from(files);
   }

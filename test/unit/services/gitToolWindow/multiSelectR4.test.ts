@@ -295,14 +295,11 @@ describe('Wave A R4 — review fixes', () => {
   // ─── _postSyncSelection call-site coverage ──────────────────────
   describe('_postSyncSelection is called from every selection-mutating setter', () => {
     it('each selection-mutating setter calls _postSyncSelection', async () => {
-      // Originally this test counted "belt-and-suspenders" comments as a
-      // proxy for "every setter called _postSyncSelection alongside a
-      // full _updateWebview()". The Shift+Arrow keyboard-multiselect bug
-      // (UI fix; commit-row focus destroyed by re-render) forced a
-      // refactor where _postSyncSelection is the PRIMARY partial-update
-      // path for range selections — _updateWebview() no longer fires
-      // there, and the "belt-and-suspenders" framing no longer applies.
-      // The structural assertion remains: every selection-mutating
+      // _postSyncSelection is the PRIMARY partial-update path for range
+      // selections; a full _updateWebview() would destroy commit-row focus
+      // on re-render (the Shift+Arrow keyboard-multiselect hazard), so it
+      // does not fire there.
+      // The structural assertion: every selection-mutating
       // setter must invoke _postSyncSelection (directly or via a
       // partial-update helper). Count the call sites instead of the
       // obsolete prose.

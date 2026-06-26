@@ -38,13 +38,11 @@ function repoRoot(): string {
   return path.resolve(__dirname, '../../..');
 }
 
-// Command handlers used to live exclusively in `src/extension.ts`. The
-// Phase 2.2 split relocated cohesive handler groups into domain modules under
-// `src/commands/registration/` while extension.ts stays the orchestrator that
+// Command handlers live in `src/commands/registration/` domain modules
+// (cohesive handler groups), while `src/extension.ts` is the orchestrator that
 // builds the shared context + registers each module. The audit therefore
 // scans the UNION of extension.ts and every registration module so a handler
-// is seen no matter which file owns it (the same single-file-assumption fix
-// the GitService watcher-families TARGET_FILE needed). Each file is extracted
+// is seen no matter which file owns it. Each file is extracted
 // independently and the per-file handler arrays are unioned (guards against
 // brace-matching across a file boundary).
 const EXT_FILE = 'src/extension.ts';

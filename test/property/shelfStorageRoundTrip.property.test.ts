@@ -1,5 +1,5 @@
 /**
- * TL-34 — property tests for ShelfService storage round-trip.
+ * Property tests for ShelfService storage round-trip.
  *
  * Invariant under test: `load → save` preserves every key in the on-disk
  * JSON that belongs to a newer version of the extension. If an older
@@ -7,7 +7,7 @@
  * and the newer version reads it again, no forward-compat fields should
  * have been silently dropped.
  *
- * Mirrors the TL-10 property suite for ChangelistService
+ * Mirrors the ChangelistService property suite
  * (changelistStorageRoundTrip.property.test.ts) — same structure, same
  * invariants, adapted for the shelf storage shape.
  *
@@ -61,7 +61,7 @@ describe('ShelfService storage round-trip — TL-34', () => {
 
   /**
    * A shelf file entry with arbitrary unknown per-file fields merged on top.
-   * Exercises the TL-39 `_unknownFileField` forward-compat seam.
+   * Exercises the `_unknownFileField` forward-compat seam.
    */
   const fileArb = fc.record({
     path: fc.string({ minLength: 1, maxLength: 24 }),
@@ -287,7 +287,7 @@ describe('ShelfService storage round-trip — TL-34', () => {
   // ── Pinned regression ──────────────────────────────────────────────────
 
   it('pinned regression: top-level "schemaExtension" + per-item "labels"/"priority" survive', () => {
-    // Hand-crafted payload mirroring the TL-10 ChangelistService regression
+    // Hand-crafted payload mirroring the ChangelistService regression
     // seed — locks in the round-trip guarantee for shelf storage so a
     // forward-compat field introduced by a newer version isn't silently
     // dropped by an older version that happens to open the file.

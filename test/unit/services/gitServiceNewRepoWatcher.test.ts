@@ -9,10 +9,9 @@
  * uses `**\/.git` glob with `ignoreChangeEvents: true` +
  * `ignoreDeleteEvents: true` so it does NOT contribute to the
  * `.git/objects/**` modification storm that caused the original infinite
- * refresh loop (#78).
+ * refresh loop.
  *
- * Each spec was written BEFORE wiring; see the AGENT_WORKSPACE.md cycle
- * notes for verbatim red captures.
+ * Each spec was written BEFORE wiring.
  */
 
 import '../../setup';
@@ -294,8 +293,8 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
   // Senior addendum — MEDIUM:
   //   Path-prefix string match in ignored-folder filter.
   //
-  //   Pre-fix: `repoParentDir.startsWith(folderPath)` is a STRING prefix
-  //   check, not a PATH prefix check. If folderPath='/work' and
+  //   A `repoParentDir.startsWith(folderPath)` STRING prefix check (not a
+  //   PATH prefix check) is wrong: if folderPath='/work' and
   //   repoParentDir='/workspace/foo', startsWith returns true and the
   //   relative slice becomes 'space/foo' — meaning a `git init` inside
   //   `/workspace/foo` (a sibling directory that just happens to share
@@ -317,9 +316,9 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
     assert.ok(watcher, 'watcher must be installed for /work');
 
     // `/workspace` is a sibling directory of `/work`, NOT a child.
-    // Pre-fix: `'/workspace/foo'.startsWith('/work')` returns true (string
-    // semantics) so the watcher handler thinks `/workspace/foo` is inside
-    // `/work` and tries to load it as a repo.
+    // With a string prefix check, `'/workspace/foo'.startsWith('/work')`
+    // returns true so the watcher handler would think `/workspace/foo` is
+    // inside `/work` and try to load it as a repo.
     //
     // Post-fix: `path.relative('/work', '/workspace/foo')` returns
     // `'../workspace/foo'` (POSIX) — the leading `..` signals "outside

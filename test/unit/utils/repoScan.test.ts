@@ -12,9 +12,7 @@
  * but with our own implementation so we don't couple to vscode-git's API.
  *
  * Each spec below was written FIRST and run RED before any line of
- * production code in `src/utils/repoScan.ts` was added — see the
- * coder-wave10 implementation summary in AGENT_WORKSPACE.md for the verbatim
- * red-message captures.
+ * production code in `src/utils/repoScan.ts` was added.
  */
 
 import '../../setup';

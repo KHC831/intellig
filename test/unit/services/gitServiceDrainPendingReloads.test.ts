@@ -38,7 +38,7 @@
  * treats `_repositories` as an authoritative in-memory model decoupled
  * from disk — those specs do NOT exercise `loadRepository`'s async tail
  * (they pre-seed `_repositories` via fake-fs scanning), so this fix
- * does not regress them. See task TL-88 / #213.
+ * does not regress them.
  */
 
 import '../../setup';

@@ -100,7 +100,7 @@ Three `TestSurface` interfaces already cast narrow slices of service
 state, and each is a natural seed for a role interface:
 
 - **`GitServiceGitCliTestSurface`** (see
-  `src/test/unit/services/rebaseSkip.test.ts`) — casts to the `GitCli`
+  `test/unit/services/rebaseSkip.test.ts`) — casts to the `GitCli`
   injection point to scripts a command. This is the seed for a
   `IGitReplay` / `IGitWorkingTree` split along whichever boundary the
   rebase-skip flow sits on.

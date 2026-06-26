@@ -918,10 +918,10 @@ export class GitToolWindowProvider
     // The graph caller fetches `git log --topo-order` (extension.ts),
     // so `commits` arrives in a topology-respecting order: every
     // parent of a commit appears later in the list (or off-window).
-    // We DON'T re-sort by date here — that step used to dominate
+    // We DON'T re-sort by date here — a date re-sort dominates
     // topology after a squash/rebase (fresh committerDate for the
-    // rewritten commits collapsed divergent branches into the wrong
-    // place in the list), which the algorithm faithfully rendered as
+    // rewritten commits collapses divergent branches into the wrong
+    // place in the list), which the algorithm faithfully renders as
     // a linear graph. Trust the topo-ordered input instead.
 
     // re-validate the focused branch against the new
@@ -978,8 +978,8 @@ export class GitToolWindowProvider
       // Pass the explicit HEAD commit SHA so the lane algorithm can anchor
       // HEAD's mainline spine to lane 0 even when the branch NAME can't be
       // resolved (detached HEAD, getBranches failure, symbolic-ref race).
-      // Previously dropped here, which silently disabled the spine fix and
-      // let a divergent branch seize lane 0 — the reported mainline split.
+      // Omitting it disables the spine anchor and lets a divergent
+      // branch seize lane 0, splitting the mainline.
       headHash
     );
 

@@ -365,10 +365,10 @@ describe('Commit Graph Generation', () => {
         // newer descendant ('newer') is the first row and is a child of
         // HEAD's tip.
         //
-        // The old unconditional HEAD-seed pre-claimed lane 0 for the HEAD
-        // tip, which forced 'newer' onto lane 1 with a `1->0` bend (the
+        // An unconditional HEAD-seed would pre-claim lane 0 for only the HEAD
+        // tip, forcing 'newer' onto lane 1 with a `1->0` bend (the
         // blue-dot-on-lane-1-above-green-HEAD artifact + a stray vertical
-        // stub). The fix pre-claims HEAD's whole FIRST-PARENT SPINE on lane
+        // stub). Instead the algorithm pre-claims HEAD's whole FIRST-PARENT SPINE on lane
         // 0, walking UP through first-parent-children so a newer descendant
         // (like 'newer') is part of the spine and pinned to lane 0 too.
         // Every commit must end up on lane 0 with a straight same-lane
@@ -536,7 +536,8 @@ describe('Commit Graph Generation', () => {
       it('without seeding (no headBranchName), preserves the existing first-seen order', () => {
         // The seeding pre-pass is a strict superset: when no
         // headBranchName is provided AND no branchMap is supplied, the
-        // algorithm must be byte-identical to the pre-fix behaviour.
+        // algorithm must preserve the existing first-seen order (the seeding
+        // pre-pass adds no reordering).
         // This guards against regressions in callers that don't pass
         // a head branch name.
         const commits = [
@@ -905,16 +906,16 @@ describe('Commit Graph Generation', () => {
     // log the merged side branches drain FIRST, so the merge's first parent
     // (the master continuation) is pushed PAST the loaded window. The merge
     // sits on lane 0; its first-parent edge is the L9 off-window dashed
-    // same-lane stub. Pre-fix the trunk collapsed to a half-row stub at the
-    // merge row (`computeActiveLanes` found no parent row to span to), lane 0
-    // was freed, and an unrelated branch REUSED it a few rows lower — the
-    // reported "lane-0 line breaks below the merge then reappears connecting
-    // to nothing". The mainline lane continues below the loaded window, so it
+    // same-lane stub. Without this, the trunk would collapse to a half-row
+    // stub at the merge row (`computeActiveLanes` finds no parent row to span
+    // to), lane 0 would be freed, and an unrelated branch could REUSE it a few
+    // rows lower — a "lane-0 line breaks below the merge then reappears
+    // connecting to nothing". The mainline lane continues below the loaded window, so it
     // must stay an unbroken reserved column down to the window bottom.
     describe('Off-window first-parent mainline continuation (dogfood: merge whose mainline parent fell off the slice)', () => {
       // Mirrors the real neighbourhood: a lane-0 merge whose FIRST parent is
       // off-window, the merged branch (S*) on lane 1 with its own back-merge
-      // (SM) pulling in a second branch (K*) that — pre-fix — grabbed the
+      // (SM) pulling in a second branch (K*) that could grab the
       // freed lane 0.
       function buildOffWindowMergeChain(): ICommitNode[] {
         const commits = [

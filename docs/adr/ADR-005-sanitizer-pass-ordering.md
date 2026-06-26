@@ -112,6 +112,6 @@ left-anchor was wrong; each is now pinned by a unit test:
 
 - `src/utils/gitError.ts` — the helper itself, with JSDoc on each
   regex explaining the left-anchor and ordering rationale.
-- `src/test/unit/utils/gitError.test.ts` — pinned regressions for
+- `test/unit/utils/gitError.test.ts` — pinned regressions for
   each of the three shapes above. Adding a new redaction pass must
   extend this suite first.

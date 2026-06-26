@@ -49,13 +49,13 @@ Frozen-literal snapshot tests for any algorithm whose output
 ultimately drives a visual layout (lane assignments, chip rendering,
 graph line topology, focused-path tagging).
 
-Pattern: a Mocha file under `src/test/unit/.../*.snapshots.test.ts`
+Pattern: a Mocha file under `test/unit/.../*.snapshots.test.ts`
 with `assert.deepStrictEqual(snapshotOf(result), expectedFrozenLiteral)`.
 NO `--update-snapshots` flag opacity — when a developer changes the
 algorithm legitimately, they update the inline literal explicitly,
 and reviewers see the visual diff in the PR.
 
-The Wave D seed: `src/test/unit/utils/commitGraphSnapshots.test.ts`
+The Wave D seed: `test/unit/utils/commitGraphSnapshots.test.ts`
 with five fixtures (linear baseline, divergent two-children,
 three-way fork, merge with branches at both parents, focus state).
 
@@ -279,7 +279,7 @@ serve the same comparison need without duplicating the surface.
   snapshots are the visual-output analogue of structural guards.
 - ADR-009 — Webview state ownership. The `updateBranchFocus` surface
   added in Wave D is documented in ADR-009 section 3.
-- `src/test/unit/utils/commitGraphSnapshots.test.ts` — Wave D seed
+- `test/unit/utils/commitGraphSnapshots.test.ts` — Wave D seed
   for Layer 1; Wave E adds snap-7a..7g (chip-emit, jsdom layout,
   message-text full-line emission); Wave E R1 adds snap-7h
   (chip max-width + ellipsis CSS contract).
@@ -350,7 +350,7 @@ serve the same comparison need without duplicating the surface.
   newBranchFrom-detached (dispatcher safety). Bonus: Wave H's
   multi-fixture mock construction triggered the rule-of-three
   threshold for the IGitService mock (Wave F TLF-N3 watch flag);
-  extracted to `src/test/mocks/mockGitService.ts` and updated the
+  extracted to `test/mocks/mockGitService.ts` and updated the
   three pre-existing call sites (snap-8b, headChipRefresh.test.ts,
   Wave H's new fixtures).
 - **Wave I (2026-05-26)**: post-Wave-H comprehensive review surfaced 8

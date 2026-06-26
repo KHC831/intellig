@@ -148,11 +148,11 @@ describe('GitToolWindowProvider — load-more render plumbing', () => {
       );
     });
 
-    // Regression for the dogfood bug: the graph jumped to top after load-more
-    // because a SECOND incidental render (cherry marks arriving async) landed
-    // right after the load-more render and the old one-shot preserve flag was
-    // already consumed by the first. Preserve-by-default keeps BOTH renders'
-    // attribute so the user's scroll survives the incidental re-render.
+    // Regression: the graph would jump to top after load-more if a SECOND
+    // incidental render (cherry marks arriving async) landed right after the
+    // load-more render and a one-shot preserve flag had already been consumed
+    // by the first. Preserve-by-default keeps BOTH renders' attribute so the
+    // user's scroll survives the incidental re-render.
     it('preserves scroll across the incidental cherry-mark render after load-more', () => {
       // Load-more is an in-place render: no reset requested → preserves.
       const loadMoreRender = provider._getGraphPanelHtml([makeNode('a1')], undefined, 2, 600);

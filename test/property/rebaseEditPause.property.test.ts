@@ -597,8 +597,7 @@ describe('Rebase Edit Pause Property Tests', () => {
             // directory on pause) picks up the append we just made rather
             // than the stale seed entry. Equivalent to `.findLast`, written
             // as a manual reverse loop because the project targets ES2022
-            // and `Array.prototype.findLast` is an ES2023 addition. See
-            // test-runner TR-1.
+            // and `Array.prototype.findLast` is an ES2023 addition.
             const workingChanges = rebaseService.getWorkingDirectoryChanges();
             let addedChange: IFileChange | undefined;
             for (let i = workingChanges.length - 1; i >= 0; i--) {
@@ -617,8 +616,8 @@ describe('Rebase Edit Pause Property Tests', () => {
             return true;
           }
         ),
-        // TR-1: include a stable replay seed for the case that previously
-        // shrank to a (newFileName, pre-existing-file) collision. Keeping
+        // Include a stable replay seed for the case that shrank to a
+        // (newFileName, pre-existing-file) collision. Keeping
         // it here guards against regressions if the mock's aliasing
         // behaviour is revisited.
         { numRuns: 100, seed: -214908735 }

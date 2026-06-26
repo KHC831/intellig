@@ -5,7 +5,7 @@
  * but runs against a Tier-2 `createFixtureRepo` fixture instead of whatever
  * workspace the launcher happened to open. The distinction matters:
  *
- *   The retroactive GitService watcher infinite-loop bug (pre-TL-78) only
+ *   The GitService watcher infinite-loop failure mode only
  *   reproduces when the watcher is observing a `.git/` directory to which
  *   subprocess side-effects actually propagate. The ext-host suite watches
  *   the dev workspace repo, which works — but Tier-2 watches a dedicated

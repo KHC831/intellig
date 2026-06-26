@@ -18,7 +18,7 @@ _Round-2 deep review by tech-lead owner. North-star = IntelliJ git4idea + platfo
   - `src/commits/CommitDialog.ts` (lines 496, 884, 1348, 1978: revert-hunk button wiring + dispatch)
   - `src/changelists/ChangelistService.ts` (lines 1-97: v2 storage format with `description` + `activeChangelistId`)
   - `src/shelf/ShelfService.ts`, `src/shelf/ShelfView.ts`, `src/shelf/StashView.ts`
-  - `src/test/unit/git-core/stashReinstateIndex.test.ts` (lines 39-48: TDD tests for `--index` on apply/pop)
+  - `test/unit/git-core/stashReinstateIndex.test.ts` (lines 39-48: TDD tests for `--index` on apply/pop)
 
 ## Gap table
 | Capability / finding | IntelliJ behavior | intellig behavior | Status | Severity | Source | Notes / file refs |
@@ -364,11 +364,11 @@ Layer 1 — directory-tree HTML emit (Requirements 2.10, 2.11, 2.12):
   at `padding-left: 4px` and the nested `util` directory row at
   `padding-left: 20px` (Requirement 2.14 compaction).
 
-  (all in `src/test/unit/services/detailsPanel.test.ts`, suite
+  (all in `test/unit/services/detailsPanel.test.ts`, suite
   `git-view-layout-parity / snap-changed-files-tree`)
 
 Layer 1 — pure transform / renderer properties (Requirement 2,
-`src/test/property/fileTree*.property.test.ts`):
+`test/property/fileTree*.property.test.ts`):
 
 - Property 1 (reconstruction) — flattening the tree yields exactly
   the input path set, each path once.
@@ -443,7 +443,7 @@ ellipsis rule changed.
 ### section 2.3 Test coverage
 
 Layer 1 — history-row layout HTML/CSS emit (Requirements 1.3, 1.8,
-`src/test/unit/html/historyTabStyles.snapshots.test.ts`, suite
+`test/unit/html/historyTabStyles.snapshots.test.ts`, suite
 `git-view-layout-parity / Req 1 — History row layout
 Visual_Parity_Snapshot`):
 

@@ -5,11 +5,10 @@
  * Regression guard for the bug the user kept hitting: in a multi-repo
  * workspace, double-clicking a file in a commit's "Changed files" list popped a
  * repository selector quick pick from the top of the window — an unwanted extra
- * click before the diff appeared. The handler used to fall back to the
- * interactive `resolveRepo`; the fix (commit 4eac85d) routes through
+ * click before the diff appeared. The handler routes through
  * `resolveRepoForCommitDiff`, which resolves the repo that actually CONTAINS the
  * commit non-interactively and encodes that root into the `intellig-git:` diff
- * URIs.
+ * URIs, rather than falling back to the interactive `resolveRepo`.
  *
  * This test drives the EXACT production path a real double-click triggers —
  * the webview posts `{ type: 'doubleClickFile', commitHash, path }`, which the

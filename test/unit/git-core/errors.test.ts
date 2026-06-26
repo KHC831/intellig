@@ -56,7 +56,7 @@ describe('git error taxonomy', () => {
       // The real failure mode: child_process.spawn() throws SYNCHRONOUSLY with
       // a raw ErrnoException (code ENOTDIR, errno -20) when handed a file as
       // cwd — it is NOT wrapped in GitCommandError. This is the exact error
-      // that used to be swallowed to `undefined`, masquerading as "not a repo".
+      // that must NOT be swallowed to `undefined`, masquerading as "not a repo".
       const raw = Object.assign(new Error('spawn ENOTDIR'), {
         code: 'ENOTDIR',
         errno: -20,
