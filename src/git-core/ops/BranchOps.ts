@@ -421,7 +421,7 @@ export class BranchOps {
     }
 
     // Check for conflicts
-    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
@@ -526,7 +526,7 @@ export class BranchOps {
     // autostash collides with the rebased changes git leaves unmerged files
     // AND still exits 0. Checking unmerged files unconditionally surfaces that
     // pop-conflict instead of a false success.
-    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
@@ -615,7 +615,7 @@ export class BranchOps {
     // Resolve Conflicts dialog with the new file set. Reached only via `git
     // rebase --skip`, so a rebase is necessarily still in progress: the
     // conflict is continuable.
-    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
@@ -684,7 +684,7 @@ export class BranchOps {
       return { success: true };
     }
 
-    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)

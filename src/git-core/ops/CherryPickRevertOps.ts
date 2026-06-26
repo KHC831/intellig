@@ -253,7 +253,7 @@ export class CherryPickRevertOps {
    * @returns Array of conflicted file paths
    */
   private async getConflictedFiles(repo: IRepository): Promise<string[]> {
-    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
       cwd: repo.rootUri.fsPath,
     });
     return parseStatus(statusResult.stdout)

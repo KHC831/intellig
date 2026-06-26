@@ -1572,7 +1572,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU file.ts\nUU another.ts\n',
           stderr: '',
@@ -1593,7 +1593,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stderr: 'Automatic merge failed',
         });
         // UU = both modified, AA = both added, DD = both deleted
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU both-modified.ts\nAA both-added.ts\nUD deleted-by-them.ts\n',
           stderr: '',
@@ -1614,7 +1614,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: '',
           stderr: 'merge: invalid-branch - not something we can merge',
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'M modified.ts\n',
           stderr: '',
@@ -1797,7 +1797,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU file.ts\nUU another.ts\n',
           stderr: '',
@@ -1816,7 +1816,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: '',
           stderr: 'Automatic merge failed',
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU both-modified.ts\nDU deleted-by-us.ts\n',
           stderr: '',
@@ -1841,7 +1841,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: 'Applying autostash resulted in conflicts.',
           stderr: '',
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU shared.ts\n',
           stderr: '',
@@ -1863,7 +1863,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: 'Successfully rebased and updated refs/heads/feature.',
           stderr: '',
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1881,7 +1881,7 @@ describe('GitService - Merge and Rebase Operations', () => {
           stdout: '',
           stderr: "fatal: invalid upstream 'invalid-branch'",
         });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'M modified.ts\n',
           stderr: '',
@@ -3675,7 +3675,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
         // back to `.message`) routes it to the Resolve flow rather than a
         // generic "Failed to pull" toast.
         mockGitCli.setMockResult('pull --autostash', { exitCode: 0, stdout: '', stderr: '' });
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU conflicted.ts\n',
           stderr: '',
@@ -3800,7 +3800,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
         // With --autostash git integrates cleanly (exit 0) then pops the stash;
         // if that pop collides git leaves unmerged files but STILL exits 0, so
         // the post-status check must surface it as a conflict.
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU shared.ts\n',
           stderr: '',
@@ -3820,7 +3820,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
 
       it('resolves cleanly when an autostash pull exits 0 with no unmerged files', async () => {
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -4777,7 +4777,7 @@ describe('GitService - Cherry-Pick Operations', () => {
         });
 
         // Mock status showing conflicted files
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU conflicted-file.ts\nUU another-conflict.ts\n',
           stderr: '',
@@ -4803,7 +4803,7 @@ describe('GitService - Cherry-Pick Operations', () => {
         });
 
         // Mock status with various conflict states
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU both-modified.ts\nUA added-by-us.ts\nAU added-by-them.ts\n',
           stderr: '',
@@ -4825,7 +4825,7 @@ describe('GitService - Cherry-Pick Operations', () => {
         });
 
         // Mock status showing no conflicts
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'M modified-file.ts\n',
           stderr: '',
@@ -4955,7 +4955,7 @@ describe('GitService - Cherry-Pick Operations', () => {
             'error: could not apply def456... second commit\nhint: after resolving the conflicts',
         });
 
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU new-conflict.ts\n',
           stderr: '',
@@ -4976,7 +4976,7 @@ describe('GitService - Cherry-Pick Operations', () => {
           stderr: 'error: Committing is not possible because you have unmerged files.',
         });
 
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU unresolved-file.ts\n',
           stderr: '',
@@ -4999,7 +4999,7 @@ describe('GitService - Cherry-Pick Operations', () => {
         stdout: '',
         stderr: 'CONFLICT',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
         stdout: 'UU file.ts\n',
         stderr: '',
@@ -5044,7 +5044,7 @@ describe('GitService - Cherry-Pick Operations', () => {
       assert.strictEqual(pickResult.success, false);
 
       // User resolves conflicts (simulated by changing status mock)
-      mockGitCli.mockResults.delete('status --porcelain');
+      mockGitCli.mockResults.delete('status --porcelain -z');
       mockGitCli.mockResultsByPrefix.delete('status --porcelain');
       mockGitCli.setMockResult('cherry-pick --continue', {
         exitCode: 0,
@@ -5064,7 +5064,7 @@ describe('GitService - Cherry-Pick Operations', () => {
         stdout: '',
         stderr: 'error: could not apply commit2',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
         stdout: 'UU conflicted.ts\n',
         stderr: '',
@@ -5238,7 +5238,7 @@ describe('GitService - Revert Operations', () => {
         });
 
         // Mock status showing conflicted files
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU conflicted-file.ts\nUU another-conflict.ts\n',
           stderr: '',
@@ -5262,7 +5262,7 @@ describe('GitService - Revert Operations', () => {
         });
 
         // Mock status with various conflict states
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU both-modified.ts\nUA added-by-us.ts\nAU added-by-them.ts\n',
           stderr: '',
@@ -5284,7 +5284,7 @@ describe('GitService - Revert Operations', () => {
         });
 
         // Mock status showing no conflicts
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'M modified-file.ts\n',
           stderr: '',
@@ -5387,7 +5387,7 @@ describe('GitService - Revert Operations', () => {
             'error: could not revert def456... second commit\nhint: after resolving the conflicts',
         });
 
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU new-conflict.ts\n',
           stderr: '',
@@ -5408,7 +5408,7 @@ describe('GitService - Revert Operations', () => {
           stderr: 'error: Committing is not possible because you have unmerged files.',
         });
 
-        mockGitCli.setMockResult('status --porcelain', {
+        mockGitCli.setMockResult('status --porcelain -z', {
           exitCode: 0,
           stdout: 'UU unresolved-file.ts\n',
           stderr: '',
@@ -5431,7 +5431,7 @@ describe('GitService - Revert Operations', () => {
         stdout: '',
         stderr: 'CONFLICT',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
         stdout: 'UU file.ts\n',
         stderr: '',
@@ -5472,7 +5472,7 @@ describe('GitService - Revert Operations', () => {
       assert.strictEqual(revertResult.success, false);
 
       // User resolves conflicts (simulated by changing status mock)
-      mockGitCli.mockResults.delete('status --porcelain');
+      mockGitCli.mockResults.delete('status --porcelain -z');
       mockGitCli.mockResultsByPrefix.delete('status --porcelain');
       mockGitCli.setMockResult('revert --continue', {
         exitCode: 0,
@@ -5492,7 +5492,7 @@ describe('GitService - Revert Operations', () => {
         stdout: '',
         stderr: 'error: could not revert commit2',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
         stdout: 'UU conflicted.ts\n',
         stderr: '',

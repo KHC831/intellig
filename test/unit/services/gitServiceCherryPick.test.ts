@@ -303,12 +303,12 @@ describe('GitService.cherryPick — variants', () => {
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in src/foo.ts',
       });
-      // getConflictedFiles reads `status --porcelain`.
-      mockGitCli.setMockResult('status --porcelain', {
+      // getConflictedFiles reads `status --porcelain -z` (NUL-terminated).
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
         // 'UU' = both-modified conflict; 'DU' = deleted-by-us conflict.
         // parseStatus picks up any row where indexStatus or workTreeStatus is 'U'.
-        stdout: 'UU src/foo.ts\nDU src/bar.ts\n',
+        stdout: 'UU src/foo.ts\0DU src/bar.ts\0',
         stderr: '',
       });
       const result = (await gitService.cherryPick(makeRepo(), ['abc1234']))._unsafeUnwrap();
@@ -326,9 +326,9 @@ describe('GitService.cherryPick — variants', () => {
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in src/foo.ts',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
-        stdout: 'UU src/foo.ts\n',
+        stdout: 'UU src/foo.ts\0',
         stderr: '',
       });
       const result = (
@@ -348,9 +348,9 @@ describe('GitService.cherryPick — variants', () => {
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in a.ts',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
-        stdout: 'UU a.ts\n',
+        stdout: 'UU a.ts\0',
         stderr: '',
       });
       const result = (

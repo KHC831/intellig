@@ -168,6 +168,69 @@ describe('Git Parser Utilities', () => {
     });
   });
 
+  describe('parseStatus — NUL-delimited (-z) format', () => {
+    // `git status --porcelain -z` NUL-terminates each entry and emits paths
+    // VERBATIM (no C-quoting), so non-ASCII / space / newline names survive.
+    // For renames/copies the SOURCE path follows the destination as the next
+    // NUL token (the reverse of the human `from -> to` order).
+
+    it('parses a NUL-terminated modified entry', () => {
+      const result = parseStatus(' M src/file.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'src/file.ts');
+      assert.strictEqual(result[0].workTreeStatus, 'M');
+    });
+
+    it('keeps a non-ASCII filename verbatim (no C-quoting/escaping)', () => {
+      const result = parseStatus('UU café.txt\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'café.txt');
+      assert.strictEqual(result[0].indexStatus, 'U');
+      assert.strictEqual(result[0].workTreeStatus, 'U');
+    });
+
+    it('keeps a filename containing spaces', () => {
+      const result = parseStatus(' M my report final.txt\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'my report final.txt');
+    });
+
+    it('keeps a filename containing an embedded newline as ONE entry', () => {
+      // The whole point of -z: a `\n` in a name must not split the entry.
+      const result = parseStatus('A  weird\nname.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'weird\nname.ts');
+      assert.strictEqual(result[0].indexStatus, 'A');
+    });
+
+    it('parses a -z rename: destination first, source as the next NUL token', () => {
+      const result = parseStatus('R  new name.ts\0old name.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'new name.ts');
+      assert.strictEqual(result[0].renamed, 'old name.ts');
+      assert.strictEqual(result[0].indexStatus, 'R');
+    });
+
+    it('parses a -z copy: destination first, original as the next NUL token', () => {
+      const result = parseStatus('C  copy.ts\0original.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'copy.ts');
+      assert.strictEqual(result[0].renamed, 'original.ts');
+      assert.strictEqual(result[0].indexStatus, 'C');
+    });
+
+    it('parses multiple mixed entries including a rename without losing alignment', () => {
+      const output = ' M a.ts\0R  to.ts\0from.ts\0?? café.ts\0';
+      const result = parseStatus(output);
+      assert.strictEqual(result.length, 3);
+      assert.strictEqual(result[0].path, 'a.ts');
+      assert.strictEqual(result[1].path, 'to.ts');
+      assert.strictEqual(result[1].renamed, 'from.ts');
+      assert.strictEqual(result[2].path, 'café.ts');
+      assert.strictEqual(result[2].indexStatus, '?');
+    });
+  });
+
   describe('statusCodeToFileStatus', () => {
     it('should return conflicted for U status', () => {
       assert.strictEqual(statusCodeToFileStatus('U', ' '), 'conflicted');

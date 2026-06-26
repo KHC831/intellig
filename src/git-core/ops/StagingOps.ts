@@ -31,7 +31,7 @@ export class StagingOps {
     // `git status --porcelain` exits 0 on any real repo, so a non-zero exit is
     // a genuine failure (not-a-repo / system) → Err, never a silent empty list.
     return ResultAsync.fromPromise(
-      this.ctx.gitCli.exec(['status', '--porcelain'], { cwd: repo.rootUri.fsPath }),
+      this.ctx.gitCli.exec(['status', '--porcelain', '-z'], { cwd: repo.rootUri.fsPath }),
       classifyGitCommandError
     ).andThen((result) =>
       result.exitCode !== 0

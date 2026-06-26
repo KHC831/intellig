@@ -21,10 +21,74 @@ import {
 /**
  * Parse Git status output (porcelain v1 format) into file status objects.
  *
- * @param output - The output from `git status --porcelain`
+ * Production callers run `git status --porcelain -z`, whose entries are
+ * NUL-terminated and whose paths are emitted VERBATIM — so non-ASCII, space,
+ * quote, backslash, and even embedded-newline filenames survive intact (the
+ * default `core.quotePath=true` newline format C-quotes and double-quotes such
+ * names, handing the conflict-resolution flow a path that points at no file).
+ *
+ * The output is dispatched by shape: any NUL byte means `-z` and is parsed
+ * NUL-aware; otherwise the legacy newline/`->` form is parsed (older inputs and
+ * test fixtures). A name containing a newline can only be produced under `-z`
+ * (which is NUL-delimited), so it never reaches the newline branch.
+ *
+ * @param output - The output from `git status --porcelain` (`-z` or newline)
  * @returns Array of file status objects
  */
 export function parseStatus(output: string): IFileStatus[] {
+  return output.includes('\0') ? parseStatusNul(output) : parseStatusNewline(output);
+}
+
+/**
+ * Parse NUL-delimited `git status --porcelain -z` output. Each ordinary entry
+ * is `XY<space>PATH\0`; a rename/copy entry is `XY<space>DEST\0SOURCE\0`, where
+ * the SOURCE (renamed-from) path follows the destination as the next NUL token
+ * — the reverse of the human-readable `from -> to` order.
+ */
+function parseStatusNul(output: string): IFileStatus[] {
+  const files: IFileStatus[] = [];
+  const tokens = output.split('\0');
+
+  let i = 0;
+  while (i < tokens.length) {
+    const entry = tokens[i];
+    // The trailing token after the final NUL (and any stray short token) is not
+    // a status record.
+    if (entry.length < 3) {
+      i += 1;
+      continue;
+    }
+
+    const indexStatus = entry[0] as StatusCode;
+    const workTreeStatus = entry[1] as StatusCode;
+    const path = entry.substring(3);
+
+    let renamed: string | undefined;
+    if (
+      indexStatus === 'R' ||
+      indexStatus === 'C' ||
+      workTreeStatus === 'R' ||
+      workTreeStatus === 'C'
+    ) {
+      // The renamed-from / copied-from path is the next NUL token.
+      renamed = tokens[i + 1];
+      i += 2;
+    } else {
+      i += 1;
+    }
+
+    files.push({ path, indexStatus, workTreeStatus, renamed });
+  }
+
+  return files;
+}
+
+/**
+ * Parse legacy newline-delimited `git status --porcelain` output, where a
+ * rename/copy entry is `XY old -> new`. Kept for inputs/fixtures that don't use
+ * `-z`; unsafe for paths with special characters (see {@link parseStatus}).
+ */
+function parseStatusNewline(output: string): IFileStatus[] {
   const files: IFileStatus[] = [];
   const lines = output.split('\n').filter((line) => line.length > 0);
 

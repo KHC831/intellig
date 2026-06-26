@@ -134,6 +134,31 @@ describe('GitService.rebaseBranch — failure-reason surfacing', () => {
     assert.strictEqual(result.failureReason, undefined);
   });
 
+  it('reads conflicts with status --porcelain -z and reports a non-ASCII conflicted path verbatim', async () => {
+    // End-to-end through the conflict-detection call site: the status probe must
+    // use -z so a unicode filename comes back verbatim (the default newline
+    // format C-quotes it to `"caf\303\251.ts"`, pointing the resolve flow at no
+    // file). NUL-terminated stdout mirrors real `-z` output.
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    cli.scripted.push({ exitCode: 0, stdout: 'UU café.ts\0', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.deepStrictEqual(result.conflicts, ['café.ts'], 'unicode path returned verbatim');
+    const statusCall = cli.executed.find((c) => c.args[0] === 'status');
+    assert.ok(statusCall, 'a status probe should run');
+    assert.ok(
+      statusCall.args.includes('-z'),
+      `conflict-detection status must pass -z; got: ${statusCall.args.join(' ')}`
+    );
+  });
+
   it('reports a delete/delete (DD) exit-0 autostash pop conflict as non-continuable', async () => {
     // Symmetric to the add/add case: a both-deleted unmerged entry (`DD`)
     // must also be treated as a non-continuable conflict on the zero-exit path.

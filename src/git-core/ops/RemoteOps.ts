@@ -328,7 +328,7 @@ export class RemoteOps {
     // (mirrors rebaseBranch's post-status check). Routed as a CONFLICT error so
     // PullDialog hands it to the Resolve Conflicts flow.
     if (options?.autostash) {
-      const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+      const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
         cwd: repo.rootUri.fsPath,
       });
       const conflicts = parseStatus(statusResult.stdout)
