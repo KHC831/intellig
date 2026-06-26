@@ -22,6 +22,7 @@
 
 import * as vscode from 'vscode';
 import type { IRepository } from '../git-core/interfaces/IGitService';
+import { canonicalizeFsPath } from './repoRelativePath';
 
 /** Configuration key under `intellig.*` for the default-repo preference. */
 export const DEFAULT_REPO_CONFIG_KEY = 'defaultRepo';
@@ -230,14 +231,21 @@ export function findRepoContainingPath(
   repositories: readonly IRepository[],
   path: string
 ): IRepository | undefined {
-  const target = normalizePath(path);
+  // Canonicalize (realpath) both sides before the ancestor compare so a
+  // symlinked path (macOS `/var` → `/private/var`, or a symlinked checkout)
+  // still matches a realpath'd repo root — the same hardening
+  // `GitService.findOwningRepository` already applies. `canonicalizeFsPath`
+  // resolves existing symlink components and degrades to a normalized absolute
+  // path for non-existent leaves, so a not-yet-created hint path still compares
+  // consistently.
+  const target = normalizePath(canonicalizeFsPath(path));
   if (!target) {
     return undefined;
   }
   let best: IRepository | undefined;
   let bestLen = -1;
   for (const repo of repositories) {
-    const root = normalizePath(repo.rootUri.fsPath);
+    const root = normalizePath(canonicalizeFsPath(repo.rootUri.fsPath));
     if (!root) {
       continue;
     }
