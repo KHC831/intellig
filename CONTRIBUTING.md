@@ -907,7 +907,7 @@ src/
 │   ├── gitToolWindow/ #   the git tool window UI (tightly bound to IGitService),
 │   │   ├── html/      #   plus git-domain utils that used to live in utils/:
 │   │   └── tabs/      #   gitCli, gitParser, gitError, commitGraph,
-│   └── interfaces/    #   commitSort, optimizedCommitGraph, repoScan
+│   └── interfaces/    #   commitSort, repoScan
 ├── branches/          # Branch list / popup / context menu / comparison view
 │   └── interfaces/
 ├── blame/             # Annotate-with-git-blame services + inline/gutter providers
