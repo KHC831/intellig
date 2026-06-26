@@ -557,6 +557,56 @@ Binary files a/image.png and b/image.png differ
       assert.strictEqual(result[0].binary, true);
     });
 
+    it('C-unquotes a git-quoted (non-ASCII) header path', () => {
+      // git C-quotes a special-byte path in the `diff --git` header, wrapping the
+      // `a/`|`b/` prefix inside the quotes with octal byte escapes
+      // (é → \303\251, its UTF-8 bytes). The old `^--git a/...` regex didn't
+      // match the quoted form and dropped the file from the changed-files list.
+      const output =
+        'diff --git "a/caf\\303\\251.txt" "b/caf\\303\\251.txt"\n' +
+        'index 1111111..2222222 100644\n' +
+        '--- "a/caf\\303\\251.txt"\n' +
+        '+++ "b/caf\\303\\251.txt"\n' +
+        '@@ -1 +1 @@\n' +
+        '-old\n' +
+        '+new\n';
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'café.txt');
+      assert.strictEqual(result[0].status, 'modified');
+    });
+
+    it('C-unquotes both sides of a quoted rename header', () => {
+      const output =
+        'diff --git "a/caf\\303\\251-old.txt" "b/caf\\303\\251-new.txt"\n' +
+        'rename from "caf\\303\\251-old.txt"\n' +
+        'rename to "caf\\303\\251-new.txt"\n' +
+        '--- "a/caf\\303\\251-old.txt"\n' +
+        '+++ "b/caf\\303\\251-new.txt"\n';
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'café-new.txt');
+      assert.strictEqual(result[0].oldPath, 'café-old.txt');
+      assert.strictEqual(result[0].status, 'renamed');
+    });
+
+    it('still parses an unquoted (ASCII) header unchanged', () => {
+      // Zero-regression guard for the bare path the quoting change must not break.
+      const output =
+        'diff --git a/src/plain.ts b/src/plain.ts\n' +
+        '--- a/src/plain.ts\n' +
+        '+++ b/src/plain.ts\n' +
+        '@@ -1 +1 @@\n' +
+        '-a\n' +
+        '+b\n';
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'src/plain.ts');
+    });
+
     it('should parse multiple file diffs', () => {
       const output = `diff --git a/file1.ts b/file1.ts
 --- a/file1.ts

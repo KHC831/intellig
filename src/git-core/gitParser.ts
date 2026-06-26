@@ -672,6 +672,137 @@ export function parseRepositoryState(statusOutput: string): RepositoryState {
 }
 
 /**
+ * Decode a git C-style-quoted path token back to its real UTF-8 string.
+ *
+ * The inverse of `StagingOps.escapePatchPath` / git's `quote_c_style`: a token
+ * wrapped in double quotes is unescaped byte-wise (`\a \b \t \n \v \f \r \" \\`
+ * and octal `\NNN`), then the assembled bytes are decoded as UTF-8 (git escapes
+ * every non-ASCII byte as octal, so `é` arrives as `\303\251`). A token without
+ * surrounding quotes is returned unchanged.
+ */
+function unquoteCStylePath(token: string): string {
+  if (token.length < 2 || token[0] !== '"' || token[token.length - 1] !== '"') {
+    return token;
+  }
+  const body = token.slice(1, -1);
+  const bytes: number[] = [];
+  const simple: Record<string, number> = {
+    a: 0x07,
+    b: 0x08,
+    t: 0x09,
+    n: 0x0a,
+    v: 0x0b,
+    f: 0x0c,
+    r: 0x0d,
+    '"': 0x22,
+    '\\': 0x5c,
+  };
+
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== '\\') {
+      // git escapes every non-ASCII byte, so a literal char here is ASCII.
+      bytes.push(body.charCodeAt(i) & 0xff);
+      continue;
+    }
+    const next = body[i + 1];
+    if (next === undefined) {
+      break;
+    }
+    if (next >= '0' && next <= '7') {
+      // Octal byte escape \NNN (1–3 digits).
+      let oct = '';
+      let k = i + 1;
+      while (k < body.length && oct.length < 3 && body[k] >= '0' && body[k] <= '7') {
+        oct += body[k];
+        k += 1;
+      }
+      bytes.push(parseInt(oct, 8) & 0xff);
+      i = k - 1;
+      continue;
+    }
+    bytes.push(next in simple ? simple[next] : next.charCodeAt(0) & 0xff);
+    i += 1;
+  }
+
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/**
+ * Read one path token from a `diff --git` header at `start`: a C-quoted
+ * `"…"` token (honoring `\"` escapes) which is unquoted, or a bare token. A
+ * bare token that is NOT the final token ends at the next ` b/` / ` "b/`
+ * boundary (mirroring the legacy greedy match for the all-bare case); the final
+ * token runs to the end.
+ */
+function readDiffPathToken(
+  rest: string,
+  start: number,
+  isFinal: boolean
+): { value: string; next: number } | undefined {
+  if (rest[start] === '"') {
+    let j = start + 1;
+    while (j < rest.length && rest[j] !== '"') {
+      j += rest[j] === '\\' ? 2 : 1;
+    }
+    if (j >= rest.length || rest[j] !== '"') {
+      return undefined;
+    }
+    return { value: unquoteCStylePath(rest.slice(start, j + 1)), next: j + 1 };
+  }
+  if (isFinal) {
+    return { value: rest.slice(start), next: rest.length };
+  }
+  const bareB = rest.indexOf(' b/', start);
+  const quotedB = rest.indexOf(' "b/', start);
+  let end = -1;
+  if (bareB >= 0 && quotedB >= 0) {
+    end = Math.min(bareB, quotedB);
+  } else {
+    end = Math.max(bareB, quotedB);
+  }
+  if (end < 0) {
+    return undefined;
+  }
+  return { value: rest.slice(start, end), next: end };
+}
+
+/**
+ * Extract the `oldPath`/`newPath` from a `diff --git <a> <b>` header, handling
+ * bare AND C-quoted path tokens (each side independently). Returns the paths
+ * with their `a/`|`b/` prefix stripped, or `undefined` when the header doesn't
+ * parse.
+ */
+function parseDiffGitHeaderPaths(header: string): { oldPath: string; newPath: string } | undefined {
+  // All-bare fast path — unchanged from the original greedy match, so plain
+  // ASCII paths (incl. spaces) keep their exact prior behavior.
+  const bare = /^--git a\/(.+)\s+b\/(.+)$/.exec(header);
+  if (bare) {
+    return { oldPath: bare[1], newPath: bare[2] };
+  }
+
+  // At least one side is C-quoted — tokenize the two paths independently.
+  const rest = header.slice('--git '.length);
+  const first = readDiffPathToken(rest, 0, false);
+  if (!first || rest[first.next] !== ' ') {
+    return undefined;
+  }
+  const second = readDiffPathToken(rest, first.next + 1, true);
+  if (!second) {
+    return undefined;
+  }
+
+  const stripPrefix = (token: string, prefix: 'a/' | 'b/'): string | undefined =>
+    token.startsWith(prefix) ? token.slice(prefix.length) : undefined;
+
+  const oldPath = stripPrefix(first.value, 'a/');
+  const newPath = stripPrefix(second.value, 'b/');
+  if (oldPath === undefined || newPath === undefined) {
+    return undefined;
+  }
+  return { oldPath, newPath };
+}
+
+/**
  * Parse unified diff output into diff objects.
  *
  * Handles BOTH standard two-parent-free diffs and the combined-diff format
@@ -726,13 +857,16 @@ export function parseDiff(output: string): IDiff[] {
       continue;
     }
 
-    // Parse file paths from the header: a/path b/path
-    const pathMatch = header.match(/^--git a\/(.+)\s+b\/(.+)$/);
-    if (!pathMatch) {
+    // Parse the file paths from the header. git C-quotes (double-quotes +
+    // octal byte escapes) a path with non-ASCII / control / quote / backslash
+    // bytes, so the bare `a/… b/…` form covers only plain paths; quoted forms
+    // must be unquoted, or the file is mis-read or dropped from the diff.
+    const headerPaths = parseDiffGitHeaderPaths(header);
+    if (!headerPaths) {
       continue;
     }
 
-    const [, oldPath, newPath] = pathMatch;
+    const { oldPath, newPath } = headerPaths;
     const path = newPath;
 
     // Determine file status
