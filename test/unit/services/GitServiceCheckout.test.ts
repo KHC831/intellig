@@ -301,6 +301,23 @@ describe('GitService - Command Argument Correctness', () => {
       assert.match(result.error.message, /Invalid start point/);
       assert.strictEqual(mockGitCli.getAllCommands().length, 0, 'no git command should run');
     });
+
+    it('createBranch refuses a branch name beginning with "-" (argv-injection guard)', async () => {
+      const result = await gitService.checkout(mockRepo, '--upload-pack=x', { createBranch: true });
+      assert.ok(result.isErr());
+      assert.match(result.error.message, /Invalid branch name/);
+      assert.strictEqual(mockGitCli.getAllCommands().length, 0, 'no git command should run');
+    });
+
+    it('createBranch refuses a startpoint beginning with "-"/"." ', async () => {
+      const result = await gitService.checkout(mockRepo, 'feature', {
+        createBranch: true,
+        track: '.evil',
+      });
+      assert.ok(result.isErr());
+      assert.match(result.error.message, /Invalid start point/);
+      assert.strictEqual(mockGitCli.getAllCommands().length, 0, 'no git command should run');
+    });
   });
 
   // ============================================

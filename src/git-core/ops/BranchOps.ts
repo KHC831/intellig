@@ -255,6 +255,16 @@ export class BranchOps {
     }
 
     if (options?.createBranch) {
+      // `checkout()` is its own public entry, so a `{createBranch:true}` caller
+      // can bypass `validateBranchName`. Guard the new branch name and the
+      // startpoint the same way the forceCreate path does (leading `-` parses as
+      // a flag; leading `.` is invalid per git-check-ref-format).
+      if (ref.startsWith('-') || ref.startsWith('.')) {
+        throw new InvalidArgumentError(`Invalid branch name: ${ref}`);
+      }
+      if (options.track && (options.track.startsWith('-') || options.track.startsWith('.'))) {
+        throw new InvalidArgumentError(`Invalid start point: ${options.track}`);
+      }
       const args = ['checkout', '-b', ref];
       if (options?.force) {
         args.push('-f');
