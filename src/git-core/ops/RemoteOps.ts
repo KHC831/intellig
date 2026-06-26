@@ -211,30 +211,34 @@ export class RemoteOps {
   /**
    * Parse `git fetch --porcelain` output.
    *
-   * Each porcelain line has the shape `<flag> <old-sha> <new-sha> <ref>`
-   * (whitespace-separated). We skip lines that do not conform and surface
-   * stderr diagnostics as non-fatal errors.
+   * Each porcelain line has the shape `<flag> <old-sha> <new-sha> <ref>` where
+   * `<flag>` is a SINGLE character — and for an ordinary fast-forward it is a
+   * literal SPACE. The flag column must be preserved (not trimmed away), or a
+   * fast-forward — the most common fetch outcome — would lose a column and be
+   * dropped. We match fixed columns anchored on the one-char flag; lines that
+   * do not conform are skipped, and stderr diagnostics surface as non-fatal
+   * errors.
    */
   private _parseFetchPorcelain(stdout: string, stderr: string): IFetchResult {
     const updatedRefs: IFetchRefUpdate[] = [];
     const errors: string[] = [];
 
+    // <flag><sep><old-oid><sep><new-oid><sep><ref>; oid is 40-hex (SHA-1) or
+    // 64-hex (SHA-256). `^(.)` captures the flag (which may be a space), so the
+    // following `\s+` consumes only the field separator.
+    const hex = '[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?';
+    const lineRe = new RegExp(`^(.)\\s+(${hex})\\s+(${hex})\\s+(.+)$`);
+
     for (const rawLine of stdout.split('\n')) {
-      const line = rawLine.trim();
-      if (!line) {
+      // Strip a trailing CR (CRLF endings) only — never the leading flag column.
+      const line = rawLine.replace(/\r$/, '');
+      const m = lineRe.exec(line);
+      if (!m) {
         continue;
       }
-      const parts = line.split(/\s+/);
-      if (parts.length < 4) {
-        continue;
-      }
-      const oldSha = parts[1];
-      const newSha = parts[2];
-      const ref = parts.slice(3).join(' ');
-      // 40-hex (SHA-1) or 64-hex (SHA-256) object id.
-      if (!/^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$/.test(newSha)) {
-        continue;
-      }
+      const oldSha = m[2];
+      const newSha = m[3];
+      const ref = m[4].trim();
       if (oldSha === newSha) {
         continue;
       }
