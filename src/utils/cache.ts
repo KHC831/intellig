@@ -343,7 +343,10 @@ export class GitCacheManager {
    * @param repoPath - The repository path to invalidate
    */
   invalidateRepository(repoPath: string): void {
-    const predicate = (key: string): boolean => key.startsWith(repoPath);
+    // Match on the `:` delimiter (cache keys are `repoPath:…` via createCacheKey)
+    // so `/a/repo` doesn't also invalidate a sibling `/a/repo2`'s entries.
+    const prefix = `${repoPath}:`;
+    const predicate = (key: string): boolean => key === repoPath || key.startsWith(prefix);
 
     this._branchCache.invalidateWhere(predicate);
     this._commitCache.invalidateWhere(predicate);
