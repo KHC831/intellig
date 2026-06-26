@@ -606,21 +606,13 @@ export class GitService implements IGitService, IGitServiceCli {
     for (const root of repoRoots) {
       if (!this._repositories.has(root)) {
         // Enroll into `_reloading` so drain paths see this in-flight load.
-        const repo = await this._enrollReload(root, this.loadRepository(root));
-        this.setupRepositoryWatcher(root);
-        this._logger.info('repository discovered', { rootPath: root });
-        // Fire `onDidChangeRepository` so the 6
+        // `loadRepository` installs the watcher + fires `onDidChangeRepository`
+        // on first insertion (see its first-insertion funnel) — so the 6
         // event-driven subscribers (BranchTreeProvider, StatusBarService,
         // BranchPopup, ChangelistService, ConflictResolutionService,
-        // GitToolWindowProvider) see the freshly-discovered repo. Without
-        // this fire, an empty `git init` repo (no internal `.git/` writes
-        // to trigger the debounced refresh path) leaves every subscriber
-        // stale until the user manually performs a state-changing git
-        // operation. The dispose latch matches `_performDebouncedRefresh`'s
-        // post-await pattern at line ~653.
-        if (!this._disposed) {
-          this._onDidChangeRepository.fire(repo);
-        }
+        // GitToolWindowProvider) see the freshly-discovered repo even for an
+        // empty `git init` with no internal `.git/` writes to trigger a refresh.
+        await this._enrollReload(root, this.loadRepository(root));
       }
     }
 
@@ -895,11 +887,31 @@ export class GitService implements IGitService, IGitServiceCli {
       ...(inProgress ? { inProgress } : {}),
     };
 
+    // First-insertion funnel: a root reached for the FIRST time — by EITHER the
+    // workspace scan (`discoverRepository`) or a lazy `getRepository(fileUri)` —
+    // must become a first-class repo: install its `.git/` watcher so it
+    // live-refreshes, and fire `onDidChangeRepository` so the SCM provider,
+    // branch tree, status bar, etc. learn it exists. Routing this here keeps the
+    // two discovery paths from diverging (a lazy repo used to be cached but
+    // silently unwatched + unannounced).
+    //
+    // `_fileWatchers.has` is the insertion signal that survives
+    // `invalidateCache`: a reload (`reloadRepository` / `_performDebouncedRefresh`)
+    // deletes the cache entry but keeps the watcher, so a reload is NOT a first
+    // insertion and those paths still own their single post-reload fire.
+    const isFirstInsertion = !this._fileWatchers.has(rootPath);
+
     // Cache the repository
     this._repositories.set(rootPath, {
       repository,
       lastUpdated: Date.now(),
     });
+
+    if (isFirstInsertion && !this._disposed) {
+      this.setupRepositoryWatcher(rootPath);
+      this._logger.info('repository discovered', { rootPath });
+      this._onDidChangeRepository.fire(repository);
+    }
 
     return repository;
   }

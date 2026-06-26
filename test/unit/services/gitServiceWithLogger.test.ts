@@ -448,20 +448,11 @@ describe('GitService — Logger waypoint integration', () => {
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
         surface._gitCli = stubCli;
-        // Stub `loadRepository` so discovery does not invoke real
-        // git subprocesses; record the calls + return a fake repo.
-        const loadedRoots: string[] = [];
-        surface.loadRepository = async (root: string): Promise<IRepository> => {
-          loadedRoots.push(root);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-          (service as any)._repositories.set(root, {
-            repository: makeFakeRepo(root),
-            lastUpdated: Date.now(),
-          });
-          return makeFakeRepo(root);
-        };
-        // Stub setupRepositoryWatcher so we don't install a real
-        // `FileSystemWatcher` against `/work/a/.git`.
+        // Exercise the REAL `loadRepository` (its StubGitCli `exec` returns
+        // benign empty output, so no real git subprocess runs) — the discovery
+        // waypoint now lives in its first-insertion funnel. Stub only
+        // `setupRepositoryWatcher` so no real `FileSystemWatcher` is installed
+        // against `/work/a/.git`.
         surface.setupRepositoryWatcher = (_root: string): void => {
           /* no-op */
         };
@@ -501,14 +492,9 @@ describe('GitService — Logger waypoint integration', () => {
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
         surface._gitCli = stubCli;
-        surface.loadRepository = async (root: string): Promise<IRepository> => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-          (service as any)._repositories.set(root, {
-            repository: makeFakeRepo(root),
-            lastUpdated: Date.now(),
-          });
-          return makeFakeRepo(root);
-        };
+        // Exercise the REAL `loadRepository` funnel (StubGitCli `exec` returns
+        // benign empty output) so the per-repo discovery waypoint fires from its
+        // true home. Stub only `setupRepositoryWatcher` to avoid real watchers.
         surface.setupRepositoryWatcher = (_root: string): void => {
           /* no-op */
         };
