@@ -13,6 +13,7 @@ import { parseDiff, parseBlame } from '../gitParser';
 import { sortCommitsStable } from '../commitSort';
 import { diffIgnorePolicyFlags, normalizeDiffIgnorePolicy } from '../diffIgnorePolicy';
 import { IGitOpsContext } from './GitOpsContext';
+import { getOutputChannel } from '../../utils/outputChannel';
 
 /**
  * Diff / blame / changed-files / merge-base / cherry-mark operations
@@ -68,7 +69,16 @@ export class DiffOps {
           throwOnError: false,
         }
       );
-      if (result.exitCode !== 0 || !result.stdout) {
+      if (result.exitCode !== 0) {
+        // Non-zero exit is a genuine fault here (a missing baseRef would have
+        // short-circuited above), not an expected domain outcome — log so a real
+        // failure isn't indistinguishable from "no cherry marks".
+        getOutputChannel().appendLine(
+          `[git] getCherryMarks exited ${result.exitCode} (degrading to no highlights): ${result.stderr.trim() || '<no stderr>'}`
+        );
+        return out;
+      }
+      if (!result.stdout) {
         return out;
       }
       const lines = result.stdout.split(/\r?\n/);
@@ -88,10 +98,14 @@ export class DiffOps {
           out.set(hash, mark);
         }
       }
-      // eslint-disable-next-line no-restricted-syntax -- cherry marks are a non-essential visual cue; the UI degrades to "no highlights" rather than surfacing an error toast.
-    } catch {
-      // Swallow — the UI degrades to "no highlights" rather than surfacing
-      // an error toast for a non-essential visual cue.
+      // eslint-disable-next-line no-restricted-syntax -- cherry marks are a non-essential visual cue; the UI degrades to "no highlights" rather than surfacing an error toast, but the fault is logged below.
+    } catch (error) {
+      // Degrade to "no highlights" rather than surfacing an error toast for a
+      // non-essential visual cue — but log so a real spawn/system fault leaves a
+      // trail instead of silently becoming an empty cherry-map.
+      getOutputChannel().appendLine(
+        `[git] getCherryMarks failed (degrading to no highlights): ${error instanceof Error ? error.message : String(error)}`
+      );
     }
     return out;
   }

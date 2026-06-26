@@ -28,10 +28,18 @@ import type {
 } from '../../../../src/git-core/interfaces/IGitService';
 import { GitService } from '../../../../src/git-core/GitService';
 import { Uri } from '../../../mocks/vscode';
+import { getOutputChannel, __resetOutputChannelForTest } from '../../../../src/utils/outputChannel';
+
+function cherryLoggedLines(): string[] {
+  return (getOutputChannel() as unknown as { _lines: string[] })._lines;
+}
 
 // ─── GitService.getCherryMarks ───────────────────────────────────────────────
 
 describe('GitService.getCherryMarks', () => {
+  beforeEach(() => __resetOutputChannelForTest());
+  afterEach(() => __resetOutputChannelForTest());
+
   function mkRepo(): IRepository {
     return {
       rootUri: Uri.file('/repo'),
@@ -103,16 +111,25 @@ describe('GitService.getCherryMarks', () => {
     assert.strictEqual(marks.size, 5);
   });
 
-  it('returns an empty map when git exits with a non-zero code', async () => {
+  it('returns an empty map AND logs when git exits with a non-zero code', async () => {
     const cli: GitCliLike = {
-      exec: async () => ({ exitCode: 128, stderr: 'fatal', stdout: '', combined: '' }),
+      exec: async () => ({
+        exitCode: 128,
+        stderr: 'fatal: bad revision',
+        stdout: '',
+        combined: '',
+      }),
     };
     const svc = mkGitServiceWith(cli);
     const marks = await svc.getCherryMarks(mkRepo(), 'origin/main');
     assert.strictEqual(marks.size, 0);
+    assert.ok(
+      cherryLoggedLines().some((l) => l.includes('getCherryMarks') && l.includes('bad revision')),
+      `non-zero exit must leave a trail; got ${JSON.stringify(cherryLoggedLines())}`
+    );
   });
 
-  it('returns an empty map when the cli throws', async () => {
+  it('returns an empty map AND logs when the cli throws (spawn fault)', async () => {
     const cli: GitCliLike = {
       exec: async () => {
         throw new Error('boom');
@@ -121,6 +138,10 @@ describe('GitService.getCherryMarks', () => {
     const svc = mkGitServiceWith(cli);
     const marks = await svc.getCherryMarks(mkRepo(), 'origin/main');
     assert.strictEqual(marks.size, 0);
+    assert.ok(
+      cherryLoggedLines().some((l) => l.includes('getCherryMarks') && l.includes('boom')),
+      `a spawn fault must not be silently an empty cherry-map; got ${JSON.stringify(cherryLoggedLines())}`
+    );
   });
 
   it('returns an empty map when baseRef is empty', async () => {
