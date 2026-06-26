@@ -2097,8 +2097,8 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     // foreground text; the conventional green rides on the tag ICON, so the
     // name is readable on any theme.
     assert.ok(
-      /\.tag-label\s*\{[^}]*background-color:\s*var\(--vscode-badge-background/.test(fullHtml),
-      `.tag-label must use a neutral badge background`
+      /\.tag-label\s*\{[^}]*background-color:\s*transparent/.test(fullHtml),
+      `.tag-label must have a transparent (no-fill) background`
     );
     assert.ok(
       /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-foreground/.test(fullHtml),

@@ -1062,11 +1062,12 @@ export function buildInlineStyles(): string {
         text-decoration: underline;
       }
 
-      /* Tag chip — Option C (IntelliJ): a neutral badge with foreground text;
-         the green rides on the tag ICON (below), not the fill. Always readable
-         regardless of theme. snap-13f pins it. */
+      /* Tag chip — Option C (IntelliJ): a transparent (no-fill) chip; the green
+         rides on the tag ICON (below) and the name is foreground text, so the
+         tag reads as just a colored icon + name with no badge box. snap-13f
+         pins it. */
       .tag-label {
-        background-color: var(--vscode-badge-background, #3a3a3a);
+        background-color: transparent;
         color: var(--vscode-foreground, #ccc);
       }
 
