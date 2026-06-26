@@ -2689,6 +2689,16 @@ export class GitToolWindowProvider
       return;
     }
 
+    // A non-integer (e.g. `NaN` from `Number('x')` in a garbled webview message)
+    // passes both `< 0` and `>= len` as false, so the clamp below wouldn't fire
+    // and `NaN` would brick the scope state. Reject it outright.
+    if (!Number.isInteger(selection)) {
+      getLogger()
+        .child({ component: 'GitToolWindowProvider' })
+        .warn('ignoring non-integer repository index', { index: selection });
+      return;
+    }
+
     // Clamp to valid range
     let clampedIndex = selection;
     if (selection < 0 || selection >= this._availableRepositories.length) {

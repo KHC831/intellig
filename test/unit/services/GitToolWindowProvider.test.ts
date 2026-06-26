@@ -445,6 +445,33 @@ describe('Log View', () => {
     });
   });
 
+  describe('_handleRepositorySelection — non-integer (NaN) guard', () => {
+    it('ignores a NaN repository index instead of bricking the scope to NaN', () => {
+      const repo = { rootUri: Uri.file('/r') } as unknown as IRepository;
+      type Surface = {
+        _availableRepositories: IRepository[];
+        _repositoryScope: number | 'all';
+        _selectedRepositoryIndex: number;
+        _handleRepositorySelection: (s: number | 'all') => void;
+      };
+      const surface = provider as unknown as Surface;
+      surface._availableRepositories = [repo];
+      const scopeBefore = surface._repositoryScope;
+
+      surface._handleRepositorySelection(Number('not-a-number'));
+
+      assert.ok(
+        !Number.isNaN(surface._selectedRepositoryIndex),
+        'a NaN index must not become _selectedRepositoryIndex'
+      );
+      assert.strictEqual(
+        surface._repositoryScope,
+        scopeBefore,
+        'scope must be unchanged by a NaN index'
+      );
+    });
+  });
+
   describe('_handleCommitFileDoubleClick — stale-hash guard (M-T2)', () => {
     type DblClickSurface = {
       _extendedLogState: { commitNodes: { commit: { hash: string; parents: string[] } }[] };
