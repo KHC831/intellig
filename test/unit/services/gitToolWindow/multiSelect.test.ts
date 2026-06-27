@@ -21,6 +21,7 @@ import {
   computeMenuState,
   computeRangeSelection,
   isSelectionContiguous,
+  isContiguousFirstParentChain,
   type MultiSelectMenuAction,
   type IMenuStateInputs,
 } from '../../../../src/git-core/gitToolWindow/multiSelect';
@@ -641,6 +642,83 @@ describe('multiSelect — pure helpers', () => {
       // what's in commitNodes (contiguity & merge-detection both work on
       // commitNodes only).
       assert.strictEqual(state.compareVersions.enabled, false);
+    });
+  });
+
+  // ─── squash first-parent-chain gate (cross-branch rejection) ───────────────
+  describe('isContiguousFirstParentChain', () => {
+    // Newest-first display order: a linear branch a3→a2→a1.
+    const linear = [
+      { hash: 'a3', parentCount: 1, parents: ['a2'] },
+      { hash: 'a2', parentCount: 1, parents: ['a1'] },
+      { hash: 'a1', parentCount: 1, parents: ['a0'] },
+    ];
+
+    it('true for a real first-parent chain (one branch)', () => {
+      assert.strictEqual(isContiguousFirstParentChain(new Set(['a3', 'a2']), linear), true);
+      assert.strictEqual(isContiguousFirstParentChain(new Set(['a3', 'a2', 'a1']), linear), true);
+    });
+
+    it('false when display-adjacent commits are NOT first-parent linked (interleaved branches)', () => {
+      // Display order interleaves two branches: a-commit, b-commit, a-commit.
+      // Selecting the two display-adjacent a2 + b1 spans branches — b1 is not
+      // a2's first parent, nor a2 b1's.
+      const interleaved = [
+        { hash: 'a2', parentCount: 1, parents: ['a1'] },
+        { hash: 'b1', parentCount: 1, parents: ['a1'] },
+        { hash: 'a1', parentCount: 1, parents: ['a0'] },
+      ];
+      assert.strictEqual(isContiguousFirstParentChain(new Set(['a2', 'b1']), interleaved), false);
+    });
+
+    it('order-agnostic: holds for oldest-first arrays too', () => {
+      const oldestFirst = [
+        { hash: 'a1', parentCount: 1, parents: ['a0'] },
+        { hash: 'a2', parentCount: 1, parents: ['a1'] },
+        { hash: 'a3', parentCount: 1, parents: ['a2'] },
+      ];
+      assert.strictEqual(isContiguousFirstParentChain(new Set(['a2', 'a3']), oldestFirst), true);
+    });
+
+    it('lenient when parent info is absent (cannot verify)', () => {
+      const noParents = [
+        { hash: 'a2', parentCount: 1 },
+        { hash: 'a1', parentCount: 1 },
+      ];
+      assert.strictEqual(isContiguousFirstParentChain(new Set(['a2', 'a1']), noParents), true);
+    });
+
+    it('squashCommits is DISABLED for a cross-branch (display-contiguous) selection', () => {
+      // A shift-range over interleaved branches: display-contiguous but spanning
+      // two branches. feat1 and trunk5 are siblings — neither is the other's
+      // first parent — so squash must be disabled with a single-branch reason.
+      const interleaved = [
+        { hash: 'feat1', parentCount: 1, parents: ['feat0'] },
+        { hash: 'trunk5', parentCount: 1, parents: ['trunk4'] },
+      ];
+      const state = computeMenuState({
+        selectedHashes: new Set(['feat1', 'trunk5']),
+        commitNodes: interleaved,
+        headHash: 'feat1',
+      });
+      assert.strictEqual(
+        state.squashCommits.enabled,
+        false,
+        'cross-branch squash must be disabled'
+      );
+      assert.ok(
+        /single branch|first-parent/i.test(state.squashCommits.reason ?? ''),
+        `expected a single-branch reason, got: ${state.squashCommits.reason}`
+      );
+    });
+
+    it('squashCommits is ENABLED for a genuine same-branch chain', () => {
+      const state = computeMenuState({
+        selectedHashes: new Set(['a3', 'a2']),
+        commitNodes: linear,
+        headHash: 'a3',
+      });
+      assert.strictEqual(state.squashCommits.enabled, true, 'same-branch squash must be enabled');
     });
   });
 });

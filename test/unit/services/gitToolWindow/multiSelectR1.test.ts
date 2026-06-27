@@ -241,9 +241,11 @@ describe('provider integration', () => {
 
       const expected = computeMenuState({
         selectedHashes: new Set(['bbb', 'ccc']),
-        commitNodes: provider
-          .getExtendedLogState()
-          .commitNodes.map((n) => ({ hash: n.commit.hash, parentCount: n.commit.parents.length })),
+        commitNodes: provider.getExtendedLogState().commitNodes.map((n) => ({
+          hash: n.commit.hash,
+          parentCount: n.commit.parents.length,
+          parents: n.commit.parents,
+        })),
         // HEAD is the newest, which is 'ddd' here.
         headHash: 'ddd',
       });
