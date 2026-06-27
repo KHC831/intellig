@@ -59,6 +59,26 @@ const GUTTER_PAD_CH = 2;
 const GUTTER_PAD = NBSP.repeat(GUTTER_PAD_CH);
 
 /**
+ * Fixed per-aspect column widths (characters). Each visible aspect renders at a
+ * constant width — short values NBSP-padded, overflow truncated with an ellipsis
+ * — so the whole annotation column is a CONSTANT size within a file AND from file
+ * to file. (Growing the column to fit each file's widest author made the gutter
+ * jump width when switching files.) The short hash is always 7 and the relative
+ * date never exceeds 11 ("59 mins ago"), so only the author column truncates.
+ */
+const AUTHOR_COL_CH = 14;
+const DATE_COL_CH = 11;
+const REVISION_COL_CH = 7;
+
+/** Fit `s` to exactly `width` chars: pad short with NBSP, truncate long with `…`. */
+function fitColumn(s: string, width: number): string {
+  if (s.length <= width) {
+    return s.padEnd(width, NBSP);
+  }
+  return s.slice(0, width - 1) + '…';
+}
+
+/**
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with an IntelliJ-style interpolated background gradient and click actions.
@@ -79,7 +99,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * IntelliJ's gutter (and the lkqm/gitblame-annotations layout):
    *   - `_textDecorationType` (created first → renders leftmost): the muted
    *     author/date/revision text. Per-line `contentText`, NBSP-padded to a
-   *     file-wide character width so every row's text column aligns.
+   *     fixed character width so every row's text column aligns.
    *   - `_heatDecorationType` (created second → renders to the right of the
    *     text): a thin colored strip carrying the age/author heat color, with a
    *     right margin that separates the whole annotation from the code. The
@@ -97,8 +117,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * column width. Kept so an edit can be reflected SYNCHRONOUSLY — the entries
    * are shifted for inserted/removed lines and re-applied immediately, so a new
    * line gets its blank cell at once instead of the caret sitting at column 0
-   * until the debounced re-blame returns (the cursor-jump bug). The `width` is
-   * grow-only per file so the column does not jitter as content changes.
+   * until the debounced re-blame returns (the cursor-jump bug). The `width` is the
+   * fixed column width, so blank cells pad to the same size and stay aligned.
    */
   private _renderState:
     | { uri: string; width: string; entries: Map<number, IGutterEntry> }
@@ -549,18 +569,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         });
       }
 
-      // Size the text column to the widest entry. The width is grow-only per file
-      // (carried in _renderState) so the column stays put as content changes
-      // instead of jittering. No extra breathing-room pad — the formatted text
-      // already carries inter-column spacing.
-      const prev =
-        this._renderState && this._renderState.uri === editor.document.uri.toString()
-          ? parseInt(this._renderState.width, 10)
-          : 0;
-      const widthChars = Math.max(maxLen, Number.isFinite(prev) ? prev : 0);
+      // The annotation columns are fixed-width (see formatGutterText), so every
+      // committed line is the same length — `maxLen` is that constant. Store it as
+      // the column width; blank cells are NBSP-padded to it for alignment. It
+      // tracks the current visible-aspect set (shrinks when an aspect is hidden)
+      // rather than growing to fit per file.
       this._renderState = {
         uri: editor.document.uri.toString(),
-        width: `${widthChars}ch`,
+        width: `${maxLen}ch`,
         entries,
       };
 
@@ -586,12 +602,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return;
     }
     const { width, entries } = this._renderState;
-    // The stored width is the raw text-column width in characters (grow-only over
-    // the file's widest annotation). The box is sized by its CONTENT, not a `ch`
-    // width property — a fixed `ch` box rendered wider than the 11px content,
-    // leaving dead space on the right. Each cell's text is padded with NBSP to the
-    // file-wide width (so columns align in the monospace font), then wrapped with
-    // GUTTER_PAD on both sides for symmetric breathing room.
+    // The stored width is the fixed text-column width in characters. The box is
+    // sized by its CONTENT, not a `ch` width property — a fixed `ch` box rendered
+    // wider than the content, leaving dead space on the right. Each cell's text is
+    // padded with NBSP to that width (so columns align in the monospace editor
+    // font), then wrapped with GUTTER_PAD on both sides for symmetric breathing
+    // room.
     const rawWidthCh = parseInt(width, 10) || 0;
     const textDecorations: vscode.DecorationOptions[] = [];
     const heatDecorations: vscode.DecorationOptions[] = [];
@@ -604,15 +620,17 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         ...(e.blank || !e.hover ? {} : { hoverMessage: e.hover }),
         // Tint the FULL annotation column with the per-commit color (IntelliJ
         // tints the whole gutter cell). VS Code's per-instance `before` REPLACES
-        // the type's `before`, so the muted text colour AND the font (with
-        // `white-space: pre`, or the NBSP pad collapses) are restated here. A
-        // blank cell keeps the padded width (for alignment) but no tint.
+        // the type's `before`, so the muted text colour is restated here. NO
+        // `font-size` override — a smaller font shrinks the inline box so the tint
+        // no longer fills the line height, breaking same-commit runs into striped
+        // bars instead of one solid block. Padding is NBSP (non-collapsing), so no
+        // `white-space: pre` is needed either. A blank cell keeps the padded width
+        // (for alignment) but no tint.
         renderOptions: {
           before: {
             contentText: GUTTER_PAD + aligned + GUTTER_PAD,
             backgroundColor: e.bgColor,
             color: new vscode.ThemeColor('editorCodeLens.foreground'),
-            textDecoration: 'none; font-size: 11px; font-family: monospace; white-space: pre;',
           },
         },
       });
@@ -765,19 +783,25 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     const { aspects, authorNameFormat } = this.resolveDisplay();
     const columns: string[] = [];
     if (aspects.author) {
-      columns.push(formatAuthorName(blameLine.author, blameLine.authorEmail, authorNameFormat));
+      columns.push(
+        fitColumn(
+          formatAuthorName(blameLine.author, blameLine.authorEmail, authorNameFormat),
+          AUTHOR_COL_CH
+        )
+      );
     }
     if (aspects.date) {
-      columns.push(this.formatRelativeDate(blameLine.date));
+      columns.push(fitColumn(this.formatRelativeDate(blameLine.date), DATE_COL_CH));
     }
     if (aspects.revision) {
-      columns.push(blameLine.commit.substring(0, 7));
+      columns.push(fitColumn(blameLine.commit.substring(0, 7), REVISION_COL_CH));
     }
 
-    // Pad every column except the last so the visible columns stay aligned, and
-    // join with NBSP — plain spaces are collapsed/trimmed by the decoration
-    // renderer, which would crush the inter-column gaps.
-    return columns.map((c, i) => (i < columns.length - 1 ? c.padEnd(12, NBSP) : c)).join(NBSP);
+    // Each column is already a FIXED width, so the joined text is a constant
+    // length (per visible-aspect set) and the column never grows to fit. Join
+    // with NBSP — plain spaces are collapsed/trimmed by the decoration renderer,
+    // which would crush the inter-column gaps.
+    return columns.join(NBSP);
   }
 
   /**

@@ -294,11 +294,11 @@ describe('Gutter blame — dirty/edited render', () => {
     // No fixed `ch` width box — the cell is sized by its content, so a short line
     // can't leave dead space on the right.
     assert.strictEqual(textBefore.width, undefined, 'text cell must not use a fixed ch-width box');
-    // The font (with white-space: pre) is restated per-instance, or the NBSP pad
-    // collapses and the left pad vanishes.
+    // No font-size override — shrinking the font shrinks the inline box so the
+    // tint stops filling the line height, striping a same-commit run into bars.
     assert.ok(
-      (textBefore.textDecoration ?? '').includes('white-space: pre'),
-      'text cell must restate white-space: pre so the pad is not collapsed'
+      !(textBefore.textDecoration ?? '').includes('font-size'),
+      'text cell must not shrink the font (keeps the tint a solid block)'
     );
     // Left pad: 2 non-breaking spaces lead the (single, widest) line's content.
     assert.ok(
@@ -330,5 +330,44 @@ describe('Gutter blame — dirty/edited render', () => {
     );
 
     provider.dispose();
+  });
+
+  it('renders a FIXED-size column regardless of content (consistent file to file)', async () => {
+    // A file whose author names are short and another whose author is very long
+    // must produce the SAME rendered text-cell width — the column is a constant
+    // size, not grown to fit each file. Overflow is truncated with an ellipsis.
+    const shortAuthor = bl(1, A, '2026-01-01'); // author 'Dev'
+    const longAuthor: IBlameLine = {
+      line: 1,
+      commit: A,
+      author: 'Maximilian Alexander Featherstonehaugh',
+      authorEmail: 'm@x',
+      date: new Date('2026-01-01'),
+      message: 'm',
+    };
+
+    const short = makeProvider([shortAuthor], 1);
+    short.provider.enable(short.editor as never, { force: true });
+    await flush();
+    await flush();
+
+    const long = makeProvider([longAuthor], 1);
+    long.provider.enable(long.editor as never, { force: true });
+    await flush();
+    await flush();
+
+    const shortCell = [...collectTextCells(short.calls).values()].pop();
+    const longCell = [...collectTextCells(long.calls).values()].pop();
+    assert.ok(shortCell && longCell, 'both files must render a text cell');
+    assert.strictEqual(
+      longCell.length,
+      shortCell.length,
+      `column width must be identical across files; short=${shortCell.length} long=${longCell.length}`
+    );
+    // The long author overflowed the fixed author column, so it was truncated.
+    assert.ok(longCell.includes('…'), 'an overflowing author must be truncated with an ellipsis');
+
+    short.provider.dispose();
+    long.provider.dispose();
   });
 });
