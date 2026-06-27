@@ -609,6 +609,32 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // Reveal a specific commit (by hash) in the Git tool window: focus the graph
+  // and scroll-to + highlight that commit. Invoked from the blame hover's
+  // commit links (the hash travels with the click) so clicking a blame commit
+  // navigates the graph below instead of opening a quick-pick. Programmatic-only
+  // (no package.json contribution), mirroring jumpToHash's reveal path.
+  const revealCommitCommand = registerLoggedCommand(
+    'intellig.editor.revealCommitInGraph',
+    async (commitHashArg?: unknown) => {
+      if (!ctx.gitToolWindowProvider) {
+        void vscode.window.showErrorMessage('Git tool window not ready');
+        return;
+      }
+      const hash = typeof commitHashArg === 'string' ? commitHashArg : '';
+      if (!hash) {
+        return;
+      }
+      await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+      const scrolled = ctx.gitToolWindowProvider.scrollToCommit(hash);
+      if (!scrolled) {
+        void vscode.window.showWarningMessage(
+          `Commit ${hash.substring(0, 7)} is not currently loaded in the graph`
+        );
+      }
+    }
+  );
+
   // Stage selected files command
   const stageSelectedCommand = registerLoggedCommand('intellig.stageSelected', async () => {
     if (!ctx.services) {
@@ -1165,6 +1191,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     refreshCommand,
     focusTabCommand,
     jumpToHashCommand,
+    revealCommitCommand,
     stageSelectedCommand,
     unstageSelectedCommand,
     applyPatchCommand,
