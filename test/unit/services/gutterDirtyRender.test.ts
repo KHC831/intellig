@@ -59,7 +59,14 @@ function bl(line: number, commit: string, day: string): IBlameLine {
 
 interface Deco {
   range: { start: { line: number } };
-  renderOptions?: { before?: { contentText?: string; backgroundColor?: string; width?: string } };
+  renderOptions?: {
+    before?: {
+      contentText?: string;
+      backgroundColor?: string;
+      width?: string;
+      margin?: string;
+    };
+  };
 }
 
 function makeProvider(lines: IBlameLine[], lineCount: number) {
@@ -150,8 +157,12 @@ describe('Gutter blame — dirty/edited render', () => {
 
     // The uncommitted line (editor line 1) must still get a gutter cell…
     assert.ok(text.has(1), 'uncommitted line must still receive a gutter cell (not skipped)');
-    // …blank…
-    assert.strictEqual(text.get(1), '', 'uncommitted line gutter text must be blank');
+    // …blank (only the symmetric pad, no annotation text)…
+    assert.strictEqual(
+      text.get(1)?.trim(),
+      '',
+      'uncommitted line gutter text must be blank (pad only)'
+    );
     // …and the SAME width as the committed lines, so code stays aligned.
     assert.strictEqual(
       width.get(1),
@@ -251,6 +262,60 @@ describe('Gutter blame — dirty/edited render', () => {
     await provider.refresh();
     await flush();
     assert.strictEqual(widthOf(), wide, 'width must not shrink when content shrinks');
+    provider.dispose();
+  });
+
+  it('pads the annotation column symmetrically by 2 spaces with no dead-space gap', async () => {
+    const { provider, editor, calls } = makeProvider([bl(1, A, '2026-01-01')], 1);
+    provider.enable(editor as never, { force: true });
+    await flush();
+    await flush();
+
+    // Pull the last text-column cell (ch width) and the heat bar (3px width).
+    let textBefore: NonNullable<Deco['renderOptions']>['before'] | undefined;
+    let heatBefore: NonNullable<Deco['renderOptions']>['before'] | undefined;
+    for (const c of calls) {
+      for (const d of c.decos) {
+        const before = d.renderOptions?.before;
+        if (!before) {
+          continue;
+        }
+        if ((before.width ?? '').endsWith('ch')) {
+          textBefore = before;
+        } else if (before.width === '3px') {
+          heatBefore = before;
+        }
+      }
+    }
+    assert.ok(textBefore, 'expected a text-column cell');
+    assert.ok(heatBefore, 'expected a heat-bar cell');
+
+    // Left pad: 2 leading spaces baked into the tinted content.
+    assert.ok(
+      textBefore.contentText?.startsWith('  '),
+      `text cell must lead with a 2-space pad; got ${JSON.stringify(textBefore.contentText)}`
+    );
+    // Right pad: the column box is exactly 2ch wider than its content (2-space
+    // trailing pad) on the widest line, so the tint block has matching breathing
+    // room on both sides — no asymmetric over-pad.
+    const widthCh = parseInt(textBefore.width ?? '0', 10);
+    assert.strictEqual(
+      widthCh - (textBefore.contentText?.length ?? 0),
+      2,
+      'text-column box must be 2ch wider than its content (symmetric right pad)'
+    );
+    // Boundary to code: a clean 2ch right margin, flush-left to the tinted block
+    // (no px gap between text column and heat bar — the old dead space).
+    assert.strictEqual(
+      heatBefore.margin,
+      '0 2ch 0 0',
+      'heat bar must sit flush to the text block with a 2ch gap to code'
+    );
+    assert.ok(
+      !(heatBefore.margin ?? '').includes('px'),
+      'heat bar margin must not use asymmetric px spacing'
+    );
+
     provider.dispose();
   });
 });

@@ -41,6 +41,17 @@ interface IGutterEntry {
 const BLANK_ENTRY: IGutterEntry = { text: '', bgColor: 'transparent', blank: true };
 
 /**
+ * Symmetric breathing room around the annotation text, in `ch`. The tinted
+ * column carries this much pad on the left (baked into the content) and on the
+ * right (extra box width past the text), so the colour block has matching
+ * margins on both sides instead of butting the gutter edge / leaving a ragged
+ * gap before the code. Mirrors IntelliJ's padded annotation cell.
+ */
+const GUTTER_PAD_CH = 2;
+/** The left pad as literal spaces, prepended to the (tinted) cell content. */
+const LEFT_PAD = ' '.repeat(GUTTER_PAD_CH);
+
+/**
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with an IntelliJ-style interpolated background gradient and click actions.
@@ -132,7 +143,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       before: {
         contentText: ' ',
         width: '3px',
-        margin: '0 12px 0 8px',
+        margin: '0 2ch 0 0',
       },
       isWholeLine: false,
     });
@@ -568,6 +579,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return;
     }
     const { width, entries } = this._renderState;
+    // The stored width is the raw text-column width (grow-only over the file's
+    // widest annotation). Pad the rendered box by GUTTER_PAD_CH on each side: the
+    // left pad is the LEFT_PAD spaces baked into the content, the right pad is the
+    // extra box width past the (left-padded) text. Both sit inside the tint, so
+    // the colour block has symmetric breathing room.
+    const rawWidthCh = parseInt(width, 10) || 0;
+    const paddedWidth = `${rawWidthCh + 2 * GUTTER_PAD_CH}ch`;
     const textDecorations: vscode.DecorationOptions[] = [];
     const heatDecorations: vscode.DecorationOptions[] = [];
     for (const [line, e] of entries) {
@@ -582,8 +600,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         // cell keeps the width (for alignment) but no tint.
         renderOptions: {
           before: {
-            contentText: e.text,
-            width,
+            contentText: LEFT_PAD + e.text,
+            width: paddedWidth,
             backgroundColor: e.bgColor,
             color: new vscode.ThemeColor('editorCodeLens.foreground'),
           },
@@ -594,12 +612,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         // Thin accent bar = the annotation↔code boundary. Width/contentText are
         // restated per-instance (replace semantics) or the bar collapses to zero
         // width. A blank cell keeps the bar's (transparent) footprint so the
-        // boundary stays aligned. Tight margins keep the column compact.
+        // boundary stays aligned. It sits flush to the text block (no left margin
+        // — the old gap was dead space) with a 2ch gap to the code on the right.
         renderOptions: {
           before: {
             contentText: ' ',
             width: '3px',
-            margin: '0 6px 0 4px',
+            margin: `0 ${GUTTER_PAD_CH}ch 0 0`,
             backgroundColor: e.bgColor,
           },
         },
