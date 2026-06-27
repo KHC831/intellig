@@ -384,6 +384,31 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-list-activeSelectionBackground);
       }
 
+      /* Nested branch/path selector tree (multi-select checkboxes). */
+      .log-filter-tree-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .log-filter-tree-row:hover {
+        background-color: var(--vscode-list-hoverBackground);
+      }
+      .log-filter-tree-row input[type='checkbox'] {
+        flex: 0 0 auto;
+        margin: 0;
+      }
+      .log-filter-tree-folder {
+        font-weight: 600;
+        color: var(--vscode-descriptionForeground);
+      }
+      .log-filter-tree-leaf {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
       .log-filter-check {
         display: inline-block;
         width: 12px;

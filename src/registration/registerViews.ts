@@ -656,10 +656,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Define the filter shape shared across log-loading helpers (G8).
     type LogFilter = {
       branch?: string;
+      branches?: string[];
       author?: string;
       since?: Date;
       until?: Date;
       path?: string;
+      paths?: string[];
       searchText?: string;
       noMerges?: boolean;
       firstParent?: boolean;
@@ -838,10 +840,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         filter
           ? {
               branch: filter.branch,
+              branches: filter.branches,
               author: filter.author,
               since: filter.since,
               until: filter.until,
               path: filter.path,
+              paths: filter.paths,
               searchText: filter.searchText,
               noMerges: filter.noMerges,
               firstParent: filter.firstParent,

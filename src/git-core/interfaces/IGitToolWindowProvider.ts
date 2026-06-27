@@ -62,10 +62,14 @@ export interface ILogState {
  */
 export interface ILogFilter {
   branch?: string;
+  /** Multi-select branches — union (show commits from ANY). */
+  branches?: string[];
   author?: string;
   since?: Date;
   until?: Date;
   path?: string;
+  /** Multi-select paths — union (commits touching ANY). */
+  paths?: string[];
   searchText?: string;
   /** Exclude merge commits — IntelliJ's VCS-log "No Merges" filter. */
   noMerges?: boolean;

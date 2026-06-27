@@ -55,13 +55,33 @@ export function buildInlineScript(): string {
           const row = document.querySelector('.log-filter-row');
           if (!row) return;
 
+          const initBranch = row.getAttribute('data-f-branch') || '';
+          const initPath = row.getAttribute('data-f-path') || '';
           const filterState = {
-            branch: row.getAttribute('data-f-branch') || '',
+            // Multi-select: branches/paths are the source of truth (arrays); the
+            // single legacy attrs seed them so an existing scope round-trips.
+            branches: initBranch ? [initBranch] : [],
+            paths: initPath ? [initPath] : [],
             author: row.getAttribute('data-f-author') || '',
-            path: row.getAttribute('data-f-path') || '',
             since: row.getAttribute('data-f-since') || '',
             until: row.getAttribute('data-f-until') || '',
           };
+          function branchLeaf(name) {
+            const parts = String(name).split('/').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : String(name);
+          }
+          function isBranchChecked(name) { return filterState.branches.indexOf(name) !== -1; }
+          function setBranchChecked(name, on) {
+            const i = filterState.branches.indexOf(name);
+            if (on && i === -1) filterState.branches.push(name);
+            else if (!on && i !== -1) filterState.branches.splice(i, 1);
+          }
+          function branchSummary() {
+            const n = filterState.branches.length;
+            if (n === 0) return '';
+            if (n === 1) return branchLeaf(filterState.branches[0]);
+            return n + ' branches';
+          }
 
           function byId(id) { return document.getElementById(id); }
           function readSearch() { const el = byId('filter-search'); return el ? el.value.trim() : ''; }
@@ -71,10 +91,10 @@ export function buildInlineScript(): string {
             vscode.postMessage({
               type: 'applyLogFilter',
               filter: {
-                branch: filterState.branch,
+                branches: filterState.branches.slice(),
                 searchText: readSearch(),
                 author: filterState.author,
-                path: filterState.path,
+                paths: filterState.paths.slice(),
                 since: filterState.since || null,
                 until: filterState.until || null,
                 searchRegex: readToggle('filter-search-regex'),
@@ -143,11 +163,17 @@ export function buildInlineScript(): string {
               actionEl.setAttribute('aria-pressed', actionEl.classList.contains('active') ? 'true' : 'false');
               applyFilters();
             } else if (action === 'pickBranchFilter') {
+              // The only click-pick branch action left is "All branches", which
+              // clears the multi-select (every leaf checkbox unchecks). Individual
+              // branches are toggled via their checkboxes (see the change handler).
               const b = actionEl.getAttribute('data-branch');
-              filterState.branch = (b && b !== '__all__') ? b : '';
-              setPopValue('branch', filterState.branch);
-              closeAllPopups();
-              applyFilters();
+              if (!b || b === '__all__') {
+                filterState.branches = [];
+                const list = byId('filter-branch-list');
+                if (list) list.querySelectorAll('input[data-branch]').forEach(function(cb) { cb.checked = false; });
+                setPopValue('branch', branchSummary());
+                applyFilters();
+              }
             } else if (action === 'pickAuthorFilter') {
               const a = actionEl.getAttribute('data-author');
               filterState.author = (a && a !== '__all__') ? a : '';
@@ -178,8 +204,9 @@ export function buildInlineScript(): string {
               applyFilters();
             } else if (action === 'applyPathFilter') {
               const pi = byId('filter-path-input');
-              filterState.path = pi ? pi.value.trim() : '';
-              setPopValue('path', filterState.path ? pathLeaf(filterState.path) : 'All');
+              const v = pi ? pi.value.trim() : '';
+              filterState.paths = v ? [v] : [];
+              setPopValue('path', v ? pathLeaf(v) : 'All');
               closeAllPopups();
               applyFilters();
             } else if (action === 'pickRepoScope') {
@@ -213,30 +240,59 @@ export function buildInlineScript(): string {
               applyFilters();
             } else if (a === 'filterPathKeydown') {
               e.preventDefault();
-              filterState.path = e.target.value.trim();
-              setPopValue('path', filterState.path ? pathLeaf(filterState.path) : 'All');
+              const v = e.target.value.trim();
+              filterState.paths = v ? [v] : [];
+              setPopValue('path', v ? pathLeaf(v) : 'All');
               closeAllPopups();
               applyFilters();
             }
           });
 
-          // Live-filter the branch list as the user types in the popup search.
+          // Branch checkbox / folder toggles in the nested tree (multi-select).
+          document.addEventListener('change', function(e) {
+            if (!(e.target instanceof Element)) return;
+            const action = e.target.getAttribute('data-action');
+            if (action === 'toggleBranchCheckbox') {
+              setBranchChecked(e.target.getAttribute('data-branch'), e.target.checked);
+              setPopValue('branch', branchSummary());
+              applyFilters();
+            } else if (action === 'toggleBranchFolder') {
+              const wrap = e.target.closest('.log-filter-tree-node');
+              const on = e.target.checked;
+              if (wrap) {
+                wrap.querySelectorAll('input[data-branch]').forEach(function(leaf) {
+                  leaf.checked = on;
+                  setBranchChecked(leaf.getAttribute('data-branch'), on);
+                });
+              }
+              setPopValue('branch', branchSummary());
+              applyFilters();
+            }
+          });
+
+          // Live-filter the branch tree as the user types in the popup search.
+          // Hide a leaf row whose branch ref doesn't match; show every folder so
+          // the matched leaves keep their nesting context.
           document.addEventListener('input', function(e) {
             if (!(e.target instanceof Element)) return;
             if (e.target.getAttribute('data-action') !== 'filterPopupSearch') return;
             const q = e.target.value.toLowerCase();
             const list = byId('filter-branch-list');
             if (!list) return;
-            list.querySelectorAll('.log-filter-popup-item').forEach(function(item) {
-              const t = (item.textContent || '').toLowerCase();
-              item.hidden = q.length > 0 && t.indexOf(q) === -1;
+            list.querySelectorAll('.log-filter-tree-row').forEach(function(rowLabel) {
+              const leaf = rowLabel.querySelector('input[data-branch]');
+              const node = rowLabel.closest('.log-filter-tree-node');
+              if (!leaf || !node) return; // folder rows always shown
+              const ref = (leaf.getAttribute('data-branch') || '').toLowerCase();
+              node.hidden = q.length > 0 && ref.indexOf(q) === -1;
             });
           });
 
           // Read accessors for the message handlers that fill the branch /
           // author lists (so they can mark the active item).
           window.__intelligFilter = {
-            getBranch: function() { return filterState.branch; },
+            isBranchChecked: isBranchChecked,
+            anyBranchSelected: function() { return filterState.branches.length > 0; },
             getAuthor: function() { return filterState.author; },
           };
         })();
@@ -744,54 +800,92 @@ export function buildInlineScript(): string {
             });
             refreshSelectedCount();
           }
-          // Branch popup options (lazy, on popup open): fill the Branch list
-          // with IntelliJ's grouped layout — "All branches", then a Local
-          // group, then one group per remote. Built via createElement so the
-          // textContent/data-branch cross as data, never markup.
+          // Branch popup options (lazy, on popup open): fill the Branch list as a
+          // NESTED checkbox tree (multi-select). "All branches" clears the
+          // selection; a Local section and one section per remote each hold a
+          // folder tree split on "/" (feature/foo nests under feature/), with a
+          // checkbox per branch leaf and per folder (folder toggles its subtree).
+          // Built via createElement so text/data cross as data, never markup.
           if (message.type === 'logFilterOptionsReady') {
             const list = document.getElementById('filter-branch-list');
             const groups = message.branchGroups;
             if (list && groups) {
-              const current = window.__intelligFilter ? window.__intelligFilter.getBranch() : '';
+              // The branch tree lives in the window-message scope, so it reaches
+              // the filter state only through the __intelligFilter bridge.
+              const intf = window.__intelligFilter || {};
+              const checked = intf.isBranchChecked || function() { return false; };
+              const anySelected = intf.anyBranchSelected ? intf.anyBranchSelected() : false;
               list.replaceChildren();
-              function addBranchItem(value, text) {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'log-filter-popup-item' + (value === current ? ' active' : '');
-                btn.setAttribute('data-action', 'pickBranchFilter');
-                btn.setAttribute('data-branch', value);
-                btn.textContent = text;
-                list.appendChild(btn);
-              }
               function addSection(title) {
                 const header = document.createElement('div');
                 header.className = 'log-filter-popup-section';
                 header.textContent = title;
                 list.appendChild(header);
               }
-              // "All branches" maps to the empty (no-scope) branch — active when
-              // no branch is set.
+              // Build a folder tree from "a/b/c" branch names. Each node: a map of
+              // child segment to node, plus a leaf (the full ref name if a branch
+              // ends here). stripPrefix drops a remote prefix from the DISPLAY
+              // while the leaf keeps the full ref git needs.
+              function buildTree(names, stripPrefix) {
+                const root = { children: {}, order: [], leaf: null };
+                names.forEach(function(full) {
+                  const shown = stripPrefix && full.indexOf(stripPrefix) === 0 ? full.slice(stripPrefix.length) : full;
+                  const parts = shown.split('/').filter(Boolean);
+                  let node = root;
+                  parts.forEach(function(seg, i) {
+                    if (!node.children[seg]) { node.children[seg] = { children: {}, order: [], leaf: null }; node.order.push(seg); }
+                    node = node.children[seg];
+                    if (i === parts.length - 1) node.leaf = full;
+                  });
+                });
+                return root;
+              }
+              function renderTree(container, node, depth) {
+                node.order.sort();
+                node.order.forEach(function(seg) {
+                  const child = node.children[seg];
+                  const hasChildren = child.order.length > 0;
+                  const wrap = document.createElement('div');
+                  wrap.className = 'log-filter-tree-node';
+                  const rowLabel = document.createElement('label');
+                  rowLabel.className = 'log-filter-tree-row';
+                  rowLabel.style.paddingLeft = (depth * 14 + 8) + 'px';
+                  const cb = document.createElement('input');
+                  cb.type = 'checkbox';
+                  if (child.leaf) {
+                    cb.setAttribute('data-action', 'toggleBranchCheckbox');
+                    cb.setAttribute('data-branch', child.leaf);
+                    cb.checked = !!checked(child.leaf);
+                  } else {
+                    cb.setAttribute('data-action', 'toggleBranchFolder');
+                  }
+                  const text = document.createElement('span');
+                  text.className = hasChildren ? 'log-filter-tree-folder' : 'log-filter-tree-leaf';
+                  text.textContent = seg;
+                  rowLabel.appendChild(cb);
+                  rowLabel.appendChild(text);
+                  wrap.appendChild(rowLabel);
+                  container.appendChild(wrap);
+                  if (hasChildren) renderTree(wrap, child, depth + 1);
+                });
+              }
+              // "All branches" — clears the multi-select (no scope).
               const allBtn = document.createElement('button');
               allBtn.type = 'button';
-              allBtn.className = 'log-filter-popup-item' + (current ? '' : ' active');
+              allBtn.className = 'log-filter-popup-item' + (anySelected ? '' : ' active');
               allBtn.setAttribute('data-action', 'pickBranchFilter');
               allBtn.setAttribute('data-branch', '__all__');
               allBtn.textContent = 'All branches';
               list.appendChild(allBtn);
               if (Array.isArray(groups.local) && groups.local.length > 0) {
                 addSection('Local');
-                groups.local.forEach(function(name) { addBranchItem(name, name); });
+                renderTree(list, buildTree(groups.local, ''), 0);
               }
               if (Array.isArray(groups.remotes)) {
                 groups.remotes.forEach(function(g) {
                   if (!g.branches || g.branches.length === 0) return;
                   addSection(g.remote);
-                  g.branches.forEach(function(name) {
-                    // Display the short name (strip "remote/"); the value keeps
-                    // the full ref the host needs for git log.
-                    const display = name.indexOf(g.remote + '/') === 0 ? name.slice(g.remote.length + 1) : name;
-                    addBranchItem(name, display);
-                  });
+                  renderTree(list, buildTree(g.branches, g.remote + '/'), 0);
                 });
               }
             }
