@@ -1162,7 +1162,16 @@ export class CommitContextMenuCommands {
           await this._handleRevertConflicts(repo, singleResult.conflicts, commitHashes);
         } else {
           const reason = singleResult.failureReason ?? 'unknown error';
-          void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(reason)}`);
+          // The custom-message revert stages then commits separately; if the
+          // commit failed the staged revert is left in the index. Tell the user
+          // so they can commit or `git revert --abort` rather than assume the
+          // working tree is untouched.
+          const leftover = singleResult.stagedChangesRemain
+            ? ' The revert was staged but not committed — commit it or run "git revert --abort" to discard.'
+            : '';
+          void vscode.window.showErrorMessage(
+            `Failed to revert: ${sanitizeGitError(reason)}${leftover}`
+          );
         }
         await this._gitService.reloadRepository(repo);
         this._gitToolWindowProvider.refresh();
@@ -2755,10 +2764,16 @@ export class CommitContextMenuCommands {
           if (stashed) {
             await this._unstash(cwd);
           }
+          // The squash has been ROLLED BACK by now — either we just aborted the
+          // live rebase, or it was a post-completion autostash-pop conflict with
+          // no rebase at all. So there's nothing to continue/abort/skip: open the
+          // dialog as resolve-only (`rebaseInProgress: false`) instead of
+          // threading the pre-abort value, which would render Continue/Abort and
+          // dead-end on "no rebase in progress".
           await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
             operation: 'rebase',
             target: 'squash',
-            rebaseInProgress: result.rebaseInProgress,
+            rebaseInProgress: false,
           });
           // abortRebase moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);

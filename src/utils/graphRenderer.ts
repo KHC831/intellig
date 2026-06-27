@@ -9,7 +9,23 @@
  * lives in src/git-core/graph/graphPainter.ts.
  */
 
-import { ICommitNode, getMaxGraphColumn } from '../git-core/commitGraph';
+import { ICommitNode } from '../git-core/commitGraph';
+import { getOutputChannel } from './outputChannel';
+
+/** Upper bound on a renderable lane index (defense against a corrupt index). */
+const MAX_LANE = 1000;
+
+/**
+ * One-shot throttle: a pathological window (or corrupt index) that drops lanes
+ * logs once per session rather than on every per-segment `isValidLane` check in
+ * the render hot loop. Reset between tests via {@link __resetLaneWarningForTest}.
+ */
+let laneWarningEmitted = false;
+
+/** TestSurface: reset the once-per-session lane-drop warning throttle. */
+export function __resetLaneWarningForTest(): void {
+  laneWarningEmitted = false;
+}
 
 /**
  * Configuration for graph rendering dimensions and styling.
@@ -288,12 +304,18 @@ export function collectMergedLaneIntervals(
 /**
  * Active lanes per row index: every row covered by any lane's merged interval.
  */
-export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
+export function computeActiveLanes(
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
+): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
     result.set(i, new Set());
   }
-  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, merged] of mergedIntervals) {
     for (const iv of merged) {
       for (let row = iv.startRow; row <= iv.endRow; row++) {
         result.get(row)!.add(lane);
@@ -310,12 +332,18 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
  * is NOT reported here, letting the renderer distinguish a genuine transiting
  * through-line at a branch-split row from a reused lane.
  */
-export function computeLaneContinuesFromAbove(nodes: ICommitNode[]): ActiveLaneMap {
+export function computeLaneContinuesFromAbove(
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
+): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
     result.set(i, new Set());
   }
-  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, merged] of mergedIntervals) {
     for (const iv of merged) {
       for (let row = iv.startRow + 1; row <= iv.endRow; row++) {
         result.get(row)!.add(lane);
@@ -334,12 +362,18 @@ export function computeLaneContinuesFromAbove(nodes: ICommitNode[]): ActiveLaneM
  * `false` here — letting the renderer truncate a dying lane cleanly instead of
  * mistaking the reused line below for a continuation.
  */
-export function computeLaneContinuesBelow(nodes: ICommitNode[]): ActiveLaneMap {
+export function computeLaneContinuesBelow(
+  nodes: ICommitNode[],
+  mergedIntervals: Map<
+    number,
+    Array<{ startRow: number; endRow: number }>
+  > = collectMergedLaneIntervals(nodes)
+): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
     result.set(i, new Set());
   }
-  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, merged] of mergedIntervals) {
     for (const iv of merged) {
       for (let row = iv.startRow; row <= iv.endRow - 1; row++) {
         result.get(row)!.add(lane);
@@ -347,27 +381,6 @@ export function computeLaneContinuesBelow(nodes: ICommitNode[]): ActiveLaneMap {
     }
   }
   return result;
-}
-
-/**
- * Compute the total pixel width needed for the graph column.
- *
- * Uses the maximum lane index across all nodes (considering graphColumn
- * and all graphLine fromColumn/toColumn values) to determine how wide
- * the graph SVG needs to be.
- *
- * Formula: (maxColumn + 1) * columnWidth + padding * 2
- *
- * @param nodes - Array of ICommitNode to measure
- * @param config - The graph render configuration
- * @returns The total width in pixels, or 0 if the nodes array is empty
- */
-export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConfig): number {
-  if (nodes.length === 0) {
-    return 0;
-  }
-  const maxCol = getMaxGraphColumn(nodes);
-  return (maxCol + 1) * config.columnWidth + config.padding * 2;
 }
 
 /**
@@ -380,5 +393,19 @@ export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConf
  * @returns True if the lane index is valid for rendering
  */
 export function isValidLane(lane: number): boolean {
-  return Number.isFinite(lane) && lane >= 0 && lane <= 1000;
+  if (Number.isFinite(lane) && lane >= 0 && lane <= MAX_LANE) {
+    return true;
+  }
+  // Out-of-range (negative, non-finite, or beyond the cap) lanes are still
+  // dropped — clamping distinct lanes onto column MAX_LANE would collide them,
+  // which is worse than omitting a (practically unreachable) pathological lane.
+  // But log once so a genuinely corrupt index leaves a diagnostic trail instead
+  // of silently missing graph lines.
+  if (!laneWarningEmitted) {
+    laneWarningEmitted = true;
+    getOutputChannel().appendLine(
+      `[graph] dropping out-of-range lane index ${lane} (valid range 0..${MAX_LANE}); a graph line may be missing`
+    );
+  }
+  return false;
 }

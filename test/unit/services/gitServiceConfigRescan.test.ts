@@ -124,21 +124,18 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
 
     const surface = gitService as unknown as ConfigRescanSurface;
     surface._gitCli = stubCli;
+    // Record which roots get loaded, but delegate to the REAL `loadRepository`
+    // funnel (StubGitCli `exec` returns benign empty output, so no real git
+    // subprocess runs) so its first-insertion announce (onDidChangeRepository)
+    // fires from production code rather than a stub.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    const realLoad = (GitService.prototype as any).loadRepository as (
+      this: GitService,
+      root: string
+    ) => Promise<unknown>;
     surface.loadRepository = async (root: string): Promise<unknown> => {
       loadCalls.push(root);
-      const fakeRepo = {
-        rootUri: Uri.file(root),
-        state: 'idle',
-        head: { name: 'main', commit: 'a'.repeat(40), ahead: 0, behind: 0 },
-        remotes: [],
-        submodules: [],
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-      (gitService as any)._repositories.set(root, {
-        repository: fakeRepo,
-        lastUpdated: Date.now(),
-      });
-      return fakeRepo;
+      return realLoad.call(gitService, root);
     };
     surface.setupRepositoryWatcher = (_root: string): void => {
       /* no-op */

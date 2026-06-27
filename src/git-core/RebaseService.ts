@@ -13,6 +13,7 @@ import {
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
 import { GitCli, createGitCli, IGitCommandResult, buildGitArgs } from './gitCli';
+import { parseStatus, isConflictedStatus } from './gitParser';
 import { IGitService } from './interfaces/IGitService';
 import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
 
@@ -1025,35 +1026,20 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    */
   private async getConflictedFiles(repo: IRepository): Promise<string[]> {
     const cwd = repo.rootUri.fsPath;
-    const result = await this._gitCli.exec(['status', '--porcelain'], { cwd });
+    // `-z` so unmerged paths with non-ASCII / space / newline names come back
+    // verbatim (the default newline format C-quotes them, yielding a path that
+    // points at no file). `isConflictedStatus` covers U-in-either-column plus
+    // the both-added (AA) / both-deleted (DD) unmerged states.
+    const result = await this._gitCli.exec(['status', '--porcelain', '-z'], { cwd });
 
     if (result.exitCode !== 0) {
       return [];
     }
 
-    const conflicts: string[] = [];
-    const lines = result.stdout.split('\n');
-
-    for (const line of lines) {
-      // Conflicted files have 'U' in either column or 'AA', 'DD', etc.
-      if (line.length >= 2) {
-        const indexStatus = line[0];
-        const workTreeStatus = line[1];
-        if (
-          indexStatus === 'U' ||
-          workTreeStatus === 'U' ||
-          (indexStatus === 'A' && workTreeStatus === 'A') ||
-          (indexStatus === 'D' && workTreeStatus === 'D')
-        ) {
-          const filePath = line.substring(3).trim();
-          if (filePath) {
-            conflicts.push(filePath);
-          }
-        }
-      }
-    }
-
-    return conflicts;
+    return parseStatus(result.stdout)
+      .filter(isConflictedStatus)
+      .map((file) => file.path)
+      .filter((filePath) => filePath.length > 0);
   }
 
   /**

@@ -47,6 +47,7 @@ import {
   isPathInsideOrEqual,
   repoRootFromGitDir,
   isNewRepoPathIgnored,
+  resolveWorktreeGitDir,
 } from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
 import { sanitizeGitError } from './gitError';
@@ -115,6 +116,14 @@ export class GitService implements IGitService, IGitServiceCli {
   private _refreshTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   /** In-flight `loadRepository` promises, keyed by rootPath. */
   private _reloading: Map<string, Promise<IRepository>> = new Map();
+  /**
+   * Per-rootPath removal counter, bumped whenever a root is torn down
+   * ({@link removeRepositoryWatcher}). A `loadRepository` captures the count at
+   * entry and re-checks it before its final cache-write/announce: if the root
+   * was removed while the load was in flight (rapid add→remove), the resolved
+   * load must NOT resurrect it (re-cache + re-watch + re-fire).
+   */
+  private _removalGeneration: Map<string, number> = new Map();
   /**
    * In-flight `getStatus` promises, keyed by rootPath. On activation several
    * subscribers (SCM provider, changelist + shelf views) request the same
@@ -496,9 +505,24 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Get all discovered repositories.
+   * Get all discovered repositories — **identity/membership only**, NOT a
+   * freshness guarantee.
    *
-   * @returns Array of repositories
+   * Unlike {@link getCachedRepository} / {@link findOwningRepository}, this does
+   * NOT apply {@link GitService.CACHE_TTL}: a repo not touched for longer than
+   * the TTL is returned with its last-loaded `head` / `state` / `remotes`. Use
+   * this to enumerate which repositories are open (and their identities), and to
+   * subscribe to changes via {@link onDidChangeRepository}. Watchers refresh
+   * actively-used repos, so the snapshot is usually current — but a caller that
+   * makes a DECISION off a returned `head` / ahead-behind / `state` /
+   * `inProgress` (e.g. rendering ahead/behind, gating on `inProgress.kind`)
+   * must re-`await getRepository(repo.rootUri)` (or `reloadRepository`) first to
+   * read guaranteed-fresh state. The known hot caller — the push dialog —
+   * already reloads after a push (`_openPushDialog` `onPushComplete`); the
+   * rebase-paused warning's initial scan runs at activation when discovery has
+   * just loaded fresh state.
+   *
+   * @returns Array of repositories (snapshot; see freshness note above)
    */
   getRepositories(): IRepository[] {
     return Array.from(this._repositories.values()).map((cache) => cache.repository);
@@ -606,21 +630,13 @@ export class GitService implements IGitService, IGitServiceCli {
     for (const root of repoRoots) {
       if (!this._repositories.has(root)) {
         // Enroll into `_reloading` so drain paths see this in-flight load.
-        const repo = await this._enrollReload(root, this.loadRepository(root));
-        this.setupRepositoryWatcher(root);
-        this._logger.info('repository discovered', { rootPath: root });
-        // Fire `onDidChangeRepository` so the 6
+        // `loadRepository` installs the watcher + fires `onDidChangeRepository`
+        // on first insertion (see its first-insertion funnel) — so the 6
         // event-driven subscribers (BranchTreeProvider, StatusBarService,
         // BranchPopup, ChangelistService, ConflictResolutionService,
-        // GitToolWindowProvider) see the freshly-discovered repo. Without
-        // this fire, an empty `git init` repo (no internal `.git/` writes
-        // to trigger the debounced refresh path) leaves every subscriber
-        // stale until the user manually performs a state-changing git
-        // operation. The dispose latch matches `_performDebouncedRefresh`'s
-        // post-await pattern at line ~653.
-        if (!this._disposed) {
-          this._onDidChangeRepository.fire(repo);
-        }
+        // GitToolWindowProvider) see the freshly-discovered repo even for an
+        // empty `git init` with no internal `.git/` writes to trigger a refresh.
+        await this._enrollReload(root, this.loadRepository(root));
       }
     }
 
@@ -723,6 +739,10 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   private async loadRepository(rootPath: string): Promise<IRepository> {
     const options: IGitCommandOptions = { cwd: rootPath };
+    // Snapshot the removal counter at entry; if the root is torn down while
+    // this load is in flight, the post-await guard below skips the cache-write
+    // + announce so a removed root isn't resurrected.
+    const removalGenAtEntry = this._removalGeneration.get(rootPath) ?? 0;
 
     // Get HEAD information.
     //
@@ -895,11 +915,40 @@ export class GitService implements IGitService, IGitServiceCli {
       ...(inProgress ? { inProgress } : {}),
     };
 
+    // First-insertion funnel: a root reached for the FIRST time — by EITHER the
+    // workspace scan (`discoverRepository`) or a lazy `getRepository(fileUri)` —
+    // must become a first-class repo: install its `.git/` watcher so it
+    // live-refreshes, and fire `onDidChangeRepository` so the SCM provider,
+    // branch tree, status bar, etc. learn it exists. Routing this here keeps the
+    // two discovery paths from diverging (a lazy repo used to be cached but
+    // silently unwatched + unannounced).
+    //
+    // `_fileWatchers.has` is the insertion signal that survives
+    // `invalidateCache`: a reload (`reloadRepository` / `_performDebouncedRefresh`)
+    // deletes the cache entry but keeps the watcher, so a reload is NOT a first
+    // insertion and those paths still own their single post-reload fire.
+    // Zombie guard: if this root was disposed/removed while the load ran (the
+    // service tore down, or a folder was removed before discovery resolved), do
+    // NOT resurrect it — skip the cache-write, watcher install, and announce.
+    // Returning the parsed snapshot still satisfies the in-flight caller; it
+    // just never re-enters `_repositories`.
+    if (this._disposed || (this._removalGeneration.get(rootPath) ?? 0) !== removalGenAtEntry) {
+      return repository;
+    }
+
+    const isFirstInsertion = !this._fileWatchers.has(rootPath);
+
     // Cache the repository
     this._repositories.set(rootPath, {
       repository,
       lastUpdated: Date.now(),
     });
+
+    if (isFirstInsertion) {
+      this.setupRepositoryWatcher(rootPath);
+      this._logger.info('repository discovered', { rootPath });
+      this._onDidChangeRepository.fire(repository);
+    }
 
     return repository;
   }
@@ -999,7 +1048,12 @@ export class GitService implements IGitService, IGitServiceCli {
       return;
     }
 
-    const gitDir = vscode.Uri.file(`${rootPath}/.git`);
+    // Root the watchers at the per-worktree git directory. For a normal
+    // checkout this is `<root>/.git` (a directory); for a LINKED WORKTREE or
+    // submodule `<root>/.git` is a FILE holding a `gitdir:` pointer — globbing
+    // it directly would match nothing (no live refresh) and `handleHeadDelete`'s
+    // readdir would throw on a file. `resolveWorktreeGitDir` follows the pointer.
+    const gitDir = vscode.Uri.file(resolveWorktreeGitDir(rootPath));
 
     const handleChange = (): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
@@ -1310,6 +1364,10 @@ export class GitService implements IGitService, IGitServiceCli {
         this._refreshTimers.delete(key);
       }
       this._reloading.delete(key);
+      // Bump the removal counter so an in-flight `loadRepository` (tracked in
+      // `_reloading`) that resolves AFTER this teardown sees the change and
+      // skips its cache-write/announce instead of resurrecting the root.
+      this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
     }
 
     // Fire `onDidRemoveRepository` for EVERY
@@ -1339,6 +1397,9 @@ export class GitService implements IGitService, IGitServiceCli {
     }
     for (const key of repoKeysToRemove) {
       this._repositories.delete(key);
+      // Cover a cached root with no in-flight reload entry (not in
+      // stateKeysToRemove): still bump so any later load can't resurrect it.
+      this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
     }
     if (!this._disposed) {
       for (const repo of reposToFire) {

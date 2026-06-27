@@ -62,10 +62,46 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
   /** Tracks teardown so repeated disposes + post-dispose renders no-op. */
   protected _disposed = false;
 
-  /** Subclass + base-class disposables. Drained by {@link dispose}. */
+  /** Provider-lifetime disposables (event emitters etc.). Drained by {@link dispose}. */
   protected _disposables: vscode.Disposable[] = [];
 
+  /**
+   * Disposables scoped to the CURRENT resolve cycle (message + dispose handlers,
+   * and any per-resolve subclass listeners registered via
+   * {@link _registerPerResolve}). Drained by the view's `onDidDispose` and by
+   * {@link dispose}. A sidebar view that is hidden then re-shown is re-resolved,
+   * so scoping these here — rather than the provider-lifetime {@link _disposables}
+   * — keeps hide/show cycles from leaking a fresh set of listeners each time.
+   */
+  protected _perResolveDisposables: vscode.Disposable[] = [];
+
   constructor(protected readonly _extensionUri: vscode.Uri) {}
+
+  /**
+   * Register a disposable scoped to the current resolve cycle. Subclasses that
+   * wire per-resolve listeners (e.g. `onDidChangeVisibility` in
+   * {@link _onResolve}) MUST use this instead of pushing into
+   * {@link _disposables}, so a hide→show re-resolve drains the previous cycle's
+   * listeners rather than accumulating them for the provider's whole lifetime.
+   */
+  protected _registerPerResolve(disposable: vscode.Disposable): void {
+    this._perResolveDisposables.push(disposable);
+  }
+
+  /** Dispose + clear every per-resolve disposable. Safe to call repeatedly. */
+  private _drainPerResolve(): void {
+    while (this._perResolveDisposables.length > 0) {
+      const d = this._perResolveDisposables.pop();
+      if (d) {
+        try {
+          d.dispose();
+          // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad disposable doesn't block cleanup of the rest; nothing actionable during teardown.
+        } catch {
+          // Swallow disposal errors so one bad disposable doesn't block cleanup.
+        }
+      }
+    }
+  }
 
   /**
    * Called by VS Code when the view becomes visible. Sets options, wires
@@ -77,51 +113,50 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
+    // A re-resolve (sidebar hide→show) lands here again without necessarily an
+    // intervening onDidDispose in every host; drain any stale per-resolve
+    // listeners defensively so they can't accumulate.
+    this._drainPerResolve();
+
     this._view = webviewView;
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this._extensionUri],
     };
 
-    webviewView.webview.onDidReceiveMessage(
-      (message: unknown) => {
-        // Log async rejections from `_handleMessage` rather than
-        // swallowing them. Subclass handlers
-        // (CommitToolWindow._handleWebviewMessage and
-        // GitToolWindowProvider._handleWebviewMessage) each
-        // internalise user-visible errors already (toasts surfaced from
-        // within the handler + postMessage failure results), so a
-        // handler-level reject is a bug signal rather than a direct
-        // user-facing failure — log with context so it's grep-able in
-        // the extension host output.
-        try {
-          safeFireAndForget(
-            Promise.resolve(this._handleMessage(message)),
-            'BaseWebviewView.resolveWebviewView: async _handleMessage rejection'
-          );
-        } catch (error) {
-          // Defensive: a synchronously-thrown error from a handler must not
-          // take down the host. safeFireAndForget only catches async
-          // rejections — sync throws are handled here.
-          getLogger()
-            .child({ component: 'BaseWebviewView' })
-            .error('message handler threw', error instanceof Error ? error : undefined);
-        }
-      },
-      undefined,
-      this._disposables
-    );
+    const messageSubscription = webviewView.webview.onDidReceiveMessage((message: unknown) => {
+      // Log async rejections from `_handleMessage` rather than swallowing them.
+      // Subclass handlers (CommitToolWindow._handleWebviewMessage and
+      // GitToolWindowProvider._handleWebviewMessage) each internalise
+      // user-visible errors already (toasts surfaced from within the handler +
+      // postMessage failure results), so a handler-level reject is a bug signal
+      // rather than a direct user-facing failure — log with context so it's
+      // grep-able in the extension host output.
+      try {
+        safeFireAndForget(
+          Promise.resolve(this._handleMessage(message)),
+          'BaseWebviewView.resolveWebviewView: async _handleMessage rejection'
+        );
+      } catch (error) {
+        // Defensive: a synchronously-thrown error from a handler must not
+        // take down the host. safeFireAndForget only catches async
+        // rejections — sync throws are handled here.
+        getLogger()
+          .child({ component: 'BaseWebviewView' })
+          .error('message handler threw', error instanceof Error ? error : undefined);
+      }
+    });
+    this._perResolveDisposables.push(messageSubscription);
 
-    webviewView.onDidDispose(
-      () => {
-        // View-side dispose is cooperative — VS Code reclaims the webview but
-        // leaves the provider alive. Tear down our own bookkeeping + clear
-        // the handle; callers that re-resolve later get a fresh one.
-        this._view = undefined;
-      },
-      undefined,
-      this._disposables
-    );
+    const disposeSubscription = webviewView.onDidDispose(() => {
+      // View-side dispose is cooperative — VS Code reclaims the webview but
+      // leaves the provider alive. Tear down THIS resolve cycle's listeners
+      // (so a later re-resolve doesn't accumulate them) + clear the handle;
+      // callers that re-resolve later get a fresh one.
+      this._view = undefined;
+      this._drainPerResolve();
+    });
+    this._perResolveDisposables.push(disposeSubscription);
 
     this._render();
 
@@ -251,6 +286,8 @@ ${body}
       return;
     }
     this._disposed = true;
+
+    this._drainPerResolve();
 
     while (this._disposables.length > 0) {
       const d = this._disposables.pop();

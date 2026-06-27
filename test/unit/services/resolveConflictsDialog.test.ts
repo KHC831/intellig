@@ -470,6 +470,34 @@ describe('ResolveConflictsDialog', () => {
       assert.deepStrictEqual(mergeView._showArgs, ['a.ts']);
     });
 
+    it('drops a concurrent second Continue (busy gate) — rebaseContinue runs once', async () => {
+      // A fast double-click could fire two `rebase --continue` runs; the second
+      // dead-ends on "no rebase in progress". The _busy gate must drop it.
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: true }],
+        { operation: 'rebase', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMsg = (
+        dialog as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(dialog);
+
+      // Fire both WITHOUT awaiting the first, so the second arrives mid-flight.
+      const p1 = onMsg({ type: 'continue' });
+      const p2 = onMsg({ type: 'continue' });
+      await Promise.all([p1, p2]);
+
+      assert.strictEqual(
+        (gitService as unknown as { _rebaseContinueCalls: number })._rebaseContinueCalls,
+        1,
+        'a double-clicked Continue must run rebaseContinue exactly once'
+      );
+    });
+
     it('MergeView.onDidResolve flips the row status to resolved', () => {
       dialog = new ResolveConflictsDialog(
         ctx,

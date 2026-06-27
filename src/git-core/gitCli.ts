@@ -31,6 +31,52 @@ export function appendCapped(existing: string, chunk: string, cap: number): stri
 }
 
 /**
+ * Default wall-clock timeouts (ms) bounding a git child so a stalled command
+ * can't hang the host indefinitely or leak a zombie process — most importantly
+ * the unattended auto-fetch loop and any network verb stuck on a dead
+ * connection or a hung credential helper. Network verbs get a tighter bound
+ * than local verbs. An explicit `timeout` option always wins (including `0` =
+ * no timeout), so a caller can still opt out.
+ */
+export const NETWORK_GIT_TIMEOUT_MS = 300_000;
+export const LOCAL_GIT_TIMEOUT_MS = 600_000;
+
+/** Grace period after SIGTERM before escalating to SIGKILL on a child that
+ * ignores the polite signal (e.g. a credential helper trapping SIGTERM). */
+export const GIT_KILL_GRACE_MS = 2_000;
+
+/** Network verbs — bounded by {@link NETWORK_GIT_TIMEOUT_MS}. */
+const NETWORK_GIT_VERBS = new Set(['fetch', 'pull', 'push']);
+/** Verbs left UNBOUNDED: a `clone` legitimately runs for many minutes; a
+ * `ls-remote` is the interactive credential probe. */
+const UNBOUNDED_GIT_VERBS = new Set(['clone', 'ls-remote']);
+
+/** The git subcommand (verb) = the first non-flag argv token, so a leading
+ * global flag like `--no-optional-locks` is skipped. */
+function gitVerb(args: string[]): string | undefined {
+  return args.find((arg) => !arg.startsWith('-'));
+}
+
+/**
+ * Resolve the effective wall-clock timeout (ms; `0` = unbounded) for a git
+ * command. An explicit option value always wins — preserving the `0` opt-out;
+ * otherwise the default is chosen by verb class (network / unbounded / local).
+ */
+export function resolveGitTimeoutMs(args: string[], explicit?: number): number {
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  const verb = gitVerb(args);
+  if (verb !== undefined && UNBOUNDED_GIT_VERBS.has(verb)) {
+    return 0;
+  }
+  if (verb !== undefined && NETWORK_GIT_VERBS.has(verb)) {
+    return NETWORK_GIT_TIMEOUT_MS;
+  }
+  return LOCAL_GIT_TIMEOUT_MS;
+}
+
+/**
  * Result of a Git command execution
  */
 export interface IGitCommandResult {
@@ -52,7 +98,11 @@ export interface IGitCommandOptions {
   cwd?: string;
   /** Environment variables */
   env?: NodeJS.ProcessEnv;
-  /** Timeout in milliseconds (0 = no timeout) */
+  /**
+   * Timeout in milliseconds. Omit to use the per-verb default
+   * ({@link resolveGitTimeoutMs} — network 300s, local 600s, clone/ls-remote
+   * unbounded). An explicit value wins, and `0` explicitly disables the bound.
+   */
   timeout?: number;
   /** Input to write to stdin */
   input?: string;
@@ -156,6 +206,9 @@ function resolveGitExecutable(gitName: string): string {
  */
 export class GitCli {
   private _gitPath: string;
+  /** Injectable spawn (defaults to child_process.spawn) — a test seam for
+   * driving timeout / kill behavior with a controllable child. */
+  private readonly _spawn: typeof spawn;
   private _onCommandExecuted: vscode.EventEmitter<{
     command: string;
     args: string[];
@@ -172,7 +225,7 @@ export class GitCli {
     result: IGitCommandResult;
   }>;
 
-  constructor(gitPath: string = 'git') {
+  constructor(gitPath: string = 'git', spawnFn: typeof spawn = spawn) {
     // Pre-resolve the bare `'git'` token to an absolute path so
     // `child_process.spawn` skips libuv's PATH lookup entirely. This
     // eliminates the `spawn git ENOENT` flake that surfaces under
@@ -180,6 +233,7 @@ export class GitCli {
     // Pre-resolution is a no-op when caller supplied an explicit path
     // and falls back to the bare name when resolution itself fails.
     this._gitPath = resolveGitExecutable(gitPath);
+    this._spawn = spawnFn;
     this._onCommandExecuted = new vscode.EventEmitter();
     this.onCommandExecuted = this._onCommandExecuted.event;
   }
@@ -233,7 +287,10 @@ export class GitCli {
   }
 
   private _spawnOnce(args: string[], options: IGitCommandOptions): Promise<IGitCommandResult> {
-    const { cwd, env, timeout = 0, input, throwOnError = false } = options;
+    const { cwd, env, input, throwOnError = false } = options;
+    // An explicit `options.timeout` (incl. 0 = no timeout) wins; otherwise apply
+    // the per-verb default so a stalled command can't hang the host forever.
+    const timeout = resolveGitTimeoutMs(args, options.timeout);
 
     const spawnOptions: SpawnOptions = {
       cwd,
@@ -242,19 +299,33 @@ export class GitCli {
     };
 
     return new Promise((resolve, reject) => {
-      const process = spawn(this._gitPath, args, spawnOptions);
+      const process = this._spawn(this._gitPath, args, spawnOptions);
 
       let stdout = '';
       let stderr = '';
       let combined = '';
       let killed = false;
 
-      // Set up timeout if specified
+      // Bound the command: on timeout send SIGTERM, then escalate to SIGKILL if
+      // the child ignores it (a hung credential helper can trap SIGTERM). Both
+      // timers are cleared on close/error so a normal completion never kills.
       let timeoutId: NodeJS.Timeout | undefined;
+      let killTimer: NodeJS.Timeout | undefined;
+      const clearTimers = (): void => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (killTimer) {
+          clearTimeout(killTimer);
+        }
+      };
       if (timeout > 0) {
         timeoutId = setTimeout(() => {
           killed = true;
           process.kill('SIGTERM');
+          killTimer = setTimeout(() => {
+            process.kill('SIGKILL');
+          }, GIT_KILL_GRACE_MS);
         }, timeout);
       }
 
@@ -288,9 +359,7 @@ export class GitCli {
 
       // Handle process completion
       process.on('close', (code) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
+        clearTimers();
 
         const result: IGitCommandResult = {
           exitCode: killed ? -1 : (code ?? -1),
@@ -313,9 +382,7 @@ export class GitCli {
 
       // Handle process errors
       process.on('error', (error) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
+        clearTimers();
 
         const result: IGitCommandResult = {
           exitCode: -1,

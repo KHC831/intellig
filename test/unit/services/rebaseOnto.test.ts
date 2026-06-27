@@ -80,7 +80,7 @@ function scriptGitVersion(cli: ScriptedGitCli, banner = 'git version 2.50.1'): v
   cli.scripted.push({ exitCode: 0, stdout: banner, stderr: '' });
 }
 
-describe('GitService.rebaseBranch — --onto newbase (H-2 git4idea GitRebaseDialog)', () => {
+describe('GitService.rebaseBranch — --onto newbase (git4idea GitRebaseDialog)', () => {
   it('splices --onto <newbase> before the --end-of-options upstream guard', async () => {
     const cli = new ScriptedGitCli();
     scriptCleanRebase(cli);

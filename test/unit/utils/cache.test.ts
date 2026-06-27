@@ -382,6 +382,25 @@ describe('GitCacheManager', () => {
     assert.deepStrictEqual(manager.branches.get('/repo2:branches'), ['develop']);
   });
 
+  it('does not invalidate a sibling repo whose path shares a string prefix', () => {
+    const manager = new GitCacheManager();
+    manager.branches.set('/a/repo:branches', ['main']);
+    manager.branches.set('/a/repo2:branches', ['dev']); // sibling; prefix-overlaps /a/repo
+
+    manager.invalidateRepository('/a/repo');
+
+    assert.strictEqual(
+      manager.branches.get('/a/repo:branches'),
+      undefined,
+      'target repo invalidated'
+    );
+    assert.deepStrictEqual(
+      manager.branches.get('/a/repo2:branches'),
+      ['dev'],
+      'a sibling /a/repo2 sharing the string prefix must NOT be invalidated'
+    );
+  });
+
   it('should clear all caches', () => {
     const manager = new GitCacheManager();
 

@@ -178,6 +178,9 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     this._disposables.push(
       this._gitService.onDidChangeRepository(() => {
         this._blameCache.clear();
+        // A repo-state change can include `remote set-url`; drop the per-repo
+        // parsed-remote cache so hover links re-resolve against the new URL.
+        this._remoteCache.clear();
         if (this._enabled && this._currentEditor) {
           // Bucket B: blame fetches can fail (async gitCli);
           // surface to console without blocking the repo-state sync.

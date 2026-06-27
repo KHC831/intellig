@@ -121,7 +121,11 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
 
     const surface = gitService as unknown as DeletionSurface;
     surface._gitCli = stubCli;
-    // Stub loadRepository so discoverRepository can register a fake repo.
+    // Stub loadRepository so discovery registers a fake repo without real git
+    // subprocesses. It must fulfill the real `loadRepository` contract that the
+    // first-insertion funnel relies on: register the repo AND install its
+    // per-repo `.git/` watcher (the real `setupRepositoryWatcher`, which these
+    // tests probe via `findHeadWatcher`).
     surface.loadRepository = async (root: string): Promise<unknown> => {
       const fakeRepo = {
         rootUri: Uri.file(root),
@@ -135,6 +139,8 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
         repository: fakeRepo,
         lastUpdated: Date.now(),
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      (gitService as any).setupRepositoryWatcher(root);
       return fakeRepo;
     };
     // Avoid spawning the new-repo watcher in the test fixture — only the

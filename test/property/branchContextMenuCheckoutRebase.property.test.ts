@@ -281,21 +281,21 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
       );
     });
 
-    it('Checkout and Rebase uses HEAD as previous branch when in detached HEAD state', async () => {
+    it('Checkout and Rebase rebases onto the prior COMMIT sha (not literal HEAD) when detached', async () => {
+      const priorSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
       await fc.assert(
         fc.asyncProperty(arbitraryBranchName(), async (rightClickedBranch) => {
-          // Setup: Create tracking mock git service with detached HEAD
+          // Setup: detached HEAD — no branch name, only a commit sha.
           const gitService = createTrackingMockGitService('HEAD');
           const provider = new BranchTreeProvider(gitService);
 
-          // Mock repository with no head name (detached HEAD)
-          const mockRepo: IRepository = {
+          const mockRepo = {
             rootUri: Uri.file('/test-repo'),
             state: 'idle',
-            head: { name: undefined, ahead: 0, behind: 0 },
+            head: { commit: priorSha, ahead: 0, behind: 0 },
             remotes: [],
             submodules: [],
-          };
+          } as unknown as IRepository;
           provider.getRepository = () => mockRepo;
 
           const commands = new BranchContextMenuCommands(gitService, provider);
@@ -304,19 +304,18 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
           // Act
           await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
-          // Assert: Exactly 2 operations were called
+          // Assert: checkout then rebase.
           assert.strictEqual(gitService.operationCalls.length, 2);
-
-          // Assert: First operation is checkout with the right-clicked branch
           assert.strictEqual(gitService.operationCalls[0].operation, 'checkout');
           assert.strictEqual(gitService.operationCalls[0].args[0], rightClickedBranch);
 
-          // Assert: Second operation is rebaseBranch with "HEAD" (fallback)
+          // Second op rebases onto the prior COMMIT sha — rebasing onto the
+          // literal 'HEAD' would target the just-moved HEAD (a no-op).
           assert.strictEqual(gitService.operationCalls[1].operation, 'rebaseBranch');
           assert.strictEqual(
             gitService.operationCalls[1].args[0],
-            'HEAD',
-            `Expected rebaseBranch to be called with "HEAD" for detached state, but was called with "${String(gitService.operationCalls[1].args[0])}"`
+            priorSha,
+            `Expected rebaseBranch onto the prior sha, but was "${String(gitService.operationCalls[1].args[0])}"`
           );
         }),
         { numRuns: 100 }

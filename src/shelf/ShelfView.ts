@@ -195,6 +195,15 @@ export class ShelfView implements IShelfView {
   }
 
   /**
+   * Bind the view to a repository with no UI side effect (see
+   * {@link IShelfView.setRepository}). Subsequent `refresh`/action calls target
+   * this repo.
+   */
+  setRepository(repository: IRepository): void {
+    this._repository = repository;
+  }
+
+  /**
    * Show the shelf list view.
    *
    * @param repository - The repository to show shelf items for

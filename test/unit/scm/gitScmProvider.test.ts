@@ -13,6 +13,7 @@
 import { strict as assert } from 'assert';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { okAsync } from 'neverthrow';
 
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { createMockGitService } from '../../mocks/mockGitService';
@@ -248,5 +249,61 @@ describe('GitScmProvider — lifecycle', () => {
     provider.dispose();
 
     assert.equal(created[0].disposed, true);
+  });
+});
+
+describe('GitScmProvider — accept-commit status-read failure', () => {
+  it('aborts the accept + surfaces an error and does NOT commit when getStatus fails', async () => {
+    const repo = repoAt('/repo');
+    let commitCalled = false;
+    const git = createMockGitService(repo, {
+      getRepositories: () => [repo],
+      getStatus: async (): Promise<IFileStatus[]> => {
+        throw new Error('status boom');
+      },
+      commit: () => {
+        commitCalled = true;
+        return okAsync(undefined);
+      },
+    });
+    const { api } = fakeScmApi();
+    const provider = new GitScmProvider(git, api);
+
+    // Spy the error toast.
+    const originalShow = vscode.window.showErrorMessage;
+    let errorShown = 0;
+    (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage =
+      async (): Promise<string | undefined> => {
+        errorShown += 1;
+        return undefined;
+      };
+
+    const sc = new FakeSourceControl('intellig', 'IntelliG Git');
+    sc.inputBox.value = 'my message';
+    const entry = {
+      repo,
+      sourceControl: sc as unknown as vscode.SourceControl,
+      stagedGroup: sc.createResourceGroup('staged', 'Staged Changes'),
+      changesGroup: sc.createResourceGroup('changes', 'Changes'),
+    };
+
+    try {
+      await (
+        provider as unknown as {
+          _runCommitFromInput: (
+            e: typeof entry,
+            s: vscode.SourceControl,
+            m: string
+          ) => Promise<void>;
+        }
+      )._runCommitFromInput(entry, sc as unknown as vscode.SourceControl, 'my message');
+    } finally {
+      (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = originalShow;
+      provider.dispose();
+    }
+
+    assert.equal(commitCalled, false, 'must not commit when the staged set is unknown');
+    assert.equal(errorShown, 1, 'must surface the status-read failure');
+    assert.equal(sc.inputBox.value, 'my message', 'input box must not be cleared on abort');
   });
 });

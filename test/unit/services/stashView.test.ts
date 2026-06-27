@@ -1083,3 +1083,87 @@ describe('StashView — diff picker basename collision', () => {
     }
   });
 });
+
+describe('StashView — setRepository seam', () => {
+  it('binds the repo with no UI side effect so a later refresh targets it', async () => {
+    const repo = makeRepo();
+    const git = makeGitService({ stashes: [] });
+    let listedRepo: IRepository | undefined;
+    (git as unknown as { stashList: (r: IRepository) => Promise<IStash[]> }).stashList = async (
+      r: IRepository
+    ): Promise<IStash[]> => {
+      listedRepo = r;
+      return [];
+    };
+
+    const view = createStashView(git);
+    try {
+      view.setRepository(repo);
+      const res = await view.refresh();
+      assert.strictEqual(res.error, undefined, 'refresh after setRepository succeeds');
+      assert.strictEqual(listedRepo, repo, 'refresh targets the repo bound via setRepository');
+    } finally {
+      view.dispose();
+    }
+  });
+});
+
+describe('StashView — stale-index re-validation (wrong-stash data-loss guard)', () => {
+  it('aborts drop and does NOT call stashDrop when the stash at the index drifted to a different sha', async () => {
+    const seeded: IStash[] = [
+      { index: 0, message: 'wip-A', date: new Date(), hash: 'a'.repeat(40) },
+    ];
+    const gitService = makeGitService({ stashes: seeded });
+    const view = createStashView(gitService);
+    const { restore } = installWindowStubs(() => undefined);
+    let dropCalls = 0;
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh(); // seed _state with hash a…
+
+      // The stack renumbered: stash@{0} now points at a DIFFERENT stash.
+      (gitService as unknown as { stashList: () => Promise<IStash[]> }).stashList = async () => [
+        { index: 0, message: 'wip-B', date: new Date(), hash: 'b'.repeat(40) },
+      ];
+      (gitService as unknown as { stashDrop: () => ReturnType<typeof okAsync> }).stashDrop = () => {
+        dropCalls += 1;
+        return okAsync(undefined);
+      };
+
+      const result = await view.dropStash(0);
+      assert.strictEqual(result.success, false, 'drop must abort on index drift');
+      assert.strictEqual(dropCalls, 0, 'the wrong stash must NOT be dropped');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('drops when the sha at the index still matches the selected stash', async () => {
+    const sha = 'a'.repeat(40);
+    const gitService = makeGitService({
+      stashes: [{ index: 0, message: 'wip', date: new Date(), hash: sha }],
+    });
+    const view = createStashView(gitService);
+    const { restore } = installWindowStubs(() => undefined);
+    let dropCalls = 0;
+    // The drop confirmation modal must be accepted.
+    (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage =
+      async (): Promise<string | undefined> => 'Drop';
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      (gitService as unknown as { stashDrop: () => ReturnType<typeof okAsync> }).stashDrop = () => {
+        dropCalls += 1;
+        return okAsync(undefined);
+      };
+
+      const result = await view.dropStash(0);
+      assert.strictEqual(result.success, true, 'a matching sha must allow the drop');
+      assert.strictEqual(dropCalls, 1, 'the selected stash is dropped exactly once');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+});

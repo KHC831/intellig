@@ -47,6 +47,9 @@ class MockGitService {
   getRepositories(): IRepository[] {
     return [];
   }
+  fireRepoChange(repo: IRepository): void {
+    this._onDidChangeRepository.fire(repo);
+  }
   dispose(): void {
     this._onDidChangeRepository.dispose();
   }
@@ -96,5 +99,25 @@ describe('GutterBlameProvider hover — click-through wiring', () => {
 
   it('does not reference the unregistered intellig.viewCommit command', () => {
     assert.ok(!hoverValue().includes('command:intellig.viewCommit'));
+  });
+});
+
+describe('GutterBlameProvider — repo-change cache invalidation', () => {
+  it('clears the gutter blame cache on onDidChangeRepository (HEAD move)', () => {
+    const git = new MockGitService();
+    const provider = new GutterBlameProvider(
+      new MockBlameService() as unknown as IBlameService,
+      git as unknown as IGitService
+    );
+    const cache = (provider as unknown as { _blameCache: Map<string, unknown> })._blameCache;
+    cache.set('file:///x.ts', { lines: [] });
+    assert.strictEqual(cache.size, 1, 'precondition: cache seeded');
+
+    git.fireRepoChange({
+      rootUri: { fsPath: '/repo' },
+    } as unknown as IRepository);
+
+    assert.strictEqual(cache.size, 0, 'a repo change must clear the gutter blame cache');
+    provider.dispose();
   });
 });

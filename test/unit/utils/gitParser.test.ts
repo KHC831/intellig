@@ -168,6 +168,69 @@ describe('Git Parser Utilities', () => {
     });
   });
 
+  describe('parseStatus — NUL-delimited (-z) format', () => {
+    // `git status --porcelain -z` NUL-terminates each entry and emits paths
+    // VERBATIM (no C-quoting), so non-ASCII / space / newline names survive.
+    // For renames/copies the SOURCE path follows the destination as the next
+    // NUL token (the reverse of the human `from -> to` order).
+
+    it('parses a NUL-terminated modified entry', () => {
+      const result = parseStatus(' M src/file.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'src/file.ts');
+      assert.strictEqual(result[0].workTreeStatus, 'M');
+    });
+
+    it('keeps a non-ASCII filename verbatim (no C-quoting/escaping)', () => {
+      const result = parseStatus('UU café.txt\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'café.txt');
+      assert.strictEqual(result[0].indexStatus, 'U');
+      assert.strictEqual(result[0].workTreeStatus, 'U');
+    });
+
+    it('keeps a filename containing spaces', () => {
+      const result = parseStatus(' M my report final.txt\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'my report final.txt');
+    });
+
+    it('keeps a filename containing an embedded newline as ONE entry', () => {
+      // The whole point of -z: a `\n` in a name must not split the entry.
+      const result = parseStatus('A  weird\nname.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'weird\nname.ts');
+      assert.strictEqual(result[0].indexStatus, 'A');
+    });
+
+    it('parses a -z rename: destination first, source as the next NUL token', () => {
+      const result = parseStatus('R  new name.ts\0old name.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'new name.ts');
+      assert.strictEqual(result[0].renamed, 'old name.ts');
+      assert.strictEqual(result[0].indexStatus, 'R');
+    });
+
+    it('parses a -z copy: destination first, original as the next NUL token', () => {
+      const result = parseStatus('C  copy.ts\0original.ts\0');
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'copy.ts');
+      assert.strictEqual(result[0].renamed, 'original.ts');
+      assert.strictEqual(result[0].indexStatus, 'C');
+    });
+
+    it('parses multiple mixed entries including a rename without losing alignment', () => {
+      const output = ' M a.ts\0R  to.ts\0from.ts\0?? café.ts\0';
+      const result = parseStatus(output);
+      assert.strictEqual(result.length, 3);
+      assert.strictEqual(result[0].path, 'a.ts');
+      assert.strictEqual(result[1].path, 'to.ts');
+      assert.strictEqual(result[1].renamed, 'from.ts');
+      assert.strictEqual(result[2].path, 'café.ts');
+      assert.strictEqual(result[2].indexStatus, '?');
+    });
+  });
+
   describe('statusCodeToFileStatus', () => {
     it('should return conflicted for U status', () => {
       assert.strictEqual(statusCodeToFileStatus('U', ' '), 'conflicted');
@@ -262,6 +325,24 @@ describe('Git Parser Utilities', () => {
       assert.strictEqual(result[1].index, 1);
       assert.strictEqual(result[1].branch, 'feature');
       assert.strictEqual(result[1].date.getTime(), Date.UTC(2023, 0, 2, 3, 4, 5));
+    });
+
+    it('parses the optional appended %H sha (4th field) and leaves it undefined when absent', () => {
+      const sep = '\x1f';
+      const withHash = [
+        'stash@{0}',
+        '2024-05-01 12:00:00 +0000',
+        'WIP on main: abc1234 msg',
+        'a'.repeat(40),
+      ].join(sep);
+      const withoutHash = ['stash@{1}', '2023-01-02 03:04:05 +0000', 'On feature: def msg'].join(
+        sep
+      );
+      const result = parseStashList(`${withHash}\n${withoutHash}\n`);
+
+      assert.strictEqual(result.length, 2);
+      assert.strictEqual(result[0].hash, 'a'.repeat(40), 'sha parsed from the 4th field');
+      assert.strictEqual(result[1].hash, undefined, 'no sha field → hash undefined');
     });
 
     it('still parses the legacy `stash@{N}: WIP on branch: msg` form (no separator)', () => {
@@ -492,6 +573,56 @@ Binary files a/image.png and b/image.png differ
       assert.strictEqual(result.length, 1);
       assert.strictEqual(result[0].path, 'image.png');
       assert.strictEqual(result[0].binary, true);
+    });
+
+    it('C-unquotes a git-quoted (non-ASCII) header path', () => {
+      // git C-quotes a special-byte path in the `diff --git` header, wrapping the
+      // `a/`|`b/` prefix inside the quotes with octal byte escapes
+      // (é → \303\251, its UTF-8 bytes). The old `^--git a/...` regex didn't
+      // match the quoted form and dropped the file from the changed-files list.
+      const output =
+        'diff --git "a/caf\\303\\251.txt" "b/caf\\303\\251.txt"\n' +
+        'index 1111111..2222222 100644\n' +
+        '--- "a/caf\\303\\251.txt"\n' +
+        '+++ "b/caf\\303\\251.txt"\n' +
+        '@@ -1 +1 @@\n' +
+        '-old\n' +
+        '+new\n';
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'café.txt');
+      assert.strictEqual(result[0].status, 'modified');
+    });
+
+    it('C-unquotes both sides of a quoted rename header', () => {
+      const output =
+        'diff --git "a/caf\\303\\251-old.txt" "b/caf\\303\\251-new.txt"\n' +
+        'rename from "caf\\303\\251-old.txt"\n' +
+        'rename to "caf\\303\\251-new.txt"\n' +
+        '--- "a/caf\\303\\251-old.txt"\n' +
+        '+++ "b/caf\\303\\251-new.txt"\n';
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'café-new.txt');
+      assert.strictEqual(result[0].oldPath, 'café-old.txt');
+      assert.strictEqual(result[0].status, 'renamed');
+    });
+
+    it('still parses an unquoted (ASCII) header unchanged', () => {
+      // Zero-regression guard for the bare path the quoting change must not break.
+      const output =
+        'diff --git a/src/plain.ts b/src/plain.ts\n' +
+        '--- a/src/plain.ts\n' +
+        '+++ b/src/plain.ts\n' +
+        '@@ -1 +1 @@\n' +
+        '-a\n' +
+        '+b\n';
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'src/plain.ts');
     });
 
     it('should parse multiple file diffs', () => {

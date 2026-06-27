@@ -195,7 +195,12 @@ export function computeBranchColors(
     if (!ref) {
       continue;
     }
-    tips.push({ index: i, refName: ref.name, priority: layoutPriority(ref) });
+    // Ownership priority is the BEST (most important) tier over ALL of the tip's
+    // refs — a trunk carrying both `main` and `origin/main` ranks as remote trunk
+    // (tier 0), so a sibling remote feature can't outrank it and steal the spine.
+    // `pickRef` still chooses only the display name / palette representative.
+    const priority = Math.min(...nodes[i].refs.map(layoutPriority));
+    tips.push({ index: i, refName: ref.name, priority });
   }
 
   // Assign each tip a palette color by DISPLAY order (newest tip first = smallest

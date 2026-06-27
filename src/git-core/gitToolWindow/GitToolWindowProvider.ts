@@ -216,6 +216,49 @@ export type LogContextAction =
   | 'goToChild';
 
 /**
+ * Runtime allow-list of every {@link LogContextAction}. Kept exhaustive by
+ * `satisfies Record<LogContextAction, true>` — adding a union arm without a
+ * matching entry is a COMPILE error, so the message-boundary validator
+ * ({@link isLogContextAction}) can never silently miss a new action.
+ */
+const LOG_CONTEXT_ACTIONS = {
+  copyHash: true,
+  createPatch: true,
+  cherryPick: true,
+  checkoutRevision: true,
+  showRepoAtRevision: true,
+  compareWithLocal: true,
+  resetToHere: true,
+  revert: true,
+  undoCommit: true,
+  dropCommit: true,
+  editCommitMessage: true,
+  interactiveRebase: true,
+  squashCommits: true,
+  compareVersions: true,
+  fixup: true,
+  squashInto: true,
+  compareWithBranch: true,
+  pushUpToCommit: true,
+  newBranch: true,
+  newTag: true,
+  goToParent: true,
+  goToChild: true,
+} satisfies Record<LogContextAction, true>;
+
+/**
+ * Boundary validator: is `value` a known {@link LogContextAction}? Used to
+ * allow-list the untrusted webview `action` before emitting it (some arms —
+ * drop/reset/rebase — are destructive), so the guarantee doesn't rest on the
+ * downstream consumer's switch staying exhaustive + default-safe.
+ */
+export function isLogContextAction(value: unknown): value is LogContextAction {
+  return (
+    typeof value === 'string' && Object.prototype.hasOwnProperty.call(LOG_CONTEXT_ACTIONS, value)
+  );
+}
+
+/**
  * Extended Log state with commit nodes for graph visualization
  */
 export interface IExtendedLogState extends ILogState {
@@ -791,15 +834,15 @@ export class GitToolWindowProvider
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    // Handle visibility changes
-    webviewView.onDidChangeVisibility(
-      () => {
+    // Handle visibility changes. Scoped to this resolve cycle (drained on the
+    // view's onDidDispose) so a hide→show re-resolve doesn't accumulate a fresh
+    // visibility listener each time.
+    this._registerPerResolve(
+      webviewView.onDidChangeVisibility(() => {
         if (webviewView.visible) {
           this._updateWebview();
         }
-      },
-      undefined,
-      this._disposables
+      })
     );
 
     // Fire the initial data request event so the extension host can
@@ -1658,8 +1701,12 @@ export class GitToolWindowProvider
         void vscode.commands.executeCommand('git.init');
         break;
       case 'commitContextMenu':
-        if (message.action && message.commitHashes) {
-          this._handleCommitContextMenu(message.action as LogContextAction, message.commitHashes);
+        // Allow-list the untrusted `action` at the boundary (some arms —
+        // drop/reset/rebase — are destructive); an unknown action is dropped
+        // rather than cast-and-fired on the assumption the downstream switch
+        // stays exhaustive + default-safe.
+        if (isLogContextAction(message.action) && message.commitHashes) {
+          this._handleCommitContextMenu(message.action, message.commitHashes);
         }
         break;
       case 'doubleClickFile':
@@ -1861,6 +1908,16 @@ export class GitToolWindowProvider
           filter.branch = webviewFilter.branch;
         }
       }
+      // `searchText` / `author` / `path` do NOT get the branch's leading-`-`/`.`
+      // guard, and that asymmetry is intentional: `branch` is threaded as a
+      // POSITIONAL `git log <ref>` (so a leading `-` would be a flag), whereas
+      // these three reach git ONLY in injection-safe positions downstream —
+      // `--author=<v>` / `--grep=<v>` (`=`-bound, value can't split into its own
+      // argv token) and `path` after the `--` pathspec separator. Applying the
+      // ref guard here would also wrongly reject legitimate values: a `.`-leading
+      // dotfile path (`.github/…`) and a search term that starts with `-`. The
+      // safe-position contract is pinned by the getLog argv tests
+      // (getLogPathFilter / getLogMatchMode).
       if (webviewFilter.searchText) {
         filter.searchText = webviewFilter.searchText;
         // Mode flags only matter alongside search text; a toggle with no text
@@ -2632,6 +2689,16 @@ export class GitToolWindowProvider
       return;
     }
 
+    // A non-integer (e.g. `NaN` from `Number('x')` in a garbled webview message)
+    // passes both `< 0` and `>= len` as false, so the clamp below wouldn't fire
+    // and `NaN` would brick the scope state. Reject it outright.
+    if (!Number.isInteger(selection)) {
+      getLogger()
+        .child({ component: 'GitToolWindowProvider' })
+        .warn('ignoring non-integer repository index', { index: selection });
+      return;
+    }
+
     // Clamp to valid range
     let clampedIndex = selection;
     if (selection < 0 || selection >= this._availableRepositories.length) {
@@ -2699,6 +2766,15 @@ export class GitToolWindowProvider
    * Handle double-click on a file in commit details
    */
   private _handleCommitFileDoubleClick(commitHash: string, filePath: string): void {
+    // Posture parity with `_handleCommitContextMenu`: only fire for a commit
+    // still in the rendered list, so a hash that drifted (refresh / force-push /
+    // filter change since the row was shown) can't reach `getCommit`. The diff
+    // path is read-only and already contained downstream, so a stale hash is
+    // dropped silently (no toast) rather than nagging on a read-only action.
+    const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
+    if (!known.has(commitHash)) {
+      return;
+    }
     this._onDidRequestCommitDiff.fire({
       commitHash,
       filePath,
@@ -3748,7 +3824,11 @@ ${bodyMarkup}
     // ties the chip to its graph line. The current-branch chip adds a ring +
     // bold (`.branch-label-head`).
     const chipColor = branchColors?.get(node.commit.hash);
-    const iconColorAttr = chipColor ? ` style="color:${chipColor}"` : '';
+    // Defense-in-depth: only inline a VALIDATED hex color into the `style`
+    // attribute. `branchColors` is a controlled palette today, but a future
+    // ref-derived value must never become CSS injection inside an inline style.
+    const iconColorAttr =
+      chipColor && /^#[0-9a-fA-F]{3,8}$/.test(chipColor) ? ` style="color:${chipColor}"` : '';
 
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;

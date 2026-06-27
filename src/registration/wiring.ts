@@ -120,6 +120,70 @@ export function wireRepositorySelection(deps: {
 }
 
 /**
+ * Minimal provider surface for {@link wireAvailableRepositorySync}.
+ */
+export interface IAvailableRepositoriesProvider {
+  setAvailableRepositories(repos: IRepository[]): void;
+}
+
+/**
+ * Minimal GitService surface for {@link wireAvailableRepositorySync}.
+ */
+export interface IAvailableRepositoriesGitService {
+  getRepositories(): IRepository[];
+  onDidChangeRepository: vscode.Event<IRepository>;
+  onDidRemoveRepository: vscode.Event<IRepository>;
+}
+
+/**
+ * Keep the Git tool window's available-repository list in sync with
+ * GitService's authoritative repository set.
+ *
+ * Derives the list purely from `getRepositories()` on every
+ * `onDidChangeRepository` / `onDidRemoveRepository` — the events that fire when
+ * GitService's own discovery completes, including for NESTED repos found
+ * asynchronously after a workspace folder is added. This replaces a redundant
+ * `onDidChangeWorkspaceFolders` listener that re-resolved the folder root with a
+ * root-only `getRepository(folder.uri)` and read the repo list before nested
+ * discovery finished, so the provider could momentarily miss nested repos.
+ *
+ * Pushes to the provider only when the repository ROOT SET actually changes:
+ * `setAvailableRepositories` re-renders the selector webview, and
+ * `onDidChangeRepository` fires on every commit/checkout/fetch, so re-pushing an
+ * unchanged set would churn the view on every git operation.
+ *
+ * Returns the disposables so the caller can register them with
+ * `context.subscriptions.push(...)`.
+ *
+ * @internal — exported for
+ *   `src/test/unit/extension/availableRepositorySync.test.ts`.
+ */
+export function wireAvailableRepositorySync(deps: {
+  provider: IAvailableRepositoriesProvider;
+  gitService: IAvailableRepositoriesGitService;
+}): vscode.Disposable[] {
+  const rootSetSignature = (repos: IRepository[]): string =>
+    repos
+      .map((r) => r.rootUri.fsPath)
+      .sort()
+      .join('\n');
+
+  let knownSignature = rootSetSignature(deps.gitService.getRepositories());
+
+  const sync = (): void => {
+    const repos = deps.gitService.getRepositories();
+    const signature = rootSetSignature(repos);
+    if (signature === knownSignature) {
+      return;
+    }
+    knownSignature = signature;
+    deps.provider.setAvailableRepositories(repos);
+  };
+
+  return [deps.gitService.onDidChangeRepository(sync), deps.gitService.onDidRemoveRepository(sync)];
+}
+
+/**
  * Provider surface {@link resolveCommitRepoByRoot} reads to map a commit hash
  * to its source repository root. Declared structurally so the resolution is
  * unit-testable without standing up a full `GitToolWindowProvider`.
@@ -438,6 +502,16 @@ export async function provideGitShowContent(
 
   if (!ref) {
     throw new Error('No git ref specified in URI query');
+  }
+
+  // The git-show token is `${ref}:${filePath}`. `ref` is defended by
+  // `--end-of-options` (below). `filePath` rides after the first `:`, so it
+  // can't inject a flag, but a `:` inside it would make the rev:path split
+  // ambiguous. No in-tree producer emits a colon-bearing path (all route
+  // through repoRelativePath), so reject it before exec rather than hand git a
+  // confusing token.
+  if (filePath.includes(':')) {
+    throw new Error(`Invalid file path in intellig-git URI (contains ':'): ${filePath}`);
   }
 
   // Prefer the explicit repoRoot the producer encoded — the only reliable

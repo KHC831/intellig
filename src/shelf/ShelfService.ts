@@ -545,6 +545,30 @@ export class ShelfService implements IShelfService {
       throw new Error('No files found to shelve');
     }
 
+    // The per-file diff below captures the UNSTAGED working-tree change only
+    // (`git diff -- <file>`), so any STAGED content for a selected file is not
+    // included in the shelf — a fully-staged file would even be skipped
+    // entirely. Warn so the shelf is never SILENTLY incomplete. (Capturing the
+    // full change vs HEAD + a change-aware revert round-trip is a deferred
+    // follow-up that owes real-git e2e coverage.)
+    // `-z` (NUL-separated, paths verbatim) so a staged file with a non-ASCII /
+    // space / special name isn't C-quoted — otherwise it wouldn't match the
+    // `-z`-clean paths in `filesToShelve` and the warning would silently miss it
+    // (the same NUL-delimited quoting class). Mirrors the status/diff -z hardening.
+    const stagedResult = await this._gitCli.exec(['diff', '--cached', '--name-only', '-z'], {
+      cwd,
+    });
+    if (stagedResult.exitCode === 0) {
+      const stagedSet = new Set(stagedResult.stdout.split('\0').filter((name) => name.length > 0));
+      const stagedSelected = filesToShelve.filter((file) => stagedSet.has(file));
+      if (stagedSelected.length > 0) {
+        void vscode.window.showWarningMessage(
+          `Staged changes are not included in the shelf for: ${stagedSelected.join(', ')}. ` +
+            `Unstage them (e.g. git reset) to shelve the full change.`
+        );
+      }
+    }
+
     // Create shelf files with diffs
     const shelfFiles: IShelfFile[] = [];
 
@@ -660,7 +684,7 @@ export class ShelfService implements IShelfService {
       // Binary files restore by writing their stored bytes (or deleting the
       // path) rather than applying a text patch.
       if (file.isBinary) {
-        if (this.restoreBinaryShelfFile(repo, file)) {
+        if (await this.restoreBinaryShelfFile(repo, file)) {
           appliedCleanly.push(file.path);
         } else {
           conflicts.push(file.path);
@@ -1234,7 +1258,7 @@ export class ShelfService implements IShelfService {
    * for an added/modified entry, or deletes the path for a deleted entry. Bytes
    * are written via `fs` so they round-trip exactly. Returns `true` on success.
    */
-  private restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): boolean {
+  private async restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<boolean> {
     if (!isShelfFilePathWithinRepo(repo.rootUri.fsPath, file.path)) {
       this._logger.error('Refusing to restore shelved binary file outside repository root', {
         path: file.path,
@@ -1249,6 +1273,35 @@ export class ShelfService implements IShelfService {
         // window, then refuse a non-regular (symlinked) final component.
         if (!isShelfFilePathWithinRepo(root, file.path)) {
           return false;
+        }
+        // Re-applying a shelved deletion unlinks the path. If the user recreated
+        // a file there after shelving the deletion, deleting it would silently
+        // lose their work. Only delete when the on-disk file is the PRISTINE
+        // HEAD version (a clean re-apply); compare the HEAD blob hash against the
+        // working file's hash. Hash compare (not `git diff HEAD`) is required so
+        // an UNTRACKED recreation is caught too. Fail-closed: a positive match
+        // is the ONLY case that deletes — a differing file, a missing HEAD blob
+        // (nothing to match against), or a hash error all PRESERVE the file and
+        // report a conflict (the unshelve loop counts a false return as one).
+        if (fs.existsSync(absPath)) {
+          const headBlob = await this._gitCli.exec(['rev-parse', `HEAD:${file.path}`], {
+            cwd: root,
+            throwOnError: false,
+          });
+          const diskBlob = await this._gitCli.exec(['hash-object', '--', absPath], {
+            cwd: root,
+            throwOnError: false,
+          });
+          const headSha = headBlob.exitCode === 0 ? headBlob.stdout.trim() : '';
+          const diskSha = diskBlob.exitCode === 0 ? diskBlob.stdout.trim() : '';
+          const isPristineHeadVersion = headSha !== '' && headSha === diskSha;
+          if (!isPristineHeadVersion) {
+            this._logger.warn(
+              'Refusing to delete a recreated file on deletion-unshelve; preserving it and reporting a conflict',
+              { path: file.path }
+            );
+            return false;
+          }
         }
         unlinkRegularFile(absPath);
         return true;
@@ -1516,7 +1569,11 @@ export class ShelfService implements IShelfService {
       }
 
       // Write storage file atomically (write-to-temp + rename). See
-      // {@link atomicWriteFileSync} for the crash-during-write rationale.
+      // {@link atomicWriteFileSync} for the crash-during-write rationale — and
+      // its "Limitations" note: this is last-writer-wins ACROSS WINDOWS, so two
+      // VS Code windows on the same repo saving the shelf near-simultaneously
+      // can silently overwrite each other (knowingly accepted; no cross-window
+      // lock).
       const content = JSON.stringify(serializeShelfForDisk(storage), null, 2);
       atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {

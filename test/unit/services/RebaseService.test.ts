@@ -438,7 +438,7 @@ describe('RebaseService', () => {
       // rebase in progress". The result still reports status:'conflict' (so the
       // resolve dialog opens and lists the files) but marks the conflict
       // non-continuable so continue/abort is not offered.
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, 'UU shared.ts\n'));
       // No .git/rebase-merge or rebase-apply dir exists in tmpRepo, so the
       // rebase is detected as complete.
 
@@ -456,7 +456,7 @@ describe('RebaseService', () => {
       // even though the autostash pop left a conflict behind.
       const litter = path.join(tmpRepo, '.git', '.intellig-reword-abc123.txt');
       fs.writeFileSync(litter, 'an override message');
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, 'UU shared.ts\n'));
 
       const result = await tmpRebaseService.executeRebase(tmpRepoObj);
 
@@ -473,7 +473,7 @@ describe('RebaseService', () => {
       // (.git/rebase-merge present). That state IS continuable, so it stays
       // status:'conflict' AND rebaseInProgress:true to route to continue/abort.
       fs.mkdirSync(path.join(tmpRepo, '.git', 'rebase-merge'), { recursive: true });
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, 'UU shared.ts\n'));
 
       // A still-live rebase keeps its override files — its remaining exec lines
       // still reference them.
@@ -496,7 +496,7 @@ describe('RebaseService', () => {
     it('completes cleanly when the autostash pop leaves no unmerged files (exit 0)', async () => {
       // No-regression guard: a clean autostash round-trip still reports a
       // completed rebase.
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
       const result = await tmpRebaseService.executeRebase(tmpRepoObj);
 
@@ -769,7 +769,7 @@ describe('RebaseService', () => {
       // Mock successful skip that completes the rebase
       mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
       // No rebase-merge directory means rebase is complete
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
       const result = await rebaseService.skipCommit(mockRepo);
 
@@ -795,7 +795,7 @@ describe('RebaseService', () => {
       });
 
       mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
       await rebaseService.skipCommit(mockRepo);
 
@@ -824,7 +824,7 @@ describe('RebaseService', () => {
       it('should resume rebase after conflicts are resolved', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --continue', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         const result = await rebaseService.continueRebase(mockRepo);
 
@@ -843,7 +843,7 @@ describe('RebaseService', () => {
         );
         // Simulate conflicted files in status
         mockGitCli.setExecResult(
-          'status --porcelain',
+          'status --porcelain -z',
           createMockResult(0, 'UU conflicted-file.ts\n')
         );
 
@@ -858,7 +858,7 @@ describe('RebaseService', () => {
       it('should update session status to conflict when conflicts detected', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --continue', createMockResult(1, '', 'error'));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU file.ts\n'));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, 'UU file.ts\n'));
 
         await rebaseService.continueRebase(mockRepo);
 
@@ -869,7 +869,7 @@ describe('RebaseService', () => {
       it('should increment currentStep on successful continue', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --continue', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         const sessionBefore = rebaseService.getRebaseSession(mockRepo);
         const stepBefore = sessionBefore?.currentStep ?? 0;
@@ -889,7 +889,7 @@ describe('RebaseService', () => {
         });
 
         mockGitCli.setExecResult('rebase --continue', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         await rebaseService.continueRebase(mockRepo);
 
@@ -958,7 +958,7 @@ describe('RebaseService', () => {
       it('should skip the current problematic commit', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         const result = await rebaseService.skipCommit(mockRepo);
 
@@ -972,7 +972,10 @@ describe('RebaseService', () => {
       it('should return conflict status if skip leads to more conflicts', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --skip', createMockResult(1, '', 'error'));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU another-file.ts\n'));
+        mockGitCli.setExecResult(
+          'status --porcelain -z',
+          createMockResult(0, 'UU another-file.ts\n')
+        );
 
         const result = await rebaseService.skipCommit(mockRepo);
 
@@ -985,7 +988,7 @@ describe('RebaseService', () => {
       it('should update session status after skip', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         await rebaseService.skipCommit(mockRepo);
 
@@ -999,7 +1002,7 @@ describe('RebaseService', () => {
       it('should increment currentStep when skip succeeds and rebase continues', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         const sessionBefore = rebaseService.getRebaseSession(mockRepo);
         const stepBefore = sessionBefore?.currentStep ?? 0;
@@ -1018,14 +1021,14 @@ describe('RebaseService', () => {
       it('should handle continue -> conflict -> skip workflow', async () => {
         // First continue attempt hits conflict
         mockGitCli.setExecResult('rebase --continue', createMockResult(1, '', 'error'));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU file.ts\n'));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, 'UU file.ts\n'));
 
         const continueResult = await rebaseService.continueRebase(mockRepo);
         assert.strictEqual(continueResult.status, 'conflict');
 
         // User decides to skip the problematic commit
         mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
         const skipResult = await rebaseService.skipCommit(mockRepo);
         assert.ok(skipResult.success);
@@ -1034,7 +1037,7 @@ describe('RebaseService', () => {
       it('should handle continue -> conflict -> abort workflow', async () => {
         // Continue hits conflict
         mockGitCli.setExecResult('rebase --continue', createMockResult(1, '', 'error'));
-        mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU file.ts\n'));
+        mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, 'UU file.ts\n'));
 
         const continueResult = await rebaseService.continueRebase(mockRepo);
         assert.strictEqual(continueResult.status, 'conflict');
@@ -1091,7 +1094,7 @@ describe('RebaseService', () => {
         'rebase --continue',
         createMockResult(128, '', 'fatal: No rebase in progress?')
       );
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
       const result = await rebaseService.continueRebase(mockRepo);
 
@@ -1110,7 +1113,7 @@ describe('RebaseService', () => {
         'rebase --skip',
         createMockResult(128, '', 'fatal: No rebase in progress?')
       );
-      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+      mockGitCli.setExecResult('status --porcelain -z', createMockResult(0, ''));
 
       const result = await rebaseService.skipCommit(mockRepo);
 

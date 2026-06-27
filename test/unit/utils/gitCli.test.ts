@@ -3,12 +3,17 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { EventEmitter } from 'events';
+import type { ChildProcess } from 'child_process';
 import {
   GitCli,
   GitCommandError,
   createGitCli,
   appendCapped,
   MAX_GIT_OUTPUT_BYTES,
+  resolveGitTimeoutMs,
+  NETWORK_GIT_TIMEOUT_MS,
+  LOCAL_GIT_TIMEOUT_MS,
 } from '../../../src/git-core/gitCli';
 
 describe('appendCapped — runaway-output guard (crash regression)', () => {
@@ -359,5 +364,98 @@ describe('Git CLI Utilities', () => {
 
       disposable.dispose();
     });
+  });
+});
+
+describe('resolveGitTimeoutMs — per-verb default bounds', () => {
+  it('bounds network verbs (fetch/pull/push) at the network default', () => {
+    assert.strictEqual(resolveGitTimeoutMs(['fetch', '--porcelain']), NETWORK_GIT_TIMEOUT_MS);
+    assert.strictEqual(resolveGitTimeoutMs(['pull']), NETWORK_GIT_TIMEOUT_MS);
+    assert.strictEqual(resolveGitTimeoutMs(['push', 'origin', 'main']), NETWORK_GIT_TIMEOUT_MS);
+  });
+
+  it('leaves clone and ls-remote UNBOUNDED (0)', () => {
+    assert.strictEqual(resolveGitTimeoutMs(['clone', 'url', 'dir']), 0);
+    assert.strictEqual(resolveGitTimeoutMs(['ls-remote', 'origin']), 0);
+  });
+
+  it('bounds local verbs at the (longer) local default', () => {
+    assert.strictEqual(resolveGitTimeoutMs(['status', '--porcelain', '-z']), LOCAL_GIT_TIMEOUT_MS);
+    assert.strictEqual(resolveGitTimeoutMs(['log', '--oneline']), LOCAL_GIT_TIMEOUT_MS);
+  });
+
+  it('skips a leading global flag to find the verb', () => {
+    assert.strictEqual(
+      resolveGitTimeoutMs(['--no-optional-locks', 'status', '--untracked-files=no']),
+      LOCAL_GIT_TIMEOUT_MS
+    );
+  });
+
+  it('an explicit timeout always wins — including 0 (opt-out) on a network verb', () => {
+    assert.strictEqual(resolveGitTimeoutMs(['fetch'], 0), 0);
+    assert.strictEqual(resolveGitTimeoutMs(['status'], 5000), 5000);
+  });
+});
+
+describe('GitCli command timeout — kill machinery', () => {
+  /** A controllable fake child: records kill signals and emits `close` only
+   * when killed with a signal in `closeOn` (so a child can "ignore" SIGTERM). */
+  class FakeChild extends EventEmitter {
+    readonly stdout = new EventEmitter();
+    readonly stderr = new EventEmitter();
+    readonly stdin = Object.assign(new EventEmitter(), {
+      write: (): boolean => true,
+      end: (): void => {},
+    });
+    readonly killSignals: string[] = [];
+    constructor(private readonly closeOn: Set<string>) {
+      super();
+    }
+    kill(signal: string): boolean {
+      this.killSignals.push(signal);
+      if (this.closeOn.has(signal)) {
+        setImmediate(() => this.emit('close', null));
+      }
+      return true;
+    }
+  }
+
+  function cliWith(child: FakeChild): GitCli {
+    return new GitCli('git', (() => child as unknown as ChildProcess) as never);
+  }
+
+  it('SIGTERM-kills a stalled command once its bound elapses and rejects with a timeout error', async () => {
+    const child = new FakeChild(new Set(['SIGTERM']));
+    await assert.rejects(() => cliWith(child).exec(['fetch'], { timeout: 20 }), /timed out/i);
+    assert.deepStrictEqual(child.killSignals, ['SIGTERM']);
+  });
+
+  it('escalates to SIGKILL when the child ignores SIGTERM', async function () {
+    this.timeout(8000); // waits the real SIGTERM→SIGKILL grace
+    const child = new FakeChild(new Set(['SIGKILL'])); // ignores SIGTERM
+    await assert.rejects(() => cliWith(child).exec(['fetch'], { timeout: 20 }), /timed out/i);
+    assert.deepStrictEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+  });
+
+  it('does NOT arm a kill timer when timeout is explicitly 0', async () => {
+    const child = new FakeChild(new Set()); // never self-closes
+    const cli = cliWith(child);
+    const pending = cli.exec(['fetch'], { timeout: 0 });
+    await new Promise((r) => setTimeout(r, 60));
+    assert.deepStrictEqual(child.killSignals, [], 'timeout:0 must not kill the child');
+    child.emit('close', 0); // settle the never-ending command
+    const result = await pending;
+    assert.strictEqual(result.exitCode, 0);
+  });
+
+  it('does NOT bound a clone by default (unbounded verb)', async () => {
+    const child = new FakeChild(new Set());
+    const cli = cliWith(child);
+    const pending = cli.exec(['clone', 'https://example.test/repo.git', 'dir']);
+    await new Promise((r) => setTimeout(r, 60));
+    assert.deepStrictEqual(child.killSignals, [], 'clone must not be killed by a default timeout');
+    child.emit('close', 0);
+    const result = await pending;
+    assert.strictEqual(result.exitCode, 0);
   });
 });

@@ -59,6 +59,14 @@ export function buildBlameHover(
   md.isTrusted = { enabledCommands: [...BLAME_HOVER_COMMANDS] };
   // supportHtml intentionally left false — metadata must never render as HTML.
 
+  // `providerLink` is built from the remote URL (attacker-deliverable via a
+  // cloned repo's `.git/config`); interpolated raw into a `[…](link)` target it
+  // could inject markup into the TRUSTED hover. Only use it when it's a
+  // well-formed http(s) URL with no link-breaking chars — otherwise drop to the
+  // no-link form.
+  const safeProviderLink =
+    opts.providerLink && isSafeProviderLink(opts.providerLink) ? opts.providerLink : undefined;
+
   const shortHash = blameLine.commit.substring(0, 7);
   const dateStr = blameLine.date.toLocaleDateString('en-US', {
     year: 'numeric',
@@ -68,8 +76,8 @@ export function buildBlameHover(
     minute: '2-digit',
   });
 
-  if (opts.providerLink) {
-    md.appendMarkdown(`**Commit:** [\`${shortHash}\`](${opts.providerLink})\n\n`);
+  if (safeProviderLink) {
+    md.appendMarkdown(`**Commit:** [\`${shortHash}\`](${safeProviderLink})\n\n`);
   } else {
     md.appendMarkdown(`**Commit:** \`${shortHash}\`\n\n`);
   }
@@ -93,10 +101,27 @@ export function buildBlameHover(
       `[Previous Revision](command:intellig.editor.showCommit?${commandArg(blameLine.previousCommit)})`
     );
   }
-  if (opts.showOpenOnHost && opts.providerLink) {
-    actions.push(`[Open on Host](${opts.providerLink})`);
+  if (opts.showOpenOnHost && safeProviderLink) {
+    actions.push(`[Open on Host](${safeProviderLink})`);
   }
   md.appendMarkdown(actions.join(' | '));
 
   return md;
+}
+
+/**
+ * A provider link is safe to interpolate into a markdown `[…](link)` target only
+ * when it's a well-formed `http(s)` URL with no characters that could break out
+ * of the link target — `)`, `]`, or whitespace.
+ */
+function isSafeProviderLink(url: string): boolean {
+  if (!/^https?:\/\//i.test(url) || /[)\]\s]/.test(url)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }

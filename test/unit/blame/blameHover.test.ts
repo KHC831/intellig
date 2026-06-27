@@ -154,4 +154,22 @@ describe('buildBlameHover', () => {
     assert.ok(md.value.includes('https://example.com/commit/abc'), 'provider link missing');
     assert.ok(md.value.includes('Open on Host'), 'open-on-host link missing');
   });
+
+  it('drops a providerLink with link-breaking chars (markdown injection into the trusted hover)', () => {
+    const evil = 'https://h/r)](command:workbench.action.terminal.new)';
+    const md = buildBlameHover(makeBlameLine(), { providerLink: evil, showOpenOnHost: true });
+    assert.ok(
+      !/\]\(command:workbench/.test(md.value),
+      `injected provider command link survived: ${md.value}`
+    );
+    assert.ok(!md.value.includes(evil), 'the raw malicious providerLink must not be interpolated');
+  });
+
+  it('drops a non-http providerLink (e.g. javascript:)', () => {
+    const md = buildBlameHover(makeBlameLine(), {
+      providerLink: 'javascript:alert(1)',
+      showOpenOnHost: true,
+    });
+    assert.ok(!md.value.includes('javascript:'), 'a non-http(s) providerLink must be dropped');
+  });
 });

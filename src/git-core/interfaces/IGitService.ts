@@ -232,6 +232,13 @@ export interface IStash {
   message: string;
   date: Date;
   branch?: string;
+  /**
+   * The stash's commit sha. Stable across stack renumbering (unlike `index`),
+   * so a destructive action can re-validate that `stash@{index}` still points at
+   * the stash the user selected before mutating it. Optional: the legacy
+   * stash-list form (no hash field) leaves it undefined.
+   */
+  hash?: string;
 }
 
 /**
@@ -827,6 +834,14 @@ export interface IRevertResult {
    * Sanitized error reason for non-conflict failures.
    */
   failureReason?: string;
+  /**
+   * True when a custom-message revert staged its changes (`revert --no-commit`
+   * succeeded) but the follow-up `git commit` failed: the index holds a
+   * staged-but-uncommitted revert. The op is non-atomic, so the caller is told
+   * the working state was mutated and can prompt to commit or abort rather than
+   * assume nothing changed.
+   */
+  stagedChangesRemain?: boolean;
 }
 
 /**

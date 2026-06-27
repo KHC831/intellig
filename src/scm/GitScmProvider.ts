@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { formatActionFailureToast } from '../git-core/gitError';
 import type { IFileStatus, IGitService, IRepository, StatusCode } from '../services';
 import { runBeforeCommitChecks } from '../commits/CheckinChecks';
+import { getLogger } from '../utils/logger';
 
 /**
  * Command id wired to each SourceControl's `acceptInputCommand`. Internal
@@ -315,8 +316,18 @@ export class GitScmProvider implements vscode.Disposable {
             s.indexStatus !== '?'
         )
         .map((s) => s.path);
-    } catch {
-      stagedPaths = [];
+    } catch (error) {
+      // A status read that fails means the committed set is unknown, so the
+      // before-commit checks would run against a misleading EMPTY set. Abort the
+      // accept with a surfaced + logged error rather than committing blind.
+      getLogger()
+        .child({ component: 'GitScmProvider' })
+        .error(
+          'commit aborted: failed to read repository status',
+          error instanceof Error ? error : undefined
+        );
+      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to commit', error));
+      return;
     }
     const proceed = await runBeforeCommitChecks(this.gitService, entry.repo, stagedPaths);
     if (!proceed) {

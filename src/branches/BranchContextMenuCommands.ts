@@ -1678,8 +1678,15 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // Store the current branch name before checkout
-    const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
+    // Store the revision to rebase onto BEFORE checkout. When HEAD is attached
+    // that's the branch name; when DETACHED there's no branch name, so capture
+    // the prior COMMIT sha — rebasing onto the literal 'HEAD' would target the
+    // just-moved HEAD (a no-op / nonsensical target).
+    const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || repo.head?.commit;
+    if (!previousCurrentBranch) {
+      void vscode.window.showErrorMessage('Cannot determine the previous revision to rebase onto.');
+      return;
+    }
 
     // Resolve the actual checkout target:
     //   - Local branch  → check out by name (`git checkout main`).
@@ -2650,8 +2657,16 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    // Choose the target remote (default = origin / first; prompt when several
+    // exist), mirroring `_handleTagPush` — don't silently hardcode origin in a
+    // multi-remote repo. Cancel aborts.
+    const targetRemote = await this._chooseTargetRemote(repo);
+    if (!targetRemote) {
+      return;
+    }
+
     const confirm = await vscode.window.showWarningMessage(
-      `Delete remote tag '${item.tag.name}' from origin?`,
+      `Delete remote tag '${item.tag.name}' from ${targetRemote}?`,
       { modal: true },
       'Delete from Remote'
     );
@@ -2661,14 +2676,14 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteRemoteTag(repo, item.tag.name).match(
+      await this._gitService.deleteRemoteTag(repo, item.tag.name, targetRemote).match(
         () => undefined,
         (e) => {
           throw e;
         }
       );
       void vscode.window.showInformationMessage(
-        `Deleted remote tag '${item.tag.name}' from origin`
+        `Deleted remote tag '${item.tag.name}' from ${targetRemote}`
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

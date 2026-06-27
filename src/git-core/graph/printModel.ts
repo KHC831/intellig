@@ -40,7 +40,21 @@ import {
  */
 export type EdgeEnd = { kind: 'inWindow'; row: number } | { kind: 'offWindow' };
 
-/** Edge identity: child row (newer) + parent end + the edge's own lane. */
+/**
+ * Edge identity: child row (newer) + parent end + the edge's own lane.
+ *
+ * RETAINED IDENTITY SEAM — not dead code. This is the deliberate Layer-3
+ * edge-identity layer of the graph print model (DAG → layout → edge-segment
+ * identity → dumb Layer-4 painter), mirroring IntelliJ's vcs-log/graph. The
+ * current Layer-4 painter ({@link graphPainter}) draws geometry from
+ * `lane/fromLane/targetLane/half/curved/color` and does NOT read `el.edge`
+ * yet, so this apparatus (plus {@link laneEdgeId} and the off-window parent
+ * tagging in {@link buildIntervalLookup}) is render-dead TODAY. It is kept as
+ * the stable per-edge identity needed for future edge-level interactivity
+ * (hover/highlight/select a specific edge) and is exercised by printModel.test
+ * at the model level. Do not delete it as "unused" — it's an architectural
+ * seam, not accidental cruft.
+ */
 export interface IGraphEdgeId {
   childRow: number;
   parent: EdgeEnd;
@@ -55,6 +69,7 @@ export type EdgeHalf = 'up' | 'down' | 'full';
  * L4 rule: `colorSource = (type === 'commit' || !curved) ? fromLane : targetLane`.
  */
 export interface IRowEdgeElement {
+  /** Retained identity seam — see {@link IGraphEdgeId}. Not read by the Layer-4 painter yet. */
   edge: IGraphEdgeId;
   half: EdgeHalf;
   /** Straight: `fromLane === targetLane === lane`. Bend: source / destination lanes. */
@@ -105,13 +120,14 @@ export interface IRowPrintModel {
  * tagged off-window when the lane runs off the bottom of the loaded slice).
  */
 function buildIntervalLookup(
-  nodes: ICommitNode[]
+  nodes: ICommitNode[],
+  mergedIntervals: Map<number, Array<{ startRow: number; endRow: number }>>
 ): Map<number, Map<number, { startRow: number; endRow: number }>> {
   const byRow = new Map<number, Map<number, { startRow: number; endRow: number }>>();
   for (let i = 0; i < nodes.length; i++) {
     byRow.set(i, new Map());
   }
-  for (const [lane, intervals] of collectMergedLaneIntervals(nodes)) {
+  for (const [lane, intervals] of mergedIntervals) {
     for (const iv of intervals) {
       for (let row = iv.startRow; row <= iv.endRow; row++) {
         byRow.get(row)?.set(lane, iv);
@@ -121,6 +137,11 @@ function buildIntervalLookup(
   return byRow;
 }
 
+/**
+ * Compute the {@link IGraphEdgeId} for a lane's segment on a row, including the
+ * off-window parent tagging. Part of the retained Layer-3 identity seam — see
+ * {@link IGraphEdgeId}; the Layer-4 painter doesn't consume the result yet.
+ */
 function laneEdgeId(
   nodes: ICommitNode[],
   iv: { startRow: number; endRow: number } | undefined,
@@ -166,6 +187,13 @@ export interface IRowProjectionContext {
   hasFocusedBranch: boolean;
   /** Full node list — for hash-keyed parent resolution + off-window edge identity. */
   nodes: ICommitNode[];
+  /**
+   * `commitHash → rowIndex` for the whole window. Optional: when omitted (e.g.
+   * direct projectRow unit tests) it's derived locally. {@link buildGraphPrintModel}
+   * builds it ONCE and threads it in so per-edge parent resolution
+   * ({@link findParentRow}) is O(1) instead of rebuilding an O(N) map per bend.
+   */
+  hashToRow?: ReadonlyMap<string, number>;
   /** Merged interval covering each lane at this row, for pass-through edge identity. */
   intervalByLane: Map<number, { startRow: number; endRow: number }>;
   /**
@@ -197,6 +225,9 @@ export function projectRow(
     nodes,
     intervalByLane: ivLookup,
   } = ctx;
+  // Built once by buildGraphPrintModel and threaded in; derived locally only on
+  // the direct-projectRow test path so per-bend parent lookup stays O(1).
+  const hashToRow = ctx.hashToRow ?? buildHashToRow(nodes);
 
   const edges: IRowEdgeElement[] = [];
   const bottomInkLanes = new Set<number>();
@@ -387,7 +418,7 @@ export function projectRow(
     if (line.endRow !== undefined && line.endRow !== rowIndex) {
       continue; // far-parent line bends at the parent row, not here
     }
-    const parentRow = findParentRow(nodes, node, line.toColumn, rowIndex);
+    const parentRow = findParentRow(nodes, hashToRow, node, line.toColumn, rowIndex);
     // L4 color source: a first-parent ('commit') bend keeps the SOURCE branch
     // color (this node); a merge/branch bend takes the DESTINATION branch color
     // (the parent it joins), falling back to the destination lane off-window.
@@ -559,14 +590,20 @@ export function buildGraphPrintModel(
   const branchColors =
     options.branchColors ??
     computeBranchColors(colorNodesFrom(nodes), { headBranchName: options.headBranchName });
-  const activeLaneMap = computeActiveLanes(nodes);
-  const continuesFromAboveMap = computeLaneContinuesFromAbove(nodes);
-  const continuesBelowMap = computeLaneContinuesBelow(nodes);
+  // Compute the merged lane intervals ONCE and derive all four interval-driven
+  // maps from it — `computeActiveLanes`, both continues-* maps, and the
+  // per-row interval lookup each used to rebuild it independently (5 walks per
+  // render), which scales badly as the loaded window grows via "load more".
+  const mergedIntervals = collectMergedLaneIntervals(nodes);
+  const activeLaneMap = computeActiveLanes(nodes, mergedIntervals);
+  const continuesFromAboveMap = computeLaneContinuesFromAbove(nodes, mergedIntervals);
+  const continuesBelowMap = computeLaneContinuesBelow(nodes, mergedIntervals);
   const childCountMap = computeChildCountMap(nodes);
   const incomingBendsMap = computeIncomingBendsMap(nodes);
   const bendsLandingBelowMap = computeBendsLandingBelowMap(nodes);
   const terminalNodes = computeTerminalNodes(nodes);
-  const intervalLookup = buildIntervalLookup(nodes);
+  const intervalLookup = buildIntervalLookup(nodes, mergedIntervals);
+  const hashToRow = buildHashToRow(nodes);
   const hasFocusedBranch = nodes.some((n) => n.onFocusedBranchPath === true);
 
   return nodes.map((node, rowIndex) =>
@@ -583,26 +620,34 @@ export function buildGraphPrintModel(
       nodes,
       intervalByLane:
         intervalLookup.get(rowIndex) ?? new Map<number, { startRow: number; endRow: number }>(),
+      hashToRow,
       branchColors,
     })
   );
 }
 
-/**
- * Resolve which in-window parent row a bending line targets — hash-keyed (never
- * "any later parent by lane match"), mirroring the lookup the interval builder
- * uses. Returns undefined for an off-window parent.
- */
-function findParentRow(
-  nodes: ICommitNode[],
-  node: ICommitNode,
-  toColumn: number,
-  rowIndex: number
-): number | undefined {
+/** Build the `commitHash → rowIndex` lookup for a window (O(N), once). */
+function buildHashToRow(nodes: ICommitNode[]): Map<string, number> {
   const hashToRow = new Map<string, number>();
   for (let i = 0; i < nodes.length; i++) {
     hashToRow.set(nodes[i].commit.hash, i);
   }
+  return hashToRow;
+}
+
+/**
+ * Resolve which in-window parent row a bending line targets — hash-keyed (never
+ * "any later parent by lane match"), mirroring the lookup the interval builder
+ * uses. Returns undefined for an off-window parent. Takes a prebuilt
+ * `hashToRow` so a window with many bends doesn't rebuild the map per edge.
+ */
+function findParentRow(
+  nodes: ICommitNode[],
+  hashToRow: ReadonlyMap<string, number>,
+  node: ICommitNode,
+  toColumn: number,
+  rowIndex: number
+): number | undefined {
   for (const parentHash of node.commit.parents) {
     const pr = hashToRow.get(parentHash);
     if (pr !== undefined && pr > rowIndex && nodes[pr].graphColumn === toColumn) {

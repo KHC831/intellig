@@ -200,6 +200,36 @@ describe('branchColors — ownership', () => {
     );
   });
 
+  it('trunk carrying BOTH main and origin/main owns its whole spine over a sibling origin/feature', () => {
+    // The common real-clone state: the trunk tip carries both the local `main`
+    // and the tracking `origin/main`. A sibling `origin/feature` is branched off
+    // an OLDER trunk commit. A tip's ownership priority must come from the
+    // best-of-ALL its refs (remote trunk, tier 0) — not from the local-first
+    // representative (local trunk, tier 2), which would let the remote feature
+    // (tier 1) outrank the trunk and steal the spine below the fork (the
+    // multi-colored-mainline regression).
+    const nodes = [
+      node(
+        'mTip',
+        ['m1'],
+        [
+          { name: 'main', type: 'local' },
+          { name: 'origin/main', type: 'remote' },
+        ]
+      ), // row 0 — trunk tip
+      node('fTip', ['m2'], [{ name: 'origin/feature', type: 'remote' }]), // row 1 — branched off m2
+      node('m1', ['m2']), // row 2 — trunk spine below the feature fork
+      node('m2', ['m3']), // row 3 — fork point
+      node('m3', []), // row 4 — trunk base
+    ];
+    const colors = computeBranchColors(nodes);
+    const trunk = colors.get('mTip');
+    assert.strictEqual(colors.get('m1'), trunk, 'trunk spine below the fork');
+    assert.strictEqual(colors.get('m2'), trunk, 'fork-point commit stays trunk color');
+    assert.strictEqual(colors.get('m3'), trunk, 'trunk base stays trunk color');
+    assert.notStrictEqual(colors.get('fTip'), trunk, 'origin/feature keeps only its own tip');
+  });
+
   it('first-parent only — a merged side branch does not recolor the mainline', () => {
     const nodes = [
       node('mTip', ['mp', 'sTip'], [{ name: 'main', type: 'local' }]), // row 0 → P[0]

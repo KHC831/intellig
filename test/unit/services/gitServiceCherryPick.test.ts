@@ -182,9 +182,9 @@ describe('GitService.cherryPick — variants', () => {
     it('runs cherry-pick --no-commit, then unstages + restores non-selected files', async () => {
       const { gitService, mockGitCli } = installGitService();
       // Commit touches: a.ts, b.ts, c.ts. User keeps only a.ts.
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\nc.ts\n',
+        stdout: 'a.ts\0b.ts\0c.ts\0',
         stderr: '',
       });
 
@@ -213,6 +213,7 @@ describe('GitService.cherryPick — variants', () => {
       assert.deepStrictEqual(show.args, [
         'show',
         '--name-only',
+        '-z',
         '--format=',
         '--end-of-options',
         'abc1234',
@@ -228,11 +229,37 @@ describe('GitService.cherryPick — variants', () => {
       assert.deepStrictEqual(checkout.args, ['checkout', '--', 'b.ts', 'c.ts']);
     });
 
+    it('collects touched files with show --name-only -z, keeping a non-ASCII name verbatim', async () => {
+      // Without -z, `git show --name-only` C-quotes a non-ASCII path
+      // (`"caf\303\251.ts"`), so it never matches the user's real selection and
+      // the index-narrowing restores the wrong file. -z + NUL split keeps the
+      // name verbatim so the selected file is kept and only the rest are dropped.
+      const { gitService, mockGitCli } = installGitService();
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
+        exitCode: 0,
+        stdout: 'café.ts\0other.ts\0',
+        stderr: '',
+      });
+
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], { files: ['café.ts'] })
+      )._unsafeUnwrap();
+
+      assert.strictEqual(result.success, true);
+      // café.ts is kept (matched verbatim); only other.ts is dropped.
+      const reset = mockGitCli.findCommand(['reset', 'HEAD']);
+      assert.ok(reset, 'a reset should narrow the index to drop non-selected files');
+      assert.deepStrictEqual(reset.args, ['reset', 'HEAD', '--', 'other.ts']);
+      const checkout = mockGitCli.findCommand(['checkout', '--']);
+      assert.ok(checkout);
+      assert.deepStrictEqual(checkout.args, ['checkout', '--', 'other.ts']);
+    });
+
     it('forces --no-commit even when caller did not request it', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\n',
+        stdout: 'a.ts\0b.ts\0',
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234'], {
@@ -260,9 +287,9 @@ describe('GitService.cherryPick — variants', () => {
 
     it('files subset equal to all touched files skips the reset/checkout', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\n',
+        stdout: 'a.ts\0b.ts\0',
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234'], { files: ['a.ts', 'b.ts'] });
@@ -273,14 +300,14 @@ describe('GitService.cherryPick — variants', () => {
 
     it('multi-commit: unions touched files across every commit', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
         exitCode: 0,
-        stdout: 'a.ts\nb.ts\n',
+        stdout: 'a.ts\0b.ts\0',
         stderr: '',
       });
-      mockGitCli.setMockResult('show --name-only --format= --end-of-options def5678', {
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options def5678', {
         exitCode: 0,
-        stdout: 'b.ts\nc.ts\n',
+        stdout: 'b.ts\0c.ts\0',
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234', 'def5678'], {
@@ -303,12 +330,12 @@ describe('GitService.cherryPick — variants', () => {
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in src/foo.ts',
       });
-      // getConflictedFiles reads `status --porcelain`.
-      mockGitCli.setMockResult('status --porcelain', {
+      // getConflictedFiles reads `status --porcelain -z` (NUL-terminated).
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
         // 'UU' = both-modified conflict; 'DU' = deleted-by-us conflict.
         // parseStatus picks up any row where indexStatus or workTreeStatus is 'U'.
-        stdout: 'UU src/foo.ts\nDU src/bar.ts\n',
+        stdout: 'UU src/foo.ts\0DU src/bar.ts\0',
         stderr: '',
       });
       const result = (await gitService.cherryPick(makeRepo(), ['abc1234']))._unsafeUnwrap();
@@ -319,6 +346,27 @@ describe('GitService.cherryPick — variants', () => {
       assert.ok(result.conflicts.includes('src/bar.ts'));
     });
 
+    it('reports both-added (AA) and both-deleted (DD) unmerged entries as conflicts', async () => {
+      // A cherry-pick can leave AA / DD unmerged paths (neither column is 'U'),
+      // which a U-only filter silently drops. Detect conflicts consistently with
+      // every other site via isConflictedStatus.
+      const { gitService, mockGitCli } = installGitService();
+      mockGitCli.setMockResult('cherry-pick --end-of-options abc1234', {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'CONFLICT (add/add): Merge conflict in src/both.ts',
+      });
+      mockGitCli.setMockResult('status --porcelain -z', {
+        exitCode: 0,
+        stdout: 'AA src/both.ts\0DD src/gone.ts\0',
+        stderr: '',
+      });
+      const result = (await gitService.cherryPick(makeRepo(), ['abc1234']))._unsafeUnwrap();
+      assert.strictEqual(result.success, false);
+      assert.ok(result.conflicts);
+      assert.deepStrictEqual(result.conflicts.sort(), ['src/both.ts', 'src/gone.ts']);
+    });
+
     it('conflict during --no-commit cherry-pick: same behaviour', async () => {
       const { gitService, mockGitCli } = installGitService();
       mockGitCli.setMockResult('cherry-pick --no-commit --end-of-options abc1234', {
@@ -326,9 +374,9 @@ describe('GitService.cherryPick — variants', () => {
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in src/foo.ts',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
-        stdout: 'UU src/foo.ts\n',
+        stdout: 'UU src/foo.ts\0',
         stderr: '',
       });
       const result = (
@@ -348,9 +396,9 @@ describe('GitService.cherryPick — variants', () => {
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in a.ts',
       });
-      mockGitCli.setMockResult('status --porcelain', {
+      mockGitCli.setMockResult('status --porcelain -z', {
         exitCode: 0,
-        stdout: 'UU a.ts\n',
+        stdout: 'UU a.ts\0',
         stderr: '',
       });
       const result = (

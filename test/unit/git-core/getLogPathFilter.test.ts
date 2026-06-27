@@ -43,6 +43,24 @@ describe('StashTagHistoryOps.getLog — path filter full history (P1)', () => {
     assert.ok(sep !== -1 && args[sep + 1] === 'src/foo.ts', 'pathspec follows -- separator');
   });
 
+  it('places a dash-leading path AFTER the -- separator so it cannot become a flag', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { path: '--output=/tmp/pwn' });
+    const args = calls[0];
+    const sep = args.indexOf('--');
+    assert.ok(sep !== -1, 'a -- pathspec separator must be present');
+    assert.strictEqual(
+      args[sep + 1],
+      '--output=/tmp/pwn',
+      'the path rides after --, never as a flag'
+    );
+    // No occurrence of the value BEFORE the separator (where it could be parsed as a flag).
+    assert.ok(
+      args.slice(0, sep).every((a) => a !== '--output=/tmp/pwn'),
+      'the path value must not appear before the -- separator'
+    );
+  });
+
   it('omits history-simplification flags when there is no path filter', async () => {
     const { ops, calls } = makeOps();
     await ops.getLog(repo, { maxCount: 10 });

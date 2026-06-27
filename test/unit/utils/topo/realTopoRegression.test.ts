@@ -31,11 +31,13 @@ import {
 } from '../../../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
-  computeGraphWidth,
   getColumnX,
   DEFAULT_GRAPH_CONFIG,
 } from '../../../../src/utils/graphRenderer';
-import { buildGraphPrintModel } from '../../../../src/git-core/graph/printModel';
+import {
+  buildGraphPrintModel,
+  computeGraphWidthFromModels,
+} from '../../../../src/git-core/graph/printModel';
 import { paintRow } from '../../../../src/git-core/graph/graphPainter';
 import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 import { groundTruthInk } from './groundTruthInk';
@@ -193,11 +195,22 @@ describe('Real anonymized topology — graph regression pins', () => {
       `real topology must render compact (<= 4 lanes); got ${maxColIndex + 1} columns`
     );
 
-    // The computed graph width follows suit: tight, not a 240px empty band.
-    const width = computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG);
-    const needed =
-      (maxColIndex + 1) * DEFAULT_GRAPH_CONFIG.columnWidth + DEFAULT_GRAPH_CONFIG.padding * 2;
-    assert.strictEqual(width, needed, 'width exactly fits the (now compact) lane count');
+    // The production graph width (computeGraphWidthFromModels) follows suit:
+    // tight, not a 240px empty band. It counts every inked lane (incl.
+    // far-parent bend sources), so it's at least the bare max-column width and
+    // stays within a one-lane slack of it — tracking the compact (<= 4) lane
+    // count, not the pre-fix 11-column band.
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const width = computeGraphWidthFromModels(
+      buildGraphPrintModel(nodes),
+      cfg.columnWidth,
+      cfg.padding
+    );
+    const bareMaxColWidth = (maxColIndex + 1) * cfg.columnWidth + cfg.padding * 2;
+    assert.ok(
+      width >= bareMaxColWidth && width <= bareMaxColWidth + cfg.columnWidth,
+      `width must stay compact (within one lane of the ${maxColIndex + 1}-column bare width ${bareMaxColWidth}); got ${width}`
+    );
   });
 
   it('test/test2 (c0..c4): branch lane stays vertical down to its fork point at c5', () => {

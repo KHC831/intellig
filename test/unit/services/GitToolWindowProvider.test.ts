@@ -5,6 +5,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
+import { isLogContextAction } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
 import { EventEmitter, Uri, Webview, setMockConfigValue } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import type { ICommitNode, IBranchRef } from '../../../src/git-core/commitGraph';
@@ -418,6 +419,89 @@ describe('Log View', () => {
 
       const extState = provider.getExtendedLogState();
       assert.strictEqual(extState.filter, undefined);
+    });
+  });
+
+  describe('isLogContextAction — boundary allow-list', () => {
+    it('accepts every known action, including destructive ones', () => {
+      for (const a of [
+        'copyHash',
+        'cherryPick',
+        'dropCommit',
+        'resetToHere',
+        'interactiveRebase',
+      ]) {
+        assert.strictEqual(isLogContextAction(a), true, `${a} must be allowed`);
+      }
+    });
+
+    it('rejects an unknown / malformed / non-string action', () => {
+      assert.strictEqual(isLogContextAction('rm -rf'), false);
+      assert.strictEqual(isLogContextAction(''), false);
+      assert.strictEqual(isLogContextAction('toString'), false, 'inherited props are not actions');
+      assert.strictEqual(isLogContextAction('__proto__'), false);
+      assert.strictEqual(isLogContextAction(undefined), false);
+      assert.strictEqual(isLogContextAction(42), false);
+    });
+  });
+
+  describe('_handleRepositorySelection — non-integer (NaN) guard', () => {
+    it('ignores a NaN repository index instead of bricking the scope to NaN', () => {
+      const repo = { rootUri: Uri.file('/r') } as unknown as IRepository;
+      type Surface = {
+        _availableRepositories: IRepository[];
+        _repositoryScope: number | 'all';
+        _selectedRepositoryIndex: number;
+        _handleRepositorySelection: (s: number | 'all') => void;
+      };
+      const surface = provider as unknown as Surface;
+      surface._availableRepositories = [repo];
+      const scopeBefore = surface._repositoryScope;
+
+      surface._handleRepositorySelection(Number('not-a-number'));
+
+      assert.ok(
+        !Number.isNaN(surface._selectedRepositoryIndex),
+        'a NaN index must not become _selectedRepositoryIndex'
+      );
+      assert.strictEqual(
+        surface._repositoryScope,
+        scopeBefore,
+        'scope must be unchanged by a NaN index'
+      );
+    });
+  });
+
+  describe('_handleCommitFileDoubleClick — stale-hash guard', () => {
+    type DblClickSurface = {
+      _extendedLogState: { commitNodes: { commit: { hash: string; parents: string[] } }[] };
+      _handleCommitFileDoubleClick: (hash: string, path: string) => void;
+    };
+
+    it('fires the diff for a commit still in the rendered list', () => {
+      const surface = provider as unknown as DblClickSurface;
+      surface._extendedLogState.commitNodes = [{ commit: { hash: 'abc123', parents: [] } }];
+      const fired: string[] = [];
+      const sub = provider.onDidRequestCommitDiff((e) => fired.push(e.commitHash));
+      try {
+        surface._handleCommitFileDoubleClick('abc123', 'src/foo.ts');
+      } finally {
+        sub.dispose();
+      }
+      assert.deepStrictEqual(fired, ['abc123']);
+    });
+
+    it('drops a double-click whose commit hash is no longer rendered (no diff for a stale hash)', () => {
+      const surface = provider as unknown as DblClickSurface;
+      surface._extendedLogState.commitNodes = [{ commit: { hash: 'abc123', parents: [] } }];
+      const fired: string[] = [];
+      const sub = provider.onDidRequestCommitDiff((e) => fired.push(e.commitHash));
+      try {
+        surface._handleCommitFileDoubleClick('staleHash', 'src/foo.ts');
+      } finally {
+        sub.dispose();
+      }
+      assert.deepStrictEqual(fired, [], 'a stale hash must not reach the diff request');
     });
   });
 
@@ -2075,6 +2159,23 @@ describe('_getBranchLabelsHtml', () => {
       node.branches = [];
       const html = provider._getBranchLabelsHtml(node);
       assert.strictEqual(html, '');
+    });
+  });
+
+  describe('chip icon color — validated before inlining into the style attribute', () => {
+    it('inlines a valid hex color', () => {
+      const node = makeNode(['main']);
+      const colors = new Map([[node.commit.hash, '#aabbcc']]);
+      const html = provider._getBranchLabelsHtml(node, colors);
+      assert.ok(html.includes('style="color:#aabbcc"'), 'a valid hex color is inlined');
+    });
+
+    it('drops a non-hex color so it cannot inject into the style attribute', () => {
+      const node = makeNode(['main']);
+      const colors = new Map([[node.commit.hash, 'red;"></span><script>x</script>']]);
+      const html = provider._getBranchLabelsHtml(node, colors);
+      assert.ok(!html.includes('<script>'), 'a malicious value must not reach the output');
+      assert.ok(!html.includes('style="color:red'), 'a non-hex color must not be inlined');
     });
   });
 

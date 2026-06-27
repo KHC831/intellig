@@ -954,6 +954,10 @@ export class ChangelistService implements IChangelistService {
       // unknown keys themselves are spread back in verbatim, so
       // forward-compat fields from a newer extension version survive a
       // load/save round trip through this (older) version.
+      // Atomic write — but last-writer-wins ACROSS WINDOWS: two VS Code windows
+      // on the same repo saving changelists near-simultaneously can silently
+      // overwrite each other (knowingly accepted; no cross-window lock). See
+      // {@link atomicWriteFileSync} "Limitations".
       const content = JSON.stringify(serializeStorageForDisk(storage), null, 2);
       atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {

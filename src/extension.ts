@@ -32,6 +32,7 @@ import {
 } from './services';
 import type { IRepository, IPushPreselect, IRebaseDialogPreselect } from './services';
 import { CommitContextMenuCommands } from './commits';
+import { isValidRefNameFormat } from './branches/branchNameValidator';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
 import { runKeymapMigrationSafe } from './utils/keymapMigration';
@@ -52,6 +53,7 @@ import { GitScmProvider } from './scm/GitScmProvider';
 export {
   loadAllPanelDataCore,
   wireRepositorySelection,
+  wireAvailableRepositorySync,
   resolveCommitRepoByRoot,
   resolveRepoForCommitDiff,
   resolveLogHeadAnchor,
@@ -301,6 +303,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getLogger().info('extension activated');
   } catch (error) {
     getLogger().error('failed to activate', error instanceof Error ? error : undefined);
+    // Drop the (now disposed / half-built) singleton so a retry or a later
+    // getServices() builds a fresh container instead of reusing a poisoned one.
+    resetExtensionServices();
+    extensionServices = undefined;
     void vscode.window.showErrorMessage(
       formatActionFailureToast('Failed to activate IntelliG extension', error)
     );
@@ -328,9 +334,10 @@ export function deactivate(): void {
       rebaseEditor = undefined;
     }
 
-    // Dispose the Rebase Progress View
+    // Release the Rebase Progress View. It is registered on
+    // context.subscriptions (registerViews), so VS Code disposes it after
+    // deactivate() returns — null the ref only to avoid a double-dispose.
     if (rebaseProgressView) {
-      rebaseProgressView.dispose();
       rebaseProgressView = undefined;
     }
 
@@ -340,9 +347,8 @@ export function deactivate(): void {
       inlineBlameProvider = undefined;
     }
 
-    // Dispose the Gutter Blame Provider
+    // Release the Gutter Blame Provider — context.subscriptions owns disposal.
     if (gutterBlameProvider) {
-      gutterBlameProvider.dispose();
       gutterBlameProvider = undefined;
     }
 
@@ -364,27 +370,23 @@ export function deactivate(): void {
       branchPopup = undefined;
     }
 
-    // Dispose the Stash View
+    // Release the Stash View — context.subscriptions owns disposal.
     if (stashView) {
-      stashView.dispose();
       stashView = undefined;
     }
 
-    // Dispose the Shelf View
+    // Release the Shelf View — context.subscriptions owns disposal.
     if (shelfView) {
-      shelfView.dispose();
       shelfView = undefined;
     }
 
-    // Dispose the Branch Comparison View
+    // Release the Branch Comparison View — context.subscriptions owns disposal.
     if (branchComparisonView) {
-      branchComparisonView.dispose();
       branchComparisonView = undefined;
     }
 
-    // Dispose the Status Bar Service
+    // Release the Status Bar Service — context.subscriptions owns disposal.
     if (statusBarService) {
-      statusBarService.dispose();
       statusBarService = undefined;
     }
 
@@ -398,9 +400,8 @@ export function deactivate(): void {
       notificationService = undefined;
     }
 
-    // Dispose the Keymap Service
+    // Release the Keymap Service — context.subscriptions owns disposal.
     if (keymapService) {
-      keymapService.dispose();
       keymapService = undefined;
     }
 
@@ -900,9 +901,9 @@ export function openNewBranchDialog(preselect: {
 }
 
 /**
- * Validate a branch name. Matches the validator used in
- * `BranchContextMenuCommands._handleNewBranchFrom` (same regex) so behaviour
- * is consistent across all "New Branch…" entry points.
+ * Validate a branch name. Delegates to the shared `isValidRefNameFormat`
+ * (same validator the New Branch dialog uses) so behaviour is consistent
+ * across all "New Branch…" entry points.
  *
  * Exported so unit tests can exercise it directly.
  *
@@ -913,9 +914,11 @@ export function validateBranchName(value: string): string | undefined {
   if (!value || !value.trim()) {
     return 'Branch name cannot be empty';
   }
-  // Security: reject leading `-` (git parses `-foo` as a CLI flag) and
-  // leading `.` (invalid per git-check-ref-format).
-  if (!/^(?![-.])[\w\-./]+$/.test(value)) {
+  // Delegate to the single check-ref-format validator (branchNameValidator),
+  // which — unlike the prior inline `[\w\-./]+` regex — also rejects `..`, `//`,
+  // a trailing `/`/`.`/`.lock`, `./`/`/.`, leading `-`/`.`/`/`, `@{`, and
+  // control/special chars. One source of truth across every "New Branch…" entry.
+  if (!isValidRefNameFormat(value)) {
     return 'Branch name contains invalid characters';
   }
   return undefined;

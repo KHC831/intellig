@@ -886,6 +886,11 @@ export class ConflictResolutionService implements IConflictResolutionService {
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
       const options: IGitCommandOptions = {
         cwd: repo.rootUri.fsPath,
+        // `git rebase --continue` opens the editor to confirm the replayed
+        // commit's message; under VS Code's non-TTY spawn that hangs forever
+        // (timeout 0). GIT_EDITOR=true commits the prepared message verbatim,
+        // mirroring the dialog/merge continue paths.
+        env: { GIT_EDITOR: 'true' },
       };
 
       // Continue the rebase

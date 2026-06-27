@@ -105,3 +105,33 @@ describe('StashTagHistoryOps.getLog — ref guard (G1)', () => {
     assert.match(result._unsafeUnwrapErr().message, /Invalid ref/);
   });
 });
+
+describe('StashTagHistoryOps.getLog — filter fields cannot inject a flag (safe argv position)', () => {
+  it('threads a dash-leading author as a single =-bound token, not its own flag', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: '--output=/tmp/pwn' });
+    const args = calls[0];
+    assert.ok(
+      args.includes('--author=--output=/tmp/pwn'),
+      `author must be =-bound into one token; got ${args.join(' ')}`
+    );
+    assert.ok(
+      !args.includes('--output=/tmp/pwn'),
+      'the value must not appear as its own argv token'
+    );
+  });
+
+  it('threads a dash-leading grep (searchText) as a single =-bound token, not its own flag', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { grep: '--output=/tmp/pwn' });
+    const args = calls[0];
+    assert.ok(
+      args.includes('--grep=--output=/tmp/pwn'),
+      `grep must be =-bound into one token; got ${args.join(' ')}`
+    );
+    assert.ok(
+      !args.includes('--output=/tmp/pwn'),
+      'the value must not appear as its own argv token'
+    );
+  });
+});

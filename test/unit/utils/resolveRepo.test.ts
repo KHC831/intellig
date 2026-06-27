@@ -30,6 +30,9 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as nodePath from 'path';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import {
@@ -380,5 +383,33 @@ describe('resolveRepo — helpers', () => {
     const a = mkRepo('/workspace/a');
     const match = findRepoContainingPath([a], '/workspace/a');
     assert.strictEqual(match, a);
+  });
+
+  it('findRepoContainingPath matches a symlinked path against a realpath repo root', () => {
+    // Mirrors GitService.findOwningRepository: a file reached through a symlink
+    // (the repo root is reported realpath'd) must still resolve. A string-only
+    // compare misses it and the resolver falls through to the wrong repo.
+    const realRoot = fs.realpathSync.native(
+      fs.mkdtempSync(nodePath.join(os.tmpdir(), 'intellig-resolverepo-'))
+    );
+    const linkDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'intellig-resolvelink-'));
+    const linkRoot = nodePath.join(linkDir, 'repo-link');
+    fs.symlinkSync(realRoot, linkRoot);
+    try {
+      const repo = mkRepo(realRoot); // root stored realpath'd, as GitService reports it
+      // A file addressed through the symlink — not yet created on disk.
+      const viaSymlink = nodePath.join(linkRoot, 'src', 'file.ts');
+
+      const match = findRepoContainingPath([repo], viaSymlink);
+      assert.strictEqual(match, repo, 'symlinked path must resolve to its realpath repo root');
+    } finally {
+      try {
+        fs.unlinkSync(linkRoot);
+      } catch {
+        /* symlink already gone */
+      }
+      fs.rmSync(linkDir, { recursive: true, force: true });
+      fs.rmSync(realRoot, { recursive: true, force: true });
+    }
   });
 });

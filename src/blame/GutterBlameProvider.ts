@@ -173,6 +173,22 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       })
     );
 
+    // Invalidate on a repo-state change (commit / checkout / reset / pull moves
+    // HEAD WITHOUT touching file bytes, so the document listeners never fire).
+    // Mirrors InlineBlameProvider so the gutter doesn't keep showing pre-move
+    // blame until the user switches/edits/saves.
+    this._disposables.push(
+      this._gitService.onDidChangeRepository(() => {
+        this._blameCache.clear();
+        if (this._enabled && this._currentEditor) {
+          safeFireAndForget(
+            this.updateDecorations(this._currentEditor),
+            'GutterBlameProvider.onDidChangeRepository: re-blame after HEAD move'
+          );
+        }
+      })
+    );
+
     // Listen for document saves to refresh blame
     this._disposables.push(
       vscode.workspace.onDidSaveTextDocument((document) => {

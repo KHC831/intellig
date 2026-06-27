@@ -464,6 +464,31 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('revert failed'));
     });
+
+    it('surfaces the staged-leftover note when the custom-message commit fails', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        revert: () =>
+          okAsync({
+            success: false,
+            conflicts: [],
+            stagedChangesRemain: true,
+            failureReason: 'nothing to commit, working tree clean',
+          }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('revert', [testHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(
+        messages.error[0].message.includes('staged but not committed'),
+        `error must warn about the staged-but-uncommitted revert; got: ${messages.error[0].message}`
+      );
+    });
   });
 
   // ─── checkoutRevision ─────────────────────────────────────────────────────
@@ -2305,6 +2330,83 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(
         /nothing to commit/i.test(messages.error[0].message),
         'toast explains there is nothing to commit'
+      );
+    });
+  });
+
+  describe('_handleSquashCommits — conflict handoff opens the dialog resolve-only', () => {
+    it('after aborting the squash rebase, opens Resolve Conflicts with rebaseInProgress:false', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const c1 = '1'.repeat(40);
+      const c2 = '2'.repeat(40);
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async () => ({
+          onto: `${c2}^`,
+          originalBranch: 'main',
+          commits: [
+            { hash: c1, message: 'a', action: 'pick' as const },
+            { hash: c2, message: 'b', action: 'pick' as const },
+          ],
+          currentStep: 0,
+          status: 'planning' as const,
+        }),
+        executeRebase: async () => ({
+          success: false,
+          status: 'conflict' as const,
+          conflictedFiles: ['x.ts'],
+          rebaseInProgress: true,
+        }),
+      });
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        provider,
+        createCleanGitCli()
+      );
+
+      let captured: { rebaseInProgress?: boolean } | undefined;
+      (
+        commands as unknown as {
+          _openResolveConflictsDialog: (
+            repo: unknown,
+            files: unknown,
+            opContext: { rebaseInProgress?: boolean }
+          ) => Promise<void>;
+        }
+      )._openResolveConflictsDialog = async (_repo, _files, opContext): Promise<void> => {
+        captured = opContext;
+      };
+
+      // fixup mode skips the squash-message dialog.
+      await (
+        commands as unknown as {
+          _handleSquashCommits: (
+            hashes: string[],
+            nodes: { hash: string; parentCount: number }[],
+            options: { mode: 'squash' | 'fixup' }
+          ) => Promise<void>;
+        }
+      )._handleSquashCommits(
+        [c1, c2],
+        [
+          { hash: c1, parentCount: 1 },
+          { hash: c2, parentCount: 1 },
+        ],
+        { mode: 'fixup' }
+      );
+
+      assert.ok(captured, 'the Resolve Conflicts dialog must be opened on a squash conflict');
+      assert.strictEqual(
+        captured.rebaseInProgress,
+        false,
+        'after rolling the squash back, the dialog must be resolve-only (no continue/abort/skip)'
+      );
+      assert.ok(
+        rebaseService.calls.find((c) => c.method === 'abortRebase'),
+        'the live rebase must be aborted before the handoff'
       );
     });
   });

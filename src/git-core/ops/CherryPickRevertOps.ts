@@ -8,7 +8,7 @@ import {
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
 import { GitError, InvalidArgumentError, classifyGitCommandError } from '../errors';
-import { parseStatus } from '../gitParser';
+import { parseStatus, isConflictedStatus } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -141,15 +141,22 @@ export class CherryPickRevertOps {
 
   /**
    * Return the union of files touched by each commit (via
-   * `git show --name-only --format=`). Used by the `files` subset path to
+   * `git show --name-only -z --format=`). Used by the `files` subset path to
    * determine which files to revert after a `cherry-pick -n`.
+   *
+   * `-z` NUL-separates the names and emits them verbatim; without it git
+   * C-quotes non-ASCII / special-character paths (`"caf\303\251.ts"`), which
+   * then never match the user's real selection — so a special-named file
+   * outside the selection is silently kept, and the restore targets a
+   * non-existent quoted path. A name containing a newline would also split into
+   * bogus entries under a `\n` parse.
    */
   private async _collectTouchedFiles(repo: IRepository, commits: string[]): Promise<string[]> {
     const touched = new Set<string>();
     for (const commit of commits) {
       // `commit` is user-controlled; splice via buildGitArgs.
       const res = await this.ctx.gitCli.exec(
-        buildGitArgs('show', ['--name-only', '--format='], [commit]),
+        buildGitArgs('show', ['--name-only', '-z', '--format='], [commit]),
         {
           cwd: repo.rootUri.fsPath,
         }
@@ -157,10 +164,9 @@ export class CherryPickRevertOps {
       if (res.exitCode !== 0) {
         continue;
       }
-      for (const rawLine of res.stdout.split('\n')) {
-        const line = rawLine.trim();
-        if (line.length > 0) {
-          touched.add(line);
+      for (const name of res.stdout.split('\0')) {
+        if (name.length > 0) {
+          touched.add(name);
         }
       }
     }
@@ -253,11 +259,11 @@ export class CherryPickRevertOps {
    * @returns Array of conflicted file paths
    */
   private async getConflictedFiles(repo: IRepository): Promise<string[]> {
-    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+    const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {
       cwd: repo.rootUri.fsPath,
     });
     return parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
   }
 
@@ -313,9 +319,13 @@ export class CherryPickRevertOps {
       if (commitResult.exitCode === 0) {
         return { success: true };
       }
+      // Non-atomic boundary: `revert --no-commit` already staged the revert, so
+      // a failed commit leaves it in the index. Surface that so the caller can
+      // prompt to commit/abort rather than assume the working tree is clean.
       return {
         success: false,
         conflicts: [],
+        stagedChangesRemain: true,
         failureReason:
           sanitizeGitError(commitResult.stderr.trim() || commitResult.stdout.trim()) || undefined,
       };

@@ -91,6 +91,15 @@ export class StashView implements IStashView {
   }
 
   /**
+   * Bind the view to a repository with no UI side effect (see
+   * {@link IStashView.setRepository}). Subsequent `refresh`/action calls target
+   * this repo.
+   */
+  setRepository(repository: IRepository): void {
+    this._repository = repository;
+  }
+
+  /**
    * Show the stash list view.
    *
    * @param repository - The repository to show stashes for
@@ -298,6 +307,10 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
+    if (!(await this._revalidateStashTarget(index, stash))) {
+      return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
+    }
+
     try {
       await this._gitService.stashApply(this._repository, index, reinstateIndex).match(
         () => undefined,
@@ -375,6 +388,10 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
+    if (!(await this._revalidateStashTarget(index, stash))) {
+      return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
+    }
+
     try {
       await this._gitService.stashPop(this._repository, index, reinstateIndex).match(
         () => undefined,
@@ -442,6 +459,10 @@ export class StashView implements IStashView {
     const stash = this._findStashByIndex(index);
     if (!stash) {
       return { success: false, error: `Stash not found: stash@{${index}}` };
+    }
+
+    if (!(await this._revalidateStashTarget(index, stash))) {
+      return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
     const branchName = await vscode.window.showInputBox({
@@ -529,6 +550,10 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
+    if (!(await this._revalidateStashTarget(index, stash))) {
+      return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
+    }
+
     const newMessage = await vscode.window.showInputBox({
       title: `Rename stash@{${index}}`,
       prompt: 'Enter new stash message',
@@ -583,6 +608,10 @@ export class StashView implements IStashView {
     const stash = this._findStashByIndex(index);
     if (!stash) {
       return { success: false, error: `Stash not found: stash@{${index}}` };
+    }
+
+    if (!(await this._revalidateStashTarget(index, stash))) {
+      return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
     // Show confirmation dialog
@@ -965,6 +994,41 @@ export class StashView implements IStashView {
   private _findStashByIndex(index: number): IStash | undefined {
     const item = this._state.stashes.find((s) => s.stash.index === index);
     return item?.stash;
+  }
+
+  /**
+   * Re-validate that `stash@{index}` still points at the stash the user selected
+   * before a destructive op. git renumbers the stash stack on every drop/pop, so
+   * a list that drifted (a second window, a terminal `git stash`, a hook, or a
+   * lagging in-session refresh) can leave `index` pointing at a DIFFERENT stash —
+   * dropping/popping/applying the WRONG one (unrecoverable). We re-list and
+   * compare the sha at `index` to the selected stash's sha (IntelliJ resolves
+   * stashes by hash for exactly this reason); on drift we abort + refresh.
+   *
+   * Proceeds (returns true) when validation isn't possible — no repo, the
+   * selected stash carries no sha (legacy list form), or the re-list itself
+   * failed transiently — rather than blocking a legitimate action.
+   */
+  private async _revalidateStashTarget(index: number, selected: IStash): Promise<boolean> {
+    if (!this._repository || selected.hash === undefined) {
+      return true;
+    }
+    let fresh: IStash[];
+    try {
+      fresh = await this._gitService.stashList(this._repository);
+    } catch {
+      // A transient re-list failure must not block a legitimate action.
+      return true;
+    }
+    const atIndex = fresh.find((s) => s.index === index);
+    if (!atIndex || atIndex.hash !== selected.hash) {
+      void vscode.window.showWarningMessage(
+        'The stash list changed since it was shown. Refreshed — please retry.'
+      );
+      await this.refresh();
+      return false;
+    }
+    return true;
   }
 
   /**

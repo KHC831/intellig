@@ -127,36 +127,19 @@ function setIntelligConfig(key: string, value: unknown): void {
 describe('GitService — nested-repo discovery (Wave 10 / task #204)', () => {
   let gitService: GitService;
   let stubCli: StubGitCliForDiscovery;
-  let loadCalls: string[];
 
   beforeEach(() => {
     stubCli = new StubGitCliForDiscovery();
     gitService = new GitService();
-    loadCalls = [];
 
     const surface = gitService as unknown as DiscoverTestSurface;
     surface._gitCli = stubCli;
-    // Stub loadRepository to record root paths and add a fake repo cache
-    // entry so `getRepositories()` returns something checkable.
-    surface.loadRepository = async (root: string): Promise<unknown> => {
-      loadCalls.push(root);
-      const fakeRepo = {
-        rootUri: Uri.file(root),
-        state: 'idle',
-        head: { name: 'main', commit: 'a'.repeat(40), ahead: 0, behind: 0 },
-        remotes: [],
-        submodules: [],
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-      (gitService as any)._repositories.set(root, {
-        repository: fakeRepo,
-        lastUpdated: Date.now(),
-      });
-      return fakeRepo;
-    };
-    // Stub setupRepositoryWatcher so discovery doesn't try to install file
-    // watchers per discovered root (the test fixture isn't responsible for
-    // exercising the watcher path; that's gitServiceWatcher.test.ts).
+    // Exercise the REAL `loadRepository` funnel (StubGitCliForDiscovery `exec`
+    // returns benign empty output, so no real git subprocess runs) — it owns
+    // registering the repo into `_repositories` AND firing onDidChangeRepository
+    // on first insertion. Stub only setupRepositoryWatcher so discovery doesn't
+    // install real file watchers per root (the watcher path is covered by
+    // gitServiceWatcher.test.ts / gitServiceRepoDeletion.test.ts).
     surface.setupRepositoryWatcher = (_root: string): void => {
       /* no-op */
     };

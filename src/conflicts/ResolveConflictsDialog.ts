@@ -213,6 +213,14 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   private _onDidClose: vscode.EventEmitter<'completed' | 'aborted' | 'cancelled'>;
   /** Fires once when the dialog finishes (completion, abort, or user close). */
   readonly onDidClose: vscode.Event<'completed' | 'aborted' | 'cancelled'>;
+  /**
+   * In-flight guard for the terminal ops (continue/abort/skip). The Continue
+   * button's `disabled` state is webview-driven, so a fast double-click could
+   * otherwise fire two concurrent `rebase --continue`/`--abort` runs on one
+   * repo — the second dead-ends on "no rebase in progress". Mirrors the
+   * Push/Rebase dialogs' `_busy` gate.
+   */
+  private _busy = false;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -567,18 +575,36 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         await this._handleApplyNonConflicting(msg.path);
         break;
       case 'abort':
-        await this._handleAbort();
+        await this._runExclusive(() => this._handleAbort());
         break;
       case 'continue':
-        await this._handleContinue();
+        await this._runExclusive(() => this._handleContinue());
         break;
       case 'skip':
-        await this._handleSkip();
+        await this._runExclusive(() => this._handleSkip());
         break;
       default:
         // Unknown message — silently drop. The router property test confirms
         // no valid message reaches this branch.
         break;
+    }
+  }
+
+  /**
+   * Run a terminal op (continue/abort/skip) under the {@link _busy} guard so a
+   * double-click can't launch two concurrent destructive git runs. A click that
+   * arrives while one is in flight is dropped; the gate clears in `finally` even
+   * if the op throws.
+   */
+  private async _runExclusive(op: () => Promise<void>): Promise<void> {
+    if (this._busy) {
+      return;
+    }
+    this._busy = true;
+    try {
+      await op();
+    } finally {
+      this._busy = false;
     }
   }
 

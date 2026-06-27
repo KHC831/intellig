@@ -1,5 +1,5 @@
 /**
- * H-2 — `--onto <newbase>` field in the Rebase Dialog.
+ * `--onto <newbase>` field in the Rebase Dialog.
  *
  * Covers:
  *   - HTML includes a newbase select with a "(none)" default option.
@@ -150,7 +150,7 @@ function suppressVscodeMessages(): void {
     undefined;
 }
 
-describe('RebaseDialog — newbase (--onto) field DOM (H-2)', () => {
+describe('RebaseDialog — newbase (--onto) field DOM', () => {
   it('builds a newbase select with a "(none)" default option', () => {
     suppressVscodeMessages();
     const { dialog } = makeDialog();
@@ -164,7 +164,7 @@ describe('RebaseDialog — newbase (--onto) field DOM (H-2)', () => {
   });
 });
 
-describe('RebaseDialog — newbase forwarded to rebaseBranch (H-2)', () => {
+describe('RebaseDialog — newbase forwarded to rebaseBranch', () => {
   beforeEach(() => {
     suppressVscodeMessages();
   });

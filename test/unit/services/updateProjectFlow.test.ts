@@ -281,6 +281,26 @@ describe('runUpdateProject', () => {
     });
     assert.strictEqual(summary.repos[0].status, 'error');
   });
+
+  it('sanitizes credentials out of the error detail surfaced in the Update Info tab', async () => {
+    const git = makeGit({
+      incomingByRoot: { '/repos/a': { incoming: 1 } },
+      pullThrows: {
+        '/repos/a': new Error(
+          'fatal: unable to access https://x-access-token:ghp_SECRET123@github.com/o/r.git/'
+        ),
+      },
+    });
+    const summary = await runUpdateProject({
+      repos: [repo('a')],
+      gitService: git,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+    const detail = summary.repos[0].detail ?? '';
+    assert.ok(!detail.includes('ghp_SECRET123'), `credential must be scrubbed; got: ${detail}`);
+    assert.ok(!detail.includes('x-access-token'), 'the userinfo segment must be scrubbed');
+  });
 });
 
 // ─── UpdateInfoTab ───────────────────────────────────────────────────────────

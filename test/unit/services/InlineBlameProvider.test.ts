@@ -681,6 +681,48 @@ describe('InlineBlameProvider', () => {
       window.activeTextEditor = undefined;
     });
 
+    it('re-parses the remote URL after the repository changes (remote set-url)', () => {
+      const repo: IRepository = {
+        rootUri: Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+        remotes: [{ name: 'origin', fetchUrl: 'https://github.com/acme/old.git' }],
+        submodules: [],
+      };
+      const hover = (r: IRepository): string =>
+        (
+          inlineBlameProvider as unknown as {
+            createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+          }
+        ).createHoverMessage(
+          {
+            line: 1,
+            commit: 'abc123def456789012345678901234567890abcd',
+            author: 'A',
+            authorEmail: 'a@x.com',
+            date: new Date('2024-01-15T12:00:00Z'),
+            message: 'm',
+          },
+          r
+        ).value;
+
+      // Prime the per-repo remote cache against the old URL.
+      assert.ok(hover(repo).includes('https://github.com/acme/old/commit/'));
+
+      // User runs `git remote set-url origin …/new.git`; the repo object's
+      // remotes update and a repo-state change fires.
+      repo.remotes = [{ name: 'origin', fetchUrl: 'https://github.com/acme/new.git' }];
+      mockGitService.fireRepositoryChange(repo);
+
+      // Hover must now point at the new host, not the stale cached one.
+      const after = hover(repo);
+      assert.ok(
+        after.includes('https://github.com/acme/new/commit/'),
+        `hover must reflect the new remote after a repo change; got: ${after}`
+      );
+      assert.ok(!after.includes('acme/old/commit/'), 'stale remote URL must not survive');
+    });
+
     it('disposes the repo-state subscription with the provider', () => {
       assert.strictEqual(
         mockGitService.repoSubscriberCount(),

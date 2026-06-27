@@ -84,6 +84,16 @@ export interface IStashViewState {
  */
 export interface IStashView {
   /**
+   * Bind the view to a repository WITHOUT any UI side effect (unlike
+   * {@link show}, which opens the QuickPick). The seam used to target the
+   * currently-selected repo before a controller action, replacing a private
+   * `_repository` field poke.
+   *
+   * @param repository - The repository subsequent actions operate on
+   */
+  setRepository(repository: IRepository): void;
+
+  /**
    * Show the stash list view.
    *
    * @param repository - The repository to show stashes for

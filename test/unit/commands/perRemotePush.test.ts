@@ -239,4 +239,39 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
     assert.strictEqual(gitService._pushTag.length, 1);
     assert.strictEqual(gitService._pushTag[0].remote, 'origin');
   });
+
+  it('tag delete-remote with >1 remote prompts and deletes from the CHOSEN remote (not hardcoded origin)', async () => {
+    const gitService = createMockGitService(['origin', 'backup']);
+    const deleted: Array<{ name: string; remote?: string }> = [];
+    (
+      gitService as unknown as {
+        deleteRemoteTag: IGitService['deleteRemoteTag'];
+      }
+    ).deleteRemoteTag = (_repo: IRepository, name: string, remote?: string) => {
+      deleted.push({ name, remote });
+      return okAsync(undefined);
+    };
+    const repo = createMockRepo();
+    writableWindow().showQuickPick = async () => ({ label: 'backup' });
+    writableWindow().showWarningMessage = async () => 'Delete from Remote';
+    installInfoMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        createMockProvider(repo)
+      );
+      await (
+        commands as unknown as { _handleTagDeleteRemote(item: BranchTreeItem): Promise<void> }
+      )._handleTagDeleteRemote(tagItem('v1.0.0'));
+
+      assert.deepStrictEqual(
+        deleted,
+        [{ name: 'v1.0.0', remote: 'backup' }],
+        'must delete the tag from the chosen remote, not a hardcoded origin'
+      );
+    } finally {
+      restoreMessageFunctions();
+      writableWindow().showQuickPick = async () => undefined;
+    }
+  });
 });
