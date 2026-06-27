@@ -409,13 +409,6 @@ export function buildInlineStyles(): string {
         text-overflow: ellipsis;
       }
 
-      .log-filter-check {
-        display: inline-block;
-        width: 12px;
-        flex: 0 0 12px;
-        text-align: center;
-      }
-
       .log-filter-date-custom {
         display: flex;
         flex-direction: column;

@@ -41,11 +41,11 @@ export function buildInlineScript(): string {
           return s.replace(/[^a-zA-Z0-9_-]/g, function(ch) { return '\\\\' + ch; });
         }
 
-        // Repository scope is chosen from the Path filter popup (the repo rows
-        // post \`selectRepository\`); see the setupLogFilterRow IIFE below.
+        // Repository scope is chosen from the Repository filter popup (its
+        // checkboxes post \`selectRepositories\`); see the setupLogFilterRow IIFE.
 
         // ─── Log filter row (IntelliJ VcsLogClassicFilterUi) ─────────────
-        // A text-search field plus Branch / User / Date / Path popup buttons.
+        // A text-search field plus Branch / User / Date / Repository popup buttons.
         // The popups are custom styled panels (native <select>/<datalist>
         // popups render in an unstyleable Chromium UA layer). Every control
         // uses data-action — the CSP (script-src 'nonce-…') blocks inline
