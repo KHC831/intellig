@@ -705,6 +705,14 @@ describe('Property — node color equals its own first-parent line color (any DA
             } else if (e.curved) {
               // Outgoing first-parent bend = the source node's own spine.
               owner = models[r].node.color;
+            } else if (e.half === 'up' && e.lane === nodes[r].graphColumn) {
+              // Own-lane UP half: this is the child→parent edge, colored by the
+              // CHILD above (nearest node strictly above on this lane, within the
+              // interval) so the whole edge is one color with the transition AT
+              // this dot — not the parent's color mid-cell. Falls back to this
+              // node's color when no in-window child sits above.
+              const lo = e.edge.childRow;
+              owner = ownerColorIn(e.lane, r - 1, lo, r - 1) ?? models[r].node.color;
             } else {
               // Straight segment: bound the owner search to this lane's interval,
               // taken from the edge's own identity (no separate interval calc).
