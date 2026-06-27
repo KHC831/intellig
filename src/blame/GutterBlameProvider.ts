@@ -367,10 +367,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return;
     }
 
-    // Clear existing decorations first (both columns)
-    editor.setDecorations(this._textDecorationType, []);
-    editor.setDecorations(this._heatDecorationType, []);
-
+    // NOTE: decorations are NOT cleared up front. `setDecorations` replaces the
+    // whole set for a type, so the success path below sets them in one shot —
+    // a pre-clear would leave an empty frame that collapses the gutter and jerks
+    // the code left then right on every edit (the keystroke flicker). Early
+    // returns clear explicitly; the success path replaces atomically.
     log.debug('updateDecorations: begin', {
       uri: editor.document.uri.toString(),
       scheme: editor.document.uri.scheme,
@@ -382,6 +383,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // turned on via the explicit Annotate action, which always renders.
     if (!this._forced && !this.isAnnotationStyleEnabled()) {
       log.debug('updateDecorations: skipped — style kill-switch and not forced');
+      this.clearDecorationsFor(editor);
       return;
     }
 
@@ -390,6 +392,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       log.debug('updateDecorations: skipped — non-file scheme', {
         scheme: editor.document.uri.scheme,
       });
+      this.clearDecorationsFor(editor);
       return;
     }
 
@@ -400,6 +403,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           uri: editor.document.uri.toString(),
           lines: blameInfo?.lines.length ?? 0,
         });
+        this.clearDecorationsFor(editor);
         return;
       }
 
@@ -422,6 +426,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       // Guard against a file with only uncommitted lines.
       if (!isFinite(oldestMs)) {
         log.debug('updateDecorations: all lines uncommitted — nothing to annotate');
+        this.clearDecorationsFor(editor);
         return;
       }
 
@@ -460,6 +465,10 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         blameLine: IBlameLine;
         bgColor: string;
         text: string;
+        // A blank entry holds the gutter column's width for a line we don't
+        // annotate (uncommitted / hidden), so its code stays aligned with the
+        // annotated lines instead of sliding under the column.
+        blank: boolean;
       }
       const docLineCount = editor.document.lineCount;
       const entries: IRenderEntry[] = [];
@@ -471,12 +480,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         if (line < 0 || line >= docLineCount) {
           continue;
         }
-        if (blameLine.commit.startsWith('0000000')) {
-          continue;
-        }
-        // "Hide Revision" — any line whose commit the user has hidden is
-        // elided from the gutter.
-        if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
+        // Uncommitted (git's all-zeros boundary commit) or hidden lines get a
+        // BLANK gutter cell rather than being dropped — dropping them would
+        // remove the column's left padding on those rows and shove the code
+        // under the annotation column (IntelliJ keeps an empty annotation cell).
+        const uncommitted = blameLine.commit.startsWith('0000000');
+        const hidden = !!this._optionsSource && this._optionsSource.isHidden(blameLine.commit);
+        if (uncommitted || hidden) {
+          entries.push({ line, blameLine, bgColor: 'transparent', text: '', blank: true });
           continue;
         }
         // AUTHOR mode tints by the line's author; ORDER mode by the commit's age
@@ -486,7 +497,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           authorColors?.get(blameLine.author) ??
           orderColors?.get(blameLine.commit) ??
           computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
-        entries.push({ line, blameLine, bgColor, text: this.formatGutterText(blameLine) });
+        entries.push({
+          line,
+          blameLine,
+          bgColor,
+          text: this.formatGutterText(blameLine),
+          blank: false,
+        });
       }
 
       // Annotate EVERY line (author/date/revision on each), like IntelliJ's
@@ -506,12 +523,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         const range = new vscode.Range(e.line, 0, e.line, 0);
         textDecorations.push({
           range,
-          hoverMessage: this.createHoverMessage(e.blameLine),
+          // No hover on a blank (uncommitted / hidden) cell — there is no commit.
+          ...(e.blank ? {} : { hoverMessage: this.createHoverMessage(e.blameLine) }),
           // Tint the FULL annotation column with the per-commit color (IntelliJ
           // tints the whole gutter cell, not a sliver). VS Code's per-instance
           // `before` REPLACES the decoration type's `before`, so the muted text
           // color is restated here rather than inherited from the type — else it
-          // is dropped along with the type's attachment.
+          // is dropped along with the type's attachment. A blank cell keeps the
+          // width (for alignment) but no tint.
           renderOptions: {
             before: {
               contentText: e.text,
@@ -526,7 +545,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           // Accent bar between the annotation and the code. Width/contentText are
           // restated per-instance (not inherited from the type) for the same
           // replace-semantics reason — otherwise the bar collapses to zero width
-          // and shows no color at all (the "no color" bug).
+          // and shows no color at all (the "no color" bug). A blank cell keeps
+          // the bar's footprint (transparent) so the boundary stays aligned.
           renderOptions: {
             before: {
               contentText: ' ',
@@ -692,6 +712,19 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     } else {
       return 'just now';
     }
+  }
+
+  /**
+   * Clear both decoration columns for a single editor (used on the early-return
+   * paths of {@link updateDecorations} so a no-blame / kill-switched file shows
+   * no gutter, without disturbing the provider's current-editor state).
+   */
+  private clearDecorationsFor(editor: vscode.TextEditor): void {
+    if (!this._textDecorationType || !this._heatDecorationType) {
+      return;
+    }
+    editor.setDecorations(this._textDecorationType, []);
+    editor.setDecorations(this._heatDecorationType, []);
   }
 
   /**
