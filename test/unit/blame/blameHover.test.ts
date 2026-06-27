@@ -70,11 +70,11 @@ describe('buildBlameHover', () => {
     assert.deepStrictEqual(
       md.isTrusted,
       { enabledCommands: BLAME_HOVER_COMMANDS },
-      'isTrusted must enable exactly the show-commit + copy-hash commands'
+      'isTrusted must enable exactly the reveal-in-graph + copy-hash commands'
     );
     assert.deepStrictEqual(
       [...BLAME_HOVER_COMMANDS].sort(),
-      ['intellig.editor.copyCommitHash', 'intellig.editor.showCommit'],
+      ['intellig.editor.copyCommitHash', 'intellig.editor.revealCommitInGraph'],
       'hover must only ever enable these two commands'
     );
   });
@@ -119,7 +119,10 @@ describe('buildBlameHover', () => {
 
   it('still renders the two real action links for legitimate commits', () => {
     const md = buildBlameHover(makeBlameLine(), {});
-    assert.ok(md.value.includes('command:intellig.editor.showCommit'), 'show-commit link missing');
+    assert.ok(
+      md.value.includes('command:intellig.editor.revealCommitInGraph'),
+      'reveal-in-graph link missing'
+    );
     assert.ok(
       md.value.includes('command:intellig.editor.copyCommitHash'),
       'copy-hash link missing'
@@ -131,8 +134,8 @@ describe('buildBlameHover', () => {
     // Match the pattern at LineStatusHoverProvider: `command:<id>?<encoded>`
     // where decodeURIComponent(<encoded>) is a JSON ARRAY of positional args.
     // A bare (non-array) payload diverges from the proven-working hover links.
-    const match = md.value.match(/command:intellig\.editor\.showCommit\?([^)\s|]+)/);
-    assert.ok(match, `show-commit link not found in: ${md.value}`);
+    const match = md.value.match(/command:intellig\.editor\.revealCommitInGraph\?([^)\s|]+)/);
+    assert.ok(match, `reveal-in-graph link not found in: ${md.value}`);
     const decoded: unknown = JSON.parse(decodeURIComponent(match[1]));
     assert.ok(Array.isArray(decoded), `command arg must be an array, got: ${match[1]}`);
     assert.deepStrictEqual(decoded, ['abcdef1234567890abcdef1234567890abcdef12']);

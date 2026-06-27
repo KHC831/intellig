@@ -72,16 +72,11 @@ function fakeEditor(fsPath: string): {
     selection: { active: { line: 0 } },
     visibleRanges: [new Range(0, 0, 9, 0)],
     setDecorations: (_type: unknown, decos: Array<{ renderOptions?: unknown }>): void => {
-      // Capture only the TEXT column (width in `ch`), not the thin accent strip
-      // (width `3px`) which also carries a single-space contentText.
+      // Capture the gutter cell text (one content-sized cell per line).
       const texts = decos
         .map((d) => {
-          const before = (d.renderOptions as { before?: { contentText?: string; width?: string } })
-            ?.before;
-          if (!before || !(before.width ?? '').endsWith('ch')) {
-            return undefined;
-          }
-          return before.contentText;
+          const before = (d.renderOptions as { before?: { contentText?: string } })?.before;
+          return before?.contentText;
         })
         .filter((t): t is string => typeof t === 'string' && t.length > 0);
       if (texts.length > 0) {

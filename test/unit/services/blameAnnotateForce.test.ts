@@ -195,13 +195,14 @@ describe('Annotate with Git Blame — forced full-file gutter', () => {
 
   it('decorates EVERY blamed line, not just the visible viewport', async () => {
     // Scroll-lag fix: the gutter renders the whole file in one pass and lets VS
-    // Code virtualize the on-screen rows. A viewport that only covers line 0
-    // must still produce decorations for BOTH blamed lines (editor lines 0 + 1).
+    // Code virtualize the on-screen rows. A viewport that only covers line 0 must
+    // still produce decorations for BOTH blamed lines (editor lines 0 + 1). The
+    // buffer is clean, so uncovered lines are NOT back-filled as Uncommitted.
     setMockConfigValue('intellig', 'blameAnnotationStyle', 'gutter');
     let lastCount = 0;
     const uri = Uri.file('/test/repo/file.ts');
     const narrowViewportEditor = {
-      document: { uri, lineCount: 100 },
+      document: { uri, lineCount: 100, isDirty: false },
       selection: { active: { line: 0 } },
       // Only line 0 is on-screen — yet both blamed lines must be decorated.
       visibleRanges: [new Range(0, 0, 0, 0)],

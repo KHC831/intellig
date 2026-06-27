@@ -80,17 +80,21 @@ describe('GutterBlameProvider hover — click-through wiring', () => {
     return md.value;
   }
 
-  it('routes View Commit to the registered show-commit command', () => {
-    assert.ok(hoverValue().includes('command:intellig.editor.showCommit?'));
+  it('routes View Commit to the reveal-in-graph command (scroll + highlight, no quick-pick)', () => {
+    assert.ok(hoverValue().includes('command:intellig.editor.revealCommitInGraph?'));
   });
 
   it('routes Copy Hash to the registered copy-hash command', () => {
     assert.ok(hoverValue().includes('command:intellig.editor.copyCommitHash?'));
   });
 
-  it('routes Previous Revision to the registered show-commit command', () => {
+  it('routes Previous Revision to the reveal-in-graph command', () => {
     const value = hoverValue();
     assert.ok(value.includes('Previous Revision'), 'previous-revision link present');
+    assert.ok(
+      value.includes('command:intellig.editor.revealCommitInGraph?'),
+      'previous-revision must reveal the parent commit in the graph'
+    );
     assert.ok(
       !value.includes('command:intellig.showPreviousRevision'),
       'must not reference the unregistered intellig.showPreviousRevision command'

@@ -803,6 +803,82 @@ filename new/location.ts
     });
   });
 
+  // =========================================================================
+  // Live-buffer blame: when the editor has unsaved edits, blame must run
+  // against the in-memory buffer (`git blame --contents -`, buffer on stdin)
+  // so blame line numbers align with the editor and new/edited lines come
+  // back uncommitted instead of inheriting the on-disk line's blame.
+  // =========================================================================
+  describe('live-buffer blame (--contents)', () => {
+    it('passes --contents - and pipes the buffer on stdin when contents given', async () => {
+      mockGitCli.setMockResultByPrefix('blame', {
+        exitCode: 0,
+        stdout: sampleBlameOutput,
+        stderr: '',
+      });
+
+      const buffer = 'const x = 1;\nconst NEW = 0;\nconst y = 2;\n';
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, undefined, buffer);
+
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd, 'blame command should have been executed');
+      const i = cmd.args.indexOf('--contents');
+      assert.ok(i >= 0, `expected --contents in argv, got: ${cmd.args.join(' ')}`);
+      assert.strictEqual(cmd.args[i + 1], '-', '--contents must be followed by - (stdin)');
+      assert.strictEqual(
+        (cmd.options as { input?: string }).input,
+        buffer,
+        'the live buffer must be piped to git stdin'
+      );
+    });
+
+    it('bypasses the cache for live-buffer blame (re-runs every call)', async () => {
+      mockGitCli.setMockResultByPrefix('blame', {
+        exitCode: 0,
+        stdout: sampleBlameOutput,
+        stderr: '',
+      });
+
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, undefined, 'v1\n');
+      const after1 = mockGitCli.executedCommands.filter((c) => c.args[0] === 'blame').length;
+      // A subsequent live-buffer blame (content changed) must NOT be served from
+      // cache — its result depends on the buffer, which changes per keystroke.
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, undefined, 'v2\n');
+      const after2 = mockGitCli.executedCommands.filter((c) => c.args[0] === 'blame').length;
+      assert.strictEqual(after2, after1 + 1, 'live-buffer blame must not be cached');
+    });
+
+    it('does not poison the on-disk cache (saved blame still served from cache)', async () => {
+      mockGitCli.setMockResultByPrefix('blame', {
+        exitCode: 0,
+        stdout: sampleBlameOutput,
+        stderr: '',
+      });
+
+      // A live-buffer read first…
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, undefined, 'dirty\n');
+      // …then the normal (saved) read populates the cache.
+      await blameService.getBlame(mockRepo, 'test.ts');
+      const afterSeed = mockGitCli.executedCommands.filter((c) => c.args[0] === 'blame').length;
+      // The second saved read hits the cache (no new exec).
+      await blameService.getBlame(mockRepo, 'test.ts');
+      const afterCached = mockGitCli.executedCommands.filter((c) => c.args[0] === 'blame').length;
+      assert.strictEqual(afterCached, afterSeed, 'saved blame must still be cached');
+    });
+
+    it('omits --contents for the normal (saved) path', async () => {
+      mockGitCli.setMockResultByPrefix('blame', {
+        exitCode: 0,
+        stdout: sampleBlameOutput,
+        stderr: '',
+      });
+      await blameService.getBlame(mockRepo, 'test.ts');
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd);
+      assert.ok(!cmd.args.includes('--contents'), 'saved path must not pass --contents');
+    });
+  });
+
   describe('invalidateCache (file-change watcher) precision', () => {
     it('invalidating a file does not drop a sibling whose path shares its prefix', () => {
       const svc = blameService as unknown as {

@@ -486,6 +486,15 @@ export interface ILogOptions {
   grep?: string;
   all?: boolean;
   /**
+   * Show exactly these commits by hash (`git log --no-walk <hash…>`), without
+   * walking their ancestry. Mirrors IntelliJ's VCS-log HASH_FILTER: a search
+   * query whose words are all 7–40 hex chars is applied as a hash filter (shown
+   * regardless of other filters) instead of a message `--grep`. When set, the
+   * other set-selecting filters (grep, ref, range, all) are not applied. Each
+   * hash is 7–40 hex (validated upstream), so it cannot smuggle a CLI flag.
+   */
+  hashes?: string[];
+  /**
    * Restrict the log to a single revision/ref (e.g. a branch like
    * `origin/feature`) instead of the current HEAD — used to scope the
    * cherry-pick picker to the commits ON the selected branch rather than the

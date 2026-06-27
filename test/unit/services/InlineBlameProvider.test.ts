@@ -613,8 +613,8 @@ describe('InlineBlameProvider', () => {
         }
       ).createHoverMessage(sampleBlame, undefined);
       assert.ok(
-        md.value.includes('command:intellig.editor.showCommit?'),
-        `View Commit must invoke the registered show-commit command; got: ${md.value}`
+        md.value.includes('command:intellig.editor.revealCommitInGraph?'),
+        `View Commit must reveal the commit in the graph (scroll + highlight); got: ${md.value}`
       );
       assert.ok(
         md.value.includes('command:intellig.editor.copyCommitHash?'),

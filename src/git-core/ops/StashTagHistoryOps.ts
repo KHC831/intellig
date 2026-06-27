@@ -404,6 +404,24 @@ export class StashTagHistoryOps {
     const format = getLogFormat();
     const args = ['log', `--format=${format}`, '-z'];
 
+    // Hash filter (IntelliJ HASH_FILTER): show exactly the named commits with no
+    // ancestry walk, ignoring the other set-selecting filters — matching
+    // IntelliJ, where a hash filter is applied regardless of the rest. Each hash
+    // is validated as hex so it cannot smuggle a CLI flag.
+    if (options?.hashes && options.hashes.length > 0) {
+      args.push('--no-walk');
+      for (const h of options.hashes) {
+        assertHashArg(h);
+        args.push(h);
+      }
+      const hashResult = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
+      if (hashResult.exitCode !== 0) {
+        this._logSwallowedRead('getLog', hashResult);
+        return [];
+      }
+      return parseLog(hashResult.stdout);
+    }
+
     if (options?.maxCount) {
       args.push(`-n${options.maxCount}`);
     }
@@ -535,6 +553,23 @@ export class StashTagHistoryOps {
 
   private async _getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
     const args = ['rev-list', '--count'];
+
+    // Hash filter: count exactly the named commits (mirrors _getLog's --no-walk
+    // branch so the "X of Y" indicator agrees with the loaded list).
+    if (options?.hashes && options.hashes.length > 0) {
+      args.push('--no-walk');
+      for (const h of options.hashes) {
+        assertHashArg(h);
+        args.push(h);
+      }
+      const hashResult = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
+      if (hashResult.exitCode !== 0) {
+        this._logSwallowedRead('getLogCount', hashResult);
+        return 0;
+      }
+      const n = parseInt(hashResult.stdout.trim(), 10);
+      return Number.isFinite(n) ? n : 0;
+    }
 
     if (options?.author) {
       args.push(`--author=${options.author}`);
@@ -746,5 +781,20 @@ export class StashTagHistoryOps {
       return [];
     }
     return parseLog(result.stdout);
+  }
+}
+
+/** A hash arg for the `--no-walk` filter: hex only (cannot smuggle a flag). */
+const HASH_ARG = /^[0-9a-fA-F]{1,40}$/;
+
+/**
+ * Guard a hash passed positionally to `git log/rev-list --no-walk`. The
+ * webview-derived query is already hex-validated upstream, but the ops layer is
+ * a public entrypoint, so reject anything non-hex (which also rules out a
+ * leading `-`/`.`) before it reaches argv.
+ */
+function assertHashArg(hash: string): void {
+  if (!HASH_ARG.test(hash)) {
+    throw new InvalidArgumentError(`Invalid hash: ${hash}`);
   }
 }

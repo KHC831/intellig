@@ -8,7 +8,7 @@ import { escapeMarkdown } from '../utils/escapeMarkdown';
  * commit metadata cannot invoke anything else (see `buildBlameHover`).
  */
 export const BLAME_HOVER_COMMANDS: readonly string[] = [
-  'intellig.editor.showCommit',
+  'intellig.editor.revealCommitInGraph',
   'intellig.editor.copyCommitHash',
 ];
 
@@ -93,12 +93,14 @@ export function buildBlameHover(
 
   md.appendMarkdown(`---\n\n`);
   const actions = [
-    `[View Commit](command:intellig.editor.showCommit?${commandArg(blameLine.commit)})`,
+    // Click a commit → reveal + highlight it in the Git tool-window graph
+    // (scroll-to-commit), not a quick-pick dropdown.
+    `[View Commit](command:intellig.editor.revealCommitInGraph?${commandArg(blameLine.commit)})`,
     `[Copy Hash](command:intellig.editor.copyCommitHash?${commandArg(blameLine.commit)})`,
   ];
   if (opts.showPreviousRevision && blameLine.previousCommit) {
     actions.push(
-      `[Previous Revision](command:intellig.editor.showCommit?${commandArg(blameLine.previousCommit)})`
+      `[Previous Revision](command:intellig.editor.revealCommitInGraph?${commandArg(blameLine.previousCommit)})`
     );
   }
   if (opts.showOpenOnHost && safeProviderLink) {

@@ -25,6 +25,112 @@ const DEFAULT_DISPLAY: IBlameDisplay = {
 };
 
 /**
+ * One rendered gutter cell. A `blank` cell (a hidden revision) carries no text or
+ * tint but holds the column width so the code stays aligned. Committed cells carry
+ * the annotation text, the per-commit tint, and a hover. Uncommitted (locally
+ * edited / inserted) cells carry the "Uncommitted" label and a muted tint.
+ */
+interface IGutterEntry {
+  text: string;
+  bgColor: string;
+  blank: boolean;
+  hover?: vscode.MarkdownString;
+}
+
+/** The shared blank cell — no text, no tint, no hover. Used for HIDDEN lines. */
+const BLANK_ENTRY: IGutterEntry = { text: '', bgColor: 'transparent', blank: true };
+
+/** Gutter label for a not-yet-committed (locally edited / inserted) line. */
+const UNCOMMITTED_LABEL = 'Uncommitted';
+/**
+ * Tint for not-yet-committed lines. A muted neutral block, distinct from the
+ * per-commit palette, so freshly edited/inserted lines read as "local, not
+ * committed" rather than belonging to a commit. Mirrors IntelliJ highlighting the
+ * current/local lines apart from the committed history.
+ */
+const UNCOMMITTED_BG = 'rgba(128, 128, 128, 0.22)';
+
+/**
+ * A non-breaking space. Plain spaces inside a decoration's `before.contentText`
+ * are trimmed/collapsed by the renderer (default `white-space: normal`), so all
+ * gutter padding and column alignment is built from non-breaking spaces, which
+ * survive.
+ */
+const NBSP = '\u00a0';
+
+/**
+ * Symmetric breathing room around the annotation text, in characters. The tinted
+ * column carries this many NBSP on the left and on the right of the text, so the
+ * colour block has matching margins on both sides instead of butting the gutter
+ * edge / leaving a ragged gap before the code. Mirrors IntelliJ's padded cell.
+ */
+const GUTTER_PAD_CH = 2;
+/** The symmetric pad as non-breaking spaces, added to each side of the text. */
+const GUTTER_PAD = NBSP.repeat(GUTTER_PAD_CH);
+
+/**
+ * Fixed per-aspect column widths (characters). Each visible aspect renders at a
+ * constant width — short values NBSP-padded, overflow truncated with an ellipsis
+ * — so the whole annotation column is a CONSTANT size within a file AND from file
+ * to file. (Growing the column to fit each file's widest author made the gutter
+ * jump width when switching files.) The short hash is always 7 and the relative
+ * date never exceeds 11 ("59 mins ago"), so only the author column truncates.
+ */
+const AUTHOR_COL_CH = 14;
+const DATE_COL_CH = 11;
+const REVISION_COL_CH = 7;
+
+/** Fit `s` to exactly `width` chars: pad short with NBSP, truncate long with `…`. */
+function fitColumn(s: string, width: number): string {
+  if (s.length <= width) {
+    return s.padEnd(width, NBSP);
+  }
+  // Don't slice through a surrogate pair (e.g. an emoji in an author name) — that
+  // would leave a lone surrogate that renders as a broken glyph. Drop the dangling
+  // high surrogate and pad back to width so the column stays aligned.
+  let cut = width - 1;
+  const code = s.charCodeAt(cut - 1);
+  if (code >= 0xd800 && code <= 0xdbff) {
+    cut -= 1;
+  }
+  return (s.slice(0, cut) + '…').padEnd(width, NBSP);
+}
+
+/**
+ * Blame text size, RELATIVE to the editor font, so the gutter scales when the
+ * user changes their font. A smaller font normally shrinks the inline box and
+ * the per-commit tint stops filling the row (striped block); we keep the block
+ * continuous by rendering the cell as an inline-block whose height is pinned to
+ * the editor's row line-height (see editorRowMetrics / _applyRenderState), so the
+ * text can be as small as we like without breaking the block. The min floor is
+ * just for readability.
+ */
+const BLAME_FONT_SCALE = 0.9;
+const BLAME_FONT_MIN_PX = 10;
+
+/**
+ * Read the editor's font size and effective ROW line-height (px) from config,
+ * mirroring VS Code's own computation (`editor.lineHeight`: 0 = derive from the
+ * font via the golden ratio; 0<v<8 = a font-size multiplier; ≥8 = absolute px).
+ * Used to pin the gutter cell's box to one row so the tint is a continuous block.
+ * Scoped to the file (`scope`) so a language- or folder-specific font/line-height
+ * is honoured. It approximates VS Code's layout (no API exposes the rendered row
+ * height), so it can be off by a sub-pixel; the block tracks it closely enough.
+ */
+function editorRowMetrics(scope?: vscode.Uri): { fontSizePx: number; lineHeightPx: number } {
+  const cfg = vscode.workspace.getConfiguration('editor', scope ?? null);
+  const fontSizePx = cfg.get<number>('fontSize') || 14;
+  let lineHeight = cfg.get<number>('lineHeight') ?? 0;
+  const goldenRatio = process.platform === 'darwin' ? 1.5 : 1.35;
+  if (lineHeight === 0) {
+    lineHeight = goldenRatio * fontSizePx;
+  } else if (lineHeight < 8) {
+    lineHeight = lineHeight * fontSizePx;
+  }
+  return { fontSizePx, lineHeightPx: Math.round(lineHeight) };
+}
+
+/**
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with an IntelliJ-style interpolated background gradient and click actions.
@@ -41,22 +147,29 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   private _gitService: IGitService;
   private _disposables: vscode.Disposable[] = [];
   /**
-   * Two `before` decoration types render the annotation column, mirroring
-   * IntelliJ's gutter (and the lkqm/gitblame-annotations layout):
-   *   - `_textDecorationType` (created first → renders leftmost): the muted
-   *     author/date/revision text. Per-line `contentText` + a file-wide `ch`
-   *     width so every row's text column aligns.
-   *   - `_heatDecorationType` (created second → renders to the right of the
-   *     text): a thin colored strip carrying the age/author heat color, with a
-   *     right margin that separates the whole annotation from the code. The
-   *     strip is the IntelliJ-style colour bar AND the boundary.
+   * The single `before` decoration that renders the annotation column: the muted
+   * author/date/revision text on a per-commit tinted, row-height block. Per-line
+   * `contentText` is NBSP-padded to a fixed character width so every row aligns,
+   * and a right margin separates the block from the code.
    */
   private _textDecorationType: vscode.TextEditorDecorationType | undefined;
-  private _heatDecorationType: vscode.TextEditorDecorationType | undefined;
   private _onDidChangeEnabled: vscode.EventEmitter<boolean>;
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
   private _updateDebounceTimer: NodeJS.Timeout | undefined;
+  /**
+   * The last rendered gutter, keyed by editor URI. Holds one entry per document
+   * line (committed → annotated cell; uncommitted → "Uncommitted" cell; hidden →
+   * blank cell) plus the column width. Kept so an edit can be reflected
+   * SYNCHRONOUSLY — the entries
+   * are shifted for inserted/removed lines and re-applied immediately, so a new
+   * line gets its blank cell at once instead of the caret sitting at column 0
+   * until the debounced re-blame returns (the cursor-jump bug). The `width` is the
+   * fixed column width, so blank cells pad to the same size and stay aligned.
+   */
+  private _renderState:
+    | { uri: string; width: string; entries: Map<number, IGutterEntry> }
+    | undefined;
   /**
    * `true` when annotation was turned on via the explicit "Annotate with Git
    * Blame" action (IntelliJ's AnnotateToggleAction), which always annotates
@@ -83,28 +196,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
 
-    // Annotation TEXT column — muted metadata colour (editorCodeLens.foreground,
-    // not code). Per-line contentText + a file-wide `ch` width are supplied via
-    // DecorationOptions.renderOptions so every row aligns. Created first so it
-    // renders to the LEFT of the heat strip.
+    // Annotation column — muted metadata colour (editorCodeLens.foreground, not
+    // code). Per-line contentText (NBSP-padded), the per-commit tint, and the
+    // inline-block sizing are supplied per instance via DecorationOptions in
+    // _applyRenderState.
     this._textDecorationType = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
         color: new vscode.ThemeColor('editorCodeLens.foreground'),
-        textDecoration: 'none; font-size: 11px; font-family: monospace;',
-      },
-      isWholeLine: false,
-    });
-
-    // Heat STRIP — a thin colored bar carrying the age/author heat color
-    // (per-line backgroundColor), with a right margin that both separates the
-    // strip from the code and acts as the annotation↔code boundary. Created
-    // second so it renders between the text column and the code.
-    this._heatDecorationType = vscode.window.createTextEditorDecorationType({
-      before: {
-        contentText: ' ',
-        width: '3px',
-        margin: '0 12px 0 8px',
       },
       isWholeLine: false,
     });
@@ -168,7 +267,30 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
+          // Reflect the edit in the gutter immediately (shift the existing cells
+          // + blank the new line) so the caret doesn't snap to column 0 and back
+          // while the debounced re-blame runs. Then debounce the real re-blame.
+          this._shiftRenderStateForEdit(this._currentEditor, event.contentChanges);
           this.debounceUpdate(this._currentEditor);
+        }
+      })
+    );
+
+    // Re-render when the editor font size / line-height changes — the gutter cell
+    // is sized relative to the font and its block height is pinned to the row, so
+    // both must follow a live font change (no document edit fires otherwise).
+    this._disposables.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+          (e.affectsConfiguration('editor.fontSize') ||
+            e.affectsConfiguration('editor.lineHeight')) &&
+          this._enabled &&
+          this._currentEditor &&
+          this._renderState &&
+          this._renderState.uri === this._currentEditor.document.uri.toString()
+        ) {
+          // The blame model is unchanged — just repaint with the new metrics.
+          this._applyRenderState(this._currentEditor);
         }
       })
     );
@@ -363,14 +485,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    */
   private async updateDecorations(editor: vscode.TextEditor): Promise<void> {
     const log = getLogger().child({ component: 'GutterBlameProvider' });
-    if (!this._textDecorationType || !this._heatDecorationType) {
+    if (!this._textDecorationType) {
       return;
     }
 
-    // Clear existing decorations first (both columns)
-    editor.setDecorations(this._textDecorationType, []);
-    editor.setDecorations(this._heatDecorationType, []);
-
+    // NOTE: decorations are NOT cleared up front. `setDecorations` replaces the
+    // whole set for a type, so the success path below sets them in one shot —
+    // a pre-clear would leave an empty frame that collapses the gutter and jerks
+    // the code left then right on every edit (the keystroke flicker). Early
+    // returns clear explicitly; the success path replaces atomically.
     log.debug('updateDecorations: begin', {
       uri: editor.document.uri.toString(),
       scheme: editor.document.uri.scheme,
@@ -382,6 +505,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // turned on via the explicit Annotate action, which always renders.
     if (!this._forced && !this.isAnnotationStyleEnabled()) {
       log.debug('updateDecorations: skipped — style kill-switch and not forced');
+      this.clearDecorationsFor(editor);
       return;
     }
 
@@ -390,6 +514,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       log.debug('updateDecorations: skipped — non-file scheme', {
         scheme: editor.document.uri.scheme,
       });
+      this.clearDecorationsFor(editor);
       return;
     }
 
@@ -400,6 +525,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           uri: editor.document.uri.toString(),
           lines: blameInfo?.lines.length ?? 0,
         });
+        this.clearDecorationsFor(editor);
         return;
       }
 
@@ -422,6 +548,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       // Guard against a file with only uncommitted lines.
       if (!isFinite(oldestMs)) {
         log.debug('updateDecorations: all lines uncommitted — nothing to annotate');
+        this.clearDecorationsFor(editor);
         return;
       }
 
@@ -449,20 +576,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         blameLines: blameInfo.lines.length,
       });
 
-      // Single pass over every blamed line: collect the renderable (committed,
-      // non-hidden) rows and the widest formatted text, so the text column gets
-      // one file-wide `ch` width and every row's columns line up. Iterating the
-      // blame model directly (rather than scanning the visible viewport on each
-      // scroll) is O(lines) once per load instead of O(visible × lines) on every
-      // scroll frame.
-      interface IRenderEntry {
-        line: number;
-        blameLine: IBlameLine;
-        bgColor: string;
-        text: string;
-      }
+      // Single pass over every blamed line, building one entry PER DOCUMENT LINE
+      // (committed → annotated; uncommitted → "Uncommitted"; hidden → blank).
+      // Covering every line means a synchronous edit can shift the map and
+      // re-render without leaving a gap. Iterating the blame model directly
+      // (rather than scanning the visible viewport on each scroll) is O(lines).
       const docLineCount = editor.document.lineCount;
-      const entries: IRenderEntry[] = [];
+      const entries = new Map<number, IGutterEntry>();
+      const uncommittedEntry = this.uncommittedEntry();
+      let maxLen = uncommittedEntry.text.length;
       for (const blameLine of blameInfo.lines) {
         // Blame lines are 1-indexed; map to the editor's 0-indexed line. Skip
         // any blame row that falls outside the current document (e.g. a
@@ -471,12 +593,18 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         if (line < 0 || line >= docLineCount) {
           continue;
         }
-        if (blameLine.commit.startsWith('0000000')) {
+        // A HIDDEN line (user hid this revision) gets a BLANK cell — present for
+        // alignment but carrying nothing. An UNCOMMITTED line (git's all-zeros
+        // boundary commit — a locally edited / inserted line) gets the
+        // "Uncommitted" cell so a new line shows colour and a label instead of a
+        // dark gap.
+        const hidden = !!this._optionsSource && this._optionsSource.isHidden(blameLine.commit);
+        if (hidden) {
+          entries.set(line, BLANK_ENTRY);
           continue;
         }
-        // "Hide Revision" — any line whose commit the user has hidden is
-        // elided from the gutter.
-        if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
+        if (blameLine.commit.startsWith('0000000')) {
+          entries.set(line, uncommittedEntry);
           continue;
         }
         // AUTHOR mode tints by the line's author; ORDER mode by the commit's age
@@ -486,61 +614,38 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           authorColors?.get(blameLine.author) ??
           orderColors?.get(blameLine.commit) ??
           computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
-        entries.push({ line, blameLine, bgColor, text: this.formatGutterText(blameLine) });
-      }
-
-      // Annotate EVERY line (author/date/revision on each), like IntelliJ's
-      // aspect columns. Size the text column to the widest entry so the code
-      // stays aligned across the whole file.
-      let maxLen = 0;
-      for (const e of entries) {
-        if (e.text.length > maxLen) {
-          maxLen = e.text.length;
+        const text = this.formatGutterText(blameLine);
+        if (text.length > maxLen) {
+          maxLen = text.length;
         }
-      }
-      // `+ 2` leaves a little breathing room after the longest entry.
-      const widthCh = `${maxLen + 2}ch`;
-      const textDecorations: vscode.DecorationOptions[] = [];
-      const heatDecorations: vscode.DecorationOptions[] = [];
-      for (const e of entries) {
-        const range = new vscode.Range(e.line, 0, e.line, 0);
-        textDecorations.push({
-          range,
-          hoverMessage: this.createHoverMessage(e.blameLine),
-          // Tint the FULL annotation column with the per-commit color (IntelliJ
-          // tints the whole gutter cell, not a sliver). VS Code's per-instance
-          // `before` REPLACES the decoration type's `before`, so the muted text
-          // color is restated here rather than inherited from the type — else it
-          // is dropped along with the type's attachment.
-          renderOptions: {
-            before: {
-              contentText: e.text,
-              width: widthCh,
-              backgroundColor: e.bgColor,
-              color: new vscode.ThemeColor('editorCodeLens.foreground'),
-            },
-          },
-        });
-        heatDecorations.push({
-          range,
-          // Accent bar between the annotation and the code. Width/contentText are
-          // restated per-instance (not inherited from the type) for the same
-          // replace-semantics reason — otherwise the bar collapses to zero width
-          // and shows no color at all (the "no color" bug).
-          renderOptions: {
-            before: {
-              contentText: ' ',
-              width: '3px',
-              margin: '0 12px 0 8px',
-              backgroundColor: e.bgColor,
-            },
-          },
+        entries.set(line, {
+          text,
+          bgColor,
+          blank: false,
+          hover: this.createHoverMessage(blameLine),
         });
       }
 
-      log.debug('updateDecorations: applying decorations', { count: textDecorations.length });
-      editor.setDecorations(this._textDecorationType, textDecorations);
-      editor.setDecorations(this._heatDecorationType, heatDecorations);
+      // Lines the blame did not emit are NOT back-filled as Uncommitted: VS Code
+      // always carries one phantom empty line after a file's final newline that
+      // git never blames, so back-filling it would strand a stale "Uncommitted"
+      // marker (e.g. after adding then removing a last line). A genuinely edited /
+      // inserted line comes back from `git blame --contents -` as an all-zeros
+      // line and is handled above.
+
+      // The annotation columns are fixed-width (see formatGutterText), so every
+      // committed line is the same length — `maxLen` is that constant. Store it as
+      // the column width; blank cells are NBSP-padded to it for alignment. It
+      // tracks the current visible-aspect set (shrinks when an aspect is hidden)
+      // rather than growing to fit per file.
+      this._renderState = {
+        uri: editor.document.uri.toString(),
+        width: `${maxLen}ch`,
+        entries,
+      };
+
+      log.debug('updateDecorations: applying decorations', { count: entries.size });
+      this._applyRenderState(editor);
     } catch (error) {
       // Blame may genuinely be unavailable (file untracked, not in a repo, git
       // error). Log at debug so the failure is diagnosable instead of silent.
@@ -549,6 +654,120 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Paint the gutter column from {@link _renderState} for `editor`. One pass over
+   * the line→entry map; `setDecorations` replaces the whole set, so this fully
+   * repaints in one call (no pre-clear, no flicker).
+   */
+  private _applyRenderState(editor: vscode.TextEditor): void {
+    if (!this._textDecorationType || !this._renderState) {
+      return;
+    }
+    const { width, entries } = this._renderState;
+    // The stored width is the fixed text-column width in characters. The box is
+    // sized by its CONTENT, not a `ch` width property (that left dead space on
+    // short rows). Each cell's text is padded with NBSP to that width (so columns
+    // align in the monospace editor font), wrapped with GUTTER_PAD on both sides
+    // for symmetric breathing room.
+    const rawWidthCh = parseInt(width, 10) || 0;
+    // Size the text RELATIVE to the editor font, but render each cell as an
+    // inline-block whose height is pinned to the editor's row line-height. The
+    // tint paints the whole inline-block, so it fills the row regardless of how
+    // small the text is, and a same-commit run reads as one continuous block. The
+    // metrics are read for THIS editor's document (font/line-height can be
+    // language-scoped). `vertical-align: top` makes the box cover exactly its row
+    // (no line-height inflation). A right margin is the gap to the code.
+    const { fontSizePx, lineHeightPx } = editorRowMetrics(editor.document.uri);
+    const textPx = Math.max(BLAME_FONT_MIN_PX, Math.round(BLAME_FONT_SCALE * fontSizePx));
+    const blockStyle =
+      `none; display: inline-block; vertical-align: top; ` +
+      `line-height: ${lineHeightPx}px; height: ${lineHeightPx}px; ` +
+      `font-size: ${textPx}px; margin-right: ${GUTTER_PAD_CH}ch;`;
+    const textDecorations: vscode.DecorationOptions[] = [];
+    for (const [line, e] of entries) {
+      const range = new vscode.Range(line, 0, line, 0);
+      const aligned = e.text.padEnd(rawWidthCh, NBSP);
+      textDecorations.push({
+        range,
+        // No hover on a blank (uncommitted / hidden / edited) cell.
+        ...(e.blank || !e.hover ? {} : { hoverMessage: e.hover }),
+        // Tint the FULL annotation column with the per-commit color (IntelliJ
+        // tints the whole gutter cell). VS Code's per-instance `before` REPLACES
+        // the type's `before`, so the muted text colour AND the inline-block sizing
+        // are restated here. A blank cell keeps the padded width (for alignment)
+        // but no tint.
+        renderOptions: {
+          before: {
+            contentText: GUTTER_PAD + aligned + GUTTER_PAD,
+            backgroundColor: e.bgColor,
+            color: new vscode.ThemeColor('editorCodeLens.foreground'),
+            textDecoration: blockStyle,
+          },
+        },
+      });
+    }
+    editor.setDecorations(this._textDecorationType, textDecorations);
+  }
+
+  /**
+   * Reflect a single document edit in {@link _renderState} SYNCHRONOUSLY: shift
+   * the line→entry map by the edit's line delta and mark the edited/inserted rows
+   * Uncommitted, then repaint — so a newly created line immediately has its gutter
+   * cell (the caret stays put instead of snapping to column 0 and back while the
+   * debounced re-blame runs). Only the common single-change case is handled; for
+   * multi-change edits the debounced re-blame is the sole update.
+   *
+   * @returns `true` when it shifted + repainted, `false` when it declined (no
+   *   state, URI mismatch, or a multi-change edit) so the caller still debounces.
+   */
+  private _shiftRenderStateForEdit(
+    editor: vscode.TextEditor,
+    changes: readonly vscode.TextDocumentContentChangeEvent[]
+  ): boolean {
+    if (!this._renderState || this._renderState.uri !== editor.document.uri.toString()) {
+      return false;
+    }
+    if (changes.length !== 1) {
+      return false;
+    }
+    const change = changes[0];
+    const startLine = change.range.start.line;
+    const endLine = change.range.end.line;
+    const removed = endLine - startLine;
+    const added = (change.text.match(/\n/g) ?? []).length;
+    const delta = added - removed;
+
+    const oldEntries = this._renderState.entries;
+    const shifted = new Map<number, IGutterEntry>();
+    for (const [line, entry] of oldEntries) {
+      if (line < startLine) {
+        shifted.set(line, entry);
+      } else if (line > endLine) {
+        shifted.set(line + delta, entry);
+      }
+      // Lines in [startLine, endLine] are dropped — the replaced region.
+    }
+    // The edited + newly inserted rows are now local content, so show the
+    // Uncommitted cell at once (an edited line's prior blame is stale; a new line
+    // has none). This matches what the debounced re-blame will report, so there's
+    // no blank→Uncommitted flash.
+    const uncommittedEntry = this.uncommittedEntry();
+    for (let line = startLine; line <= startLine + added; line++) {
+      shifted.set(line, uncommittedEntry);
+    }
+    // Rebuild a dense map over the new document so every line has a cell. Lines
+    // with no shifted entry stay BLANK (not Uncommitted) — only the explicitly
+    // edited/inserted rows above are marked Uncommitted.
+    const lineCount = editor.document.lineCount;
+    const dense = new Map<number, IGutterEntry>();
+    for (let line = 0; line < lineCount; line++) {
+      dense.set(line, shifted.get(line) ?? BLANK_ENTRY);
+    }
+    this._renderState = { ...this._renderState, entries: dense };
+    this._applyRenderState(editor);
+    return true;
   }
 
   /**
@@ -577,6 +796,21 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // symlinked editor URI against a realpath-resolved root (macOS `/var` →
     // `/private/var`) does not produce an escaping `../` pathspec.
     const relativePath = repoRelativePath(repo.rootUri.fsPath, uri.fsPath);
+
+    // When the buffer has unsaved edits, blame the live content (`--contents -`)
+    // so annotations align with the editor and edited/new lines come back
+    // uncommitted instead of inheriting the on-disk line's blame. This path is
+    // content-dependent, so it bypasses the provider-level cache too.
+    const contents = document.isDirty ? document.getText() : undefined;
+    if (contents !== undefined) {
+      return this._blameService.getBlame(
+        repo,
+        relativePath,
+        undefined,
+        this._optionsSource?.asBlameOptions(),
+        contents
+      );
+    }
 
     // Check cache first
     const cacheKey = uri.toString();
@@ -610,17 +844,47 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     const { aspects, authorNameFormat } = this.resolveDisplay();
     const columns: string[] = [];
     if (aspects.author) {
-      columns.push(formatAuthorName(blameLine.author, blameLine.authorEmail, authorNameFormat));
+      columns.push(
+        fitColumn(
+          formatAuthorName(blameLine.author, blameLine.authorEmail, authorNameFormat),
+          AUTHOR_COL_CH
+        )
+      );
     }
     if (aspects.date) {
-      columns.push(this.formatRelativeDate(blameLine.date));
+      columns.push(fitColumn(this.formatRelativeDate(blameLine.date), DATE_COL_CH));
     }
     if (aspects.revision) {
-      columns.push(blameLine.commit.substring(0, 7));
+      columns.push(fitColumn(blameLine.commit.substring(0, 7), REVISION_COL_CH));
     }
 
-    // Pad every column except the last so the visible columns stay aligned.
-    return columns.map((c, i) => (i < columns.length - 1 ? c.padEnd(12) : c)).join(' ');
+    // Each column is already a FIXED width, so the joined text is a constant
+    // length (per visible-aspect set) and the column never grows to fit. Join
+    // with NBSP — plain spaces are collapsed/trimmed by the decoration renderer,
+    // which would crush the inter-column gaps.
+    return columns.join(NBSP);
+  }
+
+  /**
+   * The gutter cell for a not-yet-committed (locally edited / inserted) line:
+   * the "Uncommitted" label in the author column, the other visible columns
+   * blank, a muted neutral tint, and no hover (there is no commit to open). Built
+   * through the same fixed-width columns as {@link formatGutterText} so its width
+   * matches committed cells and the code stays aligned.
+   */
+  private uncommittedEntry(): IGutterEntry {
+    const { aspects } = this.resolveDisplay();
+    const columns: string[] = [];
+    if (aspects.author) {
+      columns.push(fitColumn(UNCOMMITTED_LABEL, AUTHOR_COL_CH));
+    }
+    if (aspects.date) {
+      columns.push(fitColumn('', DATE_COL_CH));
+    }
+    if (aspects.revision) {
+      columns.push(fitColumn('', REVISION_COL_CH));
+    }
+    return { text: columns.join(NBSP), bgColor: UNCOMMITTED_BG, blank: false };
   }
 
   /**
@@ -680,19 +944,36 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
+   * Clear the gutter for a single editor (used on the early-return paths of
+   * {@link updateDecorations} so a no-blame / kill-switched file shows no gutter,
+   * without disturbing the provider's current-editor state).
+   */
+  private clearDecorationsFor(editor: vscode.TextEditor): void {
+    if (!this._textDecorationType) {
+      return;
+    }
+    editor.setDecorations(this._textDecorationType, []);
+    // Drop stale render state for this editor so a later edit doesn't shift and
+    // repaint a gutter we just cleared.
+    if (this._renderState && this._renderState.uri === editor.document.uri.toString()) {
+      this._renderState = undefined;
+    }
+  }
+
+  /**
    * Clear all decorations from all editors.
    */
   private clearDecorations(): void {
-    if (!this._textDecorationType || !this._heatDecorationType) {
+    if (!this._textDecorationType) {
       return;
     }
-    // Clear both columns from all visible editors
+    // Clear the gutter from all visible editors
     for (const editor of vscode.window.visibleTextEditors) {
       editor.setDecorations(this._textDecorationType, []);
-      editor.setDecorations(this._heatDecorationType, []);
     }
 
     this._currentEditor = undefined;
+    this._renderState = undefined;
   }
 
   /**
@@ -711,10 +992,6 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     if (this._textDecorationType) {
       this._textDecorationType.dispose();
       this._textDecorationType = undefined;
-    }
-    if (this._heatDecorationType) {
-      this._heatDecorationType.dispose();
-      this._heatDecorationType = undefined;
     }
 
     for (const disposable of this._disposables) {

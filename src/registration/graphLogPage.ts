@@ -30,6 +30,7 @@ export interface ILogScope {
   all: boolean;
   ref?: string;
   logRange?: string;
+  hashes?: string[];
   author?: string;
   since?: Date;
   until?: Date;
@@ -56,18 +57,54 @@ export interface ILogScope {
  * `searchText` maps to git `--grep`, `searchRegex` to `-E`, `searchCaseSensitive`
  * to dropping `--regexp-ignore-case` (see StashTagHistoryOps.getLog).
  */
+/**
+ * A single hash word: 7–40 hex chars. Mirrors IntelliJ's
+ * `VcsLogUtil.HASH_REGEX = [a-fA-F0-9]{7,40}` so the "Message or hash" box treats
+ * the same inputs as hashes that IntelliJ does.
+ */
+const HASH_WORD = /^[0-9a-fA-F]{7,40}$/;
+
+/**
+ * Decide whether a search query is a HASH filter rather than a message search.
+ * Returns the list of hash words when EVERY whitespace-separated word is a
+ * 7–40-hex hash (IntelliJ TextFilterModel: a text whose words are all hashes
+ * becomes a HASH_FILTER), otherwise `undefined` (treat as a `--grep` message
+ * search). A 6-char or shorter token, anything with a non-hex char, or a mix of
+ * a hash and a word all fall through to message search — matching IntelliJ.
+ */
+export function parseHashQuery(text: string | undefined): string[] | undefined {
+  if (!text) {
+    return undefined;
+  }
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return undefined;
+  }
+  for (const w of words) {
+    if (!HASH_WORD.test(w)) {
+      return undefined;
+    }
+  }
+  return words;
+}
+
 export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
   const branchRef = filter?.branch;
   const logRange = filter?.logRange;
+  // The "Message or hash" box: a query that is entirely hash words filters by
+  // hash (`--no-walk <hash…>`), which scopes to exactly those commits — so it
+  // suppresses `--all`/grep. Otherwise the query is a message `--grep`.
+  const hashes = parseHashQuery(filter?.searchText);
   return {
-    all: !branchRef && !logRange,
+    all: !branchRef && !logRange && !hashes,
     ref: branchRef,
     logRange,
+    hashes,
     author: filter?.author,
     since: filter?.since,
     until: filter?.until,
     path: filter?.path,
-    grep: filter?.searchText,
+    grep: hashes ? undefined : filter?.searchText,
     noMerges: filter?.noMerges,
     firstParent: filter?.firstParent,
     simplifyMerges: filter?.simplifyMerges,

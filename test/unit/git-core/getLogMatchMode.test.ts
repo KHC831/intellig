@@ -106,6 +106,58 @@ describe('StashTagHistoryOps.getLog — ref guard (G1)', () => {
   });
 });
 
+describe('StashTagHistoryOps.getLog — hash filter (--no-walk)', () => {
+  it('shows exactly the named commits with --no-walk and no ancestry/grep/all', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { hashes: ['1142593', 'deadbee'], all: true, grep: 'ignored' });
+    const args = calls[0];
+    assert.ok(args.includes('--no-walk'), '--no-walk must be present for a hash filter');
+    assert.ok(
+      args.includes('1142593') && args.includes('deadbee'),
+      'each hash passed positionally'
+    );
+    assert.ok(!args.includes('--all'), 'a hash filter must not also walk --all');
+    assert.ok(
+      !args.some((a) => a.startsWith('--grep')),
+      'a hash filter must not also grep the message'
+    );
+  });
+
+  it('errs on a hash that could inject a flag', async () => {
+    const { ops } = makeOps();
+    const result = await ops.getLog(repo, { hashes: ['--upload-pack=evil'] });
+    assert.ok(result.isErr());
+    assert.match(result._unsafeUnwrapErr().message, /Invalid hash/);
+  });
+});
+
+describe('StashTagHistoryOps.getLogCount — hash filter', () => {
+  it('counts the named commits with rev-list --no-walk', async () => {
+    const calls: string[][] = [];
+    const gitCli = {
+      exec: async (args: string[]) => {
+        calls.push(args);
+        return { exitCode: 0, stdout: '2\n', stderr: '' };
+      },
+    };
+    const ctx = {
+      gitCli,
+      invalidateCache: () => undefined,
+      fireDidFetch: () => undefined,
+    } as unknown as IGitOpsContext;
+    const ops = new StashTagHistoryOps(ctx);
+    const result = await ops.getLogCount(repo, { hashes: ['1142593', 'deadbee'], all: true });
+    assert.ok(result.isOk());
+    assert.strictEqual(result._unsafeUnwrap(), 2);
+    const args = calls[0];
+    assert.strictEqual(args[0], 'rev-list');
+    assert.ok(args.includes('--no-walk'), 'count must also use --no-walk');
+    assert.ok(args.includes('--count'));
+    assert.ok(args.includes('1142593') && args.includes('deadbee'));
+    assert.ok(!args.includes('--all'), 'hash count must not walk --all');
+  });
+});
+
 describe('StashTagHistoryOps.getLog — filter fields cannot inject a flag (safe argv position)', () => {
   it('threads a dash-leading author as a single =-bound token, not its own flag', async () => {
     const { ops, calls } = makeOps();

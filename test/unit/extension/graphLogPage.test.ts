@@ -12,7 +12,11 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { buildLogScope, fetchGraphPage } from '../../../src/registration/graphLogPage';
+import {
+  buildLogScope,
+  fetchGraphPage,
+  parseHashQuery,
+} from '../../../src/registration/graphLogPage';
 import type { ILogScopeFilter } from '../../../src/registration/graphLogPage';
 import type {
   ICommit,
@@ -45,8 +49,51 @@ describe('buildLogScope — UI filter → git scope mapping', () => {
     assert.strictEqual(s.grep, 'fix');
     assert.strictEqual(s.regex, true);
     assert.strictEqual(s.caseSensitive, true);
+    assert.strictEqual(s.hashes, undefined, 'a message search is not a hash filter');
   });
 
+  it('treats a 7-40 hex searchText as a hash filter (not a message grep)', () => {
+    // The "Message or hash" box: a hash query becomes a HASH_FILTER, matching
+    // IntelliJ TextFilterModel (VcsLogUtil.HASH_REGEX = [a-fA-F0-9]{7,40}).
+    const s = buildLogScope({ searchText: '1142593' });
+    assert.deepStrictEqual(s.hashes, ['1142593'], 'hex query → hashes');
+    assert.strictEqual(s.grep, undefined, 'hash query must NOT also grep the message');
+    assert.strictEqual(s.all, false, 'a hash filter scopes to the named commits');
+  });
+
+  it('supports multiple space-separated hashes', () => {
+    const s = buildLogScope({ searchText: 'deadbee 0badf00d' });
+    assert.deepStrictEqual(s.hashes, ['deadbee', '0badf00d']);
+    assert.strictEqual(s.grep, undefined);
+  });
+
+  it('does not treat short or non-hex text as a hash', () => {
+    assert.strictEqual(buildLogScope({ searchText: 'abc123' }).hashes, undefined, '6 chars < 7');
+    assert.strictEqual(buildLogScope({ searchText: 'feature' }).hashes, undefined, 'has non-hex');
+    assert.strictEqual(buildLogScope({ searchText: 'fix bug' }).hashes, undefined, 'message');
+  });
+});
+
+describe('parseHashQuery — IntelliJ VcsLogUtil.HASH_REGEX parity', () => {
+  it('accepts a single 7-40 hex word', () => {
+    assert.deepStrictEqual(parseHashQuery('1142593'), ['1142593']);
+    assert.deepStrictEqual(parseHashQuery('ABCDEF0'), ['ABCDEF0']); // case-insensitive
+    assert.deepStrictEqual(parseHashQuery('a'.repeat(40)), ['a'.repeat(40)]);
+  });
+  it('accepts multiple hex words separated by whitespace', () => {
+    assert.deepStrictEqual(parseHashQuery('  deadbee\t0badf00d '), ['deadbee', '0badf00d']);
+  });
+  it('rejects < 7 hex, > 40 hex, non-hex, empty, and mixed', () => {
+    assert.strictEqual(parseHashQuery('abc123'), undefined); // 6
+    assert.strictEqual(parseHashQuery('a'.repeat(41)), undefined); // 41
+    assert.strictEqual(parseHashQuery('feature'), undefined); // non-hex
+    assert.strictEqual(parseHashQuery(''), undefined);
+    assert.strictEqual(parseHashQuery('   '), undefined);
+    assert.strictEqual(parseHashQuery('deadbee notahex'), undefined); // one word fails
+  });
+});
+
+describe('buildLogScope — verbatim filter fields', () => {
   it('carries author/since/until/path/parent-count filters verbatim', () => {
     const since = new Date('2024-01-01');
     const until = new Date('2024-02-01');
