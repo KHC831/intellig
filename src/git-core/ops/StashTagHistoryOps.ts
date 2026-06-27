@@ -489,17 +489,19 @@ export class StashTagHistoryOps {
       // can leave it off if they want git's default.
       args.push('--topo-order');
     }
-    if (options?.ref) {
-      // A single revision/ref (e.g. `origin/feature`) scopes the log to that
-      // branch instead of HEAD. `ref` is user-selected, so reject a leading
-      // `-` (would smuggle a CLI flag) or `.` (invalid per git-check-ref-format)
-      // before the positional push. Mirrors the createBranch/deleteTag guard.
-      // exec passes argv (no shell), so once guarded the push is injection-safe.
-      // Must precede any `--`/pathspec below.
-      if (options.ref.startsWith('-') || options.ref.startsWith('.')) {
-        throw new InvalidArgumentError(`Invalid ref: ${options.ref}`);
+    // One or more revisions/refs (e.g. `origin/feature`) scope the log to those
+    // branches instead of HEAD; multiple refs UNION (git log <refA> <refB> = any).
+    // `refs` is the multi-select form; `ref` the single back-compat form. Each is
+    // user-selected, so reject a leading `-` (would smuggle a CLI flag) or `.`
+    // (invalid per git-check-ref-format) before the positional push. exec passes
+    // argv (no shell), so once guarded the push is injection-safe. Must precede
+    // any `--`/pathspec below.
+    const refs = options?.refs ?? (options?.ref ? [options.ref] : []);
+    for (const ref of refs) {
+      if (ref.startsWith('-') || ref.startsWith('.')) {
+        throw new InvalidArgumentError(`Invalid ref: ${ref}`);
       }
-      args.push(options.ref);
+      args.push(ref);
     }
     if (options?.logRange) {
       // User-typed range like "main..feature" (IntelliJ BranchFilterModel range
@@ -514,13 +516,17 @@ export class StashTagHistoryOps {
       }
       args.push(range);
     }
-    if (options?.path) {
-      // Path-filtered history: --full-history keeps commits that touched the
-      // path even off the simplified first-parent line (merges, side
-      // branches), and --simplify-merges then prunes merges made redundant by
-      // that filtering — matching IntelliJ's complete file history. Without
-      // these, git's default simplification silently drops real history.
-      args.push('--full-history', '--simplify-merges', '--', options.path);
+    // One or more path filters; multiple paths UNION (commits touching ANY).
+    // `paths` is the multi-select form; `path` the single back-compat form.
+    // --full-history keeps commits that touched a path even off the simplified
+    // first-parent line (merges, side branches), and --simplify-merges then
+    // prunes merges made redundant by that filtering — matching IntelliJ's
+    // complete file history. Without these, git's default simplification silently
+    // drops real history. Everything after `--` is a pathspec, so a leading
+    // `-`/`.` in a path can't smuggle a flag — no per-path guard needed.
+    const paths = options?.paths ?? (options?.path ? [options.path] : []);
+    if (paths.length > 0) {
+      args.push('--full-history', '--simplify-merges', '--', ...paths);
     }
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
@@ -609,11 +615,13 @@ export class StashTagHistoryOps {
     if (hasAll) {
       args.push('--exclude=refs/stash', '--all');
     }
-    if (options?.ref) {
-      if (options.ref.startsWith('-') || options.ref.startsWith('.')) {
-        throw new InvalidArgumentError(`Invalid ref: ${options.ref}`);
+    // Mirror getLog's multi-ref / multi-path UNION so the count matches the list.
+    const refs = options?.refs ?? (options?.ref ? [options.ref] : []);
+    for (const ref of refs) {
+      if (ref.startsWith('-') || ref.startsWith('.')) {
+        throw new InvalidArgumentError(`Invalid ref: ${ref}`);
       }
-      args.push(options.ref);
+      args.push(ref);
     }
     if (options?.logRange) {
       const range = options.logRange;
@@ -624,11 +632,12 @@ export class StashTagHistoryOps {
     }
     // rev-list (unlike `git log`) has no implicit HEAD: with no ref/range/all
     // scope it errors out, so anchor the walk to HEAD to mirror getLog.
-    if (!hasAll && !options?.ref && !options?.logRange) {
+    if (!hasAll && refs.length === 0 && !options?.logRange) {
       args.push('HEAD');
     }
-    if (options?.path) {
-      args.push('--full-history', '--simplify-merges', '--', options.path);
+    const paths = options?.paths ?? (options?.path ? [options.path] : []);
+    if (paths.length > 0) {
+      args.push('--full-history', '--simplify-merges', '--', ...paths);
     }
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });

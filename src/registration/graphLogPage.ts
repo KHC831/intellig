@@ -6,10 +6,14 @@ import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/I
  */
 export interface ILogScopeFilter {
   branch?: string;
+  /** Multi-select branches — union (show commits from ANY). Folded in with {@link branch}. */
+  branches?: string[];
   author?: string;
   since?: Date;
   until?: Date;
   path?: string;
+  /** Multi-select paths — union (commits touching ANY). Folded in with {@link path}. */
+  paths?: string[];
   searchText?: string;
   noMerges?: boolean;
   firstParent?: boolean;
@@ -28,13 +32,13 @@ export interface ILogScopeFilter {
  */
 export interface ILogScope {
   all: boolean;
-  ref?: string;
+  refs?: string[];
   logRange?: string;
   hashes?: string[];
   author?: string;
   since?: Date;
   until?: Date;
-  path?: string;
+  paths?: string[];
   grep?: string;
   noMerges?: boolean;
   firstParent?: boolean;
@@ -89,21 +93,25 @@ export function parseHashQuery(text: string | undefined): string[] | undefined {
 }
 
 export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
-  const branchRef = filter?.branch;
+  // Multi-select branches/paths fold in the single-value legacy fields. Multiple
+  // branches union (any), multiple paths union (any). A branch scope suppresses
+  // `--all`.
+  const refs = [...(filter?.branches ?? []), ...(filter?.branch ? [filter.branch] : [])];
+  const paths = [...(filter?.paths ?? []), ...(filter?.path ? [filter.path] : [])];
   const logRange = filter?.logRange;
   // The "Message or hash" box: a query that is entirely hash words filters by
   // hash (`--no-walk <hash…>`), which scopes to exactly those commits — so it
   // suppresses `--all`/grep. Otherwise the query is a message `--grep`.
   const hashes = parseHashQuery(filter?.searchText);
   return {
-    all: !branchRef && !logRange && !hashes,
-    ref: branchRef,
+    all: refs.length === 0 && !logRange && !hashes,
+    refs: refs.length > 0 ? refs : undefined,
     logRange,
     hashes,
     author: filter?.author,
     since: filter?.since,
     until: filter?.until,
-    path: filter?.path,
+    paths: paths.length > 0 ? paths : undefined,
     grep: hashes ? undefined : filter?.searchText,
     noMerges: filter?.noMerges,
     firstParent: filter?.firstParent,
