@@ -25,6 +25,22 @@ const DEFAULT_DISPLAY: IBlameDisplay = {
 };
 
 /**
+ * One rendered gutter cell. A `blank` cell (uncommitted / hidden / freshly
+ * edited line) carries no text or tint but holds the column width so the code
+ * stays aligned. Committed cells carry the annotation text, the per-commit tint,
+ * and a hover.
+ */
+interface IGutterEntry {
+  text: string;
+  bgColor: string;
+  blank: boolean;
+  hover?: vscode.MarkdownString;
+}
+
+/** The shared blank cell — no text, no tint, no hover. */
+const BLANK_ENTRY: IGutterEntry = { text: '', bgColor: 'transparent', blank: true };
+
+/**
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with an IntelliJ-style interpolated background gradient and click actions.
@@ -57,6 +73,18 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
   private _updateDebounceTimer: NodeJS.Timeout | undefined;
+  /**
+   * The last rendered gutter, keyed by editor URI. Holds one entry per document
+   * line (committed → annotated cell; uncommitted/hidden → blank cell) plus the
+   * column width. Kept so an edit can be reflected SYNCHRONOUSLY — the entries
+   * are shifted for inserted/removed lines and re-applied immediately, so a new
+   * line gets its blank cell at once instead of the caret sitting at column 0
+   * until the debounced re-blame returns (the cursor-jump bug). The `width` is
+   * grow-only per file so the column does not jitter as content changes.
+   */
+  private _renderState:
+    | { uri: string; width: string; entries: Map<number, IGutterEntry> }
+    | undefined;
   /**
    * `true` when annotation was turned on via the explicit "Annotate with Git
    * Blame" action (IntelliJ's AnnotateToggleAction), which always annotates
@@ -168,6 +196,10 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
+          // Reflect the edit in the gutter immediately (shift the existing cells
+          // + blank the new line) so the caret doesn't snap to column 0 and back
+          // while the debounced re-blame runs. Then debounce the real re-blame.
+          this._shiftRenderStateForEdit(this._currentEditor, event.contentChanges);
           this.debounceUpdate(this._currentEditor);
         }
       })
@@ -454,24 +486,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         blameLines: blameInfo.lines.length,
       });
 
-      // Single pass over every blamed line: collect the renderable (committed,
-      // non-hidden) rows and the widest formatted text, so the text column gets
-      // one file-wide `ch` width and every row's columns line up. Iterating the
-      // blame model directly (rather than scanning the visible viewport on each
-      // scroll) is O(lines) once per load instead of O(visible × lines) on every
-      // scroll frame.
-      interface IRenderEntry {
-        line: number;
-        blameLine: IBlameLine;
-        bgColor: string;
-        text: string;
-        // A blank entry holds the gutter column's width for a line we don't
-        // annotate (uncommitted / hidden), so its code stays aligned with the
-        // annotated lines instead of sliding under the column.
-        blank: boolean;
-      }
+      // Single pass over every blamed line, building one entry PER DOCUMENT LINE
+      // (committed → annotated; uncommitted/hidden → blank). Covering every line
+      // means a synchronous edit can shift the map and re-render without leaving
+      // a gap. Iterating the blame model directly (rather than scanning the
+      // visible viewport on each scroll) is O(lines) once per load.
       const docLineCount = editor.document.lineCount;
-      const entries: IRenderEntry[] = [];
+      const entries = new Map<number, IGutterEntry>();
+      let maxLen = 0;
       for (const blameLine of blameInfo.lines) {
         // Blame lines are 1-indexed; map to the editor's 0-indexed line. Skip
         // any blame row that falls outside the current document (e.g. a
@@ -487,7 +509,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         const uncommitted = blameLine.commit.startsWith('0000000');
         const hidden = !!this._optionsSource && this._optionsSource.isHidden(blameLine.commit);
         if (uncommitted || hidden) {
-          entries.push({ line, blameLine, bgColor: 'transparent', text: '', blank: true });
+          entries.set(line, BLANK_ENTRY);
           continue;
         }
         // AUTHOR mode tints by the line's author; ORDER mode by the commit's age
@@ -497,70 +519,35 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           authorColors?.get(blameLine.author) ??
           orderColors?.get(blameLine.commit) ??
           computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
-        entries.push({
-          line,
-          blameLine,
-          bgColor,
-          text: this.formatGutterText(blameLine),
-          blank: false,
-        });
-      }
-
-      // Annotate EVERY line (author/date/revision on each), like IntelliJ's
-      // aspect columns. Size the text column to the widest entry so the code
-      // stays aligned across the whole file.
-      let maxLen = 0;
-      for (const e of entries) {
-        if (e.text.length > maxLen) {
-          maxLen = e.text.length;
+        const text = this.formatGutterText(blameLine);
+        if (text.length > maxLen) {
+          maxLen = text.length;
         }
-      }
-      // `+ 2` leaves a little breathing room after the longest entry.
-      const widthCh = `${maxLen + 2}ch`;
-      const textDecorations: vscode.DecorationOptions[] = [];
-      const heatDecorations: vscode.DecorationOptions[] = [];
-      for (const e of entries) {
-        const range = new vscode.Range(e.line, 0, e.line, 0);
-        textDecorations.push({
-          range,
-          // No hover on a blank (uncommitted / hidden) cell — there is no commit.
-          ...(e.blank ? {} : { hoverMessage: this.createHoverMessage(e.blameLine) }),
-          // Tint the FULL annotation column with the per-commit color (IntelliJ
-          // tints the whole gutter cell, not a sliver). VS Code's per-instance
-          // `before` REPLACES the decoration type's `before`, so the muted text
-          // color is restated here rather than inherited from the type — else it
-          // is dropped along with the type's attachment. A blank cell keeps the
-          // width (for alignment) but no tint.
-          renderOptions: {
-            before: {
-              contentText: e.text,
-              width: widthCh,
-              backgroundColor: e.bgColor,
-              color: new vscode.ThemeColor('editorCodeLens.foreground'),
-            },
-          },
-        });
-        heatDecorations.push({
-          range,
-          // Accent bar between the annotation and the code. Width/contentText are
-          // restated per-instance (not inherited from the type) for the same
-          // replace-semantics reason — otherwise the bar collapses to zero width
-          // and shows no color at all (the "no color" bug). A blank cell keeps
-          // the bar's footprint (transparent) so the boundary stays aligned.
-          renderOptions: {
-            before: {
-              contentText: ' ',
-              width: '3px',
-              margin: '0 12px 0 8px',
-              backgroundColor: e.bgColor,
-            },
-          },
+        entries.set(line, {
+          text,
+          bgColor,
+          blank: false,
+          hover: this.createHoverMessage(blameLine),
         });
       }
 
-      log.debug('updateDecorations: applying decorations', { count: textDecorations.length });
-      editor.setDecorations(this._textDecorationType, textDecorations);
-      editor.setDecorations(this._heatDecorationType, heatDecorations);
+      // Size the text column to the widest entry. The width is grow-only per file
+      // (carried in _renderState) so the column stays put as content changes
+      // instead of jittering. No extra breathing-room pad — the formatted text
+      // already carries inter-column spacing.
+      const prev =
+        this._renderState && this._renderState.uri === editor.document.uri.toString()
+          ? parseInt(this._renderState.width, 10)
+          : 0;
+      const widthChars = Math.max(maxLen, Number.isFinite(prev) ? prev : 0);
+      this._renderState = {
+        uri: editor.document.uri.toString(),
+        width: `${widthChars}ch`,
+        entries,
+      };
+
+      log.debug('updateDecorations: applying decorations', { count: entries.size });
+      this._applyRenderState(editor);
     } catch (error) {
       // Blame may genuinely be unavailable (file untracked, not in a repo, git
       // error). Log at debug so the failure is diagnosable instead of silent.
@@ -569,6 +556,111 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Paint both gutter columns from {@link _renderState} for `editor`. One pass
+   * over the line→entry map; `setDecorations` replaces the whole set per type, so
+   * this fully repaints in two calls (no pre-clear, no flicker).
+   */
+  private _applyRenderState(editor: vscode.TextEditor): void {
+    if (!this._textDecorationType || !this._heatDecorationType || !this._renderState) {
+      return;
+    }
+    const { width, entries } = this._renderState;
+    const textDecorations: vscode.DecorationOptions[] = [];
+    const heatDecorations: vscode.DecorationOptions[] = [];
+    for (const [line, e] of entries) {
+      const range = new vscode.Range(line, 0, line, 0);
+      textDecorations.push({
+        range,
+        // No hover on a blank (uncommitted / hidden / edited) cell.
+        ...(e.blank || !e.hover ? {} : { hoverMessage: e.hover }),
+        // Tint the FULL annotation column with the per-commit color (IntelliJ
+        // tints the whole gutter cell). VS Code's per-instance `before` REPLACES
+        // the type's `before`, so the muted text color is restated here. A blank
+        // cell keeps the width (for alignment) but no tint.
+        renderOptions: {
+          before: {
+            contentText: e.text,
+            width,
+            backgroundColor: e.bgColor,
+            color: new vscode.ThemeColor('editorCodeLens.foreground'),
+          },
+        },
+      });
+      heatDecorations.push({
+        range,
+        // Thin accent bar = the annotation↔code boundary. Width/contentText are
+        // restated per-instance (replace semantics) or the bar collapses to zero
+        // width. A blank cell keeps the bar's (transparent) footprint so the
+        // boundary stays aligned. Tight margins keep the column compact.
+        renderOptions: {
+          before: {
+            contentText: ' ',
+            width: '3px',
+            margin: '0 6px 0 4px',
+            backgroundColor: e.bgColor,
+          },
+        },
+      });
+    }
+    editor.setDecorations(this._textDecorationType, textDecorations);
+    editor.setDecorations(this._heatDecorationType, heatDecorations);
+  }
+
+  /**
+   * Reflect a single document edit in {@link _renderState} SYNCHRONOUSLY: shift
+   * the line→entry map by the edit's line delta and blank the edited/inserted
+   * rows, then repaint — so a newly created line immediately has its blank gutter
+   * cell (the caret stays put instead of snapping to column 0 and back while the
+   * debounced re-blame runs). Only the common single-change case is handled; for
+   * multi-change edits the debounced re-blame is the sole update.
+   *
+   * @returns `true` when it shifted + repainted, `false` when it declined (no
+   *   state, URI mismatch, or a multi-change edit) so the caller still debounces.
+   */
+  private _shiftRenderStateForEdit(
+    editor: vscode.TextEditor,
+    changes: readonly vscode.TextDocumentContentChangeEvent[]
+  ): boolean {
+    if (!this._renderState || this._renderState.uri !== editor.document.uri.toString()) {
+      return false;
+    }
+    if (changes.length !== 1) {
+      return false;
+    }
+    const change = changes[0];
+    const startLine = change.range.start.line;
+    const endLine = change.range.end.line;
+    const removed = endLine - startLine;
+    const added = (change.text.match(/\n/g) ?? []).length;
+    const delta = added - removed;
+
+    const oldEntries = this._renderState.entries;
+    const shifted = new Map<number, IGutterEntry>();
+    for (const [line, entry] of oldEntries) {
+      if (line < startLine) {
+        shifted.set(line, entry);
+      } else if (line > endLine) {
+        shifted.set(line + delta, entry);
+      }
+      // Lines in [startLine, endLine] are dropped — the replaced region.
+    }
+    // The edited + newly inserted rows become blank until the re-blame reconciles
+    // them (an edited line's prior blame is stale; a new line has none).
+    for (let line = startLine; line <= startLine + added; line++) {
+      shifted.set(line, BLANK_ENTRY);
+    }
+    // Rebuild a dense map over the new document so every line has a cell.
+    const lineCount = editor.document.lineCount;
+    const dense = new Map<number, IGutterEntry>();
+    for (let line = 0; line < lineCount; line++) {
+      dense.set(line, shifted.get(line) ?? BLANK_ENTRY);
+    }
+    this._renderState = { ...this._renderState, entries: dense };
+    this._applyRenderState(editor);
+    return true;
   }
 
   /**
@@ -725,6 +817,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
     editor.setDecorations(this._textDecorationType, []);
     editor.setDecorations(this._heatDecorationType, []);
+    // Drop stale render state for this editor so a later edit doesn't shift and
+    // repaint a gutter we just cleared.
+    if (this._renderState && this._renderState.uri === editor.document.uri.toString()) {
+      this._renderState = undefined;
+    }
   }
 
   /**
@@ -741,6 +838,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
 
     this._currentEditor = undefined;
+    this._renderState = undefined;
   }
 
   /**

@@ -161,4 +161,96 @@ describe('Gutter blame — dirty/edited render', () => {
 
     provider.dispose();
   });
+
+  it('synchronously gives a newly inserted line a blank cell (no caret jump)', async () => {
+    const { provider, editor, calls } = makeProvider(
+      [bl(1, A, '2026-01-01'), bl(2, A, '2026-01-01')],
+      2
+    );
+    provider.enable(editor as never, { force: true });
+    await flush();
+    await flush();
+    calls.length = 0; // only look at what the edit produces
+
+    // Simulate pressing Enter at the end of line 0: one newline inserted, the
+    // document grows to 3 lines. The shift must run synchronously (no await).
+    (editor.document as { lineCount: number }).lineCount = 3;
+    const change = {
+      range: { start: { line: 0 }, end: { line: 0 } },
+      text: '\n',
+    } as unknown as import('vscode').TextDocumentContentChangeEvent;
+    const ok = (
+      provider as unknown as {
+        _shiftRenderStateForEdit: (
+          e: unknown,
+          c: readonly import('vscode').TextDocumentContentChangeEvent[]
+        ) => boolean;
+      }
+    )._shiftRenderStateForEdit(editor, [change]);
+    assert.strictEqual(ok, true, 'single-change edit must shift+repaint synchronously');
+
+    // Collect the text-column cell per line from the synchronous repaint.
+    const text = new Map<number, string>();
+    const width = new Map<number, string>();
+    for (const c of calls) {
+      for (const d of c.decos) {
+        const before = d.renderOptions?.before;
+        if (!before || !(before.width ?? '').endsWith('ch')) {
+          continue;
+        }
+        if (before.contentText !== undefined) {
+          text.set(d.range.start.line, before.contentText);
+        }
+        if (before.width !== undefined) {
+          width.set(d.range.start.line, before.width);
+        }
+      }
+    }
+
+    // Every line 0..2 must have a cell — crucially the new line (index 1) so the
+    // caret doesn't sit at column 0 waiting for the debounced re-blame.
+    const seen = [...text.keys()].join(',');
+    assert.ok(text.has(0) && text.has(1) && text.has(2), `all 3 lines need a cell; got ${seen}`);
+    assert.strictEqual(width.get(1), width.get(0), 'new line cell keeps the column width');
+    provider.dispose();
+  });
+
+  it('column width is grow-only (does not shrink when content shrinks) — fixed-sized', async () => {
+    const longAuthor: IBlameLine = {
+      line: 1,
+      commit: A,
+      author: 'A Very Long Author Name Indeed',
+      authorEmail: 'a@x',
+      date: new Date('2026-01-01'),
+      message: 'm',
+    };
+    const { provider, editor, calls } = makeProvider([longAuthor], 1);
+    provider.enable(editor as never, { force: true });
+    await flush();
+    await flush();
+    const widthOf = (): string | undefined => {
+      for (let i = calls.length - 1; i >= 0; i--) {
+        for (const d of calls[i].decos) {
+          const w = d.renderOptions?.before?.width;
+          if (w && w.endsWith('ch')) {
+            return w;
+          }
+        }
+      }
+      return undefined;
+    };
+    const wide = widthOf();
+    assert.ok(wide, 'expected a ch width');
+
+    // Shrink the blame to a tiny author and re-render: the column must NOT shrink
+    // (grow-only) so it stays put instead of jittering narrower.
+    (provider as unknown as { _blameService: { lines: IBlameLine[] } })._blameService.lines = [
+      bl(1, A, '2026-01-01'),
+    ];
+    calls.length = 0;
+    await provider.refresh();
+    await flush();
+    assert.strictEqual(widthOf(), wide, 'width must not shrink when content shrinks');
+    provider.dispose();
+  });
 });
