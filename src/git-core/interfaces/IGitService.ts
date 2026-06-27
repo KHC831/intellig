@@ -1195,8 +1195,6 @@ export interface IGitService {
    * options (`topoOrder`) are ignored because they don't change the total.
    */
   getLogCount(repo: IRepository, options?: ILogOptions): Promise<number>;
-  /** The repo's tracked files (repo-root-relative) — drives the Path filter tree. */
-  getTrackedPaths(repo: IRepository): Promise<string[]>;
   getCommit(repo: IRepository, hash: string): Promise<ICommit>;
   getFileHistory(
     repo: IRepository,

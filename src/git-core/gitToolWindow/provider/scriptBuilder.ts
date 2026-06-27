@@ -82,18 +82,6 @@ export function buildInlineScript(): string {
             if (n === 1) return branchLeaf(filterState.branches[0]);
             return n + ' branches';
           }
-          function isPathChecked(p) { return filterState.paths.indexOf(p) !== -1; }
-          function setPathChecked(p, on) {
-            const i = filterState.paths.indexOf(p);
-            if (on && i === -1) filterState.paths.push(p);
-            else if (!on && i !== -1) filterState.paths.splice(i, 1);
-          }
-          function pathSummary() {
-            const n = filterState.paths.length;
-            if (n === 0) return '';
-            if (n === 1) return pathLeaf(filterState.paths[0]);
-            return n + ' paths';
-          }
 
           function byId(id) { return document.getElementById(id); }
           function readSearch() { const el = byId('filter-search'); return el ? el.value.trim() : ''; }
@@ -147,7 +135,6 @@ export function buildInlineScript(): string {
             if (show) {
               if (key === 'branch') vscode.postMessage({ type: 'requestLogFilterOptions' });
               if (key === 'user') vscode.postMessage({ type: 'requestAuthorOptions' });
-              if (key === 'path') vscode.postMessage({ type: 'requestPathOptions' });
               const input = popup.querySelector('input[type="text"]');
               if (input) { try { input.focus(); } catch (err) {} }
             }
@@ -215,17 +202,13 @@ export function buildInlineScript(): string {
               setPopValue('date', dateLabel());
               closeAllPopups();
               applyFilters();
-            } else if (action === 'pickPathFilter') {
-              // "All paths" clears the multi-select; individual paths are toggled
-              // via their checkboxes in the tree (see the change handler).
-              const p = actionEl.getAttribute('data-path');
-              if (!p || p === '__all__') {
-                filterState.paths = [];
-                const list = byId('filter-path-list');
-                if (list) list.querySelectorAll('input[data-path]').forEach(function(cb) { cb.checked = false; });
-                setPopValue('path', pathSummary());
-                applyFilters();
-              }
+            } else if (action === 'applyPathFilter') {
+              const pi = byId('filter-path-input');
+              const v = pi ? pi.value.trim() : '';
+              filterState.paths = v ? [v] : [];
+              setPopValue('path', v ? pathLeaf(v) : 'All');
+              closeAllPopups();
+              applyFilters();
             } else if (action === 'pickRepoScope') {
               const idx = actionEl.getAttribute('data-repo-index');
               vscode.postMessage({ type: 'selectRepository', repositoryIndex: idx === 'all' ? 'all' : Number(idx) });
@@ -255,6 +238,13 @@ export function buildInlineScript(): string {
               setPopValue('user', filterState.author);
               closeAllPopups();
               applyFilters();
+            } else if (a === 'filterPathKeydown') {
+              e.preventDefault();
+              const v = e.target.value.trim();
+              filterState.paths = v ? [v] : [];
+              setPopValue('path', v ? pathLeaf(v) : 'All');
+              closeAllPopups();
+              applyFilters();
             }
           });
 
@@ -277,13 +267,6 @@ export function buildInlineScript(): string {
               }
               setPopValue('branch', branchSummary());
               applyFilters();
-            } else if (action === 'togglePathCheckbox') {
-              // Every path node (folder OR file) is itself a valid filter path —
-              // git log -- <dir> covers the whole subtree — so a checkbox just
-              // toggles its own path; no subtree cascade needed.
-              setPathChecked(e.target.getAttribute('data-path'), e.target.checked);
-              setPopValue('path', pathSummary());
-              applyFilters();
             }
           });
 
@@ -292,32 +275,24 @@ export function buildInlineScript(): string {
           // the matched leaves keep their nesting context.
           document.addEventListener('input', function(e) {
             if (!(e.target instanceof Element)) return;
-            const a = e.target.getAttribute('data-action');
-            if (a !== 'filterPopupSearch' && a !== 'filterPathSearch') return;
+            if (e.target.getAttribute('data-action') !== 'filterPopupSearch') return;
             const q = e.target.value.toLowerCase();
-            const list = byId(a === 'filterPathSearch' ? 'filter-path-list' : 'filter-branch-list');
-            const dataAttr = a === 'filterPathSearch' ? 'data-path' : 'data-branch';
+            const list = byId('filter-branch-list');
             if (!list) return;
-            // Hide a node whose own value AND none of its descendants match; keep
-            // an ancestor of a match visible so the nesting context survives.
-            list.querySelectorAll('.log-filter-tree-node').forEach(function(node) {
-              if (q.length === 0) { node.hidden = false; return; }
-              const cbs = node.querySelectorAll('input[' + dataAttr + ']');
-              let any = false;
-              cbs.forEach(function(cb) {
-                if ((cb.getAttribute(dataAttr) || '').toLowerCase().indexOf(q) !== -1) any = true;
-              });
-              node.hidden = !any;
+            list.querySelectorAll('.log-filter-tree-row').forEach(function(rowLabel) {
+              const leaf = rowLabel.querySelector('input[data-branch]');
+              const node = rowLabel.closest('.log-filter-tree-node');
+              if (!leaf || !node) return; // folder rows always shown
+              const ref = (leaf.getAttribute('data-branch') || '').toLowerCase();
+              node.hidden = q.length > 0 && ref.indexOf(q) === -1;
             });
           });
 
-          // Read accessors for the message handlers that fill the branch / path /
-          // author lists (so they can mark active items across the IIFE boundary).
+          // Read accessors for the message handlers that fill the branch /
+          // author lists (so they can mark the active item).
           window.__intelligFilter = {
             isBranchChecked: isBranchChecked,
             anyBranchSelected: function() { return filterState.branches.length > 0; },
-            isPathChecked: isPathChecked,
-            anyPathSelected: function() { return filterState.paths.length > 0; },
             getAuthor: function() { return filterState.author; },
           };
         })();
@@ -913,68 +888,6 @@ export function buildInlineScript(): string {
                   renderTree(list, buildTree(g.branches, g.remote + '/'), 0);
                 });
               }
-            }
-          }
-          // Path popup options (lazy, on popup open): fill the Path list as a
-          // nested checkbox tree of the repo's tracked files. Every node (folder
-          // OR file) carries data-path = its full repo-relative path and is a
-          // selectable filter (git log -- <dir> covers the subtree). "All paths"
-          // clears the selection. Built via createElement (injection-proof).
-          if (message.type === 'pathOptionsReady') {
-            const list = document.getElementById('filter-path-list');
-            if (list && Array.isArray(message.paths)) {
-              const intf = window.__intelligFilter || {};
-              const checked = intf.isPathChecked || function() { return false; };
-              const anySelected = intf.anyPathSelected ? intf.anyPathSelected() : false;
-              list.replaceChildren();
-              // Folder tree from "a/b/c.ts" paths; each node tracks its full path.
-              function buildPathTree(paths) {
-                const root = { children: {}, order: [], path: '' };
-                paths.forEach(function(full) {
-                  const parts = String(full).split('/').filter(Boolean);
-                  let node = root;
-                  let acc = '';
-                  parts.forEach(function(seg) {
-                    acc = acc ? acc + '/' + seg : seg;
-                    if (!node.children[seg]) { node.children[seg] = { children: {}, order: [], path: acc }; node.order.push(seg); }
-                    node = node.children[seg];
-                  });
-                });
-                return root;
-              }
-              function renderPathTree(container, node, depth) {
-                node.order.sort();
-                node.order.forEach(function(seg) {
-                  const child = node.children[seg];
-                  const hasChildren = child.order.length > 0;
-                  const wrap = document.createElement('div');
-                  wrap.className = 'log-filter-tree-node';
-                  const rowLabel = document.createElement('label');
-                  rowLabel.className = 'log-filter-tree-row';
-                  rowLabel.style.paddingLeft = (depth * 14 + 8) + 'px';
-                  const cb = document.createElement('input');
-                  cb.type = 'checkbox';
-                  cb.setAttribute('data-action', 'togglePathCheckbox');
-                  cb.setAttribute('data-path', child.path);
-                  cb.checked = !!checked(child.path);
-                  const text = document.createElement('span');
-                  text.className = hasChildren ? 'log-filter-tree-folder' : 'log-filter-tree-leaf';
-                  text.textContent = seg;
-                  rowLabel.appendChild(cb);
-                  rowLabel.appendChild(text);
-                  wrap.appendChild(rowLabel);
-                  container.appendChild(wrap);
-                  if (hasChildren) renderPathTree(wrap, child, depth + 1);
-                });
-              }
-              const allBtn = document.createElement('button');
-              allBtn.type = 'button';
-              allBtn.className = 'log-filter-popup-item' + (anySelected ? '' : ' active');
-              allBtn.setAttribute('data-action', 'pickPathFilter');
-              allBtn.setAttribute('data-path', '__all__');
-              allBtn.textContent = 'All paths';
-              list.appendChild(allBtn);
-              renderPathTree(list, buildPathTree(message.paths), 0);
             }
           }
           // User popup options (lazy, on popup open): fill the author list.

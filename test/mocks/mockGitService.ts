@@ -108,7 +108,6 @@ export function createMockGitService(
     deleteRemoteTag: () => okAsync(undefined),
     getLog: async () => [],
     getLogCount: async () => 0,
-    getTrackedPaths: async () => [],
     getCommit: async () =>
       ({
         hash: '',

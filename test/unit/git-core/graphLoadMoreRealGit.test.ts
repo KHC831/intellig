@@ -56,7 +56,6 @@ describe('Graph load-more — real git, more than one page', function () {
       ops.getLog(r, options).unwrapOr([]),
     getLogCount: (r: IRepository, options?: Parameters<typeof ops.getLogCount>[1]) =>
       ops.getLogCount(r, options).unwrapOr(0),
-    getTrackedPaths: async () => [],
   };
   let provider: GitToolWindowProvider;
   const repo = (): IRepository => ({ rootUri: { fsPath: dir } }) as unknown as IRepository;
