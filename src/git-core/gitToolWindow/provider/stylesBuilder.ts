@@ -1015,7 +1015,8 @@ export function buildInlineStyles(): string {
       .log-root-label {
         font-size: 10px;
         opacity: 0.7;
-        max-width: 80px;
+        width: 80px;
+        margin-right: 10px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;

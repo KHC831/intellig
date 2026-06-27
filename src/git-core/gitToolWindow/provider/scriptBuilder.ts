@@ -114,9 +114,10 @@ export function buildInlineScript(): string {
             if (u) return 'Until ' + u;
             return 'All';
           }
-          // "All" / "N repositories" / single-repo leaf for the Repository button.
+          // "None" / "All" / "N repositories" / single-repo leaf for the button.
           function repoSummary(checkedCount, total) {
-            if (checkedCount === 0 || checkedCount === total) return 'All';
+            if (checkedCount === 0) return 'None';
+            if (checkedCount === total) return 'All';
             if (checkedCount === 1) {
               const only = document.querySelector('#filter-repo-list input[data-repo-root]:checked');
               const root = only ? (only.getAttribute('data-repo-root') || '') : '';
@@ -126,9 +127,21 @@ export function buildInlineScript(): string {
             return checkedCount + ' repositories';
           }
 
+          // Remember which filter popup is open across a full webview re-render.
+          // A multi-select pick (branch / repo checkbox) reloads the graph, which
+          // re-templates the document and would otherwise drop the open popup
+          // mid-selection. We persist the open key and reopen it on init so the
+          // user can keep checking boxes. Cleared whenever popups close.
+          function persistOpenPopup(key) {
+            if (!vscode || typeof vscode.getState !== 'function') return;
+            const prev = vscode.getState() || {};
+            prev.openFilterPopup = key || null;
+            vscode.setState(prev);
+          }
           function closeAllPopups() {
             document.querySelectorAll('.log-filter-popup').forEach(function(p) { p.hidden = true; });
             document.querySelectorAll('.log-filter-pop-btn').forEach(function(b) { b.setAttribute('aria-expanded', 'false'); });
+            persistOpenPopup(null);
           }
           function togglePopup(key) {
             const popup = byId('filter-popup-' + key);
@@ -140,11 +153,28 @@ export function buildInlineScript(): string {
             const btn = wrap ? wrap.querySelector('.log-filter-pop-btn') : null;
             if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
             if (show) {
+              persistOpenPopup(key);
               if (key === 'branch') vscode.postMessage({ type: 'requestLogFilterOptions' });
               if (key === 'user') vscode.postMessage({ type: 'requestAuthorOptions' });
               const input = popup.querySelector('input[type="text"]');
               if (input) { try { input.focus(); } catch (err) {} }
             }
+          }
+          // Reopen the popup that was open before the last re-render (without
+          // stealing focus — a graph reload must not grab the caret). Branch/user
+          // lists repopulate via their option requests.
+          function restoreOpenFilterPopup() {
+            if (!vscode || typeof vscode.getState !== 'function') return;
+            const key = (vscode.getState() || {}).openFilterPopup;
+            if (!key) return;
+            const popup = byId('filter-popup-' + key);
+            if (!popup || !popup.hidden) return;
+            popup.hidden = false;
+            const wrap = popup.closest('.log-filter-pop');
+            const btn = wrap ? wrap.querySelector('.log-filter-pop-btn') : null;
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+            if (key === 'branch') vscode.postMessage({ type: 'requestLogFilterOptions' });
+            if (key === 'user') vscode.postMessage({ type: 'requestAuthorOptions' });
           }
 
           // YYYY-MM-DD for (today - days), used by the Date presets.
@@ -302,6 +332,10 @@ export function buildInlineScript(): string {
             anyBranchSelected: function() { return filterState.branches.length > 0; },
             getAuthor: function() { return filterState.author; },
           };
+
+          // After a graph-reloading pick re-renders the document, bring the open
+          // filter popup back so multi-select stays usable.
+          restoreOpenFilterPopup();
         })();
 
         // Multi-select webview state.

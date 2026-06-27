@@ -2602,8 +2602,10 @@ export class GitToolWindowProvider
     // Prune a visible-roots subset to the roots that still exist (identity by
     // normalized path, mirroring the index re-resolution above). Drop it when it
     // would shrink below two roots or grow to cover every root — either case is
-    // no longer a "some but not all" subset and collapses to "show all".
-    if (this._visibleRepoRoots) {
+    // no longer a "some but not all" subset and collapses to "show all". An
+    // EXPLICIT empty set (the "show none" state) is left untouched — it isn't a
+    // shrunken subset, it's a deliberate selection the user must undo themselves.
+    if (this._visibleRepoRoots && this._visibleRepoRoots.length > 0) {
       const present = new Set(repos.map((r) => normalizeRepoPath(r.rootUri)));
       const kept = this._visibleRepoRoots.filter((p) => present.has(normalizeRepoPathString(p)));
       this._visibleRepoRoots = kept.length < 2 || kept.length === repos.length ? null : kept;
@@ -2822,8 +2824,8 @@ export class GitToolWindowProvider
     );
     const n = this._availableRepositories.length;
 
-    if (matched.length === 0 || matched.length === n) {
-      this._handleRepositorySelection('all');
+    if (matched.length === n) {
+      this._handleRepositorySelection('all'); // every repo checked → show all
       return;
     }
     if (matched.length === 1) {
@@ -2831,6 +2833,10 @@ export class GitToolWindowProvider
       return;
     }
 
+    // 0 (none checked) or 2..n-1 (a partial subset) both stay in the merged
+    // scope with an explicit visible set. An EMPTY set means "show no commits"
+    // — unchecking everything must NOT snap back to "all"; the user re-checks
+    // (or ticks "All repositories") to restore.
     this._repositoryScope = 'all';
     this._visibleRepoRoots = matched.map((r) => r.rootUri.fsPath);
     this._scopeUserChosen = true;
@@ -3865,7 +3871,9 @@ ${bodyMarkup}
    */
   private _repoScopeLabel(): string {
     if (this._visibleRepoRoots) {
-      return `${this._visibleRepoRoots.length} repositories`;
+      return this._visibleRepoRoots.length === 0
+        ? 'None'
+        : `${this._visibleRepoRoots.length} repositories`;
     }
     if (this._repositoryScope !== 'all') {
       const repo = this._availableRepositories[this._selectedRepositoryIndex];

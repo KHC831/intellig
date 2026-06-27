@@ -132,6 +132,71 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     );
   });
 
+  it('unchecking every repo posts an empty set and labels the button "None"', () => {
+    const { script, bodyHtml } = extractWebviewScript(
+      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+
+    const list = h.document.getElementById('filter-repo-list')!;
+    const boxes = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-repo-root]'));
+    for (const box of boxes) {
+      box.checked = false;
+      box.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+    }
+
+    const repoPosts = h.posted.filter(
+      (m): m is { type: string; roots: string[] } =>
+        !!m && (m as { type?: string }).type === 'selectRepositories'
+    );
+    assert.deepStrictEqual(
+      Array.from(repoPosts[repoPosts.length - 1].roots),
+      [],
+      'last post carries no roots (show none)'
+    );
+    // The button reads "None", and the All-repositories box does not re-check.
+    assert.strictEqual(h.document.getElementById('filter-repo-value')!.textContent, 'None');
+    const allBox = list.querySelector<HTMLInputElement>('input[data-action="toggleAllRepos"]')!;
+    assert.strictEqual(allBox.checked, false, '"All repositories" stays unchecked');
+  });
+
+  it('remembers an open repo popup so a graph-reloading pick keeps it open', () => {
+    const { script, bodyHtml } = extractWebviewScript(
+      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+
+    // Open the Repository popup the way a click does.
+    const btn = h.document.querySelector<HTMLElement>(
+      '[data-action="toggleFilterPopup"][data-popup="repo"]'
+    );
+    assert.ok(btn, 'Repository popup button present');
+    btn.dispatchEvent(new h.window.Event('click', { bubbles: true }));
+
+    // The open popup is persisted so it can be restored after a re-render.
+    assert.strictEqual(
+      (h.readState() as { openFilterPopup?: string }).openFilterPopup,
+      'repo',
+      'open repo popup is remembered in webview state'
+    );
+  });
+
+  it('reopens the remembered popup on init (after a re-render) without throwing', () => {
+    const { script, bodyHtml } = extractWebviewScript(
+      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
+    );
+    // Simulate the post-pick reload: VS Code rehydrates state with the popup open.
+    h = runWebviewScript(script, { bodyHtml, initialState: { openFilterPopup: 'repo' } });
+
+    const popup = h.document.getElementById('filter-popup-repo');
+    assert.ok(popup, 'repo popup present');
+    assert.strictEqual(popup.hidden, false, 'remembered popup is reopened on init');
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      []
+    );
+  });
+
   it('tolerates representative and garbage extension→webview messages', () => {
     const { script, bodyHtml } = extractWebviewScript(fullHtml());
     h = runWebviewScript(script, { bodyHtml });

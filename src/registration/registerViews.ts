@@ -691,6 +691,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       // Honor a "some but not all roots" subset from the Repository filter: load
       // only the visible roots' commits. `null` means every root (show all).
       const visible = ctx.gitToolWindowProvider?.getVisibleRepoRoots() ?? null;
+      // An explicit empty subset is the "show none" state — render an empty graph
+      // rather than falling through to the single-repo load below.
+      if (visible && visible.length === 0) {
+        ctx.gitToolWindowProvider?.updateLogState([], new Map(), new Map(), undefined, undefined);
+        ctx.gitToolWindowProvider?.setMergedHeadCommitHashes([]);
+        return;
+      }
       const repos = visible
         ? discovered.filter((r) => {
             const norm = normalizeRepoPath(r.rootUri);

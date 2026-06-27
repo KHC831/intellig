@@ -64,14 +64,36 @@ describe('Repository multi-select scope', () => {
     );
   });
 
-  it('no roots checked is treated as "all"', () => {
+  it('no roots checked → explicit empty subset (show none), NOT a snap-back to all', () => {
     select([]);
+    // Still the merged scope, but with an explicit empty visible set: the loader
+    // renders no commits. It must NOT collapse to null/"all".
     assert.strictEqual(provider.isAllReposSelected(), true);
-    assert.strictEqual(provider.getVisibleRepoRoots(), null);
+    assert.deepStrictEqual(provider.getVisibleRepoRoots(), []);
+    assert.strictEqual(provider.getVisibleRepositories().length, 0);
     assert.deepStrictEqual(
       scopeEvents.map((e) => e.kind),
       ['all']
     );
+  });
+
+  it('an empty subset survives a repo re-discovery (not reset to all)', () => {
+    select([]);
+    assert.deepStrictEqual(provider.getVisibleRepoRoots(), []);
+    provider.setAvailableRepositories([makeRepo(a), makeRepo(b), makeRepo(c)]);
+    assert.deepStrictEqual(
+      provider.getVisibleRepoRoots(),
+      [],
+      'an explicit "none" selection is the user’s to undo, not auto-reset'
+    );
+  });
+
+  it('re-checking "All repositories" from empty restores the merged all-scope', () => {
+    select([]);
+    assert.deepStrictEqual(provider.getVisibleRepoRoots(), []);
+    select([a, b, c]);
+    assert.strictEqual(provider.getVisibleRepoRoots(), null);
+    assert.strictEqual(provider.isAllReposSelected(), true);
   });
 
   it('exactly one root checked collapses to the single-repo scope', () => {

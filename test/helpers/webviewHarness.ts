@@ -26,6 +26,8 @@ export interface IWebviewHarness {
   readonly errors: Error[];
   /** Deliver an extension→webview message (`window.message` event). */
   post(message: unknown): void;
+  /** The persisted webview state (`vscode.setState`), as the script last left it. */
+  readState(): unknown;
   /** Dispose the jsdom window. */
   dispose(): void;
 }
@@ -37,6 +39,12 @@ export interface IRunWebviewScriptOptions {
    * usually a single mount point or empty.
    */
   bodyHtml?: string;
+  /**
+   * Seed `vscode.getState()` before the script runs — mirrors a reload where
+   * VS Code rehydrates the previous webview state (e.g. a remembered open
+   * filter popup that should reopen on init).
+   */
+  initialState?: unknown;
 }
 
 /**
@@ -51,7 +59,7 @@ export function runWebviewScript(
 ): IWebviewHarness {
   const posted: unknown[] = [];
   const errors: Error[] = [];
-  let state: unknown;
+  let state: unknown = options.initialState;
 
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', (err: Error) => {
@@ -92,6 +100,9 @@ export function runWebviewScript(
     errors,
     post(message: unknown): void {
       dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: message }));
+    },
+    readState(): unknown {
+      return state;
     },
     dispose(): void {
       dom.window.close();
