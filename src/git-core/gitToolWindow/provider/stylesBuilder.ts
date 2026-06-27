@@ -187,6 +187,12 @@ export function buildInlineStyles(): string {
         padding: 6px 8px;
         background-color: var(--vscode-input-background);
         border-bottom: 1px solid var(--vscode-panel-border);
+        /* Pin the filter row to the top of the scrolling log so it stays visible
+           while the user scrolls the commit tree (IntelliJ keeps its filter bar
+           fixed above the table). */
+        position: sticky;
+        top: 0;
+        z-index: 5;
       }
 
       /* Text search field (Message or hash) with regex/case adornments. */
