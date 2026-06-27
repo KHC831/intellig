@@ -116,6 +116,30 @@ export function buildInlineScript(): string {
             syncBranchFolderChecks(list);
             setPopValue('branch', branchSummary());
           }
+          // Reconcile a SUBSET selection against the branch list just rebuilt for
+          // the current repo scope (B.3): drop refs no visible repo has anymore.
+          // An emptied subset reverts to ALL — a repo-scope change unselected the
+          // refs, not the user (who would have hit NONE explicitly). A subset that
+          // now covers every visible branch is ALL. Runs on each tree rebuild; no
+          // re-post (the host's per-repo ref intersection keeps the graph correct
+          // meanwhile, and the next toggle posts the reconciled set).
+          function reconcileBranchSelection() {
+            const list = byId('filter-branch-list');
+            if (!list) return;
+            if (filterState.branchMode === 'subset') {
+              const leaves = list.querySelectorAll('input[data-branch]');
+              if (leaves.length > 0) {
+                const present = {};
+                leaves.forEach(function(cb) { present[cb.getAttribute('data-branch')] = true; });
+                const kept = filterState.branches.filter(function(r) { return present[r]; });
+                if (kept.length === 0 || kept.length === leaves.length) { filterState.branchMode = 'all'; filterState.branches = []; }
+                else { filterState.branches = kept; }
+                leaves.forEach(function(cb) { cb.checked = isBranchChecked(cb.getAttribute('data-branch')); });
+                setPopValue('branch', branchSummary());
+              }
+            }
+            syncBranchFolderChecks(list);
+          }
           // Reflect descendant-leaf state onto the folder + master checkboxes:
           // checked when ALL descendants checked, indeterminate when only some.
           function syncBranchFolderChecks(list) {
@@ -375,6 +399,7 @@ export function buildInlineScript(): string {
             isBranchChecked: isBranchChecked,
             anyBranchSelected: function() { return filterState.branchMode !== 'all'; },
             branchState: function() { return filterState.branchMode; },
+            reconcileBranchSelection: reconcileBranchSelection,
             syncBranchTree: function() { const l = byId('filter-branch-list'); if (l) syncBranchFolderChecks(l); },
             getAuthor: function() { return filterState.author; },
           };
@@ -982,7 +1007,9 @@ export function buildInlineScript(): string {
                   renderTree(list, buildTree(g.branches, g.remote + '/'), 0);
                 });
               }
-              // Reconcile folder + master checked/indeterminate from the leaves.
+              // Prune a stale subset to the now-visible branches, then reconcile
+              // folder + master checked/indeterminate from the leaves.
+              if (intf.reconcileBranchSelection) intf.reconcileBranchSelection();
               if (intf.syncBranchTree) intf.syncBranchTree();
             }
           }

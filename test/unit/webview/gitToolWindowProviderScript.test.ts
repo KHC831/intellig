@@ -189,6 +189,57 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     assert.strictEqual(last.filter.branchesNone, false);
   });
 
+  it('prunes a branch subset to the branches still visible after a repo-scope change', () => {
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setLogFilter({ branches: ['main', 'feature/gone'] } as unknown as Parameters<
+      typeof provider.setLogFilter
+    >[0]);
+    const { script, bodyHtml } = extractWebviewScript(
+      provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+    // The new scope's branch list no longer has feature/gone (and adds dev).
+    h.post({
+      type: 'logFilterOptionsReady',
+      branchGroups: { local: ['main', 'dev'], remotes: [] },
+    });
+
+    const list = h.document.getElementById('filter-branch-list')!;
+    const leaves = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-branch]'));
+    const byRef = (r: string) => leaves.find((l) => l.getAttribute('data-branch') === r)!;
+    assert.strictEqual(byRef('main').checked, true, 'surviving selected branch stays checked');
+    assert.strictEqual(byRef('dev').checked, false, 'a newly-visible branch is not auto-selected');
+    const bridge = (h.window as unknown as { __intelligFilter: { branchState(): string } })
+      .__intelligFilter;
+    assert.strictEqual(bridge.branchState(), 'subset', 'still a subset (main), gone ref dropped');
+  });
+
+  it('reverts a branch subset to ALL when the scope change removes every selected branch', () => {
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setLogFilter({ branches: ['feature/gone'] } as unknown as Parameters<
+      typeof provider.setLogFilter
+    >[0]);
+    const { script, bodyHtml } = extractWebviewScript(
+      provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+    h.post({
+      type: 'logFilterOptionsReady',
+      branchGroups: { local: ['main', 'dev'], remotes: [] },
+    });
+
+    const bridge = (h.window as unknown as { __intelligFilter: { branchState(): string } })
+      .__intelligFilter;
+    assert.strictEqual(bridge.branchState(), 'all', 'an emptied subset reverts to all, not none');
+    const leaves = Array.from(
+      h.document.querySelectorAll<HTMLInputElement>('#filter-branch-list input[data-branch]')
+    );
+    assert.ok(
+      leaves.every((l) => l.checked),
+      'all visible branches checked after the revert'
+    );
+  });
+
   it('re-seeds the branch multi-select from data-f-branches after a re-render', () => {
     // Regression: a branch pick reloads the graph and re-templates the row. The
     // checked set must survive — it round-trips through data-f-branches, not the
