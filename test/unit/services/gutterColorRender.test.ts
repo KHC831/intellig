@@ -101,8 +101,7 @@ describe('Gutter blame — per-line annotation + per-commit colors', () => {
       ): void => {
         for (const d of decos) {
           const before = d.renderOptions?.before;
-          // Text column only — skip the thin 3px heat strip.
-          if (!before || before.width === '3px') {
+          if (!before) {
             continue;
           }
           if (before.contentText !== undefined) {

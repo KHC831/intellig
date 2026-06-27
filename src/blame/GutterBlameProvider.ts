@@ -52,9 +52,9 @@ const UNCOMMITTED_BG = 'rgba(128, 128, 128, 0.22)';
 
 /**
  * A non-breaking space. Plain spaces inside a decoration's `before.contentText`
- * are trimmed/collapsed by the renderer (default `white-space: normal`), which
- * silently dropped the gutter's left pad and column spacing. Non-breaking
- * spaces survive, so all gutter padding/alignment is built from these.
+ * are trimmed/collapsed by the renderer (default `white-space: normal`), so all
+ * gutter padding and column alignment is built from non-breaking spaces, which
+ * survive.
  */
 const NBSP = '\u00a0';
 
@@ -85,7 +85,15 @@ function fitColumn(s: string, width: number): string {
   if (s.length <= width) {
     return s.padEnd(width, NBSP);
   }
-  return s.slice(0, width - 1) + '…';
+  // Don't slice through a surrogate pair (e.g. an emoji in an author name) — that
+  // would leave a lone surrogate that renders as a broken glyph. Drop the dangling
+  // high surrogate and pad back to width so the column stays aligned.
+  let cut = width - 1;
+  const code = s.charCodeAt(cut - 1);
+  if (code >= 0xd800 && code <= 0xdbff) {
+    cut -= 1;
+  }
+  return (s.slice(0, cut) + '…').padEnd(width, NBSP);
 }
 
 /**
@@ -105,9 +113,12 @@ const BLAME_FONT_MIN_PX = 10;
  * mirroring VS Code's own computation (`editor.lineHeight`: 0 = derive from the
  * font via the golden ratio; 0<v<8 = a font-size multiplier; ≥8 = absolute px).
  * Used to pin the gutter cell's box to one row so the tint is a continuous block.
+ * Scoped to the file (`scope`) so a language- or folder-specific font/line-height
+ * is honoured. It approximates VS Code's layout (no API exposes the rendered row
+ * height), so it can be off by a sub-pixel; the block tracks it closely enough.
  */
-function editorRowMetrics(): { fontSizePx: number; lineHeightPx: number } {
-  const cfg = vscode.workspace.getConfiguration('editor');
+function editorRowMetrics(scope?: vscode.Uri): { fontSizePx: number; lineHeightPx: number } {
+  const cfg = vscode.workspace.getConfiguration('editor', scope ?? null);
   const fontSizePx = cfg.get<number>('fontSize') || 14;
   let lineHeight = cfg.get<number>('lineHeight') ?? 0;
   const goldenRatio = process.platform === 'darwin' ? 1.5 : 1.35;
@@ -136,18 +147,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   private _gitService: IGitService;
   private _disposables: vscode.Disposable[] = [];
   /**
-   * Two `before` decoration types render the annotation column, mirroring
-   * IntelliJ's gutter (and the lkqm/gitblame-annotations layout):
-   *   - `_textDecorationType` (created first → renders leftmost): the muted
-   *     author/date/revision text. Per-line `contentText`, NBSP-padded to a
-   *     fixed character width so every row's text column aligns.
-   *   - `_heatDecorationType` (created second → renders to the right of the
-   *     text): a thin colored strip carrying the age/author heat color, with a
-   *     right margin that separates the whole annotation from the code. The
-   *     strip is the IntelliJ-style colour bar AND the boundary.
+   * The single `before` decoration that renders the annotation column: the muted
+   * author/date/revision text on a per-commit tinted, row-height block. Per-line
+   * `contentText` is NBSP-padded to a fixed character width so every row aligns,
+   * and a right margin separates the block from the code.
    */
   private _textDecorationType: vscode.TextEditorDecorationType | undefined;
-  private _heatDecorationType: vscode.TextEditorDecorationType | undefined;
   private _onDidChangeEnabled: vscode.EventEmitter<boolean>;
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
@@ -191,28 +196,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
 
-    // Annotation TEXT column — muted metadata colour (editorCodeLens.foreground,
-    // not code). Per-line contentText, NBSP-padded to a file-wide width, is
-    // supplied via DecorationOptions.renderOptions so every row aligns. Created
-    // first so it renders to the LEFT of the heat strip.
+    // Annotation column — muted metadata colour (editorCodeLens.foreground, not
+    // code). Per-line contentText (NBSP-padded), the per-commit tint, and the
+    // inline-block sizing are supplied per instance via DecorationOptions in
+    // _applyRenderState.
     this._textDecorationType = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
         color: new vscode.ThemeColor('editorCodeLens.foreground'),
-        textDecoration: 'none; font-size: 11px; font-family: monospace;',
-      },
-      isWholeLine: false,
-    });
-
-    // Heat STRIP — a thin colored bar carrying the age/author heat color
-    // (per-line backgroundColor), with a right margin that both separates the
-    // strip from the code and acts as the annotation↔code boundary. Created
-    // second so it renders between the text column and the code.
-    this._heatDecorationType = vscode.window.createTextEditorDecorationType({
-      before: {
-        contentText: ' ',
-        width: '3px',
-        margin: '0 2ch 0 0',
       },
       isWholeLine: false,
     });
@@ -494,7 +485,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    */
   private async updateDecorations(editor: vscode.TextEditor): Promise<void> {
     const log = getLogger().child({ component: 'GutterBlameProvider' });
-    if (!this._textDecorationType || !this._heatDecorationType) {
+    if (!this._textDecorationType) {
       return;
     }
 
@@ -666,34 +657,35 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Paint both gutter columns from {@link _renderState} for `editor`. One pass
-   * over the line→entry map; `setDecorations` replaces the whole set per type, so
-   * this fully repaints in two calls (no pre-clear, no flicker).
+   * Paint the gutter column from {@link _renderState} for `editor`. One pass over
+   * the line→entry map; `setDecorations` replaces the whole set, so this fully
+   * repaints in one call (no pre-clear, no flicker).
    */
   private _applyRenderState(editor: vscode.TextEditor): void {
-    if (!this._textDecorationType || !this._heatDecorationType || !this._renderState) {
+    if (!this._textDecorationType || !this._renderState) {
       return;
     }
     const { width, entries } = this._renderState;
     // The stored width is the fixed text-column width in characters. The box is
-    // sized by its CONTENT, not a `ch` width property — a fixed `ch` box rendered
-    // wider than the content, leaving dead space on the right. Each cell's text is
-    // padded with NBSP to that width (so columns align in the monospace editor
-    // font), then wrapped with GUTTER_PAD on both sides for symmetric breathing
-    // room.
+    // sized by its CONTENT, not a `ch` width property (that left dead space on
+    // short rows). Each cell's text is padded with NBSP to that width (so columns
+    // align in the monospace editor font), wrapped with GUTTER_PAD on both sides
+    // for symmetric breathing room.
     const rawWidthCh = parseInt(width, 10) || 0;
     // Size the text RELATIVE to the editor font, but render each cell as an
     // inline-block whose height is pinned to the editor's row line-height. The
     // tint paints the whole inline-block, so it fills the row regardless of how
-    // small the text is — a same-commit run reads as one continuous block instead
-    // of striped bars (the bug from shrinking the font on a plain inline element).
-    const { fontSizePx, lineHeightPx } = editorRowMetrics();
+    // small the text is, and a same-commit run reads as one continuous block. The
+    // metrics are read for THIS editor's document (font/line-height can be
+    // language-scoped). `vertical-align: top` makes the box cover exactly its row
+    // (no line-height inflation). A right margin is the gap to the code.
+    const { fontSizePx, lineHeightPx } = editorRowMetrics(editor.document.uri);
     const textPx = Math.max(BLAME_FONT_MIN_PX, Math.round(BLAME_FONT_SCALE * fontSizePx));
     const blockStyle =
-      `none; display: inline-block; line-height: ${lineHeightPx}px; ` +
-      `height: ${lineHeightPx}px; font-size: ${textPx}px;`;
+      `none; display: inline-block; vertical-align: top; ` +
+      `line-height: ${lineHeightPx}px; height: ${lineHeightPx}px; ` +
+      `font-size: ${textPx}px; margin-right: ${GUTTER_PAD_CH}ch;`;
     const textDecorations: vscode.DecorationOptions[] = [];
-    const heatDecorations: vscode.DecorationOptions[] = [];
     for (const [line, e] of entries) {
       const range = new vscode.Range(line, 0, line, 0);
       const aligned = e.text.padEnd(rawWidthCh, NBSP);
@@ -715,25 +707,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           },
         },
       });
-      heatDecorations.push({
-        range,
-        // Thin accent bar = the annotation↔code boundary. Width/contentText are
-        // restated per-instance (replace semantics) or the bar collapses to zero
-        // width. A blank cell keeps the bar's (transparent) footprint so the
-        // boundary stays aligned. It sits flush to the text block (no left margin
-        // — the old gap was dead space) with a 2ch gap to the code on the right.
-        renderOptions: {
-          before: {
-            contentText: ' ',
-            width: '3px',
-            margin: `0 ${GUTTER_PAD_CH}ch 0 0`,
-            backgroundColor: e.bgColor,
-          },
-        },
-      });
     }
     editor.setDecorations(this._textDecorationType, textDecorations);
-    editor.setDecorations(this._heatDecorationType, heatDecorations);
   }
 
   /**
@@ -969,16 +944,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Clear both decoration columns for a single editor (used on the early-return
-   * paths of {@link updateDecorations} so a no-blame / kill-switched file shows
-   * no gutter, without disturbing the provider's current-editor state).
+   * Clear the gutter for a single editor (used on the early-return paths of
+   * {@link updateDecorations} so a no-blame / kill-switched file shows no gutter,
+   * without disturbing the provider's current-editor state).
    */
   private clearDecorationsFor(editor: vscode.TextEditor): void {
-    if (!this._textDecorationType || !this._heatDecorationType) {
+    if (!this._textDecorationType) {
       return;
     }
     editor.setDecorations(this._textDecorationType, []);
-    editor.setDecorations(this._heatDecorationType, []);
     // Drop stale render state for this editor so a later edit doesn't shift and
     // repaint a gutter we just cleared.
     if (this._renderState && this._renderState.uri === editor.document.uri.toString()) {
@@ -990,13 +964,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * Clear all decorations from all editors.
    */
   private clearDecorations(): void {
-    if (!this._textDecorationType || !this._heatDecorationType) {
+    if (!this._textDecorationType) {
       return;
     }
-    // Clear both columns from all visible editors
+    // Clear the gutter from all visible editors
     for (const editor of vscode.window.visibleTextEditors) {
       editor.setDecorations(this._textDecorationType, []);
-      editor.setDecorations(this._heatDecorationType, []);
     }
 
     this._currentEditor = undefined;
@@ -1019,10 +992,6 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     if (this._textDecorationType) {
       this._textDecorationType.dispose();
       this._textDecorationType = undefined;
-    }
-    if (this._heatDecorationType) {
-      this._heatDecorationType.dispose();
-      this._heatDecorationType = undefined;
     }
 
     for (const disposable of this._disposables) {

@@ -73,36 +73,29 @@ interface Deco {
 /** Non-breaking space — the gutter pads/aligns with these (plain spaces collapse). */
 const NBSP = '\u00a0';
 
-/** The heat bar is the only `before` with a fixed `3px` width; everything else is text. */
-function isHeatBar(before: NonNullable<Deco['renderOptions']>['before']): boolean {
-  return before?.width === '3px';
-}
-
-/** Collect the text-column cell content per document line across all setDecorations calls. */
+/** Collect the gutter cell content per document line across all setDecorations calls. */
 function collectTextCells(calls: { decos: Deco[] }[]): Map<number, string> {
   const text = new Map<number, string>();
   for (const c of calls) {
     for (const d of c.decos) {
       const before = d.renderOptions?.before;
-      if (!before || isHeatBar(before) || before.contentText === undefined) {
-        continue;
+      if (before && before.contentText !== undefined) {
+        text.set(d.range.start.line, before.contentText);
       }
-      text.set(d.range.start.line, before.contentText);
     }
   }
   return text;
 }
 
-/** Collect the text-column cell background per document line across all calls. */
+/** Collect the gutter cell background per document line across all calls. */
 function collectTextBg(calls: { decos: Deco[] }[]): Map<number, string | undefined> {
   const bg = new Map<number, string | undefined>();
   for (const c of calls) {
     for (const d of c.decos) {
       const before = d.renderOptions?.before;
-      if (!before || isHeatBar(before) || before.contentText === undefined) {
-        continue;
+      if (before && before.contentText !== undefined) {
+        bg.set(d.range.start.line, before.backgroundColor);
       }
-      bg.set(d.range.start.line, before.backgroundColor);
     }
   }
   return bg;
@@ -310,47 +303,35 @@ describe('Gutter blame — dirty/edited render', () => {
     await flush();
     await flush();
 
-    // Pull the text-column cell and the heat bar (3px width).
+    // One decoration per line — the tinted text block (no separate accent strip).
     let textBefore: NonNullable<Deco['renderOptions']>['before'] | undefined;
-    let heatBefore: NonNullable<Deco['renderOptions']>['before'] | undefined;
     for (const c of calls) {
       for (const d of c.decos) {
         const before = d.renderOptions?.before;
-        if (!before) {
-          continue;
-        }
-        if (isHeatBar(before)) {
-          heatBefore = before;
-        } else if (before.contentText !== undefined) {
+        if (before && before.contentText !== undefined) {
           textBefore = before;
         }
       }
     }
     assert.ok(textBefore, 'expected a text-column cell');
-    assert.ok(heatBefore, 'expected a heat-bar cell');
 
     const content = textBefore.contentText ?? '';
+    const style = textBefore.textDecoration ?? '';
     // No fixed `ch` width box — the cell is sized by its content, so a short line
     // can't leave dead space on the right.
     assert.strictEqual(textBefore.width, undefined, 'text cell must not use a fixed ch-width box');
-    // No font-size override — shrinking the font shrinks the inline box so the
-    // tint stops filling the line height, striping a same-commit run into bars.
+    // The cell is an inline-block whose height sets the tint height (not the font),
+    // so the block stays continuous even though the text is smaller.
     assert.ok(
-      /display:\s*inline-block/.test(textBefore.textDecoration ?? ''),
+      /display:\s*inline-block/.test(style),
       'text cell must be an inline-block so its box (not the font) sets the tint height'
     );
-    // …pinned to the row line-height, so the tint fills the whole row and a
-    // same-commit run is a solid block even though the text is smaller.
     assert.ok(
-      /line-height:\s*\d+px/.test(textBefore.textDecoration ?? ''),
-      'text cell must pin line-height to the row height for a continuous block'
+      /line-height:\s*\d+px/.test(style) && /height:\s*\d+px/.test(style),
+      'text cell must pin height/line-height to the row for a continuous block'
     );
-    // The text itself is a smaller, font-relative size (it scales with the editor
-    // font but cannot break the block, since the inline-block height is fixed).
-    assert.ok(
-      /font-size:\s*\d+px/.test(textBefore.textDecoration ?? ''),
-      'text cell must set a (relative) font-size'
-    );
+    // The text itself is a smaller, font-relative size.
+    assert.ok(/font-size:\s*\d+px/.test(style), 'text cell must set a (relative) font-size');
     // Left pad: 2 non-breaking spaces lead the (single, widest) line's content.
     assert.ok(
       content.startsWith(NBSP + NBSP),
@@ -368,16 +349,10 @@ describe('Gutter blame — dirty/edited render', () => {
       NBSP,
       'widest line must have exactly 2 trailing pad chars (no right dead space)'
     );
-    // Boundary to code: a clean 2ch right margin, flush-left to the tinted block
-    // (no px gap between text column and heat bar — the old dead space).
-    assert.strictEqual(
-      heatBefore.margin,
-      '0 2ch 0 0',
-      'heat bar must sit flush to the text block with a 2ch gap to code'
-    );
+    // Boundary to code: a clean 2ch right margin on the block (no px spacing).
     assert.ok(
-      !(heatBefore.margin ?? '').includes('px'),
-      'heat bar margin must not use asymmetric px spacing'
+      /margin-right:\s*2ch/.test(style),
+      `text cell must keep a 2ch gap to the code; got ${JSON.stringify(style)}`
     );
 
     provider.dispose();
