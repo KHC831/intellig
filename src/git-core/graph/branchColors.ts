@@ -47,7 +47,7 @@ import { buildGraphLayout, linearGraphFromDownAdjacency } from './graphLayout';
  * concurrent lanes, and the rotation keeps neighbors distinct.
  */
 export const GRAPH_BRANCH_COLORS: readonly string[] = [
-  '#4477aa', // blue
+  '#3c6699', // blue (darkened from Tol's #4477aa for contrast against the cyan)
   '#ee7733', // orange
   '#66ccee', // cyan
   '#ccbb44', // yellow
