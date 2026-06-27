@@ -83,7 +83,7 @@ import {
   selectCommit as handleSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
-import { normalizeRepoPath } from '../../utils/normalizeRepoPath';
+import { normalizeRepoPath, normalizeRepoPathString } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
 import {
@@ -432,6 +432,16 @@ export class GitToolWindowProvider
    * itself drops to one repo).
    */
   private _scopeUserChosen: boolean = false;
+  /**
+   * Visible subset of repository root fsPaths in the merged scope; `null` means
+   * "every available root" (the unchanged "show all" default). Only meaningful
+   * when {@link _repositoryScope} is `'all'`. Always size ≥ 2 — checking all (or
+   * none) nulls it, and checking exactly one collapses to a single-repo scope —
+   * so it expresses ONLY the genuinely-new "some but not all roots" case. A user
+   * choice, so it freezes like {@link _scopeUserChosen} and is pruned (not reset)
+   * when the available-repository list changes.
+   */
+  private _visibleRepoRoots: string[] | null = null;
   /**
    * Per-commit source repository root for the merged "all roots" log,
    * keyed by commit hash. Populated from each commit's `repoRoot` tag in
@@ -1766,6 +1776,11 @@ export class GitToolWindowProvider
           this._handleRepositorySelection(message.repositoryIndex);
         }
         break;
+      case 'selectRepositories':
+        if (Array.isArray(message.roots)) {
+          this._handleVisibleRepositoriesSelection(message.roots);
+        }
+        break;
       case 'focusBranchOnGraph':
         // Webview asked to focus the graph on a branch.
         // The bridge is async (getMergeBase + scroll); fire-and-forget.
@@ -2584,6 +2599,16 @@ export class GitToolWindowProvider
     const previousScope = this._repositoryScope;
     this._resolveRepositoryScope(repos);
 
+    // Prune a visible-roots subset to the roots that still exist (identity by
+    // normalized path, mirroring the index re-resolution above). Drop it when it
+    // would shrink below two roots or grow to cover every root — either case is
+    // no longer a "some but not all" subset and collapses to "show all".
+    if (this._visibleRepoRoots) {
+      const present = new Set(repos.map((r) => normalizeRepoPath(r.rootUri)));
+      const kept = this._visibleRepoRoots.filter((p) => present.has(normalizeRepoPathString(p)));
+      this._visibleRepoRoots = kept.length < 2 || kept.length === repos.length ? null : kept;
+    }
+
     this._updateWebview();
     this._onDidChangeState.fire();
 
@@ -2664,6 +2689,28 @@ export class GitToolWindowProvider
   }
 
   /**
+   * The visible subset of repository root fsPaths in merged scope, or `null`
+   * when every available root is shown. The merged log loader intersects the
+   * discovered repos with this to honor a "some but not all roots" selection.
+   */
+  public getVisibleRepoRoots(): string[] | null {
+    return this._visibleRepoRoots;
+  }
+
+  /**
+   * The repositories currently in scope for merged-view work (branch-filter
+   * options, etc.). The full available list unless a subset is active, in which
+   * case only the chosen roots (matched by normalized path).
+   */
+  public getVisibleRepositories(): IRepository[] {
+    if (!this._visibleRepoRoots) {
+      return this._availableRepositories;
+    }
+    const visible = new Set(this._visibleRepoRoots.map((p) => normalizeRepoPathString(p)));
+    return this._availableRepositories.filter((r) => visible.has(normalizeRepoPath(r.rootUri)));
+  }
+
+  /**
    * Source repository root for a commit in the merged "all roots" log, or
    * `undefined` when the commit isn't from the merged view (single-repo /
    * specific-scope log) or isn't in the current snapshot. Commit-targeted
@@ -2704,6 +2751,7 @@ export class GitToolWindowProvider
 
     if (selection === 'all') {
       this._repositoryScope = 'all';
+      this._visibleRepoRoots = null;
       this._scopeUserChosen = true;
       this._onDidChangeState.fire();
       this._onDidChangeRepositoryScope.fire({ kind: 'all' });
@@ -2734,12 +2782,55 @@ export class GitToolWindowProvider
 
     this._selectedRepositoryIndex = clampedIndex;
     this._repositoryScope = clampedIndex;
+    this._visibleRepoRoots = null;
     this._scopeUserChosen = true;
     this._onDidChangeState.fire();
 
     const selectedRepo = this._availableRepositories[clampedIndex];
     this._onDidSelectRepository.fire(selectedRepo);
     this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: selectedRepo });
+  }
+
+  /**
+   * Handle a multi-repository scope change from the "Repository" log filter,
+   * where the user checks the subset of roots to show. The checked set collapses
+   * to the existing single/all scopes at the extremes so those paths (HEAD
+   * spine, root column, branch-option source) are unchanged:
+   *   - all (or none) checked → `'all'`, no visible subset.
+   *   - exactly one checked   → that single-repo scope.
+   *   - 2 .. n-1 checked      → merged `'all'` filtered to {@link _visibleRepoRoots}.
+   *
+   * Roots arrive as fsPath strings from the untrusted webview and are matched by
+   * normalized path (spec L14); unknown roots are ignored. The subset case fires
+   * a single `{ kind: 'all' }` scope change — the loader re-reads the subset from
+   * {@link getVisibleRepoRoots} — so the merged log re-routes in lockstep.
+   *
+   * @param roots - fsPaths of the repositories the user checked
+   */
+  private _handleVisibleRepositoriesSelection(roots: string[]): void {
+    if (this._availableRepositories.length === 0) {
+      return;
+    }
+    const checked = new Set(roots.map((p) => normalizeRepoPathString(p)));
+    const matched = this._availableRepositories.filter((r) =>
+      checked.has(normalizeRepoPath(r.rootUri))
+    );
+    const n = this._availableRepositories.length;
+
+    if (matched.length === 0 || matched.length === n) {
+      this._handleRepositorySelection('all');
+      return;
+    }
+    if (matched.length === 1) {
+      this._handleRepositorySelection(this._availableRepositories.indexOf(matched[0]));
+      return;
+    }
+
+    this._repositoryScope = 'all';
+    this._visibleRepoRoots = matched.map((r) => r.rootUri.fsPath);
+    this._scopeUserChosen = true;
+    this._onDidChangeState.fire();
+    this._onDidChangeRepositoryScope.fire({ kind: 'all' });
   }
 
   /**
@@ -4282,6 +4373,12 @@ interface IWebviewMessage {
    * sentinel for the merged "all repositories" scope.
    */
   repositoryIndex?: number | 'all';
+  /**
+   * Carried by `selectRepositories`: the fsPaths of the repository roots the
+   * user checked in the multi-select "Repository" filter. An empty array (or one
+   * covering every root) means "show all".
+   */
+  roots?: string[];
   /**
    * Click anchor that travels with
    * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no
