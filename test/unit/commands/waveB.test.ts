@@ -273,7 +273,7 @@ function makeCommands(opts: {
   return cmds;
 }
 
-describe('Wave B — Multi-commit safe ops', () => {
+describe('Multi-commit safe ops', () => {
   const repo = createMockRepo();
   const HASH_OLDEST = 'aaaa111111111111111111111111111111111111';
   const HASH_MIDDLE = 'bbbb222222222222222222222222222222222222';

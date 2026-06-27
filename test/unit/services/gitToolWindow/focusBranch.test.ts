@@ -84,7 +84,7 @@ function stubWebview(provider: GitToolWindowProvider): {
   return { messages };
 }
 
-describe('Wave D — Branch focus on graph (D2 + D3)', () => {
+describe('Branch focus on graph (D2 + D3)', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 

@@ -85,7 +85,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.strictEqual(entry.group, '4_favorite@1');
     });
 
-    it('Wave D — should include Focus on Graph in section inline@1', () => {
+    it('should include Focus on Graph in section inline@1', () => {
       const entry = entries.find(
         (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
       );
@@ -174,7 +174,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.branch.openWorktree should be at 1_branchOps@5');
     });
 
-    it('Wave D — should include Focus on Graph in section inline@1', () => {
+    it('should include Focus on Graph in section inline@1', () => {
       const entry = entries.find(
         (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
       );
@@ -302,7 +302,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.strictEqual(entries.length, 11, `Expected 11 items, got ${entries.length}`);
     });
 
-    it('Wave D — should include Focus on Graph in section inline@1', () => {
+    it('should include Focus on Graph in section inline@1', () => {
       const entry = entries.find(
         (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
       );

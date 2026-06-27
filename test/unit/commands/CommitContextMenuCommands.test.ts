@@ -33,6 +33,12 @@ import {
 import type { BranchComparisonView } from '../../../src/branches/BranchComparisonView';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow, writableEnv, writableCommands } from '../../typed/windowStub';
+import {
+  installMessageEditorStubs,
+  type MessageEditorTracker,
+} from '../../typed/messageEditorStub';
+import { CommitMessageDialog } from '../../../src/commits/CommitMessageDialog';
+import { makeExtensionContext } from '../../helpers/mockWebviewContext';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
@@ -1180,9 +1186,81 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // ─── editCommitMessage ────────────────────────────────────────────────────
 
   describe('_handleEditCommitMessage', () => {
-    it('uses git commit --amend for HEAD commit', async () => {
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('updated message');
+    // Reword now opens the multi-line tempfile editor (no extension context in
+    // these unit constructions, so it takes the editor fallback rather than the
+    // webview dialog). Drive it via the shared editor-stub harness: kick off the
+    // handler, wait for the editor to open, then simulate save/close.
+    async function runReword(
+      commands: CommitContextMenuCommands,
+      hash: string,
+      simulate: (e: MessageEditorTracker) => void
+    ): Promise<MessageEditorTracker> {
+      const editor = installMessageEditorStubs();
+      const handlerPromise = (
+        commands as unknown as { _handleAction(a: string, h: string[]): Promise<void> }
+      )._handleAction('editCommitMessage', [hash]);
+      const deadline = Date.now() + 2000;
+      while (editor.openCalls === 0 && Date.now() < deadline) {
+        await new Promise<void>((r) => setImmediate(r));
+      }
+      simulate(editor);
+      await handlerPromise;
+      return editor;
+    }
+
+    // The PRIMARY production reword path: with an extension context, reword opens
+    // the CommitMessageDialog webview (not the tempfile fallback). Stub the
+    // dialog's prompt() so the test drives that branch without a real webview.
+    async function runRewordViaDialog(
+      commands: CommitContextMenuCommands,
+      hash: string,
+      resolved: string | undefined
+    ): Promise<void> {
+      (commands as unknown as { _context: unknown })._context = makeExtensionContext();
+      const orig = CommitMessageDialog.prototype.prompt;
+      CommitMessageDialog.prototype.prompt = function (): Promise<string | undefined> {
+        // Single-shot resolve; dispose so the stubbed panel doesn't leak.
+        (this as unknown as { dispose(): void }).dispose();
+        return Promise.resolve(resolved);
+      };
+      try {
+        await (
+          commands as unknown as { _handleAction(a: string, h: string[]): Promise<void> }
+        )._handleAction('editCommitMessage', [hash]);
+      } finally {
+        CommitMessageDialog.prototype.prompt = orig;
+      }
+    }
+
+    it('uses the CommitMessageDialog webview when an extension context is present', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo(testHash); // HEAD → amend path
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await runRewordViaDialog(commands, testHash, 'dialog-edited message');
+
+      const amendCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'commit' && a.includes('--amend');
+      });
+      assert.ok(amendCall, 'git commit --amend should run with the dialog message');
+      assert.ok((amendCall.args[0] as string[]).includes('dialog-edited message'));
+    });
+
+    it('aborts (no amend, no refresh) when the dialog is cancelled', async () => {
       createMessageTrackers();
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
@@ -1200,7 +1278,35 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runRewordViaDialog(commands, testHash, undefined);
+
+      const amendCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'commit' && a.includes('--amend');
+      });
+      assert.ok(!amendCall, 'a cancelled dialog must not amend');
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a cancelled reword');
+    });
+
+    it('uses git commit --amend for HEAD commit', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await runReword(commands, testHash, (e) => e.simulateSave('updated message'));
 
       // Should use amend, not rebase
       const amendCall = gitCli.calls.find((c: CallTracker) => {
@@ -1219,12 +1325,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('uses rebase reword for non-HEAD commit, stashing changes first', async () => {
-      let inputBoxValue = '';
-      writableWindow().showInputBox = (opts?: unknown): Promise<string | undefined> => {
-        const v = (opts as { value?: unknown } | undefined)?.value;
-        inputBoxValue = typeof v === 'string' ? v : '';
-        return Promise.resolve('new commit message');
-      };
       createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
@@ -1250,12 +1350,14 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      const editor = await runReword(commands, testHash, (e) =>
+        e.simulateSave('new commit message')
+      );
 
-      // Verify the input box was pre-filled with the full commit message
+      // Verify the editor was pre-filled with the full commit message
       assert.ok(
-        inputBoxValue.includes('Full body of the commit message'),
-        'Input box should show the full commit message'
+        (editor.lastSeed ?? '').includes('Full body of the commit message'),
+        'Editor should be seeded with the full commit message'
       );
 
       // Should have stashed changes
@@ -1293,8 +1395,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // confirmation: rewording a commit that already exists on a remote
       // rewrites published history. Declining the confirm must NOT start a
       // rebase.
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('rewritten message');
       // createMessageTrackers installs a showWarningMessage that records the
       // call and returns undefined — i.e. the user dismissed the modal
       // (declined). The decline path must abort the reword.
@@ -1326,7 +1426,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('rewritten message'));
 
       // A history-rewrite warning was surfaced.
       assert.strictEqual(
@@ -1349,8 +1449,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('proceeds with reword of an already-pushed commit when the user confirms', async () => {
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('rewritten message');
       createMessageTrackers();
       // User confirms the history-rewrite warning. Record invocations so we
       // can assert the warning was actually surfaced before proceeding.
@@ -1388,7 +1486,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('rewritten message'));
 
       // Warning shown but confirmed → the rebase proceeds.
       assert.strictEqual(warningCount, 1, 'the warning is still shown before confirming');
@@ -1424,8 +1522,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // published history and needs a force-push. The parity-flavoured guard
       // must therefore fire on the HEAD (git commit --amend) path too, not
       // only on the non-HEAD rebase path. Declining must NOT amend.
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('rewritten message');
       const messages = createMessageTrackers();
       const repo = createMockRepo(testHash); // HEAD === selected commit
       const gitService = createMockGitService(repo);
@@ -1451,7 +1547,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('rewritten message'));
 
       assert.strictEqual(
         messages.warning.length,
@@ -1482,8 +1578,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // through `provideRewordMessage` (which uses `git commit --amend
       // -m <msg>` followed by `git rebase --continue`) so the rebase
       // actually finishes and the branch ref updates.
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('updated message');
       createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
@@ -1516,7 +1610,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('updated message'));
 
       assert.strictEqual(
         rewordCallCount,
@@ -1540,8 +1634,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // post-paused continue produces conflicts, abort cleanly so
       // the user never sees a half-finished rebase with a detached
       // HEAD.
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('updated message');
       createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
@@ -1568,7 +1660,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('updated message'));
 
       const abortCall = rebaseService.calls.find((c) => c.method === 'abortRebase');
       assert.ok(
@@ -1585,8 +1677,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // that case is the same misleading-success class the cleared-stale
       // status was introduced to kill. The consumer must report it honestly.
       const messages = createMessageTrackers();
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('updated message');
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
 
@@ -1607,7 +1697,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('updated message'));
 
       const updatedToast = messages.info.find((m) =>
         m.message.startsWith('Updated commit message')
@@ -1624,7 +1714,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('does nothing when user cancels input', async () => {
-      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve(undefined);
       createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -1633,17 +1722,51 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const gitCli = createMockGitCli();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateClose());
 
       const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(!startCall, 'startInteractiveRebase should NOT have been called when user cancels');
       assert.strictEqual(provider.refreshCallCount, 0);
     });
 
+    it('preserves a multi-line subject + body (does not collapse to a single subject)', async () => {
+      // Regression: the single-line input box stored a whole subject+body
+      // message as one subject line. The multi-line editor must carry the
+      // newlines through to `git commit --amend -m <message>` verbatim.
+      createMessageTrackers();
+      const repo = createMockRepo(testHash); // HEAD commit → amend path
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const multiLine = 'New subject\n\nBody paragraph one.\nBody paragraph two.';
+      await runReword(commands, testHash, (e) => e.simulateSave(multiLine));
+
+      const amendCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'commit' && a.includes('--amend');
+      });
+      assert.ok(amendCall, 'git commit --amend should have been called');
+      const amendArgs = amendCall.args[0] as string[];
+      assert.ok(
+        amendArgs.includes(multiLine),
+        'the full multi-line message (subject + blank line + body) must reach -m verbatim'
+      );
+    });
+
     it('shows error on failure', async () => {
       const messages = createMessageTrackers();
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('new message');
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
@@ -1663,7 +1786,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('new message'));
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('rebase failed'));
@@ -1671,8 +1794,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('HEAD: amends successfully even with dirty working tree (no stash needed)', async () => {
       const execCalls: string[][] = [];
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('amended msg');
       const messages = createMessageTrackers();
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
@@ -1690,7 +1811,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('amended msg'));
 
       // Should NOT call status or stash — HEAD amend skips all that
       const statusCall = execCalls.find((c) => c[0] === 'status');
@@ -1708,8 +1829,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('HEAD: amends successfully even with unmerged files', async () => {
       const execCalls: string[][] = [];
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('amended with conflicts');
       const messages = createMessageTrackers();
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
@@ -1727,7 +1846,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('amended with conflicts'));
 
       const amendCall = execCalls.find((c) => c[0] === 'commit' && c.includes('--amend'));
       assert.ok(amendCall, 'should amend even with unmerged files');
@@ -1735,7 +1854,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('non-HEAD: blocks when there are unmerged files', async () => {
-      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve('new msg');
       const messages = createMessageTrackers();
       const repo = createMockRepo('different_head');
       const gitService = createMockGitService(repo);
@@ -1755,7 +1873,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('new msg'));
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('unmerged'));
@@ -1765,8 +1883,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('non-HEAD: skips stash when working tree is clean', async () => {
       const execCalls: string[][] = [];
-      writableWindow().showInputBox = (): Promise<string | undefined> =>
-        Promise.resolve('clean edit');
       createMessageTrackers();
       const repo = createMockRepo('different_head');
       const gitService = createMockGitService(repo);
@@ -1787,7 +1903,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
-      await commands._handleAction('editCommitMessage', [testHash]);
+      await runReword(commands, testHash, (e) => e.simulateSave('clean edit'));
 
       const stashCall = execCalls.find((c) => c[0] === 'stash');
       assert.ok(!stashCall, 'should not stash when working tree is clean');
@@ -1955,7 +2071,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // class on a representative call (`_handleCherryPick` reaches the
   // ${errorMessage} template at line 408). The other 11 sites share
   // the identical pattern.
-  describe('TL-72 — error toast sanitization (representative)', () => {
+  describe('error toast sanitization (representative)', () => {
     it('_handleCherryPick sanitizes credentialed URL + home path in error toast', async () => {
       const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
       const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

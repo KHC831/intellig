@@ -356,8 +356,28 @@ export function projectRow(
 
   // --- Own-lane segments around the commit dot ---
   if (isValidLane(ownLane)) {
-    const ownEdge = laneEdgeId(nodes, ivLookup.get(ownLane), ownLane, rowIndex);
+    const ownIv = ivLookup.get(ownLane);
+    const ownEdge = laneEdgeId(nodes, ownIv, ownLane, rowIndex);
     if (continuesFromAbove.has(ownLane)) {
+      // The own-lane UP half connects this commit up to the child whose first
+      // parent it is — the nearest node above on this lane. That edge belongs to
+      // the CHILD's chain, so it takes the child's color: the whole child→parent
+      // edge is one color, transitioning AT this dot, not mid-cell. Mirrors
+      // IntelliJ's GraphColorGetter rule (the less-important endpoint owns the
+      // edge; a child is never more important than its own first parent on the
+      // same lane, so the child wins). Falls back to this node's color when no
+      // in-window child sits above (a tip or an off-window continuation).
+      let upColor = nodeColor;
+      // Bound the upward search to this lane's interval via the edge identity's
+      // childRow (== interval start), so it can't scan into an unrelated later
+      // reuse of the lane and stays provably identical to the color oracle.
+      const lo = ownEdge.childRow;
+      for (let r = rowIndex - 1; r >= lo; r--) {
+        if (nodes[r]?.graphColumn === ownLane) {
+          upColor = colorForRow(r, ownLane);
+          break;
+        }
+      }
       edges.push({
         edge: ownEdge,
         half: 'up',
@@ -367,7 +387,7 @@ export function projectRow(
         curved: false,
         type: 'commit',
         style: 'solid',
-        color: nodeColor,
+        color: upColor,
       });
     }
     const sameLaneLines = node.graphLines.filter(

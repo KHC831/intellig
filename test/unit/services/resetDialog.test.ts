@@ -835,7 +835,7 @@ describe('ResetDialog', () => {
   // `sanitizeGitError` before pushing it into the showErrorMessage toast
   // template, so credentialed remote URLs and POSIX home paths don't leak
   // into the user's notification history.
-  describe('TL-72 — error toast sanitization', () => {
+  describe('error toast sanitization', () => {
     it('reset failure toast sanitizes credentialed URL + home path', async () => {
       const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
       const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

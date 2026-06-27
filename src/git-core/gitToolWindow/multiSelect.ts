@@ -89,6 +89,16 @@ export interface IMultiSelectMenuInputs {
    * HEAD off the loaded window) so we never falsely grey an editable commit.
    */
   isSelectedInCurrentBranch: boolean;
+  /**
+   * `true` when the selected commits form a single first-parent chain (one
+   * branch's spine, no cross-branch mixing). Gates `squashCommits` on top of
+   * {@link isContiguous}: a shift-range can be contiguous in display order yet
+   * span interleaved branches, which squash must reject. Optional, defaulting
+   * `true`, so fixtures that only exercise the contiguity/merge rules still
+   * type-check (the chain gate then stays permissive). See
+   * {@link isContiguousFirstParentChain}.
+   */
+  isFirstParentChain?: boolean;
 }
 
 /**
@@ -275,6 +285,7 @@ export function computeMenuEnableState(
     hasMergeCommitInSelection,
     isSelectedInCurrentBranch,
   } = inputs;
+  const isFirstParentChain = inputs.isFirstParentChain ?? true;
   const isSingle = selectedCount === 1;
   const isAtLeastOne = selectedCount >= 1;
   const isAtLeastTwo = selectedCount >= 2;
@@ -300,8 +311,8 @@ export function computeMenuEnableState(
     resetToHere: isSingle,
     // N=1 + HEAD
     undoCommit: isSingle && isHeadInSelection,
-    // N≥2 + contiguous + no merges
-    squashCommits: isAtLeastTwo && isContiguous && !hasMergeCommitInSelection,
+    // N≥2 + contiguous + single first-parent chain + no merges
+    squashCommits: isAtLeastTwo && isContiguous && isFirstParentChain && !hasMergeCommitInSelection,
     // N=2
     compareVersions: selectedCount === 2,
     // single-only IntelliJ-parity entries (Git.Fixup.To.Commit /
@@ -360,8 +371,12 @@ export function computeMenuState(
   }
   const selectedCount = knownSelected.length;
 
-  // Contiguity check.
-  const isContiguous = isSelectionContiguous(new Set(knownSelected), allHashes);
+  // Contiguity check (no display-order gaps).
+  const selectedSet = new Set(knownSelected);
+  const isContiguous = isSelectionContiguous(selectedSet, allHashes);
+  // First-parent-chain check (one branch's spine — rejects a display-contiguous
+  // range that spans interleaved branches).
+  const isFirstParentChain = isContiguousFirstParentChain(selectedSet, commitNodes);
 
   // HEAD-in-selection: only matters at N=1, but compute literally so the
   // input is consistent with computeMenuEnableState's contract. In merged
@@ -423,6 +438,7 @@ export function computeMenuState(
     isHeadInSelection,
     hasMergeCommitInSelection,
     isSelectedInCurrentBranch,
+    isFirstParentChain,
   });
 
   // Derive a human-readable disabled reason for the
@@ -444,6 +460,9 @@ export function computeMenuState(
     }
     if (!isContiguous) {
       return 'Squash needs contiguous (consecutive) commits — gaps in the selection are not supported.';
+    }
+    if (!isFirstParentChain) {
+      return 'Squash needs commits on a single branch (one first-parent chain) — the selection spans branches.';
     }
     return undefined;
   })();
@@ -565,6 +584,49 @@ export function isSelectionContiguous(
   indices.sort((a, b) => a - b);
   for (let i = 1; i < indices.length; i++) {
     if (indices[i] - indices[i - 1] !== 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * `true` when the selected commits form a single FIRST-PARENT chain — each
+ * adjacent pair (in display order) is linked first-parent to child. This is the
+ * squash/edit linearity rule: the commits lie on one branch's spine, so a
+ * shift-range that is contiguous in display order yet mixes interleaved
+ * branches/lanes (the reported "squash selects commits from all branches" bug)
+ * is rejected. Mirrors IntelliJ `GitCommitEditingActionBase.checkHeadLinearHistory`,
+ * which requires the selected commits to lie on HEAD's linear, merge-free path.
+ *
+ * The adjacency is checked in BOTH directions (`a.parents[0] === b` OR
+ * `b.parents[0] === a`) so the result is independent of whether `commitNodes`
+ * is ordered newest- or oldest-first. Verifying needs first-parent info: when
+ * NEITHER node in a pair carries a usable `parents` array the link can't be
+ * checked, so it's treated as valid (lenient — the display-order contiguity +
+ * merge-commit gates still apply). One commit (or none) is trivially a chain;
+ * hashes absent from `commitNodes` are ignored.
+ */
+export function isContiguousFirstParentChain(
+  selectedHashes: ReadonlySet<string>,
+  commitNodes: readonly IMenuStateNode[]
+): boolean {
+  const selected: IMenuStateNode[] = [];
+  for (const node of commitNodes) {
+    if (selectedHashes.has(node.hash)) {
+      selected.push(node);
+    }
+  }
+  for (let i = 0; i < selected.length - 1; i++) {
+    const a = selected[i];
+    const b = selected[i + 1];
+    const aParent = a.parents?.[0];
+    const bParent = b.parents?.[0];
+    // No usable parent info on either side → can't verify, treat as connected.
+    if (aParent === undefined && bParent === undefined) {
+      continue;
+    }
+    if (aParent !== b.hash && bParent !== a.hash) {
       return false;
     }
   }

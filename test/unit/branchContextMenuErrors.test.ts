@@ -1379,7 +1379,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
   // the ${errorMessage} template at line 648). The other 20 sites
   // share the identical pattern; a CI grep audit (post-publish backlog)
   // would catch any future regression that drops the sanitiser.
-  describe('TL-72 — error toast sanitization (representative)', () => {
+  describe('error toast sanitization (representative)', () => {
     it('_handlePush sanitizes credentialed URL + home path in error toast', async () => {
       const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
       const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

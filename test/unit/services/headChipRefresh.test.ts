@@ -133,7 +133,7 @@ function makeProviderSpy(calls: OrderedCall[]): GitToolWindowProvider {
 const noopRebase = {} as unknown as IRebaseService;
 const noopGitCli = {} as unknown as GitCli;
 
-describe('Wave G — post-mutation refresh ordering invariants', () => {
+describe('post-mutation refresh ordering invariants', () => {
   it('reloadRepository is awaited BEFORE provider.refresh() at every CLI mutation site', async () => {
     const repo = createMockRepo();
     const gitService = createMockGitService(repo);

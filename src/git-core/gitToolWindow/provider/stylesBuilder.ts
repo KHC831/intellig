@@ -916,7 +916,7 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-textBlockQuote-background);
         padding: 8px;
         border-radius: 3px;
-        max-height: 150px;
+        max-height: 180px;
         overflow-y: auto;
       }
 

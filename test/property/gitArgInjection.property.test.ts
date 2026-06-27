@@ -12,7 +12,7 @@ import * as assert from 'assert';
 import * as fc from 'fast-check';
 import { buildGitArgs } from '../../src/git-core/gitCli';
 
-describe('Wave I — argv injection property', () => {
+describe('argv injection property', () => {
   it('any ref containing --flag-shape lands AFTER --end-of-options', () => {
     fc.assert(
       fc.property(

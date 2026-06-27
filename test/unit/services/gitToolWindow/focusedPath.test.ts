@@ -93,7 +93,7 @@ function attachStubGitService(
   } as unknown as { calls: number };
 }
 
-describe('Wave D — focused path BFS and traps (D3)', () => {
+describe('focused path BFS and traps (D3)', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 

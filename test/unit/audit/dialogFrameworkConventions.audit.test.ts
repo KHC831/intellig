@@ -56,8 +56,10 @@ interface DialogUnderAudit {
 
 const DIALOGS: DialogUnderAudit[] = [
   {
-    name: 'SquashMessageDialog',
-    file: 'src/commits/SquashMessageDialog.ts',
+    // SquashMessageDialog + the reword edit dialog are presets of this base,
+    // which carries the shared inline script + keyboard contract.
+    name: 'CommitMessageDialog',
+    file: 'src/commits/CommitMessageDialog.ts',
     keyboardContract: true,
   },
   { name: 'ApplyPatchDialog', file: 'src/patches/ApplyPatchDialog.ts', keyboardContract: true },

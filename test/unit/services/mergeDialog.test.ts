@@ -455,7 +455,7 @@ describe('MergeDialog — lifecycle', () => {
   // (e.g. https://x:token@github.com/o/r.git in `fatal: unable to
   // access`) and POSIX home paths leak into the user's notification
   // history.
-  it('TL-72 — merge failure toast sanitizes credentialed URL + home path', async () => {
+  it('merge failure toast sanitizes credentialed URL + home path', async () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
     const log = installMessageTrackers();

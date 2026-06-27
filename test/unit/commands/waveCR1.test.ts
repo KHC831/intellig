@@ -43,7 +43,7 @@ describe('Wave C R1 — review fixes', () => {
       assert.ok(squashIdx > 0, 'expected _handleSquashCommits definition');
       const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
       const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
-      // The handler delegates to _promptForSquashMessage; that helper
+      // The handler delegates to _promptForMessageInEditor; that helper
       // is allowed to fall back to showInputBox when the tempfile path
       // fails, but the primary path must NOT be a direct showInputBox
       // call in the squash handler body.
@@ -53,16 +53,16 @@ describe('Wave C R1 — review fixes', () => {
       );
     });
 
-    it('exposes a private _promptForSquashMessage helper', () => {
+    it('exposes a private _promptForMessageInEditor helper', () => {
       assert.ok(
-        /private\s+async\s+_promptForSquashMessage\s*\(/.test(src),
+        /private\s+async\s+_promptForMessageInEditor\s*\(/.test(src),
         'expected the squash editor helper to live in a single named method'
       );
     });
 
     it('the editor helper opens openTextDocument and registers save+close listeners', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
-      assert.ok(helperIdx > 0, 'expected _promptForSquashMessage definition');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
+      assert.ok(helperIdx > 0, 'expected _promptForMessageInEditor definition');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
@@ -80,7 +80,7 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('the editor helper opens an editor via showTextDocument', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
@@ -90,7 +90,7 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('the editor helper closes the editor + cleans up the tempfile after resolution', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       // Editor close uses the tab API, not

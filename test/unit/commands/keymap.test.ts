@@ -72,7 +72,7 @@ function readAllProductionSources(): string {
   return sources.join('\n');
 }
 
-describe('R5 C-1 — activation cannot register the same command id twice', () => {
+describe('activation cannot register the same command id twice', () => {
   it('every contributed command id is registered exactly once across production sources', () => {
     const pj = readPackageJson();
     const allSrc = readAllProductionSources();
@@ -136,7 +136,7 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
   });
 });
 
-describe('R5 H-1 — keybinding focusedView gates must reference real view ids', () => {
+describe('keybinding focusedView gates must reference real view ids', () => {
   it("every focusedView == 'intellig.<id>' resolves to a registered view id", () => {
     const pj = readPackageJson();
 

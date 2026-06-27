@@ -769,7 +769,7 @@ index 1234567,abcdefg..fedcba9
       assert.ok(format.includes('%ae')); // Author email
     });
 
-    it('Wave I — getLogFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
+    it('getLogFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
       // Pinned by: the previous `|` default collided with names
       // containing `|`. Switching to `\x1f` (an unprintable C0 control
       // character that never appears in normalised git idents) makes
@@ -779,7 +779,7 @@ index 1234567,abcdefg..fedcba9
       assert.ok(!format.includes('|'), 'default format must not embed pipe separator');
     });
 
-    it('Wave I — getLogFormat accepts an explicit separator override', () => {
+    it('getLogFormat accepts an explicit separator override', () => {
       // Explicit override path: parseLog/parseCommit forward whatever
       // separator the caller sets, so legacy callers can still pass `|`.
       const format = getLogFormat('|');
@@ -906,7 +906,7 @@ index 1234567,abcdefg..fedcba9
       );
     });
 
-    it('Wave I R1 — getTagFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
+    it('getTagFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
       // Pinned by: the previous `|` default collided with
       // tagger names containing `|`. Switching to `\x1f` (an unprintable
       // C0 control character that never appears in normalised git
@@ -916,7 +916,7 @@ index 1234567,abcdefg..fedcba9
       assert.ok(!format.includes('|'), 'default format must not embed pipe separator');
     });
 
-    it('Wave I R1 — getTagFormat accepts an explicit separator override', () => {
+    it('getTagFormat accepts an explicit separator override', () => {
       // Explicit override path: parseTags forwards whatever separator
       // the caller sets, so legacy callers can still pass `|`.
       const format = getTagFormat('|');

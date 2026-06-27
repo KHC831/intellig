@@ -143,7 +143,7 @@ type CmdsInternal = {
 
 // ─── Item 1a: incoming/outgoing display via buildSectionedItems ───────────────
 
-describe('Wave D — incoming/outgoing badge rendering in buildSectionedItems', () => {
+describe('incoming/outgoing badge rendering in buildSectionedItems', () => {
   it('renders ↑N ahead badge in description when branch.ahead is set', () => {
     const items = buildSectionedItems({
       localBranches: [localMainWithCounts],
@@ -199,7 +199,7 @@ describe('Wave D — incoming/outgoing badge rendering in buildSectionedItems', 
 
 // ─── Item 1b: enrichBranchesWithIncomingOutgoing ──────────────────────────────
 
-describe('Wave D — enrichBranchesWithIncomingOutgoing', () => {
+describe('enrichBranchesWithIncomingOutgoing', () => {
   it('calls the fetcher for each local branch that has an upstream', async () => {
     const fetched: string[] = [];
     const fetcher = async (_repo: IRepository, branch: string): Promise<IIncomingOutgoing> => {
@@ -317,7 +317,7 @@ describe('Wave D — enrichBranchesWithIncomingOutgoing', () => {
 
 // ─── Item 2a: package.json — intellig.tag.deleteRemote command ───────────────
 
-describe('Wave D — intellig.tag.deleteRemote in package.json', () => {
+describe('intellig.tag.deleteRemote in package.json', () => {
   it('intellig.tag.deleteRemote is declared in contributes.commands', () => {
     const ids = getCommandIds();
     assert.ok(
@@ -346,7 +346,7 @@ describe('Wave D — intellig.tag.deleteRemote in package.json', () => {
 
 // ─── Item 2b: BranchContextMenuCommands — _handleTagDeleteRemote ─────────────
 
-describe('Wave D — BranchContextMenuCommands._handleTagDeleteRemote', () => {
+describe('BranchContextMenuCommands._handleTagDeleteRemote', () => {
   const mockTag: ITag = {
     name: 'v2.0.0',
     commit: 'deadbeef1234567',

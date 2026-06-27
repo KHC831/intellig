@@ -18,10 +18,15 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
-import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
+import {
+  isSelectionContiguous,
+  isContiguousFirstParentChain,
+  type IMenuStateNode,
+} from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
+import { CommitMessageDialog } from './CommitMessageDialog';
 import { buildSquashRebasePlan } from './squashPlan';
 
 /**
@@ -922,23 +927,23 @@ export class CommitContextMenuCommands {
    * After resolution the helper closes the editor and best-effort
    * deletes the tempfile so the user doesn't see stale artifacts.
    */
-  private async _promptForSquashMessage(
+  private async _promptForMessageInEditor(
     seedMessage: string,
-    commitCount: number
+    opts: { tmpInfix: string; opName: string; fallbackPrompt: string }
   ): Promise<string | undefined> {
     // Build the tempfile path. The `.git/COMMIT_EDITMSG`-style suffix
     // makes some VS Code installs apply git-commit highlighting
     // automatically.
     //
     // Append 8 random hex chars to the name so two
-    // squash dialogs opened in the same millisecond on the same PID
+    // dialogs opened in the same millisecond on the same PID
     // (background flow + user re-trigger) don't collide on the
     // tempfile path.
     const tmpDir = os.tmpdir();
     const rand = crypto.randomBytes(4).toString('hex');
     const tmpPath = path.join(
       tmpDir,
-      `intellig-squash-${process.pid}-${Date.now()}-${rand}-COMMIT_EDITMSG`
+      `intellig-${opts.tmpInfix}-${process.pid}-${Date.now()}-${rand}-COMMIT_EDITMSG`
     );
 
     // Pre-write the seed so the editor opens with content already on
@@ -950,9 +955,9 @@ export class CommitContextMenuCommands {
       // Degraded fallback now surfaces a heads-up
       // toast so the user knows the multi-line editor was attempted.
       void vscode.window.showInformationMessage(
-        'Multi-line squash editor unavailable; using single-line fallback.'
+        'Multi-line message editor unavailable; using single-line fallback.'
       );
-      return this._squashMessageInputBoxFallback(seedMessage, commitCount);
+      return this._messageInputBoxFallback(seedMessage, opts.fallbackPrompt);
     }
 
     let document: vscode.TextDocument;
@@ -967,12 +972,12 @@ export class CommitContextMenuCommands {
         // ignore
       }
       void vscode.window.showInformationMessage(
-        'Multi-line squash editor unavailable; using single-line fallback.'
+        'Multi-line message editor unavailable; using single-line fallback.'
       );
-      return this._squashMessageInputBoxFallback(seedMessage, commitCount);
+      return this._messageInputBoxFallback(seedMessage, opts.fallbackPrompt);
     }
 
-    // Open beside the active column so the squash
+    // Open beside the active column so the message
     // editor doesn't cover the log the user was looking at.
     await vscode.window.showTextDocument(document, {
       preview: false,
@@ -1010,7 +1015,7 @@ export class CommitContextMenuCommands {
           // disappears. Detect and surface a clarifying toast instead.
           if (saved.uri.fsPath !== expectedFsPath) {
             void vscode.window.showWarningMessage(
-              `Squash cancelled — message was saved to ${saved.uri.fsPath} instead of being applied. Re-run Squash if you want to use that text.`
+              `${opts.opName} cancelled — message was saved to ${saved.uri.fsPath} instead of being applied. Re-run ${opts.opName} if you want to use that text.`
             );
             finish(undefined);
           }
@@ -1029,17 +1034,17 @@ export class CommitContextMenuCommands {
     // Best-effort cleanup.: closing the active
     // editor is a footgun when focus has shifted — it would close
     // whatever the user moved on to. Use the tab API to target the
-    // squash tab specifically; falls through gracefully when the tab
+    // message tab specifically; falls through gracefully when the tab
     // is already gone (e.g. user closed it manually).
     try {
       const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
-      const squashTab = tabs.find(
+      const messageTab = tabs.find(
         (t) =>
           t.input instanceof vscode.TabInputText &&
           t.input.uri.toString() === document.uri.toString()
       );
-      if (squashTab) {
-        await vscode.window.tabGroups.close(squashTab);
+      if (messageTab) {
+        await vscode.window.tabGroups.close(messageTab);
       }
       // eslint-disable-next-line no-restricted-syntax -- closing an already-closed tab throws; that is the expected outcome here, nothing to recover.
     } catch {
@@ -1065,18 +1070,20 @@ export class CommitContextMenuCommands {
 
   /**
    * single-line `showInputBox` fallback for
-   * `_promptForSquashMessage`. Extracted so the two failure sites
+   * `_promptForMessageInEditor`. Extracted so the two failure sites
    * (tempfile write fail, openTextDocument fail) share one implementation.
    * The caller is expected to surface the heads-up info toast before
-   * delegating here.
+   * delegating here. Note this fallback is inherently single-line — a
+   * multi-line body cannot be entered here; it is only reached when the
+   * tempfile editor itself is unavailable.
    */
-  private async _squashMessageInputBoxFallback(
+  private async _messageInputBoxFallback(
     seedMessage: string,
-    commitCount: number
+    prompt: string
   ): Promise<string | undefined> {
     const fallback = await vscode.window.showInputBox({
       value: seedMessage,
-      prompt: `Squashed commit message (${commitCount} commits)`,
+      prompt,
       ignoreFocusOut: true,
       valueSelection: [0, 0],
     });
@@ -2634,6 +2641,16 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage('Squash cannot include merge commits.');
       return;
     }
+    // The selection must be a single first-parent chain (one branch), not just
+    // display-contiguous — a shift-range can span interleaved branches. Re-check
+    // at perform time (the menu-enable gate is advisory and can race a stale
+    // selection), mirroring IntelliJ's checkHeadLinearHistory.
+    if (!isContiguousFirstParentChain(selectedSet, commitNodes)) {
+      void vscode.window.showErrorMessage(
+        'Squash needs commits on a single branch (one first-parent chain) — the selection spans branches.'
+      );
+      return;
+    }
 
     // 2. Find the oldest selected commit (largest index in newest-first display order).
     const indexByHash = new Map<string, number>();
@@ -2688,7 +2705,11 @@ export class CommitContextMenuCommands {
         });
         userMessage = await dialog.prompt();
       } else {
-        userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+        userMessage = await this._promptForMessageInEditor(seedMessage, {
+          tmpInfix: 'squash',
+          opName: 'Squash',
+          fallbackPrompt: `Squashed commit message (${commitHashes.length} commits)`,
+        });
       }
       // A blank message is a cancel, not an override: carrying an empty
       // string into the plan would fail hasRewordOverride and silently fall
@@ -2970,13 +2991,34 @@ export class CommitContextMenuCommands {
           });
       }
 
-      const newMessage = await vscode.window.showInputBox({
-        prompt: 'Edit commit message',
-        value: fullMessage,
-        placeHolder: 'Enter new commit message',
-      });
+      // Multi-line editor so the user can enter a subject + body (a
+      // single-line input would collapse the whole message into the
+      // subject). Primary: the webview dialog (when an extension context
+      // is available); fallback: a tempfile editor — matching the squash
+      // message flow.
+      let newMessage: string | undefined;
+      if (this._context) {
+        const dialog = new CommitMessageDialog(this._context, {
+          seedMessage: fullMessage,
+          viewType: 'intellig.editMessageDialog',
+          title: 'Edit Commit Message',
+          heading: 'Edit commit message',
+          submitLabel: 'Update Message',
+          submitVerb: 'save',
+        });
+        newMessage = await dialog.prompt();
+      } else {
+        newMessage = await this._promptForMessageInEditor(fullMessage, {
+          tmpInfix: 'reword',
+          opName: 'Edit message',
+          fallbackPrompt: 'Edit commit message',
+        });
+      }
 
-      if (newMessage === undefined) {
+      // Undefined OR blank = cancel: the dialogs collapse a blank submit
+      // to undefined, but guard explicitly so an empty message never
+      // becomes a no-op reword with an empty subject.
+      if (newMessage === undefined || newMessage.trim().length === 0) {
         return;
       }
 

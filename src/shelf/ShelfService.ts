@@ -545,30 +545,6 @@ export class ShelfService implements IShelfService {
       throw new Error('No files found to shelve');
     }
 
-    // The per-file diff below captures the UNSTAGED working-tree change only
-    // (`git diff -- <file>`), so any STAGED content for a selected file is not
-    // included in the shelf — a fully-staged file would even be skipped
-    // entirely. Warn so the shelf is never SILENTLY incomplete. (Capturing the
-    // full change vs HEAD + a change-aware revert round-trip is a deferred
-    // follow-up that owes real-git e2e coverage.)
-    // `-z` (NUL-separated, paths verbatim) so a staged file with a non-ASCII /
-    // space / special name isn't C-quoted — otherwise it wouldn't match the
-    // `-z`-clean paths in `filesToShelve` and the warning would silently miss it
-    // (the same NUL-delimited quoting class). Mirrors the status/diff -z hardening.
-    const stagedResult = await this._gitCli.exec(['diff', '--cached', '--name-only', '-z'], {
-      cwd,
-    });
-    if (stagedResult.exitCode === 0) {
-      const stagedSet = new Set(stagedResult.stdout.split('\0').filter((name) => name.length > 0));
-      const stagedSelected = filesToShelve.filter((file) => stagedSet.has(file));
-      if (stagedSelected.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Staged changes are not included in the shelf for: ${stagedSelected.join(', ')}. ` +
-            `Unstage them (e.g. git reset) to shelve the full change.`
-        );
-      }
-    }
-
     // Create shelf files with diffs
     const shelfFiles: IShelfFile[] = [];
 
@@ -584,28 +560,42 @@ export class ShelfService implements IShelfService {
         continue;
       }
 
-      // Get the diff for this file
-      const diffResult = await this._gitCli.exec(['diff', '--', filePath], { cwd });
-
-      if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
-        // Check if we have specific hunks selected for this file
-        const selectedHunks = changes.hunks?.get(filePath);
-
-        let diffContent: string;
-        if (selectedHunks && selectedHunks.length > 0) {
-          // Generate diff for only the selected hunks
+      const selectedHunks = changes.hunks?.get(filePath);
+      let diffContent = '';
+      if (selectedHunks && selectedHunks.length > 0) {
+        // Partial-hunk shelve operates on the UNSTAGED working-tree diff (the
+        // hunks the UI presented to the user); index-aware whole-change capture
+        // applies only to full-file shelves.
+        const diffResult = await this._gitCli.exec(['diff', '--', filePath], { cwd });
+        if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
           diffContent = this.generateHunksDiff(filePath, selectedHunks);
-        } else {
-          // Use the full diff
-          diffContent = diffResult.stdout;
         }
+      } else {
+        // Full-file shelve captures the WHOLE change vs HEAD — staged AND
+        // unstaged — so a partly- or fully-staged file is shelved in full
+        // rather than silently dropped. Unshelve forward-applies it as an
+        // unstaged change (IntelliJ parity). A staged-new file (in the index,
+        // absent from HEAD) shows here as a creation diff and round-trips too.
+        const diffResult = await this._gitCli.exec(['diff', 'HEAD', '--', filePath], { cwd });
+        if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
+          // A binary change emits only "Binary files a/… and b/… differ" with no
+          // recoverable hunk. captureBinaryShelfFile (HEAD-based) should have
+          // handled it already; guard so a contentless binary marker is never
+          // stored as an unrestorable text entry (it would revert the file on
+          // shelve but fail to unshelve).
+          const onlyBinaryMarker =
+            /^Binary files .* differ$/m.test(diffResult.stdout) && !/^@@ /m.test(diffResult.stdout);
+          if (!onlyBinaryMarker) {
+            diffContent = diffResult.stdout;
+          }
+        }
+      }
 
-        if (diffContent.trim()) {
-          shelfFiles.push({
-            path: filePath,
-            diff: diffContent,
-          });
-        }
+      if (diffContent.trim()) {
+        shelfFiles.push({
+          path: filePath,
+          diff: diffContent,
+        });
       }
     }
 
@@ -1209,7 +1199,10 @@ export class ShelfService implements IShelfService {
     const cwd = repo.rootUri.fsPath;
 
     // --numstat prints byte counts; binary changes show `-` in both columns.
-    const numstat = await this._gitCli.exec(['diff', '--numstat', '--', filePath], {
+    // Diff vs HEAD (not the unstaged working tree) so a STAGED-only binary
+    // change is detected too — otherwise it would slip past as a contentless
+    // "Binary files differ" text diff and be lost on shelve (no bytes captured).
+    const numstat = await this._gitCli.exec(['diff', '--numstat', 'HEAD', '--', filePath], {
       cwd,
       throwOnError: false,
     });
@@ -1452,26 +1445,60 @@ export class ShelfService implements IShelfService {
         await this.revertBinaryShelfFile(repo, file);
         continue;
       }
-      try {
-        // Apply the reverse patch to remove the changes
-        await this._gitCli.exec(['apply', '-R', '-'], {
-          cwd,
-          input: file.diff,
-        });
-      } catch {
-        // If reverse apply fails, try checkout for full file reverts
-        if (!selectedHunks?.has(file.path)) {
-          try {
-            await this._gitCli.exec(['checkout', '--', file.path], { cwd });
-          } catch (error) {
-            // The file might be new (nothing to checkout); log so a genuine
-            // checkout fault isn't silently masked during unshelve.
-            this._logger.debug('unshelve: checkout fallback failed', {
-              path: file.path,
-              err: error instanceof Error ? error.message : String(error),
-            });
-          }
+
+      if (selectedHunks?.has(file.path)) {
+        // Partial-hunk shelve: reverse just the selected hunks from the
+        // working tree, leaving the index and the unselected hunks untouched.
+        try {
+          await this._gitCli.exec(['apply', '-R', '-'], { cwd, input: file.diff });
+        } catch (error) {
+          this._logger.debug('shelve: reverse-apply of partial hunks failed', {
+            path: file.path,
+            err: error instanceof Error ? error.message : String(error),
+          });
         }
+        continue;
+      }
+
+      // Full-file shelve: the captured diff is the whole change vs HEAD
+      // (staged + unstaged), so removal must clear BOTH the index and the
+      // working tree. `git checkout HEAD -- <file>` writes HEAD into both, so
+      // staged content is dropped too (a plain `checkout -- <file>` would
+      // restore from the index and leave staged changes behind).
+      const checkout = await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], {
+        cwd,
+        throwOnError: false,
+      });
+      if (checkout.exitCode === 0) {
+        continue;
+      }
+      // checkout fails for a staged-NEW file (absent from HEAD). Only then is
+      // `git rm -f` the right removal — confirm the path is genuinely absent
+      // from HEAD first, so a transient checkout error (lock contention, etc.)
+      // on a tracked file can't trigger an unintended deletion.
+      const inHead =
+        (
+          await this._gitCli.exec(['cat-file', '-e', `HEAD:${file.path}`], {
+            cwd,
+            throwOnError: false,
+          })
+        ).exitCode === 0;
+      if (inHead) {
+        this._logger.debug('shelve: checkout failed for a HEAD-tracked file; left as-is', {
+          path: file.path,
+          checkoutStderr: checkout.stderr,
+        });
+        continue;
+      }
+      const removed = await this._gitCli.exec(['rm', '-f', '--', file.path], {
+        cwd,
+        throwOnError: false,
+      });
+      if (removed.exitCode !== 0) {
+        this._logger.debug('shelve: could not revert staged-new full-file change', {
+          path: file.path,
+          rmStderr: removed.stderr,
+        });
       }
     }
   }

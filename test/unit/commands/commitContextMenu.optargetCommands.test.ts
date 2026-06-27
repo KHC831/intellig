@@ -93,7 +93,7 @@ function findHandler(handlers: CapturedHandler[], id: string): CapturedHandler {
   return h;
 }
 
-describe('H-1 — delegating commands honor the threaded clicked-commit repo root', () => {
+describe('delegating commands honor the threaded clicked-commit repo root', () => {
   afterEach(() => {
     restoreMessageFunctions();
   });

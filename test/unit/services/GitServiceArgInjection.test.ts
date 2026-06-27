@@ -103,7 +103,7 @@ function assertEndOfOptionsBeforeRef(args: string[], ref: string, where: string)
   );
 }
 
-describe('Wave I — GitService argv-injection safety', () => {
+describe('GitService argv-injection safety', () => {
   let gitService: GitService;
   let mockGitCli: MockGitCli;
   let mockRepo: IRepository;
@@ -358,7 +358,7 @@ describe('Wave I — GitService argv-injection safety', () => {
   // guard and (where structurally feasible) splices `--end-of-options`.
   // =====================================================================
 
-  describe('Wave I R1 — leading-dash service-boundary guards', () => {
+  describe('leading-dash service-boundary guards', () => {
     describe('deleteBranch()', () => {
       it('refuses a leading-dash branch name with `Invalid branch name`', async () => {
         const result = await gitService.deleteBranch(mockRepo, '-foo');
