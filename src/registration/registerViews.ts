@@ -46,7 +46,7 @@ import {
   wireGraphLoadMore,
   type IGraphLoadMoreController,
 } from './graphLoadMore';
-import { fetchGraphPage } from './graphLogPage';
+import { fetchGraphPage, buildLogScope } from './graphLogPage';
 
 /**
  * Initial commit-graph window — the small first chunk loaded for a FAST startup
@@ -691,30 +691,18 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       }
 
       try {
-        const branchRef = filter?.branch;
-        const logRange = filter?.logRange;
+        // ONE scope object (buildLogScope) so the merged view applies the same
+        // filter mapping as the single-repo graph — including the "Message or
+        // hash" box's hash-filter detection.
+        const scope = buildLogScope(filter);
         // Load up to 200 commits per repo — lower per-repo cap keeps the
         // merged view snappy while still giving meaningful cross-repo history.
         const allCommitsArrays = await Promise.all(
           repos.map(async (repo) => {
             const commits = await gitService.getLog(repo, {
               maxCount: 200,
-              all: !branchRef && !logRange,
-              ref: branchRef,
-              logRange,
               topoOrder: true,
-              author: filter?.author,
-              since: filter?.since,
-              until: filter?.until,
-              path: filter?.path,
-              grep: filter?.searchText,
-              noMerges: filter?.noMerges,
-              firstParent: filter?.firstParent,
-              simplifyMerges: filter?.simplifyMerges,
-              minParents: filter?.minParents,
-              maxParents: filter?.maxParents,
-              regex: filter?.searchRegex,
-              caseSensitive: filter?.searchCaseSensitive,
+              ...scope,
             });
             // Tag each commit with the source repo root path.
             return commits.map((c) => ({ ...c, repoRoot: repo.rootUri.fsPath }));
