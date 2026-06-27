@@ -60,8 +60,8 @@ describe('Wave C R2 — structural pins', () => {
 
   // Tab API close
   describe('(Senior R1-M-1) — squash close uses tab API, not closeActiveEditor', () => {
-    it('_promptForSquashMessage no longer calls workbench.action.closeActiveEditor', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+    it('_promptForMessageInEditor no longer calls workbench.action.closeActiveEditor', () => {
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
@@ -70,8 +70,8 @@ describe('Wave C R2 — structural pins', () => {
       );
     });
 
-    it('_promptForSquashMessage uses vscode.window.tabGroups + TabInputText to close', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+    it('_promptForMessageInEditor uses vscode.window.tabGroups + TabInputText to close', () => {
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(/vscode\.window\.tabGroups/.test(body), 'expected vscode.window.tabGroups usage');
@@ -82,8 +82,8 @@ describe('Wave C R2 — structural pins', () => {
 
   // Save-As detection
   describe('(Senior R1-M-2) — Save-As detection in onDidSaveTextDocument', () => {
-    it('_promptForSquashMessage compares saved.uri.fsPath against the original', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+    it('_promptForMessageInEditor compares saved.uri.fsPath against the original', () => {
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       // The listener must compare the saved URI's fsPath
@@ -96,11 +96,14 @@ describe('Wave C R2 — structural pins', () => {
     });
 
     it('Save-As branch surfaces a clarifying toast and treats as cancel', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      // The toast is now templated by the caller's opName
+      // (`${opts.opName} cancelled — message was saved to ...`) so the
+      // editor helper serves squash + reword; pin the stable phrasing.
       assert.ok(
-        /Squash cancelled — message was saved to/i.test(body),
+        /cancelled — message was saved to/i.test(body),
         'Save-As branch must surface the clarifying toast'
       );
     });
@@ -156,7 +159,7 @@ describe('Wave C R2 — structural pins', () => {
     });
 
     it('tempfile name template includes the random suffix between Date.now() and COMMIT_EDITMSG', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       // Template literal uses both Date.now() and a random hex suffix
@@ -171,11 +174,11 @@ describe('Wave C R2 — structural pins', () => {
   // Fallback heads-up toast
   describe('(Senior R1-L-2) — fallback to showInputBox surfaces a toast', () => {
     it('the helper surfaces an info toast before falling back to showInputBox', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
-        /Multi-line squash editor unavailable; using single-line fallback/.test(body),
+        /Multi-line message editor unavailable; using single-line fallback/.test(body),
         'fallback branch must surface a heads-up info toast'
       );
     });
@@ -184,7 +187,7 @@ describe('Wave C R2 — structural pins', () => {
   // viewColumn: Beside
   describe('(Senior R1-L-3) — squash editor opens beside the active column', () => {
     it('showTextDocument is called with viewColumn: vscode.ViewColumn.Beside', () => {
-      const helperIdx = src.indexOf('private async _promptForSquashMessage');
+      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(

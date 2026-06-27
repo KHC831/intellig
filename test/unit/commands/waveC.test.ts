@@ -16,8 +16,6 @@
 import '../../setup';
 import * as assert from 'assert';
 import { okAsync } from 'neverthrow';
-import * as fs from 'fs';
-import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
@@ -31,7 +29,11 @@ import type { IConflictResolutionService } from '../../../src/conflicts/interfac
 import type { IMenuStateNode } from '../../../src/git-core/gitToolWindow/multiSelect';
 import { Uri, EventEmitter } from '../../mocks/vscode';
 import type { GitCli } from '../../../src/git-core/gitCli';
-import { writableWindow, writableWorkspace, writableCommands } from '../../typed/windowStub';
+import { writableWindow } from '../../typed/windowStub';
+import {
+  installMessageEditorStubs,
+  type MessageEditorTracker,
+} from '../../typed/messageEditorStub';
 
 // ─── Test scaffolding ────────────────────────────────────────────────────────
 
@@ -246,163 +248,10 @@ function restoreMocks(): void {
   w.showOpenDialog = () => Promise.resolve(undefined);
 }
 
-/**
- * Squash dialog uses an untitled-style editor
- * (openTextDocument → showTextDocument → save / close listener) instead
- * of `showInputBox`. This helper installs stubs at the
- * `vscode.workspace` / `vscode.window` boundary that drive the flow:
- *
- *   - `openTextDocument` records the seed content and returns a fake
- *     doc with a stable URI.
- *   - `showTextDocument` is a no-op.
- *   - `onDidSaveTextDocument` / `onDidCloseTextDocument` capture the
- *     listeners; tests fire them via the returned `simulate*`
- *     functions to drive save / cancel branches.
- *   - `commands.executeCommand` is no-op-stubbed for the editor close.
- *
- * Returns a tracker so the test can:
- *   - read the seed via `tracker.lastSeed`
- *   - simulate save with `tracker.simulateSave('combined message')`
- *   - simulate close-without-save with `tracker.simulateClose()`
- *
- * The handler awaits a Promise that resolves when one of these fires.
- * Tests should call exactly one of the simulate* functions per
- * invocation.
- */
-interface SquashEditorTracker {
-  lastSeed: string | undefined;
-  lastLanguage: string | undefined;
-  openCalls: number;
-  showCalls: number;
-  simulateSave: (text: string) => void;
-  simulateClose: () => void;
-}
-
-function installSquashEditorStubs(): SquashEditorTracker {
-  const tracker: SquashEditorTracker = {
-    lastSeed: undefined,
-    lastLanguage: undefined,
-    openCalls: 0,
-    showCalls: 0,
-    simulateSave: () => {
-      throw new Error('save listener not installed yet');
-    },
-    simulateClose: () => {
-      throw new Error('close listener not installed yet');
-    },
-  };
-
-  let docUri: vscode.Uri | undefined;
-  let savedText: string | undefined;
-  // Handler now opens via Uri.file(tmpPath); intercept
-  // both the object-literal (with `content`) shape AND the `Uri.file`
-  // shape so either implementation strategy is testable here.
-  const ws = writableWorkspace();
-  ws.openTextDocument = ((
-    options: unknown
-  ): Promise<{
-    uri: vscode.Uri;
-    getText: () => string;
-    languageId: string;
-    isUntitled: boolean;
-  }> => {
-    tracker.openCalls++;
-    if (typeof options === 'string') {
-      // path string
-      docUri = Uri.file(options);
-      savedText = '';
-    } else if (
-      options !== null &&
-      typeof options === 'object' &&
-      'fsPath' in (options as Record<string, unknown>)
-    ) {
-      // Uri
-      docUri = options as vscode.Uri;
-      // The handler pre-writes the seed to disk. We don't have real fs
-      // here; the test's gitService.getCommit stub fed the seed in via
-      // the squash handler's join, so the seed lives in fs only at the
-      // tempfile path. For the test, surface it via the saved-text
-      // capture below — actual seed content was written by the handler
-      // BEFORE the openTextDocument call. Read via fs to recover it.
-      try {
-        savedText = fs.readFileSync((options as vscode.Uri).fsPath, 'utf8');
-      } catch {
-        savedText = '';
-      }
-      tracker.lastSeed = savedText;
-    } else if (options !== null && typeof options === 'object') {
-      const obj = options as { content?: string; language?: string };
-      tracker.lastSeed = obj.content;
-      tracker.lastLanguage = obj.language;
-      docUri = Uri.parse(`untitled:wave-c-test-${Date.now()}`);
-      savedText = obj.content ?? '';
-    }
-    return Promise.resolve({
-      uri: docUri ?? Uri.parse('untitled:wave-c-test-default'),
-      getText: () => savedText ?? '',
-      languageId: tracker.lastLanguage ?? 'plaintext',
-      isUntitled: true,
-    });
-  }) as typeof ws.openTextDocument;
-
-  const w = writableWindow();
-  w.showTextDocument = ((document: unknown): Promise<{ document: unknown }> => {
-    tracker.showCalls++;
-    return Promise.resolve({ document });
-  }) as typeof w.showTextDocument;
-
-  let saveListener: ((doc: { uri: vscode.Uri; getText: () => string }) => void) | undefined;
-  let closeListener: ((doc: { uri: vscode.Uri }) => void) | undefined;
-
-  ws.onDidSaveTextDocument = ((
-    listener: (doc: { uri: vscode.Uri; getText: () => string }) => void
-  ): { dispose: () => void } => {
-    saveListener = listener;
-    return {
-      dispose: () => {
-        saveListener = undefined;
-      },
-    };
-  }) as typeof ws.onDidSaveTextDocument;
-
-  ws.onDidCloseTextDocument = ((
-    listener: (doc: { uri: vscode.Uri }) => void
-  ): {
-    dispose: () => void;
-  } => {
-    closeListener = listener;
-    return {
-      dispose: () => {
-        closeListener = undefined;
-      },
-    };
-  }) as typeof ws.onDidCloseTextDocument;
-
-  // Stub commands.executeCommand to swallow the closeActiveEditor call.
-  const realCommands = writableCommands();
-  const realExec = realCommands.executeCommand;
-  realCommands.executeCommand = (_name: string): Promise<unknown> => Promise.resolve(undefined);
-  // Restore at next test via restoreMocks tearing down — keep this for
-  // safety. The existing afterEach restoreMocks doesn't touch commands,
-  // so we rely on it being re-installed each test.
-  void realExec;
-
-  tracker.simulateSave = (text: string): void => {
-    if (!saveListener || !docUri) {
-      throw new Error('save listener / doc uri not initialised');
-    }
-    savedText = text;
-    saveListener({ uri: docUri, getText: () => text });
-  };
-  tracker.simulateClose = (): void => {
-    if (!closeListener || !docUri) {
-      throw new Error('close listener / doc uri not initialised');
-    }
-    closeListener({ uri: docUri });
-  };
-
-  return tracker;
-}
+// The tempfile message-editor stub harness lives in a shared module so the
+// reword tests drive the same editor; alias to the squash-era names used below.
+type SquashEditorTracker = MessageEditorTracker;
+const installSquashEditorStubs = installMessageEditorStubs;
 
 interface CommandsInternal {
   _gitCli: GitCli;
