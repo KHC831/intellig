@@ -93,6 +93,21 @@ function collectTextCells(calls: { decos: Deco[] }[]): Map<number, string> {
   return text;
 }
 
+/** Collect the text-column cell background per document line across all calls. */
+function collectTextBg(calls: { decos: Deco[] }[]): Map<number, string | undefined> {
+  const bg = new Map<number, string | undefined>();
+  for (const c of calls) {
+    for (const d of c.decos) {
+      const before = d.renderOptions?.before;
+      if (!before || isHeatBar(before) || before.contentText === undefined) {
+        continue;
+      }
+      bg.set(d.range.start.line, before.backgroundColor);
+    }
+  }
+  return bg;
+}
+
 /** Drop all padding (NBSP + plain space) to reveal the annotation text, if any. */
 function stripPad(s: string | undefined): string {
   return (s ?? '').replace(/\s/g, '');
@@ -115,7 +130,7 @@ function makeProvider(lines: IBlameLine[], lineCount: number) {
   // Record every setDecorations call (type + the decorations array).
   const calls: { decos: Deco[] }[] = [];
   const editor = {
-    document: { uri: Uri.file('/r/f.ts'), lineCount, isDirty: false },
+    document: { uri: Uri.file('/r/f.ts'), lineCount, isDirty: false, getText: (): string => '' },
     selection: { active: { line: 0 } },
     visibleRanges: [new Range(0, 0, lineCount - 1, 0)],
     setDecorations: (_t: unknown, decos: Deco[]): void => {
@@ -156,7 +171,7 @@ describe('Gutter blame — dirty/edited render', () => {
     provider.dispose();
   });
 
-  it('renders an aligned blank cell for an uncommitted line instead of skipping it', async () => {
+  it('annotates an uncommitted line as "Uncommitted" (tinted, aligned), not blank', async () => {
     // Lines 1,3 committed; line 2 uncommitted (a freshly inserted line).
     const { provider, editor, calls } = makeProvider(
       [bl(1, A, '2026-01-01'), bl(2, ZERO, '2026-06-01'), bl(3, A, '2026-01-01')],
@@ -166,26 +181,55 @@ describe('Gutter blame — dirty/edited render', () => {
     await flush();
     await flush();
 
-    // Collect the TEXT-column cell content per line across all calls. The box is
-    // content-sized (no `ch` width), so alignment is encoded in the NBSP-padded
-    // contentText LENGTH, not a width property.
     const text = collectTextCells(calls);
+    const bg = collectTextBg(calls);
 
-    // The uncommitted line (editor line 1) must still get a gutter cell…
-    assert.ok(text.has(1), 'uncommitted line must still receive a gutter cell (not skipped)');
-    // …blank (only the symmetric pad, no annotation text)…
-    assert.strictEqual(
-      stripPad(text.get(1)),
-      '',
-      'uncommitted line gutter text must be blank (pad only)'
+    // The uncommitted line (editor line 1) gets a cell labelled "Uncommitted"…
+    assert.ok(text.has(1), 'uncommitted line must receive a gutter cell (not skipped)');
+    assert.ok(
+      stripPad(text.get(1)).includes('Uncommitted'),
+      `uncommitted line must read "Uncommitted"; got ${JSON.stringify(text.get(1))}`
+    );
+    // …with a visible (non-transparent) tint so it shows colour like the rest…
+    assert.ok(
+      bg.get(1) !== undefined && bg.get(1) !== 'transparent',
+      `uncommitted line must be tinted; got ${bg.get(1)}`
     );
     // …and the SAME rendered width as the committed lines, so code stays aligned.
     assert.strictEqual(
       text.get(1)?.length,
       text.get(0)?.length,
-      'blank cell width must match committed-line width for alignment'
+      'uncommitted cell width must match committed-line width for alignment'
     );
 
+    provider.dispose();
+  });
+
+  it('annotates a document line the blame did not cover (trailing new line) as Uncommitted', async () => {
+    // Blame returns 2 committed lines, but the buffer has 3 lines — the trailing
+    // (just-typed, empty) line has no blame row. It must still get an Uncommitted
+    // cell so it shows colour like the rest, not a dark gap.
+    const { provider, editor, calls } = makeProvider(
+      [bl(1, A, '2026-01-01'), bl(2, A, '2026-01-01')],
+      3
+    );
+    // Back-fill of uncovered lines only happens while the buffer is dirty.
+    (editor.document as { isDirty: boolean }).isDirty = true;
+    provider.enable(editor as never, { force: true });
+    await flush();
+    await flush();
+
+    const text = collectTextCells(calls);
+    const bg = collectTextBg(calls);
+    assert.ok(text.has(2), 'uncovered trailing line must still receive a gutter cell');
+    assert.ok(
+      stripPad(text.get(2)).includes('Uncommitted'),
+      `uncovered line must read "Uncommitted"; got ${JSON.stringify(text.get(2))}`
+    );
+    assert.ok(
+      bg.get(2) !== undefined && bg.get(2) !== 'transparent',
+      'uncovered line must be tinted'
+    );
     provider.dispose();
   });
 

@@ -25,10 +25,10 @@ const DEFAULT_DISPLAY: IBlameDisplay = {
 };
 
 /**
- * One rendered gutter cell. A `blank` cell (uncommitted / hidden / freshly
- * edited line) carries no text or tint but holds the column width so the code
- * stays aligned. Committed cells carry the annotation text, the per-commit tint,
- * and a hover.
+ * One rendered gutter cell. A `blank` cell (a hidden revision) carries no text or
+ * tint but holds the column width so the code stays aligned. Committed cells carry
+ * the annotation text, the per-commit tint, and a hover. Uncommitted (locally
+ * edited / inserted) cells carry the "Uncommitted" label and a muted tint.
  */
 interface IGutterEntry {
   text: string;
@@ -37,8 +37,18 @@ interface IGutterEntry {
   hover?: vscode.MarkdownString;
 }
 
-/** The shared blank cell — no text, no tint, no hover. */
+/** The shared blank cell — no text, no tint, no hover. Used for HIDDEN lines. */
 const BLANK_ENTRY: IGutterEntry = { text: '', bgColor: 'transparent', blank: true };
+
+/** Gutter label for a not-yet-committed (locally edited / inserted) line. */
+const UNCOMMITTED_LABEL = 'Uncommitted';
+/**
+ * Tint for not-yet-committed lines. A muted neutral block, distinct from the
+ * per-commit palette, so freshly edited/inserted lines read as "local, not
+ * committed" rather than belonging to a commit. Mirrors IntelliJ highlighting the
+ * current/local lines apart from the committed history.
+ */
+const UNCOMMITTED_BG = 'rgba(128, 128, 128, 0.22)';
 
 /**
  * A non-breaking space. Plain spaces inside a decoration's `before.contentText`
@@ -144,8 +154,9 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   private _updateDebounceTimer: NodeJS.Timeout | undefined;
   /**
    * The last rendered gutter, keyed by editor URI. Holds one entry per document
-   * line (committed → annotated cell; uncommitted/hidden → blank cell) plus the
-   * column width. Kept so an edit can be reflected SYNCHRONOUSLY — the entries
+   * line (committed → annotated cell; uncommitted → "Uncommitted" cell; hidden →
+   * blank cell) plus the column width. Kept so an edit can be reflected
+   * SYNCHRONOUSLY — the entries
    * are shifted for inserted/removed lines and re-applied immediately, so a new
    * line gets its blank cell at once instead of the caret sitting at column 0
    * until the debounced re-blame returns (the cursor-jump bug). The `width` is the
@@ -575,13 +586,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       });
 
       // Single pass over every blamed line, building one entry PER DOCUMENT LINE
-      // (committed → annotated; uncommitted/hidden → blank). Covering every line
-      // means a synchronous edit can shift the map and re-render without leaving
-      // a gap. Iterating the blame model directly (rather than scanning the
-      // visible viewport on each scroll) is O(lines) once per load.
+      // (committed → annotated; uncommitted → "Uncommitted"; hidden → blank).
+      // Covering every line means a synchronous edit can shift the map and
+      // re-render without leaving a gap. Iterating the blame model directly
+      // (rather than scanning the visible viewport on each scroll) is O(lines).
       const docLineCount = editor.document.lineCount;
       const entries = new Map<number, IGutterEntry>();
-      let maxLen = 0;
+      const uncommittedEntry = this.uncommittedEntry();
+      let maxLen = uncommittedEntry.text.length;
       for (const blameLine of blameInfo.lines) {
         // Blame lines are 1-indexed; map to the editor's 0-indexed line. Skip
         // any blame row that falls outside the current document (e.g. a
@@ -590,14 +602,18 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         if (line < 0 || line >= docLineCount) {
           continue;
         }
-        // Uncommitted (git's all-zeros boundary commit) or hidden lines get a
-        // BLANK gutter cell rather than being dropped — dropping them would
-        // remove the column's left padding on those rows and shove the code
-        // under the annotation column (IntelliJ keeps an empty annotation cell).
-        const uncommitted = blameLine.commit.startsWith('0000000');
+        // A HIDDEN line (user hid this revision) gets a BLANK cell — present for
+        // alignment but carrying nothing. An UNCOMMITTED line (git's all-zeros
+        // boundary commit — a locally edited / inserted line) gets the
+        // "Uncommitted" cell so a new line shows colour and a label instead of a
+        // dark gap.
         const hidden = !!this._optionsSource && this._optionsSource.isHidden(blameLine.commit);
-        if (uncommitted || hidden) {
+        if (hidden) {
           entries.set(line, BLANK_ENTRY);
+          continue;
+        }
+        if (blameLine.commit.startsWith('0000000')) {
+          entries.set(line, uncommittedEntry);
           continue;
         }
         // AUTHOR mode tints by the line's author; ORDER mode by the commit's age
@@ -617,6 +633,19 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           blank: false,
           hover: this.createHoverMessage(blameLine),
         });
+      }
+
+      // While the buffer is DIRTY, any document line the blame did not cover (a
+      // just-typed empty line at the end of file, which git blame does not emit)
+      // is local content too — give it the Uncommitted cell so it shows colour
+      // instead of a dark gap. Gated on dirty so a clean file's phantom trailing
+      // line (the empty line after its final newline) is not mislabelled.
+      if (editor.document.isDirty) {
+        for (let line = 0; line < docLineCount; line++) {
+          if (!entries.has(line)) {
+            entries.set(line, uncommittedEntry);
+          }
+        }
       }
 
       // The annotation columns are fixed-width (see formatGutterText), so every
@@ -715,8 +744,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
 
   /**
    * Reflect a single document edit in {@link _renderState} SYNCHRONOUSLY: shift
-   * the line→entry map by the edit's line delta and blank the edited/inserted
-   * rows, then repaint — so a newly created line immediately has its blank gutter
+   * the line→entry map by the edit's line delta and mark the edited/inserted rows
+   * Uncommitted, then repaint — so a newly created line immediately has its gutter
    * cell (the caret stays put instead of snapping to column 0 and back while the
    * debounced re-blame runs). Only the common single-change case is handled; for
    * multi-change edits the debounced re-blame is the sole update.
@@ -751,16 +780,19 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       }
       // Lines in [startLine, endLine] are dropped — the replaced region.
     }
-    // The edited + newly inserted rows become blank until the re-blame reconciles
-    // them (an edited line's prior blame is stale; a new line has none).
+    // The edited + newly inserted rows are now local content, so show the
+    // Uncommitted cell at once (an edited line's prior blame is stale; a new line
+    // has none). This matches what the debounced re-blame will report, so there's
+    // no blank→Uncommitted flash.
+    const uncommittedEntry = this.uncommittedEntry();
     for (let line = startLine; line <= startLine + added; line++) {
-      shifted.set(line, BLANK_ENTRY);
+      shifted.set(line, uncommittedEntry);
     }
     // Rebuild a dense map over the new document so every line has a cell.
     const lineCount = editor.document.lineCount;
     const dense = new Map<number, IGutterEntry>();
     for (let line = 0; line < lineCount; line++) {
-      dense.set(line, shifted.get(line) ?? BLANK_ENTRY);
+      dense.set(line, shifted.get(line) ?? uncommittedEntry);
     }
     this._renderState = { ...this._renderState, entries: dense };
     this._applyRenderState(editor);
@@ -860,6 +892,28 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // with NBSP — plain spaces are collapsed/trimmed by the decoration renderer,
     // which would crush the inter-column gaps.
     return columns.join(NBSP);
+  }
+
+  /**
+   * The gutter cell for a not-yet-committed (locally edited / inserted) line:
+   * the "Uncommitted" label in the author column, the other visible columns
+   * blank, a muted neutral tint, and no hover (there is no commit to open). Built
+   * through the same fixed-width columns as {@link formatGutterText} so its width
+   * matches committed cells and the code stays aligned.
+   */
+  private uncommittedEntry(): IGutterEntry {
+    const { aspects } = this.resolveDisplay();
+    const columns: string[] = [];
+    if (aspects.author) {
+      columns.push(fitColumn(UNCOMMITTED_LABEL, AUTHOR_COL_CH));
+    }
+    if (aspects.date) {
+      columns.push(fitColumn('', DATE_COL_CH));
+    }
+    if (aspects.revision) {
+      columns.push(fitColumn('', REVISION_COL_CH));
+    }
+    return { text: columns.join(NBSP), bgColor: UNCOMMITTED_BG, blank: false };
   }
 
   /**
