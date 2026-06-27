@@ -715,14 +715,61 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         // filter mapping as the single-repo graph — including the "Message or
         // hash" box's hash-filter detection.
         const scope = buildLogScope(filter);
+
+        // Fetch each repo's branches UP FRONT — needed both for the combined
+        // branch map AND to intersect a branch SUBSET against the refs that
+        // actually exist in each repo. A multi-ref `git log <a> <b>` fails
+        // ENTIRELY ("fatal: unknown revision") if ONE ref is missing in that
+        // repo, which would silently drop that repo's whole history. Selecting
+        // {main, feature/b} must still show repo A's `main` even if A lacks
+        // feature/b — so we narrow the refs per repo and skip a repo that has
+        // none of the selected branches.
+        const perRepoBranches = await Promise.all(
+          repos.map((repo) =>
+            gitService.getBranches(repo).catch((error) => {
+              getLogger()
+                .child({ component: 'extension' })
+                .debug('graph load (merged): getBranches failed', {
+                  err: error instanceof Error ? error.message : String(error),
+                });
+              return [];
+            })
+          )
+        );
+
+        const combinedBranchMap = new Map<
+          string,
+          Array<{ name: string; type: 'local' | 'remote' }>
+        >();
+        perRepoBranches.forEach((branches) => {
+          for (const branch of branches) {
+            if (branch.commit && branch.type !== 'tag') {
+              const existing = combinedBranchMap.get(branch.commit) || [];
+              existing.push({ name: branch.name, type: branch.type });
+              combinedBranchMap.set(branch.commit, existing);
+            }
+          }
+        });
+
         // Load up to 200 commits per repo — lower per-repo cap keeps the
         // merged view snappy while still giving meaningful cross-repo history.
         const allCommitsArrays = await Promise.all(
-          repos.map(async (repo) => {
+          repos.map(async (repo, i) => {
+            let repoScope = scope;
+            if (scope.refs && scope.refs.length > 0) {
+              const names = new Set(perRepoBranches[i].map((b) => b.name));
+              const refs = scope.refs.filter((r) => names.has(r));
+              // None of the selected branches exist in this repo → it contributes
+              // nothing (skip git rather than poison the whole multi-ref command).
+              if (refs.length === 0) {
+                return [];
+              }
+              repoScope = { ...scope, refs };
+            }
             const commits = await gitService.getLog(repo, {
               maxCount: 200,
               topoOrder: true,
-              ...scope,
+              ...repoScope,
             });
             // Tag each commit with the source repo root path.
             return commits.map((c) => ({ ...c, repoRoot: repo.rootUri.fsPath }));
@@ -735,32 +782,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           .sort((a, b) => b.commitDate.getTime() - a.commitDate.getTime())
           .slice(0, 500);
 
-        // Build combined branch and tag maps from all repos.
-        const combinedBranchMap = new Map<
-          string,
-          Array<{ name: string; type: 'local' | 'remote' }>
-        >();
         const combinedTagMap = new Map<string, string[]>();
-
         await Promise.all(
           repos.map(async (repo) => {
-            try {
-              const branches = await gitService.getBranches(repo);
-              for (const branch of branches) {
-                if (branch.commit && branch.type !== 'tag') {
-                  const existing = combinedBranchMap.get(branch.commit) || [];
-                  existing.push({ name: branch.name, type: branch.type });
-                  combinedBranchMap.set(branch.commit, existing);
-                }
-              }
-            } catch (error) {
-              // Branches are optional for graph rendering; log+degrade so the fault stays visible.
-              getLogger()
-                .child({ component: 'extension' })
-                .debug('graph load (merged): getBranches failed', {
-                  err: error instanceof Error ? error.message : String(error),
-                });
-            }
             try {
               const tags = await gitService.getTags(repo);
               for (const tag of tags) {
