@@ -94,6 +94,8 @@ export interface IRowNodeElement {
   isMerge: boolean;
   isTerminal: boolean;
   isBranchSplit: boolean;
+  /** This commit is the tip of the checked-out branch (HEAD) — gets the white ring. */
+  isCurrentHead: boolean;
   onFocusedBranchPath: boolean;
   /** Resolved node color (owning branch color, else lane color). Optional — see {@link IRowEdgeElement.color}. */
   color?: string;
@@ -182,6 +184,7 @@ export interface IRowProjectionContext {
    */
   bendsLandingBelow: Set<number>;
   isTerminal: boolean;
+  isCurrentHead: boolean;
   isBranchSplit: boolean;
   isLastRow: boolean;
   hasFocusedBranch: boolean;
@@ -532,6 +535,7 @@ export function projectRow(
     lane: ownLane,
     isMerge: node.commit.parents.length > 1,
     isTerminal: ctx.isTerminal,
+    isCurrentHead: ctx.isCurrentHead,
     isBranchSplit: ctx.isBranchSplit,
     onFocusedBranchPath: node.onFocusedBranchPath === true,
     color: nodeColor,
@@ -585,6 +589,12 @@ export interface IBuildPrintModelOptions {
   /** Currently checked-out branch — a tiebreak when a commit has multiple refs. */
   headBranchName?: string;
   /**
+   * The checked-out commit (what `HEAD` resolves to). That commit's node gets the
+   * white "you are here" ring — including a DETACHED HEAD, where there's no branch
+   * tip to key off. `undefined` (e.g. merged multi-root) leaves no node ringed.
+   */
+  headHash?: string;
+  /**
    * Precomputed owning-branch colors (`hash → color`). Supply this when the
    * caller also needs the map elsewhere (e.g. to color the branch chips to
    * match) so it's computed once; otherwise it's derived from `headBranchName`.
@@ -625,6 +635,10 @@ export function buildGraphPrintModel(
   const intervalLookup = buildIntervalLookup(nodes, mergedIntervals);
   const hashToRow = buildHashToRow(nodes);
   const hasFocusedBranch = nodes.some((n) => n.onFocusedBranchPath === true);
+  // The checked-out commit (what HEAD resolves to) earns the white ring — keyed
+  // on the commit hash, so it lands on a detached-HEAD commit just as well as a
+  // branch tip.
+  const currentHeadHash = options.headHash;
 
   return nodes.map((node, rowIndex) =>
     projectRow(node, rowIndex, {
@@ -634,6 +648,7 @@ export function buildGraphPrintModel(
       incomingBendLanes: incomingBendsMap.get(node.commit.hash) ?? new Set<number>(),
       bendsLandingBelow: bendsLandingBelowMap.get(rowIndex) ?? new Set<number>(),
       isTerminal: terminalNodes.has(node.commit.hash),
+      isCurrentHead: node.commit.hash === currentHeadHash,
       isBranchSplit: isBranchSplit(node.commit.hash, childCountMap),
       isLastRow: rowIndex === nodes.length - 1,
       hasFocusedBranch,

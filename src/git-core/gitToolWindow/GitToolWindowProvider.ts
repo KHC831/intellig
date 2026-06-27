@@ -3367,7 +3367,10 @@ ${bodyMarkup}
     const branchColors = computeBranchColors(colorNodesFrom(commitNodes), {
       headBranchName: this._extendedLogState.headBranchName,
     });
-    const printModels = buildGraphPrintModel(commitNodes, { branchColors });
+    const printModels = buildGraphPrintModel(commitNodes, {
+      branchColors,
+      headHash: this._extendedLogState.headHash,
+    });
 
     // Pre-resolve the cherry-picked set once per render to keep the
     // per-row check O(1).

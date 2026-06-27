@@ -111,6 +111,7 @@ export function mkRowModel(
     lane: 0,
     isMerge: false,
     isTerminal: false,
+    isCurrentHead: false,
     isBranchSplit: false,
     onFocusedBranchPath: false,
     ...nodeOverrides,
@@ -146,6 +147,7 @@ export function paintFabricatedRow(
     incomingBendLanes: Iterable<number>;
     bendsLandingBelow: Iterable<number>;
     isTerminal: boolean;
+    isCurrentHead: boolean;
     isBranchSplit: boolean;
     isLastRow: boolean;
     hasFocusedBranch: boolean;
@@ -159,6 +161,7 @@ export function paintFabricatedRow(
     incomingBendLanes: new Set<number>(ctx.incomingBendLanes ?? []),
     bendsLandingBelow: new Set<number>(ctx.bendsLandingBelow ?? []),
     isTerminal: ctx.isTerminal ?? false,
+    isCurrentHead: ctx.isCurrentHead ?? false,
     isBranchSplit: ctx.isBranchSplit ?? false,
     isLastRow: ctx.isLastRow ?? false,
     hasFocusedBranch: ctx.hasFocusedBranch ?? node.onFocusedBranchPath === true,
@@ -182,7 +185,7 @@ export function paintDagRow(
   nodes: ICommitNode[],
   rowIndex: number,
   config: IGraphRenderConfig = DEFAULT_GRAPH_CONFIG,
-  overrides: { isTerminal?: boolean; isBranchSplit?: boolean } = {}
+  overrides: { isTerminal?: boolean; isCurrentHead?: boolean; isBranchSplit?: boolean } = {}
 ): string {
   const active = computeActiveLanes(nodes);
   const above = computeLaneContinuesFromAbove(nodes);
@@ -205,6 +208,7 @@ export function paintDagRow(
     incomingBendLanes: incoming.get(nodes[rowIndex].commit.hash) ?? new Set<number>(),
     bendsLandingBelow,
     isTerminal: overrides.isTerminal ?? false,
+    isCurrentHead: overrides.isCurrentHead ?? false,
     isBranchSplit: overrides.isBranchSplit ?? false,
     isLastRow: rowIndex === nodes.length - 1,
     hasFocusedBranch: false,

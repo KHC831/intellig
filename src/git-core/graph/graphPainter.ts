@@ -102,9 +102,10 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
       );
     }
 
-    if (model.node.isTerminal) {
-      // The tip/terminal node is emphasized with a white ring just OUTSIDE the
-      // colored disc. The disc is filled out to the ring radius so the node
+    if (model.node.isCurrentHead) {
+      // The checked-out branch's tip (HEAD) is emphasized with a white ring just
+      // OUTSIDE the colored disc — a "you are here" marker reserved for the
+      // current branch. The disc is filled out to the ring radius so the node
       // reads as one solid dot with a white outline.
       const ringRadius = nodeRadius + 1.5;
       elements.push(

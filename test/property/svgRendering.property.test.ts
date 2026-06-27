@@ -436,11 +436,11 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
           arbitraryGraphRenderConfig(),
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
-            // Render as terminal node
+            // Render as the checked-out tip (terminal AND current head → white ring).
             const svg = paintFabricatedRow(
               node,
               rowIndex,
-              { activeLanes, isTerminal: true },
+              { activeLanes, isTerminal: true, isCurrentHead: true },
               config
             );
 

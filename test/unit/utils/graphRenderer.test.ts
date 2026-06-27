@@ -1087,7 +1087,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const lines = extractLines(svg);
@@ -1110,7 +1110,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const lines = extractLines(svg);
@@ -1132,7 +1132,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const circles = extractCircles(svg);
@@ -1153,7 +1153,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const rings = extractRingCircles(svg);
@@ -1172,7 +1172,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const rings = extractRingCircles(svg);
@@ -1231,7 +1231,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         0,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const lines = extractLines(svg);
@@ -1253,7 +1253,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         0,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const rings = extractRingCircles(svg);
@@ -1269,7 +1269,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         0,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const lines = extractLines(svg);
@@ -1288,7 +1288,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         0,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const circles = extractCircles(svg);
@@ -1315,7 +1315,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         mergeNode,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const rects = extractRects(svg);
@@ -1328,7 +1328,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         mergeNode,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
       const lines = extractLines(svg);
@@ -1359,7 +1359,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
       const svg = paintFabricatedRow(
         node,
         1,
-        { activeLanes: activeLanes, isTerminal: true },
+        { activeLanes: activeLanes, isTerminal: true, isCurrentHead: true },
         config
       );
 

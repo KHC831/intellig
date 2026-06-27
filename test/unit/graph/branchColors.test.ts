@@ -1,6 +1,6 @@
 /**
  * Unit tests for the per-branch graph coloring core (branchColors.ts):
- * the fixed palette, positional color rotation (adjacent branches differ), and
+ * the fixed palette, name-stable (position-independent) color assignment, and
  * the "most-specific branch owns the commit" ownership rule (the two locked
  * scenarios).
  */
@@ -10,6 +10,7 @@ import * as assert from 'assert';
 import {
   GRAPH_BRANCH_COLORS,
   computeBranchColors,
+  branchColorFor,
   type IColorNode,
 } from '../../../src/git-core/graph/branchColors';
 
@@ -33,12 +34,8 @@ describe('branchColors — palette', () => {
   });
 });
 
-describe('branchColors — rotation (adjacent branches differ)', () => {
-  it('assigns consecutive palette colors down the view — never color1→color2→color1', () => {
-    // Three branches that genuinely DIVERGE (each forks off a shared base), so
-    // all three colors are actually rendered on distinct lines. (A stack of
-    // tips on a SINGLE overlapping chain collapses to one color — see the
-    // "full overlap" ownership test — so it can't exercise palette rotation.)
+describe('branchColors — name-stable (position-independent)', () => {
+  it('colors each branch by its NAME, not its row — branchColorFor() is the source of truth', () => {
     const nodes = [
       node('b0', ['base'], [{ name: 'br0', type: 'local' }]),
       node('b1', ['base'], [{ name: 'br1', type: 'local' }]),
@@ -46,11 +43,30 @@ describe('branchColors — rotation (adjacent branches differ)', () => {
       node('base', []),
     ];
     const colors = computeBranchColors(nodes);
-    assert.strictEqual(colors.get('b0'), P[0]);
-    assert.strictEqual(colors.get('b1'), P[1]);
-    assert.strictEqual(colors.get('b2'), P[2]);
-    // The three adjacent branch colors are all distinct.
-    assert.strictEqual(new Set([colors.get('b0'), colors.get('b1'), colors.get('b2')]).size, 3);
+    assert.strictEqual(colors.get('b0'), branchColorFor('br0'));
+    assert.strictEqual(colors.get('b1'), branchColorFor('br1'));
+    assert.strictEqual(colors.get('b2'), branchColorFor('br2'));
+  });
+
+  it('a branch keeps its color when a sibling branch is added (stable rendering)', () => {
+    // 'feature' forks off a shared base. Adding a SIBLING branch ('newer', forking
+    // off the same base) shifts feature's row index down — but feature must keep
+    // the exact color it had, because color follows the name, not the position.
+    const before = computeBranchColors([
+      node('f', ['base'], [{ name: 'feature', type: 'local' }]),
+      node('base', [], [{ name: 'main', type: 'local' }]),
+    ]);
+    const after = computeBranchColors([
+      node('n', ['base'], [{ name: 'newer', type: 'local' }]), // sibling, now the topmost row
+      node('f', ['base'], [{ name: 'feature', type: 'local' }]), // feature shifted from row 0 → 1
+      node('base', [], [{ name: 'main', type: 'local' }]),
+    ]);
+    assert.strictEqual(
+      after.get('f'),
+      before.get('f'),
+      "feature's color is unchanged after a sibling branch shifted its row"
+    );
+    assert.strictEqual(after.get('f'), branchColorFor('feature'));
   });
 
   it('is deterministic for the same input', () => {
@@ -67,9 +83,9 @@ describe('branchColors — ownership', () => {
       node('c', []),
     ];
     const colors = computeBranchColors(nodes);
-    assert.strictEqual(colors.get('a'), P[0]);
-    assert.strictEqual(colors.get('b'), P[0]);
-    assert.strictEqual(colors.get('c'), P[0]);
+    assert.strictEqual(colors.get('a'), branchColorFor('main'));
+    assert.strictEqual(colors.get('b'), branchColorFor('main'));
+    assert.strictEqual(colors.get('c'), branchColorFor('main'));
   });
 
   it('leaves commits no branch reaches uncolored (caller falls back to lane)', () => {
@@ -107,18 +123,18 @@ describe('branchColors — ownership', () => {
 
   it('scenario 1 (Y fork): each arm its own color; trunk (main) owns the shared trunk', () => {
     const nodes = [
-      node('newTip', ['nMid'], [{ name: 'feature', type: 'local' }]), // row 0 → P[0]
-      node('trunkTip', ['Pp'], [{ name: 'main', type: 'local' }]), // row 1 → P[1]
+      node('newTip', ['nMid'], [{ name: 'feature', type: 'local' }]), // row 0
+      node('trunkTip', ['Pp'], [{ name: 'main', type: 'local' }]), // row 1
       node('nMid', ['Pp']),
       node('Pp', ['base']), // common parent
       node('base', []),
     ];
     const colors = computeBranchColors(nodes);
-    assert.strictEqual(colors.get('newTip'), P[0], 'newer arm = first palette color');
-    assert.strictEqual(colors.get('nMid'), P[0]);
-    assert.strictEqual(colors.get('trunkTip'), P[1]);
-    assert.strictEqual(colors.get('Pp'), P[1], 'common parent owned by the trunk (main)');
-    assert.strictEqual(colors.get('base'), P[1], 'shared base owned by the trunk (main)');
+    assert.strictEqual(colors.get('newTip'), branchColorFor('feature'), 'feature arm = its color');
+    assert.strictEqual(colors.get('nMid'), branchColorFor('feature'));
+    assert.strictEqual(colors.get('trunkTip'), branchColorFor('main'));
+    assert.strictEqual(colors.get('Pp'), branchColorFor('main'), 'common parent owned by main');
+    assert.strictEqual(colors.get('base'), branchColorFor('main'), 'shared base owned by main');
     assert.notStrictEqual(colors.get('newTip'), colors.get('trunkTip'));
   });
 
@@ -131,7 +147,7 @@ describe('branchColors — ownership', () => {
     // "5 colors on one line" bug); newest-tip-first lets feature-b's tip claim
     // the whole chain.
     const nodes = [
-      node('bTip', ['m1'], [{ name: 'feature-b', type: 'local' }]), // row 0 → P[0]
+      node('bTip', ['m1'], [{ name: 'feature-b', type: 'local' }]), // row 0
       node('m1', ['aTip']),
       node('aTip', ['s1'], [{ name: 'feature-a', type: 'local' }]), // row 2
       node('s1', ['Pp']),
@@ -139,11 +155,12 @@ describe('branchColors — ownership', () => {
     ];
     const colors = computeBranchColors(nodes);
     // The topmost tip (feature-b) owns every commit down the overlapping chain.
-    assert.strictEqual(colors.get('bTip'), P[0]);
-    assert.strictEqual(colors.get('m1'), P[0]);
-    assert.strictEqual(colors.get('aTip'), P[0], 'no divergence → no new color at feature-a');
-    assert.strictEqual(colors.get('s1'), P[0]);
-    assert.strictEqual(colors.get('Pp'), P[0]);
+    const bColor = branchColorFor('feature-b');
+    assert.strictEqual(colors.get('bTip'), bColor);
+    assert.strictEqual(colors.get('m1'), bColor);
+    assert.strictEqual(colors.get('aTip'), bColor, 'no divergence → no new color at feature-a');
+    assert.strictEqual(colors.get('s1'), bColor);
+    assert.strictEqual(colors.get('Pp'), bColor);
     // Exactly one distinct color across the whole line.
     assert.strictEqual(
       new Set([
@@ -184,7 +201,9 @@ describe('branchColors — ownership', () => {
     // The local feature is the NEWEST tip, but origin/main is a higher tier, so
     // origin/main owns the shared mainline below the fork (remote trunk = tier 0).
     const nodes = [
-      node('fTip', ['shared'], [{ name: 'feature', type: 'local' }]), // row 0 (newest)
+      // Local branch name chosen palette-distinct from origin/main so ownership
+      // (not an incidental name-hash collision) is what's asserted.
+      node('fTip', ['shared'], [{ name: 'topic', type: 'local' }]), // row 0 (newest)
       node('omTip', ['shared'], [{ name: 'origin/main', type: 'remote' }]), // row 1
       node('shared', ['base']),
       node('base', []),
@@ -200,7 +219,7 @@ describe('branchColors — ownership', () => {
     );
   });
 
-  it('trunk carrying BOTH main and origin/main owns its whole spine over a sibling origin/feature', () => {
+  it('trunk carrying BOTH main and origin/main owns its whole spine over a sibling remote branch', () => {
     // The common real-clone state: the trunk tip carries both the local `main`
     // and the tracking `origin/main`. A sibling `origin/feature` is branched off
     // an OLDER trunk commit. A tip's ownership priority must come from the
@@ -217,8 +236,10 @@ describe('branchColors — ownership', () => {
           { name: 'origin/main', type: 'remote' },
         ]
       ), // row 0 — trunk tip
-      node('fTip', ['m2'], [{ name: 'origin/feature', type: 'remote' }]), // row 1 — branched off m2
-      node('m1', ['m2']), // row 2 — trunk spine below the feature fork
+      // Sibling remote branch (name chosen palette-distinct from main so the
+      // ownership — not an incidental name-hash color collision — is what's tested).
+      node('fTip', ['m2'], [{ name: 'origin/topic', type: 'remote' }]), // row 1 — branched off m2
+      node('m1', ['m2']), // row 2 — trunk spine below the fork
       node('m2', ['m3']), // row 3 — fork point
       node('m3', []), // row 4 — trunk base
     ];
@@ -227,19 +248,19 @@ describe('branchColors — ownership', () => {
     assert.strictEqual(colors.get('m1'), trunk, 'trunk spine below the fork');
     assert.strictEqual(colors.get('m2'), trunk, 'fork-point commit stays trunk color');
     assert.strictEqual(colors.get('m3'), trunk, 'trunk base stays trunk color');
-    assert.notStrictEqual(colors.get('fTip'), trunk, 'origin/feature keeps only its own tip');
+    assert.notStrictEqual(colors.get('fTip'), trunk, 'sibling branch keeps only its own tip');
   });
 
   it('first-parent only — a merged side branch does not recolor the mainline', () => {
     const nodes = [
-      node('mTip', ['mp', 'sTip'], [{ name: 'main', type: 'local' }]), // row 0 → P[0]
+      node('mTip', ['mp', 'sTip'], [{ name: 'main', type: 'local' }]), // row 0
       node('mp', []),
-      node('sTip', [], [{ name: 'side', type: 'local' }]), // row 2 → P[1]
+      node('sTip', [], [{ name: 'side', type: 'local' }]), // row 2
     ];
     const colors = computeBranchColors(nodes);
-    assert.strictEqual(colors.get('mTip'), P[0]);
-    assert.strictEqual(colors.get('mp'), P[0], 'first parent = mainline');
-    assert.strictEqual(colors.get('sTip'), P[1]);
+    assert.strictEqual(colors.get('mTip'), branchColorFor('main'));
+    assert.strictEqual(colors.get('mp'), branchColorFor('main'), 'first parent = mainline');
+    assert.strictEqual(colors.get('sTip'), branchColorFor('side'));
   });
 
   it('dedupes a multi-ref tip to one branch (current branch wins the representative)', () => {
@@ -256,8 +277,8 @@ describe('branchColors — ownership', () => {
       node('p', []),
     ];
     const colors = computeBranchColors(nodes, { headBranchName: 'main' });
-    assert.strictEqual(colors.get('t'), P[0]);
-    assert.strictEqual(colors.get('p'), P[0]);
+    assert.strictEqual(colors.get('t'), branchColorFor('main'));
+    assert.strictEqual(colors.get('p'), branchColorFor('main'));
   });
 
   it('characterization: exact hash→hex map on a multi-merge / multi-tier / off-window DAG', () => {
@@ -285,20 +306,21 @@ describe('branchColors — ownership', () => {
     ];
     const colors = computeBranchColors(nodes);
 
-    // Exact, whole-map pin. Tips take palette colors by display (row) order:
-    // m0 → P[0], f2tip → P[1], f1tip → P[2].
+    // Exact, whole-map pin. Each commit takes its OWNING branch's name-stable
+    // color (branchColorFor): main's spine is main's color, the merged feature
+    // keeps its own, and the remote branch owns the shared base it reaches.
     assert.deepStrictEqual(
       Object.fromEntries(colors),
       {
-        m0: P[0], // trunk tip
-        m1: P[0], // trunk spine below the feature-2 fork — main owns it
-        m2: P[0], // trunk merge commit — main owns it
-        f2tip: P[1], // merged local feature keeps its own color
-        f1tip: P[2], // remote branch tip
+        m0: branchColorFor('main'), // trunk tip
+        m1: branchColorFor('main'), // trunk spine below the feature-2 fork — main owns it
+        m2: branchColorFor('main'), // trunk merge commit — main owns it
+        f2tip: branchColorFor('feature'), // merged local feature keeps its own color
+        f1tip: branchColorFor('origin/featureX'), // remote branch tip
         // m3 (off-window first parent) is owned by the REMOTE branch, not main:
         // origin/featureX is a higher tier (remote) than local trunk, so it
         // claims the shared base it reaches via first parent.
-        m3: P[2],
+        m3: branchColorFor('origin/featureX'),
       },
       'whole hash→hex ownership map drifted'
     );
