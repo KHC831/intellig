@@ -578,7 +578,16 @@ export class ShelfService implements IShelfService {
         // absent from HEAD) shows here as a creation diff and round-trips too.
         const diffResult = await this._gitCli.exec(['diff', 'HEAD', '--', filePath], { cwd });
         if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
-          diffContent = diffResult.stdout;
+          // A binary change emits only "Binary files a/… and b/… differ" with no
+          // recoverable hunk. captureBinaryShelfFile (HEAD-based) should have
+          // handled it already; guard so a contentless binary marker is never
+          // stored as an unrestorable text entry (it would revert the file on
+          // shelve but fail to unshelve).
+          const onlyBinaryMarker =
+            /^Binary files .* differ$/m.test(diffResult.stdout) && !/^@@ /m.test(diffResult.stdout);
+          if (!onlyBinaryMarker) {
+            diffContent = diffResult.stdout;
+          }
         }
       }
 
@@ -1190,7 +1199,10 @@ export class ShelfService implements IShelfService {
     const cwd = repo.rootUri.fsPath;
 
     // --numstat prints byte counts; binary changes show `-` in both columns.
-    const numstat = await this._gitCli.exec(['diff', '--numstat', '--', filePath], {
+    // Diff vs HEAD (not the unstaged working tree) so a STAGED-only binary
+    // change is detected too — otherwise it would slip past as a contentless
+    // "Binary files differ" text diff and be lost on shelve (no bytes captured).
+    const numstat = await this._gitCli.exec(['diff', '--numstat', 'HEAD', '--', filePath], {
       cwd,
       throwOnError: false,
     });
@@ -1453,17 +1465,38 @@ export class ShelfService implements IShelfService {
       // working tree. `git checkout HEAD -- <file>` writes HEAD into both, so
       // staged content is dropped too (a plain `checkout -- <file>` would
       // restore from the index and leave staged changes behind).
-      const checkout = await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], { cwd });
+      const checkout = await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], {
+        cwd,
+        throwOnError: false,
+      });
       if (checkout.exitCode === 0) {
         continue;
       }
-      // checkout fails when the file does not exist in HEAD — i.e. a
-      // staged-new file. Remove it from the index and the working tree.
-      const removed = await this._gitCli.exec(['rm', '-f', '--', file.path], { cwd });
-      if (removed.exitCode !== 0) {
-        this._logger.debug('shelve: could not revert full-file change', {
+      // checkout fails for a staged-NEW file (absent from HEAD). Only then is
+      // `git rm -f` the right removal — confirm the path is genuinely absent
+      // from HEAD first, so a transient checkout error (lock contention, etc.)
+      // on a tracked file can't trigger an unintended deletion.
+      const inHead =
+        (
+          await this._gitCli.exec(['cat-file', '-e', `HEAD:${file.path}`], {
+            cwd,
+            throwOnError: false,
+          })
+        ).exitCode === 0;
+      if (inHead) {
+        this._logger.debug('shelve: checkout failed for a HEAD-tracked file; left as-is', {
           path: file.path,
           checkoutStderr: checkout.stderr,
+        });
+        continue;
+      }
+      const removed = await this._gitCli.exec(['rm', '-f', '--', file.path], {
+        cwd,
+        throwOnError: false,
+      });
+      if (removed.exitCode !== 0) {
+        this._logger.debug('shelve: could not revert staged-new full-file change', {
+          path: file.path,
           rmStderr: removed.stderr,
         });
       }

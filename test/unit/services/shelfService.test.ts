@@ -173,6 +173,36 @@ describe('ShelfService', () => {
       );
     });
 
+    it('captures a STAGED-only binary file as binary and round-trips its exact bytes', async () => {
+      // Regression: a staged binary change is empty under unstaged `git diff`,
+      // so binary detection (numstat) must use the HEAD basis or the file slips
+      // past as a contentless "Binary files differ" text entry and is lost.
+      const binName = 'image.bin';
+      const binFile = path.join(testRepoPath, binName);
+      const bytes = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0x00, 0x42]);
+      fs.writeFileSync(binFile, bytes);
+      await gitCli.exec(['add', binName], { cwd: testRepoPath }); // staged, no unstaged remainder
+
+      const item = await shelfService.shelve(mockRepo, 'Bin', { files: [binName] });
+
+      assert.strictEqual(item.files[0].isBinary, true, 'staged binary must be captured as binary');
+      assert.ok(item.files[0].binaryContent, 'binary bytes must be captured');
+      assert.strictEqual(
+        fs.existsSync(binFile),
+        false,
+        'the staged-new binary is removed on shelve'
+      );
+      const status = await gitCli.exec(['status', '--porcelain'], { cwd: testRepoPath });
+      assert.strictEqual(status.stdout.trim(), '', 'index must be clean after shelving the binary');
+
+      await shelfService.unshelve(mockRepo, item.id);
+      assert.deepStrictEqual(
+        fs.readFileSync(binFile),
+        bytes,
+        'unshelve must restore the exact binary bytes'
+      );
+    });
+
     it('should revert changes after shelving', async () => {
       // Modify the test file
       const testFile = path.join(testRepoPath, 'test.txt');

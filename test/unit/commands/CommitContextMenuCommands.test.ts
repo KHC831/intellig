@@ -37,6 +37,8 @@ import {
   installMessageEditorStubs,
   type MessageEditorTracker,
 } from '../../typed/messageEditorStub';
+import { CommitMessageDialog } from '../../../src/commits/CommitMessageDialog';
+import { makeExtensionContext } from '../../helpers/mockWebviewContext';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
@@ -1205,6 +1207,86 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       await handlerPromise;
       return editor;
     }
+
+    // The PRIMARY production reword path: with an extension context, reword opens
+    // the CommitMessageDialog webview (not the tempfile fallback). Stub the
+    // dialog's prompt() so the test drives that branch without a real webview.
+    async function runRewordViaDialog(
+      commands: CommitContextMenuCommands,
+      hash: string,
+      resolved: string | undefined
+    ): Promise<void> {
+      (commands as unknown as { _context: unknown })._context = makeExtensionContext();
+      const orig = CommitMessageDialog.prototype.prompt;
+      CommitMessageDialog.prototype.prompt = function (): Promise<string | undefined> {
+        // Single-shot resolve; dispose so the stubbed panel doesn't leak.
+        (this as unknown as { dispose(): void }).dispose();
+        return Promise.resolve(resolved);
+      };
+      try {
+        await (
+          commands as unknown as { _handleAction(a: string, h: string[]): Promise<void> }
+        )._handleAction('editCommitMessage', [hash]);
+      } finally {
+        CommitMessageDialog.prototype.prompt = orig;
+      }
+    }
+
+    it('uses the CommitMessageDialog webview when an extension context is present', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo(testHash); // HEAD → amend path
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await runRewordViaDialog(commands, testHash, 'dialog-edited message');
+
+      const amendCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'commit' && a.includes('--amend');
+      });
+      assert.ok(amendCall, 'git commit --amend should run with the dialog message');
+      assert.ok((amendCall.args[0] as string[]).includes('dialog-edited message'));
+    });
+
+    it('aborts (no amend, no refresh) when the dialog is cancelled', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await runRewordViaDialog(commands, testHash, undefined);
+
+      const amendCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'commit' && a.includes('--amend');
+      });
+      assert.ok(!amendCall, 'a cancelled dialog must not amend');
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a cancelled reword');
+    });
 
     it('uses git commit --amend for HEAD commit', async () => {
       createMessageTrackers();
