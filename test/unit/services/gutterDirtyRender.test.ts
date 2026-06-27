@@ -65,8 +65,37 @@ interface Deco {
       backgroundColor?: string;
       width?: string;
       margin?: string;
+      textDecoration?: string;
     };
   };
+}
+
+/** Non-breaking space — the gutter pads/aligns with these (plain spaces collapse). */
+const NBSP = '\u00a0';
+
+/** The heat bar is the only `before` with a fixed `3px` width; everything else is text. */
+function isHeatBar(before: NonNullable<Deco['renderOptions']>['before']): boolean {
+  return before?.width === '3px';
+}
+
+/** Collect the text-column cell content per document line across all setDecorations calls. */
+function collectTextCells(calls: { decos: Deco[] }[]): Map<number, string> {
+  const text = new Map<number, string>();
+  for (const c of calls) {
+    for (const d of c.decos) {
+      const before = d.renderOptions?.before;
+      if (!before || isHeatBar(before) || before.contentText === undefined) {
+        continue;
+      }
+      text.set(d.range.start.line, before.contentText);
+    }
+  }
+  return text;
+}
+
+/** Drop all padding (NBSP + plain space) to reveal the annotation text, if any. */
+function stripPad(s: string | undefined): string {
+  return (s ?? '').replace(/\s/g, '');
 }
 
 function makeProvider(lines: IBlameLine[], lineCount: number) {
@@ -137,36 +166,23 @@ describe('Gutter blame — dirty/edited render', () => {
     await flush();
     await flush();
 
-    // Collect the TEXT-column cell (width in `ch`) per line across all calls.
-    const text = new Map<number, string>();
-    const width = new Map<number, string>();
-    for (const c of calls) {
-      for (const d of c.decos) {
-        const before = d.renderOptions?.before;
-        if (!before || !(before.width ?? '').endsWith('ch')) {
-          continue;
-        }
-        if (before.contentText !== undefined) {
-          text.set(d.range.start.line, before.contentText);
-        }
-        if (before.width !== undefined) {
-          width.set(d.range.start.line, before.width);
-        }
-      }
-    }
+    // Collect the TEXT-column cell content per line across all calls. The box is
+    // content-sized (no `ch` width), so alignment is encoded in the NBSP-padded
+    // contentText LENGTH, not a width property.
+    const text = collectTextCells(calls);
 
     // The uncommitted line (editor line 1) must still get a gutter cell…
     assert.ok(text.has(1), 'uncommitted line must still receive a gutter cell (not skipped)');
     // …blank (only the symmetric pad, no annotation text)…
     assert.strictEqual(
-      text.get(1)?.trim(),
+      stripPad(text.get(1)),
       '',
       'uncommitted line gutter text must be blank (pad only)'
     );
-    // …and the SAME width as the committed lines, so code stays aligned.
+    // …and the SAME rendered width as the committed lines, so code stays aligned.
     assert.strictEqual(
-      width.get(1),
-      width.get(0),
+      text.get(1)?.length,
+      text.get(0)?.length,
       'blank cell width must match committed-line width for alignment'
     );
 
@@ -201,28 +217,17 @@ describe('Gutter blame — dirty/edited render', () => {
     assert.strictEqual(ok, true, 'single-change edit must shift+repaint synchronously');
 
     // Collect the text-column cell per line from the synchronous repaint.
-    const text = new Map<number, string>();
-    const width = new Map<number, string>();
-    for (const c of calls) {
-      for (const d of c.decos) {
-        const before = d.renderOptions?.before;
-        if (!before || !(before.width ?? '').endsWith('ch')) {
-          continue;
-        }
-        if (before.contentText !== undefined) {
-          text.set(d.range.start.line, before.contentText);
-        }
-        if (before.width !== undefined) {
-          width.set(d.range.start.line, before.width);
-        }
-      }
-    }
+    const text = collectTextCells(calls);
 
     // Every line 0..2 must have a cell — crucially the new line (index 1) so the
     // caret doesn't sit at column 0 waiting for the debounced re-blame.
     const seen = [...text.keys()].join(',');
     assert.ok(text.has(0) && text.has(1) && text.has(2), `all 3 lines need a cell; got ${seen}`);
-    assert.strictEqual(width.get(1), width.get(0), 'new line cell keeps the column width');
+    assert.strictEqual(
+      text.get(1)?.length,
+      text.get(0)?.length,
+      'new line cell keeps the column width'
+    );
     provider.dispose();
   });
 
@@ -239,19 +244,14 @@ describe('Gutter blame — dirty/edited render', () => {
     provider.enable(editor as never, { force: true });
     await flush();
     await flush();
-    const widthOf = (): string | undefined => {
-      for (let i = calls.length - 1; i >= 0; i--) {
-        for (const d of calls[i].decos) {
-          const w = d.renderOptions?.before?.width;
-          if (w && w.endsWith('ch')) {
-            return w;
-          }
-        }
-      }
-      return undefined;
+    // The rendered width is the content-cell length (NBSP-padded, grow-only).
+    const widthOf = (): number | undefined => {
+      const cells = collectTextCells(calls);
+      const last = [...cells.values()].pop();
+      return last?.length;
     };
     const wide = widthOf();
-    assert.ok(wide, 'expected a ch width');
+    assert.ok(wide, 'expected a rendered cell width');
 
     // Shrink the blame to a tiny author and re-render: the column must NOT shrink
     // (grow-only) so it stays put instead of jittering narrower.
@@ -271,7 +271,7 @@ describe('Gutter blame — dirty/edited render', () => {
     await flush();
     await flush();
 
-    // Pull the last text-column cell (ch width) and the heat bar (3px width).
+    // Pull the text-column cell and the heat bar (3px width).
     let textBefore: NonNullable<Deco['renderOptions']>['before'] | undefined;
     let heatBefore: NonNullable<Deco['renderOptions']>['before'] | undefined;
     for (const c of calls) {
@@ -280,29 +280,42 @@ describe('Gutter blame — dirty/edited render', () => {
         if (!before) {
           continue;
         }
-        if ((before.width ?? '').endsWith('ch')) {
-          textBefore = before;
-        } else if (before.width === '3px') {
+        if (isHeatBar(before)) {
           heatBefore = before;
+        } else if (before.contentText !== undefined) {
+          textBefore = before;
         }
       }
     }
     assert.ok(textBefore, 'expected a text-column cell');
     assert.ok(heatBefore, 'expected a heat-bar cell');
 
-    // Left pad: 2 leading spaces baked into the tinted content.
+    const content = textBefore.contentText ?? '';
+    // No fixed `ch` width box — the cell is sized by its content, so a short line
+    // can't leave dead space on the right.
+    assert.strictEqual(textBefore.width, undefined, 'text cell must not use a fixed ch-width box');
+    // The font (with white-space: pre) is restated per-instance, or the NBSP pad
+    // collapses and the left pad vanishes.
     assert.ok(
-      textBefore.contentText?.startsWith('  '),
-      `text cell must lead with a 2-space pad; got ${JSON.stringify(textBefore.contentText)}`
+      (textBefore.textDecoration ?? '').includes('white-space: pre'),
+      'text cell must restate white-space: pre so the pad is not collapsed'
     );
-    // Right pad: the column box is exactly 2ch wider than its content (2-space
-    // trailing pad) on the widest line, so the tint block has matching breathing
-    // room on both sides — no asymmetric over-pad.
-    const widthCh = parseInt(textBefore.width ?? '0', 10);
-    assert.strictEqual(
-      widthCh - (textBefore.contentText?.length ?? 0),
-      2,
-      'text-column box must be 2ch wider than its content (symmetric right pad)'
+    // Left pad: 2 non-breaking spaces lead the (single, widest) line's content.
+    assert.ok(
+      content.startsWith(NBSP + NBSP),
+      `text cell must lead with a 2-NBSP pad; got ${JSON.stringify(content)}`
+    );
+    // Right pad: this is the widest line, so its content has NO alignment fill —
+    // exactly 2 trailing NBSP and a non-pad char before them (symmetric, no dead
+    // space).
+    assert.ok(
+      content.endsWith(NBSP + NBSP),
+      `text cell must end with a 2-NBSP pad; got ${JSON.stringify(content)}`
+    );
+    assert.notStrictEqual(
+      content[content.length - 3],
+      NBSP,
+      'widest line must have exactly 2 trailing pad chars (no right dead space)'
     );
     // Boundary to code: a clean 2ch right margin, flush-left to the tinted block
     // (no px gap between text column and heat bar — the old dead space).

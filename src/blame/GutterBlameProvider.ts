@@ -41,15 +41,22 @@ interface IGutterEntry {
 const BLANK_ENTRY: IGutterEntry = { text: '', bgColor: 'transparent', blank: true };
 
 /**
- * Symmetric breathing room around the annotation text, in `ch`. The tinted
- * column carries this much pad on the left (baked into the content) and on the
- * right (extra box width past the text), so the colour block has matching
- * margins on both sides instead of butting the gutter edge / leaving a ragged
- * gap before the code. Mirrors IntelliJ's padded annotation cell.
+ * A non-breaking space. Plain spaces inside a decoration's `before.contentText`
+ * are trimmed/collapsed by the renderer (default `white-space: normal`), which
+ * silently dropped the gutter's left pad and column spacing. Non-breaking
+ * spaces survive, so all gutter padding/alignment is built from these.
+ */
+const NBSP = '\u00a0';
+
+/**
+ * Symmetric breathing room around the annotation text, in characters. The tinted
+ * column carries this many NBSP on the left and on the right of the text, so the
+ * colour block has matching margins on both sides instead of butting the gutter
+ * edge / leaving a ragged gap before the code. Mirrors IntelliJ's padded cell.
  */
 const GUTTER_PAD_CH = 2;
-/** The left pad as literal spaces, prepended to the (tinted) cell content. */
-const LEFT_PAD = ' '.repeat(GUTTER_PAD_CH);
+/** The symmetric pad as non-breaking spaces, added to each side of the text. */
+const GUTTER_PAD = NBSP.repeat(GUTTER_PAD_CH);
 
 /**
  * Gutter Blame Provider implementation.
@@ -71,8 +78,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * Two `before` decoration types render the annotation column, mirroring
    * IntelliJ's gutter (and the lkqm/gitblame-annotations layout):
    *   - `_textDecorationType` (created first → renders leftmost): the muted
-   *     author/date/revision text. Per-line `contentText` + a file-wide `ch`
-   *     width so every row's text column aligns.
+   *     author/date/revision text. Per-line `contentText`, NBSP-padded to a
+   *     file-wide character width so every row's text column aligns.
    *   - `_heatDecorationType` (created second → renders to the right of the
    *     text): a thin colored strip carrying the age/author heat color, with a
    *     right margin that separates the whole annotation from the code. The
@@ -123,9 +130,9 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
 
     // Annotation TEXT column — muted metadata colour (editorCodeLens.foreground,
-    // not code). Per-line contentText + a file-wide `ch` width are supplied via
-    // DecorationOptions.renderOptions so every row aligns. Created first so it
-    // renders to the LEFT of the heat strip.
+    // not code). Per-line contentText, NBSP-padded to a file-wide width, is
+    // supplied via DecorationOptions.renderOptions so every row aligns. Created
+    // first so it renders to the LEFT of the heat strip.
     this._textDecorationType = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
@@ -579,31 +586,33 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return;
     }
     const { width, entries } = this._renderState;
-    // The stored width is the raw text-column width (grow-only over the file's
-    // widest annotation). Pad the rendered box by GUTTER_PAD_CH on each side: the
-    // left pad is the LEFT_PAD spaces baked into the content, the right pad is the
-    // extra box width past the (left-padded) text. Both sit inside the tint, so
-    // the colour block has symmetric breathing room.
+    // The stored width is the raw text-column width in characters (grow-only over
+    // the file's widest annotation). The box is sized by its CONTENT, not a `ch`
+    // width property — a fixed `ch` box rendered wider than the 11px content,
+    // leaving dead space on the right. Each cell's text is padded with NBSP to the
+    // file-wide width (so columns align in the monospace font), then wrapped with
+    // GUTTER_PAD on both sides for symmetric breathing room.
     const rawWidthCh = parseInt(width, 10) || 0;
-    const paddedWidth = `${rawWidthCh + 2 * GUTTER_PAD_CH}ch`;
     const textDecorations: vscode.DecorationOptions[] = [];
     const heatDecorations: vscode.DecorationOptions[] = [];
     for (const [line, e] of entries) {
       const range = new vscode.Range(line, 0, line, 0);
+      const aligned = e.text.padEnd(rawWidthCh, NBSP);
       textDecorations.push({
         range,
         // No hover on a blank (uncommitted / hidden / edited) cell.
         ...(e.blank || !e.hover ? {} : { hoverMessage: e.hover }),
         // Tint the FULL annotation column with the per-commit color (IntelliJ
         // tints the whole gutter cell). VS Code's per-instance `before` REPLACES
-        // the type's `before`, so the muted text color is restated here. A blank
-        // cell keeps the width (for alignment) but no tint.
+        // the type's `before`, so the muted text colour AND the font (with
+        // `white-space: pre`, or the NBSP pad collapses) are restated here. A
+        // blank cell keeps the padded width (for alignment) but no tint.
         renderOptions: {
           before: {
-            contentText: LEFT_PAD + e.text,
-            width: paddedWidth,
+            contentText: GUTTER_PAD + aligned + GUTTER_PAD,
             backgroundColor: e.bgColor,
             color: new vscode.ThemeColor('editorCodeLens.foreground'),
+            textDecoration: 'none; font-size: 11px; font-family: monospace; white-space: pre;',
           },
         },
       });
@@ -765,8 +774,10 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       columns.push(blameLine.commit.substring(0, 7));
     }
 
-    // Pad every column except the last so the visible columns stay aligned.
-    return columns.map((c, i) => (i < columns.length - 1 ? c.padEnd(12) : c)).join(' ');
+    // Pad every column except the last so the visible columns stay aligned, and
+    // join with NBSP — plain spaces are collapsed/trimmed by the decoration
+    // renderer, which would crush the inter-column gaps.
+    return columns.map((c, i) => (i < columns.length - 1 ? c.padEnd(12, NBSP) : c)).join(NBSP);
   }
 
   /**

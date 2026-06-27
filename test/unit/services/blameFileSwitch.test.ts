@@ -72,13 +72,14 @@ function fakeEditor(fsPath: string): {
     selection: { active: { line: 0 } },
     visibleRanges: [new Range(0, 0, 9, 0)],
     setDecorations: (_type: unknown, decos: Array<{ renderOptions?: unknown }>): void => {
-      // Capture only the TEXT column (width in `ch`), not the thin accent strip
-      // (width `3px`) which also carries a single-space contentText.
+      // Capture only the TEXT column, not the thin accent strip (width `3px`)
+      // which also carries a single-space contentText. The text cell is
+      // content-sized (no width property).
       const texts = decos
         .map((d) => {
           const before = (d.renderOptions as { before?: { contentText?: string; width?: string } })
             ?.before;
-          if (!before || !(before.width ?? '').endsWith('ch')) {
+          if (!before || before.width === '3px') {
             return undefined;
           }
           return before.contentText;
