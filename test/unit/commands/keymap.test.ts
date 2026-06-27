@@ -136,7 +136,7 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
   });
 });
 
-describe('R5 H-1 — keybinding focusedView gates must reference real view ids', () => {
+describe('keybinding focusedView gates must reference real view ids', () => {
   it("every focusedView == 'intellig.<id>' resolves to a registered view id", () => {
     const pj = readPackageJson();
 

@@ -351,7 +351,7 @@ describe('multiSelect — pure helpers', () => {
       );
     });
 
-    it('R1 H-1 — disables resetToHere at N≥2 (single-commit-only action)', () => {
+    it('disables resetToHere at N≥2 (single-commit-only action)', () => {
       const single = computeMenuEnableState({ ...baseInputs, selectedCount: 1 });
       const multi = computeMenuEnableState({ ...baseInputs, selectedCount: 3 });
       assert.strictEqual(single.resetToHere, true);
@@ -582,7 +582,7 @@ describe('multiSelect — pure helpers', () => {
       assert.strictEqual(at3.compareVersions.visible, false);
     });
 
-    it('R1 H-1 — resetToHere disabled at N≥2', () => {
+    it('resetToHere disabled at N≥2', () => {
       const state = computeMenuState({
         selectedHashes: new Set(['bbb', 'ccc']),
         commitNodes: nodes,

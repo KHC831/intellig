@@ -4205,10 +4205,9 @@ interface IWebviewLogFilter {
  *   - updateMenuEnableState   : precomputed menu visibility + enable map
  *   - syncSelection           : anchor + selection mirror after a re-render
  */
-// TODO(post-Wave-C): fold WaveAInboundMessage / WaveBInboundMessage /
-// WaveCInboundMessage into a single discriminated union
-// `WebviewInboundMessage` so the `_handleWebviewMessage` switch is
-// exhaustively-checkable.
+// TODO: fold WaveAInboundMessage / WaveBInboundMessage / WaveCInboundMessage
+// into a single discriminated union `WebviewInboundMessage` so the
+// `_handleWebviewMessage` switch is exhaustively-checkable.
 export type WaveAInboundMessage =
   // The click anchor travels WITH the message.
   // The host trusts the message anchor for this single operation rather

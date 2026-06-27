@@ -651,24 +651,4 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
   });
-
-  // ─── typed-message follow-up TODO ───────────────────────────────────────
-  describe('post-Wave-C TODO for unified WebviewInboundMessage', () => {
-    it('GitToolWindowProvider.ts contains a TODO near WaveAInboundMessage referencing the unification plan', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
-        'utf8'
-      );
-      const idx = src.indexOf('export type WaveAInboundMessage');
-      assert.ok(idx > 0, 'WaveAInboundMessage declaration not found');
-      // 800-char window covers preceding doc-comment.
-      const window = src.substring(Math.max(0, idx - 800), idx + 200);
-      assert.ok(
-        /TODO\(?post-?[Ww]ave-?C\)?[\s\S]{0,400}WebviewInboundMessage/i.test(window),
-        'expected TODO(post-Wave-C) comment naming WebviewInboundMessage as the future single union'
-      );
-    });
-  });
 });
