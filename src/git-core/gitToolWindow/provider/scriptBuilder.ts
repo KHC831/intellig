@@ -68,8 +68,16 @@ export function buildInlineScript(): string {
           }
           const initBranch = row.getAttribute('data-f-branch') || '';
           const initPath = row.getAttribute('data-f-path') || '';
+          const seededBranches = readJsonList('data-f-branches', initBranch);
+          // Branch filter is a tri-state mirroring the repo filter: 'all' (every
+          // branch, --all), 'subset' (the checked refs, union), 'none' (no
+          // branch checked → show nothing). 'none' round-trips via data-f-branches-none.
           const filterState = {
-            branches: readJsonList('data-f-branches', initBranch),
+            branches: seededBranches,
+            branchMode:
+              row.getAttribute('data-f-branches-none') === 'true'
+                ? 'none'
+                : (seededBranches.length ? 'subset' : 'all'),
             paths: readJsonList('data-f-paths', initPath),
             author: row.getAttribute('data-f-author') || '',
             since: row.getAttribute('data-f-since') || '',
@@ -79,17 +87,51 @@ export function buildInlineScript(): string {
             const parts = String(name).split('/').filter(Boolean);
             return parts.length ? parts[parts.length - 1] : String(name);
           }
-          function isBranchChecked(name) { return filterState.branches.indexOf(name) !== -1; }
-          function setBranchChecked(name, on) {
-            const i = filterState.branches.indexOf(name);
-            if (on && i === -1) filterState.branches.push(name);
-            else if (!on && i !== -1) filterState.branches.splice(i, 1);
+          function isBranchChecked(name) {
+            if (filterState.branchMode === 'all') return true;
+            if (filterState.branchMode === 'none') return false;
+            return filterState.branches.indexOf(name) !== -1;
           }
           function branchSummary() {
+            if (filterState.branchMode === 'all') return 'All';
+            if (filterState.branchMode === 'none') return 'None';
             const n = filterState.branches.length;
-            if (n === 0) return '';
             if (n === 1) return branchLeaf(filterState.branches[0]);
             return n + ' branches';
+          }
+          // Recompute the tri-state from the live checkbox DOM after any toggle
+          // (mirrors the repo filter's collect-from-DOM): all leaves checked →
+          // 'all'; none → 'none'; otherwise 'subset' of the checked refs. Syncs
+          // the master "All branches" checkbox + the button label.
+          function recomputeBranchState() {
+            const list = byId('filter-branch-list');
+            if (!list) return;
+            const leaves = list.querySelectorAll('input[data-branch]');
+            if (leaves.length === 0) return;
+            const checkedRefs = [];
+            leaves.forEach(function(cb) { if (cb.checked) checkedRefs.push(cb.getAttribute('data-branch')); });
+            if (checkedRefs.length === leaves.length) { filterState.branchMode = 'all'; filterState.branches = []; }
+            else if (checkedRefs.length === 0) { filterState.branchMode = 'none'; filterState.branches = []; }
+            else { filterState.branchMode = 'subset'; filterState.branches = checkedRefs; }
+            syncBranchFolderChecks(list);
+            setPopValue('branch', branchSummary());
+          }
+          // Reflect descendant-leaf state onto the folder + master checkboxes:
+          // checked when ALL descendants checked, indeterminate when only some.
+          function syncBranchFolderChecks(list) {
+            list.querySelectorAll('input[data-action="toggleBranchFolder"]').forEach(function(folder) {
+              const wrap = folder.closest('.log-filter-tree-node');
+              const leaves = wrap ? wrap.querySelectorAll('input[data-branch]') : [];
+              let on = 0;
+              leaves.forEach(function(l) { if (l.checked) on++; });
+              folder.checked = leaves.length > 0 && on === leaves.length;
+              folder.indeterminate = on > 0 && on < leaves.length;
+            });
+            const master = list.querySelector('input[data-action="toggleAllBranches"]');
+            if (master) {
+              master.checked = filterState.branchMode === 'all';
+              master.indeterminate = filterState.branchMode === 'subset';
+            }
           }
 
           function byId(id) { return document.getElementById(id); }
@@ -100,7 +142,10 @@ export function buildInlineScript(): string {
             vscode.postMessage({
               type: 'applyLogFilter',
               filter: {
-                branches: filterState.branches.slice(),
+                // 'all' posts no branch filter; 'subset' the checked refs; 'none'
+                // the explicit empty flag (show no commits).
+                branches: filterState.branchMode === 'subset' ? filterState.branches.slice() : [],
+                branchesNone: filterState.branchMode === 'none',
                 searchText: readSearch(),
                 author: filterState.author,
                 paths: filterState.paths.slice(),
@@ -208,18 +253,6 @@ export function buildInlineScript(): string {
               actionEl.classList.toggle('active');
               actionEl.setAttribute('aria-pressed', actionEl.classList.contains('active') ? 'true' : 'false');
               applyFilters();
-            } else if (action === 'pickBranchFilter') {
-              // The only click-pick branch action left is "All branches", which
-              // clears the multi-select (every leaf checkbox unchecks). Individual
-              // branches are toggled via their checkboxes (see the change handler).
-              const b = actionEl.getAttribute('data-branch');
-              if (!b || b === '__all__') {
-                filterState.branches = [];
-                const list = byId('filter-branch-list');
-                if (list) list.querySelectorAll('input[data-branch]').forEach(function(cb) { cb.checked = false; });
-                setPopValue('branch', branchSummary());
-                applyFilters();
-              }
             } else if (action === 'pickAuthorFilter') {
               const a = actionEl.getAttribute('data-author');
               filterState.author = (a && a !== '__all__') ? a : '';
@@ -281,19 +314,21 @@ export function buildInlineScript(): string {
             if (!(e.target instanceof Element)) return;
             const action = e.target.getAttribute('data-action');
             if (action === 'toggleBranchCheckbox') {
-              setBranchChecked(e.target.getAttribute('data-branch'), e.target.checked);
-              setPopValue('branch', branchSummary());
+              recomputeBranchState();
               applyFilters();
             } else if (action === 'toggleBranchFolder') {
               const wrap = e.target.closest('.log-filter-tree-node');
               const on = e.target.checked;
               if (wrap) {
-                wrap.querySelectorAll('input[data-branch]').forEach(function(leaf) {
-                  leaf.checked = on;
-                  setBranchChecked(leaf.getAttribute('data-branch'), on);
-                });
+                wrap.querySelectorAll('input[data-branch]').forEach(function(leaf) { leaf.checked = on; });
               }
-              setPopValue('branch', branchSummary());
+              recomputeBranchState();
+              applyFilters();
+            } else if (action === 'toggleAllBranches') {
+              const on = e.target.checked;
+              const list = byId('filter-branch-list');
+              if (list) list.querySelectorAll('input[data-branch]').forEach(function(leaf) { leaf.checked = on; });
+              recomputeBranchState();
               applyFilters();
             } else if (action === 'toggleRepoCheckbox' || action === 'toggleAllRepos') {
               // Repository subset multi-select. "All repositories" mirrors its
@@ -338,7 +373,9 @@ export function buildInlineScript(): string {
           // author lists (so they can mark the active item).
           window.__intelligFilter = {
             isBranchChecked: isBranchChecked,
-            anyBranchSelected: function() { return filterState.branches.length > 0; },
+            anyBranchSelected: function() { return filterState.branchMode !== 'all'; },
+            branchState: function() { return filterState.branchMode; },
+            syncBranchTree: function() { const l = byId('filter-branch-list'); if (l) syncBranchFolderChecks(l); },
             getAuthor: function() { return filterState.author; },
           };
 
@@ -864,7 +901,6 @@ export function buildInlineScript(): string {
               // the filter state only through the __intelligFilter bridge.
               const intf = window.__intelligFilter || {};
               const checked = intf.isBranchChecked || function() { return false; };
-              const anySelected = intf.anyBranchSelected ? intf.anyBranchSelected() : false;
               list.replaceChildren();
               function addSection(title) {
                 const header = document.createElement('div');
@@ -919,14 +955,22 @@ export function buildInlineScript(): string {
                   if (hasChildren) renderTree(wrap, child, depth + 1);
                 });
               }
-              // "All branches" — clears the multi-select (no scope).
-              const allBtn = document.createElement('button');
-              allBtn.type = 'button';
-              allBtn.className = 'log-filter-popup-item' + (anySelected ? '' : ' active');
-              allBtn.setAttribute('data-action', 'pickBranchFilter');
-              allBtn.setAttribute('data-branch', '__all__');
-              allBtn.textContent = 'All branches';
-              list.appendChild(allBtn);
+              // Master "All branches" CHECKBOX (mirrors "All repositories"):
+              // checked = ALL, unchecked = NONE, indeterminate = subset (set by
+              // syncBranchTree below once the leaves exist).
+              const masterRow = document.createElement('label');
+              masterRow.className = 'log-filter-tree-row';
+              const masterCb = document.createElement('input');
+              masterCb.type = 'checkbox';
+              masterCb.className = 'log-filter-tree-check';
+              masterCb.setAttribute('data-action', 'toggleAllBranches');
+              masterCb.checked = (intf.branchState ? intf.branchState() : 'all') === 'all';
+              const masterText = document.createElement('span');
+              masterText.className = 'log-filter-tree-leaf';
+              masterText.textContent = 'All branches';
+              masterRow.appendChild(masterCb);
+              masterRow.appendChild(masterText);
+              list.appendChild(masterRow);
               if (Array.isArray(groups.local) && groups.local.length > 0) {
                 addSection('Local');
                 renderTree(list, buildTree(groups.local, ''), 0);
@@ -938,6 +982,8 @@ export function buildInlineScript(): string {
                   renderTree(list, buildTree(g.branches, g.remote + '/'), 0);
                 });
               }
+              // Reconcile folder + master checked/indeterminate from the leaves.
+              if (intf.syncBranchTree) intf.syncBranchTree();
             }
           }
           // User popup options (lazy, on popup open): fill the author list.

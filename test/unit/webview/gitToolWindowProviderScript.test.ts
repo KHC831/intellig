@@ -132,6 +132,63 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     );
   });
 
+  it('branch tri-state: all renders all-checked; unchecking the master posts branchesNone', () => {
+    const { script, bodyHtml } = extractWebviewScript(fullHtml()); // no filter → ALL
+    h = runWebviewScript(script, { bodyHtml });
+    h.post({
+      type: 'logFilterOptionsReady',
+      branchGroups: { local: ['main', 'dev'], remotes: [] },
+    });
+
+    const list = h.document.getElementById('filter-branch-list')!;
+    const master = list.querySelector<HTMLInputElement>('input[data-action="toggleAllBranches"]')!;
+    const leaves = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-branch]'));
+    assert.strictEqual(master.checked, true, 'all → master checked');
+    assert.ok(leaves.length === 2 && leaves.every((l) => l.checked), 'all leaves checked');
+
+    // Uncheck the master → none.
+    master.checked = false;
+    master.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { branches: string[]; branchesNone: boolean } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    const last = applies[applies.length - 1];
+    assert.deepStrictEqual(Array.from(last.filter.branches), [], 'none posts no branch refs');
+    assert.strictEqual(last.filter.branchesNone, true, 'none posts branchesNone');
+    assert.ok(
+      leaves.every((l) => !l.checked),
+      'unchecking the master clears every leaf'
+    );
+  });
+
+  it('branch tri-state: unchecking one leaf posts the remaining refs as a subset', () => {
+    const { script, bodyHtml } = extractWebviewScript(fullHtml());
+    h = runWebviewScript(script, { bodyHtml });
+    h.post({
+      type: 'logFilterOptionsReady',
+      branchGroups: { local: ['main', 'dev', 'release'], remotes: [] },
+    });
+    const list = h.document.getElementById('filter-branch-list')!;
+    const leaves = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-branch]'));
+    const dev = leaves.find((l) => l.getAttribute('data-branch') === 'dev')!;
+    dev.checked = false;
+    dev.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { branches: string[]; branchesNone: boolean } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    const last = applies[applies.length - 1];
+    assert.deepStrictEqual(
+      Array.from(last.filter.branches).sort(),
+      ['main', 'release'],
+      'subset posts the still-checked refs (the complement of the unchecked one)'
+    );
+    assert.strictEqual(last.filter.branchesNone, false);
+  });
+
   it('re-seeds the branch multi-select from data-f-branches after a re-render', () => {
     // Regression: a branch pick reloads the graph and re-templates the row. The
     // checked set must survive — it round-trips through data-f-branches, not the

@@ -42,7 +42,9 @@ function runOptionsReady(dom: JSDOM, message: unknown): void {
 }
 
 describe('Branch popup — client population on logFilterOptionsReady', () => {
-  function makeDom(selected: string[]): JSDOM {
+  // Build a DOM whose __intelligFilter bridge emulates the real tri-state:
+  // 'all' (every leaf checked), 'none' (none), or 'subset' (the given refs).
+  function makeDom(mode: 'all' | 'none' | 'subset', checked: string[] = []): JSDOM {
     const dom = new JSDOM(
       `<!DOCTYPE html><html><body>
         <div class="log-filter-popup-list" id="filter-branch-list"></div>
@@ -50,8 +52,28 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
       { runScripts: 'outside-only' }
     );
     (dom.window as unknown as { __intelligFilter: unknown }).__intelligFilter = {
-      isBranchChecked: (name: string) => selected.indexOf(name) !== -1,
-      anyBranchSelected: () => selected.length > 0,
+      isBranchChecked: (name: string) =>
+        mode === 'all' ? true : mode === 'none' ? false : checked.indexOf(name) !== -1,
+      branchState: () => mode,
+      // Mirror the real syncBranchFolderChecks: reconcile folder + master from leaves.
+      syncBranchTree: () => {
+        const list = dom.window.document.getElementById('filter-branch-list');
+        if (!list) {
+          return;
+        }
+        list.querySelectorAll('input[data-action="toggleBranchFolder"]').forEach((folder) => {
+          const wrap = folder.closest('.log-filter-tree-node');
+          const leaves = wrap ? Array.from(wrap.querySelectorAll('input[data-branch]')) : [];
+          const on = leaves.filter((l) => (l as HTMLInputElement).checked).length;
+          (folder as HTMLInputElement).checked = leaves.length > 0 && on === leaves.length;
+          (folder as HTMLInputElement).indeterminate = on > 0 && on < leaves.length;
+        });
+        const master = list.querySelector('input[data-action="toggleAllBranches"]');
+        if (master) {
+          (master as HTMLInputElement).checked = mode === 'all';
+          (master as HTMLInputElement).indeterminate = mode === 'subset';
+        }
+      },
       getAuthor: () => '',
     };
     return dom;
@@ -69,8 +91,8 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
     );
   }
 
-  it('renders All-branches + Local/remote sections and a checkbox per branch leaf', () => {
-    const dom = makeDom([]);
+  it('renders a master All-branches checkbox + Local/remote sections + a checkbox per leaf', () => {
+    const dom = makeDom('all');
     runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
     const list = dom.window.document.getElementById('filter-branch-list')!;
     const sections = Array.from(list.querySelectorAll('.log-filter-popup-section')).map(
@@ -79,11 +101,20 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
     assert.deepStrictEqual(sections, ['Local', 'origin']);
     // Every branch is a leaf checkbox carrying its full ref.
     assert.deepStrictEqual(leafRefs(list), ['dev', 'feature/bar', 'feature/foo', 'origin/main']);
-    assert.ok(list.querySelector('[data-branch="__all__"]'), 'All-branches reset present');
+    // Master "All branches" CHECKBOX present and checked in the 'all' state.
+    const master = list.querySelector<HTMLInputElement>('input[data-action="toggleAllBranches"]');
+    assert.ok(master, 'master All-branches checkbox present');
+    assert.strictEqual(master.checked, true, 'master checked in the all state');
+    // In the all state every leaf renders checked.
+    const leaves = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-branch]'));
+    assert.ok(
+      leaves.every((cb) => cb.checked),
+      'every leaf is checked in the all state'
+    );
   });
 
   it('nests names by "/" into folders (feature/ holds foo + bar)', () => {
-    const dom = makeDom([]);
+    const dom = makeDom('all');
     runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
     const list = dom.window.document.getElementById('filter-branch-list')!;
     const folders = Array.from(list.querySelectorAll('.log-filter-tree-folder')).map(
@@ -103,7 +134,7 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
   });
 
   it('keeps the full remote ref in data-branch while showing the short name', () => {
-    const dom = makeDom([]);
+    const dom = makeDom('all');
     runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
     const list = dom.window.document.getElementById('filter-branch-list')!;
     const leaf = Array.from(list.querySelectorAll('input[data-branch]')).find(
@@ -113,33 +144,41 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
     assert.strictEqual(text, 'main', 'remote prefix stripped from the display');
   });
 
-  it('pre-checks the leaves the filter already holds', () => {
-    const dom = makeDom(['feature/foo', 'origin/main']);
+  it('pre-checks only the leaves the subset holds, master unchecked + indeterminate', () => {
+    const dom = makeDom('subset', ['feature/foo', 'origin/main']);
     runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
     const list = dom.window.document.getElementById('filter-branch-list')!;
     const checkedRefs = Array.from(list.querySelectorAll('input[data-branch]'))
       .filter((cb) => (cb as HTMLInputElement).checked)
       .map((cb) => cb.getAttribute('data-branch'));
     assert.deepStrictEqual(checkedRefs.sort(), ['feature/foo', 'origin/main']);
+    const master = list.querySelector('input[data-action="toggleAllBranches"]') as HTMLInputElement;
+    assert.strictEqual(master.checked, false, 'master not fully checked for a subset');
+    assert.strictEqual(master.indeterminate, true, 'master indeterminate for a subset');
   });
 
-  it('marks "All branches" active only when nothing is selected', () => {
-    const empty = makeDom([]);
-    runOptionsReady(empty, { type: 'logFilterOptionsReady', branchGroups: groups });
-    assert.ok(
-      empty.window.document.querySelector('.log-filter-popup-item.active[data-branch="__all__"]')
-    );
-    const some = makeDom(['dev']);
-    runOptionsReady(some, { type: 'logFilterOptionsReady', branchGroups: groups });
-    assert.strictEqual(
-      some.window.document.querySelector('.log-filter-popup-item.active'),
-      null,
-      'a selection deactivates All branches'
-    );
+  it('checks the master only in the all state (unchecked for none)', () => {
+    const all = makeDom('all');
+    runOptionsReady(all, { type: 'logFilterOptionsReady', branchGroups: groups });
+    const allMaster = all.window.document.querySelector(
+      'input[data-action="toggleAllBranches"]'
+    ) as HTMLInputElement;
+    assert.strictEqual(allMaster.checked, true, 'master checked when all');
+
+    const none = makeDom('none');
+    runOptionsReady(none, { type: 'logFilterOptionsReady', branchGroups: groups });
+    const noneMaster = none.window.document.querySelector(
+      'input[data-action="toggleAllBranches"]'
+    ) as HTMLInputElement;
+    assert.strictEqual(noneMaster.checked, false, 'master unchecked when none');
+    const anyLeafChecked = Array.from(
+      none.window.document.querySelectorAll('input[data-branch]')
+    ).some((cb) => (cb as HTMLInputElement).checked);
+    assert.strictEqual(anyLeafChecked, false, 'no leaves checked in the none state');
   });
 
   it('builds rows as inert text (no markup injection)', () => {
-    const dom = makeDom([]);
+    const dom = makeDom('all');
     runOptionsReady(dom, {
       type: 'logFilterOptionsReady',
       branchGroups: { local: ['<img src=x onerror=alert(1)>'], remotes: [] },

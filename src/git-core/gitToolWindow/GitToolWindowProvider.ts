@@ -3697,6 +3697,7 @@ ${bodyMarkup}
     // through `data-f-branches` below.
     const branch = filter?.logRange ?? filter?.branch ?? '';
     const branches = filter?.branches ?? [];
+    const branchesNone = filter?.branchesNone ?? false;
     const paths = filter?.paths ?? [];
     const author = filter?.author ?? '';
     const path = filter?.path ?? '';
@@ -3721,7 +3722,7 @@ ${bodyMarkup}
         : '';
 
     return `
-        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
+        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-branches-none="${branchesNone}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
           <div class="log-filter-search">
             <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${search}" aria-label="Search by message or hash" autocomplete="off" />
             <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Match by regular expression" aria-label="Match by regular expression" aria-pressed="${searchRegex}">.*</button>
@@ -3759,16 +3760,15 @@ ${bodyMarkup}
   }
 
   /**
-   * Branch popup shell. The "All branches" item + the live-filter input are
-   * static; the Local / per-remote groups are injected client-side from the
-   * `logFilterOptionsReady` message (lazy, on first open — no load-time git).
+   * Branch popup shell. The live-filter input is static; the master "All
+   * branches" checkbox + the Local / per-remote checkbox tree are injected
+   * client-side from the `logFilterOptionsReady` message (lazy, on first open —
+   * no load-time git).
    */
   private _getBranchPopupBodyHtml(): string {
     return `
               <input type="text" class="log-filter-popup-search" data-action="filterPopupSearch" data-popup="branch" placeholder="Filter branches" aria-label="Filter branches" autocomplete="off" />
-              <div class="log-filter-popup-list" id="filter-branch-list">
-                <button type="button" class="log-filter-popup-item" data-action="pickBranchFilter" data-branch="__all__">All branches</button>
-              </div>`;
+              <div class="log-filter-popup-list" id="filter-branch-list"></div>`;
   }
 
   /**
@@ -3883,6 +3883,9 @@ ${bodyMarkup}
   private _branchFilterLabel(filter: ILogFilter | undefined): string {
     if (filter?.logRange) {
       return filter.logRange;
+    }
+    if (filter?.branchesNone) {
+      return 'None';
     }
     const branches = filter?.branches ?? [];
     if (branches.length === 1) {
