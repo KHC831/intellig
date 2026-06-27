@@ -250,21 +250,35 @@ export class BlameService implements IBlameService {
    * @param path - The file path (relative to repository root)
    * @param revision - Optional revision to get blame for (defaults to HEAD)
    * @param options - Optional blame flags: `-w` / `-M` / `-C`.
+   * @param contents - Optional live editor-buffer text. When given, blame runs
+   *   against this content (`git blame --contents -`, piped on stdin) instead of
+   *   the on-disk file, so blame line numbers align with an unsaved buffer and
+   *   new/edited lines come back uncommitted rather than inheriting the on-disk
+   *   line's blame. This path is NOT cached (the result depends on the buffer,
+   *   which changes per keystroke) and is incompatible with `revision`, so it is
+   *   only applied when no revision is requested.
    * @returns Blame information for the file
    */
   async getBlame(
     repo: IRepository,
     path: string,
     revision?: string,
-    options?: IBlameOptions
+    options?: IBlameOptions,
+    contents?: string
   ): Promise<IBlameInfo> {
     const repoRoot = repo.rootUri.fsPath;
+    // `--contents` reads from stdin and cannot be combined with a revision; only
+    // honor it for the default (working-tree) blame.
+    const useContents = contents !== undefined && !revision;
     const cacheKey = this.getCacheKey(repoRoot, path, revision, options);
 
-    // Check cache first
-    const cached = this.getCachedBlame(cacheKey);
-    if (cached) {
-      return cached;
+    // Live-buffer blame is content-dependent, so it bypasses the cache entirely
+    // (neither read from nor written to it).
+    if (!useContents) {
+      const cached = this.getCachedBlame(cacheKey);
+      if (cached) {
+        return cached;
+      }
     }
 
     // Build git blame command. Flag order matters for readability only — git
@@ -286,11 +300,18 @@ export class BlameService implements IBlameService {
       flags.push('-C');
       flags.push('-C');
     }
+    if (useContents) {
+      // `-` reads the file content from stdin (the live buffer below).
+      flags.push('--contents', '-');
+    }
 
     const refs = revision ? [revision] : [];
     const args = buildGitArgs('blame', flags, refs, [path]);
 
-    const result = await this._gitCli.exec(args, { cwd: repoRoot });
+    const result = await this._gitCli.exec(args, {
+      cwd: repoRoot,
+      ...(useContents ? { input: contents } : {}),
+    });
 
     if (result.exitCode !== 0) {
       // Return empty blame info if command fails
@@ -304,8 +325,10 @@ export class BlameService implements IBlameService {
       lines,
     };
 
-    // Cache the result
-    this.cacheBlame(cacheKey, blameInfo);
+    // Cache only the on-disk result — never the live-buffer one.
+    if (!useContents) {
+      this.cacheBlame(cacheKey, blameInfo);
+    }
 
     // Fire change event
     this._onDidChangeBlame.fire({ path, blame: blameInfo });

@@ -35,12 +35,16 @@ export interface IBlameService {
    * @param path - the file path (relative to repo root)
    * @param revision - optional revision (defaults to HEAD)
    * @param options - optional blame flags (see {@link IBlameOptions})
+   * @param contents - optional live editor-buffer text; when given, blame runs
+   *   against this content (`git blame --contents -`) instead of the on-disk
+   *   file so line numbers align with an unsaved buffer (not cached)
    */
   getBlame(
     repo: IRepository,
     path: string,
     revision?: string,
-    options?: IBlameOptions
+    options?: IBlameOptions,
+    contents?: string
   ): Promise<IBlameInfo>;
 
   /**

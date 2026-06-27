@@ -381,6 +381,26 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     // `/private/var`) does not produce an escaping `../` pathspec.
     const relativePath = repoRelativePath(repo.rootUri.fsPath, uri.fsPath);
 
+    // When the buffer has unsaved edits, blame the live content (`--contents -`)
+    // so the current line maps to the right blame and an edited/new line shows
+    // as uncommitted rather than the on-disk line's blame. Content-dependent, so
+    // it bypasses the cache.
+    const contents = document.isDirty ? document.getText() : undefined;
+    if (contents !== undefined) {
+      const liveInfo = await this._blameService.getBlame(
+        repo,
+        relativePath,
+        undefined,
+        this._optionsSource?.asBlameOptions(),
+        contents
+      );
+      const liveLine = liveInfo.lines.find((bl) => bl.line === line + 1);
+      if (liveLine && this._optionsSource && this._optionsSource.isHidden(liveLine.commit)) {
+        return undefined;
+      }
+      return liveLine;
+    }
+
     // Check cache first
     const cacheKey = uri.toString();
     let blameInfo = this._blameCache.get(cacheKey);

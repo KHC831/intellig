@@ -578,6 +578,21 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // `/private/var`) does not produce an escaping `../` pathspec.
     const relativePath = repoRelativePath(repo.rootUri.fsPath, uri.fsPath);
 
+    // When the buffer has unsaved edits, blame the live content (`--contents -`)
+    // so annotations align with the editor and edited/new lines come back
+    // uncommitted instead of inheriting the on-disk line's blame. This path is
+    // content-dependent, so it bypasses the provider-level cache too.
+    const contents = document.isDirty ? document.getText() : undefined;
+    if (contents !== undefined) {
+      return this._blameService.getBlame(
+        repo,
+        relativePath,
+        undefined,
+        this._optionsSource?.asBlameOptions(),
+        contents
+      );
+    }
+
     // Check cache first
     const cacheKey = uri.toString();
     let blameInfo = this._blameCache.get(cacheKey);
