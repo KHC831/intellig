@@ -86,36 +86,42 @@ describe('Repo selector identity (L5 + L14)', () => {
     );
   });
 
-  it('emits a Path-popup repo row per repo with a full-path title, marking the active one', () => {
+  it('emits a Repository-popup checkbox per repo with a full-path title, checking the scoped repo', () => {
     const a = makeRepo('/work/alpha');
     const b = makeRepo('/work/beta');
     provider.setAvailableRepositories([a, b] as SetReposArg);
     (
       provider as unknown as { _handleRepositorySelection: (i: number) => void }
-    )._handleRepositorySelection(1);
+    )._handleRepositorySelection(1); // single-repo scope: beta
 
     const html = provider._getLogFilterRowHtml();
 
-    // Each repo row carries a title with the full fsPath (disambiguates
-    // same-leaf-name repos on hover) and routes the scope via pickRepoScope.
-    assert.ok(html.includes('title="/work/alpha"'), `row should carry alpha path; got: ${html}`);
-    assert.ok(html.includes('title="/work/beta"'), `row should carry beta path; got: ${html}`);
-
-    // The active marker lands on beta's row (index 1).
+    // Each repo gets a checkbox titled with its full fsPath (disambiguates
+    // same-leaf-name repos on hover), keyed by root for the subset message.
     assert.ok(
-      html.includes(
-        'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="1"'
-      ),
-      `beta (index 1) should be the active repo row; got: ${html}`
+      html.includes('title="/work/alpha"'),
+      `alpha checkbox should carry its path; got: ${html}`
+    );
+    assert.ok(
+      html.includes('title="/work/beta"'),
+      `beta checkbox should carry its path; got: ${html}`
+    );
+    assert.ok(
+      html.includes('data-action="toggleRepoCheckbox" data-repo-root="/work/beta" checked'),
+      `beta (the scoped repo) should be checked; got: ${html}`
+    );
+    assert.ok(
+      !html.includes('data-repo-root="/work/alpha" checked'),
+      `alpha should be unchecked in beta's single-repo scope; got: ${html}`
     );
   });
 
-  it('renders no repo rows in the Path popup when only one repo is present', () => {
+  it('omits the Repository popup entirely when only one repo is present', () => {
     provider.setAvailableRepositories([makeRepo('/work/solo')] as SetReposArg);
     const html = provider._getLogFilterRowHtml();
     assert.ok(
-      !html.includes('pickRepoScope'),
-      'single-repo Path popup has no repo rows (just the path entry)'
+      !html.includes('toggleRepoCheckbox') && !html.includes('data-popup="repo"'),
+      'single-repo workspace has no Repository filter at all'
     );
   });
 });

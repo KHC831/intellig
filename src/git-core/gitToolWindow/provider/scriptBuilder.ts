@@ -114,9 +114,16 @@ export function buildInlineScript(): string {
             if (u) return 'Until ' + u;
             return 'All';
           }
-          function pathLeaf(p) {
-            const parts = p.split('/').filter(Boolean);
-            return parts.length ? parts[parts.length - 1] : p;
+          // "All" / "N repositories" / single-repo leaf for the Repository button.
+          function repoSummary(checkedCount, total) {
+            if (checkedCount === 0 || checkedCount === total) return 'All';
+            if (checkedCount === 1) {
+              const only = document.querySelector('#filter-repo-list input[data-repo-root]:checked');
+              const root = only ? (only.getAttribute('data-repo-root') || '') : '';
+              const parts = root.split('/').filter(Boolean);
+              return parts.length ? parts[parts.length - 1] : 'All';
+            }
+            return checkedCount + ' repositories';
           }
 
           function closeAllPopups() {
@@ -202,17 +209,6 @@ export function buildInlineScript(): string {
               setPopValue('date', dateLabel());
               closeAllPopups();
               applyFilters();
-            } else if (action === 'applyPathFilter') {
-              const pi = byId('filter-path-input');
-              const v = pi ? pi.value.trim() : '';
-              filterState.paths = v ? [v] : [];
-              setPopValue('path', v ? pathLeaf(v) : 'All');
-              closeAllPopups();
-              applyFilters();
-            } else if (action === 'pickRepoScope') {
-              const idx = actionEl.getAttribute('data-repo-index');
-              vscode.postMessage({ type: 'selectRepository', repositoryIndex: idx === 'all' ? 'all' : Number(idx) });
-              closeAllPopups(); // host re-renders the row with the new scope
             }
           });
 
@@ -238,13 +234,6 @@ export function buildInlineScript(): string {
               setPopValue('user', filterState.author);
               closeAllPopups();
               applyFilters();
-            } else if (a === 'filterPathKeydown') {
-              e.preventDefault();
-              const v = e.target.value.trim();
-              filterState.paths = v ? [v] : [];
-              setPopValue('path', v ? pathLeaf(v) : 'All');
-              closeAllPopups();
-              applyFilters();
             }
           });
 
@@ -267,6 +256,24 @@ export function buildInlineScript(): string {
               }
               setPopValue('branch', branchSummary());
               applyFilters();
+            } else if (action === 'toggleRepoCheckbox' || action === 'toggleAllRepos') {
+              // Repository subset multi-select. "All repositories" mirrors its
+              // state onto every repo checkbox; any repo toggle re-syncs it. The
+              // checked set is posted to the host, which collapses all/none/one
+              // to the existing scopes and re-renders the row.
+              const list = byId('filter-repo-list');
+              if (!list) return;
+              if (action === 'toggleAllRepos') {
+                const on = e.target.checked;
+                list.querySelectorAll('input[data-repo-root]').forEach(function(cb) { cb.checked = on; });
+              }
+              const checks = list.querySelectorAll('input[data-repo-root]');
+              const roots = [];
+              checks.forEach(function(cb) { if (cb.checked) roots.push(cb.getAttribute('data-repo-root')); });
+              const allBox = list.querySelector('input[data-action="toggleAllRepos"]');
+              if (allBox) allBox.checked = roots.length === checks.length;
+              setPopValue('repo', repoSummary(roots.length, checks.length));
+              vscode.postMessage({ type: 'selectRepositories', roots: roots });
             }
           });
 

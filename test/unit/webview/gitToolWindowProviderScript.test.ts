@@ -41,6 +41,24 @@ function fullHtml(): string {
   return provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
 }
 
+function fullHtmlWithRepos(paths: string[]): string {
+  const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+  provider.setAvailableRepositories(
+    paths.map((p) => ({
+      rootUri: Uri.file(p),
+      state: 'idle' as const,
+      remotes: [],
+      submodules: [],
+    })) as Parameters<typeof provider.setAvailableRepositories>[0]
+  );
+  // Pin the merged "all" scope so every repo checkbox starts checked, making the
+  // uncheck-one assertion independent of the test config's showAllRoots default.
+  (
+    provider as unknown as { _handleRepositorySelection(s: number | 'all'): void }
+  )._handleRepositorySelection('all');
+  return provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
+}
+
 describe('webview: Git tool-window full document (jsdom)', () => {
   let h: IWebviewHarness;
 
@@ -75,6 +93,39 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     assert.strictEqual(panel.getAttribute('data-loaded-count'), '100');
     // Same panel element — a lightweight attribute update, not a rebuild.
     assert.strictEqual(h.document.querySelector('.graph-panel'), panel, 'panel not replaced');
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      []
+    );
+  });
+
+  it('posts a selectRepositories subset when a repo checkbox is unchecked', () => {
+    const { script, bodyHtml } = extractWebviewScript(
+      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b', '/work/repo-c'])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+
+    const list = h.document.getElementById('filter-repo-list');
+    assert.ok(list, 'repo checkbox list present in a multi-root workspace');
+    const boxes = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-repo-root]'));
+    assert.strictEqual(boxes.length, 3, 'a checkbox per repo');
+    // Default scope is all → every box checked. Uncheck repo-b and fire change.
+    const repoB = boxes.find((b) => b.getAttribute('data-repo-root') === '/work/repo-b')!;
+    repoB.checked = false;
+    repoB.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+
+    const last = h.posted.filter(
+      (m): m is { type: string; roots: string[] } =>
+        !!m && (m as { type?: string }).type === 'selectRepositories'
+    );
+    assert.strictEqual(last.length, 1, 'exactly one selectRepositories post');
+    // `roots` is a jsdom-realm array; copy into a Node array so deepStrictEqual
+    // compares contents (cross-realm prototypes otherwise never match).
+    assert.deepStrictEqual(
+      Array.from(last[0].roots).sort(),
+      ['/work/repo-a', '/work/repo-c'],
+      'posts only the still-checked roots'
+    );
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
       []

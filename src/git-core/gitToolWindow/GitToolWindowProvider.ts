@@ -3685,7 +3685,19 @@ ${bodyMarkup}
     const branchLabel = branch ? this._escapeHtml(branch) : 'All';
     const authorLabel = author ? this._escapeHtml(author) : 'All';
     const dateLabel = this._escapeHtml(this._dateFilterLabel(filter?.since, filter?.until));
-    const pathLabel = this._escapeHtml(this._pathFilterLabel(path));
+    const repoLabel = this._escapeHtml(this._repoScopeLabel());
+
+    // The Repository filter scopes the log to a subset of a multi-root
+    // workspace. It is meaningless with a single repo, so it is omitted then.
+    const repoPopup =
+      this._availableRepositories.length > 1
+        ? this._getFilterPopupHtml(
+            'repo',
+            'Repository',
+            repoLabel,
+            this._getRepositoryPopupBodyHtml()
+          )
+        : '';
 
     return `
         <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
@@ -3697,7 +3709,7 @@ ${bodyMarkup}
           ${this._getFilterPopupHtml('branch', 'Branch', branchLabel, this._getBranchPopupBodyHtml())}
           ${this._getFilterPopupHtml('user', 'User', authorLabel, this._getUserPopupBodyHtml(author))}
           ${this._getFilterPopupHtml('date', 'Date', dateLabel, this._getDatePopupBodyHtml(filter?.since, filter?.until))}
-          ${this._getFilterPopupHtml('path', 'Path', pathLabel, this._getPathPopupBodyHtml(path))}
+          ${repoPopup}
         </div>`;
   }
 
@@ -3783,35 +3795,43 @@ ${bodyMarkup}
   }
 
   /**
-   * Path popup — a file/directory path field (IntelliJ structure filter) plus,
-   * when more than one repository is open, the repository rows that scope the
-   * log + Branches view (the former repository selector, folded in here per the
-   * "Path = our repo, renamed" parity request). v1 maps the rows to the existing
-   * single-or-all repository scope; a true multi-root subset is a deferred gap.
+   * Repository popup — a checkbox per workspace repository (plus an "All
+   * repositories" reset), letting the user scope the merged log + Branches view
+   * to a SUBSET of a multi-root workspace (IntelliJ's root filter). Repos are
+   * known server-side, so the checkboxes render directly (no lazy message). The
+   * checked set drives {@link _handleVisibleRepositoriesSelection}: all/none →
+   * "show all", exactly one → single-repo scope, 2..n-1 → a visible subset.
+   * Only emitted when more than one repository is open (see callsite).
    */
-  private _getPathPopupBodyHtml(path: string): string {
-    const esc = this._escapeHtml(path);
-    let reposHtml = '';
-    if (this._availableRepositories.length > 1) {
-      const allActive = this._repositoryScope === 'all';
-      const allCheck = allActive ? '✓' : '';
-      const rows = this._availableRepositories
-        .map((repo, index) => {
-          const fsPath = repo.rootUri.fsPath;
-          const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
-          const active = this._repositoryScope !== 'all' && index === this._selectedRepositoryIndex;
-          const check = active ? '✓' : '';
-          return `<button type="button" class="log-filter-popup-item${active ? ' active' : ''}" data-action="pickRepoScope" data-repo-index="${index}" title="${this._escapeHtml(fsPath)}"><span class="log-filter-check" aria-hidden="true">${check}</span>${folderName}</button>`;
-        })
-        .join('');
-      reposHtml = `
-              <div class="log-filter-popup-section">Repositories</div>
-              <button type="button" class="log-filter-popup-item${allActive ? ' active' : ''}" data-action="pickRepoScope" data-repo-index="all"><span class="log-filter-check" aria-hidden="true">${allCheck}</span>All repositories</button>
-              ${rows}`;
-    }
+  private _getRepositoryPopupBodyHtml(): string {
+    const subset = this._visibleRepoRoots
+      ? new Set(this._visibleRepoRoots.map((p) => normalizeRepoPathString(p)))
+      : null;
+    const scopeAll = this._repositoryScope === 'all';
+    const isChecked = (repo: IRepository, index: number): boolean => {
+      if (subset) {
+        return subset.has(normalizeRepoPath(repo.rootUri));
+      }
+      // No subset: every repo is checked in merged scope; only the scoped repo
+      // is checked in a single-repo scope.
+      return scopeAll || index === this._selectedRepositoryIndex;
+    };
+    const allChecked = scopeAll && !subset;
+
+    const rows = this._availableRepositories
+      .map((repo, index) => {
+        const fsPath = repo.rootUri.fsPath;
+        const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
+        const checked = isChecked(repo, index) ? ' checked' : '';
+        return `<label class="log-filter-tree-row" title="${this._escapeHtml(fsPath)}"><input type="checkbox" class="log-filter-tree-check" data-action="toggleRepoCheckbox" data-repo-root="${this._escapeHtml(fsPath)}"${checked} />${folderName}</label>`;
+      })
+      .join('');
+
     return `
-              <input type="text" id="filter-path-input" class="log-filter-popup-search" data-action="filterPathKeydown" placeholder="File or directory path" value="${esc}" aria-label="File or directory path" />
-              <button type="button" class="log-filter-popup-apply" data-action="applyPathFilter">Apply path</button>${reposHtml}`;
+              <div class="log-filter-popup-list" id="filter-repo-list">
+                <label class="log-filter-tree-row"><input type="checkbox" class="log-filter-tree-check" data-action="toggleAllRepos"${allChecked ? ' checked' : ''} />All repositories</label>
+                ${rows}
+              </div>`;
   }
 
   /**
@@ -3834,14 +3854,15 @@ ${bodyMarkup}
   }
 
   /**
-   * Path-button value: the path leaf if a path filter is set, else the scoped
-   * repository's folder name (multi-repo, single scope), else "All".
+   * Repository-button value: "All" when every root is shown, the scoped repo's
+   * folder name in a single-repo scope, or "N repositories" for a visible
+   * subset.
    */
-  private _pathFilterLabel(path: string): string {
-    if (path) {
-      return path.split('/').filter(Boolean).pop() || path;
+  private _repoScopeLabel(): string {
+    if (this._visibleRepoRoots) {
+      return `${this._visibleRepoRoots.length} repositories`;
     }
-    if (this._availableRepositories.length > 1 && this._repositoryScope !== 'all') {
+    if (this._repositoryScope !== 'all') {
       const repo = this._availableRepositories[this._selectedRepositoryIndex];
       if (repo) {
         const fs = repo.rootUri.fsPath;
