@@ -55,13 +55,22 @@ export function buildInlineScript(): string {
           const row = document.querySelector('.log-filter-row');
           if (!row) return;
 
+          // The multi-select arrays are the source of truth and MUST survive a
+          // full re-render (a pick reloads the graph and re-templates the row),
+          // so they round-trip through the JSON data-f-branches/paths attributes.
+          // Fall back to the single legacy attr for any non-multi (range) scope.
+          function readJsonList(attr, fallbackSingle) {
+            try {
+              const parsed = JSON.parse(row.getAttribute(attr) || '[]');
+              if (Array.isArray(parsed) && parsed.length) return parsed;
+            } catch (e) {}
+            return fallbackSingle ? [fallbackSingle] : [];
+          }
           const initBranch = row.getAttribute('data-f-branch') || '';
           const initPath = row.getAttribute('data-f-path') || '';
           const filterState = {
-            // Multi-select: branches/paths are the source of truth (arrays); the
-            // single legacy attrs seed them so an existing scope round-trips.
-            branches: initBranch ? [initBranch] : [],
-            paths: initPath ? [initPath] : [],
+            branches: readJsonList('data-f-branches', initBranch),
+            paths: readJsonList('data-f-paths', initPath),
             author: row.getAttribute('data-f-author') || '',
             since: row.getAttribute('data-f-since') || '',
             until: row.getAttribute('data-f-until') || '',

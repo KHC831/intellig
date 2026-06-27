@@ -132,6 +132,38 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     );
   });
 
+  it('re-seeds the branch multi-select from data-f-branches after a re-render', () => {
+    // Regression: a branch pick reloads the graph and re-templates the row. The
+    // checked set must survive — it round-trips through data-f-branches, not the
+    // single data-f-branch — or the reopened tree shows nothing selected.
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setLogFilter({ branches: ['feature/login', 'main'] } as unknown as Parameters<
+      typeof provider.setLogFilter
+    >[0]);
+    const { script, bodyHtml } = extractWebviewScript(
+      provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+
+    const bridge = (
+      h.window as unknown as {
+        __intelligFilter?: { isBranchChecked(n: string): boolean; anyBranchSelected(): boolean };
+      }
+    ).__intelligFilter;
+    assert.ok(bridge, '__intelligFilter bridge present');
+    assert.strictEqual(
+      bridge.isBranchChecked('feature/login'),
+      true,
+      'feature/login stays checked'
+    );
+    assert.strictEqual(bridge.isBranchChecked('main'), true, 'main stays checked');
+    assert.strictEqual(bridge.isBranchChecked('other'), false);
+    assert.strictEqual(bridge.anyBranchSelected(), true);
+
+    // The button label reflects the multi-select, not "All".
+    assert.strictEqual(h.document.getElementById('filter-branch-value')!.textContent, '2 branches');
+  });
+
   it('unchecking every repo posts an empty set and labels the button "None"', () => {
     const { script, bodyHtml } = extractWebviewScript(
       fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])

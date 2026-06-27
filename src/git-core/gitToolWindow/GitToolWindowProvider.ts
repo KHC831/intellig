@@ -3686,14 +3686,18 @@ ${bodyMarkup}
     const searchRegex = filter?.searchRegex ?? false;
     const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
     // A range filter ("A..B") lives in logRange; show it in the Branch button
-    // value, falling back to the single-branch scope.
+    // value, falling back to the single-branch scope. `data-f-branch` keeps that
+    // single/range value for back-compat; the multi-select tree round-trips
+    // through `data-f-branches` below.
     const branch = filter?.logRange ?? filter?.branch ?? '';
+    const branches = filter?.branches ?? [];
+    const paths = filter?.paths ?? [];
     const author = filter?.author ?? '';
     const path = filter?.path ?? '';
     const sinceAttr = this._toDateInputValue(filter?.since);
     const untilAttr = this._toDateInputValue(filter?.until);
 
-    const branchLabel = branch ? this._escapeHtml(branch) : 'All';
+    const branchLabel = this._escapeHtml(this._branchFilterLabel(filter));
     const authorLabel = author ? this._escapeHtml(author) : 'All';
     const dateLabel = this._escapeHtml(this._dateFilterLabel(filter?.since, filter?.until));
     const repoLabel = this._escapeHtml(this._repoScopeLabel());
@@ -3711,7 +3715,7 @@ ${bodyMarkup}
         : '';
 
     return `
-        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
+        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
           <div class="log-filter-search">
             <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${search}" aria-label="Search by message or hash" autocomplete="off" />
             <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Match by regular expression" aria-label="Match by regular expression" aria-pressed="${searchRegex}">.*</button>
@@ -3862,6 +3866,26 @@ ${bodyMarkup}
       return `Until ${u}`;
     }
     return 'All';
+  }
+
+  /**
+   * Branch-button value: a range ("A..B") as-is, the leaf name for a single
+   * selected branch, "N branches" for a multi-select, the legacy single-branch
+   * value if present, else "All". Mirrors the webview's `branchSummary` so the
+   * label stays correct across a full re-render.
+   */
+  private _branchFilterLabel(filter: ILogFilter | undefined): string {
+    if (filter?.logRange) {
+      return filter.logRange;
+    }
+    const branches = filter?.branches ?? [];
+    if (branches.length === 1) {
+      return branches[0].split('/').filter(Boolean).pop() || branches[0];
+    }
+    if (branches.length > 1) {
+      return `${branches.length} branches`;
+    }
+    return filter?.branch || 'All';
   }
 
   /**
