@@ -25,6 +25,7 @@ import { createBranchContextMenuCommands, createCommitContextMenuCommands } from
 import { getOutputChannel } from '../utils/outputChannel';
 import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
+import { normalizeRepoPath, normalizeRepoPathString } from '../utils/normalizeRepoPath';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { IViewRegistrationContext } from './ViewRegistrationContext';
@@ -686,7 +687,16 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         return;
       }
 
-      const repos = await discoverAllRepositories();
+      const discovered = await discoverAllRepositories();
+      // Honor a "some but not all roots" subset from the Repository filter: load
+      // only the visible roots' commits. `null` means every root (show all).
+      const visible = ctx.gitToolWindowProvider?.getVisibleRepoRoots() ?? null;
+      const repos = visible
+        ? discovered.filter((r) => {
+            const norm = normalizeRepoPath(r.rootUri);
+            return visible.some((p) => normalizeRepoPathString(p) === norm);
+          })
+        : discovered;
       if (repos.length <= 1) {
         await loadLogCommits(filter);
         return;
