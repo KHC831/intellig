@@ -2005,7 +2005,7 @@ export class GitToolWindowProvider
     // branches (IntelliJ BranchFilterModel parity) — listing only the context
     // repo's branches would silently scope the graph to one repo. A single-repo
     // scope lists just that repo's branches, unchanged.
-    const branchSources = this.isAllReposSelected() ? this._availableRepositories : [repo];
+    const branchSources = this.isAllReposSelected() ? this.getVisibleRepositories() : [repo];
     // Coalesce per-render re-requests. The inline init script re-fires this on
     // EVERY webview render (the dropdown is re-rendered empty each time), so
     // without a short cache a render/refresh burst spams `git branch -a`. Serve
