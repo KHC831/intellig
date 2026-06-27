@@ -82,6 +82,17 @@ export function buildInlineScript(): string {
             if (n === 1) return branchLeaf(filterState.branches[0]);
             return n + ' branches';
           }
+          // Parse the path input as one OR MORE comma-separated paths (multi-select
+          // by typing "src/a, src/b"); union in the log query.
+          function parsePaths(value) {
+            return String(value || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+          }
+          function pathSummary() {
+            const n = filterState.paths.length;
+            if (n === 0) return '';
+            if (n === 1) return pathLeaf(filterState.paths[0]);
+            return n + ' paths';
+          }
 
           function byId(id) { return document.getElementById(id); }
           function readSearch() { const el = byId('filter-search'); return el ? el.value.trim() : ''; }
@@ -204,9 +215,8 @@ export function buildInlineScript(): string {
               applyFilters();
             } else if (action === 'applyPathFilter') {
               const pi = byId('filter-path-input');
-              const v = pi ? pi.value.trim() : '';
-              filterState.paths = v ? [v] : [];
-              setPopValue('path', v ? pathLeaf(v) : 'All');
+              filterState.paths = parsePaths(pi ? pi.value : '');
+              setPopValue('path', pathSummary());
               closeAllPopups();
               applyFilters();
             } else if (action === 'pickRepoScope') {
@@ -240,9 +250,8 @@ export function buildInlineScript(): string {
               applyFilters();
             } else if (a === 'filterPathKeydown') {
               e.preventDefault();
-              const v = e.target.value.trim();
-              filterState.paths = v ? [v] : [];
-              setPopValue('path', v ? pathLeaf(v) : 'All');
+              filterState.paths = parsePaths(e.target.value);
+              setPopValue('path', pathSummary());
               closeAllPopups();
               applyFilters();
             }
