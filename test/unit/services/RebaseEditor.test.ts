@@ -635,7 +635,7 @@ describe('RebaseEditor', () => {
   // failure and _handleExecute → executeRebase failure) surface git stderr
   // that can carry credentialed remote URLs and POSIX home paths into the
   // user's notification history.
-  describe('TL-72 — error toast sanitization', () => {
+  describe('error toast sanitization', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
 

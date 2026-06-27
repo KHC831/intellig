@@ -1228,7 +1228,7 @@ describe('ShelfView', () => {
   // `error.message` through `sanitizeGitError` rather than concatenating it
   // straight into the toast template. Mirrors the unshelve /
   // deleteShelfItem / renameShelfItem coverage.
-  describe('TL-72 — action-path toasts route through sanitizeGitError', () => {
+  describe('action-path toasts route through sanitizeGitError', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
 

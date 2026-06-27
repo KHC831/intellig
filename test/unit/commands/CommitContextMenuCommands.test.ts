@@ -1989,7 +1989,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // class on a representative call (`_handleCherryPick` reaches the
   // ${errorMessage} template at line 408). The other 11 sites share
   // the identical pattern.
-  describe('TL-72 — error toast sanitization (representative)', () => {
+  describe('error toast sanitization (representative)', () => {
     it('_handleCherryPick sanitizes credentialed URL + home path in error toast', async () => {
       const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
       const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';

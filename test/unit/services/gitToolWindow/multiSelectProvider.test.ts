@@ -65,7 +65,7 @@ function mkCommit(
   };
 }
 
-describe('Wave A — provider integration', () => {
+describe('provider integration', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 

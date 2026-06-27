@@ -294,7 +294,7 @@ function blankRebaseTracker(): MockRebaseTracker {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
-describe('Wave C — Rebase-driven multi-commit ops', () => {
+describe('Rebase-driven multi-commit ops', () => {
   const repo = createMockRepo();
 
   // Display order is newest-first.

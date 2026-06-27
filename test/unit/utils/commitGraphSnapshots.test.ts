@@ -1422,7 +1422,7 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
  * Mirrors snap-8b's end-to-end driving pattern. ADR-010 Layer 4
  * back-reference for section 1.6.
  */
-describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
+describe('branch-tree-stage layout snapshot (jsdom)', () => {
   it('snap-10a: detached HEAD → "(HEAD detached at <sha>)" appears as FIRST child of Local Branches', async () => {
     const { BranchTreeProvider } = await import('../../../src/branches/BranchTreeProvider');
     const { createMockGitService, detachedRepo } = await import('../../mocks/mockGitService');

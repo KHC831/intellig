@@ -58,7 +58,7 @@ function localBranchesFromTree(provider: BranchTreeProvider): Promise<BranchTree
   });
 }
 
-describe('Wave H — BranchTreeProvider detached HEAD row', () => {
+describe('BranchTreeProvider detached HEAD row', () => {
   it('branchTree-detached-1: canonical detached state → detached row appears with correct shape', async () => {
     const repo = detachedRepo(FULL_SHA);
     const gitService = createMockGitService(repo);
@@ -179,7 +179,7 @@ describe('Wave H — BranchTreeProvider detached HEAD row', () => {
  * the tree rows render the same badges. The fetcher maps incoming→behind (↓)
  * and outgoing→ahead (↑).
  */
-describe('Wave D — BranchTreeProvider incoming/outgoing enrichment', () => {
+describe('BranchTreeProvider incoming/outgoing enrichment', () => {
   it('renders ↑outgoing/↓incoming on a tracked local branch when a fetcher is injected', async () => {
     const repo = attachedRepo('main', 'b'.repeat(40));
     const branches: IBranch[] = [

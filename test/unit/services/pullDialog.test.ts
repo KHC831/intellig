@@ -753,7 +753,7 @@ describe('PullDialog — runPullDialog', () => {
   // sanitizeGitError before the toast is rendered. Concatenating raw
   // `error.message` into the showErrorMessage template would leak credentialed
   // remote URLs and POSIX home paths into the user's notification history.
-  it('TL-72 — non-conflict pull error toast sanitizes credentialed URL + home path', async () => {
+  it('non-conflict pull error toast sanitizes credentialed URL + home path', async () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
     const h = createHarness({

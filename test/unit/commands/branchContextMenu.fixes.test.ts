@@ -1053,7 +1053,7 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
  * to gitService correctly AND that the parenthesized label never reaches
  * the gitService boundary.
  */
-describe('Wave H — detached row dispatcher safety (Wave F regression class)', () => {
+describe('detached row dispatcher safety (Wave F regression class)', () => {
   const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
 
   it('newBranchFrom-detached: gitService.createBranch receives the SHA, NOT the parenthesized label', async () => {

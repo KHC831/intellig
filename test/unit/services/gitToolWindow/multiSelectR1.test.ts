@@ -109,7 +109,7 @@ function stubWebview(provider: GitToolWindowProvider): {
   return { messages };
 }
 
-describe('Wave A R1 — provider integration', () => {
+describe('provider integration', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 
@@ -550,7 +550,7 @@ describe('Wave A R1 — provider integration', () => {
   });
 
   // ─── Keyboard range-select ────────────────────────────────────────
-  describe('R1 H-2 — keyboard range-select inline-script', () => {
+  describe('keyboard range-select inline-script', () => {
     it('inline script handles ArrowDown for next-row single-select', () => {
       const html = provider._getThreePanelHtmlContent(
         { cspSource: 'test:' } as unknown as vscode.Webview,

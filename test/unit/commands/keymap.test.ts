@@ -72,7 +72,7 @@ function readAllProductionSources(): string {
   return sources.join('\n');
 }
 
-describe('R5 C-1 — activation cannot register the same command id twice', () => {
+describe('activation cannot register the same command id twice', () => {
   it('every contributed command id is registered exactly once across production sources', () => {
     const pj = readPackageJson();
     const allSrc = readAllProductionSources();

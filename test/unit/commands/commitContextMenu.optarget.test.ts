@@ -239,7 +239,7 @@ function stubWindow(): void {
 
 // ─── Specs ───────────────────────────────────────────────────────────────────
 
-describe("H-1 — commit menu targets the clicked commit's own repo in all-repos scope", () => {
+describe("commit menu targets the clicked commit's own repo in all-repos scope", () => {
   beforeEach(() => {
     stubWindow();
   });
@@ -426,7 +426,7 @@ describe("H-1 — commit menu targets the clicked commit's own repo in all-repos
 
 // ─── L-2 — resolve by the clicked row, not the hash-keyed last-writer map ──────
 
-describe("L-2 — commit menu resolves the clicked row's own repo, not the hash-keyed index", () => {
+describe("commit menu resolves the clicked row's own repo, not the hash-keyed index", () => {
   // A single hash present in BOTH roots (shared history / fork / mirror). The
   // provider's hash→root index can only hold ONE root for it; whichever repo
   // wrote the merged log last wins. The rendered row, by contrast, carries its
@@ -518,7 +518,7 @@ describe("L-2 — commit menu resolves the clicked row's own repo, not the hash-
 
 // ─── Cross-repo multi-selection guard ─────────────────────────────────────────
 
-describe('H-1 — cross-repo multi-selection guard refuses ops that span repositories', () => {
+describe('cross-repo multi-selection guard refuses ops that span repositories', () => {
   let warnings: string[];
 
   beforeEach(() => {

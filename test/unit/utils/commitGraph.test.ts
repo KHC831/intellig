@@ -1701,7 +1701,7 @@ describe('Commit Graph - Complex Scenarios', () => {
  *
  * These tests are the RED capture for the rewrite.
  */
-describe('Wave D — divergent branch lane correctness (D1)', () => {
+describe('divergent branch lane correctness (D1)', () => {
   it('two children of unseen parent get distinct lanes', () => {
     // Display order (newest-first): tipA at lane 0, tipB diverges → must NOT
     // collapse onto lane 0. The shared parent `base` is unseen at the time
@@ -1866,7 +1866,7 @@ describe('Wave D — divergent branch lane correctness (D1)', () => {
   });
 });
 
-describe('Wave D — focused branch path (D3)', () => {
+describe('focused branch path (D3)', () => {
   it('marks on-path commits when focusedPathHashes is provided', () => {
     const commits = [
       createMockCommit('tip', ['mid']),
