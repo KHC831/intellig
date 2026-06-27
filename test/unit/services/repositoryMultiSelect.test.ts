@@ -109,6 +109,11 @@ describe('Repository multi-select scope', () => {
     assert.deepStrictEqual(provider.getVisibleRepoRoots(), [a, c]);
   });
 
+  it('ignores non-string roots from a tampered webview without throwing', () => {
+    assert.doesNotThrow(() => select([123, a, null, c, { x: 1 }] as unknown as string[]));
+    assert.deepStrictEqual(provider.getVisibleRepoRoots(), [a, c]);
+  });
+
   it('prunes the subset when a visible root disappears; nulls it below two', () => {
     select([a, b, c].slice(0, 2)); // subset {a, b}
     assert.deepStrictEqual(provider.getVisibleRepoRoots(), [a, b]);

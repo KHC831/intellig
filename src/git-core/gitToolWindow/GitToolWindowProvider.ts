@@ -2811,7 +2811,12 @@ export class GitToolWindowProvider
     if (this._availableRepositories.length === 0) {
       return;
     }
-    const checked = new Set(roots.map((p) => normalizeRepoPathString(p)));
+    // roots arrives from the untrusted webview; drop any non-string element so a
+    // tampered payload can't throw inside normalizeRepoPathString (it would be
+    // caught + logged upstream, but the selection would silently no-op).
+    const checked = new Set(
+      roots.filter((p): p is string => typeof p === 'string').map((p) => normalizeRepoPathString(p))
+    );
     const matched = this._availableRepositories.filter((r) =>
       checked.has(normalizeRepoPath(r.rootUri))
     );
