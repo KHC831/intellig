@@ -297,8 +297,20 @@ describe('Gutter blame — dirty/edited render', () => {
     // No font-size override — shrinking the font shrinks the inline box so the
     // tint stops filling the line height, striping a same-commit run into bars.
     assert.ok(
-      !(textBefore.textDecoration ?? '').includes('font-size'),
-      'text cell must not shrink the font (keeps the tint a solid block)'
+      /display:\s*inline-block/.test(textBefore.textDecoration ?? ''),
+      'text cell must be an inline-block so its box (not the font) sets the tint height'
+    );
+    // …pinned to the row line-height, so the tint fills the whole row and a
+    // same-commit run is a solid block even though the text is smaller.
+    assert.ok(
+      /line-height:\s*\d+px/.test(textBefore.textDecoration ?? ''),
+      'text cell must pin line-height to the row height for a continuous block'
+    );
+    // The text itself is a smaller, font-relative size (it scales with the editor
+    // font but cannot break the block, since the inline-block height is fixed).
+    assert.ok(
+      /font-size:\s*\d+px/.test(textBefore.textDecoration ?? ''),
+      'text cell must set a (relative) font-size'
     );
     // Left pad: 2 non-breaking spaces lead the (single, widest) line's content.
     assert.ok(

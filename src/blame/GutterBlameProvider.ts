@@ -79,6 +79,37 @@ function fitColumn(s: string, width: number): string {
 }
 
 /**
+ * Blame text size, RELATIVE to the editor font, so the gutter scales when the
+ * user changes their font. A smaller font normally shrinks the inline box and
+ * the per-commit tint stops filling the row (striped block); we keep the block
+ * continuous by rendering the cell as an inline-block whose height is pinned to
+ * the editor's row line-height (see editorRowMetrics / _applyRenderState), so the
+ * text can be as small as we like without breaking the block. The min floor is
+ * just for readability.
+ */
+const BLAME_FONT_SCALE = 0.9;
+const BLAME_FONT_MIN_PX = 10;
+
+/**
+ * Read the editor's font size and effective ROW line-height (px) from config,
+ * mirroring VS Code's own computation (`editor.lineHeight`: 0 = derive from the
+ * font via the golden ratio; 0<v<8 = a font-size multiplier; ≥8 = absolute px).
+ * Used to pin the gutter cell's box to one row so the tint is a continuous block.
+ */
+function editorRowMetrics(): { fontSizePx: number; lineHeightPx: number } {
+  const cfg = vscode.workspace.getConfiguration('editor');
+  const fontSizePx = cfg.get<number>('fontSize') || 14;
+  let lineHeight = cfg.get<number>('lineHeight') ?? 0;
+  const goldenRatio = process.platform === 'darwin' ? 1.5 : 1.35;
+  if (lineHeight === 0) {
+    lineHeight = goldenRatio * fontSizePx;
+  } else if (lineHeight < 8) {
+    lineHeight = lineHeight * fontSizePx;
+  }
+  return { fontSizePx, lineHeightPx: Math.round(lineHeight) };
+}
+
+/**
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with an IntelliJ-style interpolated background gradient and click actions.
@@ -239,6 +270,25 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           // while the debounced re-blame runs. Then debounce the real re-blame.
           this._shiftRenderStateForEdit(this._currentEditor, event.contentChanges);
           this.debounceUpdate(this._currentEditor);
+        }
+      })
+    );
+
+    // Re-render when the editor font size / line-height changes — the gutter cell
+    // is sized relative to the font and its block height is pinned to the row, so
+    // both must follow a live font change (no document edit fires otherwise).
+    this._disposables.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+          (e.affectsConfiguration('editor.fontSize') ||
+            e.affectsConfiguration('editor.lineHeight')) &&
+          this._enabled &&
+          this._currentEditor &&
+          this._renderState &&
+          this._renderState.uri === this._currentEditor.document.uri.toString()
+        ) {
+          // The blame model is unchanged — just repaint with the new metrics.
+          this._applyRenderState(this._currentEditor);
         }
       })
     );
@@ -609,6 +659,16 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // font), then wrapped with GUTTER_PAD on both sides for symmetric breathing
     // room.
     const rawWidthCh = parseInt(width, 10) || 0;
+    // Size the text RELATIVE to the editor font, but render each cell as an
+    // inline-block whose height is pinned to the editor's row line-height. The
+    // tint paints the whole inline-block, so it fills the row regardless of how
+    // small the text is — a same-commit run reads as one continuous block instead
+    // of striped bars (the bug from shrinking the font on a plain inline element).
+    const { fontSizePx, lineHeightPx } = editorRowMetrics();
+    const textPx = Math.max(BLAME_FONT_MIN_PX, Math.round(BLAME_FONT_SCALE * fontSizePx));
+    const blockStyle =
+      `none; display: inline-block; line-height: ${lineHeightPx}px; ` +
+      `height: ${lineHeightPx}px; font-size: ${textPx}px;`;
     const textDecorations: vscode.DecorationOptions[] = [];
     const heatDecorations: vscode.DecorationOptions[] = [];
     for (const [line, e] of entries) {
@@ -620,17 +680,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         ...(e.blank || !e.hover ? {} : { hoverMessage: e.hover }),
         // Tint the FULL annotation column with the per-commit color (IntelliJ
         // tints the whole gutter cell). VS Code's per-instance `before` REPLACES
-        // the type's `before`, so the muted text colour is restated here. NO
-        // `font-size` override — a smaller font shrinks the inline box so the tint
-        // no longer fills the line height, breaking same-commit runs into striped
-        // bars instead of one solid block. Padding is NBSP (non-collapsing), so no
-        // `white-space: pre` is needed either. A blank cell keeps the padded width
-        // (for alignment) but no tint.
+        // the type's `before`, so the muted text colour AND the inline-block sizing
+        // are restated here. A blank cell keeps the padded width (for alignment)
+        // but no tint.
         renderOptions: {
           before: {
             contentText: GUTTER_PAD + aligned + GUTTER_PAD,
             backgroundColor: e.bgColor,
             color: new vscode.ThemeColor('editorCodeLens.foreground'),
+            textDecoration: blockStyle,
           },
         },
       });
