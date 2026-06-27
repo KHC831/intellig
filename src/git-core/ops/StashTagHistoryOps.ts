@@ -401,6 +401,10 @@ export class StashTagHistoryOps {
   }
 
   private async _getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
+    // "No branches selected" → no commits, without spawning git.
+    if (options?.matchNothing) {
+      return [];
+    }
     const format = getLogFormat();
     const args = ['log', `--format=${format}`, '-z'];
 
@@ -558,6 +562,11 @@ export class StashTagHistoryOps {
   }
 
   private async _getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
+    // "No branches selected" → zero commits, without spawning git (mirrors
+    // _getLog so the "X of Y" indicator agrees with the empty list).
+    if (options?.matchNothing) {
+      return 0;
+    }
     const args = ['rev-list', '--count'];
 
     // Hash filter: count exactly the named commits (mirrors _getLog's --no-walk

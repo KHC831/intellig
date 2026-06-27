@@ -44,6 +44,13 @@ describe('buildLogScope — UI filter → git scope mapping', () => {
     assert.deepStrictEqual(s.refs, ['feature/x', 'main']);
   });
 
+  it('maps the explicit "no branches" state to matchNothing (not --all)', () => {
+    const s = buildLogScope({ branchesNone: true });
+    assert.strictEqual(s.matchNothing, true, 'none must short-circuit to an empty result');
+    assert.strictEqual(s.all, false, 'matchNothing is not the walk-all state');
+    assert.strictEqual(s.refs, undefined);
+  });
+
   it('folds a single legacy branch in with multi-select branches', () => {
     const s = buildLogScope({ branches: ['feature/x'], branch: 'main' });
     assert.deepStrictEqual(s.refs, ['feature/x', 'main']);

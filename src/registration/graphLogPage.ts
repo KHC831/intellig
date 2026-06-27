@@ -8,6 +8,12 @@ export interface ILogScopeFilter {
   branch?: string;
   /** Multi-select branches — union (show commits from ANY). Folded in with {@link branch}. */
   branches?: string[];
+  /**
+   * Explicit "no branches selected" state — show NO commits (the user unchecked
+   * every branch). Distinct from the absent/empty branch filter, which means
+   * "all branches" (`--all`). Maps to {@link ILogScope.matchNothing}.
+   */
+  branchesNone?: boolean;
   author?: string;
   since?: Date;
   until?: Date;
@@ -32,6 +38,12 @@ export interface ILogScopeFilter {
  */
 export interface ILogScope {
   all: boolean;
+  /**
+   * Short-circuit to an EMPTY result without walking git — the "no branches
+   * selected" state. `getLog`/`getLogCount` honor it; mutually exclusive with
+   * {@link all} and {@link refs}.
+   */
+  matchNothing?: boolean;
   refs?: string[];
   logRange?: string;
   hashes?: string[];
@@ -103,6 +115,28 @@ export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
   // hash (`--no-walk <hash…>`), which scopes to exactly those commits — so it
   // suppresses `--all`/grep. Otherwise the query is a message `--grep`.
   const hashes = parseHashQuery(filter?.searchText);
+  // An explicit "none" branch state shows no commits at all — short-circuit
+  // BEFORE the --all/refs decision so it can't be read as "walk everything".
+  if (filter?.branchesNone) {
+    return {
+      all: false,
+      matchNothing: true,
+      logRange,
+      hashes,
+      author: filter?.author,
+      since: filter?.since,
+      until: filter?.until,
+      paths: paths.length > 0 ? paths : undefined,
+      grep: hashes ? undefined : filter?.searchText,
+      noMerges: filter?.noMerges,
+      firstParent: filter?.firstParent,
+      simplifyMerges: filter?.simplifyMerges,
+      minParents: filter?.minParents,
+      maxParents: filter?.maxParents,
+      regex: filter?.searchRegex,
+      caseSensitive: filter?.searchCaseSensitive,
+    };
+  }
   return {
     all: refs.length === 0 && !logRange && !hashes,
     refs: refs.length > 0 ? refs : undefined,

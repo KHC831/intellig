@@ -658,6 +658,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     type LogFilter = {
       branch?: string;
       branches?: string[];
+      branchesNone?: boolean;
       author?: string;
       since?: Date;
       until?: Date;
@@ -858,6 +859,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           ? {
               branch: filter.branch,
               branches: filter.branches,
+              branchesNone: filter.branchesNone,
               author: filter.author,
               since: filter.since,
               until: filter.until,

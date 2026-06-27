@@ -479,6 +479,13 @@ export interface IStashOptions {
 export interface ILogOptions {
   maxCount?: number;
   skip?: number;
+  /**
+   * Short-circuit to an EMPTY result without invoking git — the "no branches
+   * selected" state (every branch checkbox unchecked). When set, `getLog`
+   * returns `[]` and `getLogCount` returns `0` immediately, ahead of any other
+   * filter. Set by {@link buildLogScope} from the explicit-none branch filter.
+   */
+  matchNothing?: boolean;
   author?: string;
   since?: Date;
   until?: Date;

@@ -73,6 +73,17 @@ describe('getLog — multi-select paths (union)', () => {
   });
 });
 
+describe('getLog/getLogCount — matchNothing short-circuit (no branches selected)', () => {
+  it('returns an empty list and zero count without spawning git', async () => {
+    const { ops, calls } = makeOps();
+    const commits = await ops.getLog(repo, { matchNothing: true });
+    const count = await ops.getLogCount(repo, { matchNothing: true });
+    assert.deepStrictEqual(commits.unwrapOr(['x']), [], 'no commits for matchNothing');
+    assert.strictEqual(count.unwrapOr(-1), 0, 'zero count for matchNothing');
+    assert.strictEqual(calls.length, 0, 'matchNothing never invokes git');
+  });
+});
+
 describe('getLogCount — mirrors the multi-select union', () => {
   it('unions refs (no HEAD anchor) and paths like getLog', async () => {
     const { ops, calls } = makeOps();

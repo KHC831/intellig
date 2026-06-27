@@ -1878,6 +1878,7 @@ export class GitToolWindowProvider
     return (
       !filter.branch &&
       !(filter.branches && filter.branches.length > 0) &&
+      !filter.branchesNone &&
       !filter.logRange &&
       !filter.searchText &&
       !filter.author &&
@@ -1959,6 +1960,11 @@ export class GitToolWindowProvider
         if (safe.length > 0) {
           filter.branches = safe;
         }
+      }
+      // Explicit "no branches selected" — show no commits. Only honored when no
+      // concrete branch subset is present (a subset already scopes the log).
+      if (webviewFilter.branchesNone && !(filter.branches && filter.branches.length > 0)) {
+        filter.branchesNone = true;
       }
       if (webviewFilter.path) {
         filter.path = webviewFilter.path;
@@ -4352,6 +4358,8 @@ interface IBranchFilterGroups {
 interface IWebviewLogFilter {
   branch?: string;
   branches?: string[];
+  /** Every branch checkbox unchecked → show no commits (distinct from "all"). */
+  branchesNone?: boolean;
   searchText?: string;
   author?: string;
   path?: string;
