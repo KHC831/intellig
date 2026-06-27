@@ -446,6 +446,7 @@ describe('CommitToolWindow — host behavior', () => {
       deleteRemoteTag: notImplemented('deleteRemoteTag'),
       getLog: notImplemented('getLog'),
       getLogCount: notImplemented('getLogCount'),
+      getTrackedPaths: async () => [],
       getCommit: notImplemented('getCommit'),
       getFileHistory: notImplemented('getFileHistory'),
       getCommitDiff: notImplemented('getCommitDiff'),

@@ -73,6 +73,26 @@ describe('getLog — multi-select paths (union)', () => {
   });
 });
 
+describe('getTrackedPaths — repo file list for the Path tree', () => {
+  it('runs `git ls-files -z` and splits the NUL-separated output', async () => {
+    const calls: string[][] = [];
+    const gitCli = {
+      exec: async (args: string[]) => {
+        calls.push(args);
+        return { exitCode: 0, stdout: 'src/a.ts\0src/b.ts\0README.md\0', stderr: '' };
+      },
+    };
+    const ops = new StashTagHistoryOps({
+      gitCli,
+      invalidateCache: () => undefined,
+      fireDidFetch: () => undefined,
+    } as unknown as IGitOpsContext);
+    const r = await ops.getTrackedPaths(repo);
+    assert.deepStrictEqual(calls[0], ['ls-files', '-z']);
+    assert.deepStrictEqual(r._unsafeUnwrap(), ['src/a.ts', 'src/b.ts', 'README.md']);
+  });
+});
+
 describe('getLogCount — mirrors the multi-select union', () => {
   it('unions refs (no HEAD anchor) and paths like getLog', async () => {
     const { ops, calls } = makeOps();

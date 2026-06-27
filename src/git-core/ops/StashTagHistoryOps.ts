@@ -649,6 +649,24 @@ export class StashTagHistoryOps {
     return Number.isFinite(count) ? count : 0;
   }
 
+  /**
+   * The repo's tracked files (`git ls-files -z`), repo-root-relative, in git's
+   * order. Drives the Path filter's nested folder tree. NUL-separated so paths
+   * with spaces/newlines survive intact.
+   */
+  getTrackedPaths(repo: IRepository): ResultAsync<string[], GitError> {
+    return ResultAsync.fromPromise(this._getTrackedPaths(repo), classifyGitCommandError);
+  }
+
+  private async _getTrackedPaths(repo: IRepository): Promise<string[]> {
+    const result = await this.ctx.gitCli.exec(['ls-files', '-z'], { cwd: repo.rootUri.fsPath });
+    if (result.exitCode !== 0) {
+      this._logSwallowedRead('getTrackedPaths', result);
+      return [];
+    }
+    return result.stdout.split('\0').filter(Boolean);
+  }
+
   getCommit(repo: IRepository, hash: string): ResultAsync<ICommit, GitError> {
     return ResultAsync.fromPromise(this._getCommit(repo, hash), classifyGitCommandError);
   }

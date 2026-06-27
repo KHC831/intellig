@@ -1736,6 +1736,11 @@ export class GitToolWindowProvider
         // shortlog). Guard the fire-and-forget call as above.
         void this._handleRequestAuthorOptions().catch(() => {});
         break;
+      case 'requestPathOptions':
+        // Fired when the Path popup opens — fetch the repo's tracked files
+        // lazily for the nested path tree. Guarded fire-and-forget as above.
+        void this._handleRequestPathOptions().catch(() => {});
+        break;
       case 'clearLogFilter':
         // Fired by the "Clear filter" button on the filtered-empty
         // graph state. Clearing is just applying a null filter, which
@@ -1862,10 +1867,12 @@ export class GitToolWindowProvider
   private _isLogFilterEmpty(filter: ILogFilter): boolean {
     return (
       !filter.branch &&
+      !(filter.branches && filter.branches.length > 0) &&
       !filter.logRange &&
       !filter.searchText &&
       !filter.author &&
       !filter.path &&
+      !(filter.paths && filter.paths.length > 0) &&
       !filter.since &&
       !filter.until &&
       !filter.noMerges &&
@@ -1932,8 +1939,26 @@ export class GitToolWindowProvider
       if (webviewFilter.author) {
         filter.author = webviewFilter.author;
       }
+      // Multi-select branches: each is a positional `git log <ref>`, so apply the
+      // same leading-`-`/`.` guard as the single branch; drop unsafe entries.
+      if (Array.isArray(webviewFilter.branches)) {
+        const safe = webviewFilter.branches.filter(
+          (b) => typeof b === 'string' && b.length > 0 && !this._isUnsafeRef(b)
+        );
+        if (safe.length > 0) {
+          filter.branches = safe;
+        }
+      }
       if (webviewFilter.path) {
         filter.path = webviewFilter.path;
+      }
+      // Multi-select paths reach git after the `--` pathspec separator, so (like
+      // the single path) they need no leading-`-`/`.` guard.
+      if (Array.isArray(webviewFilter.paths)) {
+        const paths = webviewFilter.paths.filter((p) => typeof p === 'string' && p.length > 0);
+        if (paths.length > 0) {
+          filter.paths = paths;
+        }
       }
       if (webviewFilter.since) {
         filter.since = new Date(webviewFilter.since);
@@ -2024,6 +2049,39 @@ export class GitToolWindowProvider
       return;
     }
     void this._view.webview.postMessage({ type: 'logFilterOptionsReady', branchGroups: groups });
+  }
+
+  /**
+   * Fetch the active repo's tracked files for the Path popup's nested folder
+   * tree. Lazy (only when the popup opens). In the merged "All Repositories"
+   * scope the union across roots is offered, mirroring the branch options. Each
+   * bad root contributes [] so one unmounted root can't sink the rest.
+   */
+  private async _handleRequestPathOptions(): Promise<void> {
+    const repo = this.getSelectedRepository();
+    const gitService = this._attachedGitService;
+    if (!repo || !gitService) {
+      return;
+    }
+    const sources = this.isAllReposSelected() ? this._availableRepositories : [repo];
+    const perRepoPaths = await Promise.all(
+      sources.map((r) => gitService.getTrackedPaths(r).catch(() => []))
+    );
+    const set = new Set<string>();
+    for (const list of perRepoPaths) {
+      for (const p of list) {
+        set.add(p);
+      }
+    }
+    this._postPathOptions([...set].sort());
+  }
+
+  /** Post the repo's tracked file list to the Path popup's tree builder. */
+  private _postPathOptions(paths: string[]): void {
+    if (!this._view) {
+      return;
+    }
+    void this._view.webview.postMessage({ type: 'pathOptionsReady', paths });
   }
 
   /**
@@ -3585,7 +3643,7 @@ ${bodyMarkup}
           ${this._getFilterPopupHtml('branch', 'Branch', branchLabel, this._getBranchPopupBodyHtml())}
           ${this._getFilterPopupHtml('user', 'User', authorLabel, this._getUserPopupBodyHtml(author))}
           ${this._getFilterPopupHtml('date', 'Date', dateLabel, this._getDatePopupBodyHtml(filter?.since, filter?.until))}
-          ${this._getFilterPopupHtml('path', 'Path', pathLabel, this._getPathPopupBodyHtml(path))}
+          ${this._getFilterPopupHtml('path', 'Path', pathLabel, this._getPathPopupBodyHtml())}
         </div>`;
   }
 
@@ -3677,8 +3735,7 @@ ${bodyMarkup}
    * "Path = our repo, renamed" parity request). v1 maps the rows to the existing
    * single-or-all repository scope; a true multi-root subset is a deferred gap.
    */
-  private _getPathPopupBodyHtml(path: string): string {
-    const esc = this._escapeHtml(path);
+  private _getPathPopupBodyHtml(): string {
     let reposHtml = '';
     if (this._availableRepositories.length > 1) {
       const allActive = this._repositoryScope === 'all';
@@ -3698,8 +3755,10 @@ ${bodyMarkup}
               ${rows}`;
     }
     return `
-              <input type="text" id="filter-path-input" class="log-filter-popup-search" data-action="filterPathKeydown" placeholder="File or directory path" value="${esc}" aria-label="File or directory path" />
-              <button type="button" class="log-filter-popup-apply" data-action="applyPathFilter">Apply path</button>${reposHtml}`;
+              <input type="text" class="log-filter-popup-search" data-action="filterPathSearch" placeholder="Filter paths" aria-label="Filter paths" autocomplete="off" />
+              <div class="log-filter-popup-list" id="filter-path-list">
+                <button type="button" class="log-filter-popup-item" data-action="pickPathFilter" data-path="__all__">All paths</button>
+              </div>${reposHtml}`;
   }
 
   /**
@@ -4181,9 +4240,11 @@ interface IBranchFilterGroups {
  */
 interface IWebviewLogFilter {
   branch?: string;
+  branches?: string[];
   searchText?: string;
   author?: string;
   path?: string;
+  paths?: string[];
   since?: string | null;
   until?: string | null;
   searchRegex?: boolean;

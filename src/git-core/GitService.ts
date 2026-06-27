@@ -1982,6 +1982,18 @@ export class GitService implements IGitService, IGitServiceCli {
     );
   }
 
+  getTrackedPaths(repo: IRepository): Promise<string[]> {
+    // Best-effort (drives a filter UI): a failure is LOGGED and degraded to an
+    // empty list, mirroring getLogCount.
+    return this._stashTagHistory.getTrackedPaths(repo).match(
+      (paths) => paths,
+      (error) => {
+        this._logger.error('getTrackedPaths failed', { rootPath: repo.rootUri.fsPath }, error);
+        return [];
+      }
+    );
+  }
+
   getCommit(repo: IRepository, hash: string): Promise<ICommit> {
     // Funnels the ops Result back onto the throwing Promise contract: the many
     // callers already `await` (and try/catch) a rejecting getCommit, so a
