@@ -30,9 +30,9 @@
       "status": "tested",
       "note": "_getScript inline createElement builder run in jsdom (commitDialogsScript.test.ts)"
     },
-    "src/commits/SquashMessageDialog.ts": {
+    "src/commits/CommitMessageDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; textarea seeded from squash message (commitDialogsScript.test.ts)"
+      "note": "base dialog that owns the inline script (SquashMessageDialog + the reword edit dialog are presets); rendered script run in jsdom (commitDialogsScript.test.ts)"
     },
     "src/branches/NewBranchDialog.ts": {
       "status": "tested",

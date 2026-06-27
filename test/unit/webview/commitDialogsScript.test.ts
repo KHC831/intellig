@@ -14,6 +14,7 @@ import '../../setup';
 import * as assert from 'assert';
 import { CommitDialog } from '../../../src/commits/CommitDialog';
 import { SquashMessageDialog } from '../../../src/commits/SquashMessageDialog';
+import { CommitMessageDialog } from '../../../src/commits/CommitMessageDialog';
 import type { IGitService } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
@@ -90,6 +91,47 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
       const textarea = h.document.querySelector<HTMLTextAreaElement>('textarea');
       assert.ok(textarea, 'textarea built');
       assert.ok(textarea.value.includes('pick a'), 'textarea seeded with squash message');
+    });
+
+    it('tolerates garbage messages without throwing', () => {
+      const { script, bodyHtml } = extractWebviewScript(html());
+      h = runWebviewScript(script, { bodyHtml });
+      for (const msg of GARBAGE_MESSAGES) {
+        h.post(msg);
+      }
+      assert.deepStrictEqual(
+        h.errors.map((e) => e.message),
+        []
+      );
+    });
+  });
+
+  describe('CommitMessageDialog (reword preset — the base that owns the script)', () => {
+    function html(): string {
+      const dialog = new CommitMessageDialog(makeExtensionContext(), {
+        seedMessage: 'subject\n\nbody line',
+        viewType: 'intellig.editMessageDialog',
+        title: 'Edit Commit Message',
+        heading: 'Edit commit message',
+        submitLabel: 'Update Message',
+        submitVerb: 'save',
+      });
+      (dialog as unknown as { _render(): void })._render();
+      return panelHtml(dialog);
+    }
+
+    it('builds the textarea seeded with the multi-line message and a save-labelled submit', () => {
+      const { script, bodyHtml } = extractWebviewScript(html());
+      h = runWebviewScript(script, { bodyHtml });
+      assert.deepStrictEqual(
+        h.errors.map((e) => e.message),
+        []
+      );
+      const textarea = h.document.querySelector<HTMLTextAreaElement>('textarea');
+      assert.ok(textarea, 'textarea built');
+      assert.ok(textarea.value.includes('body line'), 'textarea seeded with the multi-line body');
+      const submit = h.document.querySelector('#submit-btn');
+      assert.strictEqual(submit?.textContent, 'Update Message', 'submit carries the preset label');
     });
 
     it('tolerates garbage messages without throwing', () => {
