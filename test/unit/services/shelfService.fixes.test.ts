@@ -92,8 +92,13 @@ describe('ShelfService — additions', () => {
     name = 'seed'
   ): Promise<string> {
     mockCli.nextResult = (args): IGitCommandResult => {
-      if (args[0] === 'diff' && args[1] === '--') {
-        const filePath = args[2];
+      // Full-file shelve captures vs HEAD (`diff HEAD -- <file>`); partial-hunk
+      // shelve still uses `diff -- <file>`. Match both shapes and resolve the
+      // file from the trailing path arg.
+      const isFullFileDiff = args[0] === 'diff' && args[1] === 'HEAD' && args[2] === '--';
+      const isUnstagedDiff = args[0] === 'diff' && args[1] === '--';
+      if (isFullFileDiff || isUnstagedDiff) {
+        const filePath = args[args.length - 1];
         const file = files.find((f) => f.path === filePath);
         return {
           exitCode: 0,
@@ -102,7 +107,8 @@ describe('ShelfService — additions', () => {
           combined: '',
         };
       }
-      // Reverse-apply during shelve → succeed silently so the service moves on.
+      // Revert during shelve (checkout HEAD / rm / apply -R) → succeed silently
+      // so the service moves on.
       return { exitCode: 0, stdout: '', stderr: '', combined: '' };
     };
     const item = await svc.shelve(repo, name, { files: files.map((f) => f.path) });
@@ -398,12 +404,16 @@ describe('ShelfService — additions', () => {
      */
     function scriptAllApplyCleanly(files: Array<{ path: string; diff: string }>): void {
       mockCli.nextResult = (args): IGitCommandResult => {
-        if (args[0] === 'diff' && args[1] === '--') {
-          const p = args[2];
+        // Full-file shelve captures vs HEAD (`diff HEAD -- <file>`); match that
+        // and the legacy `diff -- <file>` shape, resolving the trailing path.
+        const isDiff =
+          args[0] === 'diff' && ((args[1] === 'HEAD' && args[2] === '--') || args[1] === '--');
+        if (isDiff) {
+          const p = args[args.length - 1];
           const f = files.find((x) => x.path === p);
           return { exitCode: 0, stdout: f ? f.diff : '', stderr: '', combined: '' };
         }
-        // apply/apply -R/checkout → succeed.
+        // apply/apply -R/checkout/rm → succeed.
         return { exitCode: 0, stdout: '', stderr: '', combined: '' };
       };
     }

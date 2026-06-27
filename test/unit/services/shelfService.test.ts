@@ -6,7 +6,6 @@ import { ShelfService, createShelfService } from '../../../src/shelf/ShelfServic
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { IShelveSelection, IShelfItem } from '../../../src/shelf/interfaces/IShelfService';
 import { GitCli } from '../../../src/git-core/gitCli';
-import * as vscode from 'vscode';
 import { Uri } from '../../mocks/vscode';
 
 /**
@@ -86,83 +85,92 @@ describe('ShelfService', () => {
       assert.ok(shelfItem.files[0].diff.length > 0, 'File should have diff content');
     });
 
-    it('warns that staged content is not included when a selected file has staged changes', async () => {
+    it('captures staged + unstaged content for a full-file shelve and round-trips on unshelve', async () => {
       const testFile = path.join(testRepoPath, 'test.txt');
-      // Stage a change (cached), then add a further unstaged tweak so the shelve
-      // still has an unstaged diff to capture (and thus doesn't throw).
+      // Stage one change, then add a further unstaged tweak. The shelf must
+      // capture the WHOLE change vs HEAD (both parts), not just the unstaged.
       fs.writeFileSync(testFile, 'staged change\n');
       await gitCli.exec(['add', 'test.txt'], { cwd: testRepoPath });
       fs.appendFileSync(testFile, 'plus unstaged\n');
+      const combined = fs.readFileSync(testFile, 'utf8');
 
-      const warnings: string[] = [];
-      const original = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
-        message: string
-      ): Promise<undefined> => {
-        warnings.push(message);
-        return Promise.resolve(undefined);
-      };
-      try {
-        await shelfService.shelve(mockRepo, 'Partial', { files: ['test.txt'] });
-      } finally {
-        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
-      }
+      const item = await shelfService.shelve(mockRepo, 'Combined', { files: ['test.txt'] });
 
+      // The shelved diff contains both the staged and the unstaged lines.
+      assert.ok(/staged change/.test(item.files[0].diff), 'shelf diff must include staged content');
       assert.ok(
-        warnings.some((w) => w.includes('test.txt') && /staged/i.test(w)),
-        `expected a staged-content warning naming test.txt; got: ${JSON.stringify(warnings)}`
+        /plus unstaged/.test(item.files[0].diff),
+        'shelf diff must include unstaged content'
+      );
+
+      // Working tree AND index are fully reverted to HEAD.
+      assert.strictEqual(
+        fs.readFileSync(testFile, 'utf8'),
+        'initial content\n',
+        'working tree must be reset to HEAD after shelving'
+      );
+      const status = await gitCli.exec(['status', '--porcelain'], { cwd: testRepoPath });
+      assert.strictEqual(status.stdout.trim(), '', 'index + worktree must be clean after shelving');
+
+      // Unshelve restores the full combined change (as unstaged).
+      await shelfService.unshelve(mockRepo, item.id);
+      assert.strictEqual(
+        fs.readFileSync(testFile, 'utf8'),
+        combined,
+        'unshelve must restore the full staged+unstaged change'
       );
     });
 
-    it('warns for a staged file with a NON-ASCII name (the -z path)', async () => {
-      // A staged unicode-named file is C-quoted under default core.quotePath, so
-      // without -z the warning's path-set wouldn't match the verbatim selection
-      // and the file would be silently omitted.
-      const unicodeName = 'café.ts';
-      const unicodeFile = path.join(testRepoPath, unicodeName);
-      fs.writeFileSync(unicodeFile, 'staged unicode\n');
-      await gitCli.exec(['add', '--', unicodeName], { cwd: testRepoPath });
-      fs.appendFileSync(unicodeFile, 'plus unstaged\n');
-
-      const warnings: string[] = [];
-      const original = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
-        message: string
-      ): Promise<undefined> => {
-        warnings.push(message);
-        return Promise.resolve(undefined);
-      };
-      try {
-        await shelfService.shelve(mockRepo, 'Unicode', { files: [unicodeName] });
-      } finally {
-        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
-      }
-
-      assert.ok(
-        warnings.some((w) => w.includes(unicodeName) && /staged/i.test(w)),
-        `expected a staged-content warning naming ${unicodeName}; got: ${JSON.stringify(warnings)}`
-      );
-    });
-
-    it('does NOT warn when no selected file has staged content', async () => {
+    it('captures a fully-staged file (no unstaged remainder) instead of skipping it', async () => {
       const testFile = path.join(testRepoPath, 'test.txt');
-      fs.writeFileSync(testFile, 'only unstaged\n'); // unstaged only, nothing cached
+      fs.writeFileSync(testFile, 'fully staged\n');
+      await gitCli.exec(['add', 'test.txt'], { cwd: testRepoPath }); // nothing left unstaged
 
-      const warnings: string[] = [];
-      const original = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
-        message: string
-      ): Promise<undefined> => {
-        warnings.push(message);
-        return Promise.resolve(undefined);
-      };
-      try {
-        await shelfService.shelve(mockRepo, 'Clean', { files: ['test.txt'] });
-      } finally {
-        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
-      }
+      const item = await shelfService.shelve(mockRepo, 'FullyStaged', { files: ['test.txt'] });
 
-      assert.deepStrictEqual(warnings, [], 'no staged-content warning when nothing is staged');
+      assert.strictEqual(item.files.length, 1, 'a fully-staged file must still be shelved');
+      assert.ok(/fully staged/.test(item.files[0].diff), 'diff must carry the staged content');
+      const status = await gitCli.exec(['status', '--porcelain'], { cwd: testRepoPath });
+      assert.strictEqual(
+        status.stdout.trim(),
+        '',
+        'index must be clean after shelving a staged file'
+      );
+
+      await shelfService.unshelve(mockRepo, item.id);
+      assert.strictEqual(
+        fs.readFileSync(testFile, 'utf8'),
+        'fully staged\n',
+        'unshelve restores it'
+      );
+    });
+
+    it('round-trips a staged NEW file (creation diff) and removes it from the tree on shelve', async () => {
+      const newName = 'added.txt';
+      const newFile = path.join(testRepoPath, newName);
+      fs.writeFileSync(newFile, 'brand new\n');
+      await gitCli.exec(['add', newName], { cwd: testRepoPath }); // staged, absent from HEAD
+
+      const item = await shelfService.shelve(mockRepo, 'NewFile', { files: [newName] });
+
+      assert.ok(
+        /brand new/.test(item.files[0].diff),
+        'shelf diff must include the new file content'
+      );
+      assert.strictEqual(fs.existsSync(newFile), false, 'the new file must be removed on shelve');
+      const status = await gitCli.exec(['status', '--porcelain'], { cwd: testRepoPath });
+      assert.strictEqual(
+        status.stdout.trim(),
+        '',
+        'index must be clean (new file unstaged + removed)'
+      );
+
+      await shelfService.unshelve(mockRepo, item.id);
+      assert.strictEqual(
+        fs.readFileSync(newFile, 'utf8'),
+        'brand new\n',
+        'unshelve recreates the file'
+      );
     });
 
     it('should revert changes after shelving', async () => {
