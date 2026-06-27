@@ -205,30 +205,25 @@ describe('Gutter blame — dirty/edited render', () => {
     provider.dispose();
   });
 
-  it('annotates a document line the blame did not cover (trailing new line) as Uncommitted', async () => {
-    // Blame returns 2 committed lines, but the buffer has 3 lines — the trailing
-    // (just-typed, empty) line has no blame row. It must still get an Uncommitted
-    // cell so it shows colour like the rest, not a dark gap.
+  it('does NOT fabricate "Uncommitted" for a line the blame did not cover (no stale last-line marker)', async () => {
+    // Blame returns 2 committed lines, the buffer has 3 (a phantom trailing line
+    // after the final newline, which git never blames). That line must NOT be
+    // labelled Uncommitted — otherwise adding then removing a last line strands a
+    // stale "Uncommitted" marker that never clears while the buffer is dirty. Only
+    // a real git all-zeros line is Uncommitted.
     const { provider, editor, calls } = makeProvider(
       [bl(1, A, '2026-01-01'), bl(2, A, '2026-01-01')],
       3
     );
-    // Back-fill of uncovered lines only happens while the buffer is dirty.
     (editor.document as { isDirty: boolean }).isDirty = true;
     provider.enable(editor as never, { force: true });
     await flush();
     await flush();
 
     const text = collectTextCells(calls);
-    const bg = collectTextBg(calls);
-    assert.ok(text.has(2), 'uncovered trailing line must still receive a gutter cell');
     assert.ok(
-      stripPad(text.get(2)).includes('Uncommitted'),
-      `uncovered line must read "Uncommitted"; got ${JSON.stringify(text.get(2))}`
-    );
-    assert.ok(
-      bg.get(2) !== undefined && bg.get(2) !== 'transparent',
-      'uncovered line must be tinted'
+      !stripPad(text.get(2) ?? '').includes('Uncommitted'),
+      `uncovered trailing line must not be labelled Uncommitted; got ${JSON.stringify(text.get(2))}`
     );
     provider.dispose();
   });

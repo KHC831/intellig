@@ -635,18 +635,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         });
       }
 
-      // While the buffer is DIRTY, any document line the blame did not cover (a
-      // just-typed empty line at the end of file, which git blame does not emit)
-      // is local content too — give it the Uncommitted cell so it shows colour
-      // instead of a dark gap. Gated on dirty so a clean file's phantom trailing
-      // line (the empty line after its final newline) is not mislabelled.
-      if (editor.document.isDirty) {
-        for (let line = 0; line < docLineCount; line++) {
-          if (!entries.has(line)) {
-            entries.set(line, uncommittedEntry);
-          }
-        }
-      }
+      // Lines the blame did not emit are NOT back-filled as Uncommitted: VS Code
+      // always carries one phantom empty line after a file's final newline that
+      // git never blames, so back-filling it would strand a stale "Uncommitted"
+      // marker (e.g. after adding then removing a last line). A genuinely edited /
+      // inserted line comes back from `git blame --contents -` as an all-zeros
+      // line and is handled above.
 
       // The annotation columns are fixed-width (see formatGutterText), so every
       // committed line is the same length — `maxLen` is that constant. Store it as
@@ -788,11 +782,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     for (let line = startLine; line <= startLine + added; line++) {
       shifted.set(line, uncommittedEntry);
     }
-    // Rebuild a dense map over the new document so every line has a cell.
+    // Rebuild a dense map over the new document so every line has a cell. Lines
+    // with no shifted entry stay BLANK (not Uncommitted) — only the explicitly
+    // edited/inserted rows above are marked Uncommitted.
     const lineCount = editor.document.lineCount;
     const dense = new Map<number, IGutterEntry>();
     for (let line = 0; line < lineCount; line++) {
-      dense.set(line, shifted.get(line) ?? uncommittedEntry);
+      dense.set(line, shifted.get(line) ?? BLANK_ENTRY);
     }
     this._renderState = { ...this._renderState, entries: dense };
     this._applyRenderState(editor);
