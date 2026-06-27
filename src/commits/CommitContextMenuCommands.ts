@@ -18,7 +18,11 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
-import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
+import {
+  isSelectionContiguous,
+  isContiguousFirstParentChain,
+  type IMenuStateNode,
+} from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
@@ -2635,6 +2639,16 @@ export class CommitContextMenuCommands {
     const hasMerge = commitNodes.some((n) => selectedSet.has(n.hash) && n.parentCount >= 2);
     if (hasMerge) {
       void vscode.window.showErrorMessage('Squash cannot include merge commits.');
+      return;
+    }
+    // The selection must be a single first-parent chain (one branch), not just
+    // display-contiguous — a shift-range can span interleaved branches. Re-check
+    // at perform time (the menu-enable gate is advisory and can race a stale
+    // selection), mirroring IntelliJ's checkHeadLinearHistory.
+    if (!isContiguousFirstParentChain(selectedSet, commitNodes)) {
+      void vscode.window.showErrorMessage(
+        'Squash needs commits on a single branch (one first-parent chain) — the selection spans branches.'
+      );
       return;
     }
 

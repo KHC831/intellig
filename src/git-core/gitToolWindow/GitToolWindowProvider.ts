@@ -2749,6 +2749,10 @@ export class GitToolWindowProvider
     const commitNodes: IMenuStateNode[] = this._extendedLogState.commitNodes.map((n) => ({
       hash: n.commit.hash,
       parentCount: (n.commit.parents || []).length,
+      // First parents — needed by the squash handler's perform-time
+      // first-parent-chain guard (single-branch check); without them the guard
+      // would be vacuous.
+      parents: n.commit.parents || [],
       // Carry each row's source root (merged "all roots" log) so the action
       // resolves the repo of the row clicked, not the hash-keyed index's
       // last-writer for a hash shared across roots. Undefined in single-repo

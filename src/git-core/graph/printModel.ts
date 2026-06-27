@@ -368,7 +368,10 @@ export function projectRow(
       // same lane, so the child wins). Falls back to this node's color when no
       // in-window child sits above (a tip or an off-window continuation).
       let upColor = nodeColor;
-      const lo = ownIv ? ownIv.startRow : 0;
+      // Bound the upward search to this lane's interval via the edge identity's
+      // childRow (== interval start), so it can't scan into an unrelated later
+      // reuse of the lane and stays provably identical to the color oracle.
+      const lo = ownEdge.childRow;
       for (let r = rowIndex - 1; r >= lo; r--) {
         if (nodes[r]?.graphColumn === ownLane) {
           upColor = colorForRow(r, ownLane);

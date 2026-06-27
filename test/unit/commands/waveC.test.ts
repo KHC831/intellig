@@ -631,6 +631,41 @@ describe('Rebase-driven multi-commit ops', () => {
       return editorTracker;
     }
 
+    it('rejects a cross-branch selection at perform time (no rebase, no editor)', async () => {
+      // Defence-in-depth for the squash first-parent-chain gate: even if a
+      // disabled squash item is clicked through a stale/racing enable-state, the
+      // handler must refuse a selection that spans branches. NEWEST and MID are
+      // display-contiguous but siblings (neither is the other's first parent), so
+      // the handler rejects BEFORE opening the message editor or starting a rebase.
+      const tracker = blankRebaseTracker();
+      const rebaseService = createMockRebaseService(tracker);
+      const gitService = createMockGitService(repo);
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
+      const messages = captureMessages();
+
+      const crossBranchNodes: IMenuStateNode[] = [
+        { hash: HASH_NEWEST, parentCount: 1, parents: [HASH_FAR] }, // branch A
+        { hash: HASH_MID, parentCount: 1, parents: [HASH_OLDEST] }, // branch B
+        { hash: HASH_OLDEST, parentCount: 1, parents: [HASH_FAR] },
+        { hash: HASH_FAR, parentCount: 1, parents: ['0'.repeat(40)] },
+      ];
+
+      await (cmds as unknown as CommandsInternal)._handleAction(
+        'squashCommits',
+        [HASH_NEWEST, HASH_MID],
+        crossBranchNodes
+      );
+
+      assert.strictEqual(tracker.executeCalls, 0, 'must not start a rebase across branches');
+      assert.strictEqual(tracker.startedOnto, undefined, 'must not start a rebase across branches');
+      assert.ok(
+        messages.error.some((m) => /single branch|first-parent/i.test(m.message)),
+        `expected a single-branch error, got: ${JSON.stringify(messages.error)}`
+      );
+    });
+
     it('opens the editor BEFORE the rebase (D1 — IntelliJ semantics); cancel = no git', async () => {
       const tracker = blankRebaseTracker();
       tracker.sessionCommits = [
