@@ -1333,8 +1333,12 @@ export class ShelfService implements IShelfService {
    * Inverse of the shelve classification: restore the HEAD bytes for an
    * added/modified file (delete for an add, since there is no HEAD copy), and
    * re-materialise the HEAD bytes for a deletion.
+   *
+   * Returns `true` when the working-tree revert succeeded, `false` when it
+   * failed (unlink threw, or the git checkout/reset returned a non-zero exit
+   * code). Callers push the path to failedPaths on false.
    */
-  private async revertBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<void> {
+  private async revertBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<boolean> {
     const cwd = repo.rootUri.fsPath;
     const absPath = path.join(cwd, file.path);
     if (file.binaryStatus === 'added') {
@@ -1345,7 +1349,7 @@ export class ShelfService implements IShelfService {
         this._logger.error('Refusing to revert shelved binary file outside repository root', {
           path: file.path,
         });
-        return;
+        return false;
       }
       // Refuse a non-regular (symlinked) final component rather than unlinking
       // it; the lstat-before-unlink mirrors the restore path's hardening.
@@ -1357,14 +1361,19 @@ export class ShelfService implements IShelfService {
           { path: file.path },
           error instanceof Error ? error : undefined
         );
-        return;
+        return false;
       }
       // Clear any intent-to-add staging so the file no longer shows as a change.
+      // This is best-effort; the working-tree copy is already gone at this point.
       await this._gitCli.exec(['reset', '--', file.path], { cwd, throwOnError: false });
-      return;
+      return true;
     }
     // modified or deleted → restore the committed bytes from HEAD.
-    await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], { cwd, throwOnError: false });
+    const result = await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], {
+      cwd,
+      throwOnError: false,
+    });
+    return result.exitCode === 0;
   }
 
   /**
@@ -1454,9 +1463,13 @@ export class ShelfService implements IShelfService {
 
     for (const file of shelfFiles) {
       // Binary files have no text patch to reverse — restore the HEAD bytes
-      // (or drop an added file) directly.
+      // (or drop an added file) directly. A false return means the revert
+      // failed; surface it as a partial-cleanup failure like the text paths.
       if (file.isBinary) {
-        await this.revertBinaryShelfFile(repo, file);
+        const ok = await this.revertBinaryShelfFile(repo, file);
+        if (!ok) {
+          failedPaths.push(file.path);
+        }
         continue;
       }
 

@@ -121,10 +121,11 @@ export class BlameService implements IBlameService {
       return;
     }
 
-    // Legacy fallback path used by tests that pass only a GitCli.
+    // Legacy fallback path used by tests that pass only a GitCli (no
+    // gitService). Without a gitService there is no known repoRoot, so
+    // per-repo scoped invalidation is not possible; cache entries expire via
+    // their TTL. In production the gitService path is always taken.
     const watcher = vscode.workspace.createFileSystemWatcher('**/*');
-    watcher.onDidChange((uri) => this.invalidateCache(uri.fsPath));
-    watcher.onDidDelete((uri) => this.invalidateCache(uri.fsPath));
     this._disposables.push(watcher);
   }
 
@@ -159,8 +160,8 @@ export class BlameService implements IBlameService {
       // Cache keys use the REPO-RELATIVE path (the form providers pass to getBlame),
       // but VS Code fires the watcher with an absolute fsPath. Convert here at the
       // boundary so the invalidation segment matches the key's path component.
-      watcher.onDidChange((uri) => this.invalidateCache(repoRelativePath(key, uri.fsPath)));
-      watcher.onDidDelete((uri) => this.invalidateCache(repoRelativePath(key, uri.fsPath)));
+      watcher.onDidChange((uri) => this.invalidateCache(key, repoRelativePath(key, uri.fsPath)));
+      watcher.onDidDelete((uri) => this.invalidateCache(key, repoRelativePath(key, uri.fsPath)));
       this._watchers.set(key, watcher);
     }
   }
@@ -228,18 +229,21 @@ export class BlameService implements IBlameService {
   }
 
   /**
-   * Invalidate cache entries for a file path.
+   * Invalidate cache entries for a file path within a specific repository.
    *
-   * @param filePath - The file path to invalidate
+   * Scoped to `repoRoot` so that a file change in one repo does not evict the
+   * same relative-path blame from every other repo in a multi-root workspace.
+   * Cache keys are `${repoRoot}:${path}:${revision}:${flags}` (see
+   * getCacheKey), so the `${repoRoot}:${filePath}:` prefix uniquely identifies
+   * all revisions and flag combinations for this file in this repo.
+   *
+   * @param repoRoot - The repository root path (the watcher's key)
+   * @param filePath - The repo-relative file path to invalidate
    */
-  private invalidateCache(filePath: string): void {
-    // Cache keys are `${repoRoot}:${path}:${revision}:${flags}` (see
-    // getCacheKey). Match the path as a colon-delimited segment rather than a
-    // raw substring so a change to `/repo/foo` invalidates only that file —
-    // not a sibling like `/repo/foobar` whose path merely shares the prefix.
-    const segment = `:${filePath}:`;
+  private invalidateCache(repoRoot: string, filePath: string): void {
+    const prefix = `${repoRoot}:${filePath}:`;
     for (const key of this._blameCache.keys()) {
-      if (key.includes(segment)) {
+      if (key.startsWith(prefix)) {
         this._blameCache.delete(key);
       }
     }

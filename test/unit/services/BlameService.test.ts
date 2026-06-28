@@ -937,7 +937,7 @@ filename new/location.ts
       const svc = blameService as unknown as {
         getCacheKey: (root: string, path: string) => string;
         _blameCache: Map<string, { blame: { path: string; lines: [] }; timestamp: number }>;
-        invalidateCache: (filePath: string) => void;
+        invalidateCache: (repoRoot: string, filePath: string) => void;
       };
       const root = '/test/repo';
       const keyFoo = svc.getCacheKey(root, '/test/repo/foo');
@@ -951,12 +951,46 @@ filename new/location.ts
 
       // A change to `/test/repo/foo` must invalidate only that file, not the
       // sibling `/test/repo/foobar` whose path merely shares the prefix.
-      svc.invalidateCache('/test/repo/foo');
+      svc.invalidateCache(root, '/test/repo/foo');
 
       assert.ok(!svc._blameCache.has(keyFoo), "the changed file's blame must be invalidated");
       assert.ok(
         svc._blameCache.has(keyFooBar),
         'a sibling sharing a path prefix must NOT be invalidated'
+      );
+    });
+
+    it('R4-3: invalidating a file in repoA does NOT evict the same relative path from repoB', () => {
+      // Regression: invalidateCache was matching `:${filePath}:` across ALL cache
+      // keys regardless of repoRoot, so a file change in one repo evicted the same
+      // relative-path blame in every other repo (multi-root). Only the changed
+      // repo's entry must be dropped.
+      const svc = blameService as unknown as {
+        getCacheKey: (root: string, path: string) => string;
+        _blameCache: Map<string, { blame: { path: string; lines: [] }; timestamp: number }>;
+        invalidateCache: (repoRoot: string, filePath: string) => void;
+      };
+      const repoA = '/workspaces/repoA';
+      const repoB = '/workspaces/repoB';
+      const relPath = 'src/x.ts';
+
+      const keyA = svc.getCacheKey(repoA, relPath);
+      const keyB = svc.getCacheKey(repoB, relPath);
+
+      const entry = (p: string): { blame: { path: string; lines: [] }; timestamp: number } => ({
+        blame: { path: p, lines: [] },
+        timestamp: Date.now(),
+      });
+      svc._blameCache.set(keyA, entry(relPath));
+      svc._blameCache.set(keyB, entry(relPath));
+
+      // Fire the watcher for repoA — only repoA's entry must be evicted.
+      svc.invalidateCache(repoA, relPath);
+
+      assert.ok(!svc._blameCache.has(keyA), 'repoA cache entry must be evicted');
+      assert.ok(
+        svc._blameCache.has(keyB),
+        'repoB cache entry must NOT be evicted by a repoA file change'
       );
     });
   });

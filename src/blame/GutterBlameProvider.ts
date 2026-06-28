@@ -784,6 +784,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       dense.set(line, shifted.get(line) ?? BLANK_ENTRY);
     }
     this._renderState = { ...this._renderState, entries: dense };
+    // Bump the sequence number so any in-flight updateDecorations call (which
+    // captured an older mySeq before its blame await) bails at the post-await
+    // guard rather than overwriting this freshly-shifted gutter with stale
+    // pre-edit blame.
+    ++this._decorationRequestSeq;
     this._applyRenderState(editor);
     return true;
   }
