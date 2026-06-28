@@ -58,8 +58,8 @@ function renderLoadedState(state: IHistoryTabState): string {
       ${header}
       ${toolbar}
       ${error}
-      ${list}
-      <div class="history-bottom">
+      <div class="history-main">
+        <div class="history-list-panel">${list}</div>
         <div id="history-details-panel" class="details-panel"></div>
       </div>
     </div>
@@ -252,30 +252,11 @@ export function historyTabStyles(): string {
     .history-commit-row.history-compare { outline: 1px dashed var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
     .history-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
     .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .history-bottom { display: flex; flex-direction: column; min-height: 0; max-height: 50%; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); overflow: auto; }
-    .history-details { display: flex; flex-direction: column; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
-    .history-details-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
-    .history-details-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
-    .history-details-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
-    .history-details-message { white-space: pre-wrap; word-break: break-word; }
-    .history-details-row { display: flex; gap: 8px; align-items: baseline; font-size: 0.9em; }
-    .history-details-label { color: var(--vscode-descriptionForeground); min-width: 8ch; flex: 0 0 auto; }
-    .history-details-value { color: var(--vscode-foreground); overflow-wrap: anywhere; }
-    .history-details-hashes code { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
-    .history-details-copy { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 0 6px; margin-left: 6px; cursor: pointer; font-size: 0.85em; }
-    .history-affected { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); }
-    .history-affected-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
-    .history-affected-list { flex: 1 1 auto; overflow: auto; }
-    .history-affected-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
-    .history-affected-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
-    .history-affected-row { display: grid; grid-template-columns: 2ch minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 1px 8px; }
-    .history-affected-status { font-family: var(--vscode-editor-font-family, monospace); font-weight: 600; text-align: center; }
-    .history-affected-status-added { color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b); }
-    .history-affected-status-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d); }
-    .history-affected-status-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
-    .history-affected-status-renamed, .history-affected-status-copied { color: var(--vscode-gitDecoration-renamedResourceForeground, #73c991); }
-    .history-affected-status-conflicted { color: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b); }
-    .history-affected-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Side-by-side layout matching the Log page: commit list on the left, the
+       commit-details panel on the right (not stacked below the list). */
+    .history-main { display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
+    .history-list-panel { display: flex; flex-direction: column; flex: 3 1 0; min-width: 0; overflow: hidden; }
+    .history-main > #history-details-panel { flex: 2 1 0; min-width: 0; overflow: auto; border-left: 1px solid var(--vscode-panel-border, #3c3c3c); }
   `;
 }
 
