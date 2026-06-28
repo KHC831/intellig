@@ -32,6 +32,13 @@ export interface IGraphLoadMoreController<F> {
    * repo never carries its limit into a different repo/filter.
    */
   noteFreshLoad(repo: IRepository, filter: F | undefined): void;
+  /**
+   * Called when entering the merged "All repositories" view. Clears the
+   * active single-repo state so `handleLoadMore` is a no-op until the next
+   * single-repo fresh load — prevents a scroll-to-bottom from re-running a
+   * stale single-repo load over the merged graph.
+   */
+  noteMergedLoad(): void;
   /** The limit the current load should request (base page, or grown). */
   currentLimit(): number;
   /**
@@ -63,6 +70,14 @@ export function createGraphLoadMoreController<F>(
     noteFreshLoad(r: IRepository, f: F | undefined): void {
       repo = r;
       filter = f;
+      limit = basePage;
+    },
+    noteMergedLoad(): void {
+      // Clear the active single-repo state. handleLoadMore guards on `repo`
+      // being defined, so this makes load-more a no-op until the next
+      // single-repo noteFreshLoad re-establishes the active repo.
+      repo = undefined;
+      filter = undefined;
       limit = basePage;
     },
     currentLimit(): number {

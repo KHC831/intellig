@@ -48,6 +48,7 @@ import {
   type IGraphLoadMoreController,
 } from './graphLoadMore';
 import { fetchGraphPage, buildLogScope, narrowRefsForRepo } from './graphLogPage';
+import { createStalenessGuard } from './stalenessGuard';
 
 /**
  * Initial commit-graph window — the small first chunk loaded for a FAST startup
@@ -308,15 +309,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // `hoistedLoadLogCommitsForRepo` below so the second
     // `if (ctx.services)` block can pass it into
     // `wireRepositorySelection(...)`.
-    // Scroll-to-bottom load-more state machine. Declared as a `const` just
-    // below `loadLogCommitsForRepo`; the loader reaches it through this
-    // forward closure reference (only read at call time, after both exist).
-    // Bumped on every (fresh or load-more) graph load. The background
-    // total-count resolution captures the generation at fetch time and only
-    // folds its result in if no newer load has started since — so a repo switch,
-    // filter change, or load-more can never be clobbered by a stale count that
-    // resolves late (rev-list --count on a big repo can take seconds).
-    let logLoadGeneration = 0;
+    // Shared staleness guard for all graph loaders (single-repo and merged).
+    // Each load bumps the generation at start; before calling updateLogState it
+    // checks isCurrent() so a slow, older load that resolves after a newer one
+    // started cannot overwrite the newer result. Also guards the background
+    // total-count resolution (the existing count-guard pattern).
+    const stalenessGuard = createStalenessGuard();
 
     // Per-repo snapshot of the last DEFAULT (unfiltered, first-page) log render.
     // Switching repos via the selector re-ran the full git log + count +
@@ -369,7 +367,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       loadMore?: { limit: number }
     ): Promise<void> => {
       try {
-        const myGeneration = ++logLoadGeneration;
+        const myGeneration = stalenessGuard.bump();
 
         // Stale-while-revalidate: a default (unfiltered, first-page) load is a
         // navigational repo switch. Paint the last cached render for this repo
@@ -471,6 +469,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // (only a fresh navigational load above flips on the reset flag), so
           // growing the window keeps the user on the commit they were viewing.
           //
+          // Guard: a faster, newer load may have already rendered. If so, skip
+          // — the newer result stands; don't overwrite it with our stale data.
+          if (!stalenessGuard.isCurrent(myGeneration)) {
+            return;
+          }
           // Render NOW with the total unknown (undefined → "all loaded", no
           // spinner). The exact total folds in below when its background promise
           // resolves — first paint renders without waiting on the count.
@@ -518,7 +521,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // selection) mid-interaction, which a slow count (5–10s) made
           // user-visible as the graph "resetting" when you clicked a commit.
           void totalAvailable.then((total) => {
-            if (total === undefined || myGeneration !== logLoadGeneration) {
+            if (total === undefined || !stalenessGuard.isCurrent(myGeneration)) {
               return;
             }
             ctx.gitToolWindowProvider?.applyGraphTotalAvailable(total);
@@ -710,6 +713,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         return;
       }
 
+      // Entering merged mode: disable single-repo load-more so a scroll-to-
+      // bottom cannot re-run a stale single-repo load over the merged graph.
+      graphLoadMore.noteMergedLoad();
+
+      // Capture the generation now so any newer single-repo or merged load
+      // that starts while we await the parallel fetches below will discard
+      // our result before it reaches updateLogState.
+      const myGeneration = stalenessGuard.bump();
+
       try {
         // ONE scope object (buildLogScope) so the merged view applies the same
         // filter mapping as the single-repo graph — including the "Message or
@@ -810,6 +822,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         const { headHash, headBranchName } = resolveLogHeadAnchor(true, undefined);
 
         if (ctx.gitToolWindowProvider) {
+          // Guard: skip if a newer load (single-repo switch or a second merged
+          // load) started while we were fetching. The newer result stands.
+          if (!stalenessGuard.isCurrent(myGeneration)) {
+            return;
+          }
           ctx.gitToolWindowProvider.updateLogState(
             merged,
             combinedBranchMap,

@@ -120,6 +120,46 @@ describe('Graph load-more controller', () => {
   });
 });
 
+describe('Graph load-more controller — merged-mode guard (noteMergedLoad)', () => {
+  it('handleLoadMore is a no-op after noteMergedLoad clears the active repo', () => {
+    const { controller, calls } = makeController(500);
+    controller.noteFreshLoad(repoA, { branch: 'main' });
+    controller.noteMergedLoad(); // entering merged "All repositories" view
+    controller.handleLoadMore();
+    assert.strictEqual(
+      calls.length,
+      0,
+      'load-more must be a no-op in merged mode — no stale single-repo reload'
+    );
+  });
+
+  it('re-enables load-more after switching back to single-repo via noteFreshLoad', () => {
+    const { controller, calls } = makeController(500);
+    controller.noteFreshLoad(repoA, undefined);
+    controller.noteMergedLoad(); // switch to merged
+    controller.noteFreshLoad(repoB, undefined); // switch back to single-repo
+    controller.handleLoadMore();
+    assert.strictEqual(calls.length, 1, 'load-more works again after returning to single-repo');
+    assert.strictEqual(calls[0].repo, repoB, 'targets the newly-active repo');
+    assert.strictEqual(calls[0].limit, 1000, 'starts from base page again');
+  });
+
+  it('noteMergedLoad resets the limit to base so a later single-repo load starts fresh', () => {
+    const { controller, calls } = makeController(500);
+    controller.noteFreshLoad(repoA, undefined);
+    controller.handleLoadMore(); // grow to 1000
+    controller.noteMergedLoad();
+    controller.noteFreshLoad(repoA, undefined); // switch back
+    assert.strictEqual(
+      controller.currentLimit(),
+      500,
+      'limit resets to base after merged round-trip'
+    );
+    controller.handleLoadMore();
+    assert.strictEqual(calls[calls.length - 1].limit, 1000, 'grows from base, not from old 1000');
+  });
+});
+
 describe('wireGraphLoadMore — subscriber wiring', () => {
   it('subscribes to the provider emitter so a load-more request reaches the handler', () => {
     const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
