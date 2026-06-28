@@ -818,6 +818,7 @@ export function buildInlineScript(): string {
         // Handle state updates from extension
         window.addEventListener('message', event => {
           const message = event.data;
+          if (!message || typeof message !== 'object') { return; }
           if (message.type === 'scrollToCommit' && message.commitHash) {
             scrollToCommit(message.commitHash);
           }
@@ -854,25 +855,12 @@ export function buildInlineScript(): string {
             if (targetRow) {
               targetRow.classList.add('selected');
               targetRow.setAttribute('aria-selected', 'true');
-              // Only scroll when the row isn't already fully on-screen. This
-              // mirrors scrollToCommit's fullyVisible gate (and shouldScrollToRow
-              // in scrollVisibility.ts). selectCommit echoes selectGraphRow on
-              // every plain click; an unconditional smooth re-center here made
-              // the graph "jerk around" on each selection of an already-visible
-              // row. Same bug class as the branch-click "sweep from the top".
-              const panel = targetRow.closest('.graph-panel');
-              if (panel) {
-                const rowTop = targetRow.offsetTop;
-                const rowBottom = rowTop + targetRow.offsetHeight;
-                const viewportTop = panel.scrollTop;
-                const viewportBottom = viewportTop + panel.clientHeight;
-                const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
-                if (!fullyVisible) {
-                  targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-              } else {
-                targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }
+              // Only scroll when the row isn't already fully on-screen — delegate
+              // to the shared helper (scrollRowIntoViewIfNeeded) which mirrors
+              // shouldScrollToRow (scrollVisibility.ts). Unconditional
+              // smooth-scroll here caused visible "jerk" on every click of an
+              // already-visible row (same bug class as the branch-click sweep).
+              scrollRowIntoViewIfNeeded(targetRow);
             }
             refreshSelectedCount();
           }
@@ -1066,6 +1054,26 @@ export function buildInlineScript(): string {
           }
         });
 
+        // Scroll the given row into the nearest .graph-panel only when it is not
+        // already fully visible — mirrors shouldScrollToRow (scrollVisibility.ts).
+        // Shared by scrollToCommit and the selectGraphRow message handler so the
+        // "jerk on already-visible row" fix is applied consistently in both paths.
+        function scrollRowIntoViewIfNeeded(row) {
+          const panel = row.closest('.graph-panel');
+          if (panel) {
+            const rowTop = row.offsetTop;
+            const rowBottom = rowTop + row.offsetHeight;
+            const viewportTop = panel.scrollTop;
+            const viewportBottom = viewportTop + panel.clientHeight;
+            const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
+            if (!fullyVisible) {
+              row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+
         function scrollToCommit(commitHash) {
           // Commit hashes are host-rendered hex, but escape the value via
           // cssEscapeHash before building the [data-hash] attribute selector so a
@@ -1074,21 +1082,7 @@ export function buildInlineScript(): string {
           const commitRow = document.querySelector('[data-hash="' + cssEscapeHash(commitHash) + '"]');
           if (!commitRow) { return; }                       // not in DOM: no action
 
-          const panel = commitRow.closest('.graph-panel');
-          if (panel) {
-            const rowTop = commitRow.offsetTop;
-            const rowBottom = rowTop + commitRow.offsetHeight;
-            const viewportTop = panel.scrollTop;
-            const viewportBottom = viewportTop + panel.clientHeight;
-            // Mirror of shouldScrollToRow (scrollVisibility.ts) — ephemeral UI affordance (ADR-009 section 2).
-            const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
-            if (!fullyVisible) {
-              // Off-screen: smooth-glide from the CURRENT scroll position to the target.
-              commitRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          } else {
-            commitRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
+          scrollRowIntoViewIfNeeded(commitRow);
 
           // Highlight always applies (D4) — visual confirmation regardless of scroll.
           commitRow.classList.add('highlight-scroll');
@@ -2013,6 +2007,7 @@ export function buildInlineScript(): string {
         // clearing the flag — a future in-place DOM patch keeps working.
         window.addEventListener('message', function(event) {
           const message = event.data;
+          if (!message || typeof message !== 'object') { return; }
           if (message.type === 'commitsLoaded') {
             loadMoreCommitsRequested = false;
           }

@@ -17,6 +17,7 @@
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
 import type { FileStatus } from '../../interfaces/IGitService';
+import type { ICommitNode } from '../../commitGraph';
 import { buildFileTree, type FileTreeNode } from '../html/fileTree';
 import { getFileStatusColor, getFileName, mergeChangedFiles } from './htmlBuilders';
 import { findIssueReferences, issueUrl } from '../../../utils/hostingLinks';
@@ -165,6 +166,29 @@ function annotateTree(nodes: readonly FileTreeNode[]): DetailsTreeNode[] {
 /** Build the annotated file tree for a flat changed-file list. */
 function buildAnnotatedTree(files: readonly IChangedFile[]): DetailsTreeNode[] {
   return annotateTree(buildFileTree(files));
+}
+
+/**
+ * Build the ICommitDetails fields shared by all graph-node→details
+ * conversions: hash, message, body, author, date, parents, branches, tags.
+ *
+ * Excludes changedFiles, changedFilesError, and containingBranches — callers
+ * overlay those from their own pending state so the result type is spread-able
+ * into a full ICommitDetails literal.
+ */
+export function commitNodeToBaseDetails(
+  node: ICommitNode
+): Omit<ICommitDetails, 'changedFiles' | 'changedFilesError' | 'containingBranches'> {
+  return {
+    hash: node.commit.hash,
+    message: node.commit.message,
+    body: node.commit.body,
+    author: { name: node.commit.author.name, email: node.commit.author.email },
+    date: node.commit.authorDate,
+    parents: node.commit.parents || [],
+    branches: (node.branches || []).map((ref) => ref.name),
+    tags: node.tags || [],
+  };
 }
 
 /** Placeholder model shown when no commit is selected. */

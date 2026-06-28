@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
 import { safeFireAndForget } from './safeFireAndForget';
 import { getLogger } from './logger';
+import { escapeHtml } from './escapeHtml';
 
 /**
  * Abstract base class for IntelliG `WebviewViewProvider`s.
@@ -303,17 +304,4 @@ ${body}
 
     this._view = undefined;
   }
-}
-
-/**
- * Escape HTML special characters for safe injection into attribute/text
- * positions. Module-private helper for the `<title>` tag.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

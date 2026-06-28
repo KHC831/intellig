@@ -11,6 +11,7 @@
  */
 
 import { TAB_IDS, type TabId } from '../tabRouter';
+import { escapeHtml } from '../../../utils/escapeHtml';
 
 const TAB_LABELS: Record<TabId, string> = {
   log: 'Log',
@@ -161,14 +162,4 @@ export function tabStripStyles(): string {
       overflow: auto;
     }
   `;
-}
-
-/** HTML-escape a string for safe interpolation in attribute values / text. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

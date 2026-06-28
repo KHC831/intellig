@@ -23,6 +23,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { sanitizeGitError } from '../git-core/gitError';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import { escapeHtml } from '../utils/escapeHtml';
 import {
   IConflictResolutionService,
   IConflictedFile,
@@ -181,18 +182,6 @@ body {
   font-style: italic;
 }
 `;
-
-/**
- * Escape HTML special characters for safe injection into element text/attrs.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 /**
  * Resolve Conflicts dialog.

@@ -33,6 +33,7 @@ import { IGitService, IMergeOptions, IRepository } from '../git-core/interfaces/
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import { escapeHtml } from '../utils/escapeHtml';
 
 /** Options for constructing a {@link MergeDialog}. */
 export interface IMergeDialogOptions {
@@ -478,13 +479,4 @@ export function showMergeDialog(
   options: IMergeDialogOptions
 ): MergeDialog {
   return new MergeDialog(context, options);
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

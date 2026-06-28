@@ -40,6 +40,7 @@ import {
 } from '../git-core/interfaces/IGitService';
 import type { PullDialog } from './PullDialog';
 import { getLogger } from '../utils/logger';
+import { escapeHtml } from '../utils/escapeHtml';
 
 // ─── Action + state types ────────────────────────────────────────────────────
 
@@ -1137,13 +1138,4 @@ function isPushAction(x: unknown): x is PushAction {
 function basename(fsPath: string): string {
   const parts = fsPath.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? fsPath;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

@@ -34,6 +34,7 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import { RebaseEditor } from './RebaseEditor';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import { escapeHtml } from '../utils/escapeHtml';
 
 /** Options for constructing a {@link RebaseDialog}. */
 export interface IRebaseDialogOptions {
@@ -684,13 +685,4 @@ export function showRebaseDialog(
     return undefined;
   }
   return new RebaseDialog(context, options);
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

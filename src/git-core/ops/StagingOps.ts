@@ -108,6 +108,12 @@ export class StagingOps {
 
     // Generate a patch that includes only the specified lines
     const patch = this.generateLinesPatch(path, lines, hunk);
+    // generateLinesPatch returns '' when the selected lines are all context
+    // (no add/delete lines chosen). Passing an empty patch to `git apply`
+    // results in a "patch is empty" error; guard and short-circuit instead.
+    if (!patch) {
+      return okAsync(undefined);
+    }
 
     return ResultAsync.fromPromise(
       this.ctx.gitCli.exec(['apply', '--cached', '-'], {

@@ -247,14 +247,17 @@ export function findRepoContainingPath(
   // resolves existing symlink components and degrades to a normalized absolute
   // path for non-existent leaves, so a not-yet-created hint path still compares
   // consistently.
-  const target = normalizePath(canonicalizeFsPath(path));
+  // Use the canonical path-identity helper (normalizeRepoPathString) so
+  // drive-letter casing differences on Windows ("C:/..." vs "c:/...") are
+  // folded before the ancestor comparison. normalizePath only unifies slashes.
+  const target = normalizeRepoPathString(canonicalizeFsPath(path));
   if (!target) {
     return undefined;
   }
   let best: IRepository | undefined;
   let bestLen = -1;
   for (const repo of repositories) {
-    const root = normalizePath(canonicalizeFsPath(repo.rootUri.fsPath));
+    const root = normalizeRepoPathString(canonicalizeFsPath(repo.rootUri.fsPath));
     if (!root) {
       continue;
     }

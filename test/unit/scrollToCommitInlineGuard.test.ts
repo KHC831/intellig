@@ -1,23 +1,19 @@
 /**
- * Structural guard test for the inline `scrollToCommit` visibility gate.
+ * Structural guard test for the `scrollToCommit` visibility gate.
  *
  * This is an ADR-007-style structural guard: the inline webview
- * `scrollToCommit(commitHash)` function cannot import the pure
- * `scrollVisibility.ts` predicate, so it MIRRORS the predicate's contract
- * inline (ADR-009 section 2 — scroll position is webview-owned ephemeral state).
+ * `scrollToCommit(commitHash)` function delegates scroll logic to the shared
+ * `scrollRowIntoViewIfNeeded` helper (scroll-math de-dup refactor). The helper
+ * mirrors the `isRowFullyVisible` contract from `scrollVisibility.ts`
+ * (ADR-009 section 2 — scroll position is webview-owned ephemeral state).
  *
- * The guard pins that mirror so a future refactor cannot regress the inline
- * scroll back to the *unconditional* `scrollIntoView` that caused the
- * branch-click "sweep from the top" bug. It asserts:
- *   - the `fullyVisible` visibility gate is present (mirror of
+ * The guard pins:
+ *   - `scrollToCommit` delegates to `scrollRowIntoViewIfNeeded(commitRow)`,
+ *   - the shared helper contains the `fullyVisible` gate (mirror of
  *     `isRowFullyVisible`),
  *   - the early-return for a missing row element is present (Req 2.3), and
- *   - the `scrollIntoView` call is GUARDED by `if (!fullyVisible)` rather than
- *     firing unconditionally.
- *
- * The smooth animation itself is intentionally retained, so the guard
- * checks for the visibility gate, NOT for the absence of `behavior: 'smooth'`.
- *
+ *   - the `scrollIntoView` call is guarded by `if (!fullyVisible)` in the
+ *     helper rather than firing unconditionally.
  */
 
 import '../setup';
@@ -37,6 +33,34 @@ function createMockWebview(): Webview {
     postMessage: () => Promise.resolve(true),
     asWebviewUri: (uri: Uri) => uri,
   } as unknown as Webview;
+}
+
+/**
+ * Extract a brace-matched block beginning at the first `{` after the header
+ * pattern match. Returns the block (inclusive of braces) or null.
+ */
+function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
+  const match = headerPattern.exec(body);
+  if (!match) {
+    return null;
+  }
+  const openBraceIdx = body.indexOf('{', match.index);
+  if (openBraceIdx === -1) {
+    return null;
+  }
+  let depth = 0;
+  for (let i = openBraceIdx; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return body.substring(openBraceIdx, i + 1);
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -73,31 +97,43 @@ function extractScrollToCommitBody(html: string): string {
 describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () => {
   let provider: GitToolWindowProvider;
   let mockWebview: Webview;
+  let html: string;
   let scrollBody: string;
+  let helperBody: string;
 
   beforeEach(() => {
     const extensionUri = Uri.file('/test/extension');
     provider = new GitToolWindowProvider(extensionUri);
     mockWebview = createMockWebview();
-    const html = provider._getThreePanelHtmlContent(
+    html = provider._getThreePanelHtmlContent(
       mockWebview as unknown as import('vscode').Webview,
       []
     );
     scrollBody = extractScrollToCommitBody(html);
+
+    const hb = extractBlockAfter(html, /function scrollRowIntoViewIfNeeded\s*\(/);
+    assert.ok(hb, 'rendered inline script must define a scrollRowIntoViewIfNeeded helper');
+    helperBody = hb;
   });
 
   afterEach(() => {
     provider.dispose();
   });
 
-  it('contains the fullyVisible visibility gate (mirror of isRowFullyVisible)', () => {
-    // The exact comparison pinned by scrollVisibility.isRowFullyVisible.
-    // Robust to surrounding whitespace, strict about the comparison itself.
+  it('delegates scroll to the shared scrollRowIntoViewIfNeeded helper', () => {
+    const delegateCall = /scrollRowIntoViewIfNeeded\s*\(\s*commitRow\s*\)/;
+    assert.ok(
+      delegateCall.test(scrollBody),
+      'scrollToCommit must call scrollRowIntoViewIfNeeded(commitRow) rather than inlining scroll logic'
+    );
+  });
+
+  it('helper contains the fullyVisible visibility gate (mirror of isRowFullyVisible)', () => {
     const gate =
       /const\s+fullyVisible\s*=\s*rowTop\s*>=\s*viewportTop\s*&&\s*rowBottom\s*<=\s*viewportBottom/;
     assert.ok(
-      gate.test(scrollBody),
-      'scrollToCommit must compute `fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom`'
+      gate.test(helperBody),
+      'scrollRowIntoViewIfNeeded must compute `fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom`'
     );
   });
 
@@ -109,64 +145,22 @@ describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () =>
     );
   });
 
-  it('guards the scroll behind `if (!fullyVisible)` — not an unconditional scroll', () => {
-    // The visibility gate must IMMEDIATELY precede a scrollIntoView call, i.e.
-    // the scroll only fires inside the `if (!fullyVisible)` branch. Whitespace
-    // (including newlines/comments) between the guard and the call is allowed,
-    // but there must be no intervening statement.
+  it('helper guards the scroll behind `if (!fullyVisible)` — not an unconditional scroll', () => {
     const guardedScroll =
-      /if\s*\(\s*!\s*fullyVisible\s*\)\s*\{(?:\s*\/\/[^\n]*\n)*\s*commitRow\.scrollIntoView\s*\(/;
+      /if\s*\(\s*!\s*fullyVisible\s*\)\s*\{(?:\s*\/\/[^\n]*\n)*\s*row\.scrollIntoView\s*\(/;
     assert.ok(
-      guardedScroll.test(scrollBody),
-      'the `if (!fullyVisible)` block must immediately precede the commitRow.scrollIntoView call'
+      guardedScroll.test(helperBody),
+      'scrollRowIntoViewIfNeeded must guard scrollIntoView behind `if (!fullyVisible)`'
     );
   });
 
-  it('does not call scrollIntoView unconditionally inside the panel-present branch', () => {
-    // Regression guard: inside the panel-present path the ONLY scrollIntoView
-    // must be the guarded one (an unconditional call would scroll every time),
-    // so a `scrollIntoView` must never appear without a preceding
-    // `!fullyVisible` check on the same path. We assert every scrollIntoView
-    // occurrence in the body is either the guarded one or the panel-missing
-    // fallback (the `else` branch), and that none sits at the top level of the
-    // function before the visibility computation.
-    const beforeGate = scrollBody.slice(0, scrollBody.indexOf('const fullyVisible'));
+  it('scrollToCommit itself has no direct scrollIntoView call (all scrolling goes through helper)', () => {
     assert.ok(
-      !/commitRow\.scrollIntoView\s*\(/.test(beforeGate),
-      'scrollToCommit must NOT scroll before computing the visibility gate (no unconditional scroll)'
+      !/scrollIntoView\s*\(/.test(scrollBody),
+      'scrollToCommit must not call scrollIntoView directly — only via scrollRowIntoViewIfNeeded'
     );
   });
 });
-
-/**
- * Extract a brace-matched block that begins at the first `{` following the
- * first match of `headerPattern` within `body`. Returns the substring from the
- * opening brace through its matching closing brace (inclusive). Returns null
- * when the header or a balanced block cannot be found.
- */
-function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
-  const match = headerPattern.exec(body);
-  if (!match) {
-    return null;
-  }
-  const openBraceIdx = body.indexOf('{', match.index);
-  if (openBraceIdx === -1) {
-    return null;
-  }
-  let depth = 0;
-  for (let i = openBraceIdx; i < body.length; i++) {
-    const ch = body[i];
-    if (ch === '{') {
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-      if (depth === 0) {
-        return body.substring(openBraceIdx, i + 1);
-      }
-    }
-  }
-  return null;
-}
 
 /**
  * Structural contract test for the "highlight always applies" behavior.
@@ -174,16 +168,9 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
  * Decision D4 of the design ("Keep the highlight-scroll emphasis in all cases,
  * including when no scroll happens") requires that the `highlight-scroll`
  * emphasis is applied on EVERY call to the inline `scrollToCommit`, regardless
- * of which visibility branch is taken. Concretely, the
- * `classList.add('highlight-scroll')` call must live OUTSIDE and AFTER the
- * `if (panel) { ... } else { ... }` visibility/scroll branching, so it runs
- * whether or not a scroll happened.
- *
- * This guard pins that contract so a future refactor cannot accidentally move
- * the highlight inside a scroll branch (which would drop the selection emphasis
- * when the target row is already fully visible — or only
- * highlight after scrolling).
- *
+ * of whether a scroll happened. The `commitRow.classList.add('highlight-scroll')`
+ * call must appear AFTER `scrollRowIntoViewIfNeeded(commitRow)` — which may or
+ * may not scroll — so the highlight is unconditional.
  */
 describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', () => {
   let provider: GitToolWindowProvider;
@@ -206,7 +193,6 @@ describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', 
   });
 
   it('adds the highlight-scroll class to the row (Req 3.2, 3.3)', () => {
-    // Robust to whitespace and quote style.
     const highlightAdd = /commitRow\.classList\.add\(\s*['"]highlight-scroll['"]\s*\)/;
     assert.ok(
       highlightAdd.test(scrollBody),
@@ -214,40 +200,28 @@ describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', 
     );
   });
 
-  it('applies the highlight AFTER the visibility/scroll branching, regardless of branch (D4, Req 3.2, 3.3)', () => {
-    // The highlight must run whether or not a scroll happened, so it has to sit
-    // after BOTH scroll branches (the `if (!fullyVisible)` scroll and the
-    // panel-missing `else` fallback). The last scrollIntoView occurrence marks
-    // the end of the branching; the highlight add must come strictly after it.
+  it('applies the highlight AFTER the helper call, regardless of whether a scroll occurred (D4)', () => {
+    // The highlight must run unconditionally: it must appear after the
+    // scrollRowIntoViewIfNeeded(commitRow) call so it fires whether or not a
+    // scroll happened.
+    const helperCallIdx = scrollBody.indexOf('scrollRowIntoViewIfNeeded(commitRow)');
+    assert.notStrictEqual(
+      helperCallIdx,
+      -1,
+      'expected scrollRowIntoViewIfNeeded(commitRow) call in scrollToCommit'
+    );
+
     const highlightAdd = /commitRow\.classList\.add\(\s*['"]highlight-scroll['"]\s*\)/;
     const highlightMatch = highlightAdd.exec(scrollBody);
-    assert.ok(highlightMatch, 'expected a highlight-scroll classList.add call in the body');
-
-    const lastScrollIdx = scrollBody.lastIndexOf('scrollIntoView');
-    assert.notStrictEqual(
-      lastScrollIdx,
-      -1,
-      'expected at least one scrollIntoView call in the body'
+    assert.ok(
+      highlightMatch,
+      'expected a highlight-scroll classList.add call in scrollToCommit body'
     );
 
     assert.ok(
-      highlightMatch.index > lastScrollIdx,
-      "the 'highlight-scroll' classList.add must appear AFTER the last scrollIntoView " +
-        '(i.e. outside and after the if (panel) { ... } else { ... } branching), ' +
-        'so the highlight applies regardless of the scroll decision'
-    );
-  });
-
-  it('does not nest the highlight inside the `if (!fullyVisible)` scroll block (Req 3.2)', () => {
-    // The `if (!fullyVisible)` block should perform the scroll only; the
-    // highlight must NOT be nested inside it (which would skip the highlight
-    // when the row is already fully visible).
-    const guardedBlock = extractBlockAfter(scrollBody, /if\s*\(\s*!\s*fullyVisible\s*\)/);
-    assert.ok(guardedBlock, 'expected to find the if (!fullyVisible) { ... } block in the body');
-    const highlightAdd = /commitRow\.classList\.add\(\s*['"]highlight-scroll['"]\s*\)/;
-    assert.ok(
-      !highlightAdd.test(guardedBlock),
-      "the 'highlight-scroll' classList.add must NOT be nested inside the if (!fullyVisible) block"
+      highlightMatch.index > helperCallIdx,
+      "the 'highlight-scroll' classList.add must appear AFTER the scrollRowIntoViewIfNeeded call " +
+        'so the highlight fires regardless of whether a scroll happened'
     );
   });
 
@@ -268,16 +242,10 @@ describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', 
  * `.graph-panel`, and the inline IIFE `autoScrollOnLoad` reads that attribute
  * after the re-render and calls the shared `scrollToCommit(targetHash)`. Because
  * it DELEGATES to the shared function rather than duplicating scroll logic, it
- * inherits the visibility gate added in for free.
+ * inherits the visibility gate added for free.
  *
  * This guard pins that delegation so a future refactor cannot reintroduce a
- * separate/unconditional `scrollIntoView` inside `autoScrollOnLoad` (which would
- * bypass the visibility gate and bring back the "sweep from the top" bug on the
- * jump-to-hash path). It asserts:
- *   - `autoScrollOnLoad` exists and calls `scrollToCommit(` (delegation intact),
- *     and
- *   - `autoScrollOnLoad`'s body does NOT contain its own `scrollIntoView(` call
- *     (no duplicated scroll logic — it inherits the gate from the shared fn).
+ * separate/unconditional `scrollIntoView` inside `autoScrollOnLoad`.
  *
  * _Requirements: 4.3, 5.3_
  */

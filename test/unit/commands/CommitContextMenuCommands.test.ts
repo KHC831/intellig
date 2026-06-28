@@ -1055,6 +1055,29 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('reset failed'));
     });
+
+    it('accepts an abbreviated hash that is a prefix of the full HEAD hash (prefix-match parity)', async () => {
+      // Regression: the old exact-equality check `hash !== headHash` silently
+      // rejected abbreviated 7-char hashes even when they matched HEAD.
+      // The fix uses the same prefix-match as _handleEditCommitMessage so both
+      // operations stay consistent.
+      createMessageTrackers();
+      // headHash is the full 40-char hash; abbrevHash is the first 7 chars
+      const abbrevHash = testHash.slice(0, 7);
+      const repo = createMockRepo(testHash); // HEAD = full hash
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('undoCommit', [abbrevHash]);
+
+      const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
+      assert.ok(call, 'git reset must be called when abbreviated hash matches HEAD via prefix');
+      const args = call.args[0] as string[];
+      assert.deepStrictEqual(args, ['reset', '--soft', 'HEAD~1']);
+    });
   });
 
   // ─── dropCommit ───────────────────────────────────────────────────────────

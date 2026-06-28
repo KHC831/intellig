@@ -19,6 +19,7 @@ import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository, ResetMode } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import { escapeHtml } from '../utils/escapeHtml';
 
 /**
  * git's error when a `reset` (esp. `--keep`/`--merge`) would clobber
@@ -644,13 +645,4 @@ export function showResetDialog(
 
 function isResetMode(x: unknown): x is ResetMode {
   return x === 'soft' || x === 'mixed' || x === 'hard' || x === 'keep';
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

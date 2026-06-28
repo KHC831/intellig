@@ -2128,7 +2128,12 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
     const headHash = repo.head?.commit;
 
-    if (!headHash || hash !== headHash) {
+    // Use the same prefix-match as _handleEditCommitMessage so an abbreviated
+    // hash (e.g. 7-char log hash) is recognised as HEAD even when headHash is
+    // the full 40-char SHA. Exact equality silently rejects abbreviated hashes.
+    const isHead =
+      headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
+    if (!isHead) {
       void vscode.window.showErrorMessage('Undo Commit can only be performed on the HEAD commit.');
       return;
     }

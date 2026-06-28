@@ -18,12 +18,15 @@ export interface ILRUCacheOptions<K, V> {
 }
 
 /**
- * Cache entry with metadata for LRU tracking.
+ * Cache entry with metadata.
+ *
+ * LRU ordering is tracked by Map insertion order (not a field here). The
+ * `timestamp` field is used only for TTL expiration checks in `get`/`has`.
  */
 interface ICacheEntry<V> {
   value: V;
+  /** Time of insertion or last update; used for TTL expiration. */
   timestamp: number;
-  lastAccessed: number;
 }
 
 /**
@@ -32,8 +35,13 @@ interface ICacheEntry<V> {
  * Features:
  * - Configurable maximum size with automatic eviction
  * - Optional TTL (time-to-live) for entries
- * - O(1) get/set operations using Map
+ * - O(1) get/set/evict operations using Map insertion order
  * - Eviction callback support
+ *
+ * LRU ordering is maintained via Map insertion order: every `get` and `set`
+ * on an existing key delete-and-reinsert the entry so it moves to the end
+ * (MRU position). `_evictLRU` then reads the first key via
+ * `_cache.keys().next()` (O(1)) rather than scanning all entries.
  *
  * @template K - Key type
  * @template V - Value type
@@ -53,6 +61,9 @@ export class LRUCache<K, V> {
   /**
    * Get a value from the cache.
    *
+   * Promotes the entry to the MRU position via delete-and-reinsert so the
+   * Map insertion order always reflects recency.
+   *
    * @param key - The key to look up
    * @returns The cached value, or undefined if not found or expired
    */
@@ -69,8 +80,10 @@ export class LRUCache<K, V> {
       return undefined;
     }
 
-    // Update last accessed time for LRU tracking
-    entry.lastAccessed = Date.now();
+    // Promote to MRU position: remove from current insertion-order slot and
+    // re-insert at the end so _evictLRU() finds the actual LRU at the front.
+    this._cache.delete(key);
+    this._cache.set(key, entry);
 
     return entry.value;
   }
@@ -78,16 +91,19 @@ export class LRUCache<K, V> {
   /**
    * Set a value in the cache.
    *
+   * When updating an existing key the entry is delete-and-reinserted (MRU
+   * promotion, same as `get`). New entries are appended at the end (MRU).
+   *
    * @param key - The key to store
    * @param value - The value to store
    */
   set(key: K, value: V): void {
-    // If key exists, update it
+    const now = Date.now();
+
+    // If key exists, update and promote to MRU position.
     if (this._cache.has(key)) {
-      const entry = this._cache.get(key)!;
-      entry.value = value;
-      entry.timestamp = Date.now();
-      entry.lastAccessed = Date.now();
+      this._cache.delete(key);
+      this._cache.set(key, { value, timestamp: now });
       return;
     }
 
@@ -96,13 +112,8 @@ export class LRUCache<K, V> {
       this._evictLRU();
     }
 
-    // Add new entry
-    const now = Date.now();
-    this._cache.set(key, {
-      value,
-      timestamp: now,
-      lastAccessed: now,
-    });
+    // Append new entry at the MRU end.
+    this._cache.set(key, { value, timestamp: now });
   }
 
   /**
@@ -190,20 +201,15 @@ export class LRUCache<K, V> {
 
   /**
    * Evict the least recently used entry.
+   *
+   * Because every access (get/set) promotes the entry to the MRU end via
+   * delete-and-reinsert, the LRU entry is always the FIRST key in Map
+   * insertion order — readable in O(1) via `keys().next()`.
    */
   private _evictLRU(): void {
-    let oldestKey: K | undefined;
-    let oldestTime = Infinity;
-
-    for (const [key, entry] of this._cache) {
-      if (entry.lastAccessed < oldestTime) {
-        oldestTime = entry.lastAccessed;
-        oldestKey = key;
-      }
-    }
-
-    if (oldestKey !== undefined) {
-      this.delete(oldestKey);
+    const lruKey = this._cache.keys().next().value;
+    if (lruKey !== undefined) {
+      this.delete(lruKey);
     }
   }
 

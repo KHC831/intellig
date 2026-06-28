@@ -19,6 +19,14 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { isRebaseAction } from '../git-core/rebaseTodo';
 
 /**
+ * Maximum length (in characters) for a rebase commit message accepted from
+ * the webview. Defense-in-depth: the webview is untrusted input, so cap the
+ * value before it reaches the git todo-file writer. 64 KiB is well above any
+ * practical commit-message length; messages beyond this are silently truncated.
+ */
+export const MAX_REBASE_MESSAGE_LENGTH = 65536;
+
+/**
  * Options for opening the rebase editor
  */
 export interface IRebaseEditorOptions {
@@ -365,7 +373,9 @@ export class RebaseEditor {
     }
     const commit = this._session.commits.find((c) => c.hash === hash);
     if (commit) {
-      commit.newMessage = newMessage;
+      // Cap the message length before storing: the webview is untrusted input
+      // and an unbounded string would be written verbatim to the todo file.
+      commit.newMessage = newMessage.slice(0, MAX_REBASE_MESSAGE_LENGTH);
     }
   }
 

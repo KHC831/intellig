@@ -708,6 +708,53 @@ export class BranchContextMenuCommands {
   }
 
   // ============================================
+  // Shared error-handling helpers
+  // ============================================
+
+  /**
+   * Handle the outer dirty-working-tree checkout error pattern.
+   *
+   * Three cases:
+   * - Worktree conflict (git refuses atomically) → shows a targeted error,
+   *   returns `null` (caller must not show a second error).
+   * - Dirty tree (`would be overwritten` / `Please commit`) → shows the
+   *   Stash & Switch / Force Checkout / Cancel dialog, returns the user's
+   *   choice or `null` on Cancel.
+   * - Any other error → shows `fallbackError` and returns `null`.
+   *
+   * Callers act on the returned choice and provide their own
+   * branch-specific stash/force logic.
+   */
+  private async _handleDirtyTreeError(
+    errorMessage: string,
+    dirtyHeader: string,
+    fallbackError: string
+  ): Promise<'Stash & Switch' | 'Force Checkout' | null> {
+    const worktreeMessage = worktreeConflictMessage(errorMessage);
+    if (worktreeMessage) {
+      void vscode.window.showErrorMessage(worktreeMessage);
+      return null;
+    }
+    if (
+      errorMessage.includes('would be overwritten') ||
+      errorMessage.includes('Please commit your changes or stash them')
+    ) {
+      const choice = await vscode.window.showWarningMessage(
+        dirtyHeader,
+        'Stash & Switch',
+        'Force Checkout',
+        'Cancel'
+      );
+      if (choice === 'Stash & Switch' || choice === 'Force Checkout') {
+        return choice as 'Stash & Switch' | 'Force Checkout';
+      }
+      return null;
+    }
+    void vscode.window.showErrorMessage(fallbackError);
+    return null;
+  }
+
+  // ============================================
   // Local Branch Command Handlers
   // ============================================
 
@@ -765,69 +812,53 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const worktreeMessage = worktreeConflictMessage(errorMessage);
-      if (worktreeMessage) {
-        // git refuses a worktree-conflict checkout atomically — there is
-        // nothing to stash or force around, so surface an actionable
-        // message instead of the Stash/Force prompt.
-        void vscode.window.showErrorMessage(worktreeMessage);
-      } else if (
-        errorMessage.includes('would be overwritten') ||
-        errorMessage.includes('Please commit your changes or stash them')
-      ) {
-        const choice = await vscode.window.showWarningMessage(
-          dirtyHeader(),
-          'Stash & Switch',
-          'Force Checkout',
-          'Cancel'
-        );
-        if (choice === 'Stash & Switch') {
-          try {
-            await this._gitService.stash(repo, stashLabel()).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            await this._gitService.checkout(repo, ref).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            // Stash + checkout pair moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(stashSuccessToast());
-            this._branchTreeProvider.refresh();
-          } catch (stashError) {
-            const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
-            );
-          }
-        } else if (choice === 'Force Checkout') {
-          try {
-            await this._gitService.checkout(repo, ref, { force: true }).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            // Force checkout moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(forceSuccessToast());
-            this._branchTreeProvider.refresh();
-          } catch (forceError) {
-            const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
-            );
-          }
+      const choice = await this._handleDirtyTreeError(
+        errorMessage,
+        dirtyHeader(),
+        `Failed to checkout branch: ${sanitizeGitError(errorMessage)}`
+      );
+      if (choice === 'Stash & Switch') {
+        try {
+          await this._gitService.stash(repo, stashLabel()).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          await this._gitService.checkout(repo, ref).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          // Stash + checkout pair moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(stashSuccessToast());
+          this._branchTreeProvider.refresh();
+        } catch (stashError) {
+          const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+          );
         }
-      } else {
-        void vscode.window.showErrorMessage(
-          `Failed to checkout branch: ${sanitizeGitError(errorMessage)}`
-        );
+      } else if (choice === 'Force Checkout') {
+        try {
+          await this._gitService.checkout(repo, ref, { force: true }).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          // Force checkout moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(forceSuccessToast());
+          this._branchTreeProvider.refresh();
+        } catch (forceError) {
+          const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
+          );
+        }
       }
     }
   }
@@ -1746,94 +1777,79 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const worktreeMessage = worktreeConflictMessage(errorMessage);
-      if (worktreeMessage) {
-        // git refuses a worktree-conflict checkout atomically — surface an
-        // actionable message rather than the Stash/Force prompt.
-        void vscode.window.showErrorMessage(worktreeMessage);
-      } else if (
-        errorMessage.includes('would be overwritten') ||
-        errorMessage.includes('Please commit your changes or stash them')
-      ) {
-        const choice = await vscode.window.showWarningMessage(
-          `Cannot switch to '${displayName}': local changes would be overwritten.`,
-          'Stash & Switch',
-          'Force Checkout',
-          'Cancel'
-        );
-        if (choice === 'Stash & Switch') {
-          try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${displayName}`).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            await checkout();
-            const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
-            if (result.success) {
-              void vscode.window.showInformationMessage(
-                `Stashed changes, checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
-              );
-            } else if (result.conflicts && result.conflicts.length > 0) {
-              await this._surfaceRebaseConflicts(
-                repo,
-                result.conflicts,
-                previousCurrentBranch,
-                result.rebaseInProgress
-              );
-            } else {
-              // Non-conflict failure: surface the underlying git error.
-              const reason = result.failureReason ?? 'unknown error (no output from git)';
-              void vscode.window.showErrorMessage(
-                `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
-              );
+      const choice = await this._handleDirtyTreeError(
+        errorMessage,
+        `Cannot switch to '${displayName}': local changes would be overwritten.`,
+        `Failed to checkout and rebase: ${sanitizeGitError(errorMessage)}`
+      );
+      if (choice === 'Stash & Switch') {
+        try {
+          await this._gitService.stash(repo, `Auto-stash before checkout ${displayName}`).match(
+            () => undefined,
+            (e) => {
+              throw e;
             }
-            // Stash + checkout + rebase moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            this._branchTreeProvider.refresh();
-          } catch (stashError) {
-            const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
+          );
+          await checkout();
+          const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
+          if (result.success) {
+            void vscode.window.showInformationMessage(
+              `Stashed changes, checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
+            );
+          } else if (result.conflicts && result.conflicts.length > 0) {
+            await this._surfaceRebaseConflicts(
+              repo,
+              result.conflicts,
+              previousCurrentBranch,
+              result.rebaseInProgress
+            );
+          } else {
+            // Non-conflict failure: surface the underlying git error.
+            const reason = result.failureReason ?? 'unknown error (no output from git)';
             void vscode.window.showErrorMessage(
-              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+              `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
             );
           }
-        } else if (choice === 'Force Checkout') {
-          try {
-            await checkout(true);
-            const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
-            if (result.success) {
-              void vscode.window.showInformationMessage(
-                `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
-              );
-            } else if (result.conflicts && result.conflicts.length > 0) {
-              await this._surfaceRebaseConflicts(
-                repo,
-                result.conflicts,
-                previousCurrentBranch,
-                result.rebaseInProgress
-              );
-            } else {
-              // Non-conflict failure: surface the underlying git error.
-              const reason = result.failureReason ?? 'unknown error (no output from git)';
-              void vscode.window.showErrorMessage(
-                `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
-              );
-            }
-            // Force checkout + rebase moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            this._branchTreeProvider.refresh();
-          } catch (forceError) {
-            const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to force checkout and rebase: ${sanitizeGitError(forceMsg)}`
-            );
-          }
+          // Stash + checkout + rebase moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
+          this._branchTreeProvider.refresh();
+        } catch (stashError) {
+          const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+          );
         }
-      } else {
-        void vscode.window.showErrorMessage(
-          `Failed to checkout and rebase: ${sanitizeGitError(errorMessage)}`
-        );
+      } else if (choice === 'Force Checkout') {
+        try {
+          await checkout(true);
+          const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
+          if (result.success) {
+            void vscode.window.showInformationMessage(
+              `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
+            );
+          } else if (result.conflicts && result.conflicts.length > 0) {
+            await this._surfaceRebaseConflicts(
+              repo,
+              result.conflicts,
+              previousCurrentBranch,
+              result.rebaseInProgress
+            );
+          } else {
+            // Non-conflict failure: surface the underlying git error.
+            const reason = result.failureReason ?? 'unknown error (no output from git)';
+            void vscode.window.showErrorMessage(
+              `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
+            );
+          }
+          // Force checkout + rebase moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
+          this._branchTreeProvider.refresh();
+        } catch (forceError) {
+          const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to force checkout and rebase: ${sanitizeGitError(forceMsg)}`
+          );
+        }
       }
     }
   }
@@ -2057,78 +2073,63 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const worktreeMessage = worktreeConflictMessage(errorMessage);
-      if (worktreeMessage) {
-        // git refuses a worktree-conflict checkout atomically — surface an
-        // actionable message rather than the Stash/Force prompt.
-        void vscode.window.showErrorMessage(worktreeMessage);
-      } else if (
-        errorMessage.includes('would be overwritten') ||
-        errorMessage.includes('Please commit your changes or stash them')
-      ) {
-        const choice = await vscode.window.showWarningMessage(
-          `Cannot switch to '${branchName}': local changes would be overwritten.`,
-          'Stash & Switch',
-          'Force Checkout',
-          'Cancel'
-        );
-        if (choice === 'Stash & Switch') {
-          try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            // `-B` create-or-resets regardless of whether a local exists.
-            await this._gitService.checkout(repo, branchName, { forceCreate: true, track }).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            // Stash + checkout moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(
-              `Stashed changes and switched to '${branchName}'`
-            );
-            this._branchTreeProvider.refresh();
-          } catch (stashError) {
-            const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
-            );
-          }
-        } else if (choice === 'Force Checkout') {
-          try {
-            // `-B` create-or-resets regardless of whether a local exists.
-            await this._gitService
-              .checkout(repo, branchName, {
-                forceCreate: true,
-                force: true,
-                track,
-              })
-              .match(
-                () => undefined,
-                (e) => {
-                  throw e;
-                }
-              );
-            // Force checkout moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
-            this._branchTreeProvider.refresh();
-          } catch (forceError) {
-            const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
-            );
-          }
+      const choice = await this._handleDirtyTreeError(
+        errorMessage,
+        `Cannot switch to '${branchName}': local changes would be overwritten.`,
+        `Failed to checkout branch: ${sanitizeGitError(errorMessage)}`
+      );
+      if (choice === 'Stash & Switch') {
+        try {
+          await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          // `-B` create-or-resets regardless of whether a local exists.
+          await this._gitService.checkout(repo, branchName, { forceCreate: true, track }).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          // Stash + checkout moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(
+            `Stashed changes and switched to '${branchName}'`
+          );
+          this._branchTreeProvider.refresh();
+        } catch (stashError) {
+          const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+          );
         }
-      } else {
-        void vscode.window.showErrorMessage(
-          `Failed to checkout branch: ${sanitizeGitError(errorMessage)}`
-        );
+      } else if (choice === 'Force Checkout') {
+        try {
+          // `-B` create-or-resets regardless of whether a local exists.
+          await this._gitService
+            .checkout(repo, branchName, {
+              forceCreate: true,
+              force: true,
+              track,
+            })
+            .match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
+          // Force checkout moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
+          this._branchTreeProvider.refresh();
+        } catch (forceError) {
+          const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
+          );
+        }
       }
     }
   }

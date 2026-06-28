@@ -23,6 +23,7 @@ import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import { escapeHtml } from '../utils/escapeHtml';
 import {
   IBranchConflictContext,
   validateBranchName as validateBranchNameWithConflicts,
@@ -556,13 +557,4 @@ function stripHeadRef(name: string | undefined): string | undefined {
     return undefined;
   }
   return name.startsWith('refs/heads/') ? name.substring('refs/heads/'.length) : name;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

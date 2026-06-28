@@ -502,7 +502,11 @@ export class StashTagHistoryOps {
     // any `--`/pathspec below.
     const refs = options?.refs ?? (options?.ref ? [options.ref] : []);
     for (const ref of refs) {
-      if (ref.startsWith('-') || ref.startsWith('.')) {
+      if (
+        ref.startsWith('-') ||
+        ref.startsWith('.') ||
+        ref.split('/').some((seg) => seg.startsWith('-'))
+      ) {
         throw new InvalidArgumentError(`Invalid ref: ${ref}`);
       }
       args.push(ref);
@@ -627,7 +631,11 @@ export class StashTagHistoryOps {
     // Mirror getLog's multi-ref / multi-path UNION so the count matches the list.
     const refs = options?.refs ?? (options?.ref ? [options.ref] : []);
     for (const ref of refs) {
-      if (ref.startsWith('-') || ref.startsWith('.')) {
+      if (
+        ref.startsWith('-') ||
+        ref.startsWith('.') ||
+        ref.split('/').some((seg) => seg.startsWith('-'))
+      ) {
         throw new InvalidArgumentError(`Invalid ref: ${ref}`);
       }
       args.push(ref);

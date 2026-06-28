@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { escapeHtml } from '../utils/escapeHtml';
 import { IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -79,19 +80,6 @@ type OutgoingMessage =
 
 const VIEW_TYPE = 'intellig.applyPatchDialog';
 const TITLE = 'Apply Patch';
-
-/**
- * Escape HTML special characters for safe injection into text / attribute
- * positions.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 /**
  * Cap preview output at this many lines to keep the webview responsive when

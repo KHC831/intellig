@@ -1,5 +1,5 @@
 /**
- * Structural guard test for the inline `selectGraphRow` message-handler's
+ * Structural guard test for the `selectGraphRow` message-handler's
  * visibility gate.
  *
  * When the user plain-clicks a commit row the webview posts `selectCommit`;
@@ -15,7 +15,12 @@
  * the same class of bug as the branch-click "sweep from the top" that
  * `scrollToCommit` was hardened against.
  *
- * This guard pins the gate so the unconditional `scrollIntoView` cannot return.
+ * After the scroll-math de-dup refactor, both call sites delegate to the shared
+ * `scrollRowIntoViewIfNeeded` helper rather than repeating the gate inline. These
+ * tests pin:
+ *  - the handler calls `scrollRowIntoViewIfNeeded(targetRow)`
+ *  - the shared helper contains the `fullyVisible` gate
+ *  - the handler itself has no unconditional `scrollIntoView` call before any gate
  */
 
 import '../setup';
@@ -65,50 +70,61 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
 describe('GitToolWindowProvider - inline selectGraphRow scroll visibility guard', () => {
   let provider: GitToolWindowProvider;
   let mockWebview: Webview;
+  let html: string;
   let handlerBlock: string;
+  let helperBlock: string;
 
   beforeEach(() => {
     const extensionUri = Uri.file('/test/extension');
     provider = new GitToolWindowProvider(extensionUri);
     mockWebview = createMockWebview();
-    const html = provider._getThreePanelHtmlContent(
+    html = provider._getThreePanelHtmlContent(
       mockWebview as unknown as import('vscode').Webview,
       []
     );
-    const block = extractBlockAfter(html, /message\.type === 'selectGraphRow'/);
-    assert.ok(block, 'rendered inline script must contain a selectGraphRow handler block');
-    handlerBlock = block;
+    const hBlock = extractBlockAfter(html, /message\.type === 'selectGraphRow'/);
+    assert.ok(hBlock, 'rendered inline script must contain a selectGraphRow handler block');
+    handlerBlock = hBlock;
+
+    const helper = extractBlockAfter(html, /function scrollRowIntoViewIfNeeded\s*\(/);
+    assert.ok(helper, 'rendered inline script must contain a scrollRowIntoViewIfNeeded helper');
+    helperBlock = helper;
   });
 
   afterEach(() => {
     provider.dispose();
   });
 
-  it('computes a fullyVisible visibility gate (mirror of isRowFullyVisible)', () => {
+  it('handler delegates scroll to the shared scrollRowIntoViewIfNeeded helper', () => {
+    const delegateCall = /scrollRowIntoViewIfNeeded\s*\(\s*targetRow\s*\)/;
+    assert.ok(
+      delegateCall.test(handlerBlock),
+      'selectGraphRow handler must call scrollRowIntoViewIfNeeded(targetRow) rather than inlining scroll logic'
+    );
+  });
+
+  it('shared helper computes a fullyVisible visibility gate (mirror of isRowFullyVisible)', () => {
     const gate =
       /const\s+fullyVisible\s*=\s*rowTop\s*>=\s*viewportTop\s*&&\s*rowBottom\s*<=\s*viewportBottom/;
     assert.ok(
-      gate.test(handlerBlock),
-      'selectGraphRow must compute `fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom` before scrolling'
+      gate.test(helperBlock),
+      'scrollRowIntoViewIfNeeded must compute `fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom`'
     );
   });
 
-  it('guards the scroll behind `if (!fullyVisible)` — not an unconditional re-center', () => {
+  it('shared helper guards the scroll behind `if (!fullyVisible)` — not an unconditional re-center', () => {
     const guardedScroll =
-      /if\s*\(\s*!\s*fullyVisible\s*\)\s*\{(?:\s*\/\/[^\n]*\n)*\s*targetRow\.scrollIntoView\s*\(/;
+      /if\s*\(\s*!\s*fullyVisible\s*\)\s*\{(?:\s*\/\/[^\n]*\n)*\s*row\.scrollIntoView\s*\(/;
     assert.ok(
-      guardedScroll.test(handlerBlock),
-      'the `if (!fullyVisible)` block must immediately precede the targetRow.scrollIntoView call'
+      guardedScroll.test(helperBlock),
+      'scrollRowIntoViewIfNeeded must guard scrollIntoView behind `if (!fullyVisible)`'
     );
   });
 
-  it('does not scroll before computing the visibility gate (no unconditional scroll)', () => {
-    const gateIdx = handlerBlock.indexOf('const fullyVisible');
-    assert.notStrictEqual(gateIdx, -1, 'expected the fullyVisible gate in the handler');
-    const beforeGate = handlerBlock.slice(0, gateIdx);
+  it('handler itself has no unconditional scrollIntoView (all scrolling goes through the helper)', () => {
     assert.ok(
-      !/scrollIntoView\s*\(/.test(beforeGate),
-      'selectGraphRow must NOT scroll before computing the visibility gate'
+      !/scrollIntoView\s*\(/.test(handlerBlock),
+      'selectGraphRow handler must not call scrollIntoView directly — only via scrollRowIntoViewIfNeeded'
     );
   });
 });

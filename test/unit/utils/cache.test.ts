@@ -151,6 +151,49 @@ describe('LRUCache', () => {
       assert.strictEqual(cache.get('key1'), undefined); // Evicted (oldest)
     });
 
+    it('evicts the correct LRU entry using insertion-order (no setTimeout needed)', () => {
+      // Map insertion-order LRU: every get/set promotes the entry to the MRU
+      // end; _evictLRU() pops the front (oldest) entry — all O(1).
+      const cache = new LRUCache<string, number>({ maxSize: 3 });
+
+      cache.set('a', 1); // order: [a]
+      cache.set('b', 2); // order: [a, b]
+      cache.set('c', 3); // order: [a, b, c]
+
+      // Promote 'a' to MRU end
+      cache.get('a'); // order: [b, c, a]
+
+      // Promote 'c' to MRU end
+      cache.get('c'); // order: [b, a, c]
+
+      // 'b' is now LRU; adding 'd' evicts 'b'
+      cache.set('d', 4); // order: [a, c, d]
+
+      assert.strictEqual(cache.get('b'), undefined, 'b (LRU) must be evicted');
+      assert.strictEqual(cache.get('a'), 1, 'a must survive');
+      assert.strictEqual(cache.get('c'), 3, 'c must survive');
+      assert.strictEqual(cache.get('d'), 4, 'd (new) must survive');
+    });
+
+    it('updating an existing key via set() promotes it to MRU', () => {
+      // A set(key, newValue) on an existing key must act as an access —
+      // promoting the key to MRU so it is not the next eviction candidate.
+      const cache = new LRUCache<string, number>({ maxSize: 2 });
+
+      cache.set('x', 10); // order: [x]
+      cache.set('y', 20); // order: [x, y]
+
+      // Update 'x' — must promote it to MRU end
+      cache.set('x', 11); // order: [y, x]
+
+      // 'y' is now LRU; adding 'z' must evict 'y', NOT 'x'
+      cache.set('z', 30); // order: [x, z]
+
+      assert.strictEqual(cache.get('y'), undefined, 'y (LRU) must be evicted');
+      assert.strictEqual(cache.get('x'), 11, 'updated x must survive (promoted to MRU)');
+      assert.strictEqual(cache.get('z'), 30, 'z (new) must survive');
+    });
+
     it('should call onEvict callback when evicting', () => {
       const evicted: { key: string; value: number }[] = [];
 

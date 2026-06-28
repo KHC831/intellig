@@ -18,6 +18,7 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { escapeHtml } from '../utils/escapeHtml';
 
 interface ICommitMessageDialogMessage {
   type: 'submit' | 'cancel';
@@ -309,15 +310,6 @@ export class CommitMessageDialog extends BaseWebviewPanel {
         return;
     }
   }
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 function onMacOS(): boolean {

@@ -3,6 +3,9 @@ import type { IGtwControllerContext } from './IGtwControllerContext';
 import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
 import { FileStatus } from '../../interfaces/IGitService';
 import { FILE_STATUS_THEME_VARS, INTELLIJ_FILE_STATUS_COLORS } from '../GitToolWindowProvider';
+import { escapeHtml } from '../../../utils/escapeHtml';
+
+export { escapeHtml };
 
 /**
  * Webview HTML view builders for the transient states the Git tool window
@@ -91,20 +94,6 @@ export function buildNoRepositoryHtml(ctx: IGtwControllerContext, webview: vscod
   </script>
 </body>
 </html>`;
-}
-
-/**
- * Escape HTML special characters
- */
-export function escapeHtml(text: string): string {
-  const htmlEscapes: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  };
-  return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
 }
 
 /**

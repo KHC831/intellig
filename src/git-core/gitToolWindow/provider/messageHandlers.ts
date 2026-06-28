@@ -1,6 +1,7 @@
 import { computeRangeSelection } from '../multiSelect';
 import type { ICommitDetails } from '../../../services/interfaces';
 import type { IGtwControllerContext } from './IGtwControllerContext';
+import { commitNodeToBaseDetails } from './detailsPanelModel';
 
 /**
  * Webview message handlers extracted from the Git tool window provider's
@@ -224,14 +225,7 @@ export function selectCommit(ctx: IGtwControllerContext, hash: string): void {
     const node = ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
     if (node) {
       const commitDetails: ICommitDetails = {
-        hash: node.commit.hash,
-        message: node.commit.message,
-        body: node.commit.body,
-        author: { name: node.commit.author.name, email: node.commit.author.email },
-        date: node.commit.authorDate,
-        parents: node.commit.parents || [],
-        branches: (node.branches || []).map((ref) => ref.name),
-        tags: node.tags || [],
+        ...commitNodeToBaseDetails(node),
         changedFiles: [],
       };
       ctx.postToWebview({

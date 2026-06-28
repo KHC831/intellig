@@ -143,6 +143,40 @@ describe('StagingOps — hunk patch path quoting (Item 1)', () => {
     assert.strictEqual(header[2], '+++ "b/tab\\tname.txt"');
   });
 
+  describe('stageLines — empty-patch guard (all-context selection)', () => {
+    it('returns ok without calling git when all selected lines are context (empty patch)', async () => {
+      // A hunk with one context line and one add line. Selecting only the context
+      // line (line index 0) means no add/delete lines are selected → generateLinesPatch
+      // returns '' → stageLines must return okAsync(undefined) without calling git apply.
+      const hunkWithContextAndAdd: IHunk = {
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 2,
+        header: '@@ -1,1 +1,2 @@',
+        lines: [
+          { type: 'context', content: 'unchanged', oldLineNumber: 1, newLineNumber: 1 },
+          { type: 'add', content: 'new line', newLineNumber: 2 },
+        ],
+      };
+      const { ops, calls } = makeMockOps();
+      // Pass line index 0 (the context line only) — no add/delete lines selected.
+      const result = await ops.stageLines(repo('/repo'), 'file.txt', [0], hunkWithContextAndAdd);
+      assert.ok(result.isOk(), 'stageLines must succeed (ok) when no add/delete lines selected');
+      assert.strictEqual(calls.length, 0, 'git apply must NOT be called when the patch is empty');
+    });
+
+    it('calls git apply when at least one add/delete line is selected', async () => {
+      // modifyHunk: delete at oldLineNumber=2, add at newLineNumber=2.
+      // Passing selectedLines=[2] selects both the delete and the add,
+      // so generateLinesPatch returns a non-empty patch.
+      const { ops, calls } = makeMockOps();
+      await ops.stageLines(repo('/repo'), 'src/file.txt', [2], modifyHunk());
+      assert.strictEqual(calls.length, 1, 'git apply must be called when the patch is non-empty');
+      assert.ok(calls[0].args.includes('apply'), 'must call git apply');
+    });
+  });
+
   describe('round-trips real git apply on hostile filenames', () => {
     let tmp: string;
     let realCli: GitCli;

@@ -1255,6 +1255,162 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
+  // ─── _handleCheckout dirty-tree Stash/Force paths ────────────────────────
+  //
+  // Characterization tests that pin the Stash & Switch and Force Checkout
+  // paths for _handleCheckout and _handleCheckoutAsLocal. These paths existed
+  // before the _handleDirtyTreeError refactor and must continue to behave
+  // identically after it.
+
+  describe('_handleCheckout: dirty-tree Stash & Switch and Force Checkout paths', () => {
+    it('Stash & Switch calls stash then checkout and shows success toast', async () => {
+      const stashCalls: string[] = [];
+      let checkoutCount = 0;
+      const infoTracker = installInfoMessageTracker();
+      installWarningMessageTracker('Stash & Switch');
+
+      const gitService = createMockGitService({
+        checkout: (_repo: IRepository, _ref: string) => {
+          checkoutCount++;
+          if (checkoutCount === 1) {
+            return errAsync(
+              new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+            );
+          }
+          return okAsync(undefined);
+        },
+        stash: (_repo: IRepository, message?: string) => {
+          stashCalls.push(message ?? '');
+          return okAsync(undefined);
+        },
+      });
+      const provider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, provider);
+
+      await invokePrivateHandler(commands, '_handleCheckout', createLocalBranchTreeItem('feat/x'));
+
+      assert.strictEqual(stashCalls.length, 1, 'stash must be called once');
+      assert.ok(stashCalls[0].includes('feat/x'), 'stash label references the branch');
+      assert.strictEqual(checkoutCount, 2, 'checkout called twice (fail + retry)');
+      assert.strictEqual(infoTracker.calls.length, 1, 'success toast shown');
+      assert.ok(
+        infoTracker.calls[0].message.includes('feat/x'),
+        `success toast references branch; got: "${infoTracker.calls[0].message}"`
+      );
+    });
+
+    it('Force Checkout calls checkout with force option and shows success toast', async () => {
+      let checkoutCount = 0;
+      let forceUsed = false;
+      const infoTracker = installInfoMessageTracker();
+      installWarningMessageTracker('Force Checkout');
+
+      const gitService = createMockGitService({
+        checkout: (_repo: IRepository, _ref: string, options?: ICheckoutOptions) => {
+          checkoutCount++;
+          if (checkoutCount === 1) {
+            return errAsync(
+              new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+            );
+          }
+          if (options?.force) {
+            forceUsed = true;
+          }
+          return okAsync(undefined);
+        },
+      });
+      const provider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, provider);
+
+      await invokePrivateHandler(commands, '_handleCheckout', createLocalBranchTreeItem('feat/x'));
+
+      assert.ok(forceUsed, 'second checkout must use force option');
+      assert.strictEqual(infoTracker.calls.length, 1, 'success toast shown');
+    });
+  });
+
+  describe('_handleCheckoutAsLocal: dirty-tree Stash & Switch and Force Checkout paths', () => {
+    it('Stash & Switch calls stash then forceCreate checkout and shows success toast', async () => {
+      const stashCalls: string[] = [];
+      let checkoutCount = 0;
+      let forceCreateUsed = false;
+      const infoTracker = installInfoMessageTracker();
+      installWarningMessageTracker('Stash & Switch');
+
+      const gitService = createMockGitService({
+        getBranches: async () => [],
+        checkout: (_repo: IRepository, _ref: string, options?: ICheckoutOptions) => {
+          checkoutCount++;
+          if (checkoutCount === 1) {
+            return errAsync(
+              new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+            );
+          }
+          if (options?.forceCreate) {
+            forceCreateUsed = true;
+          }
+          return okAsync(undefined);
+        },
+        stash: (_repo: IRepository, message?: string) => {
+          stashCalls.push(message ?? '');
+          return okAsync(undefined);
+        },
+      });
+      const provider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, provider);
+
+      await invokePrivateHandler(
+        commands,
+        '_handleCheckoutAsLocal',
+        createRemoteBranchTreeItem('origin/feat-y')
+      );
+
+      assert.strictEqual(stashCalls.length, 1, 'stash must be called once');
+      assert.ok(stashCalls[0].includes('feat-y'), 'stash label references the branch name');
+      assert.ok(forceCreateUsed, 'stash+checkout must use forceCreate');
+      assert.strictEqual(infoTracker.calls.length, 1, 'success toast shown');
+    });
+
+    it('Force Checkout calls checkout with force + forceCreate and shows success toast', async () => {
+      let checkoutCount = 0;
+      let forceUsed = false;
+      let forceCreateUsed = false;
+      const infoTracker = installInfoMessageTracker();
+      installWarningMessageTracker('Force Checkout');
+
+      const gitService = createMockGitService({
+        getBranches: async () => [],
+        checkout: (_repo: IRepository, _ref: string, options?: ICheckoutOptions) => {
+          checkoutCount++;
+          if (checkoutCount === 1) {
+            return errAsync(
+              new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+            );
+          }
+          if (options?.force) {
+            forceUsed = true;
+          }
+          if (options?.forceCreate) {
+            forceCreateUsed = true;
+          }
+          return okAsync(undefined);
+        },
+      });
+      const provider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, provider);
+
+      await invokePrivateHandler(
+        commands,
+        '_handleCheckoutAsLocal',
+        createRemoteBranchTreeItem('origin/feat-y')
+      );
+
+      assert.ok(forceUsed, 'second checkout must use force option');
+      assert.ok(forceCreateUsed, 'second checkout must use forceCreate option');
+      assert.strictEqual(infoTracker.calls.length, 1, 'success toast shown');
+    });
+  });
+
   // ─── General Error Handling ─────────────────────────────
 
   describe('General error handling', () => {

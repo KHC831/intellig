@@ -70,6 +70,7 @@ import {
   buildDetailsPanelModel,
   buildDetailsPanelPlaceholderModel,
   buildMultiCommitDetailsPanelModel,
+  commitNodeToBaseDetails,
   type DetailsPanelModel,
 } from './provider/detailsPanelModel';
 import {
@@ -1263,14 +1264,7 @@ export class GitToolWindowProvider
       const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
-          hash: node.commit.hash,
-          message: node.commit.message,
-          body: node.commit.body,
-          author: { name: node.commit.author.name, email: node.commit.author.email },
-          date: node.commit.authorDate,
-          parents: node.commit.parents || [],
-          branches: (node.branches || []).map((ref) => ref.name),
-          tags: node.tags || [],
+          ...commitNodeToBaseDetails(node),
           changedFiles,
           changedFilesError: error ? String(error) : undefined,
           containingBranches: this._pendingContainingBranches,
@@ -1303,14 +1297,7 @@ export class GitToolWindowProvider
       const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
-          hash: node.commit.hash,
-          message: node.commit.message,
-          body: node.commit.body,
-          author: { name: node.commit.author.name, email: node.commit.author.email },
-          date: node.commit.authorDate,
-          parents: node.commit.parents || [],
-          branches: (node.branches || []).map((ref) => ref.name),
-          tags: node.tags || [],
+          ...commitNodeToBaseDetails(node),
           changedFiles: this._pendingChangedFiles ?? [],
           changedFilesError: this._pendingChangedFilesError
             ? String(this._pendingChangedFilesError)
@@ -1634,14 +1621,7 @@ export class GitToolWindowProvider
       return;
     }
     const commitDetails: ICommitDetails = {
-      hash: node.commit.hash,
-      message: node.commit.message,
-      body: node.commit.body,
-      author: { name: node.commit.author.name, email: node.commit.author.email },
-      date: node.commit.authorDate,
-      parents: node.commit.parents || [],
-      branches: (node.branches || []).map((ref) => ref.name),
-      tags: node.tags || [],
+      ...commitNodeToBaseDetails(node),
       changedFiles: [],
     };
     void this._view.webview.postMessage({

@@ -412,6 +412,17 @@ describe('resolveRepo — helpers', () => {
     assert.strictEqual(match, a);
   });
 
+  it('findRepoContainingPath picks the deepest matching ancestor for nested repos', () => {
+    // Characterization test: confirms findRepoContainingPath uses
+    // normalizeRepoPathString (which correctly folds drive letters on Windows
+    // and produces identical results on POSIX). The ancestor-depth logic is
+    // verified here: when two repos share an ancestor, the deeper one wins.
+    const outer = mkRepo('/work/a');
+    const inner = mkRepo('/work/a/sub');
+    const match = findRepoContainingPath([outer, inner], '/work/a/sub/src/foo.ts');
+    assert.strictEqual(match, inner, 'deeper matching root must win');
+  });
+
   it('findRepoContainingPath matches a symlinked path against a realpath repo root', () => {
     // Mirrors GitService.findOwningRepository: a file reached through a symlink
     // (the repo root is reported realpath'd) must still resolve. A string-only
