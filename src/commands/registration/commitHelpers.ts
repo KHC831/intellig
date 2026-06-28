@@ -1,8 +1,58 @@
 import * as vscode from 'vscode';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError } from '../../git-core/gitError';
+import { isTabbedGitToolWindowEnabled } from '../../git-core/gitToolWindow/config';
+import { GIT_TOOL_WINDOW_VIEW_ID } from '../../services';
 import type { IGitService, IRepository } from '../../services';
 import type { ICommandContext } from './CommandContext';
+
+/**
+ * Present a file's commit history. When the tabbed Git tool window is enabled
+ * (the default), focus it and load the file into its History tab — the
+ * canonical path. Otherwise fall back to a QuickPick of the file's commits.
+ *
+ * Shared by the command-palette (`intellig.showHistory`) and explorer
+ * right-click (`intellig.explorer.showHistory`) entry points so both behave
+ * identically; they differ only in how they pick the target file.
+ */
+export async function presentFileHistory(
+  ctx: ICommandContext,
+  repo: IRepository,
+  filePath: string
+): Promise<void> {
+  if (isTabbedGitToolWindowEnabled() && ctx.gitToolWindowProvider) {
+    await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+    await ctx.gitToolWindowProvider.loadFileHistory(filePath);
+    return;
+  }
+
+  // Legacy fallback (tabbed window disabled): a QuickPick of the file's commits.
+  const gitService = ctx.services?.gitService;
+  if (!gitService) {
+    return;
+  }
+  const history = await gitService.getFileHistory(repo, filePath);
+  if (history.length === 0) {
+    void vscode.window.showInformationMessage(`No history found for ${filePath}`);
+    return;
+  }
+  const items = history.map((commit) => ({
+    label: commit.shortHash,
+    description: commit.message.substring(0, 60),
+    detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
+    commit,
+  }));
+  const selected = await vscode.window.showQuickPick(items, {
+    placeHolder: `History for ${filePath}`,
+    title: 'File History',
+  });
+  if (selected) {
+    // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr
+    void vscode.window.showInformationMessage(
+      `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+    );
+  }
+}
 
 /**
  * Shared helpers for the commit-menu + commit/repo-core command modules.

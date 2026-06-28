@@ -1999,7 +1999,7 @@ export class GitToolWindowProvider
     // EVERY webview render (the dropdown is re-rendered empty each time), so
     // without a short cache a render/refresh burst spams `git branch -a`. Serve
     // a recent result for the same repo scope instead of re-running git.
-    const cacheKey = branchSources.map((r) => r.rootUri.fsPath).join(' ');
+    const cacheKey = branchSources.map((r) => r.rootUri.fsPath).join('\0');
     const now = Date.now();
     const cached = this._logFilterOptionsCache;
     if (cached && cached.key === cacheKey && now - cached.at < LOG_FILTER_OPTIONS_TTL_MS) {

@@ -4,7 +4,6 @@ import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import { findCommitByQuery } from '../../git-core/gitToolWindow/jumpToHash';
-import { isTabbedGitToolWindowEnabled } from '../../git-core/gitToolWindow/config';
 import {
   CommitDialog,
   GIT_TOOL_WINDOW_VIEW_ID,
@@ -18,7 +17,7 @@ import {
   type PullDialogOutcome,
 } from '../../services';
 import type { ICommandContext } from './CommandContext';
-import { extractCommitHash, runNewTagFlowFromContext } from './commitHelpers';
+import { extractCommitHash, runNewTagFlowFromContext, presentFileHistory } from './commitHelpers';
 import {
   runUpdateProject,
   type IUpdateGitService,
@@ -860,25 +859,20 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       ? repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath)
       : undefined;
 
-    // When the tabbed Git tool window is enabled and we have a file path,
-    // route to the embedded History tab instead of the legacy QuickPick.
-    // Repo-level history (filePath === undefined) still uses the QuickPick
-    // because the tab only supports per-file scope.
-    if (filePath && isTabbedGitToolWindowEnabled() && ctx.gitToolWindowProvider) {
-      await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
-      await ctx.gitToolWindowProvider.loadFileHistory(filePath);
+    // For a file, present its history via the shared helper — identical to the
+    // explorer right-click entry point (tab when the tabbed window is on, else a
+    // QuickPick). Repo-level history (no active file) stays a QuickPick here
+    // because the History tab is per-file.
+    if (filePath) {
+      await presentFileHistory(ctx, repo, filePath);
       return;
     }
 
     try {
-      const history = filePath
-        ? await gitService.getFileHistory(repo, filePath)
-        : await gitService.getLog(repo, { maxCount: 50 });
+      const history = await gitService.getLog(repo, { maxCount: 50 });
 
       if (history.length === 0) {
-        void vscode.window.showInformationMessage(
-          filePath ? `No history found for ${filePath}` : 'No commit history found'
-        );
+        void vscode.window.showInformationMessage('No commit history found');
         return;
       }
 
@@ -890,7 +884,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       }));
 
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: filePath ? `History for ${filePath}` : 'Repository History',
+        placeHolder: 'Repository History',
         title: 'Show History',
       });
 
