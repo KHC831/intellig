@@ -101,7 +101,11 @@ export interface IHistoryTabState {
    * for Selection" path, `git log -L`). `undefined` = whole-file history.
    */
   lineRange: { start: number; end: number } | undefined;
-  /** Whether `--follow` is enabled. */
+  /**
+   * Whether `--follow` (rename tracking) is enabled. Defaults to `true` to
+   * match IntelliJ's file history, whose {@link GitFileHistory} always follows
+   * renames so a file's pre-rename commits are not silently dropped.
+   */
   followRenames: boolean;
   /** List of branches to render in the branch-filter dropdown. */
   availableBranches: IBranch[];
@@ -145,7 +149,9 @@ export function createInitialHistoryTabState(): IHistoryTabState {
     compareCommit: undefined,
     branchFilter: undefined,
     lineRange: undefined,
-    followRenames: false,
+    // Follow renames by default — IntelliJ's file history always does, so a
+    // renamed file keeps its full pre-rename history.
+    followRenames: true,
     availableBranches: [],
     error: undefined,
     loading: false,
