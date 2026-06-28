@@ -157,6 +157,36 @@ export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
   };
 }
 
+/**
+ * Narrow a branch-SUBSET scope to the refs a SINGLE repo actually has, for the
+ * merged multi-root log. A multi-ref `git log <a> <b>` fails ENTIRELY ("fatal:
+ * unknown revision") when one ref is unknown in that repo, which would silently
+ * drop that repo's whole history. So each repo's log must pass only the selected
+ * refs it has; a repo with none of them contributes nothing.
+ *
+ * @returns
+ *   - `{ skip: true }`  — the repo has NONE of the selected refs → contribute no
+ *     commits (don't run a poisoned multi-ref command).
+ *   - `{ skip: false, refs }` — the subset narrowed to this repo's refs (order
+ *     preserved from the selection).
+ *   - `{ skip: false }` (no `refs`) — no branch subset is active (`scopeRefs`
+ *     empty/undefined): the caller's scope is unchanged (`--all` or otherwise).
+ */
+export function narrowRefsForRepo(
+  scopeRefs: readonly string[] | undefined,
+  repoBranchNames: Iterable<string>
+): { skip: boolean; refs?: string[] } {
+  if (!scopeRefs || scopeRefs.length === 0) {
+    return { skip: false };
+  }
+  const names = new Set(repoBranchNames);
+  const refs = scopeRefs.filter((r) => names.has(r));
+  if (refs.length === 0) {
+    return { skip: true };
+  }
+  return { skip: false, refs };
+}
+
 /** One graph page: the windowed commit list plus the honest total available. */
 export interface IGraphPage {
   commits: ICommit[];

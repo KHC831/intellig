@@ -47,7 +47,7 @@ import {
   wireGraphLoadMore,
   type IGraphLoadMoreController,
 } from './graphLoadMore';
-import { fetchGraphPage, buildLogScope } from './graphLogPage';
+import { fetchGraphPage, buildLogScope, narrowRefsForRepo } from './graphLogPage';
 
 /**
  * Initial commit-graph window — the small first chunk loaded for a FAST startup
@@ -755,17 +755,16 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         // merged view snappy while still giving meaningful cross-repo history.
         const allCommitsArrays = await Promise.all(
           repos.map(async (repo, i) => {
-            let repoScope = scope;
-            if (scope.refs && scope.refs.length > 0) {
-              const names = new Set(perRepoBranches[i].map((b) => b.name));
-              const refs = scope.refs.filter((r) => names.has(r));
-              // None of the selected branches exist in this repo → it contributes
-              // nothing (skip git rather than poison the whole multi-ref command).
-              if (refs.length === 0) {
-                return [];
-              }
-              repoScope = { ...scope, refs };
+            const narrowed = narrowRefsForRepo(
+              scope.refs,
+              perRepoBranches[i].map((b) => b.name)
+            );
+            // None of the selected branches exist in this repo → contribute
+            // nothing (don't run a poisoned multi-ref command).
+            if (narrowed.skip) {
+              return [];
             }
+            const repoScope = narrowed.refs ? { ...scope, refs: narrowed.refs } : scope;
             const commits = await gitService.getLog(repo, {
               maxCount: 200,
               topoOrder: true,

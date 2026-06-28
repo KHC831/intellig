@@ -15,6 +15,7 @@ import * as assert from 'assert';
 import {
   buildLogScope,
   fetchGraphPage,
+  narrowRefsForRepo,
   parseHashQuery,
 } from '../../../src/registration/graphLogPage';
 import type { ILogScopeFilter } from '../../../src/registration/graphLogPage';
@@ -49,6 +50,30 @@ describe('buildLogScope — UI filter → git scope mapping', () => {
     assert.strictEqual(s.matchNothing, true, 'none must short-circuit to an empty result');
     assert.strictEqual(s.all, false, 'matchNothing is not the walk-all state');
     assert.strictEqual(s.refs, undefined);
+  });
+
+  it('narrows the merged scope per-repo and skips a repo with none of the selected refs', () => {
+    // No subset active → unchanged (no `refs`, don't skip).
+    assert.deepStrictEqual(narrowRefsForRepo(undefined, ['main', 'dev']), { skip: false });
+    assert.deepStrictEqual(narrowRefsForRepo([], ['main', 'dev']), { skip: false });
+
+    // Every selected ref present → all kept, order preserved.
+    assert.deepStrictEqual(narrowRefsForRepo(['dev', 'main'], ['main', 'dev', 'release']), {
+      skip: false,
+      refs: ['dev', 'main'],
+    });
+
+    // Some present → narrowed to the intersection (drops the ref this repo lacks,
+    // which would otherwise fail the whole `git log a b` command).
+    assert.deepStrictEqual(narrowRefsForRepo(['main', 'feature/b'], ['main', 'dev']), {
+      skip: false,
+      refs: ['main'],
+    });
+
+    // None present → skip the repo entirely (contribute no commits).
+    assert.deepStrictEqual(narrowRefsForRepo(['feature/b', 'hotfix'], ['main', 'dev']), {
+      skip: true,
+    });
   });
 
   it('folds a single legacy branch in with multi-select branches', () => {
