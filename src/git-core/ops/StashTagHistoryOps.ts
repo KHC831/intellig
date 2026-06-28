@@ -707,12 +707,32 @@ export class StashTagHistoryOps {
   ): Promise<ICommit[]> {
     // Standalone implementation so we can pass `--follow` and a
     // branch ref that the generic `getLog()` doesn't understand.
+    const commits = await this._runFileLog(repo, path, options, options?.follow === true);
+
+    // `git log --follow` has a long-standing bug: when a rename happens inside a
+    // MERGE commit it can return nothing at all (IntelliJ's GitFileHistory walks
+    // renames manually to avoid this). So if `--follow` came back empty, retry
+    // once without it — we then show at least git's default history for the path
+    // rather than an empty list. The non-merge rename case is unaffected because
+    // `--follow` returns results there and this fallback never runs.
+    if (commits.length === 0 && options?.follow === true) {
+      return this._runFileLog(repo, path, options, false);
+    }
+    return commits;
+  }
+
+  private async _runFileLog(
+    repo: IRepository,
+    path: string,
+    options: IFileHistoryOptions | undefined,
+    follow: boolean
+  ): Promise<ICommit[]> {
     // `branch` is user-controlled; splice via buildGitArgs so
     // `--end-of-options` separates flag args from the ref.
     const format = getLogFormat();
     const flags: string[] = [`--format=${format}`, '-z'];
 
-    if (options?.follow) {
+    if (follow) {
       flags.push('--follow');
     }
     if (options?.maxCount !== undefined && options.maxCount > 0) {
