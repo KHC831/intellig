@@ -387,6 +387,22 @@ export class RebaseEditor {
       return;
     }
 
+    // Fail-closed: reject out-of-range or non-integer indices from the
+    // (untrusted) webview — mirroring _handleUpdatePlan's posture.
+    // splice() with a negative or non-integer index silently moves the
+    // wrong element or inserts `undefined`, corrupting the plan.
+    const len = this._session.commits.length;
+    if (
+      !Number.isInteger(fromIndex) ||
+      fromIndex < 0 ||
+      fromIndex >= len ||
+      !Number.isInteger(toIndex) ||
+      toIndex < 0 ||
+      toIndex >= len
+    ) {
+      return;
+    }
+
     const commits = [...this._session.commits];
     const [removed] = commits.splice(fromIndex, 1);
     commits.splice(toIndex, 0, removed);

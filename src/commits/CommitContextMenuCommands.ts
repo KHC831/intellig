@@ -674,25 +674,52 @@ export class CommitContextMenuCommands {
           });
         }
 
+        // `git rm --cached` removes newly-added files from the index but leaves
+        // them as untracked files on disk. Clarify this in the success toast so
+        // the user isn't surprised to find the file still in their working tree.
+        const untrackedNote =
+          addedDropped.length > 0
+            ? `; ${addedDropped.length} newly-added file(s) remain on disk as untracked: ${addedDropped.join(', ')}`
+            : '';
+
         if (keptPaths.length > 0) {
           // Re-commit with original author + message from the saved hash.
           await this._gitCli.exec(['commit', '-C', hash], { cwd, throwOnError: true });
           void vscode.window.showInformationMessage(
-            `Dropped ${droppedPaths.length} file(s) from ${shortHash}`
+            `Dropped ${droppedPaths.length} file(s) from ${shortHash}${untrackedNote}`
           );
         } else {
           // Every file dropped → the commit effectively disappears. HEAD
           // is already at the parent after the soft-reset.
           void vscode.window.showInformationMessage(
-            `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped).`
+            `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped)${untrackedNote}.`
           );
         }
       } catch (innerError) {
         // Something failed after the soft-reset removed the commit from HEAD.
-        // Restore the original commit (best-effort) so the repo isn't left
-        // with a lost commit and a dirty index.
+        // Restore the original commit pointer (best-effort). Note: soft-reset
+        // only moves the branch ref — the index/worktree may still reflect
+        // partial side-effects from rm --cached / checkout. Tell the user to
+        // inspect git status rather than silently leaving them confused.
         await this._gitCli.exec(['reset', '--soft', hash], { cwd });
-        throw innerError;
+        const msg = innerError instanceof Error ? innerError.message : 'Unknown error';
+        void vscode.window.showErrorMessage(
+          `Failed to drop changes: ${sanitizeGitError(msg)}. Original commit restored; check \`git status\` for any partially-applied changes.`
+        );
+        // Reload so the panel reflects the restored HEAD — the toast already
+        // fired, so a reload failure must not mask it.
+        try {
+          await this._gitService.reloadRepository(repo);
+          this._gitToolWindowProvider.refresh();
+        } catch (reloadErr) {
+          // Non-fatal: the error toast already fired. Log so it stays visible.
+          getLogger()
+            .child({ component: 'CommitContextMenuCommands' })
+            .debug('dropSelectedChanges: reload after rollback failed', {
+              err: reloadErr instanceof Error ? reloadErr.message : String(reloadErr),
+            });
+        }
+        return;
       }
 
       // Synchronously reload before refresh so panel sees fresh
@@ -2535,6 +2562,12 @@ export class CommitContextMenuCommands {
         if (planDropCount < selectedSet.size) {
           void vscode.window.showWarningMessage(STALE_SELECTION_TOAST);
           await this._rebaseService.abortRebase(repo);
+          // Mirror the conflict path: pop the stash so the user's dirty working-tree
+          // changes aren't left stranded when we return without executing the rebase.
+          if (stashed) {
+            await this._unstashWithErrorReport(cwd, 'Drop');
+            stashed = false;
+          }
           return;
         }
         this._rebaseService.updateRebasePlan(repo, plan);

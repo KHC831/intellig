@@ -235,9 +235,13 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
 
       // Incoming count after fetch — what this update will consume.
       let incoming = 0;
+      // Track whether the probe succeeded. When it throws we cannot know
+      // whether incoming is 0 or not, so we must not skip the pull.
+      let incomingKnown = false;
       try {
         const io = await deps.gitService.getIncomingOutgoing(repo);
         incoming = io.incoming;
+        incomingKnown = true;
         branch = io.branch ?? branch;
         if (io.noUpstream) {
           results.push({
@@ -254,9 +258,10 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
         // eslint-disable-next-line no-restricted-syntax -- no logger in scope; a failure here is non-fatal and falls through to the pull below, which surfaces real errors to the user.
       } catch {
         // Non-fatal: fall through to the pull, which will surface real errors.
+        // incomingKnown stays false → the incoming === 0 guard below is skipped.
       }
 
-      if (incoming === 0) {
+      if (incomingKnown && incoming === 0) {
         results.push({ name, rootPath, branch, rebase, incoming: 0, status: 'up-to-date' });
         await deps.gitService.reloadRepository(repo);
         continue;

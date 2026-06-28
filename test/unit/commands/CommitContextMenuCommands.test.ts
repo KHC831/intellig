@@ -1353,6 +1353,68 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
+  // ─── dropCommit: stale guard + dirty tree (R3-1) ────────────────────────
+
+  describe('_handleDropMultipleCommits — stale guard unstash', () => {
+    it('pops stash before returning when multi-drop stale guard fires on a dirty tree', async () => {
+      // Regression: the stale-selection guard (planDropCount < selectedSet.size)
+      // returned without popping the stash, stranding the user's working-tree
+      // changes in the stash list.
+      const stashPopCalls: string[] = [];
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
+            // Dirty tree → stash will be pushed.
+            return { exitCode: 0, stdout: ' M file.ts', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'stash' && cmdArgs[1] === 'pop') {
+            stashPopCalls.push('pop');
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+
+      const c1 = '1'.repeat(40);
+      const c2 = '2'.repeat(40);
+      // Session only contains c1 → planDropCount=1 < selectedSet.size=2 → stale guard fires.
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async () => ({
+          onto: `${c2}^`,
+          originalBranch: 'main',
+          commits: [{ hash: c1, message: 'newer', action: 'pick' as const }],
+          currentStep: 0,
+          status: 'planning' as const,
+        }),
+      });
+
+      createMessageTrackersAcceptingDrop();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        gitCli
+      );
+
+      await commands._handleAction(
+        'dropCommit',
+        [c1, c2],
+        [
+          { hash: c1, parentCount: 1 },
+          { hash: c2, parentCount: 1 },
+        ]
+      );
+
+      assert.strictEqual(
+        stashPopCalls.length,
+        1,
+        'stash must be popped when multi-drop stale guard fires on a dirty tree'
+      );
+    });
+  });
+
   // ─── editCommitMessage ────────────────────────────────────────────────────
 
   describe('_handleEditCommitMessage', () => {
@@ -2750,6 +2812,277 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(
         messages.error.some((e) => /squash|fixup|fail|rebase/i.test(e.message)),
         `expected an error toast, got: ${JSON.stringify(messages.error)}`
+      );
+    });
+  });
+
+  // ─── dropSelectedChangesFromCommit — newly-added file toast (R3-4) ──────
+
+  describe('dropSelectedChangesFromCommit — toast when newly-added files remain on disk', () => {
+    const dscHash = 'a'.repeat(40);
+
+    function makeDscGitCli(overrides?: Record<string, unknown>): MockGitCli {
+      return createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'HEAD') {
+            return { exitCode: 0, stdout: dscHash, stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'branch' && cmdArgs.includes('--remotes')) {
+            // Not pushed.
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+        ...overrides,
+      });
+    }
+
+    function makeDscGitService(
+      repo: IRepository,
+      diffs: { path: string; status: 'added' | 'modified' | 'deleted' }[]
+    ): IGitService & { calls: CallTracker[] } {
+      return createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: dscHash,
+          shortHash: dscHash.substring(0, 8),
+          message: 'test',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+        getCommitDiff: async () => diffs.map((d) => ({ ...d, hunks: [], binary: false })),
+      });
+    }
+
+    it('clarifies in the toast that newly-added dropped files remain on disk as untracked', async () => {
+      // git rm --cached removes an added file from the index but leaves it on
+      // disk. A plain "Dropped N file(s)" toast implies the content is gone.
+      // The fix adds a note so the user knows to check their working tree.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(dscHash);
+      const diffs = [
+        { path: 'new-file.ts', status: 'added' as const },
+        { path: 'kept.ts', status: 'modified' as const },
+      ];
+      const gitService = makeDscGitService(repo, diffs);
+      const gitCli = makeDscGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        gitCli,
+        undefined,
+        async () => repo // repoResolver: always return the mock repo
+      );
+
+      // User selects only the newly-added file to drop.
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
+        Promise.resolve([
+          (items as { label: string; path: string }[]).find((i) => i.path === 'new-file.ts'),
+        ]);
+      // Auto-accept the confirm modal.
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Drop');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      assert.strictEqual(messages.info.length, 1, 'expected exactly one success toast');
+      assert.ok(
+        /untracked|remain.*disk|on disk/i.test(messages.info[0].message),
+        `toast must mention that the file remains on disk as untracked; got: "${messages.info[0].message}"`
+      );
+      assert.ok(
+        messages.info[0].message.includes('new-file.ts'),
+        `toast must name the untracked file; got: "${messages.info[0].message}"`
+      );
+    });
+
+    it('does NOT add the untracked note when no newly-added files were dropped', async () => {
+      // Only modified files were dropped — checkout HEAD restores them from the
+      // parent, so no untracked files remain. Toast must stay simple.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(dscHash);
+      const diffs = [
+        { path: 'modified.ts', status: 'modified' as const },
+        { path: 'kept.ts', status: 'modified' as const },
+      ];
+      const gitService = makeDscGitService(repo, diffs);
+      const gitCli = makeDscGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        gitCli,
+        undefined,
+        async () => repo
+      );
+
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
+        Promise.resolve([
+          (items as { label: string; path: string }[]).find((i) => i.path === 'modified.ts'),
+        ]);
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Drop');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      assert.strictEqual(messages.info.length, 1, 'expected exactly one success toast');
+      assert.ok(
+        !/untracked|remain.*disk/i.test(messages.info[0].message),
+        `toast must NOT mention untracked files when only modified files were dropped; got: "${messages.info[0].message}"`
+      );
+    });
+  });
+
+  // ─── dropSelectedChangesFromCommit — rollback error toast (R3-5) ────────
+
+  describe('dropSelectedChangesFromCommit — honest rollback error toast', () => {
+    const dscHash = 'b'.repeat(40);
+
+    it('mentions that the original commit was restored and to check git status when a mid-operation failure triggers rollback', async () => {
+      // After git reset --soft HEAD^ un-commits HEAD, a partial failure (e.g.
+      // rm --cached throws) triggers git reset --soft <hash> to restore the
+      // commit pointer. But the index/worktree may still reflect partial
+      // side-effects. The error toast must be honest about this.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(dscHash);
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: dscHash,
+          shortHash: dscHash.substring(0, 8),
+          message: 'test',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+        getCommitDiff: async () => [
+          { path: 'new-file.ts', status: 'added' as const, hunks: [], binary: false },
+        ],
+      });
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'HEAD') {
+            return { exitCode: 0, stdout: dscHash, stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'branch' && cmdArgs.includes('--remotes')) {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'reset' && cmdArgs[1] === '--soft' && cmdArgs[2] === 'HEAD^') {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'rm' && cmdArgs.includes('--cached')) {
+            throw new Error('index lock failure');
+          }
+          // rollback reset --soft <hash>
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        gitCli,
+        undefined,
+        async () => repo
+      );
+
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
+        Promise.resolve([(items as { label: string; path: string }[])[0]]);
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Drop');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      assert.strictEqual(messages.error.length, 1, 'expected one error toast');
+      const msg = messages.error[0].message;
+      assert.ok(
+        /restored|git status|check/i.test(msg),
+        `error toast must tell the user the commit was restored and to check git status; got: "${msg}"`
+      );
+    });
+
+    it('reloads the repository after rollback so the tool window reflects restored state', async () => {
+      // The rollback git reset --soft <hash> moves HEAD back, so the view must
+      // be refreshed — otherwise the panel shows the pre-error (uncommitted) state.
+      const repo = createMockRepo(dscHash);
+      const reloadCalls: string[] = [];
+      const gitService = createMockGitService(repo, {
+        reloadRepository: async () => {
+          reloadCalls.push('reload');
+          return repo;
+        },
+        getCommit: async () => ({
+          hash: dscHash,
+          shortHash: dscHash.substring(0, 8),
+          message: 'test',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+        getCommitDiff: async () => [
+          { path: 'new-file.ts', status: 'added' as const, hunks: [], binary: false },
+        ],
+      });
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'HEAD') {
+            return { exitCode: 0, stdout: dscHash, stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'branch' && cmdArgs.includes('--remotes')) {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'reset' && cmdArgs[1] === '--soft' && cmdArgs[2] === 'HEAD^') {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'rm' && cmdArgs.includes('--cached')) {
+            throw new Error('index lock failure');
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        provider,
+        gitCli,
+        undefined,
+        async () => repo
+      );
+
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
+        Promise.resolve([(items as { label: string; path: string }[])[0]]);
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Drop');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      assert.strictEqual(
+        reloadCalls.length,
+        1,
+        'reloadRepository must be called after rollback so the panel reflects restored state'
+      );
+      assert.strictEqual(
+        provider.refreshCallCount,
+        1,
+        'refresh must be called after rollback reload'
       );
     });
   });

@@ -342,6 +342,43 @@ describe('runUpdateProject', () => {
     assert.strictEqual(summary.repos[0].status, 'error');
   });
 
+  it('falls through to pull when getIncomingOutgoing throws after a successful fetch', async () => {
+    // Regression: when getIncomingOutgoing throws, `incoming` stays 0 and
+    // the `if (incoming === 0)` short-circuit reports 'up-to-date' WITHOUT
+    // pulling — silently doing nothing even if the remote had new commits.
+    // The fix tracks whether the incoming count is KNOWN; only skip the pull
+    // when we positively know incoming === 0.
+    const pullCalls: string[] = [];
+    const stub: import('../../../src/sync/updateProject').IUpdateGitService = {
+      async getStatus() {
+        return [];
+      },
+      async fetch() {},
+      async getIncomingOutgoing() {
+        throw new Error('network timeout');
+      },
+      async pull(r) {
+        pullCalls.push(r.rootUri.fsPath);
+      },
+      async reloadRepository() {},
+    };
+
+    const summary = await runUpdateProject({
+      repos: [repo('a')],
+      gitService: stub,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+
+    assert.strictEqual(pullCalls.length, 1, 'pull must be called when incoming count is unknown');
+    // Status is driven by what pull produces; no pull-specific error here means 'updated'
+    assert.notStrictEqual(
+      summary.repos[0].status,
+      'up-to-date',
+      'must NOT report up-to-date when incoming count was unknown'
+    );
+  });
+
   it('classifies a non-conflict pull failure as status=error', async () => {
     const git = makeGit({
       incomingByRoot: { '/repos/a': { incoming: 3 } },

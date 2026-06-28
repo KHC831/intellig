@@ -495,6 +495,77 @@ describe('RebaseEditor', () => {
     });
   });
 
+  describe('_handleReorder — bounds check (R3-3)', () => {
+    // Re-declare the same helpers used in the injection-hardening suite.
+    function panelOf(editor: RebaseEditor): { _fireMessage: (m: unknown) => void } {
+      return (editor as unknown as { _panel: { _fireMessage: (m: unknown) => void } })._panel;
+    }
+    function sessionOf(editor: RebaseEditor): IRebaseSession {
+      return (editor as unknown as { _session: IRebaseSession })._session;
+    }
+    async function untilPanel(editor: RebaseEditor): Promise<void> {
+      for (let i = 0; i < 20; i++) {
+        if ((editor as unknown as { _panel: unknown })._panel) {
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    it('ignores a reorder with a negative fromIndex', async () => {
+      // A forged webview message with fromIndex=-1 passes -1 to splice(),
+      // which splices from the end and inserts `undefined` in position, corrupting the plan.
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
+
+      panelOf(rebaseEditor)._fireMessage({ type: 'reorder', fromIndex: -1, toIndex: 0 });
+
+      assert.deepStrictEqual(
+        sessionOf(rebaseEditor).commits.map((c) => c.hash),
+        before,
+        'negative fromIndex must be rejected; session must be unchanged'
+      );
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+
+    it('ignores a reorder with an out-of-range toIndex', async () => {
+      // toIndex >= commits.length is also out of range; splice() at that position
+      // would silently append to the end but the intent may corrupt ordering.
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
+
+      panelOf(rebaseEditor)._fireMessage({ type: 'reorder', fromIndex: 0, toIndex: 999 });
+
+      assert.deepStrictEqual(
+        sessionOf(rebaseEditor).commits.map((c) => c.hash),
+        before,
+        'out-of-range toIndex must be rejected; session must be unchanged'
+      );
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+
+    it('still applies a valid in-range reorder', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+
+      // Move third commit (index 2) to index 0.
+      panelOf(rebaseEditor)._fireMessage({ type: 'reorder', fromIndex: 2, toIndex: 0 });
+
+      const commits = sessionOf(rebaseEditor).commits;
+      assert.strictEqual(
+        commits[0].hash,
+        'ghi3456789012',
+        'valid reorder must still move the commit'
+      );
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+  });
+
   describe('abandon cleanup (issue #18)', () => {
     function panelOf(editor: RebaseEditor): {
       _fireMessage: (m: unknown) => void;
