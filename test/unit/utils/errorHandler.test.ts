@@ -275,6 +275,27 @@ describe('Error Handler', () => {
       });
     });
 
+    describe('captured value containing $ special patterns', () => {
+      it('interpolates a captured path containing $& verbatim without treating it as a replacement pattern', () => {
+        // String.prototype.replace treats $& in the replacement as "the matched
+        // portion"; a branch or file named literally "$&" would therefore be
+        // corrupted in the toast (the placeholder $1 is substituted by the
+        // matched string "$1" instead of the literal "$&"). The fix uses a
+        // function as the replacement argument, which is immune to $ patterns.
+        const error = new Error("error: pathspec '$&' did not match any file(s) known to git");
+        const result = categorizeGitError(error);
+        assert.strictEqual(result.category, GitErrorCategory.InvalidInput);
+        assert.ok(
+          result.message.includes('$&'),
+          `message should contain literal '$&' but got: ${result.message}`
+        );
+        assert.ok(
+          !result.message.includes('$1'),
+          `message must not contain the unreplaced placeholder '$1'; got: ${result.message}`
+        );
+      });
+    });
+
     describe('credential redaction', () => {
       const TOKEN = 'ghp_abc123def456ghi789jkl012';
       const TOKEN_URL = `https://x-access-token:${TOKEN}@github.com/owner/repo.git`;

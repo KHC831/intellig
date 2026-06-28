@@ -238,6 +238,33 @@ describe('resolveRepo — defaultRepo config', () => {
     const result = await selectRepo(h.deps);
     assert.strictEqual(result, a);
   });
+
+  it('matches the defaultRepo path when the config uses an uppercase Windows drive letter but the repo root uses lowercase (or vice versa)', async () => {
+    // The local normalizePath helper in resolveRepo only unifies slashes and
+    // strips trailing separators — it does not fold the drive letter. The
+    // canonical normalizeRepoPathString (normalizeRepoPath.ts) does, so the
+    // comparison must route through that helper. Without the fix,
+    // "C:\\Repo" in the config never matches an open repo at "c:/Repo".
+    // Two repos are needed so the function cannot fall through to the
+    // single-repo fast path and must actually use the defaultRepo comparison.
+    const target = mkRepo('c:/Repo');
+    const other = mkRepo('c:/Other');
+    const h = mkDeps({
+      repositories: [target, other],
+      defaultRepo: 'C:\\Repo',
+    });
+    const result = await selectRepo(h.deps);
+    assert.strictEqual(
+      result,
+      target,
+      'config with uppercase drive letter must match the open repo at lowercase path'
+    );
+    assert.strictEqual(
+      h.pickRequested.length,
+      0,
+      'QuickPick must not be shown when defaultRepo matched'
+    );
+  });
 });
 
 // ─── preferActive ─────────────────────────────────────────────────────────────

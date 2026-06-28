@@ -376,10 +376,15 @@ export function categorizeGitError(error: Error | string): IGitError {
   for (const pattern of ERROR_PATTERNS) {
     const match = fullMessage.match(pattern.pattern);
     if (match) {
-      // Replace placeholders in message template with captured groups
+      // Replace placeholders in message template with captured groups.
+      // Use a function as the replacement argument rather than a string, so
+      // that special $ patterns in a captured value (e.g. a branch or file
+      // named "$&", "$1", "$$"…) are never interpreted by the replace engine
+      // and always reach the toast verbatim.
       let message = pattern.messageTemplate;
       for (let i = 1; i < match.length; i++) {
-        message = message.replace(`$${i}`, match[i] || '');
+        const captured = match[i] || '';
+        message = message.replace(`$${i}`, () => captured);
       }
 
       return {

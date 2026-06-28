@@ -120,5 +120,26 @@ describe('git error taxonomy', () => {
       assert.strictEqual(classifyGitCommandError('boom').kind, 'spawn-failed');
       assert.strictEqual(classifyGitCommandError(undefined).kind, 'spawn-failed');
     });
+
+    it('classifies a GitCommandError with "timed out" in the message but a positive exit code as command-failed, not timeout', () => {
+      // Git puts server stderr (e.g. "Connection timed out") into the message;
+      // only a process kill (exitCode < 0) is a real timeout. A positive exit
+      // code means git ran and produced a real result — the error must survive
+      // as command-failed with its real exitCode/stderr, not get re-tagged.
+      const err = new GitCommandError(
+        'git',
+        ['fetch', 'origin'],
+        makeResult({ exitCode: 128, stderr: 'fatal: Connection timed out' }),
+        'git fetch: Connection timed out'
+      );
+      const classified = classifyGitCommandError(err);
+      assert.strictEqual(
+        classified.kind,
+        'command-failed',
+        'positive exit code must not be re-tagged as timeout'
+      );
+      assert.ok(classified instanceof CommandFailedError);
+      assert.strictEqual(classified.exitCode, 128);
+    });
   });
 });

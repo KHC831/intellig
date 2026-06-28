@@ -1714,8 +1714,11 @@ export class GitToolWindowProvider
         // Allow-list the untrusted `action` at the boundary (some arms —
         // drop/reset/rebase — are destructive); an unknown action is dropped
         // rather than cast-and-fired on the assumption the downstream switch
-        // stays exhaustive + default-safe.
-        if (isLogContextAction(message.action) && message.commitHashes) {
+        // stays exhaustive + default-safe. Array.isArray guards against a
+        // desynced message carrying a non-array commitHashes, which would
+        // throw inside _handleCommitContextMenu's .filter() call and abort
+        // dispatch. The sibling `selectRepositories` handler uses the same pattern.
+        if (isLogContextAction(message.action) && Array.isArray(message.commitHashes)) {
           this._handleCommitContextMenu(message.action, message.commitHashes);
         }
         break;

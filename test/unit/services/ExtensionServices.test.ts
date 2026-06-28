@@ -133,6 +133,43 @@ describe('ExtensionServices', () => {
       services.dispose(); // Should not throw
       assert.strictEqual(services.isDisposed, true);
     });
+
+    it('disposes later services even when an earlier service dispose throws', () => {
+      // If dispose() wraps all services in ONE try/catch, a throw from an
+      // earlier service skips the rest — including GitService, whose .git/
+      // file-watchers and workspace listeners then leak. Each service must be
+      // disposed in its own try/catch so a single failure cannot skip the rest.
+      const services = new ExtensionServices();
+
+      let changelistDisposeCalls = 0;
+      let configDisposeCalls = 0;
+
+      // changelistService is disposed before configurationService in the chain.
+      // Making it throw exercises the "one failure must not skip the rest" path.
+      services.registerService('changelistService', {
+        dispose: () => {
+          changelistDisposeCalls++;
+          throw new Error('injected changelistService dispose failure');
+        },
+      } as unknown as import('../../../src/services/interfaces').IChangelistService);
+
+      services.registerService('configurationService', {
+        dispose: () => {
+          configDisposeCalls++;
+        },
+      } as unknown as import('../../../src/services/interfaces').IConfigurationService);
+
+      // Must not throw (error is swallowed per-service)
+      assert.doesNotThrow(() => services.dispose());
+
+      assert.strictEqual(changelistDisposeCalls, 1, 'changelistService must be attempted');
+      assert.strictEqual(
+        configDisposeCalls,
+        1,
+        'configurationService must be disposed even when changelistService threw'
+      );
+      assert.strictEqual(services.isDisposed, true);
+    });
   });
 
   describe('hasService', () => {

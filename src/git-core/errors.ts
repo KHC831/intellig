@@ -155,10 +155,14 @@ export function classifyGitCommandError(error: unknown): GitError {
   }
   if (error instanceof GitCommandError) {
     const { exitCode, stderr } = error.result;
-    if (/timed out/i.test(error.message)) {
-      return new TimeoutError(error.message);
-    }
+    // A real timeout requires the process to have been killed (exitCode < 0).
+    // Git puts server stderr (e.g. "Connection timed out") into the message,
+    // so a positive exit code means git ran and returned a real failure — do
+    // not re-tag it as a timeout based solely on the message text.
     if (exitCode < 0) {
+      if (/timed out/i.test(error.message)) {
+        return new TimeoutError(error.message);
+      }
       return new SpawnFailedError(error.message, error);
     }
     return new CommandFailedError(exitCode, stderr, error.message, error.result);

@@ -503,6 +503,26 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       assert.strictEqual(eventFired, false);
       disposable.dispose();
     });
+
+    it('does not throw and ignores a commitContextMenu message where commitHashes is not an array', () => {
+      // A desynced webview may send commitHashes as a string or other non-array.
+      // The handler must guard with Array.isArray rather than a truthy-check so
+      // it does not reach array methods on a non-array and throw, aborting dispatch.
+      let eventFired = false;
+      const disposable = provider.onDidRequestLogContextAction(() => {
+        eventFired = true;
+      });
+
+      assert.doesNotThrow(() => {
+        handler({ type: 'commitContextMenu', action: 'cherryPick', commitHashes: 'abc1234567890' });
+      });
+      assert.strictEqual(
+        eventFired,
+        false,
+        'non-array commitHashes must be ignored, not dispatched'
+      );
+      disposable.dispose();
+    });
   });
 
   describe('doubleClickFile message', () => {

@@ -393,22 +393,30 @@ export class ExtensionServices implements IExtensionServices {
     const logger = getLogger().child({ component: 'ExtensionServices' });
     logger.info('disposing IntelliG extension services');
 
-    // Dispose services in reverse order of dependency
-    try {
-      this._blameOptionsSource?.dispose();
-      this._patchService?.dispose();
+    // Dispose services in reverse order of dependency. Each service gets its
+    // own try/catch so a failure in one cannot skip the rest — otherwise a
+    // throwing dispose would leave GitService's .git/ watchers and workspace
+    // listeners alive with no owner.
+    const tryDispose = (fn: () => void): void => {
+      try {
+        fn();
+      } catch (error) {
+        logger.error('error disposing service', error instanceof Error ? error : undefined);
+      }
+    };
+    tryDispose(() => this._blameOptionsSource?.dispose());
+    tryDispose(() => this._patchService?.dispose());
+    tryDispose(() => {
       this._autoFetchService?.dispose();
-      this._conflictResolutionService?.dispose();
-      this._consoleService?.dispose();
-      this._blameService?.dispose();
-      this._rebaseService?.dispose();
-      this._shelfService?.dispose();
-      this._changelistService?.dispose();
-      this._gitService?.dispose();
-      this._configurationService?.dispose();
-    } catch (error) {
-      logger.error('error disposing services', error instanceof Error ? error : undefined);
-    }
+    });
+    tryDispose(() => this._conflictResolutionService?.dispose());
+    tryDispose(() => this._consoleService?.dispose());
+    tryDispose(() => this._blameService?.dispose());
+    tryDispose(() => this._rebaseService?.dispose());
+    tryDispose(() => this._shelfService?.dispose());
+    tryDispose(() => this._changelistService?.dispose());
+    tryDispose(() => this._gitService?.dispose());
+    tryDispose(() => this._configurationService?.dispose());
 
     // Clear references
     this._gitService = undefined;

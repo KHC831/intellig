@@ -23,6 +23,7 @@
 import * as vscode from 'vscode';
 import type { IRepository } from '../git-core/interfaces/IGitService';
 import { canonicalizeFsPath } from './repoRelativePath';
+import { normalizeRepoPathString } from './normalizeRepoPath';
 
 /** Configuration key under `intellig.*` for the default-repo preference. */
 export const DEFAULT_REPO_CONFIG_KEY = 'defaultRepo';
@@ -121,7 +122,15 @@ export async function selectRepo(
   // defaultRepo config (basename OR absolute path match).
   if (deps.defaultRepo && deps.defaultRepo.trim().length > 0) {
     const cfg = deps.defaultRepo.trim();
-    const byPath = repositories.find((r) => normalizePath(r.rootUri.fsPath) === normalizePath(cfg));
+    // Use the canonical path-identity helper (normalizeRepoPathString) rather
+    // than the local normalizePath so drive-letter casing differences on
+    // Windows ("C:\\Repo" config vs "c:/Repo" open repo) are folded before
+    // the comparison. The local helper only unifies slashes; it never lowercases
+    // the drive letter, so a case-mismatched config value silently falls through
+    // to the QuickPick even when the repo is open.
+    const byPath = repositories.find(
+      (r) => normalizeRepoPathString(r.rootUri.fsPath) === normalizeRepoPathString(cfg)
+    );
     if (byPath) {
       return byPath;
     }

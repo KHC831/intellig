@@ -407,6 +407,20 @@ export class RebaseEditor {
       return;
     }
 
+    // Require the plan to be a PERMUTATION of the known commit set: same
+    // length and every known hash appears exactly once. A shorter plan drops
+    // commits silently; a plan with duplicates would apply one commit twice and
+    // skip another. Both pass the per-entry hash check above because all hashes
+    // are in knownHashes, so a separate set-size check is needed.
+    if (commits.length !== knownHashes.size) {
+      return;
+    }
+    const planHashes = new Set(commits.map((c) => c.hash));
+    if (planHashes.size !== knownHashes.size) {
+      // Duplicate hashes: the Set collapses them, so the plan set is smaller.
+      return;
+    }
+
     this._session.commits = commits;
   }
 
