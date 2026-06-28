@@ -4182,6 +4182,7 @@ ${bodyMarkup}
         ? []
         : state.affectedPaths.map((p) => ({ path: p.path, status: p.status, oldPath: p.oldPath })),
       changedFilesError: state.affectedPathsError,
+      containingBranches: state.containingBranches,
     };
     return this._getDetailsPanelModel(commitDetails);
   }

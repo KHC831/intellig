@@ -133,6 +133,8 @@ export interface IHistoryTabState {
   affectedPathsLoading: boolean;
   /** Error string for a failed affected-paths fetch, surfaced in the pane. */
   affectedPathsError: string | undefined;
+  /** Branches that contain {@link selectedCommit}; `undefined` while loading. */
+  containingBranches: string[] | undefined;
 }
 
 export function createInitialHistoryTabState(): IHistoryTabState {
@@ -150,6 +152,7 @@ export function createInitialHistoryTabState(): IHistoryTabState {
     affectedPaths: [],
     affectedPathsLoading: false,
     affectedPathsError: undefined,
+    containingBranches: undefined,
   };
 }
 
@@ -359,8 +362,10 @@ export class HistoryTab {
             this._state.selectedCommit &&
             this._state.selectedCommit !== before.selectedCommit
           ) {
-            // A new revision is selected — refresh its affected paths.
+            // A new revision is selected — refresh its affected paths and the
+            // containing-branches list.
             await this._loadAffectedPaths(this._state.selectedCommit);
+            await this._loadContainingBranches(this._state.selectedCommit);
           }
         }
         return;
@@ -461,10 +466,12 @@ export class HistoryTab {
         affectedPaths: [],
         affectedPathsLoading: false,
         affectedPathsError: undefined,
+        containingBranches: undefined,
       };
       this._emit();
       if (selectedCommit) {
         await this._loadAffectedPaths(selectedCommit);
+        await this._loadContainingBranches(selectedCommit);
       }
     } catch (err) {
       this._state = {
@@ -549,6 +556,39 @@ export class HistoryTab {
         affectedPathsLoading: false,
         affectedPathsError: err instanceof Error ? err.message : 'Unknown error',
       };
+      this._emit();
+    }
+  }
+
+  /**
+   * Fetch the branches that contain `rev` for the details panel's "In branches"
+   * line, mirroring {@link _loadAffectedPaths}. `containingBranches` stays
+   * `undefined` (rendered as "loading…") until this resolves; an error or a
+   * missing service falls back to `[]` ("not in any branch") rather than a
+   * stuck spinner. The stale-guard drops a result superseded by a newer select.
+   */
+  private async _loadContainingBranches(rev: string): Promise<void> {
+    const repo = this._getRepo();
+    const getContainingBranches = this._gitService.getContainingBranches?.bind(this._gitService);
+    if (!repo || !getContainingBranches) {
+      this._state = { ...this._state, containingBranches: [] };
+      this._emit();
+      return;
+    }
+    this._state = { ...this._state, containingBranches: undefined };
+    this._emit();
+    try {
+      const branches = await getContainingBranches(repo, rev);
+      if (this._state.selectedCommit !== rev) {
+        return;
+      }
+      this._state = { ...this._state, containingBranches: branches };
+      this._emit();
+    } catch {
+      if (this._state.selectedCommit !== rev) {
+        return;
+      }
+      this._state = { ...this._state, containingBranches: [] };
       this._emit();
     }
   }
