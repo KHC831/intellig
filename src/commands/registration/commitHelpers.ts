@@ -22,7 +22,9 @@ export async function presentFileHistory(
 ): Promise<void> {
   if (isTabbedGitToolWindowEnabled() && ctx.gitToolWindowProvider) {
     await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
-    await ctx.gitToolWindowProvider.loadFileHistory(filePath);
+    // Pass the resolved repo root so the History tab queries the file's OWN
+    // repo in a multi-repo workspace (filePath is relative to this repo's root).
+    await ctx.gitToolWindowProvider.loadFileHistory(filePath, repo.rootUri.fsPath);
     return;
   }
 

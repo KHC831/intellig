@@ -700,7 +700,10 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
     it('every message TYPE the client script emits has a matching host handler case', () => {
       const emitted = emittedMessageTypes();
       const handled = handledMessageTypes();
-      const orphans = [...emitted].filter((t) => !handled.has(t)).sort();
+      // Messages with a known `<tab>.` prefix are consumed by the tab router
+      // (`_routeIfNonLog`) before the dispatch switch, so they have no `case`.
+      const routerConsumed = /^(history|incoming|console|updateInfo)\./;
+      const orphans = [...emitted].filter((t) => !handled.has(t) && !routerConsumed.test(t)).sort();
       assert.deepStrictEqual(
         orphans,
         [],

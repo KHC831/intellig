@@ -499,6 +499,15 @@ export class GitToolWindowProvider
   private _historyTab: HistoryTab | undefined;
 
   /**
+   * Root fsPath of the repository the History tab should query, recorded when
+   * {@link loadFileHistory} is invoked with the file's resolved repo. In a
+   * multi-repo workspace this pins history to the file's OWN repo instead of
+   * defaulting to `getRepositories()[0]`. `undefined` falls back to the
+   * currently selected repository.
+   */
+  private _historyRepoRoot: string | undefined;
+
+  /**
    * Stateful handler for the Incoming tab. Constructed lazily via
    * `attachGitService()` once the data source is available.
    */
@@ -721,6 +730,7 @@ export class GitToolWindowProvider
           this._updateWebview();
         }
       },
+      getRepo: (): IRepository | undefined => this._resolveHistoryRepo(),
     });
     this._tabRouter.register('history', this._historyTab.asTabHandler());
 
@@ -778,12 +788,37 @@ export class GitToolWindowProvider
    * Called by the `intellig.showHistory` command when the tabbed layout flag
    * is on. Falls back silently when no GitService has been attached yet.
    */
-  public async loadFileHistory(filePath: string, branch?: string): Promise<void> {
+  public async loadFileHistory(
+    filePath: string,
+    repoRoot?: string,
+    branch?: string
+  ): Promise<void> {
     if (!this._historyTab) {
       return;
     }
+    // Pin history to the file's own repo (the command resolved it). Without
+    // this, the History tab defaults to `getRepositories()[0]` and a file in a
+    // non-first repo of a multi-repo workspace shows the wrong repo's history.
+    this._historyRepoRoot = repoRoot;
     await this._tabRouter.setActiveTab('history');
     await this._historyTab.loadFile(filePath, branch);
+  }
+
+  /**
+   * Resolve the repository the History tab should query: the file's own repo
+   * (recorded by {@link loadFileHistory}) when it still maps to an open repo,
+   * otherwise the currently selected repository.
+   */
+  private _resolveHistoryRepo(): IRepository | undefined {
+    if (this._historyRepoRoot) {
+      const match = this._availableRepositories.find(
+        (r) => r.rootUri.fsPath === this._historyRepoRoot
+      );
+      if (match) {
+        return match;
+      }
+    }
+    return this.getSelectedRepository();
   }
 
   /**

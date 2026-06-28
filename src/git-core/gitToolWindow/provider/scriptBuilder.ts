@@ -1322,13 +1322,27 @@ export function buildInlineScript(): string {
 
         // ─── Event delegation for details panel ──────────────────────────
 
-        // Parent hash click → selectCommit
+        // Parent hash click selects the parent. The History tab's details
+        // panel lives in #history-details-panel and has no Log graph behind it,
+        // so a selectCommit there would mutate the hidden Log and read as a
+        // dead click; route it to history.selectRevision so the History
+        // details follow the parent instead.
         document.addEventListener('click', function(e) {
           const parentHash = e.target.closest('.parent-hash[data-parent-hash]');
           if (parentHash) {
             const hash = parentHash.getAttribute('data-parent-hash');
             if (hash) {
-              vscode.postMessage({ type: 'selectCommit', commitHash: hash });
+              if (parentHash.closest('#history-details-panel')) {
+                // Only navigate when the parent is actually in the file's
+                // history list; selecting a commit outside the list would blank
+                // the details (the host builds the panel from the list rows).
+                var rowSel = '.history-commit-row[data-rev="' + hash + '"]';
+                if (document.querySelector(rowSel)) {
+                  vscode.postMessage({ type: 'history.selectRevision', rev: hash });
+                }
+              } else {
+                vscode.postMessage({ type: 'selectCommit', commitHash: hash });
+              }
             }
           }
         });

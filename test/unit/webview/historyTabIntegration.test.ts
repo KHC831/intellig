@@ -42,7 +42,7 @@ function sampleCommit(): ICommit {
     body: 'Body text.',
     author: { name: 'Alice', email: 'alice@example.com' },
     committer: { name: 'Alice', email: 'alice@example.com' },
-    parents: [],
+    parents: ['def5678abc1234def5678abc1234def5678abc12'],
     authorDate: new Date('2024-03-04T10:00:00Z'),
     commitDate: new Date('2024-03-04T10:00:00Z'),
   } as unknown as ICommit;
@@ -122,6 +122,97 @@ describe('History tab — real provider end-to-end', () => {
     });
     assert.ok(fired, 'a diff request must fire for a History-tab commit');
     assert.strictEqual(fired?.commitHash, sampleCommit().hash);
+  });
+
+  it('queries the file OWN repo in a multi-repo workspace (not getRepositories first)', async () => {
+    const repoA = {
+      rootUri: Uri.file('/repoA'),
+      state: 'idle',
+      remotes: [],
+      submodules: [],
+    } as unknown as IRepository;
+    const repoB = {
+      rootUri: Uri.file('/repoB'),
+      state: 'idle',
+      remotes: [],
+      submodules: [],
+    } as unknown as IRepository;
+    const seen: string[] = [];
+    const gitService = createMockGitService(repoA, {
+      getRepositories: () => [repoA, repoB],
+      getFileHistory: async (repo: IRepository) => {
+        seen.push(repo.rootUri.fsPath);
+        return [sampleCommit()];
+      },
+      getCommitDiff: async () => [],
+      getContainingBranches: async () => [],
+      getBranches: async () => [],
+    } as unknown as Partial<IGitService>);
+
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setAvailableRepositories([repoA, repoB] as Parameters<
+      typeof provider.setAvailableRepositories
+    >[0]);
+    provider.attachGitService(gitService);
+    // The file lives in repoB; the command resolves repoB and passes its root.
+    await provider.loadFileHistory('src/a.ts', repoB.rootUri.fsPath);
+
+    assert.deepStrictEqual(
+      seen,
+      [repoB.rootUri.fsPath],
+      'file history must be fetched from the file own repo, not the first repo'
+    );
+  });
+
+  it('clicking a parent hash in the History details navigates within History (not the hidden Log)', async () => {
+    // Two-commit history where the selected commit's parent is the second
+    // commit — so the parent IS a row in the file's history list.
+    const parentHash = 'def5678abc1234def5678abc1234def5678abc12';
+    const child = sampleCommit(); // parents: [parentHash]
+    const parentCommit = {
+      ...sampleCommit(),
+      hash: parentHash,
+      shortHash: 'def5678',
+      message: 'Parent commit',
+      parents: [],
+    } as unknown as ICommit;
+    const gitService = createMockGitService(REPO, {
+      getFileHistory: async () => [child, parentCommit],
+      getCommitDiff: async () => [
+        { path: 'src/a.ts', status: 'modified', hunks: [], binary: false },
+      ],
+      getContainingBranches: async () => ['main'],
+      getBranches: async () => [],
+    } as unknown as Partial<IGitService>);
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setAvailableRepositories([REPO] as Parameters<
+      typeof provider.setAvailableRepositories
+    >[0]);
+    provider.attachGitService(gitService);
+    await provider.loadFileHistory('src/a.ts', REPO.rootUri.fsPath);
+
+    const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
+    const { script, bodyHtml } = extractWebviewScript(html);
+    const h = runWebviewScript(script, { bodyHtml });
+    const hdp = h.document.getElementById('history-details-panel');
+    assert.ok(hdp, '#history-details-panel exists');
+    const parent = hdp.querySelector('.parent-hash[data-parent-hash]');
+    assert.ok(parent, 'a parent hash is rendered');
+    parent.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    const selectCommit = h.posted.find((m) => (m as { type?: string }).type === 'selectCommit');
+    const historySelect = h.posted.find(
+      (m) => (m as { type?: string; rev?: string }).type === 'history.selectRevision'
+    );
+    assert.ok(
+      !selectCommit,
+      'must NOT post selectCommit (that targets the hidden Log graph, a dead click on the History tab)'
+    );
+    assert.ok(
+      historySelect,
+      'must post history.selectRevision so the History details follow the parent'
+    );
+    assert.strictEqual((historySelect as { rev?: string }).rev, parentHash);
+    h.dispose();
   });
 
   it('clicking a commit row posts history.selectRevision (selection wiring intact)', async () => {
