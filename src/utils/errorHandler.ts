@@ -191,6 +191,15 @@ const ERROR_PATTERNS: IErrorPattern[] = [
 
   // Branch errors
   {
+    // Two capture groups ($1 = new ref, $2 = blocking ref): exercises the
+    // multi-group substitution path — a value like "$2" in group 1 must not
+    // be re-consumed by the group-2 pass.
+    pattern: /cannot lock ref '([^']+)': '([^']+)' exists/i,
+    category: GitErrorCategory.Branch,
+    messageTemplate: "Cannot create ref '$1': conflicts with existing '$2'.",
+    recoveryActions: [],
+  },
+  {
     pattern: /(?:A )?branch (?:named )?'([^']+)' already exists/i,
     category: GitErrorCategory.Branch,
     messageTemplate: "A branch named '$1' already exists. Please choose a different name.",
@@ -376,16 +385,15 @@ export function categorizeGitError(error: Error | string): IGitError {
   for (const pattern of ERROR_PATTERNS) {
     const match = fullMessage.match(pattern.pattern);
     if (match) {
-      // Replace placeholders in message template with captured groups.
-      // Use a function as the replacement argument rather than a string, so
-      // that special $ patterns in a captured value (e.g. a branch or file
-      // named "$&", "$1", "$$"…) are never interpreted by the replace engine
-      // and always reach the toast verbatim.
-      let message = pattern.messageTemplate;
-      for (let i = 1; i < match.length; i++) {
-        const captured = match[i] || '';
-        message = message.replace(`$${i}`, () => captured);
-      }
+      // Replace $1, $2, … placeholders in a single pass with a regex +
+      // function replacement. Single-pass means replaced text is never
+      // re-scanned, so a captured value that is itself "$2" (e.g. a branch
+      // literally named "$2") cannot be consumed by the group-2 substitution
+      // in a subsequent iteration — it survives verbatim in the output.
+      const message = pattern.messageTemplate.replace(
+        /\$(\d+)/g,
+        (_, n: string) => match[Number(n)] ?? ''
+      );
 
       return {
         category: pattern.category,

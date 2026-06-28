@@ -691,6 +691,14 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         return;
       }
 
+      // Bump immediately on every entry into the merged path — before any async
+      // work — so ANY older in-flight load (single-repo or a previous merged
+      // load that already bumped its own generation) is invalidated as soon as
+      // we decide we're doing a merged/show-none render. One bump per
+      // loadAllRootsLog invocation; the merged path's isCurrent check below
+      // references this same myGeneration.
+      const myGeneration = stalenessGuard.bump();
+
       const discovered = await discoverAllRepositories();
       // Honor a "some but not all roots" subset from the Repository filter: load
       // only the visible roots' commits. `null` means every root (show all).
@@ -698,8 +706,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       // An explicit empty subset is the "show none" state — render an empty graph
       // rather than falling through to the single-repo load below.
       if (visible && visible.length === 0) {
-        ctx.gitToolWindowProvider?.updateLogState([], new Map(), new Map(), undefined, undefined);
-        ctx.gitToolWindowProvider?.setMergedHeadCommitHashes([]);
+        // Guard the empty render: a subsequent loadAllRootsLog call that started
+        // while discoverAllRepositories was awaiting will have bumped past us,
+        // and its result (or a newer show-none) should stand instead.
+        if (stalenessGuard.isCurrent(myGeneration)) {
+          ctx.gitToolWindowProvider?.updateLogState([], new Map(), new Map(), undefined, undefined);
+          ctx.gitToolWindowProvider?.setMergedHeadCommitHashes([]);
+        }
         return;
       }
       const repos = visible
@@ -717,11 +730,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       // bottom cannot re-run a stale single-repo load over the merged graph.
       graphLoadMore.noteMergedLoad();
 
-      // Capture the generation now so any newer single-repo or merged load
-      // that starts while we await the parallel fetches below will discard
-      // our result before it reaches updateLogState.
-      const myGeneration = stalenessGuard.bump();
-
+      // myGeneration was captured at the top of this function (before
+      // discoverAllRepositories), so it already invalidates any in-flight
+      // single-repo load. No second bump here — one bump per invocation.
       try {
         // ONE scope object (buildLogScope) so the merged view applies the same
         // filter mapping as the single-repo graph — including the "Message or

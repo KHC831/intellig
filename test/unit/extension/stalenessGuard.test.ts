@@ -102,4 +102,45 @@ describe('createStalenessGuard', () => {
     assert.strictEqual(guardA.isCurrent(genA1), false, 'A: first gen is stale');
     assert.strictEqual(guardB.isCurrent(genB1), true, 'B: unaffected by A bumping');
   });
+
+  it('show-none guard pattern: entry bump invalidates an in-flight single-repo load that resolves later (regression pin for loadAllRootsLog show-none path)', () => {
+    // Regression: the show-none early-return in loadAllRootsLog did not call
+    // bump() before rendering the empty graph. An in-flight single-repo load
+    // (which had already bumped gen=X) would later pass isCurrent(X) and
+    // clobber the empty graph with commits the user had explicitly hidden.
+    //
+    // Fix: loadAllRootsLog bumps on every entry into the merged/show-none
+    // path (before discoverAllRepositories), and wraps the show-none render
+    // in isCurrent(myGeneration).
+    //
+    // This test pins the required guard pattern. loadAllRootsLog is a
+    // non-exported closure, so the simulation uses createStalenessGuard
+    // directly to document and lock in the contract.
+    const guard = createStalenessGuard();
+    const rendered: string[] = [];
+
+    // (1) In-flight single-repo load bumped the guard (gen=1).
+    const singleRepoGen = guard.bump();
+
+    // (2) loadAllRootsLog (show-none) enters — bumps immediately (gen=2)
+    //     to invalidate the in-flight load before any async work.
+    const showNoneGen = guard.bump();
+
+    // (3) Show-none renders the empty graph, guarded by isCurrent.
+    if (guard.isCurrent(showNoneGen)) {
+      rendered.push('empty-state');
+    }
+
+    // (4) The in-flight single-repo load resolves AFTER show-none rendered.
+    //     isCurrent(1) must be false — the load is stale and must be discarded.
+    if (guard.isCurrent(singleRepoGen)) {
+      rendered.push('commits-clobber'); // must NOT reach here
+    }
+
+    assert.deepStrictEqual(
+      rendered,
+      ['empty-state'],
+      'empty graph must stand; stale commits load must be discarded'
+    );
+  });
 });

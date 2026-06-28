@@ -294,6 +294,28 @@ describe('Error Handler', () => {
           `message must not contain the unreplaced placeholder '$1'; got: ${result.message}`
         );
       });
+
+      it('preserves a captured group value of "$2" verbatim when a later group also exists (single-pass substitution)', () => {
+        // Regression: the sequential-loop substitution replaces $1 with the
+        // captured value "$2", then iteration i=2 re-matches the inserted "$2"
+        // and consumes it — so group 1's literal value never reaches the message.
+        // A single-pass /\$(\d+)/g regex with function replacement is immune
+        // because replaced text is never re-scanned.
+        //
+        // Pattern: "cannot lock ref '$1': '$2' exists"
+        //   match[1] = "$2"  (the new branch name is literally the string "$2")
+        //   match[2] = "feature/old"  (the blocking ref)
+        const error = new Error("fatal: cannot lock ref '$2': 'feature/old' exists");
+        const result = categorizeGitError(error);
+        assert.strictEqual(result.category, GitErrorCategory.Branch);
+        // Group 1's literal value "$2" must appear at the $1 position (not swallowed by i=2).
+        // Group 2's value "feature/old" must appear at the $2 position.
+        assert.strictEqual(
+          result.message,
+          "Cannot create ref '$2': conflicts with existing 'feature/old'.",
+          `sequential-loop bug produces wrong ordering; got: ${result.message}`
+        );
+      });
     });
 
     describe('credential redaction', () => {
