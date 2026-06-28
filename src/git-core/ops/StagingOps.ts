@@ -6,6 +6,7 @@ import {
   IFileStatus,
   IHunk,
   IDiffLine,
+  ILineSelection,
   ResetMode,
   IRollbackChange,
   IRollbackOptions,
@@ -93,21 +94,24 @@ export class StagingOps {
    *
    * @param repo - The repository
    * @param path - The file path
-   * @param lines - Array of line numbers (1-indexed) in the new file to stage
+   * @param selection - Disambiguated line selection: addLines keyed by
+   *   newLineNumber, deleteLines keyed by oldLineNumber. The two number-spaces
+   *   are kept separate so a collision between an add's newLineNumber and an
+   *   unrelated delete's oldLineNumber cannot cause a false match.
    * @param hunk - The hunk containing the lines to stage
    */
   stageLines(
     repo: IRepository,
     path: string,
-    lines: number[],
+    selection: ILineSelection,
     hunk: IHunk
   ): ResultAsync<void, GitError> {
-    if (lines.length === 0) {
+    if (selection.addLines.size === 0 && selection.deleteLines.size === 0) {
       return okAsync(undefined);
     }
 
     // Generate a patch that includes only the specified lines
-    const patch = this.generateLinesPatch(path, lines, hunk);
+    const patch = this.generateLinesPatch(path, selection.addLines, selection.deleteLines, hunk);
     // generateLinesPatch returns '' when the selected lines are all context
     // (no add/delete lines chosen). Passing an empty patch to `git apply`
     // results in a "patch is empty" error; guard and short-circuit instead.
@@ -442,13 +446,17 @@ export class StagingOps {
    * converting unselected additions to context and keeping unselected deletions.
    *
    * @param path - The file path
-   * @param selectedLines - Array of line numbers (1-indexed) in the new file to include
+   * @param selectedAddLines - newLineNumbers of add-type lines to include
+   * @param selectedDeleteLines - oldLineNumbers of delete-type lines to include
    * @param hunk - The hunk containing the lines
    * @returns The patch string
    */
-  private generateLinesPatch(path: string, selectedLines: number[], hunk: IHunk): string {
-    const selectedSet = new Set(selectedLines);
-
+  private generateLinesPatch(
+    path: string,
+    selectedAddLines: ReadonlySet<number>,
+    selectedDeleteLines: ReadonlySet<number>,
+    hunk: IHunk
+  ): string {
     // Build the new hunk with only selected lines
     const newLines: IDiffLine[] = [];
     let currentNewLine = hunk.newStart;
@@ -463,23 +471,19 @@ export class StagingOps {
         newLinesCount++;
         currentNewLine++;
       } else if (line.type === 'add') {
-        if (selectedSet.has(currentNewLine)) {
-          // Include selected additions
+        // Add-line selection is keyed by newLineNumber — never matches
+        // delete-line numbers (oldLineNumber) even when they share a value.
+        if (selectedAddLines.has(currentNewLine)) {
           newLines.push(line);
           newLinesCount++;
-        } else {
-          // Convert unselected additions to context (they exist in working copy)
-          // Skip them - they won't be staged
         }
+        // Unselected additions are simply omitted (not staged).
         currentNewLine++;
       } else if (line.type === 'delete') {
-        // For deletions, we need to check if the corresponding line is selected
-        // Deletions don't have a new line number, so we include them if any
-        // adjacent additions are selected, or always include them for simplicity
-        // In practice, line-level staging of deletions is complex
-        // For now, include deletions that are explicitly selected or adjacent to selected lines
+        // Delete-line selection is keyed by oldLineNumber — separate from add
+        // selections so a collision in raw numbers cannot cause a false match.
         const lineNumber = line.oldLineNumber;
-        if (lineNumber !== undefined && selectedSet.has(lineNumber)) {
+        if (lineNumber !== undefined && selectedDeleteLines.has(lineNumber)) {
           newLines.push(line);
           oldLines++;
         } else {

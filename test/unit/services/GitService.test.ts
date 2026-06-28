@@ -1373,7 +1373,12 @@ describe('GitService - Hunk and Line Staging Operations', () => {
           ],
         };
 
-        await gitService.stageLines(mockRepo, 'test.ts', [2], hunk);
+        await gitService.stageLines(
+          mockRepo,
+          'test.ts',
+          { addLines: new Set([2]), deleteLines: new Set() },
+          hunk
+        );
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
@@ -1393,7 +1398,12 @@ describe('GitService - Hunk and Line Staging Operations', () => {
           ],
         };
 
-        await gitService.stageLines(mockRepo, 'test.ts', [2], hunk);
+        await gitService.stageLines(
+          mockRepo,
+          'test.ts',
+          { addLines: new Set([2]), deleteLines: new Set() },
+          hunk
+        );
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
@@ -1415,7 +1425,12 @@ describe('GitService - Hunk and Line Staging Operations', () => {
         };
 
         mockGitCli.clearCommands();
-        await gitService.stageLines(mockRepo, 'test.ts', [], hunk);
+        await gitService.stageLines(
+          mockRepo,
+          'test.ts',
+          { addLines: new Set(), deleteLines: new Set() },
+          hunk
+        );
 
         assert.strictEqual(mockGitCli.executedCommands.length, 0, 'No commands should be executed');
       });
@@ -1433,7 +1448,12 @@ describe('GitService - Hunk and Line Staging Operations', () => {
           ],
         };
 
-        await gitService.stageLines(mockRepo, 'src/components/Button.tsx', [2], hunk);
+        await gitService.stageLines(
+          mockRepo,
+          'src/components/Button.tsx',
+          { addLines: new Set([2]), deleteLines: new Set() },
+          hunk
+        );
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');

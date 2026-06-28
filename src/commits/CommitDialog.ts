@@ -10,6 +10,7 @@ import {
   IRepository,
   IDiff,
   ICommitOptions,
+  ILineSelection,
 } from '../git-core/interfaces/IGitService';
 import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
 import { generateNonce } from '../utils/webviewNonce';
@@ -378,6 +379,8 @@ interface IWebviewMessage {
   path?: string;
   hunkIndex?: number;
   lineNumber?: number;
+  /** 'add' | 'delete' — disambiguates which number-space lineNumber belongs to. */
+  lineType?: string;
   lines?: number[];
   /** Author override payload from the `authorChange` message. */
   author?: string;
@@ -411,8 +414,8 @@ export class CommitDialog {
   private _commitMessage: string = '';
   private _previousCommitMessage: string = '';
   private _resolvePromise: ((result: ICommitDialogResult) => void) | undefined;
-  /** Selected lines for partial staging - map of hunk index to selected line numbers */
-  private _selectedLines: Map<number, Set<number>> = new Map();
+  /** Selected lines for partial staging — map of hunk index to disambiguated selection. */
+  private _selectedLines: Map<number, ILineSelection> = new Map();
   /** Whether partial staging mode is active */
   private _partialStagingMode: boolean = false;
 
@@ -669,8 +672,12 @@ export class CommitDialog {
         }
         break;
       case 'toggleLine':
-        if (message.hunkIndex !== undefined && message.lineNumber !== undefined) {
-          this._handleToggleLine(message.hunkIndex, message.lineNumber);
+        if (
+          message.hunkIndex !== undefined &&
+          message.lineNumber !== undefined &&
+          (message.lineType === 'add' || message.lineType === 'delete')
+        ) {
+          this._handleToggleLine(message.hunkIndex, message.lineNumber, message.lineType);
         }
         break;
       case 'stageSelectedLines':
@@ -1146,17 +1153,30 @@ export class CommitDialog {
 
   /**
    * Handle toggling a line selection for partial staging.
+   * lineType disambiguates the number-space: 'add' uses newLineNumber,
+   * 'delete' uses oldLineNumber, so a collision between the two cannot
+   * cause an unintended match.
    */
-  private _handleToggleLine(hunkIndex: number, lineNumber: number): void {
+  private _handleToggleLine(
+    hunkIndex: number,
+    lineNumber: number,
+    lineType: 'add' | 'delete'
+  ): void {
     if (!this._selectedLines.has(hunkIndex)) {
-      this._selectedLines.set(hunkIndex, new Set());
+      this._selectedLines.set(hunkIndex, { addLines: new Set(), deleteLines: new Set() });
     }
 
-    const hunkLines = this._selectedLines.get(hunkIndex)!;
-    if (hunkLines.has(lineNumber)) {
-      hunkLines.delete(lineNumber);
+    const selection = this._selectedLines.get(hunkIndex)!;
+    // Cast to mutable for in-place mutation; the ILineSelection interface
+    // uses ReadonlySet but the concrete Sets here are mutable.
+    const targetSet =
+      lineType === 'add'
+        ? (selection.addLines as Set<number>)
+        : (selection.deleteLines as Set<number>);
+    if (targetSet.has(lineNumber)) {
+      targetSet.delete(lineNumber);
     } else {
-      hunkLines.add(lineNumber);
+      targetSet.add(lineNumber);
     }
 
     this._updateWebview();
@@ -1175,16 +1195,17 @@ export class CommitDialog {
       return;
     }
 
-    const lineNumbers = new Set<number>();
+    const addLines = new Set<number>();
+    const deleteLines = new Set<number>();
     for (const line of hunk.lines) {
       if (line.type === 'add' && line.newLineNumber !== undefined) {
-        lineNumbers.add(line.newLineNumber);
+        addLines.add(line.newLineNumber);
       } else if (line.type === 'delete' && line.oldLineNumber !== undefined) {
-        lineNumbers.add(line.oldLineNumber);
+        deleteLines.add(line.oldLineNumber);
       }
     }
 
-    this._selectedLines.set(hunkIndex, lineNumbers);
+    this._selectedLines.set(hunkIndex, { addLines, deleteLines });
     this._updateWebview();
   }
 
@@ -1209,15 +1230,15 @@ export class CommitDialog {
       return;
     }
 
-    const selectedLineNumbers = this._selectedLines.get(hunkIndex);
-    if (!selectedLineNumbers || selectedLineNumbers.size === 0) {
+    const selection = this._selectedLines.get(hunkIndex);
+    if (!selection || (selection.addLines.size === 0 && selection.deleteLines.size === 0)) {
       void vscode.window.showWarningMessage('No lines selected for staging');
       return;
     }
 
     try {
       await this._gitService
-        .stageLines(this._repository, this._selectedFilePath, Array.from(selectedLineNumbers), hunk)
+        .stageLines(this._repository, this._selectedFilePath, selection, hunk)
         .match(
           () => undefined,
           (e) => {
@@ -1307,36 +1328,44 @@ export class CommitDialog {
         hunks: this._currentDiff.binary
           ? []
           : this._currentDiff.hunks.map((hunk, hunkIndex) => {
-              const selectedLines = this._selectedLines.get(hunkIndex) || new Set<number>();
+              const sel = this._selectedLines.get(hunkIndex);
+              const selAddLines = sel?.addLines ?? new Set<number>();
+              const selDeleteLines = sel?.deleteLines ?? new Set<number>();
+              const selectedCount = selAddLines.size + selDeleteLines.size;
               return {
                 header: hunk.header,
                 hunkIndex,
                 isStaged,
-                hasSelectedLines: selectedLines.size > 0,
-                selectedCount: selectedLines.size,
+                hasSelectedLines: selectedCount > 0,
+                selectedCount,
                 lines: hunk.lines.map((line) => {
                   let lineClass = 'diff-line';
                   let prefix = ' ';
                   let isSelectable = false;
                   let lineNumber: number | undefined;
+                  let lineType: 'add' | 'delete' | undefined;
+                  let isSelected = false;
                   switch (line.type) {
                     case 'add':
                       lineClass += ' diff-add';
                       prefix = '+';
                       isSelectable = this._partialStagingMode;
                       lineNumber = line.newLineNumber;
+                      lineType = 'add';
+                      isSelected = lineNumber !== undefined && selAddLines.has(lineNumber);
                       break;
                     case 'delete':
                       lineClass += ' diff-delete';
                       prefix = '-';
                       isSelectable = this._partialStagingMode;
                       lineNumber = line.oldLineNumber;
+                      lineType = 'delete';
+                      isSelected = lineNumber !== undefined && selDeleteLines.has(lineNumber);
                       break;
                     case 'context':
                       lineClass += ' diff-context';
                       break;
                   }
-                  const isSelected = lineNumber !== undefined && selectedLines.has(lineNumber);
                   if (isSelected) {
                     lineClass += ' line-selected';
                   }
@@ -1352,7 +1381,9 @@ export class CommitDialog {
                     newNum: line.newLineNumber?.toString() ?? '',
                     content: line.content,
                     selectable:
-                      isSelectable && lineNumber !== undefined ? { hunkIndex, lineNumber } : null,
+                      isSelectable && lineNumber !== undefined && lineType !== undefined
+                        ? { hunkIndex, lineNumber, lineType }
+                        : null,
                     checkbox: showCheckbox ? (isSelected ? '☑' : '☐') : null,
                   };
                 }),
@@ -2063,7 +2094,7 @@ export class CommitDialog {
           }
           for (const line of hunk.lines) {
             const lineEl = el('div', { className: line.lineClass });
-            if (line.selectable) setData(lineEl, { 'data-action': 'toggleLine', 'data-hunk-index': String(line.selectable.hunkIndex), 'data-line-number': String(line.selectable.lineNumber) });
+            if (line.selectable) setData(lineEl, { 'data-action': 'toggleLine', 'data-hunk-index': String(line.selectable.hunkIndex), 'data-line-number': String(line.selectable.lineNumber), 'data-line-type': line.selectable.lineType });
             if (line.checkbox) lineEl.append(el('span', { className: 'line-checkbox', textContent: line.checkbox }));
             lineEl.append(
               el('span', { className: 'line-num old', textContent: line.oldNum }),
@@ -2121,8 +2152,8 @@ export class CommitDialog {
         vscode.postMessage({ type: 'revertHunk', hunkIndex: hunkIndex });
       }
 
-      function toggleLine(hunkIndex, lineNumber) {
-        vscode.postMessage({ type: 'toggleLine', hunkIndex: hunkIndex, lineNumber: lineNumber });
+      function toggleLine(hunkIndex, lineNumber, lineType) {
+        vscode.postMessage({ type: 'toggleLine', hunkIndex: hunkIndex, lineNumber: lineNumber, lineType: lineType });
       }
 
       function stageSelectedLines(hunkIndex) {
@@ -2199,7 +2230,7 @@ export class CommitDialog {
           // is unchanged; we just route through it via Number()
           // coercion of the dataset strings. Pinned by
           // commitDialog-toggleLine-1.
-          toggleLine: () => toggleLine(Number(hunkIndex), Number(target.dataset.lineNumber)),
+          toggleLine: () => toggleLine(Number(hunkIndex), Number(target.dataset.lineNumber), target.dataset.lineType),
           // Header/footer controls. These were inline onclick handlers,
           // which the nonce-only CSP (no 'unsafe-inline') blocks, leaving
           // the buttons dead; routing through the delegated dispatcher

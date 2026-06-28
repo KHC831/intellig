@@ -40,6 +40,7 @@ import {
   RepositoryState,
   IRollbackChange,
   IRollbackOptions,
+  ILineSelection,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
 import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
@@ -2333,16 +2334,17 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    * @param path - The file path
-   * @param lines - Array of line numbers (1-indexed) in the new file to stage
+   * @param selection - Disambiguated line selection: addLines keyed by
+   *   newLineNumber, deleteLines keyed by oldLineNumber.
    * @param hunk - The hunk containing the lines to stage
    */
   stageLines(
     repo: IRepository,
     path: string,
-    lines: number[],
+    selection: ILineSelection,
     hunk: IHunk
   ): ResultAsync<void, GitError> {
-    return this._staging.stageLines(repo, path, lines, hunk);
+    return this._staging.stageLines(repo, path, selection, hunk);
   }
 
   /**

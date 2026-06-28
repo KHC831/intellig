@@ -214,6 +214,19 @@ export interface IHunk {
 }
 
 /**
+ * Disambiguated line selection for partial staging.
+ *
+ * Add-line selections are keyed by newLineNumber; delete-line selections are
+ * keyed by oldLineNumber.  Keeping the two number-spaces separate prevents a
+ * false match when an add's newLineNumber equals an unrelated delete's
+ * oldLineNumber.
+ */
+export interface ILineSelection {
+  readonly addLines: ReadonlySet<number>;
+  readonly deleteLines: ReadonlySet<number>;
+}
+
+/**
  * Diff model
  */
 export interface IDiff {
@@ -1401,7 +1414,7 @@ export interface IGitService {
   stageLines(
     repo: IRepository,
     path: string,
-    lines: number[],
+    selection: ILineSelection,
     hunk: IHunk
   ): ResultAsync<void, GitError>;
   unstageHunk(repo: IRepository, path: string, hunk: IHunk): ResultAsync<void, GitError>;

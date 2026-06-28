@@ -757,10 +757,16 @@ describe('CommitDialog — recent messages + author + gear', () => {
           hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
         };
         // Seed selected line numbers so the handler doesn't short-circuit.
-        const selectedLines = new Map<number, Set<number>>();
-        selectedLines.set(0, new Set([1, 2]));
-        (dialog as unknown as { _selectedLines: Map<number, Set<number>> })._selectedLines =
-          selectedLines;
+        const selectedLines = new Map<
+          number,
+          { addLines: Set<number>; deleteLines: Set<number> }
+        >();
+        selectedLines.set(0, { addLines: new Set([1, 2]), deleteLines: new Set() });
+        (
+          dialog as unknown as {
+            _selectedLines: Map<number, { addLines: Set<number>; deleteLines: Set<number> }>;
+          }
+        )._selectedLines = selectedLines;
 
         await (
           dialog as unknown as { _handleStageSelectedLines: (i: number) => Promise<void> }
