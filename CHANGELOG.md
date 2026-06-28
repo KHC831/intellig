@@ -10,6 +10,23 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.9] - 2026-06-27
+
+### Added
+
+- Filter the log by multiple branches or repositories at once — both are checkbox menus now.
+- The filter row stays put when you scroll.
+
+### Changed
+
+- Easier to tell apart blue and cyan branches in the graph.
+
+### Fixed
+
+- Blame stays aligned with your edits in an unsaved file, and the gutter no longer flickers as you type.
+- Filtering by branches that aren't in every repo no longer hides a repo's history.
+- Rewording a commit keeps the message body instead of dropping it.
+
 ## [0.2.8] - 2026-06-26
 
 ### Changed
