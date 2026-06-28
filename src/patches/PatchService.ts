@@ -18,6 +18,7 @@ import {
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
+import { isConflictedStatus } from '../git-core/gitParser';
 import { sanitizeGitError } from '../git-core/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { getLogger, type Logger } from '../utils/logger';
@@ -368,7 +369,9 @@ export class PatchService implements IPatchService {
       return [];
     }
     const statusFiles = await this._gitService.getStatus(repo);
-    const unmerged = statusFiles.filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U');
+    // isConflictedStatus covers U (unmerged), AA (both-added), and DD
+    // (both-deleted) — all three signal a conflict that the caller must handle.
+    const unmerged = statusFiles.filter(isConflictedStatus);
 
     const touched = new Set(this._parseAppliedFiles(stdout + '\n' + stderr));
     const scoped = touched.size > 0 ? unmerged.filter((f) => touched.has(f.path)) : unmerged;

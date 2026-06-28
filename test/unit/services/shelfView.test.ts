@@ -1457,4 +1457,114 @@ describe('ShelfView', () => {
       }
     });
   });
+
+  // Finding #8: showShelveDialog must show a warning toast (not an info
+  // toast) when the service returns partialCleanupFailures.
+  describe('showShelveDialog — partial cleanup failure toast (finding #8)', () => {
+    /** Helpers shared across the two specs in this block. */
+    function stubDialog(view2: ShelfView, inputName: string): () => void {
+      const originalPick = vscode.window.showQuickPick;
+      const originalInput = vscode.window.showInputBox;
+      (
+        vscode.window as unknown as {
+          showQuickPick: (items: unknown[]) => Promise<unknown>;
+        }
+      ).showQuickPick = async (items: unknown[]) => items.slice();
+      (
+        vscode.window as unknown as {
+          showInputBox: (opts?: unknown) => Promise<string | undefined>;
+        }
+      ).showInputBox = async () => inputName;
+      // Seed the _repository reference so refresh() doesn't crash.
+      (view2 as unknown as { _repository: IRepository })._repository = repo;
+      return () => {
+        (vscode.window as unknown as { showQuickPick: typeof originalPick }).showQuickPick =
+          originalPick;
+        (vscode.window as unknown as { showInputBox: typeof originalInput }).showInputBox =
+          originalInput;
+      };
+    }
+
+    it('shows a warning toast (not an info toast) when shelve returns partialCleanupFailures', async () => {
+      // RED: currently showShelveDialog always calls showInformationMessage.
+      const view2 = new ShelfView(svc, () =>
+        Promise.resolve([{ path: 'a.ts', indexStatus: 'M', workTreeStatus: ' ' } as never])
+      );
+      // Override shelve to return an item with partial cleanup failures.
+      svc.shelve = (_r, name): Promise<IShelfItem> =>
+        Promise.resolve({
+          id: 'shelf-1',
+          name,
+          timestamp: new Date(),
+          files: [{ path: 'a.ts', diff: 'diff' }],
+          partialCleanupFailures: ['a.ts'],
+        });
+
+      const restoreDialog = stubDialog(view2, 'my-wip');
+      const warnTracker = installWarningMessageTracker();
+      const infoTracker = installInfoMessageTracker();
+
+      try {
+        const result = await view2.showShelveDialog(repo);
+        assert.strictEqual(result.shelved, true, 'dialog should report shelved=true');
+        assert.strictEqual(
+          warnTracker.calls.length,
+          1,
+          `expected exactly one warning toast; got ${warnTracker.calls.map((c) => c.message).join(' | ')}`
+        );
+        assert.ok(
+          warnTracker.calls[0].message.includes('a.ts'),
+          `warning toast must name the failed path; got: "${warnTracker.calls[0].message}"`
+        );
+        // The plain "Shelved changes:" info toast must NOT fire when there is
+        // a partial failure — the warning toast replaces it.
+        const infoShelvedCalls = infoTracker.calls.filter((c) =>
+          c.message.startsWith('Shelved changes:')
+        );
+        assert.strictEqual(
+          infoShelvedCalls.length,
+          0,
+          `plain info toast must not fire on partial failure; got: ${infoShelvedCalls.map((c) => c.message).join(' | ')}`
+        );
+      } finally {
+        restoreDialog();
+        restoreMessageFunctions();
+        view2.dispose();
+      }
+    });
+
+    it('shows the plain info toast (not a warning) when shelve returns no partialCleanupFailures', async () => {
+      // This pins the positive path — a clean shelve still shows the info message.
+      const view2 = new ShelfView(svc, () =>
+        Promise.resolve([{ path: 'b.ts', indexStatus: 'M', workTreeStatus: ' ' } as never])
+      );
+      // Default svc.shelve returns no partialCleanupFailures.
+
+      const restoreDialog = stubDialog(view2, 'clean-wip');
+      const warnTracker = installWarningMessageTracker();
+      const infoTracker = installInfoMessageTracker();
+
+      try {
+        const result = await view2.showShelveDialog(repo);
+        assert.strictEqual(result.shelved, true);
+        assert.strictEqual(
+          warnTracker.calls.length,
+          0,
+          `no warning toast expected on clean shelve; got: ${warnTracker.calls.map((c) => c.message).join(' | ')}`
+        );
+        const infoShelvedCalls = infoTracker.calls.filter((c) =>
+          c.message.startsWith('Shelved changes:')
+        );
+        assert.strictEqual(
+          infoShelvedCalls.length,
+          1,
+          `expected one info toast on clean shelve; got ${infoShelvedCalls.length}`
+        );
+      } finally {
+        restoreDialog();
+        restoreMessageFunctions();
+        view2.dispose();
+      }
+    });
+  });
 });

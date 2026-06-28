@@ -489,4 +489,107 @@ describe('ShelfService — additions', () => {
       assert.strictEqual(svc.getShelfItems(repo).length, 0);
     });
   });
+
+  // ─── Finding #8: partial shelve — removal failures must surface ───────────
+  //
+  // Regression: revertShelvedChanges swallowed checkout/rm failures at debug
+  // level and shelve() always reported full SUCCESS, leaving the change BOTH
+  // saved on the shelf AND still in the working tree. The fix surfaces a
+  // warning and sets partialCleanupFailures on the returned IShelfItem.
+
+  describe('shelve — partial cleanup failure (finding #8)', () => {
+    /**
+     * Script the mock CLI so that:
+     *   - `diff HEAD -- <file>` returns a real diff (the shelf save succeeds)
+     *   - `cat-file -e HEAD:<file>` returns 0 (file IS tracked by HEAD, so rm
+     *     won't be called — checkout is the only removal path)
+     *   - `checkout HEAD -- <file>` returns exit 1 (removal fails)
+     *
+     * This leaves the file saved on the shelf but NOT cleared from the working
+     * tree, so the service must signal partial success.
+     */
+    function scriptRemovalFailure(filePath: string): void {
+      const diff = `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n@@ -1 +1 @@\n-old\n+new\n`;
+      mockCli.nextResult = (args): IGitCommandResult => {
+        // Capture the diff for the file.
+        if (args[0] === 'diff' && args.includes(filePath)) {
+          return { exitCode: 0, stdout: diff, stderr: '', combined: '' };
+        }
+        // cat-file: file IS in HEAD (so checkout path is taken, not rm).
+        if (args[0] === 'cat-file') {
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        }
+        // checkout HEAD -- <file>: simulate failure (lock contention etc.).
+        if (args[0] === 'checkout') {
+          return { exitCode: 1, stdout: '', stderr: 'error: path is locked', combined: '' };
+        }
+        return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+      };
+    }
+
+    it('returns partialCleanupFailures listing the files that could not be cleared', async () => {
+      scriptRemovalFailure('stuck.ts');
+
+      const item = await svc.shelve(repo, 'partial', { files: ['stuck.ts'] });
+
+      // The shelf entry must be saved (normal shelve result).
+      assert.ok(item.id, 'shelf entry must still be created');
+      assert.strictEqual(item.files.length, 1);
+
+      // And it must signal that the working tree was NOT cleared.
+      assert.ok(
+        Array.isArray(item.partialCleanupFailures) && item.partialCleanupFailures.length > 0,
+        'partialCleanupFailures must list the file(s) that could not be removed'
+      );
+      assert.ok(
+        item.partialCleanupFailures.includes('stuck.ts'),
+        `partialCleanupFailures must include 'stuck.ts'; got: ${JSON.stringify(item.partialCleanupFailures)}`
+      );
+    });
+
+    it('emits a warn-level log when at least one file could not be cleared', async () => {
+      const warnMessages: string[] = [];
+      (svc as unknown as { _logger: unknown })._logger = {
+        debug: (): void => {},
+        info: (): void => {},
+        warn: (msg: string): void => {
+          warnMessages.push(msg);
+        },
+        error: (): void => {},
+        trace: (): void => {},
+        child(): unknown {
+          return this;
+        },
+      };
+
+      scriptRemovalFailure('stuck.ts');
+      await svc.shelve(repo, 'partial-warn', { files: ['stuck.ts'] });
+
+      assert.ok(warnMessages.length > 0, 'a warn-level log must be emitted when removal fails');
+      assert.ok(
+        warnMessages.some((m) => /partial|working.tree|not.clear/i.test(m)),
+        `warn message must mention partial / working tree; got: ${JSON.stringify(warnMessages)}`
+      );
+    });
+
+    it('does NOT set partialCleanupFailures when all removals succeed', async () => {
+      // Normal shelve path: checkout succeeds (exit 0).
+      const diff =
+        'diff --git a/clean.ts b/clean.ts\n--- a/clean.ts\n+++ b/clean.ts\n@@ -1 +1 @@\n-old\n+new\n';
+      mockCli.nextResult = (args): IGitCommandResult => {
+        if (args[0] === 'diff' && args.includes('clean.ts')) {
+          return { exitCode: 0, stdout: diff, stderr: '', combined: '' };
+        }
+        // All other commands (checkout, etc.) succeed.
+        return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+      };
+
+      const item = await svc.shelve(repo, 'clean', { files: ['clean.ts'] });
+
+      assert.ok(
+        !item.partialCleanupFailures || item.partialCleanupFailures.length === 0,
+        'partialCleanupFailures must be absent or empty on a clean shelve'
+      );
+    });
+  });
 });

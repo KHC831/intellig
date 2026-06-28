@@ -1204,4 +1204,54 @@ describe('ConflictResolutionService — (a) additions', () => {
       'dialog should be updated with new conflicts'
     );
   });
+
+  // ─── Finding #6: completeMerge / completeRebase stale-dialog guard ────────
+  //
+  // Regression: "Continue" on a stale merge dialog can commit whatever is
+  // staged if the repo is no longer mid-merge. completeMerge / completeRebase
+  // must bail early when repo.state === 'idle', not fall through to the git
+  // command.
+
+  describe('completeMerge — stale-dialog guard', () => {
+    it('returns "not in a merge" error when repo state is idle', async () => {
+      // repo created by makeRepoInTmp() already has state: 'idle'.
+      const result = await conflictService.completeMerge(repo);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(
+        result.error && /not.*merge|no.*merge/i.test(result.error),
+        `expected a "not in a merge" error, got: ${result.error}`
+      );
+    });
+
+    it('does not invoke git commit when repo is not mid-merge', async () => {
+      await conflictService.completeMerge(repo);
+
+      assert.ok(
+        !gitService._execCalls.some((args) => args[0] === 'commit'),
+        'git commit --no-edit must not be called when repo is not mid-merge'
+      );
+    });
+  });
+
+  describe('completeRebase — stale-dialog guard', () => {
+    it('returns "not in a rebase" error when repo state is idle', async () => {
+      const result = await conflictService.completeRebase(repo);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(
+        result.error && /not.*rebase|no.*rebase/i.test(result.error),
+        `expected a "not in a rebase" error, got: ${result.error}`
+      );
+    });
+
+    it('does not invoke git rebase when repo is not mid-rebase', async () => {
+      await conflictService.completeRebase(repo);
+
+      assert.ok(
+        !gitService._execCalls.some((args) => args[0] === 'rebase'),
+        'git rebase --continue must not be called when repo is not mid-rebase'
+      );
+    });
+  });
 });

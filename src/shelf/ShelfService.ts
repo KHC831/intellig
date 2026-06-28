@@ -617,8 +617,16 @@ export class ShelfService implements IShelfService {
     // Save to storage
     this.saveShelfItem(repo, shelfItem);
 
-    // Revert the shelved changes from working directory
-    await this.revertShelvedChanges(repo, shelfFiles, changes.hunks);
+    // Revert the shelved changes from working directory. A non-empty result
+    // means some files could not be cleared — the shelf entry is saved but
+    // those files are still live in the working tree (partial shelve).
+    const removalFailures = await this.revertShelvedChanges(repo, shelfFiles, changes.hunks);
+    if (removalFailures.length > 0) {
+      shelfItem.partialCleanupFailures = removalFailures;
+      this._logger.warn('shelve: partial — working tree still contains changes for some files', {
+        failedPaths: removalFailures,
+      });
+    }
 
     // Update cache and fire event
     const items = this.getShelfItems(repo);
@@ -1427,16 +1435,22 @@ export class ShelfService implements IShelfService {
   /**
    * Revert shelved changes from the working directory.
    *
+   * Returns the list of repo-relative file paths that could NOT be removed
+   * from the working tree. When non-empty the shelve is only partial: the
+   * changes are saved on the shelf but the listed files are still live.
+   *
    * @param repo - The repository
    * @param shelfFiles - The shelved files
    * @param selectedHunks - Optional map of selected hunks per file
+   * @returns Paths that failed to be cleared from the working tree
    */
   private async revertShelvedChanges(
     repo: IRepository,
     shelfFiles: IShelfFile[],
     selectedHunks?: Map<string, IHunk[]>
-  ): Promise<void> {
+  ): Promise<string[]> {
     const cwd = repo.rootUri.fsPath;
+    const failedPaths: string[] = [];
 
     for (const file of shelfFiles) {
       // Binary files have no text patch to reverse — restore the HEAD bytes
@@ -1456,6 +1470,7 @@ export class ShelfService implements IShelfService {
             path: file.path,
             err: error instanceof Error ? error.message : String(error),
           });
+          failedPaths.push(file.path);
         }
         continue;
       }
@@ -1484,10 +1499,14 @@ export class ShelfService implements IShelfService {
           })
         ).exitCode === 0;
       if (inHead) {
+        // A transient checkout failure on a HEAD-tracked file — leave the
+        // working tree as-is and surface this as a partial-cleanup failure so
+        // the caller can warn the user.
         this._logger.debug('shelve: checkout failed for a HEAD-tracked file; left as-is', {
           path: file.path,
           checkoutStderr: checkout.stderr,
         });
+        failedPaths.push(file.path);
         continue;
       }
       const removed = await this._gitCli.exec(['rm', '-f', '--', file.path], {
@@ -1499,8 +1518,11 @@ export class ShelfService implements IShelfService {
           path: file.path,
           rmStderr: removed.stderr,
         });
+        failedPaths.push(file.path);
       }
     }
+
+    return failedPaths;
   }
 
   /**

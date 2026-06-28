@@ -337,7 +337,15 @@ export class ShelfView implements IShelfView {
 
     try {
       const shelfItem = await this._shelfService.shelve(repository, name.trim(), selection);
-      void vscode.window.showInformationMessage(`Shelved changes: "${name}"`);
+      if (shelfItem.partialCleanupFailures && shelfItem.partialCleanupFailures.length > 0) {
+        const count = shelfItem.partialCleanupFailures.length;
+        const paths = shelfItem.partialCleanupFailures.join(', ');
+        void vscode.window.showWarningMessage(
+          `Shelved changes: "${name}", but ${count} file(s) could not be removed from your working tree and are still present: ${paths}`
+        );
+      } else {
+        void vscode.window.showInformationMessage(`Shelved changes: "${name}"`);
+      }
 
       // refresh() never rejects — it returns `{ error? }` so we surface
       // a post-shelve refresh failure as a toast instead of letting it

@@ -68,6 +68,16 @@ export interface IShelfItem {
    * restoreList).
    */
   deletedAt?: Date;
+  /**
+   * Repo-relative paths of files whose changes could NOT be removed from the
+   * working tree after being saved to the shelf. When non-empty the shelve is
+   * only PARTIAL: the changes are stored on the shelf but the file(s) listed
+   * here are still live in the working tree. Callers should surface a warning
+   * so the user knows to resolve the duplication manually.
+   *
+   * Absent (or empty) when all working-tree removals succeeded.
+   */
+  partialCleanupFailures?: string[];
 }
 
 /**

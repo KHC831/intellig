@@ -198,6 +198,43 @@ describe('PatchService.applyPatch', () => {
     assert.strictEqual(res.conflicts[0].path, 'a.ts');
   });
 
+  // ─── Finding #7: AA/DD conflict detection in _extractConflicts ───────────
+  //
+  // Regression: _extractConflicts filtered status via 'U'-only check, missing
+  // both-sides-added (AA) and both-sides-deleted (DD) entries. The fix delegates
+  // to isConflictedStatus so all three conflict classes are caught.
+
+  it('detects a both-sides-added (AA) conflict file when applying a patch', async () => {
+    // CONFLICT phrase triggers the getStatus path; AA status must now be found.
+    const git = makeMockGitService(
+      [{ exitCode: 1, stdout: '', stderr: 'CONFLICT (add/add): Merge conflict in collide.ts' }],
+      [{ path: 'collide.ts', indexStatus: 'A', workTreeStatus: 'A' } as IFileStatus]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts, 'expected conflicts array to be populated for AA entry');
+    assert.strictEqual(res.conflicts.length, 1);
+    assert.strictEqual(res.conflicts[0].path, 'collide.ts');
+  });
+
+  it('detects a both-sides-deleted (DD) conflict file when applying a patch', async () => {
+    const git = makeMockGitService(
+      [{ exitCode: 1, stdout: '', stderr: 'CONFLICT (delete/delete): Merge conflict in gone.ts' }],
+      [{ path: 'gone.ts', indexStatus: 'D', workTreeStatus: 'D' } as IFileStatus]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts, 'expected conflicts array to be populated for DD entry');
+    assert.strictEqual(res.conflicts.length, 1);
+    assert.strictEqual(res.conflicts[0].path, 'gone.ts');
+  });
+
   it('hard failure (no conflict phrase) returns stderr and no conflicts', async () => {
     const git = makeMockGitService([
       { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' },

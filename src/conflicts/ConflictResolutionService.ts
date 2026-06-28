@@ -823,7 +823,19 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   async completeMerge(repo: IRepository): Promise<IOperationCompletionResult> {
     try {
-      // Check if we can complete
+      // Bail immediately when the repo is not in a merge state — proceeding
+      // to `git commit --no-edit` on a non-merging repo would commit whatever
+      // happens to be staged, which is never the intent (mirrors IntelliJ
+      // GitConflictResolver.proceedIfNothingToMerge).
+      const state = this.getRepositoryState(repo);
+      if (state !== 'merging') {
+        return {
+          success: false,
+          error: 'Repository is not in a merge state',
+        };
+      }
+
+      // Check for unresolved conflicts before committing.
       const canComplete = await this.canCompleteOperation(repo);
       if (!canComplete) {
         const conflicts = await this.getConflictedFiles(repo);
@@ -870,7 +882,18 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   async completeRebase(repo: IRepository): Promise<IOperationCompletionResult> {
     try {
-      // Check if we can complete
+      // Bail immediately when the repo is not in a rebase state — same guard
+      // as completeMerge: proceeding would run a git command against the wrong
+      // repo state.
+      const state = this.getRepositoryState(repo);
+      if (state !== 'rebasing') {
+        return {
+          success: false,
+          error: 'Repository is not in a rebase state',
+        };
+      }
+
+      // Check for unresolved conflicts before continuing.
       const canComplete = await this.canCompleteOperation(repo);
       if (!canComplete) {
         const conflicts = await this.getConflictedFiles(repo);

@@ -116,7 +116,7 @@ function makeGit(opts: {
     fetchCalls,
     async getStatus(r) {
       return opts.unmergedRoots?.has(r.rootUri.fsPath)
-        ? [{ indexStatus: 'U', workTreeStatus: 'U' }]
+        ? [{ path: 'conflict.ts', indexStatus: 'U' as const, workTreeStatus: 'U' as const }]
         : [];
     },
     async fetch(r) {
@@ -266,6 +266,80 @@ describe('runUpdateProject', () => {
       pullRebaseDefault: false,
     });
     assert.strictEqual(summary.repos[0].status, 'conflict');
+  });
+
+  // ─── Finding #7: AA/DD conflict detection ─────────────────────────────────
+  //
+  // Regression: the preflight getStatus check only matched 'U' markers, missing
+  // both-sides-added (AA) and both-sides-deleted (DD) conflicts — e.g. after a
+  // stash re-apply where git exits 0 but leaves 'AA' entries. The fix imports
+  // and delegates to isConflictedStatus so all three cases are caught.
+
+  it('blocks update when getStatus reports a both-sides-added (AA) conflict', async () => {
+    // Build a custom stub that returns { indexStatus: 'A', workTreeStatus: 'A' }
+    // — a both-added merge conflict that the old 'U'-only check would miss.
+    const blockedStub = {
+      async getStatus() {
+        return [{ indexStatus: 'A', workTreeStatus: 'A', path: 'collide.ts' }];
+      },
+      async fetch() {},
+      async getIncomingOutgoing() {
+        return {
+          branch: 'main',
+          upstream: 'origin/main',
+          incoming: 1,
+          outgoing: 0,
+          noUpstream: false,
+        };
+      },
+      async pull() {},
+      async reloadRepository() {},
+    };
+
+    const summary = await runUpdateProject({
+      repos: [repo('aa-conflict')],
+      gitService:
+        blockedStub as unknown as import('../../../src/sync/updateProject').IUpdateGitService,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+
+    const r = summary.repos[0];
+    assert.strictEqual(r.status, 'error', 'AA conflict must block update with error status');
+    assert.ok(
+      /conflict|unmerged/i.test(r.detail ?? ''),
+      `error detail must mention conflicts/unmerged; got: ${r.detail}`
+    );
+  });
+
+  it('blocks update when getStatus reports a both-sides-deleted (DD) conflict', async () => {
+    const blockedStub = {
+      async getStatus() {
+        return [{ indexStatus: 'D', workTreeStatus: 'D', path: 'gone.ts' }];
+      },
+      async fetch() {},
+      async getIncomingOutgoing() {
+        return {
+          branch: 'main',
+          upstream: 'origin/main',
+          incoming: 1,
+          outgoing: 0,
+          noUpstream: false,
+        };
+      },
+      async pull() {},
+      async reloadRepository() {},
+    };
+
+    const summary = await runUpdateProject({
+      repos: [repo('dd-conflict')],
+      gitService:
+        blockedStub as unknown as import('../../../src/sync/updateProject').IUpdateGitService,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+
+    assert.strictEqual(summary.repos[0].status, 'error');
   });
 
   it('classifies a non-conflict pull failure as status=error', async () => {

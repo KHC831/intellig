@@ -304,12 +304,20 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       try {
-        await ctx.services.shelfService.shelve(repo, changelist.name, {
+        const item = await ctx.services.shelfService.shelve(repo, changelist.name, {
           files: changelist.files.map((f) => f.path),
         });
-        void vscode.window.showInformationMessage(
-          `Shelved ${changelist.files.length} file(s) from '${changelist.name}'`
-        );
+        if (item.partialCleanupFailures && item.partialCleanupFailures.length > 0) {
+          const count = item.partialCleanupFailures.length;
+          const paths = item.partialCleanupFailures.join(', ');
+          void vscode.window.showWarningMessage(
+            `Shelved ${changelist.files.length} file(s) from '${changelist.name}', but ${count} file(s) could not be removed from your working tree and are still present: ${paths}`
+          );
+        } else {
+          void vscode.window.showInformationMessage(
+            `Shelved ${changelist.files.length} file(s) from '${changelist.name}'`
+          );
+        }
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Failed to shelve changelist: ${sanitizeGitError(m)}`);

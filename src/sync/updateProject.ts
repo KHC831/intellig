@@ -1,8 +1,10 @@
 import type {
+  IFileStatus,
   IPullOptions,
   IRepository,
   RepositoryState,
 } from '../git-core/interfaces/IGitService';
+import { isConflictedStatus } from '../git-core/gitParser';
 import { combinedGitErrorText, sanitizeGitError } from '../git-core/gitError';
 
 /**
@@ -148,7 +150,7 @@ export function repoDisplayName(repo: IRepository): string {
 
 /** Minimal git surface the update flow needs (frozen IGitService methods + 0a). */
 export interface IUpdateGitService {
-  getStatus(repo: IRepository): Promise<Array<{ indexStatus?: string; workTreeStatus?: string }>>;
+  getStatus(repo: IRepository): Promise<IFileStatus[]>;
   fetch(repo: IRepository, options?: { all?: boolean; prune?: boolean }): Promise<unknown>;
   pull(repo: IRepository, options?: IPullOptions): Promise<void>;
   getIncomingOutgoing(repo: IRepository): Promise<{
@@ -207,7 +209,10 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
 
     // Preflight per-repo.
     const status = await deps.gitService.getStatus(repo);
-    const hasUnmergedFiles = status.some((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U');
+    // Use isConflictedStatus so AA (both-added) and DD (both-deleted) entries
+    // are caught alongside the U (unmerged) marker — they all signal a conflict
+    // state that blocks an update.
+    const hasUnmergedFiles = status.some(isConflictedStatus);
     const blocked = updateProjectBlockedReason({
       inProgressKind: repo.inProgress?.kind,
       hasUnmergedFiles,

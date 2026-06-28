@@ -245,9 +245,17 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
       const item = await ctx.services.shelfService.shelve(repo, name, {
         files: active.files.map((f) => f.path),
       });
-      void vscode.window.showInformationMessage(
-        `Shelved ${item.files.length} file(s) to '${item.name}'.`
-      );
+      if (item.partialCleanupFailures && item.partialCleanupFailures.length > 0) {
+        const count = item.partialCleanupFailures.length;
+        const paths = item.partialCleanupFailures.join(', ');
+        void vscode.window.showWarningMessage(
+          `Shelved ${item.files.length} file(s) to '${item.name}', but ${count} file(s) could not be removed from your working tree and are still present: ${paths}`
+        );
+      } else {
+        void vscode.window.showInformationMessage(
+          `Shelved ${item.files.length} file(s) to '${item.name}'.`
+        );
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
