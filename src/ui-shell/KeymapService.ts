@@ -276,34 +276,13 @@ export function readUserSetPreset(
 }
 
 /**
- * Resolve the active keymap from the two configuration knobs.
+ * Resolve the active keymap from `keymapPreset`. A user-set preset (at any
+ * scope) is authoritative; when none is set the keymap is `'default'`.
  *
- * Policy A ("preset wins when set"):
- *   - When `preset` is set at any scope (`'default'` or `'intellij'`),
- *     it is authoritative. The legacy `useIntelliJKeymap` boolean is
- *     NOT consulted.
- *   - The legacy fallback applies ONLY when `preset` is the schema
- *     default (`undefined`). Backward-compat for users who never knew
- *     about the new knob.
- *
- * Why policy A: a user who explicitly types `keymapPreset: 'default'`
- * while leaving a stale `useIntelliJKeymap: true` (e.g., from a
- * workspace they inherited) MUST get the default keymap — silently
- * overriding their explicit choice with the legacy is a UX correctness
- * bug. The deprecation narrative is "preset is authoritative; legacy
- * is read-only fallback for users who didn't migrate yet."
- *
- * @internal — exposed for unit tests asserting the 8-cell resolver
- * matrix.
+ * @internal — exposed for unit tests.
  */
-export function resolveKeymap(
-  preset: KeymapPreset | undefined,
-  legacyOptIn: boolean | undefined
-): KeymapPreset {
-  if (preset !== undefined) {
-    return preset;
-  }
-  return legacyOptIn === true ? 'intellij' : 'default';
+export function resolveKeymap(preset: KeymapPreset | undefined): KeymapPreset {
+  return preset ?? 'default';
 }
 
 /**
@@ -329,26 +308,16 @@ export class KeymapService implements IKeymapService {
     this.onDidChangeKeymap = this._onDidChangeKeymap.event;
 
     // Initialize current keymap. Read `keymapPreset` via the typed
-    // `inspect()` (see `readUserSetPreset`) so we can distinguish
-    // "user explicitly set a value at any scope" from "no user value,
-    // schema default returned". Under policy A, the legacy
-    // `useIntelliJKeymap` fallback fires ONLY when no preset is set at
-    // any scope — which the typed `get()` cannot express because it
-    // merges in the schema default.
-    this._currentKeymap = resolveKeymap(
-      readUserSetPreset(this.configurationService),
-      this.configurationService.get('useIntelliJKeymap')
-    );
+    // `inspect()` (see `readUserSetPreset`) so a user-set value at any
+    // scope is distinguished from the merged-in schema default.
+    this._currentKeymap = resolveKeymap(readUserSetPreset(this.configurationService));
 
     // Listen for configuration changes. Re-inspect on every change so
     // the resolver sees fresh inspect() state, not the merged snapshot
     // in the change event.
     this._disposables.push(
-      this.configurationService.onDidChangeConfiguration((config) => {
-        const newKeymap = resolveKeymap(
-          readUserSetPreset(this.configurationService),
-          config.useIntelliJKeymap
-        );
+      this.configurationService.onDidChangeConfiguration(() => {
+        const newKeymap = resolveKeymap(readUserSetPreset(this.configurationService));
         if (newKeymap !== this._currentKeymap) {
           this._currentKeymap = newKeymap;
           this._onDidChangeKeymap.fire(this._currentKeymap);

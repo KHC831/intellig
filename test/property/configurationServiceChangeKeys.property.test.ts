@@ -321,11 +321,6 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
     settingName: 'showStatusBarBranch',
     valueArb: booleanFlipArb('showStatusBarBranch'),
   } as IKnobDescriptor<'showStatusBarBranch'>,
-  {
-    typedKey: 'useIntelliJKeymap',
-    settingName: 'useIntelliJKeymap',
-    valueArb: booleanFlipArb('useIntelliJKeymap'),
-  } as IKnobDescriptor<'useIntelliJKeymap'>,
 
   // Numeric knob
   {

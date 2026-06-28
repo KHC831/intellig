@@ -33,18 +33,12 @@ describe('KeymapService', () => {
       assert.ok(keymapService.onDidChangeKeymap);
     });
 
-    it('should initialize with default keymap when useIntelliJKeymap is false', () => {
+    it('should initialize with the default keymap when no preset is set', () => {
       assert.strictEqual(keymapService.getCurrentKeymap(), 'default');
     });
 
-    it('should initialize with intellij keymap when useIntelliJKeymap is true (legacy fallback)', () => {
-      // Set up configuration before creating service. / M3
-      // policy A: legacy boolean only takes effect when keymapPreset is
-      // undefined (schema default never explicitly set). The mock
-      // initialiser persists 'default' as an explicit value, so clear
-      // it to exercise the legacy-fallback path.
-      setMockConfigValue('intellig', 'keymapPreset', undefined);
-      setMockConfigValue('intellig', 'useIntelliJKeymap', true);
+    it("should initialize with the intellij keymap when keymapPreset='intellij'", () => {
+      setMockConfigValue('intellig', 'keymapPreset', 'intellij');
       const newConfigService = new ConfigurationService();
       const newKeymapService = new KeymapService(newConfigService);
 
@@ -56,15 +50,12 @@ describe('KeymapService', () => {
   });
 
   describe('getCurrentKeymap', () => {
-    it('should return "default" when useIntelliJKeymap is false', () => {
+    it('should return "default" when no preset is set', () => {
       assert.strictEqual(keymapService.getCurrentKeymap(), 'default');
     });
 
-    it('should return "intellij" when useIntelliJKeymap is true (legacy fallback)', () => {
-      // See policy-A note above; clearing keymapPreset enables the
-      // legacy fallback path.
-      setMockConfigValue('intellig', 'keymapPreset', undefined);
-      setMockConfigValue('intellig', 'useIntelliJKeymap', true);
+    it('should return "intellij" when keymapPreset=\'intellij\'', () => {
+      setMockConfigValue('intellig', 'keymapPreset', 'intellij');
       const newConfigService = new ConfigurationService();
       const newKeymapService = new KeymapService(newConfigService);
 
@@ -100,7 +91,7 @@ describe('KeymapService', () => {
       assert.ok(keymap.keybindings.length > 0);
     });
 
-    it('should return default keymap when useIntelliJKeymap is false', () => {
+    it('should return default keymap when no preset is set', () => {
       const keymap = keymapService.getKeymapDefinition();
       assert.strictEqual(keymap.name, 'default');
       assert.strictEqual(keymap.displayName, 'Default');
@@ -180,12 +171,8 @@ describe('KeymapService', () => {
       assert.strictEqual(keymapService.isIntelliJKeymapActive(), false);
     });
 
-    it('should return true when intellij keymap is active (legacy fallback)', () => {
-      // Policy A: clear keymapPreset to exercise
-      // the legacy-fallback path; otherwise the mock's explicit
-      // 'default' wins over the legacy boolean.
-      setMockConfigValue('intellig', 'keymapPreset', undefined);
-      setMockConfigValue('intellig', 'useIntelliJKeymap', true);
+    it("should return true when keymapPreset='intellij'", () => {
+      setMockConfigValue('intellig', 'keymapPreset', 'intellij');
       const newConfigService = new ConfigurationService();
       const newKeymapService = new KeymapService(newConfigService);
 

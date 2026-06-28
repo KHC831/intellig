@@ -47,7 +47,6 @@ describe('ConfigurationService', () => {
         'defaultToolWindowTab',
         'blameAnnotationStyle',
         'showStatusBarBranch',
-        'useIntelliJKeymap',
         'modifiedFileColor',
         'addedFileColor',
         'deletedFileColor',
@@ -80,9 +79,6 @@ describe('ConfigurationService', () => {
 
       const showStatusBarBranch = service.get('showStatusBarBranch');
       assert.strictEqual(typeof showStatusBarBranch, 'boolean');
-
-      const useIntelliJKeymap = service.get('useIntelliJKeymap');
-      assert.strictEqual(typeof useIntelliJKeymap, 'boolean');
     });
 
     it('should return string values for string settings', () => {
@@ -128,8 +124,8 @@ describe('ConfigurationService', () => {
   describe('inspect (Wave 135 R5 / M1; coverage added in Wave 135 R6 / L1)', () => {
     // The mock's per-scope tracker is exercised
     // here directly. These specs pin the contract that other
-    // services (KeymapService) and migrations (runKeymapMigration)
-    // depend on for distinguishing user-set from schema-default.
+    // services (KeymapService) depend on for distinguishing
+    // user-set from schema-default.
     beforeEach(() => {
       resetMockConfiguration();
     });
@@ -276,7 +272,7 @@ describe('getDefaultConfiguration', () => {
     assert.strictEqual(defaults.showStatusBarBranch, true);
 
     // Keyboard shortcuts
-    assert.strictEqual(defaults.useIntelliJKeymap, false);
+    assert.strictEqual(defaults.keymapPreset, 'default');
 
     // Colors (IntelliJ-style)
     assert.strictEqual(defaults.modifiedFileColor, '#6897BB');

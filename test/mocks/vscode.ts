@@ -141,7 +141,6 @@ function initializeDefaultConfig(): void {
   schemaDefaults.set('useTabbedGitToolWindow', true);
   schemaDefaults.set('blameAnnotationStyle', 'inline');
   schemaDefaults.set('showStatusBarBranch', true);
-  schemaDefaults.set('useIntelliJKeymap', false);
   schemaDefaults.set('keymapPreset', 'default');
   schemaDefaults.set('modifiedFileColor', '#6897BB');
   schemaDefaults.set('addedFileColor', '#629755');

@@ -80,7 +80,6 @@ describe('Configuration Persistence Property Tests', () => {
     showStatusBarBranch: fc.boolean(),
 
     // Keyboard shortcuts
-    useIntelliJKeymap: fc.boolean(),
     keymapPreset: fc.constantFrom<'default' | 'intellij'>('default', 'intellij'),
 
     // Colors
@@ -171,7 +170,6 @@ describe('Configuration Persistence Property Tests', () => {
           'showStatusBarBranch',
           this.defaults.showStatusBarBranch
         ),
-        useIntelliJKeymap: this.storage.get('useIntelliJKeymap', this.defaults.useIntelliJKeymap),
         keymapPreset: this.storage.get('keymapPreset', this.defaults.keymapPreset),
         modifiedFileColor: this.storage.get('modifiedFileColor', this.defaults.modifiedFileColor),
         addedFileColor: this.storage.get('addedFileColor', this.defaults.addedFileColor),
@@ -401,7 +399,6 @@ describe('Configuration Persistence Property Tests', () => {
         'pullRebase',
         'autoFetchEnabled',
         'showStatusBarBranch',
-        'useIntelliJKeymap',
       ];
 
       fc.assert(

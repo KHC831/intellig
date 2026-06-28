@@ -1606,13 +1606,6 @@
           "default": true,
           "description": "Show current branch in status bar"
         },
-        "intellig.useIntelliJKeymap": {
-          "type": "boolean",
-          "default": false,
-          "description": "DEPRECATED — superseded by intellig.keymapPreset. This setting is no longer read by any keybinding's `when` clause; set `intellig.keymapPreset` to \"intellij\" instead. Will be removed in a future minor release.",
-          "deprecationMessage": "Use intellig.keymapPreset instead. Set it to \"intellij\" to enable the IntelliJ-style preset.",
-          "markdownDeprecationMessage": "Use `intellig.keymapPreset` instead. Set it to `\"intellij\"` to enable the IntelliJ-style preset."
-        },
         "intellig.keymapPreset": {
           "type": "string",
           "enum": [

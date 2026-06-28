@@ -12,7 +12,6 @@ import { IGitService, IRepository, RepositoryState } from '../git-core/interface
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { IMergeView } from './interfaces/IMergeView';
-import { getOutputChannel } from '../utils/outputChannel';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
@@ -198,8 +197,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       if (reason === 'completed' || reason === 'aborted') {
         safeFireAndForget(
           this._setConflictsActive(repo, false),
-          'ConflictResolutionService.openResolveConflictsDialog: clear active on dialog close',
-          { outputChannel: getOutputChannel() }
+          'ConflictResolutionService.openResolveConflictsDialog: clear active on dialog close'
         );
       }
     });
@@ -253,8 +251,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       // value before handing to safeFireAndForget.
       safeFireAndForget(
         this._runStateFileCheck(repo).then(() => undefined),
-        'ConflictResolutionService._scheduleStateFileCheck: debounced state-file check',
-        { outputChannel: getOutputChannel() }
+        'ConflictResolutionService._scheduleStateFileCheck: debounced state-file check'
       );
     }, STATE_FILE_DEBOUNCE_MS);
     this._watcherDebounces.set(key, timer);

@@ -65,28 +65,17 @@ describe('KeymapService — free-function helpers (TL-97)', () => {
     });
   });
 
-  describe('resolveKeymap — pure decision (policy A: preset wins when set)', () => {
-    it("returns 'intellij' when preset='intellij' regardless of legacy", () => {
-      assert.strictEqual(keymapModule.resolveKeymap('intellij', undefined), 'intellij');
-      assert.strictEqual(keymapModule.resolveKeymap('intellij', false), 'intellij');
-      assert.strictEqual(keymapModule.resolveKeymap('intellij', true), 'intellij');
+  describe('resolveKeymap — pure decision (preset drives the keymap)', () => {
+    it("returns 'intellij' when preset='intellij'", () => {
+      assert.strictEqual(keymapModule.resolveKeymap('intellij'), 'intellij');
     });
 
-    it("returns 'default' when preset='default' even if legacy=true (policy A)", () => {
-      // Regression spec from / M3 — the explicit user choice
-      // on the new knob MUST NOT be overridden by a stale legacy boolean.
-      assert.strictEqual(keymapModule.resolveKeymap('default', true), 'default');
-      assert.strictEqual(keymapModule.resolveKeymap('default', false), 'default');
-      assert.strictEqual(keymapModule.resolveKeymap('default', undefined), 'default');
+    it("returns 'default' when preset='default'", () => {
+      assert.strictEqual(keymapModule.resolveKeymap('default'), 'default');
     });
 
-    it("returns 'intellij' when preset=undefined and legacy=true (legacy fallback)", () => {
-      assert.strictEqual(keymapModule.resolveKeymap(undefined, true), 'intellij');
-    });
-
-    it("returns 'default' when preset=undefined and legacy=false/undefined (schema default)", () => {
-      assert.strictEqual(keymapModule.resolveKeymap(undefined, false), 'default');
-      assert.strictEqual(keymapModule.resolveKeymap(undefined, undefined), 'default');
+    it("returns 'default' when preset=undefined (schema default)", () => {
+      assert.strictEqual(keymapModule.resolveKeymap(undefined), 'default');
     });
   });
 

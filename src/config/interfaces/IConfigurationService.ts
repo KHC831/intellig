@@ -40,15 +40,8 @@ export interface IExtensionConfiguration {
 
   // Keyboard shortcuts
   /**
-   * @deprecated since 0.1.0. Use `keymapPreset` instead. Read by
-   * KeymapService for backward-compat fallback only; will be
-   * removed in the same release that drops the schema entry.
-   */
-  useIntelliJKeymap: boolean;
-  /**
-   * Successor to `useIntelliJKeymap`. Drives the in-process
-   * keymap label AND the package.json keybinding `when` clauses
-   * (`config.intellig.keymapPreset == 'intellij'`).
+   * Drives the in-process keymap label AND the package.json keybinding `when`
+   * clauses (`config.intellig.keymapPreset == 'intellij'`).
    */
   keymapPreset: KeymapPresetName;
 

@@ -33,11 +33,10 @@ import {
 import type { IRepository, IPushPreselect, IRebaseDialogPreselect } from './services';
 import { CommitContextMenuCommands } from './commits';
 import { isValidRefNameFormat } from './branches/branchNameValidator';
-import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
+import { initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
-import { runKeymapMigrationSafe } from './utils/keymapMigration';
 import { safeFireAndForget } from './utils/safeFireAndForget';
-import { sanitizeGitError, formatActionFailureToast } from './git-core/gitError';
+import { formatActionFailureToast } from './git-core/gitError';
 import { ICommandContext } from './commands/registration/CommandContext';
 import { IViewRegistrationContext } from './registration/ViewRegistrationContext';
 import {
@@ -228,35 +227,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     initLogger(context);
 
     getLogger().info('extension activating');
-
-    // one-time migration from the deprecated
-    // `intellig.useIntelliJKeymap` boolean to `intellig.keymapPreset`.
-    // Runs before service init so KeymapService picks up the migrated
-    // value on its first read. Idempotent — once the legacy boolean
-    // is cleared, this is a no-op on subsequent activations.
-    //
-    // Migration is non-essential. KeymapService's
-    // `resolveKeymap` legacy fallback covers the keymap surface
-    // even if migration fails (read-only settings.json, sync
-    // conflict, transient policy error). The safe wrapper
-    // `runKeymapMigrationSafe` (path A) routes
-    // failures to OutputChannel and returns; activation continues.
-    //
-    // Perf note: the seam re-acquires
-    // `vscode.workspace.getConfiguration('intellig')` per inspect /
-    // update call. Cheap (microseconds) and pins fresh-state
-    // semantics so a re-inspect immediately after update reads the
-    // post-update value.
-    await runKeymapMigrationSafe(
-      {
-        inspect: <T>(key: string) => vscode.workspace.getConfiguration('intellig').inspect<T>(key),
-        update: (key, value, target) =>
-          Promise.resolve(vscode.workspace.getConfiguration('intellig').update(key, value, target)),
-      },
-      (message) => vscode.window.showInformationMessage(message),
-      getOutputChannel(),
-      sanitizeGitError
-    );
 
     // Get or create the extension services container
     extensionServices = getExtensionServices();

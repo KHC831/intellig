@@ -94,31 +94,7 @@
  * microtask queue before any other handler we chain on top.
  */
 
-import type * as vscode from 'vscode';
-
 import { getCurrentCorrelationId, getLogger } from './logger';
-
-/**
- * Options bag for `safeFireAndForget`. Kept on the public signature for
- * back-compat with existing call sites; the `outputChannel` field is no
- * longer read.
- *
- * @see docs/adr/ADR-011-structured-logger.md — the OutputChannel sink on
- *      the Logger is now the single mirror path; this helper no longer
- *      maintains a parallel one.
- */
-export interface ISafeFireAndForgetOptions {
-  /**
-   * @deprecated Unused since the Logger consolidation
-   *   (see `docs/adr/ADR-011-structured-logger.md`). The Logger's
-   *   OutputChannel sink renders every rejection emitted by this helper
-   *   into the shared `IntelliG` channel uniformly with the rest of the
-   *   structured log stream, so a per-call channel override is no longer
-   *   meaningful. Field is retained on the public signature so existing
-   *   call sites compile without churn; the value is ignored.
-   */
-  outputChannel?: vscode.OutputChannel;
-}
 
 /**
  * Fire the given promise without awaiting, routing any rejection through
@@ -136,15 +112,8 @@ export interface ISafeFireAndForgetOptions {
  * @param context - A grep-friendly tag identifying the call site. Include
  *   the class name, method name, and trigger — e.g. `'ShelfView.unshelve:
  *   refresh after success'`.
- * @param _options - Retained for back-compat; the `outputChannel` field
- *   is ignored. See {@link ISafeFireAndForgetOptions} and
- *   `docs/adr/ADR-011-structured-logger.md`.
  */
-export function safeFireAndForget(
-  promise: Promise<void> | Thenable<void>,
-  context: string,
-  _options?: ISafeFireAndForgetOptions
-): void {
+export function safeFireAndForget(promise: Promise<void> | Thenable<void>, context: string): void {
   // Capture the current Correlation_Id eagerly. Reading inside the
   // `.catch` would observe an empty store once the caller's
   // synchronous frame has unwound, so the cid we want is the one that

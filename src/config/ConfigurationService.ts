@@ -33,7 +33,6 @@ const DEFAULT_CONFIGURATION: IExtensionConfiguration = {
   showStatusBarBranch: true,
 
   // Keyboard shortcuts
-  useIntelliJKeymap: false,
   keymapPreset: 'default',
 
   // Colors
@@ -60,7 +59,6 @@ const CONFIG_KEY_MAP: Record<keyof IExtensionConfiguration, string> = {
   defaultToolWindowTab: 'defaultToolWindowTab',
   blameAnnotationStyle: 'blameAnnotationStyle',
   showStatusBarBranch: 'showStatusBarBranch',
-  useIntelliJKeymap: 'useIntelliJKeymap',
   keymapPreset: 'keymapPreset',
   modifiedFileColor: 'modifiedFileColor',
   addedFileColor: 'addedFileColor',
@@ -248,11 +246,6 @@ export class ConfigurationService implements IConfigurationService {
       ),
 
       // Keyboard shortcuts
-      useIntelliJKeymap: this.getConfigValue(
-        config,
-        'useIntelliJKeymap',
-        DEFAULT_CONFIGURATION.useIntelliJKeymap
-      ),
       keymapPreset: this.getConfigValue<KeymapPresetName>(
         config,
         'keymapPreset',

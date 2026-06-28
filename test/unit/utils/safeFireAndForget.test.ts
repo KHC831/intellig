@@ -212,55 +212,6 @@ describe('safeFireAndForget — Logger routing', () => {
     );
   });
 
-  it('ignores options.outputChannel — the per-call channel mirror is no longer wired', async () => {
-    // Back-compat: the field is still on the public signature so existing
-    // callers compile; the value is unused. Capture this with a hand-rolled
-    // OutputChannel that records every write — it must stay empty.
-    const lines: string[] = [];
-    const sideChannel = {
-      name: 'unused',
-      append(_v: string): void {
-        lines.push(_v);
-      },
-      appendLine(v: string): void {
-        lines.push(v);
-      },
-      clear(): void {
-        lines.length = 0;
-      },
-      show(): void {
-        /* no-op */
-      },
-      hide(): void {
-        /* no-op */
-      },
-      dispose(): void {
-        /* no-op */
-      },
-      replace(v: string): void {
-        lines.length = 0;
-        lines.push(v);
-      },
-    } as unknown as vscode.OutputChannel;
-
-    safeFireAndForget(Promise.reject(new Error('boom')), 'TestClass.method: ignored', {
-      outputChannel: sideChannel,
-    });
-    await flushMicrotasks();
-
-    assert.strictEqual(
-      lines.length,
-      0,
-      'the side OutputChannel must receive nothing — options.outputChannel is unused'
-    );
-    // The rejection still reaches the Logger's shared OutputChannel sink.
-    assert.strictEqual(
-      getCapturedLines().length,
-      1,
-      'the shared IntelliG channel still receives the record via the Logger sink'
-    );
-  });
-
   it('does not call console.error on rejection (legacy path is removed)', async () => {
     const errorLogs: unknown[][] = [];
     const originalConsoleError = console.error;

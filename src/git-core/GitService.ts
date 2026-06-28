@@ -64,7 +64,6 @@ import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/Worktree
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
-import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 
@@ -364,8 +363,7 @@ export class GitService implements IGitService, IGitServiceCli {
         for (const folder of event.added) {
           safeFireAndForget(
             this.discoverRepository(folder.uri.fsPath),
-            `GitService.onDidChangeWorkspaceFolders: discover added folder ${folder.uri.fsPath}`,
-            { outputChannel: getOutputChannel() }
+            `GitService.onDidChangeWorkspaceFolders: discover added folder ${folder.uri.fsPath}`
           );
         }
       })
@@ -397,8 +395,7 @@ export class GitService implements IGitService, IGitServiceCli {
         for (const folder of folders) {
           safeFireAndForget(
             this.discoverRepository(folder.uri.fsPath),
-            `GitService.onDidChangeConfiguration: rediscover ${folder.uri.fsPath}`,
-            { outputChannel: getOutputChannel() }
+            `GitService.onDidChangeConfiguration: rediscover ${folder.uri.fsPath}`
           );
         }
       })
@@ -411,8 +408,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // folders.
     safeFireAndForget(
       this.discoverRepositories(),
-      'GitService.constructor: initial repository discovery',
-      { outputChannel: getOutputChannel() }
+      'GitService.constructor: initial repository discovery'
     );
   }
 
@@ -722,8 +718,7 @@ export class GitService implements IGitService, IGitServiceCli {
       // OutputChannel.
       safeFireAndForget(
         this.discoverRepository(repoParentDir),
-        `GitService.setupNewRepoWatcher: discover new repo at ${repoParentDir}`,
-        { outputChannel: getOutputChannel() }
+        `GitService.setupNewRepoWatcher: discover new repo at ${repoParentDir}`
       );
     });
 
@@ -1096,8 +1091,7 @@ export class GitService implements IGitService, IGitServiceCli {
         // rejection path doesn't regress silently.
         safeFireAndForget(
           this._performDebouncedRefresh(rootPath),
-          `GitService.setupRepositoryWatcher: debounced refresh for ${rootPath}`,
-          { outputChannel: getOutputChannel() }
+          `GitService.setupRepositoryWatcher: debounced refresh for ${rootPath}`
         );
       }, GitService.WATCHER_DEBOUNCE_MS);
       this._refreshTimers.set(rootPath, timer);
@@ -1157,8 +1151,7 @@ export class GitService implements IGitService, IGitServiceCli {
           }
           this.removeRepositoryWatcher(rootPath);
         })(),
-        `GitService.setupRepositoryWatcher: confirm HEAD deletion for ${rootPath}`,
-        { outputChannel: getOutputChannel() }
+        `GitService.setupRepositoryWatcher: confirm HEAD deletion for ${rootPath}`
       );
     };
 
