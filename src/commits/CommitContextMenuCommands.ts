@@ -574,7 +574,19 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // 3. File picker — user selects files to DROP.
+    // 3. Safety: refuse on merge commits. A merge commit has two parents; the
+    //    soft-reset + re-commit path records only the first parent, silently
+    //    discarding the merge relationship with no warning. Mirror the guard
+    //    that the regular Drop handler uses for the same reason.
+    if (await this._anyIsMergeCommit(repo, [hash]).catch(() => false)) {
+      void vscode.window.showErrorMessage(
+        `${shortHash} is a merge commit. Drop Selected Changes cannot run on a merge — ` +
+          `use Reset to a non-merge ancestor instead.`
+      );
+      return;
+    }
+
+    // 4. File picker — user selects files to DROP.
     let diffs;
     try {
       diffs = await this._gitService.getCommitDiff(repo, hash);
@@ -619,40 +631,70 @@ export class CommitContextMenuCommands {
     const droppedPaths = dropPicks.map((p) => p.path);
     const keptPaths = diffs.map((d) => d.path).filter((p) => !droppedPaths.includes(p));
 
+    // Partition the dropped files by their status so we can choose the
+    // right git command per file type.
+    const statusByPath = new Map(diffs.map((d) => [d.path, d.status]));
+    // Newly-added files have no history in the parent commit. Restoring
+    // them via `git checkout HEAD -- <path>` would fail (path not in
+    // parent tree). Remove them from the index instead.
+    const addedDropped = droppedPaths.filter((p) => statusByPath.get(p) === 'added');
+    // Modified / deleted / renamed / copied files — restore the parent's
+    // version via `git checkout HEAD -- <path>`.
+    const otherDropped = droppedPaths.filter((p) => statusByPath.get(p) !== 'added');
+
     // 5. Rewrite HEAD.
     //    Strategy (safer than interactive rebase for HEAD-only):
     //      a. git reset --soft HEAD^   (uncommit, keep index + working tree intact)
-    //      b. for each dropped file: git checkout HEAD -- <file>
+    //      b. for each dropped ADDED file: git rm --cached -- <path>
+    //         (the file was newly introduced — the parent doesn't have it, so
+    //         checkout would fail; rm --cached removes the staged copy only)
+    //      c. for each other dropped file: git checkout HEAD -- <path>
     //         (at this point HEAD is the parent; restore parent's content
-    //         in both index and working tree — effectively removing the
-    //         file's changes from the to-be-amended commit).
-    //      c. if all files were kept, re-commit as `git commit -C <hash>`.
-    //         If all files were dropped, the staging area equals parent →
-    //         HEAD is already at the parent; we simply don't create a new
-    //         commit (the original is gone).
+    //         in both index and working tree)
+    //      d. if any files were kept, re-commit as `git commit -C <hash>`.
+    //         If all files were dropped, HEAD is already at the parent.
+    //    Rollback: if anything fails after the soft-reset un-commits HEAD,
+    //    restore the original commit via `git reset --soft <hash>` so the
+    //    repo is never left in a half-rewritten state.
     try {
       await this._gitCli.exec(['reset', '--soft', 'HEAD^'], { cwd, throwOnError: true });
 
-      if (droppedPaths.length > 0) {
-        await this._gitCli.exec(['checkout', 'HEAD', '--', ...droppedPaths], {
-          cwd,
-          throwOnError: true,
-        });
+      try {
+        if (addedDropped.length > 0) {
+          await this._gitCli.exec(['rm', '--cached', '--', ...addedDropped], {
+            cwd,
+            throwOnError: true,
+          });
+        }
+
+        if (otherDropped.length > 0) {
+          await this._gitCli.exec(['checkout', 'HEAD', '--', ...otherDropped], {
+            cwd,
+            throwOnError: true,
+          });
+        }
+
+        if (keptPaths.length > 0) {
+          // Re-commit with original author + message from the saved hash.
+          await this._gitCli.exec(['commit', '-C', hash], { cwd, throwOnError: true });
+          void vscode.window.showInformationMessage(
+            `Dropped ${droppedPaths.length} file(s) from ${shortHash}`
+          );
+        } else {
+          // Every file dropped → the commit effectively disappears. HEAD
+          // is already at the parent after the soft-reset.
+          void vscode.window.showInformationMessage(
+            `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped).`
+          );
+        }
+      } catch (innerError) {
+        // Something failed after the soft-reset removed the commit from HEAD.
+        // Restore the original commit (best-effort) so the repo isn't left
+        // with a lost commit and a dirty index.
+        await this._gitCli.exec(['reset', '--soft', hash], { cwd });
+        throw innerError;
       }
 
-      if (keptPaths.length > 0) {
-        // Re-commit with original author + message from the saved hash.
-        await this._gitCli.exec(['commit', '-C', hash], { cwd, throwOnError: true });
-        void vscode.window.showInformationMessage(
-          `Dropped ${droppedPaths.length} file(s) from ${shortHash}`
-        );
-      } else {
-        // Every file dropped → the commit effectively disappears. HEAD
-        // is already at the parent after the soft-reset + checkout pair.
-        void vscode.window.showInformationMessage(
-          `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped).`
-        );
-      }
       // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` (history rewrite moved HEAD).
       await this._gitService.reloadRepository(repo);
@@ -2258,8 +2300,15 @@ export class CommitContextMenuCommands {
 
         const result = await this._rebaseService.executeRebase(repo);
 
-        if (result.success) {
+        // Mirror Squash's outcome checks: only toast success on a truly
+        // completed rebase, warn on paused (user must continue/abort
+        // manually), error on any other non-conflict failure.
+        if (result.success && result.status === 'completed') {
           void vscode.window.showInformationMessage(`Dropped commit ${hash.substring(0, 8)}`);
+        } else if (result.status === 'paused') {
+          void vscode.window.showWarningMessage(
+            `Drop partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
+          );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
           // Only abort a LIVE rebase. A post-completion autostash-pop conflict
           // (rebaseInProgress === false) has no rebase to abort — `git rebase
@@ -2277,6 +2326,11 @@ export class CommitContextMenuCommands {
           await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
+        } else {
+          // Non-conflict, non-paused failure — the rebase did not complete.
+          void vscode.window.showErrorMessage(
+            `Failed to drop commit: rebase did not complete successfully.`
+          );
         }
       } catch (opError) {
         if (stashed) {
@@ -2482,9 +2536,16 @@ export class CommitContextMenuCommands {
 
         const result = await this._rebaseService.executeRebase(repo);
 
-        if (result.success) {
+        // Mirror Squash's outcome checks (and the single-drop fix):
+        // only toast success on a fully completed rebase, warn on paused,
+        // error on any other non-conflict failure.
+        if (result.success && result.status === 'completed') {
           void vscode.window.showInformationMessage(
             `Dropped ${commitHashes.length} commits successfully.`
+          );
+        } else if (result.status === 'paused') {
+          void vscode.window.showWarningMessage(
+            `Drop partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
           );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
           // 8. Conflict path — abort + unstash, then hand off to the
@@ -2507,6 +2568,11 @@ export class CommitContextMenuCommands {
           await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
+        } else {
+          // Non-conflict, non-paused failure — the rebase did not complete.
+          void vscode.window.showErrorMessage(
+            `Failed to drop commits: rebase did not complete successfully.`
+          );
         }
       } catch (opError) {
         if (stashed) {
@@ -2800,6 +2866,12 @@ export class CommitContextMenuCommands {
           await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
+        } else {
+          // Non-conflict, non-paused failure — the rebase did not complete.
+          const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
+          void vscode.window.showErrorMessage(
+            `Failed to ${verb}: rebase did not complete successfully.`
+          );
         }
       } catch (opError) {
         if (stashed) {

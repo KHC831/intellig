@@ -1183,6 +1183,153 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
+  // ─── dropCommit: rebase result handling ──────────────────────────────────
+
+  describe('_handleDropCommit — rebase result outcome branches', () => {
+    it('shows no success toast and shows a paused warning when single-drop rebase is paused', async () => {
+      // A paused rebase means history was NOT rewritten — showing "Dropped commit"
+      // is misleading. The handler must show a warning to resume/abort manually.
+      const messages = createMessageTrackersAcceptingDrop();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+      });
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        gitCli
+      );
+
+      await commands._handleAction('dropCommit', [testHash]);
+
+      assert.strictEqual(messages.info.length, 0, 'no success toast when rebase is paused');
+      assert.ok(
+        messages.warning.some((w) => /resume|continue|abort/i.test(w.message)),
+        `expected a "resume/continue/abort" warning, got: ${JSON.stringify(messages.warning)}`
+      );
+    });
+
+    it('shows an error toast when single-drop rebase fails without conflicts', async () => {
+      // Non-conflict rebase failure (e.g. bad permissions, git error) must surface
+      // an error — not silently refresh as if the drop succeeded.
+      const messages = createMessageTrackersAcceptingDrop();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: false, status: 'in-progress' as const }),
+      });
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        gitCli
+      );
+
+      await commands._handleAction('dropCommit', [testHash]);
+
+      assert.strictEqual(messages.info.length, 0, 'no success toast on failure');
+      assert.ok(
+        messages.error.some((e) => /drop|fail|rebase/i.test(e.message)),
+        `expected an error toast, got: ${JSON.stringify(messages.error)}`
+      );
+    });
+
+    it('shows no success toast and shows a paused warning when multi-drop rebase is paused', async () => {
+      // Same contract as single-drop: a paused result must not show "Dropped N commits".
+      const messages = createMessageTrackersAcceptingDrop();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const c1 = '1'.repeat(40);
+      const c2 = '2'.repeat(40);
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async () => ({
+          onto: `${c2}^`,
+          originalBranch: 'main',
+          commits: [
+            { hash: c1, message: 'newer', action: 'pick' as const },
+            { hash: c2, message: 'older', action: 'pick' as const },
+          ],
+          currentStep: 0,
+          status: 'planning' as const,
+        }),
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+      });
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        gitCli
+      );
+
+      await commands._handleAction(
+        'dropCommit',
+        [c1, c2],
+        [
+          { hash: c1, parentCount: 1 },
+          { hash: c2, parentCount: 1 },
+        ]
+      );
+
+      assert.strictEqual(
+        messages.info.length,
+        0,
+        'no success toast when multi-drop rebase is paused'
+      );
+      assert.ok(
+        messages.warning.some((w) => /resume|continue|abort/i.test(w.message)),
+        `expected a "resume/continue/abort" warning, got: ${JSON.stringify(messages.warning)}`
+      );
+    });
+
+    it('shows an error toast when multi-drop rebase fails without conflicts', async () => {
+      const messages = createMessageTrackersAcceptingDrop();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const c1 = '1'.repeat(40);
+      const c2 = '2'.repeat(40);
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async () => ({
+          onto: `${c2}^`,
+          originalBranch: 'main',
+          commits: [
+            { hash: c1, message: 'newer', action: 'pick' as const },
+            { hash: c2, message: 'older', action: 'pick' as const },
+          ],
+          currentStep: 0,
+          status: 'planning' as const,
+        }),
+        executeRebase: async () => ({ success: false, status: 'in-progress' as const }),
+      });
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        gitCli
+      );
+
+      await commands._handleAction(
+        'dropCommit',
+        [c1, c2],
+        [
+          { hash: c1, parentCount: 1 },
+          { hash: c2, parentCount: 1 },
+        ]
+      );
+
+      assert.strictEqual(messages.info.length, 0, 'no success toast on multi-drop failure');
+      assert.ok(
+        messages.error.some((e) => /drop|fail|rebase/i.test(e.message)),
+        `expected an error toast, got: ${JSON.stringify(messages.error)}`
+      );
+    });
+  });
+
   // ─── editCommitMessage ────────────────────────────────────────────────────
 
   describe('_handleEditCommitMessage', () => {
@@ -2523,6 +2670,63 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(
         rebaseService.calls.find((c) => c.method === 'abortRebase'),
         'the live rebase must be aborted before the handoff'
+      );
+    });
+  });
+
+  describe('_handleSquashCommits — non-conflict failure toast', () => {
+    it('shows an error toast when squash rebase fails without conflicts', async () => {
+      // Squash already guards against 'paused' (result.status === 'completed' check),
+      // but a non-conflict failure with any other status fell through silently.
+      // An error must be surfaced so the user knows the squash did not complete.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const c1 = '1'.repeat(40);
+      const c2 = '2'.repeat(40);
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async () => ({
+          onto: `${c2}^`,
+          originalBranch: 'main',
+          commits: [
+            { hash: c1, message: 'newer', action: 'pick' as const },
+            { hash: c2, message: 'older', action: 'pick' as const },
+          ],
+          currentStep: 0,
+          status: 'planning' as const,
+        }),
+        executeRebase: async () => ({ success: false, status: 'in-progress' as const }),
+      });
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        gitCli
+      );
+
+      // fixup mode skips the squash-message dialog so the test runs without a UI prompt.
+      await (
+        commands as unknown as {
+          _handleSquashCommits(
+            hashes: string[],
+            nodes: { hash: string; parentCount: number }[],
+            options: { mode: 'squash' | 'fixup' }
+          ): Promise<void>;
+        }
+      )._handleSquashCommits(
+        [c1, c2],
+        [
+          { hash: c1, parentCount: 1 },
+          { hash: c2, parentCount: 1 },
+        ],
+        { mode: 'fixup' }
+      );
+
+      assert.strictEqual(messages.info.length, 0, 'no success toast on squash failure');
+      assert.ok(
+        messages.error.some((e) => /squash|fixup|fail|rebase/i.test(e.message)),
+        `expected an error toast, got: ${JSON.stringify(messages.error)}`
       );
     });
   });

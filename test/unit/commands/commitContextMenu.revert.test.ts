@@ -600,7 +600,7 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
     }
   });
 
-  it('drop some files: soft-reset → checkout HEAD -- dropped → commit -C <hash>', async () => {
+  it('drop some files: soft-reset → checkout HEAD for modified, rm --cached for added → commit -C <hash>', async () => {
     const { commands, cli } = makeHarness([
       { path: 'a.ts', status: 'modified', hunks: [], binary: false },
       { path: 'b.ts', status: 'added', hunks: [], binary: false },
@@ -614,7 +614,7 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
     });
 
     const { trackers, restore } = installWindowStubs(
-      (items) => [items[0], items[1]], // drop a.ts + b.ts
+      (items) => [items[0], items[1]], // drop a.ts (modified) + b.ts (added)
       () => 'Drop'
     );
     try {
@@ -624,11 +624,20 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
         joined.some((c) => c === 'reset --soft HEAD^'),
         `missing reset --soft, got: ${joined.join(' | ')}`
       );
+      // Modified file → restored from parent via git checkout HEAD
       assert.ok(
-        joined.some(
-          (c) => c.startsWith('checkout HEAD -- ') && c.includes('a.ts') && c.includes('b.ts')
-        ),
-        `missing checkout HEAD -- a.ts b.ts, got: ${joined.join(' | ')}`
+        joined.some((c) => c.startsWith('checkout HEAD -- ') && c.includes('a.ts')),
+        `missing checkout HEAD -- a.ts, got: ${joined.join(' | ')}`
+      );
+      // Added file → removed from index via git rm --cached (parent has no entry)
+      assert.ok(
+        joined.some((c) => /^rm --cached/.test(c) && c.includes('b.ts')),
+        `missing rm --cached b.ts, got: ${joined.join(' | ')}`
+      );
+      // Added file must NOT use checkout HEAD (would fail on missing parent entry)
+      assert.ok(
+        !joined.some((c) => c.startsWith('checkout HEAD -- ') && c.includes('b.ts')),
+        `added file b.ts must not use git checkout HEAD, got: ${joined.join(' | ')}`
       );
       assert.ok(
         joined.some((c) => c === `commit -C ${testHash}`),
@@ -660,10 +669,134 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
       await commands.dropSelectedChangesFromCommit(testHash);
       const joined = cli.executed.map((e) => e.args.join(' '));
       assert.ok(joined.some((c) => c === 'reset --soft HEAD^'));
-      assert.ok(joined.some((c) => c.startsWith('checkout HEAD -- ')));
+      // Modified files use checkout HEAD; added files use rm --cached.
+      assert.ok(
+        joined.some((c) => c.startsWith('checkout HEAD -- ') || /^rm --cached/.test(c)),
+        `expected checkout or rm --cached, got: ${joined.join(' | ')}`
+      );
       // No re-commit should have happened.
       assert.ok(!joined.some((c) => c.startsWith('commit -C')));
       assert.ok(trackers.info.some((m) => m.includes('Removed commit')));
+    } finally {
+      restore();
+    }
+  });
+
+  it('uses git rm --cached for a newly-added file instead of git checkout HEAD --', async () => {
+    // An ADDED file has no history in the parent commit. Restoring it via
+    // `git checkout HEAD -- <path>` fails. The correct operation is
+    // `git rm --cached -- <path>` (removes from the index, keeps working tree).
+    const { commands, cli } = makeHarness([
+      { path: 'new.ts', status: 'added', hunks: [], binary: false },
+      { path: 'old.ts', status: 'modified', hunks: [], binary: false },
+    ]);
+    cli.setResponse('rev-parse HEAD', { exitCode: 0, stdout: `${testHash}\n`, stderr: '' });
+    cli.setResponse(new RegExp(`^branch --remotes --contains ${testHash}$`), {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    });
+
+    const { restore } = installWindowStubs(
+      (items) => [items[0]], // drop only new.ts (the added file)
+      () => 'Drop'
+    );
+    try {
+      await commands.dropSelectedChangesFromCommit(testHash);
+      const joined = cli.executed.map((e) => e.args.join(' '));
+      assert.ok(
+        joined.some((c) => /^rm --cached/.test(c) && c.includes('new.ts')),
+        `expected 'git rm --cached -- new.ts', got: ${joined.join(' | ')}`
+      );
+      assert.ok(
+        !joined.some((c) => c.startsWith('checkout HEAD') && c.includes('new.ts')),
+        `added file must NOT use git checkout HEAD, got: ${joined.join(' | ')}`
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('rolls back via git reset --soft <originalHash> when the post-soft-reset step fails', async () => {
+    // If any step after 'git reset --soft HEAD^' throws, the handler must
+    // run 'git reset --soft <originalHash>' to restore the original commit
+    // so the repo is not left in a half-rewritten state.
+    const { commands, cli } = makeHarness([
+      { path: 'new.ts', status: 'added', hunks: [], binary: false },
+    ]);
+    cli.setResponse('rev-parse HEAD', { exitCode: 0, stdout: `${testHash}\n`, stderr: '' });
+    cli.setResponse(new RegExp(`^branch --remotes --contains ${testHash}$`), {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    });
+    // Make the rm --cached step fail to trigger rollback.
+    cli.setResponse(/^rm --cached/, { exitCode: 1, stdout: '', stderr: 'index error' });
+
+    const { trackers, restore } = installWindowStubs(
+      (items) => [...items], // drop new.ts
+      () => 'Drop'
+    );
+    try {
+      await commands.dropSelectedChangesFromCommit(testHash);
+      const joined = cli.executed.map((e) => e.args.join(' '));
+      // Rollback must restore the original HEAD so the commit isn't lost.
+      assert.ok(
+        joined.some((c) => c === `reset --soft ${testHash}`),
+        `expected rollback 'git reset --soft ${testHash}', got: ${joined.join(' | ')}`
+      );
+      // Must surface an error — not silent.
+      assert.strictEqual(trackers.error.length, 1, 'should surface an error toast on failure');
+    } finally {
+      restore();
+    }
+  });
+
+  it('refuses when the commit is a merge commit (would silently drop the second parent)', async () => {
+    // Dropping selected changes from a merge commit would discard the second
+    // parent during the re-commit, turning it into a regular commit with no
+    // warning. The handler must detect and refuse merge commits.
+    const repo = makeRepo();
+    const gitService = makeGitService(repo, {
+      getCommitDiff: async () => [{ path: 'a.ts', status: 'modified', hunks: [], binary: false }],
+      getCommit: async (_r, h) =>
+        ({
+          hash: h,
+          shortHash: h.substring(0, 8),
+          message: 'Merge branch feature',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: ['parent1aaaa', 'parent2bbbb'],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }) as unknown as ReturnType<IGitService['getCommit']>,
+    });
+    const cli = makeMockCli();
+    cli.setResponse('rev-parse HEAD', { exitCode: 0, stdout: `${testHash}\n`, stderr: '' });
+    cli.setResponse(new RegExp(`^branch --remotes --contains ${testHash}$`), {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    });
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebase(),
+      makeProvider(),
+      cli as unknown as GitCli
+    );
+
+    const { trackers, restore } = installWindowStubs(() => undefined);
+    try {
+      await commands.dropSelectedChangesFromCommit(testHash);
+      assert.strictEqual(trackers.error.length, 1, 'should show error for merge commit');
+      assert.ok(
+        /merge/i.test(trackers.error[0]),
+        `expected "merge" in error, got "${trackers.error[0]}"`
+      );
+      const destructive = cli.executed
+        .map((e) => e.args.join(' '))
+        .filter((c) => c.startsWith('reset --soft') || c.startsWith('commit '));
+      assert.strictEqual(destructive.length, 0, 'no destructive ops on merge commit');
     } finally {
       restore();
     }
