@@ -2883,11 +2883,17 @@ export class GitToolWindowProvider
    */
   private _handleCommitFileDoubleClick(commitHash: string, filePath: string): void {
     // Posture parity with `_handleCommitContextMenu`: only fire for a commit
-    // still in the rendered list, so a hash that drifted (refresh / force-push /
+    // still in a rendered list, so a hash that drifted (refresh / force-push /
     // filter change since the row was shown) can't reach `getCommit`. The diff
     // path is read-only and already contained downstream, so a stale hash is
     // dropped silently (no toast) rather than nagging on a read-only action.
     const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
+    // Include the History tab's commits — they sit outside the loaded Log graph
+    // window, so a changed-file double-click in the History details panel would
+    // otherwise be silently dropped.
+    for (const c of this._historyTab?.getState().commits ?? []) {
+      known.add(c.hash);
+    }
     if (!known.has(commitHash)) {
       return;
     }

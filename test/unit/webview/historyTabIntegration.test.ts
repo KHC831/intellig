@@ -1,0 +1,141 @@
+/**
+ * End-to-end-ish History tab test: drive the REAL GitToolWindowProvider
+ * (attachGitService → loadFileHistory → render the full document), run the
+ * assembled inline script in jsdom, and assert the History details panel
+ * populates and its interactions post the right messages. This is the surface
+ * that only shows up on F5; no other lane exercises the tab path.
+ */
+import '../../setup';
+import * as assert from 'assert';
+import * as vscode from 'vscode';
+import { GitToolWindowProvider } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
+import type { ICommitNode } from '../../../src/git-core/commitGraph';
+import { Uri } from '../../mocks/vscode';
+import { runWebviewScript } from '../../helpers/webviewHarness';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
+import { createMockGitService } from '../../mocks/mockGitService';
+import type {
+  ICommit,
+  IGitService,
+  IRepository,
+} from '../../../src/git-core/interfaces/IGitService';
+
+function mockWebview(): vscode.Webview {
+  return {
+    cspSource: 'vscode-webview://mock',
+    asWebviewUri: (uri: Uri): Uri => uri,
+  } as unknown as vscode.Webview;
+}
+
+const REPO = {
+  rootUri: Uri.file('/repo'),
+  state: 'idle',
+  remotes: [],
+  submodules: [],
+} as unknown as IRepository;
+
+function sampleCommit(): ICommit {
+  return {
+    hash: 'abc1234def5678abc1234def5678abc1234def56',
+    shortHash: 'abc1234',
+    message: 'Fix the history thing',
+    body: 'Body text.',
+    author: { name: 'Alice', email: 'alice@example.com' },
+    committer: { name: 'Alice', email: 'alice@example.com' },
+    parents: [],
+    authorDate: new Date('2024-03-04T10:00:00Z'),
+    commitDate: new Date('2024-03-04T10:00:00Z'),
+  } as unknown as ICommit;
+}
+
+function historyGitService(): IGitService {
+  return createMockGitService(REPO, {
+    getFileHistory: async () => [sampleCommit()],
+    getCommitDiff: async () => [{ path: 'src/a.ts', status: 'modified', hunks: [], binary: false }],
+    getContainingBranches: async () => ['main', 'origin/main'],
+    getBranches: async () => [],
+  } as unknown as Partial<IGitService>);
+}
+
+async function driveToHistory(): Promise<GitToolWindowProvider> {
+  const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+  provider.setAvailableRepositories([REPO] as Parameters<
+    typeof provider.setAvailableRepositories
+  >[0]);
+  provider.attachGitService(historyGitService());
+  await provider.loadFileHistory('src/a.ts');
+  return provider;
+}
+
+describe('History tab — real provider end-to-end', () => {
+  it('injects a non-null history details model and the details container', async () => {
+    const provider = await driveToHistory();
+    const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
+    assert.ok(html.includes('id="history-details-panel"'), 'history details container present');
+    assert.ok(
+      /window\.__intelligHistoryDetails\s*=\s*\{/.test(html),
+      'history model injected (non-null)'
+    );
+    assert.ok(
+      html.includes('Fix the history thing'),
+      'selected commit subject reaches the document'
+    );
+  });
+
+  it('populates #history-details-panel when the assembled script runs', async () => {
+    const provider = await driveToHistory();
+    const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
+    const { script, bodyHtml } = extractWebviewScript(html);
+    const h = runWebviewScript(script, { bodyHtml });
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      [],
+      'no script errors'
+    );
+    const hdp = h.document.getElementById('history-details-panel');
+    assert.ok(hdp, '#history-details-panel exists');
+    assert.ok(hdp.querySelector('.details-panel'), 'details panel rendered inside the container');
+    assert.ok(
+      hdp.textContent && hdp.textContent.includes('Fix the history thing'),
+      'commit subject rendered'
+    );
+    assert.ok(hdp.querySelector('.changed-file-item[data-commit-hash]'), 'changed files rendered');
+    assert.ok(
+      !hdp.textContent.includes('loading…'),
+      'containing branches resolved (not stuck loading)'
+    );
+    h.dispose();
+  });
+
+  it('double-clicking a changed file in History opens its diff (commit not in the Log window)', async () => {
+    const provider = await driveToHistory();
+    let fired: { commitHash: string; filePath: string } | undefined;
+    provider.onDidRequestCommitDiff((e) => {
+      fired = e;
+    });
+    // The Log window is empty (commitNodes []), so this only works if the host
+    // also recognizes History-tab commits.
+    (provider as unknown as { _handleMessage(m: unknown): void })._handleMessage({
+      type: 'doubleClickFile',
+      commitHash: sampleCommit().hash,
+      path: 'src/a.ts',
+    });
+    assert.ok(fired, 'a diff request must fire for a History-tab commit');
+    assert.strictEqual(fired?.commitHash, sampleCommit().hash);
+  });
+
+  it('clicking a commit row posts history.selectRevision (selection wiring intact)', async () => {
+    const provider = await driveToHistory();
+    const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
+    const { script, bodyHtml } = extractWebviewScript(html);
+    const h = runWebviewScript(script, { bodyHtml });
+    const row = h.document.querySelector('.history-commit-row');
+    assert.ok(row, 'a commit row is rendered in the list');
+    row.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    const selectMsg = h.posted.find(
+      (m) => (m as { type?: string }).type === 'history.selectRevision'
+    );
+    assert.ok(selectMsg, 'clicking a commit row posts history.selectRevision');
+    h.dispose();
+  });
+});

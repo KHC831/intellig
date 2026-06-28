@@ -60,7 +60,7 @@ function renderLoadedState(state: IHistoryTabState): string {
       ${error}
       <div class="history-main">
         <div class="history-list-panel">${list}</div>
-        <div id="history-details-panel" class="details-panel"></div>
+        <div id="history-details-panel" role="region" aria-label="Commit Details"></div>
       </div>
     </div>
   `;
