@@ -43,6 +43,14 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   private _currentLine: number = -1;
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
+  /**
+   * Monotonically-increasing sequence number. Incremented at the start of
+   * every updateDecoration call. After each await, if the stored seq has
+   * advanced beyond the value captured at call-start, a newer cursor-move
+   * lookup has already started (and possibly painted); bail rather than
+   * overwrite with a stale result.
+   */
+  private _decorationRequestSeq: number = 0;
 
   /**
    * Parsed remote URL cache, keyed by repository root fsPath. Used
@@ -313,6 +321,12 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       return;
     }
 
+    // Capture the request token before the first async gap. If the cursor
+    // moves again while this lookup is in flight, _decorationRequestSeq will
+    // have advanced and the check below will discard this stale result without
+    // overwriting the newer decoration.
+    const mySeq = ++this._decorationRequestSeq;
+
     // Clear existing decorations first
     editor.setDecorations(this._decorationType, []);
 
@@ -328,6 +342,10 @@ export class InlineBlameProvider implements IInlineBlameProvider {
 
     try {
       const blameLine = await this.getBlameForLine(editor, line);
+      // A newer cursor-move lookup started while we were awaiting blame — bail.
+      if (this._decorationRequestSeq !== mySeq) {
+        return;
+      }
       if (!blameLine) {
         return;
       }
@@ -336,6 +354,10 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       // into the hover markdown. Failure here is non-fatal — the hover
       // still renders, just without the external commit link.
       const repo = await this._gitService.getRepository(editor.document.uri);
+      // Guard again: repo resolution is async too.
+      if (this._decorationRequestSeq !== mySeq) {
+        return;
+      }
 
       // In AUTHOR color mode, tint the inline text by the stable per-author
       // color computed over the file's full author set (matches IntelliJ's

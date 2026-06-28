@@ -245,3 +245,154 @@ describe('Annotate with Git Blame — forced full-file gutter', () => {
     provider.dispose();
   });
 });
+
+describe('GutterBlameProvider — async decoration-update race guard (finding #10)', () => {
+  /**
+   * Expose the private updateDecorations method as a test seam so we can
+   * drive two overlapping calls without going through the enable/event path.
+   */
+  function updateDecorations(provider: GutterBlameProvider, editor: unknown): Promise<void> {
+    return (
+      provider as unknown as {
+        updateDecorations(editor: unknown): Promise<void>;
+      }
+    ).updateDecorations(editor);
+  }
+
+  it('older pending blame fetch does not overwrite a newer full-file annotation', async () => {
+    resetMockConfiguration();
+    setMockConfigValue('intellig', 'blameAnnotationStyle', 'gutter');
+
+    // Gate: first getBlame call blocks until resolveFirst() is called.
+    let resolveFirst!: () => void;
+    const firstCallGate = new Promise<void>((res) => {
+      resolveFirst = res;
+    });
+    let callCount = 0;
+
+    // Two distinct blame results: one line for the first (slow) call, two for
+    // the second (fast) call. After both settle, we assert the second (two-line)
+    // decoration survived, not the one-line stale result from the first.
+    const blameOne: IBlameInfo = {
+      path: 'src/file.ts',
+      lines: [
+        {
+          line: 1,
+          commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          author: 'SlowAuthor',
+          authorEmail: 'slow@x.com',
+          date: new Date('2024-01-01'),
+          message: 'slow first commit',
+        },
+      ],
+    };
+    const blameTwo: IBlameInfo = {
+      path: 'src/file.ts',
+      lines: [
+        {
+          line: 1,
+          commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          author: 'FastAuthor',
+          authorEmail: 'fast@x.com',
+          date: new Date('2024-01-02'),
+          message: 'fast second commit L1',
+        },
+        {
+          line: 2,
+          commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          author: 'FastAuthor',
+          authorEmail: 'fast@x.com',
+          date: new Date('2024-01-03'),
+          message: 'fast second commit L2',
+        },
+      ],
+    };
+
+    const slowBlameService = {
+      onDidChangeBlame: new EventEmitter<{ path: string; blame: IBlameInfo }>().event,
+      getBlame: async (): Promise<IBlameInfo> => {
+        callCount++;
+        if (callCount === 1) {
+          await firstCallGate;
+          return blameOne;
+        }
+        return blameTwo;
+      },
+      getBlameForLine: async (_r: unknown, _p: string, line: number): Promise<IBlameLine> =>
+        Promise.resolve({
+          line,
+          commit: '0000000000000000000000000000000000000000',
+          author: 'Test',
+          authorEmail: '',
+          date: new Date(),
+          message: '',
+        }),
+      getPreviousRevisionBlame: async (_r: unknown, path: string): Promise<IBlameInfo> =>
+        Promise.resolve({ path, lines: [] }),
+      dispose: (): void => {},
+    };
+
+    const mockRepo: IRepository = {
+      rootUri: Uri.file('/test/repo'),
+      state: 'idle',
+      head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    };
+    const gitSvc = {
+      onDidChangeRepository: new EventEmitter<IRepository>().event,
+      getRepositories: (): IRepository[] => [mockRepo],
+      getRepository: async (): Promise<IRepository> => mockRepo,
+      dispose: (): void => {},
+    };
+
+    const provider = new GutterBlameProvider(
+      slowBlameService as unknown as IBlameService,
+      gitSvc as unknown as IGitService
+    );
+
+    // A dirty document ensures both calls bypass the provider's local cache
+    // and both hit slowBlameService.getBlame, allowing us to control timing.
+    let lastDecoCount = 0;
+    const fakeDoc = {
+      uri: Uri.file('/test/repo/src/file.ts'),
+      isDirty: true,
+      getText: (): string => 'line1\nline2\n',
+      lineCount: 2,
+      lineAt: (l: number) => ({ lineNumber: l, text: 'x' }),
+    };
+    const fakeEditor = {
+      document: fakeDoc,
+      visibleRanges: [new Range(0, 0, 1, 0)],
+      setDecorations: (_type: unknown, decos: unknown[]): void => {
+        if (decos.length > 0) {
+          lastDecoCount = decos.length;
+        }
+      },
+    };
+
+    // Act: kick off the first (slow) call.
+    const firstDone = updateDecorations(provider, fakeEditor);
+
+    // Kick off the second (fast) call — resolves immediately with 2 lines.
+    const secondDone = updateDecorations(provider, fakeEditor);
+    await secondDone;
+
+    // After the fast call, 2 decorations should be applied.
+    assert.strictEqual(lastDecoCount, 2, 'fast second call must paint 2 decorations immediately');
+
+    // Release the slow first call and let it finish.
+    resolveFirst();
+    await firstDone;
+
+    // The slow first call must NOT overwrite the two-line annotation.
+    assert.strictEqual(
+      lastDecoCount,
+      2,
+      'slow first call must not overwrite the newer 2-line decoration after resolving'
+    );
+
+    provider.dispose();
+    resetMockConfiguration();
+  });
+});

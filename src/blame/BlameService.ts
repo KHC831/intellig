@@ -4,6 +4,7 @@ import { IBlameLine, IGitService, IRepository } from '../git-core/interfaces/IGi
 import { GitCli, buildGitArgs, createGitCli } from '../git-core/gitCli';
 import { parseBlame } from '../git-core/gitParser';
 import { getLogger, type Logger } from '../utils/logger';
+import { repoRelativePath } from '../utils/repoRelativePath';
 
 // Typeguard for GitService's @internal cli escape hatch.
 interface IGitServiceWithCli {
@@ -155,8 +156,11 @@ export class BlameService implements IBlameService {
       }
       const pattern = new vscode.RelativePattern(repo.rootUri, '**/*');
       const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-      watcher.onDidChange((uri) => this.invalidateCache(uri.fsPath));
-      watcher.onDidDelete((uri) => this.invalidateCache(uri.fsPath));
+      // Cache keys use the REPO-RELATIVE path (the form providers pass to getBlame),
+      // but VS Code fires the watcher with an absolute fsPath. Convert here at the
+      // boundary so the invalidation segment matches the key's path component.
+      watcher.onDidChange((uri) => this.invalidateCache(repoRelativePath(key, uri.fsPath)));
+      watcher.onDidDelete((uri) => this.invalidateCache(repoRelativePath(key, uri.fsPath)));
       this._watchers.set(key, watcher);
     }
   }

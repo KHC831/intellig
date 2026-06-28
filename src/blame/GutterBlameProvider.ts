@@ -177,6 +177,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * `disable()`.
    */
   private _forced: boolean = false;
+  /**
+   * Monotonically-increasing sequence number for async updateDecorations calls.
+   * Incremented at the start of every call; after each await, if the stored seq
+   * has advanced, a newer call has started and we bail rather than overwrite with
+   * a stale result.
+   */
+  private _decorationRequestSeq: number = 0;
 
   /**
    * Event fired when the enabled state changes.
@@ -489,6 +496,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return;
     }
 
+    // Capture request token before the first await. If a newer updateDecorations
+    // call starts while we are awaiting blame, _decorationRequestSeq will have
+    // advanced and the guard below discards this stale result so it does not
+    // overwrite the newer decoration.
+    const mySeq = ++this._decorationRequestSeq;
+
     // NOTE: decorations are NOT cleared up front. `setDecorations` replaces the
     // whole set for a type, so the success path below sets them in one shot —
     // a pre-clear would leave an empty frame that collapses the gutter and jerks
@@ -520,6 +533,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
 
     try {
       const blameInfo = await this.getBlameForFile(editor);
+      // A newer updateDecorations call started while we were awaiting blame —
+      // bail rather than overwrite the newer result with stale data.
+      if (this._decorationRequestSeq !== mySeq) {
+        return;
+      }
       if (!blameInfo || blameInfo.lines.length === 0) {
         log.debug('updateDecorations: no blame lines for file', {
           uri: editor.document.uri.toString(),

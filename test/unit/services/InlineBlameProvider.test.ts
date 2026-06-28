@@ -739,4 +739,114 @@ describe('InlineBlameProvider', () => {
       );
     });
   });
+
+  describe('cursor-move race guard (finding #10)', () => {
+    /**
+     * Expose updateDecoration as a test seam so we can drive two overlapping
+     * calls without needing to fire VS Code selection-change events through the
+     * mock (which does not support live selection listeners).
+     */
+    function updateDecoration(
+      provider: InlineBlameProvider,
+      editor: unknown,
+      line: number
+    ): Promise<void> {
+      return (
+        provider as unknown as {
+          updateDecoration(editor: unknown, line: number): Promise<void>;
+        }
+      ).updateDecoration(editor, line);
+    }
+
+    it('older pending lookup does not overwrite a newer decoration after cursor move', async () => {
+      // Arrange: a blame service whose resolution can be delayed or immediate.
+      let resolveFirst!: () => void;
+      const firstCallGate = new Promise<void>((res) => {
+        resolveFirst = res;
+      });
+      let callCount = 0;
+
+      // Override getBlame on the shared mockBlameService: first call blocks
+      // until resolveFirst() is called; second call resolves immediately.
+      const origGetBlame = mockBlameService.getBlame.bind(mockBlameService);
+      (
+        mockBlameService as unknown as { getBlame: (...a: unknown[]) => Promise<unknown> }
+      ).getBlame = async (...args) => {
+        callCount++;
+        if (callCount === 1) {
+          await firstCallGate;
+        }
+        return origGetBlame(...(args as Parameters<typeof origGetBlame>));
+      };
+
+      // Set up mock blame lines for lines 5 and 10.
+      mockBlameService.mockBlameInfo = {
+        path: 'src/file.ts',
+        lines: [
+          {
+            line: 6 /* 1-indexed; line arg to updateDecoration is 0-indexed */,
+            commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            author: 'Line5Author',
+            authorEmail: 'a@x.com',
+            date: new Date('2024-01-01'),
+            message: 'line 5 commit',
+          },
+          {
+            line: 11 /* 1-indexed */,
+            commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            author: 'Line10Author',
+            authorEmail: 'b@x.com',
+            date: new Date('2024-01-02'),
+            message: 'line 10 commit',
+          },
+        ],
+      };
+
+      // Build a fake editor that records the LAST range's start line from each
+      // non-empty setDecorations call so we can assert which decoration won.
+      let lastDecoratedLine: number | undefined;
+      const fakeEditor = {
+        document: {
+          uri: Uri.file('/test/repo/src/file.ts'),
+          isDirty: false,
+          getText: (): string => '',
+          lineAt: (line: number) => ({ text: 'x', lineNumber: line }),
+        },
+        selection: { active: { line: 5 } },
+        setDecorations: (_type: unknown, decos: unknown[]): void => {
+          if (decos.length > 0) {
+            // Each decoration is { range: Range, ... }; record the range start line.
+            const first = decos[0] as { range: { start: { line: number } } };
+            lastDecoratedLine = first.range.start.line;
+          }
+        },
+      };
+
+      inlineBlameProvider.enable();
+
+      // Act: kick off the FIRST lookup (line 5) — it blocks on firstCallGate.
+      const firstDone = updateDecoration(inlineBlameProvider, fakeEditor, 5);
+
+      // Kick off the SECOND lookup (line 10) — it resolves immediately.
+      fakeEditor.selection = { active: { line: 10 } };
+      const secondDone = updateDecoration(inlineBlameProvider, fakeEditor, 10);
+      await secondDone;
+
+      // After the second resolves, line 10 should be decorated.
+      assert.strictEqual(lastDecoratedLine, 10, 'second (newer) lookup must win immediately');
+
+      // Now let the first (older) call finish.
+      resolveFirst();
+      await firstDone;
+
+      // The older call must NOT overwrite line 10's decoration.
+      assert.strictEqual(
+        lastDecoratedLine,
+        10,
+        'older pending lookup must not overwrite the newer decoration after it resolves'
+      );
+
+      inlineBlameProvider.disable();
+    });
+  });
 });

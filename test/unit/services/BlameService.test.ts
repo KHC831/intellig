@@ -879,6 +879,59 @@ filename new/location.ts
     });
   });
 
+  describe('per-repo watcher: absolute-path conversion on invalidation', () => {
+    it('watcher firing with absolute fsPath invalidates the relative-path cache entry', async () => {
+      // Regression: the per-repo watcher was calling invalidateCache(uri.fsPath) with the
+      // ABSOLUTE path, but cache keys are keyed on the REPO-RELATIVE path (the form that
+      // providers pass to getBlame). The absolute segment never matched the relative key,
+      // so the watcher was a no-op and stale blame lingered until the 30s TTL.
+      const { createMockGitService, attachedRepo } = await import('../../mocks/mockGitService');
+      const { getCreatedFileSystemWatchers } = await import('../../mocks/vscode');
+
+      const repoRoot = '/test/blame-watcher-fix';
+      const repo: IRepository = {
+        ...attachedRepo(),
+        rootUri: { fsPath: repoRoot, scheme: 'file' } as IRepository['rootUri'],
+      };
+      const gs = createMockGitService(repo);
+      const watchersBefore = getCreatedFileSystemWatchers().length;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
+      const svc = new BlameService(mockGitCli as any, gs);
+
+      // Seed the cache using the RELATIVE path — exactly the form providers use.
+      const svcPrivate = svc as unknown as {
+        getCacheKey: (root: string, path: string) => string;
+        _blameCache: Map<string, { blame: { path: string; lines: [] }; timestamp: number }>;
+      };
+      const relativePath = 'src/foo.ts';
+      const cacheKey = svcPrivate.getCacheKey(repoRoot, relativePath);
+      svcPrivate._blameCache.set(cacheKey, {
+        blame: { path: relativePath, lines: [] },
+        timestamp: Date.now(),
+      });
+      assert.ok(svcPrivate._blameCache.has(cacheKey), 'precondition: entry must be seeded');
+
+      // Find the per-repo watcher for this test's repo root.
+      const newWatchers = getCreatedFileSystemWatchers().slice(watchersBefore);
+      const repoWatcher = newWatchers.find(
+        (w) => typeof w._pattern === 'object' && (w._pattern as { base?: string }).base === repoRoot
+      );
+      assert.ok(repoWatcher, 'per-repo watcher must have been registered');
+
+      // Fire the watcher with the ABSOLUTE path — what VS Code provides.
+      repoWatcher._fireChange(Uri.file(`${repoRoot}/${relativePath}`));
+
+      // After the fix, the entry must be gone.
+      assert.ok(
+        !svcPrivate._blameCache.has(cacheKey),
+        'watcher firing with absolute path must invalidate the relative-path cache entry'
+      );
+
+      svc.dispose();
+    });
+  });
+
   describe('invalidateCache (file-change watcher) precision', () => {
     it('invalidating a file does not drop a sibling whose path shares its prefix', () => {
       const svc = blameService as unknown as {
