@@ -73,9 +73,12 @@ describe('GitToolWindowProvider - Branch popup items built via createElement (DO
   });
 
   it('builds Branch popup items via document.createElement', () => {
+    // The branch popup is a checkbox tree (master + leaves), so the DOM-migration
+    // contract is satisfied by createElement('input')/'label', not 'button'.
     assert.ok(
-      /createElement\(\s*['"]button['"]\s*\)/.test(block),
-      "logFilterOptionsReady must build items via document.createElement('button')"
+      /createElement\(\s*['"]input['"]\s*\)/.test(block) &&
+        /createElement\(\s*['"]label['"]\s*\)/.test(block),
+      "logFilterOptionsReady must build items via document.createElement('input'/'label')"
     );
   });
 

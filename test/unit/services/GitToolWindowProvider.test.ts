@@ -810,7 +810,7 @@ describe('Log View', () => {
   });
 
   describe('_getLogFilterRowHtml (IntelliJ filter row)', () => {
-    it('emits an always-visible filter row with the search field + four popup buttons', () => {
+    it('emits an always-visible filter row with the search field + the always-on popup buttons', () => {
       const html = provider._getLogFilterRowHtml();
       assert.ok(html.includes('class="log-filter-row"'), 'has the filter row');
       assert.ok(!/class="log-filter-row"[^>]*\shidden/.test(html), 'the row is not hidden');
@@ -818,7 +818,27 @@ describe('Log View', () => {
       assert.ok(html.includes('data-popup="branch"'), 'has Branch popup');
       assert.ok(html.includes('data-popup="user"'), 'has User popup');
       assert.ok(html.includes('data-popup="date"'), 'has Date popup');
-      assert.ok(html.includes('data-popup="path"'), 'has Path popup');
+    });
+
+    it('adds the Repository popup only in a multi-root workspace', () => {
+      assert.ok(
+        !provider._getLogFilterRowHtml().includes('data-popup="repo"'),
+        'no Repository popup with zero/one repo'
+      );
+      const repo = (rootPath: string) => ({
+        rootUri: Uri.file(rootPath),
+        state: 'idle' as const,
+        remotes: [],
+        submodules: [],
+      });
+      provider.setAvailableRepositories([
+        repo('/workspace/repo-a'),
+        repo('/workspace/repo-b'),
+      ] as Parameters<typeof provider.setAvailableRepositories>[0]);
+      assert.ok(
+        provider._getLogFilterRowHtml().includes('data-popup="repo"'),
+        'Repository popup appears with multiple repos'
+      );
     });
 
     it('places the search field before the popup buttons', () => {
@@ -869,12 +889,11 @@ describe('Log View', () => {
       assert.ok(html.includes('value="refactor"'), 'search value rehydrated');
     });
 
-    it('shows the active branch/author/path as popup button values', () => {
-      provider.setLogFilter({ branch: 'feature/x', author: 'jane', path: 'src/app' });
+    it('shows the active branch/author as popup button values', () => {
+      provider.setLogFilter({ branch: 'feature/x', author: 'jane' });
       const html = provider._getLogFilterRowHtml();
       assert.ok(/id="filter-branch-value">feature\/x</.test(html), 'Branch value shown');
       assert.ok(/id="filter-user-value">jane</.test(html), 'User value shown');
-      assert.ok(/id="filter-path-value">app</.test(html), 'Path value shows the leaf');
     });
 
     it('escapes filter values to prevent attribute-injection', () => {
@@ -1597,23 +1616,26 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('Path popup — repository scope rows', () => {
-    it('renders no repo rows when no repositories are available', () => {
+  describe('Repository popup — multi-select scope checkboxes', () => {
+    it('renders no repo checkboxes when no repositories are available', () => {
       provider.setAvailableRepositories([]);
       const html = provider._getLogFilterRowHtml();
-      assert.ok(!html.includes('pickRepoScope'), 'no repo rows with zero repos');
+      assert.ok(!html.includes('toggleRepoCheckbox'), 'no checkboxes with zero repos');
     });
 
-    it('renders no repo rows when only one repository is available', () => {
+    it('omits the Repository popup when only one repository is available', () => {
       const repos = [createMockRepository('/workspace/my-repo')];
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
       const html = provider._getLogFilterRowHtml();
-      assert.ok(!html.includes('pickRepoScope'), 'no repo rows with a single repo');
+      assert.ok(
+        !html.includes('toggleRepoCheckbox') && !html.includes('data-popup="repo"'),
+        'no Repository filter with a single repo'
+      );
     });
 
-    it('renders a repo row per repo when multiple repositories are available', () => {
+    it('renders a checkbox per repo plus an "All repositories" reset when multiple repos exist', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1622,10 +1644,10 @@ describe('Multi-Repository Selection State', () => {
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
       const html = provider._getLogFilterRowHtml();
-      assert.ok(html.includes('data-action="pickRepoScope"'), 'has repo rows');
-      assert.ok(html.includes('data-repo-index="0"'), 'row for repo 0');
-      assert.ok(html.includes('data-repo-index="1"'), 'row for repo 1');
-      assert.ok(html.includes('data-repo-index="all"'), 'has the All repositories row');
+      assert.ok(html.includes('data-action="toggleRepoCheckbox"'), 'has repo checkboxes');
+      assert.ok(html.includes('data-repo-root="/workspace/repo-a"'), 'checkbox for repo-a');
+      assert.ok(html.includes('data-repo-root="/workspace/repo-b"'), 'checkbox for repo-b');
+      assert.ok(html.includes('data-action="toggleAllRepos"'), 'has the All-repositories reset');
       assert.ok(html.includes('All repositories'), 'All repositories label');
     });
 
@@ -1644,7 +1666,7 @@ describe('Multi-Repository Selection State', () => {
       assert.ok(html.includes('shared-lib'), 'shows folder name "shared-lib"');
     });
 
-    it('marks the scoped repo row active and the All row inactive', () => {
+    it('checks only the scoped repo (and not "All repositories") in a single-repo scope', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1659,20 +1681,20 @@ describe('Multi-Repository Selection State', () => {
 
       const html = provider._getLogFilterRowHtml();
       assert.ok(
-        html.includes(
-          'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="1"'
-        ),
-        'scoped repo row is active'
+        html.includes('data-repo-root="/workspace/repo-b" checked'),
+        'scoped repo checkbox is checked'
       );
       assert.ok(
-        !html.includes(
-          'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="all"'
-        ),
-        'All row is not active when a concrete repo is scoped'
+        !html.includes('data-repo-root="/workspace/repo-a" checked'),
+        'unscoped repo checkbox is unchecked'
+      );
+      assert.ok(
+        !html.includes('data-action="toggleAllRepos" checked'),
+        '"All repositories" is unchecked when a concrete repo is scoped'
       );
     });
 
-    it('marks the All row active when the scope is all', () => {
+    it('checks every repo and "All repositories" when the scope is all', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1686,10 +1708,36 @@ describe('Multi-Repository Selection State', () => {
 
       const html = provider._getLogFilterRowHtml();
       assert.ok(
-        html.includes(
-          'class="log-filter-popup-item active" data-action="pickRepoScope" data-repo-index="all"'
-        ),
-        'All row active when scope is all'
+        html.includes('data-action="toggleAllRepos" checked'),
+        '"All repositories" is checked when scope is all'
+      );
+      assert.ok(html.includes('data-repo-root="/workspace/repo-a" checked'), 'repo-a checked');
+      assert.ok(html.includes('data-repo-root="/workspace/repo-b" checked'), 'repo-b checked');
+    });
+
+    it('checks only the visible subset (not "All repositories") when a subset is active', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+        createMockRepository('/workspace/repo-c'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+      (
+        provider as unknown as { _handleVisibleRepositoriesSelection(roots: string[]): void }
+      )._handleVisibleRepositoriesSelection(['/workspace/repo-a', '/workspace/repo-c']);
+
+      const html = provider._getLogFilterRowHtml();
+      assert.ok(html.includes('data-repo-root="/workspace/repo-a" checked'), 'repo-a checked');
+      assert.ok(html.includes('data-repo-root="/workspace/repo-c" checked'), 'repo-c checked');
+      assert.ok(
+        !html.includes('data-repo-root="/workspace/repo-b" checked'),
+        'repo-b (outside the subset) is unchecked'
+      );
+      assert.ok(
+        !html.includes('data-action="toggleAllRepos" checked'),
+        '"All repositories" is unchecked for a partial subset'
       );
     });
 
@@ -1706,21 +1754,21 @@ describe('Multi-Repository Selection State', () => {
       assert.ok(html.includes('&lt;em&gt;'), 'contains the escaped tag');
     });
 
-    it('wires repo-scope selection (selectRepository / repositoryIndex) via the inline script', () => {
+    it('wires repo-subset selection (selectRepositories / toggleRepoCheckbox) via the inline script', () => {
       const inlineScript = (
         provider as unknown as { _getInlineScript: () => string }
       )._getInlineScript();
       assert.ok(
-        inlineScript.includes('selectRepository'),
-        'inline script posts the selectRepository message type'
+        inlineScript.includes('selectRepositories'),
+        'inline script posts the selectRepositories message type'
       );
       assert.ok(
-        inlineScript.includes('repositoryIndex'),
-        'inline script references repositoryIndex in the payload'
+        inlineScript.includes('toggleRepoCheckbox'),
+        'inline script handles the repo-checkbox action'
       );
       assert.ok(
-        inlineScript.includes('pickRepoScope'),
-        'inline script handles the Path-popup repo-row action'
+        inlineScript.includes('toggleAllRepos'),
+        'inline script handles the All-repositories reset'
       );
     });
 
@@ -1915,21 +1963,23 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('scriptBuilder routes the all sentinel (Path-popup repo rows)', () => {
-    it('maps the "all" repo row to the all sentinel and numeric rows to indices', () => {
+  describe('scriptBuilder posts the repo-checkbox subset (Repository popup)', () => {
+    it('collects the checked repo roots and posts a selectRepositories message', () => {
       const inlineScript = (
         provider as unknown as { _getInlineScript: () => string }
       )._getInlineScript();
 
-      // The pickRepoScope handler must treat the 'all' sentinel BEFORE coercing
-      // to a number (Number('all') is NaN and would drop the selection).
       assert.ok(
-        inlineScript.includes("idx === 'all' ? 'all' : Number(idx)"),
-        'inline script must short-circuit the all sentinel before Number()'
+        inlineScript.includes("type: 'selectRepositories'"),
+        'inline script must post the selectRepositories message'
       );
       assert.ok(
-        inlineScript.includes('repositoryIndex:'),
-        'inline script must post repositoryIndex'
+        inlineScript.includes('input[data-repo-root]'),
+        'inline script must read the repo-root checkboxes'
+      );
+      assert.ok(
+        inlineScript.includes('toggleAllRepos'),
+        'inline script must mirror the All-repositories reset onto every checkbox'
       );
     });
   });
@@ -2029,8 +2079,8 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('_getGraphPanelHtml Path-popup repo-scope integration', () => {
-    it('should include Path-popup repo rows in graph panel when multiple repos exist', () => {
+  describe('_getGraphPanelHtml Repository-popup scope integration', () => {
+    it('should include Repository-popup repo checkboxes in graph panel when multiple repos exist', () => {
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -2056,14 +2106,14 @@ describe('Multi-Repository Selection State', () => {
 
       const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
       assert.ok(
-        graphHtml.includes('pickRepoScope'),
-        'Graph panel should include Path-popup repo rows'
+        graphHtml.includes('toggleRepoCheckbox'),
+        'Graph panel should include Repository-popup repo checkboxes'
       );
       assert.ok(graphHtml.includes('repo-a'), 'Should show repo-a folder name');
       assert.ok(graphHtml.includes('repo-b'), 'Should show repo-b folder name');
     });
 
-    it('should not include repo rows in graph panel when only one repo exists', () => {
+    it('should not include repo checkboxes in graph panel when only one repo exists', () => {
       const repos = [createMockRepository('/workspace/only-repo')];
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
@@ -2085,18 +2135,18 @@ describe('Multi-Repository Selection State', () => {
 
       const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
       assert.ok(
-        !graphHtml.includes('pickRepoScope'),
-        'Graph panel should not include repo rows for a single repo'
+        !graphHtml.includes('toggleRepoCheckbox'),
+        'Graph panel should not include repo checkboxes for a single repo'
       );
     });
 
-    it('should not include repo rows in graph panel when no repos exist', () => {
+    it('should not include repo checkboxes in graph panel when no repos exist', () => {
       provider.setAvailableRepositories([]);
 
       const graphHtml = provider._getGraphPanelHtml([]);
       assert.ok(
-        !graphHtml.includes('pickRepoScope'),
-        'Graph panel should not include repo rows with no repos'
+        !graphHtml.includes('toggleRepoCheckbox'),
+        'Graph panel should not include repo checkboxes with no repos'
       );
     });
   });

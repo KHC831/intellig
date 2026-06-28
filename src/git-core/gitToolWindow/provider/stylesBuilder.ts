@@ -187,6 +187,12 @@ export function buildInlineStyles(): string {
         padding: 6px 8px;
         background-color: var(--vscode-input-background);
         border-bottom: 1px solid var(--vscode-panel-border);
+        /* Pin the filter row to the top of the scrolling log so it stays visible
+           while the user scrolls the commit tree (IntelliJ keeps its filter bar
+           fixed above the table). */
+        position: sticky;
+        top: 0;
+        z-index: 5;
       }
 
       /* Text search field (Message or hash) with regex/case adornments. */
@@ -378,11 +384,29 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-list-activeSelectionBackground);
       }
 
-      .log-filter-check {
-        display: inline-block;
-        width: 12px;
-        flex: 0 0 12px;
-        text-align: center;
+      /* Nested branch/path selector tree (multi-select checkboxes). */
+      .log-filter-tree-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .log-filter-tree-row:hover {
+        background-color: var(--vscode-list-hoverBackground);
+      }
+      .log-filter-tree-row input[type='checkbox'] {
+        flex: 0 0 auto;
+        margin: 0;
+      }
+      .log-filter-tree-folder {
+        font-weight: 600;
+        color: var(--vscode-descriptionForeground);
+      }
+      .log-filter-tree-leaf {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .log-filter-date-custom {
@@ -991,7 +1015,8 @@ export function buildInlineStyles(): string {
       .log-root-label {
         font-size: 10px;
         opacity: 0.7;
-        max-width: 80px;
+        width: 80px;
+        margin-right: 10px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;

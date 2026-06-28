@@ -6,10 +6,20 @@ import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/I
  */
 export interface ILogScopeFilter {
   branch?: string;
+  /** Multi-select branches — union (show commits from ANY). Folded in with {@link branch}. */
+  branches?: string[];
+  /**
+   * Explicit "no branches selected" state — show NO commits (the user unchecked
+   * every branch). Distinct from the absent/empty branch filter, which means
+   * "all branches" (`--all`). Maps to {@link ILogScope.matchNothing}.
+   */
+  branchesNone?: boolean;
   author?: string;
   since?: Date;
   until?: Date;
   path?: string;
+  /** Multi-select paths — union (commits touching ANY). Folded in with {@link path}. */
+  paths?: string[];
   searchText?: string;
   noMerges?: boolean;
   firstParent?: boolean;
@@ -28,13 +38,19 @@ export interface ILogScopeFilter {
  */
 export interface ILogScope {
   all: boolean;
-  ref?: string;
+  /**
+   * Short-circuit to an EMPTY result without walking git — the "no branches
+   * selected" state. `getLog`/`getLogCount` honor it; mutually exclusive with
+   * {@link all} and {@link refs}.
+   */
+  matchNothing?: boolean;
+  refs?: string[];
   logRange?: string;
   hashes?: string[];
   author?: string;
   since?: Date;
   until?: Date;
-  path?: string;
+  paths?: string[];
   grep?: string;
   noMerges?: boolean;
   firstParent?: boolean;
@@ -89,21 +105,47 @@ export function parseHashQuery(text: string | undefined): string[] | undefined {
 }
 
 export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
-  const branchRef = filter?.branch;
+  // Multi-select branches/paths fold in the single-value legacy fields. Multiple
+  // branches union (any), multiple paths union (any). A branch scope suppresses
+  // `--all`.
+  const refs = [...(filter?.branches ?? []), ...(filter?.branch ? [filter.branch] : [])];
+  const paths = [...(filter?.paths ?? []), ...(filter?.path ? [filter.path] : [])];
   const logRange = filter?.logRange;
   // The "Message or hash" box: a query that is entirely hash words filters by
   // hash (`--no-walk <hash…>`), which scopes to exactly those commits — so it
   // suppresses `--all`/grep. Otherwise the query is a message `--grep`.
   const hashes = parseHashQuery(filter?.searchText);
+  // An explicit "none" branch state shows no commits at all — short-circuit
+  // BEFORE the --all/refs decision so it can't be read as "walk everything".
+  if (filter?.branchesNone) {
+    return {
+      all: false,
+      matchNothing: true,
+      logRange,
+      hashes,
+      author: filter?.author,
+      since: filter?.since,
+      until: filter?.until,
+      paths: paths.length > 0 ? paths : undefined,
+      grep: hashes ? undefined : filter?.searchText,
+      noMerges: filter?.noMerges,
+      firstParent: filter?.firstParent,
+      simplifyMerges: filter?.simplifyMerges,
+      minParents: filter?.minParents,
+      maxParents: filter?.maxParents,
+      regex: filter?.searchRegex,
+      caseSensitive: filter?.searchCaseSensitive,
+    };
+  }
   return {
-    all: !branchRef && !logRange && !hashes,
-    ref: branchRef,
+    all: refs.length === 0 && !logRange && !hashes,
+    refs: refs.length > 0 ? refs : undefined,
     logRange,
     hashes,
     author: filter?.author,
     since: filter?.since,
     until: filter?.until,
-    path: filter?.path,
+    paths: paths.length > 0 ? paths : undefined,
     grep: hashes ? undefined : filter?.searchText,
     noMerges: filter?.noMerges,
     firstParent: filter?.firstParent,
@@ -113,6 +155,36 @@ export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
     regex: filter?.searchRegex,
     caseSensitive: filter?.searchCaseSensitive,
   };
+}
+
+/**
+ * Narrow a branch-SUBSET scope to the refs a SINGLE repo actually has, for the
+ * merged multi-root log. A multi-ref `git log <a> <b>` fails ENTIRELY ("fatal:
+ * unknown revision") when one ref is unknown in that repo, which would silently
+ * drop that repo's whole history. So each repo's log must pass only the selected
+ * refs it has; a repo with none of them contributes nothing.
+ *
+ * @returns
+ *   - `{ skip: true }`  — the repo has NONE of the selected refs → contribute no
+ *     commits (don't run a poisoned multi-ref command).
+ *   - `{ skip: false, refs }` — the subset narrowed to this repo's refs (order
+ *     preserved from the selection).
+ *   - `{ skip: false }` (no `refs`) — no branch subset is active (`scopeRefs`
+ *     empty/undefined): the caller's scope is unchanged (`--all` or otherwise).
+ */
+export function narrowRefsForRepo(
+  scopeRefs: readonly string[] | undefined,
+  repoBranchNames: Iterable<string>
+): { skip: boolean; refs?: string[] } {
+  if (!scopeRefs || scopeRefs.length === 0) {
+    return { skip: false };
+  }
+  const names = new Set(repoBranchNames);
+  const refs = scopeRefs.filter((r) => names.has(r));
+  if (refs.length === 0) {
+    return { skip: true };
+  }
+  return { skip: false, refs };
 }
 
 /** One graph page: the windowed commit list plus the honest total available. */

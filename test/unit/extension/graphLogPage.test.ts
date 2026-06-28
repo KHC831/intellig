@@ -15,6 +15,7 @@ import * as assert from 'assert';
 import {
   buildLogScope,
   fetchGraphPage,
+  narrowRefsForRepo,
   parseHashQuery,
 } from '../../../src/registration/graphLogPage';
 import type { ILogScopeFilter } from '../../../src/registration/graphLogPage';
@@ -35,7 +36,54 @@ describe('buildLogScope — UI filter → git scope mapping', () => {
   it('scopes to a branch ref and suppresses --all', () => {
     const s = buildLogScope({ branch: 'feature/x' });
     assert.strictEqual(s.all, false);
-    assert.strictEqual(s.ref, 'feature/x');
+    assert.deepStrictEqual(s.refs, ['feature/x']);
+  });
+
+  it('scopes to MULTIPLE branches (union) and suppresses --all', () => {
+    const s = buildLogScope({ branches: ['feature/x', 'main'] });
+    assert.strictEqual(s.all, false);
+    assert.deepStrictEqual(s.refs, ['feature/x', 'main']);
+  });
+
+  it('maps the explicit "no branches" state to matchNothing (not --all)', () => {
+    const s = buildLogScope({ branchesNone: true });
+    assert.strictEqual(s.matchNothing, true, 'none must short-circuit to an empty result');
+    assert.strictEqual(s.all, false, 'matchNothing is not the walk-all state');
+    assert.strictEqual(s.refs, undefined);
+  });
+
+  it('narrows the merged scope per-repo and skips a repo with none of the selected refs', () => {
+    // No subset active → unchanged (no `refs`, don't skip).
+    assert.deepStrictEqual(narrowRefsForRepo(undefined, ['main', 'dev']), { skip: false });
+    assert.deepStrictEqual(narrowRefsForRepo([], ['main', 'dev']), { skip: false });
+
+    // Every selected ref present → all kept, order preserved.
+    assert.deepStrictEqual(narrowRefsForRepo(['dev', 'main'], ['main', 'dev', 'release']), {
+      skip: false,
+      refs: ['dev', 'main'],
+    });
+
+    // Some present → narrowed to the intersection (drops the ref this repo lacks,
+    // which would otherwise fail the whole `git log a b` command).
+    assert.deepStrictEqual(narrowRefsForRepo(['main', 'feature/b'], ['main', 'dev']), {
+      skip: false,
+      refs: ['main'],
+    });
+
+    // None present → skip the repo entirely (contribute no commits).
+    assert.deepStrictEqual(narrowRefsForRepo(['feature/b', 'hotfix'], ['main', 'dev']), {
+      skip: true,
+    });
+  });
+
+  it('folds a single legacy branch in with multi-select branches', () => {
+    const s = buildLogScope({ branches: ['feature/x'], branch: 'main' });
+    assert.deepStrictEqual(s.refs, ['feature/x', 'main']);
+  });
+
+  it('scopes to MULTIPLE paths (union)', () => {
+    const s = buildLogScope({ paths: ['src/a.ts', 'src/b.ts'] });
+    assert.deepStrictEqual(s.paths, ['src/a.ts', 'src/b.ts']);
   });
 
   it('scopes to a range and suppresses --all', () => {
@@ -111,7 +159,7 @@ describe('buildLogScope — verbatim filter fields', () => {
     assert.strictEqual(s.author, 'alice');
     assert.strictEqual(s.since, since);
     assert.strictEqual(s.until, until);
-    assert.strictEqual(s.path, 'src/a.ts');
+    assert.deepStrictEqual(s.paths, ['src/a.ts']);
     assert.strictEqual(s.minParents, 2);
     assert.strictEqual(s.maxParents, 2);
     assert.strictEqual(s.noMerges, true);
@@ -157,8 +205,10 @@ describe('fetchGraphPage — getLog and getLogCount consume the identical scope'
     ['since', { since: new Date('2024-01-01') }],
     ['grep', { searchText: 'fix', searchRegex: true, searchCaseSensitive: true }],
     ['branch', { branch: 'feature/x' }],
+    ['branches (union)', { branches: ['feature/x', 'main'] }],
     ['range', { logRange: 'main..feature' }],
     ['path', { path: 'src/a.ts' }],
+    ['paths (union)', { paths: ['src/a.ts', 'src/b.ts'] }],
   ];
 
   for (const [name, filter] of representativeFilters) {

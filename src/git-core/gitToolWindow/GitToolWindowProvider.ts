@@ -83,7 +83,7 @@ import {
   selectCommit as handleSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
-import { normalizeRepoPath } from '../../utils/normalizeRepoPath';
+import { normalizeRepoPath, normalizeRepoPathString } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
 import {
@@ -432,6 +432,16 @@ export class GitToolWindowProvider
    * itself drops to one repo).
    */
   private _scopeUserChosen: boolean = false;
+  /**
+   * Visible subset of repository root fsPaths in the merged scope; `null` means
+   * "every available root" (the unchanged "show all" default). Only meaningful
+   * when {@link _repositoryScope} is `'all'`. Always size ≥ 2 — checking all (or
+   * none) nulls it, and checking exactly one collapses to a single-repo scope —
+   * so it expresses ONLY the genuinely-new "some but not all roots" case. A user
+   * choice, so it freezes like {@link _scopeUserChosen} and is pruned (not reset)
+   * when the available-repository list changes.
+   */
+  private _visibleRepoRoots: string[] | null = null;
   /**
    * Per-commit source repository root for the merged "all roots" log,
    * keyed by commit hash. Populated from each commit's `repoRoot` tag in
@@ -1766,6 +1776,11 @@ export class GitToolWindowProvider
           this._handleRepositorySelection(message.repositoryIndex);
         }
         break;
+      case 'selectRepositories':
+        if (Array.isArray(message.roots)) {
+          this._handleVisibleRepositoriesSelection(message.roots);
+        }
+        break;
       case 'focusBranchOnGraph':
         // Webview asked to focus the graph on a branch.
         // The bridge is async (getMergeBase + scroll); fire-and-forget.
@@ -1862,10 +1877,13 @@ export class GitToolWindowProvider
   private _isLogFilterEmpty(filter: ILogFilter): boolean {
     return (
       !filter.branch &&
+      !(filter.branches && filter.branches.length > 0) &&
+      !filter.branchesNone &&
       !filter.logRange &&
       !filter.searchText &&
       !filter.author &&
       !filter.path &&
+      !(filter.paths && filter.paths.length > 0) &&
       !filter.since &&
       !filter.until &&
       !filter.noMerges &&
@@ -1932,8 +1950,32 @@ export class GitToolWindowProvider
       if (webviewFilter.author) {
         filter.author = webviewFilter.author;
       }
+      // Multi-select branches (nested checkbox tree): each is a positional
+      // `git log <ref>`, so apply the same leading-`-`/`.` guard as the single
+      // branch; drop unsafe entries.
+      if (Array.isArray(webviewFilter.branches)) {
+        const safe = webviewFilter.branches.filter(
+          (b) => typeof b === 'string' && b.length > 0 && !this._isUnsafeRef(b)
+        );
+        if (safe.length > 0) {
+          filter.branches = safe;
+        }
+      }
+      // Explicit "no branches selected" — show no commits. Only honored when no
+      // concrete branch subset is present (a subset already scopes the log).
+      if (webviewFilter.branchesNone && !(filter.branches && filter.branches.length > 0)) {
+        filter.branchesNone = true;
+      }
       if (webviewFilter.path) {
         filter.path = webviewFilter.path;
+      }
+      // Multi-select paths reach git after the `--` pathspec separator, so (like
+      // the single path) they need no leading-`-`/`.` guard.
+      if (Array.isArray(webviewFilter.paths)) {
+        const paths = webviewFilter.paths.filter((p) => typeof p === 'string' && p.length > 0);
+        if (paths.length > 0) {
+          filter.paths = paths;
+        }
       }
       if (webviewFilter.since) {
         filter.since = new Date(webviewFilter.since);
@@ -1969,7 +2011,7 @@ export class GitToolWindowProvider
     // branches (IntelliJ BranchFilterModel parity) — listing only the context
     // repo's branches would silently scope the graph to one repo. A single-repo
     // scope lists just that repo's branches, unchanged.
-    const branchSources = this.isAllReposSelected() ? this._availableRepositories : [repo];
+    const branchSources = this.isAllReposSelected() ? this.getVisibleRepositories() : [repo];
     // Coalesce per-render re-requests. The inline init script re-fires this on
     // EVERY webview render (the dropdown is re-rendered empty each time), so
     // without a short cache a render/refresh burst spams `git branch -a`. Serve
@@ -2563,6 +2605,18 @@ export class GitToolWindowProvider
     const previousScope = this._repositoryScope;
     this._resolveRepositoryScope(repos);
 
+    // Prune a visible-roots subset to the roots that still exist (identity by
+    // normalized path, mirroring the index re-resolution above). Drop it when it
+    // would shrink below two roots or grow to cover every root — either case is
+    // no longer a "some but not all" subset and collapses to "show all". An
+    // EXPLICIT empty set (the "show none" state) is left untouched — it isn't a
+    // shrunken subset, it's a deliberate selection the user must undo themselves.
+    if (this._visibleRepoRoots && this._visibleRepoRoots.length > 0) {
+      const present = new Set(repos.map((r) => normalizeRepoPath(r.rootUri)));
+      const kept = this._visibleRepoRoots.filter((p) => present.has(normalizeRepoPathString(p)));
+      this._visibleRepoRoots = kept.length < 2 || kept.length === repos.length ? null : kept;
+    }
+
     this._updateWebview();
     this._onDidChangeState.fire();
 
@@ -2643,6 +2697,28 @@ export class GitToolWindowProvider
   }
 
   /**
+   * The visible subset of repository root fsPaths in merged scope, or `null`
+   * when every available root is shown. The merged log loader intersects the
+   * discovered repos with this to honor a "some but not all roots" selection.
+   */
+  public getVisibleRepoRoots(): string[] | null {
+    return this._visibleRepoRoots;
+  }
+
+  /**
+   * The repositories currently in scope for merged-view work (branch-filter
+   * options, etc.). The full available list unless a subset is active, in which
+   * case only the chosen roots (matched by normalized path).
+   */
+  public getVisibleRepositories(): IRepository[] {
+    if (!this._visibleRepoRoots) {
+      return this._availableRepositories;
+    }
+    const visible = new Set(this._visibleRepoRoots.map((p) => normalizeRepoPathString(p)));
+    return this._availableRepositories.filter((r) => visible.has(normalizeRepoPath(r.rootUri)));
+  }
+
+  /**
    * Source repository root for a commit in the merged "all roots" log, or
    * `undefined` when the commit isn't from the merged view (single-repo /
    * specific-scope log) or isn't in the current snapshot. Commit-targeted
@@ -2683,6 +2759,7 @@ export class GitToolWindowProvider
 
     if (selection === 'all') {
       this._repositoryScope = 'all';
+      this._visibleRepoRoots = null;
       this._scopeUserChosen = true;
       this._onDidChangeState.fire();
       this._onDidChangeRepositoryScope.fire({ kind: 'all' });
@@ -2713,12 +2790,64 @@ export class GitToolWindowProvider
 
     this._selectedRepositoryIndex = clampedIndex;
     this._repositoryScope = clampedIndex;
+    this._visibleRepoRoots = null;
     this._scopeUserChosen = true;
     this._onDidChangeState.fire();
 
     const selectedRepo = this._availableRepositories[clampedIndex];
     this._onDidSelectRepository.fire(selectedRepo);
     this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: selectedRepo });
+  }
+
+  /**
+   * Handle a multi-repository scope change from the "Repository" log filter,
+   * where the user checks the subset of roots to show. The checked set collapses
+   * to the existing single/all scopes at the extremes so those paths (HEAD
+   * spine, root column, branch-option source) are unchanged:
+   *   - all (or none) checked → `'all'`, no visible subset.
+   *   - exactly one checked   → that single-repo scope.
+   *   - 2 .. n-1 checked      → merged `'all'` filtered to {@link _visibleRepoRoots}.
+   *
+   * Roots arrive as fsPath strings from the untrusted webview and are matched by
+   * normalized path (spec L14); unknown roots are ignored. The subset case fires
+   * a single `{ kind: 'all' }` scope change — the loader re-reads the subset from
+   * {@link getVisibleRepoRoots} — so the merged log re-routes in lockstep.
+   *
+   * @param roots - fsPaths of the repositories the user checked
+   */
+  private _handleVisibleRepositoriesSelection(roots: string[]): void {
+    if (this._availableRepositories.length === 0) {
+      return;
+    }
+    // roots arrives from the untrusted webview; drop any non-string element so a
+    // tampered payload can't throw inside normalizeRepoPathString (it would be
+    // caught + logged upstream, but the selection would silently no-op).
+    const checked = new Set(
+      roots.filter((p): p is string => typeof p === 'string').map((p) => normalizeRepoPathString(p))
+    );
+    const matched = this._availableRepositories.filter((r) =>
+      checked.has(normalizeRepoPath(r.rootUri))
+    );
+    const n = this._availableRepositories.length;
+
+    if (matched.length === n) {
+      this._handleRepositorySelection('all'); // every repo checked → show all
+      return;
+    }
+    if (matched.length === 1) {
+      this._handleRepositorySelection(this._availableRepositories.indexOf(matched[0]));
+      return;
+    }
+
+    // 0 (none checked) or 2..n-1 (a partial subset) both stay in the merged
+    // scope with an explicit visible set. An EMPTY set means "show no commits"
+    // — unchecking everything must NOT snap back to "all"; the user re-checks
+    // (or ticks "All repositories") to restore.
+    this._repositoryScope = 'all';
+    this._visibleRepoRoots = matched.map((r) => r.rootUri.fsPath);
+    this._scopeUserChosen = true;
+    this._onDidChangeState.fire();
+    this._onDidChangeRepositoryScope.fire({ kind: 'all' });
   }
 
   /**
@@ -3367,7 +3496,10 @@ ${bodyMarkup}
     const branchColors = computeBranchColors(colorNodesFrom(commitNodes), {
       headBranchName: this._extendedLogState.headBranchName,
     });
-    const printModels = buildGraphPrintModel(commitNodes, { branchColors });
+    const printModels = buildGraphPrintModel(commitNodes, {
+      branchColors,
+      headHash: this._extendedLogState.headHash,
+    });
 
     // Pre-resolve the cherry-picked set once per render to keep the
     // per-row check O(1).
@@ -3560,20 +3692,37 @@ ${bodyMarkup}
     const searchRegex = filter?.searchRegex ?? false;
     const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
     // A range filter ("A..B") lives in logRange; show it in the Branch button
-    // value, falling back to the single-branch scope.
+    // value, falling back to the single-branch scope. `data-f-branch` keeps that
+    // single/range value for back-compat; the multi-select tree round-trips
+    // through `data-f-branches` below.
     const branch = filter?.logRange ?? filter?.branch ?? '';
+    const branches = filter?.branches ?? [];
+    const branchesNone = filter?.branchesNone ?? false;
+    const paths = filter?.paths ?? [];
     const author = filter?.author ?? '';
     const path = filter?.path ?? '';
     const sinceAttr = this._toDateInputValue(filter?.since);
     const untilAttr = this._toDateInputValue(filter?.until);
 
-    const branchLabel = branch ? this._escapeHtml(branch) : 'All';
+    const branchLabel = this._escapeHtml(this._branchFilterLabel(filter));
     const authorLabel = author ? this._escapeHtml(author) : 'All';
     const dateLabel = this._escapeHtml(this._dateFilterLabel(filter?.since, filter?.until));
-    const pathLabel = this._escapeHtml(this._pathFilterLabel(path));
+    const repoLabel = this._escapeHtml(this._repoScopeLabel());
+
+    // The Repository filter scopes the log to a subset of a multi-root
+    // workspace. It is meaningless with a single repo, so it is omitted then.
+    const repoPopup =
+      this._availableRepositories.length > 1
+        ? this._getFilterPopupHtml(
+            'repo',
+            'Repository',
+            repoLabel,
+            this._getRepositoryPopupBodyHtml()
+          )
+        : '';
 
     return `
-        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
+        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-branches-none="${branchesNone}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
           <div class="log-filter-search">
             <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${search}" aria-label="Search by message or hash" autocomplete="off" />
             <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Match by regular expression" aria-label="Match by regular expression" aria-pressed="${searchRegex}">.*</button>
@@ -3582,7 +3731,7 @@ ${bodyMarkup}
           ${this._getFilterPopupHtml('branch', 'Branch', branchLabel, this._getBranchPopupBodyHtml())}
           ${this._getFilterPopupHtml('user', 'User', authorLabel, this._getUserPopupBodyHtml(author))}
           ${this._getFilterPopupHtml('date', 'Date', dateLabel, this._getDatePopupBodyHtml(filter?.since, filter?.until))}
-          ${this._getFilterPopupHtml('path', 'Path', pathLabel, this._getPathPopupBodyHtml(path))}
+          ${repoPopup}
         </div>`;
   }
 
@@ -3611,16 +3760,15 @@ ${bodyMarkup}
   }
 
   /**
-   * Branch popup shell. The "All branches" item + the live-filter input are
-   * static; the Local / per-remote groups are injected client-side from the
-   * `logFilterOptionsReady` message (lazy, on first open — no load-time git).
+   * Branch popup shell. The live-filter input is static; the master "All
+   * branches" checkbox + the Local / per-remote checkbox tree are injected
+   * client-side from the `logFilterOptionsReady` message (lazy, on first open —
+   * no load-time git).
    */
   private _getBranchPopupBodyHtml(): string {
     return `
               <input type="text" class="log-filter-popup-search" data-action="filterPopupSearch" data-popup="branch" placeholder="Filter branches" aria-label="Filter branches" autocomplete="off" />
-              <div class="log-filter-popup-list" id="filter-branch-list">
-                <button type="button" class="log-filter-popup-item" data-action="pickBranchFilter" data-branch="__all__">All branches</button>
-              </div>`;
+              <div class="log-filter-popup-list" id="filter-branch-list"></div>`;
   }
 
   /**
@@ -3668,35 +3816,43 @@ ${bodyMarkup}
   }
 
   /**
-   * Path popup — a file/directory path field (IntelliJ structure filter) plus,
-   * when more than one repository is open, the repository rows that scope the
-   * log + Branches view (the former repository selector, folded in here per the
-   * "Path = our repo, renamed" parity request). v1 maps the rows to the existing
-   * single-or-all repository scope; a true multi-root subset is a deferred gap.
+   * Repository popup — a checkbox per workspace repository (plus an "All
+   * repositories" reset), letting the user scope the merged log + Branches view
+   * to a SUBSET of a multi-root workspace (IntelliJ's root filter). Repos are
+   * known server-side, so the checkboxes render directly (no lazy message). The
+   * checked set drives {@link _handleVisibleRepositoriesSelection}: all/none →
+   * "show all", exactly one → single-repo scope, 2..n-1 → a visible subset.
+   * Only emitted when more than one repository is open (see callsite).
    */
-  private _getPathPopupBodyHtml(path: string): string {
-    const esc = this._escapeHtml(path);
-    let reposHtml = '';
-    if (this._availableRepositories.length > 1) {
-      const allActive = this._repositoryScope === 'all';
-      const allCheck = allActive ? '✓' : '';
-      const rows = this._availableRepositories
-        .map((repo, index) => {
-          const fsPath = repo.rootUri.fsPath;
-          const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
-          const active = this._repositoryScope !== 'all' && index === this._selectedRepositoryIndex;
-          const check = active ? '✓' : '';
-          return `<button type="button" class="log-filter-popup-item${active ? ' active' : ''}" data-action="pickRepoScope" data-repo-index="${index}" title="${this._escapeHtml(fsPath)}"><span class="log-filter-check" aria-hidden="true">${check}</span>${folderName}</button>`;
-        })
-        .join('');
-      reposHtml = `
-              <div class="log-filter-popup-section">Repositories</div>
-              <button type="button" class="log-filter-popup-item${allActive ? ' active' : ''}" data-action="pickRepoScope" data-repo-index="all"><span class="log-filter-check" aria-hidden="true">${allCheck}</span>All repositories</button>
-              ${rows}`;
-    }
+  private _getRepositoryPopupBodyHtml(): string {
+    const subset = this._visibleRepoRoots
+      ? new Set(this._visibleRepoRoots.map((p) => normalizeRepoPathString(p)))
+      : null;
+    const scopeAll = this._repositoryScope === 'all';
+    const isChecked = (repo: IRepository, index: number): boolean => {
+      if (subset) {
+        return subset.has(normalizeRepoPath(repo.rootUri));
+      }
+      // No subset: every repo is checked in merged scope; only the scoped repo
+      // is checked in a single-repo scope.
+      return scopeAll || index === this._selectedRepositoryIndex;
+    };
+    const allChecked = scopeAll && !subset;
+
+    const rows = this._availableRepositories
+      .map((repo, index) => {
+        const fsPath = repo.rootUri.fsPath;
+        const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
+        const checked = isChecked(repo, index) ? ' checked' : '';
+        return `<label class="log-filter-tree-row" title="${this._escapeHtml(fsPath)}"><input type="checkbox" class="log-filter-tree-check" data-action="toggleRepoCheckbox" data-repo-root="${this._escapeHtml(fsPath)}"${checked} />${folderName}</label>`;
+      })
+      .join('');
+
     return `
-              <input type="text" id="filter-path-input" class="log-filter-popup-search" data-action="filterPathKeydown" placeholder="File or directory path" value="${esc}" aria-label="File or directory path" />
-              <button type="button" class="log-filter-popup-apply" data-action="applyPathFilter">Apply path</button>${reposHtml}`;
+              <div class="log-filter-popup-list" id="filter-repo-list">
+                <label class="log-filter-tree-row"><input type="checkbox" class="log-filter-tree-check" data-action="toggleAllRepos"${allChecked ? ' checked' : ''} />All repositories</label>
+                ${rows}
+              </div>`;
   }
 
   /**
@@ -3719,14 +3875,40 @@ ${bodyMarkup}
   }
 
   /**
-   * Path-button value: the path leaf if a path filter is set, else the scoped
-   * repository's folder name (multi-repo, single scope), else "All".
+   * Branch-button value: a range ("A..B") as-is, the leaf name for a single
+   * selected branch, "N branches" for a multi-select, the legacy single-branch
+   * value if present, else "All". Mirrors the webview's `branchSummary` so the
+   * label stays correct across a full re-render.
    */
-  private _pathFilterLabel(path: string): string {
-    if (path) {
-      return path.split('/').filter(Boolean).pop() || path;
+  private _branchFilterLabel(filter: ILogFilter | undefined): string {
+    if (filter?.logRange) {
+      return filter.logRange;
     }
-    if (this._availableRepositories.length > 1 && this._repositoryScope !== 'all') {
+    if (filter?.branchesNone) {
+      return 'None';
+    }
+    const branches = filter?.branches ?? [];
+    if (branches.length === 1) {
+      return branches[0].split('/').filter(Boolean).pop() || branches[0];
+    }
+    if (branches.length > 1) {
+      return `${branches.length} branches`;
+    }
+    return filter?.branch || 'All';
+  }
+
+  /**
+   * Repository-button value: "All" when every root is shown, the scoped repo's
+   * folder name in a single-repo scope, or "N repositories" for a visible
+   * subset.
+   */
+  private _repoScopeLabel(): string {
+    if (this._visibleRepoRoots) {
+      return this._visibleRepoRoots.length === 0
+        ? 'None'
+        : `${this._visibleRepoRoots.length} repositories`;
+    }
+    if (this._repositoryScope !== 'all') {
       const repo = this._availableRepositories[this._selectedRepositoryIndex];
       if (repo) {
         const fs = repo.rootUri.fsPath;
@@ -4178,9 +4360,13 @@ interface IBranchFilterGroups {
  */
 interface IWebviewLogFilter {
   branch?: string;
+  branches?: string[];
+  /** Every branch checkbox unchecked → show no commits (distinct from "all"). */
+  branchesNone?: boolean;
   searchText?: string;
   author?: string;
   path?: string;
+  paths?: string[];
   since?: string | null;
   until?: string | null;
   searchRegex?: boolean;
@@ -4256,6 +4442,12 @@ interface IWebviewMessage {
    * sentinel for the merged "all repositories" scope.
    */
   repositoryIndex?: number | 'all';
+  /**
+   * Carried by `selectRepositories`: the fsPaths of the repository roots the
+   * user checked in the multi-select "Repository" filter. An empty array (or one
+   * covering every root) means "show all".
+   */
+  roots?: string[];
   /**
    * Click anchor that travels with
    * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no

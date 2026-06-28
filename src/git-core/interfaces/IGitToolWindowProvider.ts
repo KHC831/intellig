@@ -62,10 +62,20 @@ export interface ILogState {
  */
 export interface ILogFilter {
   branch?: string;
+  /** Multi-select branches — union (show commits from ANY). */
+  branches?: string[];
+  /**
+   * Explicit "no branches selected" — show NO commits. Distinct from an
+   * absent/empty branch filter (which means "all branches"). Mirrors the repo
+   * filter's empty-subset "show none". Maps to `ILogScope.matchNothing`.
+   */
+  branchesNone?: boolean;
   author?: string;
   since?: Date;
   until?: Date;
   path?: string;
+  /** Multi-select paths — union (commits touching ANY). */
+  paths?: string[];
   searchText?: string;
   /** Exclude merge commits — IntelliJ's VCS-log "No Merges" filter. */
   noMerges?: boolean;

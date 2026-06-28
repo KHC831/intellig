@@ -479,10 +479,23 @@ export interface IStashOptions {
 export interface ILogOptions {
   maxCount?: number;
   skip?: number;
+  /**
+   * Short-circuit to an EMPTY result without invoking git — the "no branches
+   * selected" state (every branch checkbox unchecked). When set, `getLog`
+   * returns `[]` and `getLogCount` returns `0` immediately, ahead of any other
+   * filter. Set by {@link buildLogScope} from the explicit-none branch filter.
+   */
+  matchNothing?: boolean;
   author?: string;
   since?: Date;
   until?: Date;
   path?: string;
+  /**
+   * Restrict the log to one or more path filters; multiple paths UNION (commits
+   * touching ANY). The multi-select form of {@link path}. Spliced after `--` as
+   * pathspecs, so a leading `-`/`.` can't smuggle a flag.
+   */
+  paths?: string[];
   grep?: string;
   all?: boolean;
   /**
@@ -502,6 +515,13 @@ export interface ILogOptions {
    * spliced as a positional revision arg.
    */
   ref?: string;
+  /**
+   * Restrict the log to one or more revisions/refs; multiple refs UNION
+   * (`git log <refA> <refB>` = commits reachable from ANY). The multi-select form
+   * of {@link ref}. Each is guarded against a leading `-`/`.` and spliced as a
+   * positional revision arg.
+   */
+  refs?: string[];
   /**
    * Exclude merge commits (`git log --no-merges`). Mirrors IntelliJ's
    * VCS-log "No Merges" filter. A static flag with no user input, so it is

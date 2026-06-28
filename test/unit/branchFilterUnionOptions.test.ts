@@ -113,6 +113,38 @@ describe('Branch popup — option source per scope', () => {
     assert.deepStrictEqual(msg?.branchGroups?.local, ['feature/a', 'main']);
   });
 
+  it('offers only the visible subset’s branches when a multi-root subset is active', async () => {
+    // A 1-of-2 subset would collapse to a single-repo scope, so use a 3-repo
+    // workspace and scope to {repoA} as the genuine "some but not all" case.
+    const repoC = repoAt('/repos/c');
+    const byRepo3 = new Map<string, IBranch[]>([
+      ['/repos/a', [branch('main'), branch('feature/a')]],
+      ['/repos/b', [branch('main'), branch('feature/b')]],
+      ['/repos/c', [branch('main'), branch('feature/c')]],
+    ]);
+    provider.dispose();
+    provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setAvailableRepositories([repoA, repoB, repoC]);
+    provider.attachGitService(
+      createMockGitService(repoA, {
+        getRepositories: () => [repoA, repoB, repoC],
+        getBranches: async (repo: IRepository) => byRepo3.get(repo.rootUri.fsPath) ?? [],
+        getLogContributors: async () => [],
+      })
+    );
+    posted = [];
+    attachCapturingView(provider, posted);
+
+    // Check {repoA, repoC} — repoB's feature/b must be absent from the union.
+    (
+      provider as unknown as { _handleVisibleRepositoriesSelection(roots: string[]): void }
+    )._handleVisibleRepositoriesSelection(['/repos/a', '/repos/c']);
+    await requestOptions();
+
+    const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
+    assert.deepStrictEqual(msg?.branchGroups?.local, ['feature/a', 'feature/c', 'main']);
+  });
+
   it('survives a hard rejection on ONE root (keeps the healthy roots, no throw)', async () => {
     // repoB's getBranches throws (e.g. unmounted multi-root → cwd ENOENT): the
     // union must still post repoA's branches and must not reject.

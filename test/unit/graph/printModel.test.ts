@@ -15,6 +15,7 @@ import {
   computeChildCountMap,
   isBranchSplit,
   type ICommitNode,
+  type IBranchRef,
 } from '../../../src/git-core/commitGraph';
 import {
   buildGraphPrintModel,
@@ -47,6 +48,33 @@ function c(hash: string, parents: string[]): ICommit {
 function allEdges(commits: ICommit[]): IRowEdgeElement[] {
   return buildGraphPrintModel(generateCommitGraph(commits)).flatMap((m) => m.edges);
 }
+
+describe('print model — current HEAD ring (isCurrentHead)', () => {
+  // 'feature' (row 0), 'main' (row 1), shared base (row 2).
+  const commits = [c('f', ['base']), c('m', ['base']), c('base', [])];
+  const branchMap = new Map<string, IBranchRef[]>([
+    ['f', [{ name: 'feature', type: 'local' }]],
+    ['m', [{ name: 'main', type: 'local' }]],
+  ]);
+  const headsOf = (headHash?: string): boolean[] =>
+    buildGraphPrintModel(generateCommitGraph(commits, branchMap), { headHash }).map(
+      (row) => row.node.isCurrentHead
+    );
+
+  it('flags ONLY the checked-out commit (the HEAD commit), not other tips', () => {
+    assert.deepStrictEqual(headsOf('m'), [false, true, false]);
+  });
+
+  it('rings a DETACHED HEAD commit with no branch tip (e.g. the shared base)', () => {
+    // HEAD checked out directly at the base commit — no branch points there, yet
+    // it must still get the ring (the whole point of keying on the commit hash).
+    assert.deepStrictEqual(headsOf('base'), [false, false, true]);
+  });
+
+  it('flags no node when there is no HEAD commit (e.g. merged multi-root)', () => {
+    assert.deepStrictEqual(headsOf(undefined), [false, false, false]);
+  });
+});
 
 describe('print model — edge identity (off-window vs in-window)', () => {
   it('a fully in-window linear chain tags every edge in-window (no over-tagging)', () => {
@@ -111,6 +139,7 @@ describe('print model — projectRow hashToRow seam (threaded vs derived)', () =
       incomingBendLanes: computeIncomingBendsMap(nodes).get(nodes[row].commit.hash) ?? new Set(),
       bendsLandingBelow: new Set<number>(),
       isTerminal: computeTerminalNodes(nodes).has(nodes[row].commit.hash),
+      isCurrentHead: false,
       isBranchSplit: isBranchSplit(nodes[row].commit.hash, computeChildCountMap(nodes)),
       isLastRow: row === nodes.length - 1,
       hasFocusedBranch: false,

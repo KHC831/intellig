@@ -25,6 +25,7 @@ import { createBranchContextMenuCommands, createCommitContextMenuCommands } from
 import { getOutputChannel } from '../utils/outputChannel';
 import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
+import { normalizeRepoPath, normalizeRepoPathString } from '../utils/normalizeRepoPath';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { IViewRegistrationContext } from './ViewRegistrationContext';
@@ -46,7 +47,7 @@ import {
   wireGraphLoadMore,
   type IGraphLoadMoreController,
 } from './graphLoadMore';
-import { fetchGraphPage, buildLogScope } from './graphLogPage';
+import { fetchGraphPage, buildLogScope, narrowRefsForRepo } from './graphLogPage';
 
 /**
  * Initial commit-graph window — the small first chunk loaded for a FAST startup
@@ -656,10 +657,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Define the filter shape shared across log-loading helpers (G8).
     type LogFilter = {
       branch?: string;
+      branches?: string[];
+      branchesNone?: boolean;
       author?: string;
       since?: Date;
       until?: Date;
       path?: string;
+      paths?: string[];
       searchText?: string;
       noMerges?: boolean;
       firstParent?: boolean;
@@ -684,7 +688,23 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         return;
       }
 
-      const repos = await discoverAllRepositories();
+      const discovered = await discoverAllRepositories();
+      // Honor a "some but not all roots" subset from the Repository filter: load
+      // only the visible roots' commits. `null` means every root (show all).
+      const visible = ctx.gitToolWindowProvider?.getVisibleRepoRoots() ?? null;
+      // An explicit empty subset is the "show none" state — render an empty graph
+      // rather than falling through to the single-repo load below.
+      if (visible && visible.length === 0) {
+        ctx.gitToolWindowProvider?.updateLogState([], new Map(), new Map(), undefined, undefined);
+        ctx.gitToolWindowProvider?.setMergedHeadCommitHashes([]);
+        return;
+      }
+      const repos = visible
+        ? discovered.filter((r) => {
+            const norm = normalizeRepoPath(r.rootUri);
+            return visible.some((p) => normalizeRepoPathString(p) === norm);
+          })
+        : discovered;
       if (repos.length <= 1) {
         await loadLogCommits(filter);
         return;
@@ -695,14 +715,60 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         // filter mapping as the single-repo graph — including the "Message or
         // hash" box's hash-filter detection.
         const scope = buildLogScope(filter);
+
+        // Fetch each repo's branches UP FRONT — needed both for the combined
+        // branch map AND to intersect a branch SUBSET against the refs that
+        // actually exist in each repo. A multi-ref `git log <a> <b>` fails
+        // ENTIRELY ("fatal: unknown revision") if ONE ref is missing in that
+        // repo, which would silently drop that repo's whole history. Selecting
+        // {main, feature/b} must still show repo A's `main` even if A lacks
+        // feature/b — so we narrow the refs per repo and skip a repo that has
+        // none of the selected branches.
+        const perRepoBranches = await Promise.all(
+          repos.map((repo) =>
+            gitService.getBranches(repo).catch((error) => {
+              getLogger()
+                .child({ component: 'extension' })
+                .debug('graph load (merged): getBranches failed', {
+                  err: error instanceof Error ? error.message : String(error),
+                });
+              return [];
+            })
+          )
+        );
+
+        const combinedBranchMap = new Map<
+          string,
+          Array<{ name: string; type: 'local' | 'remote' }>
+        >();
+        perRepoBranches.forEach((branches) => {
+          for (const branch of branches) {
+            if (branch.commit && branch.type !== 'tag') {
+              const existing = combinedBranchMap.get(branch.commit) || [];
+              existing.push({ name: branch.name, type: branch.type });
+              combinedBranchMap.set(branch.commit, existing);
+            }
+          }
+        });
+
         // Load up to 200 commits per repo — lower per-repo cap keeps the
         // merged view snappy while still giving meaningful cross-repo history.
         const allCommitsArrays = await Promise.all(
-          repos.map(async (repo) => {
+          repos.map(async (repo, i) => {
+            const narrowed = narrowRefsForRepo(
+              scope.refs,
+              perRepoBranches[i].map((b) => b.name)
+            );
+            // None of the selected branches exist in this repo → contribute
+            // nothing (don't run a poisoned multi-ref command).
+            if (narrowed.skip) {
+              return [];
+            }
+            const repoScope = narrowed.refs ? { ...scope, refs: narrowed.refs } : scope;
             const commits = await gitService.getLog(repo, {
               maxCount: 200,
               topoOrder: true,
-              ...scope,
+              ...repoScope,
             });
             // Tag each commit with the source repo root path.
             return commits.map((c) => ({ ...c, repoRoot: repo.rootUri.fsPath }));
@@ -715,32 +781,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           .sort((a, b) => b.commitDate.getTime() - a.commitDate.getTime())
           .slice(0, 500);
 
-        // Build combined branch and tag maps from all repos.
-        const combinedBranchMap = new Map<
-          string,
-          Array<{ name: string; type: 'local' | 'remote' }>
-        >();
         const combinedTagMap = new Map<string, string[]>();
-
         await Promise.all(
           repos.map(async (repo) => {
-            try {
-              const branches = await gitService.getBranches(repo);
-              for (const branch of branches) {
-                if (branch.commit && branch.type !== 'tag') {
-                  const existing = combinedBranchMap.get(branch.commit) || [];
-                  existing.push({ name: branch.name, type: branch.type });
-                  combinedBranchMap.set(branch.commit, existing);
-                }
-              }
-            } catch (error) {
-              // Branches are optional for graph rendering; log+degrade so the fault stays visible.
-              getLogger()
-                .child({ component: 'extension' })
-                .debug('graph load (merged): getBranches failed', {
-                  err: error instanceof Error ? error.message : String(error),
-                });
-            }
             try {
               const tags = await gitService.getTags(repo);
               for (const tag of tags) {
@@ -838,10 +881,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         filter
           ? {
               branch: filter.branch,
+              branches: filter.branches,
+              branchesNone: filter.branchesNone,
               author: filter.author,
               since: filter.since,
               until: filter.until,
               path: filter.path,
+              paths: filter.paths,
               searchText: filter.searchText,
               noMerges: filter.noMerges,
               firstParent: filter.firstParent,

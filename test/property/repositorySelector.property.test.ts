@@ -97,14 +97,15 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
     provider.dispose();
   });
 
-  describe('Property 1: Path-popup repo rows match repository count', () => {
+  describe('Property 1: Repository-popup checkboxes match repository count', () => {
     /**
      *
-     * For any list of repositories, the Path popup should render selectable repo
-     * rows (data-action="pickRepoScope") if and only if more than one repository
-     * exists. With 0 or 1 repos there is no repo scope to choose, so no rows.
+     * For any list of repositories, the Repository popup should render a checkbox
+     * per repo (data-action="toggleRepoCheckbox") if and only if more than one
+     * repository exists. With 0 or 1 repos there is no subset to choose, so the
+     * Repository filter is omitted entirely.
      */
-    it('Feature: git-graph-visual-improvements, Property 1: Path-popup repo rows match repository count', () => {
+    it('Feature: git-graph-visual-improvements, Property 1: Repository-popup checkboxes match repository count', () => {
       fc.assert(
         fc.property(arbitraryRepositoryList(0, 10), (repos) => {
           provider.setAvailableRepositories(repos);
@@ -112,17 +113,17 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
 
           if (repos.length > 1) {
             assert.ok(
-              html.includes('pickRepoScope'),
-              `Path popup should render repo rows when ${repos.length} repositories exist. Got: "${html}"`
+              html.includes('toggleRepoCheckbox'),
+              `Repository popup should render checkboxes when ${repos.length} repositories exist. Got: "${html}"`
             );
             assert.ok(
               html.includes('All repositories'),
-              `Path popup should offer "All repositories" when ${repos.length} repositories exist.`
+              `Repository popup should offer "All repositories" when ${repos.length} repositories exist.`
             );
           } else {
             assert.ok(
-              !html.includes('pickRepoScope'),
-              `Path popup should have no repo rows when ${repos.length} repository exists. Got: "${html}"`
+              !html.includes('toggleRepoCheckbox'),
+              `Repository filter should be omitted when ${repos.length} repository exists. Got: "${html}"`
             );
           }
         }),
@@ -171,23 +172,23 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
     });
   });
 
-  describe('Property 3: Path popup displays repo folder names', () => {
+  describe('Property 3: Repository popup displays repo folder names', () => {
     /**
      *
-     * For any list of repositories with root URIs, the rendered Path popup
+     * For any list of repositories with root URIs, the rendered Repository popup
      * should contain the folder name (last path segment) of each repository's
-     * root URI as a selectable repo row.
+     * root URI as a checkbox label.
      */
-    it('Feature: git-graph-visual-improvements, Property 3: Path popup displays repo folder names', () => {
+    it('Feature: git-graph-visual-improvements, Property 3: Repository popup displays repo folder names', () => {
       fc.assert(
         fc.property(arbitraryRepositoryList(2, 10), (repos) => {
           provider.setAvailableRepositories(repos);
           const html = provider._getLogFilterRowHtml();
 
-          // Repo rows should be present since repos.length > 1
+          // Repo checkboxes should be present since repos.length > 1
           assert.ok(
-            html.includes('pickRepoScope'),
-            `Path popup repo rows should be present when ${repos.length} repositories exist.`
+            html.includes('toggleRepoCheckbox'),
+            `Repository popup checkboxes should be present when ${repos.length} repositories exist.`
           );
 
           // Each repository's folder name should appear in the HTML
@@ -195,7 +196,7 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
             const folderName = getFolderName(repo.rootUri.fsPath);
             assert.ok(
               html.includes(folderName),
-              `Path popup HTML should contain folder name "${folderName}" ` +
+              `Repository popup HTML should contain folder name "${folderName}" ` +
                 `from path "${repo.rootUri.fsPath}". HTML: "${html}"`
             );
           }

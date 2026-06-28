@@ -41,11 +41,11 @@ export function buildInlineScript(): string {
           return s.replace(/[^a-zA-Z0-9_-]/g, function(ch) { return '\\\\' + ch; });
         }
 
-        // Repository scope is chosen from the Path filter popup (the repo rows
-        // post \`selectRepository\`); see the setupLogFilterRow IIFE below.
+        // Repository scope is chosen from the Repository filter popup (its
+        // checkboxes post \`selectRepositories\`); see the setupLogFilterRow IIFE.
 
         // ─── Log filter row (IntelliJ VcsLogClassicFilterUi) ─────────────
-        // A text-search field plus Branch / User / Date / Path popup buttons.
+        // A text-search field plus Branch / User / Date / Repository popup buttons.
         // The popups are custom styled panels (native <select>/<datalist>
         // popups render in an unstyleable Chromium UA layer). Every control
         // uses data-action — the CSP (script-src 'nonce-…') blocks inline
@@ -55,13 +55,108 @@ export function buildInlineScript(): string {
           const row = document.querySelector('.log-filter-row');
           if (!row) return;
 
+          // The multi-select arrays are the source of truth and MUST survive a
+          // full re-render (a pick reloads the graph and re-templates the row),
+          // so they round-trip through the JSON data-f-branches/paths attributes.
+          // Fall back to the single legacy attr for any non-multi (range) scope.
+          function readJsonList(attr, fallbackSingle) {
+            try {
+              const parsed = JSON.parse(row.getAttribute(attr) || '[]');
+              if (Array.isArray(parsed) && parsed.length) return parsed;
+            } catch (e) {}
+            return fallbackSingle ? [fallbackSingle] : [];
+          }
+          const initBranch = row.getAttribute('data-f-branch') || '';
+          const initPath = row.getAttribute('data-f-path') || '';
+          const seededBranches = readJsonList('data-f-branches', initBranch);
+          // Branch filter is a tri-state mirroring the repo filter: 'all' (every
+          // branch, --all), 'subset' (the checked refs, union), 'none' (no
+          // branch checked → show nothing). 'none' round-trips via data-f-branches-none.
           const filterState = {
-            branch: row.getAttribute('data-f-branch') || '',
+            branches: seededBranches,
+            branchMode:
+              row.getAttribute('data-f-branches-none') === 'true'
+                ? 'none'
+                : (seededBranches.length ? 'subset' : 'all'),
+            paths: readJsonList('data-f-paths', initPath),
             author: row.getAttribute('data-f-author') || '',
-            path: row.getAttribute('data-f-path') || '',
             since: row.getAttribute('data-f-since') || '',
             until: row.getAttribute('data-f-until') || '',
           };
+          function branchLeaf(name) {
+            const parts = String(name).split('/').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : String(name);
+          }
+          function isBranchChecked(name) {
+            if (filterState.branchMode === 'all') return true;
+            if (filterState.branchMode === 'none') return false;
+            return filterState.branches.indexOf(name) !== -1;
+          }
+          function branchSummary() {
+            if (filterState.branchMode === 'all') return 'All';
+            if (filterState.branchMode === 'none') return 'None';
+            const n = filterState.branches.length;
+            if (n === 1) return branchLeaf(filterState.branches[0]);
+            return n + ' branches';
+          }
+          // Recompute the tri-state from the live checkbox DOM after any toggle
+          // (mirrors the repo filter's collect-from-DOM): all leaves checked →
+          // 'all'; none → 'none'; otherwise 'subset' of the checked refs. Syncs
+          // the master "All branches" checkbox + the button label.
+          function recomputeBranchState() {
+            const list = byId('filter-branch-list');
+            if (!list) return;
+            const leaves = list.querySelectorAll('input[data-branch]');
+            if (leaves.length === 0) return;
+            const checkedRefs = [];
+            leaves.forEach(function(cb) { if (cb.checked) checkedRefs.push(cb.getAttribute('data-branch')); });
+            if (checkedRefs.length === leaves.length) { filterState.branchMode = 'all'; filterState.branches = []; }
+            else if (checkedRefs.length === 0) { filterState.branchMode = 'none'; filterState.branches = []; }
+            else { filterState.branchMode = 'subset'; filterState.branches = checkedRefs; }
+            syncBranchFolderChecks(list);
+            setPopValue('branch', branchSummary());
+          }
+          // Reconcile a SUBSET selection against the branch list just rebuilt for
+          // the current repo scope (B.3): drop refs no visible repo has anymore.
+          // An emptied subset reverts to ALL — a repo-scope change unselected the
+          // refs, not the user (who would have hit NONE explicitly). A subset that
+          // now covers every visible branch is ALL. Runs on each tree rebuild; no
+          // re-post (the host's per-repo ref intersection keeps the graph correct
+          // meanwhile, and the next toggle posts the reconciled set).
+          function reconcileBranchSelection() {
+            const list = byId('filter-branch-list');
+            if (!list) return;
+            if (filterState.branchMode === 'subset') {
+              const leaves = list.querySelectorAll('input[data-branch]');
+              if (leaves.length > 0) {
+                const present = {};
+                leaves.forEach(function(cb) { present[cb.getAttribute('data-branch')] = true; });
+                const kept = filterState.branches.filter(function(r) { return present[r]; });
+                if (kept.length === 0 || kept.length === leaves.length) { filterState.branchMode = 'all'; filterState.branches = []; }
+                else { filterState.branches = kept; }
+                leaves.forEach(function(cb) { cb.checked = isBranchChecked(cb.getAttribute('data-branch')); });
+                setPopValue('branch', branchSummary());
+              }
+            }
+            syncBranchFolderChecks(list);
+          }
+          // Reflect descendant-leaf state onto the folder + master checkboxes:
+          // checked when ALL descendants checked, indeterminate when only some.
+          function syncBranchFolderChecks(list) {
+            list.querySelectorAll('input[data-action="toggleBranchFolder"]').forEach(function(folder) {
+              const wrap = folder.closest('.log-filter-tree-node');
+              const leaves = wrap ? wrap.querySelectorAll('input[data-branch]') : [];
+              let on = 0;
+              leaves.forEach(function(l) { if (l.checked) on++; });
+              folder.checked = leaves.length > 0 && on === leaves.length;
+              folder.indeterminate = on > 0 && on < leaves.length;
+            });
+            const master = list.querySelector('input[data-action="toggleAllBranches"]');
+            if (master) {
+              master.checked = filterState.branchMode === 'all';
+              master.indeterminate = filterState.branchMode === 'subset';
+            }
+          }
 
           function byId(id) { return document.getElementById(id); }
           function readSearch() { const el = byId('filter-search'); return el ? el.value.trim() : ''; }
@@ -71,10 +166,13 @@ export function buildInlineScript(): string {
             vscode.postMessage({
               type: 'applyLogFilter',
               filter: {
-                branch: filterState.branch,
+                // 'all' posts no branch filter; 'subset' the checked refs; 'none'
+                // the explicit empty flag (show no commits).
+                branches: filterState.branchMode === 'subset' ? filterState.branches.slice() : [],
+                branchesNone: filterState.branchMode === 'none',
                 searchText: readSearch(),
                 author: filterState.author,
-                path: filterState.path,
+                paths: filterState.paths.slice(),
                 since: filterState.since || null,
                 until: filterState.until || null,
                 searchRegex: readToggle('filter-search-regex'),
@@ -94,14 +192,34 @@ export function buildInlineScript(): string {
             if (u) return 'Until ' + u;
             return 'All';
           }
-          function pathLeaf(p) {
-            const parts = p.split('/').filter(Boolean);
-            return parts.length ? parts[parts.length - 1] : p;
+          // "None" / "All" / "N repositories" / single-repo leaf for the button.
+          function repoSummary(checkedCount, total) {
+            if (checkedCount === 0) return 'None';
+            if (checkedCount === total) return 'All';
+            if (checkedCount === 1) {
+              const only = document.querySelector('#filter-repo-list input[data-repo-root]:checked');
+              const root = only ? (only.getAttribute('data-repo-root') || '') : '';
+              const parts = root.split('/').filter(Boolean);
+              return parts.length ? parts[parts.length - 1] : 'All';
+            }
+            return checkedCount + ' repositories';
           }
 
+          // Remember which filter popup is open across a full webview re-render.
+          // A multi-select pick (branch / repo checkbox) reloads the graph, which
+          // re-templates the document and would otherwise drop the open popup
+          // mid-selection. We persist the open key and reopen it on init so the
+          // user can keep checking boxes. Cleared whenever popups close.
+          function persistOpenPopup(key) {
+            if (!vscode || typeof vscode.getState !== 'function') return;
+            const prev = vscode.getState() || {};
+            prev.openFilterPopup = key || null;
+            vscode.setState(prev);
+          }
           function closeAllPopups() {
             document.querySelectorAll('.log-filter-popup').forEach(function(p) { p.hidden = true; });
             document.querySelectorAll('.log-filter-pop-btn').forEach(function(b) { b.setAttribute('aria-expanded', 'false'); });
+            persistOpenPopup(null);
           }
           function togglePopup(key) {
             const popup = byId('filter-popup-' + key);
@@ -113,11 +231,28 @@ export function buildInlineScript(): string {
             const btn = wrap ? wrap.querySelector('.log-filter-pop-btn') : null;
             if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
             if (show) {
+              persistOpenPopup(key);
               if (key === 'branch') vscode.postMessage({ type: 'requestLogFilterOptions' });
               if (key === 'user') vscode.postMessage({ type: 'requestAuthorOptions' });
               const input = popup.querySelector('input[type="text"]');
               if (input) { try { input.focus(); } catch (err) {} }
             }
+          }
+          // Reopen the popup that was open before the last re-render (without
+          // stealing focus — a graph reload must not grab the caret). Branch/user
+          // lists repopulate via their option requests.
+          function restoreOpenFilterPopup() {
+            if (!vscode || typeof vscode.getState !== 'function') return;
+            const key = (vscode.getState() || {}).openFilterPopup;
+            if (!key) return;
+            const popup = byId('filter-popup-' + key);
+            if (!popup || !popup.hidden) return;
+            popup.hidden = false;
+            const wrap = popup.closest('.log-filter-pop');
+            const btn = wrap ? wrap.querySelector('.log-filter-pop-btn') : null;
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+            if (key === 'branch') vscode.postMessage({ type: 'requestLogFilterOptions' });
+            if (key === 'user') vscode.postMessage({ type: 'requestAuthorOptions' });
           }
 
           // YYYY-MM-DD for (today - days), used by the Date presets.
@@ -141,12 +276,6 @@ export function buildInlineScript(): string {
             } else if (action === 'toggleSearchRegex' || action === 'toggleSearchCase') {
               actionEl.classList.toggle('active');
               actionEl.setAttribute('aria-pressed', actionEl.classList.contains('active') ? 'true' : 'false');
-              applyFilters();
-            } else if (action === 'pickBranchFilter') {
-              const b = actionEl.getAttribute('data-branch');
-              filterState.branch = (b && b !== '__all__') ? b : '';
-              setPopValue('branch', filterState.branch);
-              closeAllPopups();
               applyFilters();
             } else if (action === 'pickAuthorFilter') {
               const a = actionEl.getAttribute('data-author');
@@ -176,16 +305,6 @@ export function buildInlineScript(): string {
               setPopValue('date', dateLabel());
               closeAllPopups();
               applyFilters();
-            } else if (action === 'applyPathFilter') {
-              const pi = byId('filter-path-input');
-              filterState.path = pi ? pi.value.trim() : '';
-              setPopValue('path', filterState.path ? pathLeaf(filterState.path) : 'All');
-              closeAllPopups();
-              applyFilters();
-            } else if (action === 'pickRepoScope') {
-              const idx = actionEl.getAttribute('data-repo-index');
-              vscode.postMessage({ type: 'selectRepository', repositoryIndex: idx === 'all' ? 'all' : Number(idx) });
-              closeAllPopups(); // host re-renders the row with the new scope
             }
           });
 
@@ -211,34 +330,83 @@ export function buildInlineScript(): string {
               setPopValue('user', filterState.author);
               closeAllPopups();
               applyFilters();
-            } else if (a === 'filterPathKeydown') {
-              e.preventDefault();
-              filterState.path = e.target.value.trim();
-              setPopValue('path', filterState.path ? pathLeaf(filterState.path) : 'All');
-              closeAllPopups();
-              applyFilters();
             }
           });
 
-          // Live-filter the branch list as the user types in the popup search.
+          // Branch checkbox / folder toggles in the nested tree (multi-select).
+          document.addEventListener('change', function(e) {
+            if (!(e.target instanceof Element)) return;
+            const action = e.target.getAttribute('data-action');
+            if (action === 'toggleBranchCheckbox') {
+              recomputeBranchState();
+              applyFilters();
+            } else if (action === 'toggleBranchFolder') {
+              const wrap = e.target.closest('.log-filter-tree-node');
+              const on = e.target.checked;
+              if (wrap) {
+                wrap.querySelectorAll('input[data-branch]').forEach(function(leaf) { leaf.checked = on; });
+              }
+              recomputeBranchState();
+              applyFilters();
+            } else if (action === 'toggleAllBranches') {
+              const on = e.target.checked;
+              const list = byId('filter-branch-list');
+              if (list) list.querySelectorAll('input[data-branch]').forEach(function(leaf) { leaf.checked = on; });
+              recomputeBranchState();
+              applyFilters();
+            } else if (action === 'toggleRepoCheckbox' || action === 'toggleAllRepos') {
+              // Repository subset multi-select. "All repositories" mirrors its
+              // state onto every repo checkbox; any repo toggle re-syncs it. The
+              // checked set is posted to the host, which collapses all/none/one
+              // to the existing scopes and re-renders the row.
+              const list = byId('filter-repo-list');
+              if (!list) return;
+              if (action === 'toggleAllRepos') {
+                const on = e.target.checked;
+                list.querySelectorAll('input[data-repo-root]').forEach(function(cb) { cb.checked = on; });
+              }
+              const checks = list.querySelectorAll('input[data-repo-root]');
+              const roots = [];
+              checks.forEach(function(cb) { if (cb.checked) roots.push(cb.getAttribute('data-repo-root')); });
+              const allBox = list.querySelector('input[data-action="toggleAllRepos"]');
+              if (allBox) allBox.checked = roots.length === checks.length;
+              setPopValue('repo', repoSummary(roots.length, checks.length));
+              vscode.postMessage({ type: 'selectRepositories', roots: roots });
+            }
+          });
+
+          // Live-filter the branch tree as the user types in the popup search.
+          // Hide a leaf row whose branch ref doesn't match; show every folder so
+          // the matched leaves keep their nesting context.
           document.addEventListener('input', function(e) {
             if (!(e.target instanceof Element)) return;
             if (e.target.getAttribute('data-action') !== 'filterPopupSearch') return;
             const q = e.target.value.toLowerCase();
             const list = byId('filter-branch-list');
             if (!list) return;
-            list.querySelectorAll('.log-filter-popup-item').forEach(function(item) {
-              const t = (item.textContent || '').toLowerCase();
-              item.hidden = q.length > 0 && t.indexOf(q) === -1;
+            list.querySelectorAll('.log-filter-tree-row').forEach(function(rowLabel) {
+              const leaf = rowLabel.querySelector('input[data-branch]');
+              const node = rowLabel.closest('.log-filter-tree-node');
+              if (!leaf || !node) return; // folder rows always shown
+              const ref = (leaf.getAttribute('data-branch') || '').toLowerCase();
+              node.hidden = q.length > 0 && ref.indexOf(q) === -1;
             });
           });
 
           // Read accessors for the message handlers that fill the branch /
           // author lists (so they can mark the active item).
           window.__intelligFilter = {
-            getBranch: function() { return filterState.branch; },
+            isBranchChecked: isBranchChecked,
+            anyBranchSelected: function() { return filterState.branchMode !== 'all'; },
+            branchState: function() { return filterState.branchMode; },
+            reconcileBranchSelection: reconcileBranchSelection,
+            syncBranchTree: function() { const l = byId('filter-branch-list'); if (l) syncBranchFolderChecks(l); },
             getAuthor: function() { return filterState.author; },
           };
+
+          // After a graph-reloading pick re-renders the document, bring the open
+          // filter popup back so multi-select stays usable.
+          restoreOpenFilterPopup();
         })();
 
         // Multi-select webview state.
@@ -744,56 +912,105 @@ export function buildInlineScript(): string {
             });
             refreshSelectedCount();
           }
-          // Branch popup options (lazy, on popup open): fill the Branch list
-          // with IntelliJ's grouped layout — "All branches", then a Local
-          // group, then one group per remote. Built via createElement so the
-          // textContent/data-branch cross as data, never markup.
+          // Branch popup options (lazy, on popup open): fill the Branch list as a
+          // NESTED checkbox tree (multi-select). "All branches" clears the
+          // selection; a Local section and one section per remote each hold a
+          // folder tree split on "/" (feature/foo nests under feature/), with a
+          // checkbox per branch leaf and per folder (folder toggles its subtree).
+          // Built via createElement so text/data cross as data, never markup.
           if (message.type === 'logFilterOptionsReady') {
             const list = document.getElementById('filter-branch-list');
             const groups = message.branchGroups;
             if (list && groups) {
-              const current = window.__intelligFilter ? window.__intelligFilter.getBranch() : '';
+              // The branch tree lives in the window-message scope, so it reaches
+              // the filter state only through the __intelligFilter bridge.
+              const intf = window.__intelligFilter || {};
+              const checked = intf.isBranchChecked || function() { return false; };
               list.replaceChildren();
-              function addBranchItem(value, text) {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'log-filter-popup-item' + (value === current ? ' active' : '');
-                btn.setAttribute('data-action', 'pickBranchFilter');
-                btn.setAttribute('data-branch', value);
-                btn.textContent = text;
-                list.appendChild(btn);
-              }
               function addSection(title) {
                 const header = document.createElement('div');
                 header.className = 'log-filter-popup-section';
                 header.textContent = title;
                 list.appendChild(header);
               }
-              // "All branches" maps to the empty (no-scope) branch — active when
-              // no branch is set.
-              const allBtn = document.createElement('button');
-              allBtn.type = 'button';
-              allBtn.className = 'log-filter-popup-item' + (current ? '' : ' active');
-              allBtn.setAttribute('data-action', 'pickBranchFilter');
-              allBtn.setAttribute('data-branch', '__all__');
-              allBtn.textContent = 'All branches';
-              list.appendChild(allBtn);
+              // Build a folder tree from "a/b/c" branch names. Each node: a map of
+              // child segment to node, plus a leaf (the full ref name if a branch
+              // ends here). stripPrefix drops a remote prefix from the DISPLAY
+              // while the leaf keeps the full ref git needs.
+              function buildTree(names, stripPrefix) {
+                const root = { children: {}, order: [], leaf: null };
+                names.forEach(function(full) {
+                  const shown = stripPrefix && full.indexOf(stripPrefix) === 0 ? full.slice(stripPrefix.length) : full;
+                  const parts = shown.split('/').filter(Boolean);
+                  let node = root;
+                  parts.forEach(function(seg, i) {
+                    if (!node.children[seg]) { node.children[seg] = { children: {}, order: [], leaf: null }; node.order.push(seg); }
+                    node = node.children[seg];
+                    if (i === parts.length - 1) node.leaf = full;
+                  });
+                });
+                return root;
+              }
+              function renderTree(container, node, depth) {
+                node.order.sort();
+                node.order.forEach(function(seg) {
+                  const child = node.children[seg];
+                  const hasChildren = child.order.length > 0;
+                  const wrap = document.createElement('div');
+                  wrap.className = 'log-filter-tree-node';
+                  const rowLabel = document.createElement('label');
+                  rowLabel.className = 'log-filter-tree-row';
+                  rowLabel.style.paddingLeft = (depth * 14 + 8) + 'px';
+                  const cb = document.createElement('input');
+                  cb.type = 'checkbox';
+                  if (child.leaf) {
+                    cb.setAttribute('data-action', 'toggleBranchCheckbox');
+                    cb.setAttribute('data-branch', child.leaf);
+                    cb.checked = !!checked(child.leaf);
+                  } else {
+                    cb.setAttribute('data-action', 'toggleBranchFolder');
+                  }
+                  const text = document.createElement('span');
+                  text.className = hasChildren ? 'log-filter-tree-folder' : 'log-filter-tree-leaf';
+                  text.textContent = seg;
+                  rowLabel.appendChild(cb);
+                  rowLabel.appendChild(text);
+                  wrap.appendChild(rowLabel);
+                  container.appendChild(wrap);
+                  if (hasChildren) renderTree(wrap, child, depth + 1);
+                });
+              }
+              // Master "All branches" CHECKBOX (mirrors "All repositories"):
+              // checked = ALL, unchecked = NONE, indeterminate = subset (set by
+              // syncBranchTree below once the leaves exist).
+              const masterRow = document.createElement('label');
+              masterRow.className = 'log-filter-tree-row';
+              const masterCb = document.createElement('input');
+              masterCb.type = 'checkbox';
+              masterCb.className = 'log-filter-tree-check';
+              masterCb.setAttribute('data-action', 'toggleAllBranches');
+              masterCb.checked = (intf.branchState ? intf.branchState() : 'all') === 'all';
+              const masterText = document.createElement('span');
+              masterText.className = 'log-filter-tree-leaf';
+              masterText.textContent = 'All branches';
+              masterRow.appendChild(masterCb);
+              masterRow.appendChild(masterText);
+              list.appendChild(masterRow);
               if (Array.isArray(groups.local) && groups.local.length > 0) {
                 addSection('Local');
-                groups.local.forEach(function(name) { addBranchItem(name, name); });
+                renderTree(list, buildTree(groups.local, ''), 0);
               }
               if (Array.isArray(groups.remotes)) {
                 groups.remotes.forEach(function(g) {
                   if (!g.branches || g.branches.length === 0) return;
                   addSection(g.remote);
-                  g.branches.forEach(function(name) {
-                    // Display the short name (strip "remote/"); the value keeps
-                    // the full ref the host needs for git log.
-                    const display = name.indexOf(g.remote + '/') === 0 ? name.slice(g.remote.length + 1) : name;
-                    addBranchItem(name, display);
-                  });
+                  renderTree(list, buildTree(g.branches, g.remote + '/'), 0);
                 });
               }
+              // Prune a stale subset to the now-visible branches, then reconcile
+              // folder + master checked/indeterminate from the leaves.
+              if (intf.reconcileBranchSelection) intf.reconcileBranchSelection();
+              if (intf.syncBranchTree) intf.syncBranchTree();
             }
           }
           // User popup options (lazy, on popup open): fill the author list.

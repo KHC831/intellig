@@ -7,10 +7,11 @@
  *
  *   - {@link GRAPH_BRANCH_COLORS} — a 6-hue colorblind-safe fixed hex palette
  *     (hex so it works directly in SVG `stroke=`/`fill=` presentation attributes).
- *   - {@link computeBranchColors} — assigns each branch a palette color by
- *     display order (cycling, so adjacent branches differ), then owns each commit
- *     via a first-writer-wins walk down first parents, processing tips in
- *     priority order:
+ *   - {@link computeBranchColors} — assigns each branch a palette color from a
+ *     STABLE hash of its name ({@link branchColorFor}), so a branch keeps its
+ *     colour regardless of its position in the graph (editing a branch/commit
+ *     can't recolor the others). It then owns each commit via a first-writer-wins
+ *     walk down first parents, processing tips in priority order:
  *       • By IntelliJ layout TIER ({@link layoutPriority}, a port of
  *         `GitBranchLayoutComparator`): remote trunk → remote branch → local
  *         trunk → local branch. The more important branch is processed first, so
@@ -37,14 +38,14 @@ import { buildGraphLayout, linearGraphFromDownAdjacency } from './graphLayout';
 
 /**
  * Branch palette (fixed hex — usable directly in SVG `stroke=`/`fill=`
- * presentation attributes, where `var()` does not resolve). A 6-hue
- * colorblind-safe set — Paul Tol's "bright" qualitative scheme, minus its red
- * (the main red-green confusion hue) and grey. Distinguishable under
- * deuteranopia / protanopia / tritanopia, and mid-toned so each reads on both
- * the dark and light default themes. Ordered to ALTERNATE warm/cool so adjacent
- * palette indices (consecutive branches down the view) get maximum contrast;
- * branches reuse colors past 6, which is ample — a graph rarely shows more
- * concurrent lanes, and the rotation keeps neighbors distinct.
+ * presentation attributes, where `var()` does not resolve). A 10-hue set rooted
+ * in Paul Tol's "bright"/"muted" qualitative schemes, minus pure red (the main
+ * red-green confusion hue) and grey. The hues are spread around the wheel and
+ * mid-toned so each is distinguishable from the others — including under
+ * deuteranopia / protanopia / tritanopia — and reads on both the dark and light
+ * default themes. A branch's slot is chosen by a stable hash of its name (see
+ * {@link branchColorFor}), so colours are consistent across edits; with 10 slots
+ * two branches collide far less often, but it's still possible — add more here.
  */
 export const GRAPH_BRANCH_COLORS: readonly string[] = [
   '#3c6699', // blue (darkened from Tol's #4477aa for contrast against the cyan)
@@ -53,7 +54,35 @@ export const GRAPH_BRANCH_COLORS: readonly string[] = [
   '#ccbb44', // yellow
   '#aa3377', // purple
   '#228833', // green
+  '#44aa99', // teal
+  '#6a5acd', // slate violet (indigo)
+  '#dd77bb', // pink
+  '#882255', // wine
 ];
+
+/**
+ * Stable palette index for a branch name: `java.lang.String.hashCode()` reduced
+ * to the palette size (sign-corrected for JS's signed `%`). The same name always
+ * maps to the same index, so a branch keeps its color regardless of where it
+ * sits in the graph. Mirrors IntelliJ's color-by-ref-name-hash.
+ */
+function stableColorIndex(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = (Math.imul(31, h) + name.charCodeAt(i)) | 0;
+  }
+  const n = GRAPH_BRANCH_COLORS.length;
+  return ((h % n) + n) % n;
+}
+
+/**
+ * The fixed palette color a branch name maps to — name-stable and
+ * position-independent (see {@link stableColorIndex}). Exposed so callers and
+ * tests can resolve a branch's colour without re-deriving the hash.
+ */
+export function branchColorFor(name: string): string {
+  return GRAPH_BRANCH_COLORS[stableColorIndex(name)];
+}
 
 /** A branch ref tip (name + kind), as carried on a commit node. */
 export interface IColorRef {
@@ -203,16 +232,17 @@ export function computeBranchColors(
     tips.push({ index: i, refName: ref.name, priority });
   }
 
-  // Assign each tip a palette color by DISPLAY order (newest tip first = smallest
-  // index), cycling the palette so consecutive branches down the view get
-  // distinct, rotating colors — never `color1 → color2 → color1` for three
-  // adjacent branches (which reads as if the 1st and 3rd are related).
+  // Assign each tip a palette color from a STABLE hash of its branch name, so a
+  // branch's color depends only on its name — never on its position in the graph.
+  // Adding or removing a branch/commit (which shifts row positions) therefore
+  // can't recolor an existing branch: the rendering stays stable across edits.
+  // Mirrors IntelliJ GraphColorManagerImpl (color by ref-name hash). Trade-off vs
+  // the old positional rotation: two branches can hash to the same palette slot,
+  // so adjacent branches are no longer guaranteed to differ.
   const tipColor = new Map<number, string>();
-  [...tips]
-    .sort((a, b) => a.index - b.index)
-    .forEach((tip, n) => {
-      tipColor.set(tip.index, GRAPH_BRANCH_COLORS[n % GRAPH_BRANCH_COLORS.length]);
-    });
+  for (const tip of tips) {
+    tipColor.set(tip.index, branchColorFor(tip.refName));
+  }
 
   // Build the FIRST-PARENT-ONLY linear graph: each node's lone down-edge is its
   // first parent, if in-window. Full-DAG edges would let a merged side branch
