@@ -2037,6 +2037,17 @@ export function buildInlineScript(): string {
             dp.replaceChildren(buildDetailsPanelDom(initialModel));
           }
         })();
+
+        // History tab Details Panel — rendered by the SAME buildDetailsPanelDom
+        // as the Log page (single source for the commit-details format), from
+        // the host-provided model.
+        (function() {
+          const hdp = document.getElementById('history-details-panel');
+          const historyModel = window.__intelligHistoryDetails;
+          if (hdp && historyModel) {
+            hdp.replaceChildren(buildDetailsPanelDom(historyModel));
+          }
+        })();
       })();
     `;
 }

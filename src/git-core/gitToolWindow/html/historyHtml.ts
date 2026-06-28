@@ -10,8 +10,8 @@
  * starts feeding real state in.
  */
 
-import type { FileStatus, IBranch, ICommit } from '../../interfaces/IGitService';
-import { buildHistoryDetails, type IHistoryTabState } from '../tabs/HistoryTab';
+import type { IBranch, ICommit } from '../../interfaces/IGitService';
+import type { IHistoryTabState } from '../tabs/HistoryTab';
 import { generateCommitGraph, getColumnColor, type ICommitNode } from '../../commitGraph';
 import { escapeHtml } from '../../../utils/escapeHtml';
 
@@ -50,10 +50,9 @@ function renderLoadedState(state: IHistoryTabState): string {
   // `IHistoryTabState.error` for the full reasoning.
   const error = state.error ? renderError(state.error) : '';
   const list = renderCommitList(state);
-  const details = renderHistoryDetails(state);
-  const affected = renderAffectedPaths(state);
-  // Layout mirrors IntelliJ's file-history panel: the revision list sits on
-  // top, the commit-details pane and the affected-paths pane below it.
+  // The commit-details panel reuses the Log page's renderer: it ships empty and
+  // is filled client-side by buildDetailsPanelDom from window.__intelligHistoryDetails
+  // (single source of truth for the commit-details format + changed-files tree).
   return `
     <div class="history-tab">
       ${header}
@@ -61,8 +60,7 @@ function renderLoadedState(state: IHistoryTabState): string {
       ${error}
       ${list}
       <div class="history-bottom">
-        ${details}
-        ${affected}
+        <div id="history-details-panel" class="details-panel"></div>
       </div>
     </div>
   `;
@@ -226,171 +224,6 @@ function renderGraphCell(node: ICommitNode | undefined): string {
   )}" />`;
 
   return `<span class="history-commit-graph" aria-hidden="true"><svg width="${width}" height="${GRAPH_ROW_HEIGHT}" viewBox="0 0 ${width} ${GRAPH_ROW_HEIGHT}">${segments}${dot}</svg></span>`;
-}
-
-/**
- * Render the commit-details pane for the selected revision: full message,
- * author (name + email), authored/committed dates, full hash with a copy
- * affordance, and parent hashes.
- *
- * Mirrors IntelliJ's file-history details pane
- * (`CommitPresentationUtil.formatCommitHashAndAuthor` /
- * `getAuthorAndCommitterText`): the committer line appears only when the
- * committer is a different person from the author. Read-only and fully
- * HTML-escaped — this renderer is the single escaping boundary over the raw
- * model produced by {@link buildHistoryDetails}.
- */
-export function renderHistoryDetails(state: IHistoryTabState): string {
-  const selected = state.selectedCommit
-    ? state.commits.find((c) => c.hash === state.selectedCommit)
-    : undefined;
-  const details = buildHistoryDetails(selected);
-  const body = details ? renderHistoryDetailsBody(details) : renderHistoryDetailsEmpty();
-  return `
-    <div class="history-details" role="group" aria-label="Commit details">
-      <div class="history-details-header">Commit Details</div>
-      ${body}
-    </div>
-  `;
-}
-
-function renderHistoryDetailsEmpty(): string {
-  return `<div class="history-details-empty" role="status">Select a revision to view its details.</div>`;
-}
-
-function renderHistoryDetailsBody(d: import('../tabs/HistoryTab').IHistoryCommitDetails): string {
-  const message = escapeHtml(d.message).replace(/\n/g, '<br>');
-  const authored = formatHistoryDate(d.authorDate);
-  const committerRow = d.committer
-    ? `<div class="history-details-row"><span class="history-details-label">Committer</span><span class="history-details-value">${escapeHtml(
-        d.committer.name
-      )} &lt;${escapeHtml(d.committer.email)}&gt; on ${escapeHtml(
-        formatHistoryDate(d.commitDate)
-      )}</span></div>`
-    : '';
-  const parentsRow =
-    d.parents.length > 0
-      ? `<div class="history-details-row"><span class="history-details-label">Parent${
-          d.parents.length > 1 ? 's' : ''
-        }</span><span class="history-details-value history-details-hashes">${d.parents
-          .map((p) => `<code>${escapeHtml(p)}</code>`)
-          .join(' ')}</span></div>`
-      : '';
-  return `
-    <div class="history-details-body">
-      <div class="history-details-message">${message}</div>
-      <div class="history-details-row">
-        <span class="history-details-label">Author</span>
-        <span class="history-details-value">${escapeHtml(d.authorName)} &lt;${escapeHtml(
-          d.authorEmail
-        )}&gt; on ${escapeHtml(authored)}</span>
-      </div>
-      ${committerRow}
-      <div class="history-details-row">
-        <span class="history-details-label">Hash</span>
-        <span class="history-details-value history-details-hashes">
-          <code>${escapeHtml(d.fullHash)}</code>
-          <button type="button" class="history-details-copy" data-copy-hash="${escapeHtml(
-            d.fullHash
-          )}" title="Copy commit hash">Copy</button>
-        </span>
-      </div>
-      ${parentsRow}
-    </div>
-  `;
-}
-
-/**
- * Format a commit timestamp for the details pane. Locale string keeps parity
- * with the date column in the revision list; falls back to an empty string for
- * a missing/invalid date rather than rendering `Invalid Date`.
- */
-function formatHistoryDate(date: Date | undefined): string {
-  if (!date) {
-    return '';
-  }
-  const ms = date.getTime();
-  if (Number.isNaN(ms)) {
-    return '';
-  }
-  return date.toLocaleString();
-}
-
-/**
- * Map a {@link FileStatus} to the single-letter git status code shown in the
- * affected-paths badge — the same M/A/D/R/C/U vocabulary IntelliJ renders for a
- * commit's changed files.
- */
-export function affectedPathStatusLabel(status: FileStatus): string {
-  switch (status) {
-    case 'modified':
-      return 'M';
-    case 'added':
-      return 'A';
-    case 'deleted':
-      return 'D';
-    case 'renamed':
-      return 'R';
-    case 'copied':
-      return 'C';
-    case 'untracked':
-      return 'U';
-    case 'ignored':
-      return 'I';
-    case 'conflicted':
-      return 'U';
-    default:
-      return '?';
-  }
-}
-
-/**
- * Render the "affected paths" pane — the list of files changed by the selected
- * revision. Mirrors IntelliJ's commit changed-files view
- * (`VcsLogChangesBrowser` / the file-history details pane). Read-only: scope is
- * to *show* the affected paths, not to diff or open them.
- */
-export function renderAffectedPaths(state: IHistoryTabState): string {
-  const body = renderAffectedPathsBody(state);
-  return `
-    <div class="history-affected" role="group" aria-label="Affected paths">
-      <div class="history-affected-header">Affected Paths</div>
-      ${body}
-    </div>
-  `;
-}
-
-function renderAffectedPathsBody(state: IHistoryTabState): string {
-  if (state.affectedPathsError) {
-    return `<div class="history-affected-error" role="alert">${escapeHtml(
-      state.affectedPathsError
-    )}</div>`;
-  }
-  if (state.affectedPathsLoading) {
-    return `<div class="history-affected-empty">Loading changed files…</div>`;
-  }
-  if (state.affectedPaths.length === 0) {
-    return `<div class="history-affected-empty" role="status">No changed files for this revision.</div>`;
-  }
-  const rows = state.affectedPaths.map(renderAffectedPathRow).join('');
-  return `<div class="history-affected-list" role="list">${rows}</div>`;
-}
-
-function renderAffectedPathRow(file: IHistoryTabState['affectedPaths'][number]): string {
-  const label = affectedPathStatusLabel(file.status);
-  const status = escapeHtml(file.status);
-  const pathHtml =
-    file.oldPath && (file.status === 'renamed' || file.status === 'copied')
-      ? `${escapeHtml(file.oldPath)} → ${escapeHtml(file.path)}`
-      : escapeHtml(file.path);
-  return `
-    <div class="history-affected-row" role="listitem" title="${escapeHtml(file.path)}">
-      <span class="history-affected-status history-affected-status-${status}">${escapeHtml(
-        label
-      )}</span>
-      <span class="history-affected-path">${pathHtml}</span>
-    </div>
-  `;
 }
 
 /**

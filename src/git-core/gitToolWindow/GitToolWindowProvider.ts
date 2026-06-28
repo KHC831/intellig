@@ -49,7 +49,7 @@ import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
 import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
-import { HistoryTab } from './tabs/HistoryTab';
+import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
@@ -3067,6 +3067,9 @@ export class GitToolWindowProvider
     const historyState = this._historyTab?.getState();
     const incomingState = this._incomingTab?.getState();
     const historyActive = flagOn && this._tabRouter.getActiveTab() === 'history';
+    // History tab details reuse the Log page's panel model + client renderer.
+    const historyDetailsModel =
+      historyActive && historyState ? this._getHistoryDetailsPanelModel(historyState) : null;
     const bodyMarkup = flagOn
       ? wrapTabbedBody({
           activeTab: this._tabRouter.getActiveTab(),
@@ -3115,6 +3118,7 @@ ${bodyMarkup}
 
   <script nonce="${nonce}">
     window.__intelligInitialDetails = ${JSON.stringify(detailsPanelModel).replace(/</g, '\\u003c')};
+    window.__intelligHistoryDetails = ${JSON.stringify(historyDetailsModel).replace(/</g, '\\u003c')};
     ${this._getInlineScript()}
     ${this._getDividerDragScript()}
     ${this._getColumnResizeScript()}
@@ -4150,6 +4154,36 @@ ${bodyMarkup}
    */
   public _getDetailsPanelModel(commitDetails: ICommitDetails): DetailsPanelModel {
     return buildDetailsPanelModel(this, commitDetails);
+  }
+
+  /**
+   * Build the Details Panel model for the History tab's selected revision,
+   * reusing the SAME model + renderer as the Log page (single source of truth
+   * for the commit-details format). The affected paths double as the changed
+   * files; the panel shows them in the same tree as the Log.
+   */
+  private _getHistoryDetailsPanelModel(state: IHistoryTabState): DetailsPanelModel {
+    const commit = state.selectedCommit
+      ? state.commits.find((c) => c.hash === state.selectedCommit)
+      : undefined;
+    if (!commit) {
+      return buildDetailsPanelPlaceholderModel();
+    }
+    const commitDetails: ICommitDetails = {
+      hash: commit.hash,
+      message: commit.message,
+      body: commit.body,
+      author: { name: commit.author.name, email: commit.author.email },
+      date: commit.authorDate,
+      parents: commit.parents || [],
+      branches: [],
+      tags: [],
+      changedFiles: state.affectedPathsError
+        ? []
+        : state.affectedPaths.map((p) => ({ path: p.path, status: p.status, oldPath: p.oldPath })),
+      changedFilesError: state.affectedPathsError,
+    };
+    return this._getDetailsPanelModel(commitDetails);
   }
 
   /**
