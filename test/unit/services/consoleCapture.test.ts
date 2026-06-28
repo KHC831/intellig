@@ -122,7 +122,7 @@ describe('Wave I WI-D — back-channel: secondary services route through gitServ
     const consoleService = new ConsoleService();
     consoleService.connectToGitCli(fakeCli);
 
-    const blameService = new BlameService(undefined, gitService);
+    const blameService = new BlameService(gitService);
 
     void fakeCli.exec(['blame', '--porcelain', '--', 'src/file.ts']);
 

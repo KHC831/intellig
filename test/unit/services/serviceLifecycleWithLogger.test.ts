@@ -199,7 +199,7 @@ describe('service lifecycle Logger waypoints', () => {
     it('BlameService emits info on construction and on dispose()', () => {
       const baseline = captureLines().length;
       const gitService = createMockGitService(attachedRepo());
-      const svc = new BlameService(undefined, gitService);
+      const svc = new BlameService(gitService);
 
       const afterCtor = captureLines();
       const ctorIdx = findRecord(afterCtor, 'BlameService', 'BlameService constructed');

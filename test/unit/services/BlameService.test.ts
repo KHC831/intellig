@@ -137,13 +137,19 @@ describe('BlameService', () => {
   let mockGitCli: MockGitCli;
   let mockRepo: IRepository;
 
-  beforeEach(() => {
-    // Create mock GitCli
-    mockGitCli = new MockGitCli();
+  // A minimal gitService double that BlameService borrows its CLI and repo list
+  // from — mirrors how production constructs it (the CLI comes from gitService).
+  function blameGitService(repo: IRepository, cli: MockGitCli): IGitService {
+    return {
+      gitCli: cli,
+      getRepositories: () => [repo],
+      onDidChangeRepository: new EventEmitter<IRepository>().event,
+      onDidRemoveRepository: new EventEmitter<IRepository>().event,
+    } as unknown as IGitService;
+  }
 
-    // Create BlameService with mock GitCli
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-    blameService = new BlameService(mockGitCli as any);
+  beforeEach(() => {
+    mockGitCli = new MockGitCli();
 
     // Create a mock repository
     mockRepo = {
@@ -158,6 +164,9 @@ describe('BlameService', () => {
       remotes: [],
       submodules: [],
     };
+
+    // BlameService borrows its CLI from the gitService (production wiring).
+    blameService = new BlameService(blameGitService(mockRepo, mockGitCli));
   });
 
   afterEach(() => {
@@ -372,7 +381,7 @@ describe('BlameService', () => {
           onDidChangeRepository: repoChange.event,
           onDidRemoveRepository: new EventEmitter<IRepository>().event,
         } as unknown as IGitService;
-        const svc = new BlameService(undefined, gitService);
+        const svc = new BlameService(gitService);
         mockGitCli.setMockResultByPrefix('blame --porcelain', {
           exitCode: 0,
           stdout: sampleBlameOutput,
@@ -591,11 +600,10 @@ describe('BlameService', () => {
       const { getCreatedFileSystemWatchers, RelativePattern } = await import('../../mocks/vscode');
 
       const repo = attachedRepo();
-      const gs = createMockGitService(repo);
+      const gs = createMockGitService(repo, {}, mockGitCli);
       const watcherCountBefore = getCreatedFileSystemWatchers().length;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-      const svc = new BlameService(mockGitCli as any, gs);
+      const svc = new BlameService(gs);
 
       const newWatchers = getCreatedFileSystemWatchers().slice(watcherCountBefore);
       assert.strictEqual(newWatchers.length, 1, 'expected exactly one watcher per repo');
@@ -626,13 +634,16 @@ describe('BlameService', () => {
 
       // gitService initially knows only repoA.
       let repos = [repoA];
-      const gs = createMockGitService(repoA, {
-        getRepositories: () => repos,
-      });
+      const gs = createMockGitService(
+        repoA,
+        {
+          getRepositories: () => repos,
+        },
+        mockGitCli
+      );
 
       const watcherCountBefore = getCreatedFileSystemWatchers().length;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-      const svc = new BlameService(mockGitCli as any, gs);
+      const svc = new BlameService(gs);
 
       // After construction: one watcher (for repoA).
       let newWatchers = getCreatedFileSystemWatchers().slice(watcherCountBefore);
@@ -662,8 +673,7 @@ describe('BlameService', () => {
       blameService.dispose();
 
       // Create new service and verify cache is empty
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-      const newService = new BlameService(mockGitCli as any);
+      const newService = new BlameService(blameGitService(mockRepo, mockGitCli));
       mockGitCli.clearCommands();
 
       await newService.getBlame(mockRepo, 'test.ts');
@@ -893,11 +903,10 @@ filename new/location.ts
         ...attachedRepo(),
         rootUri: { fsPath: repoRoot, scheme: 'file' } as IRepository['rootUri'],
       };
-      const gs = createMockGitService(repo);
+      const gs = createMockGitService(repo, {}, mockGitCli);
       const watchersBefore = getCreatedFileSystemWatchers().length;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-      const svc = new BlameService(mockGitCli as any, gs);
+      const svc = new BlameService(gs);
 
       // Seed the cache using the RELATIVE path — exactly the form providers use.
       const svcPrivate = svc as unknown as {

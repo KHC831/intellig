@@ -44,7 +44,11 @@ export interface IGitServiceMockTestSurface {
 
 export function createMockGitService(
   mockRepo: IRepository,
-  overrides: Partial<IGitService> = {}
+  overrides: Partial<IGitService> = {},
+  // Optional git CLI to expose as the `IGitServiceWithCli` escape hatch that
+  // BlameService (and similar services) borrow from the gitService. Not part of
+  // IGitService; attached as an extra property when provided.
+  gitCli?: unknown
 ): IGitService & IGitServiceMockTestSurface {
   const repoChange = new EventEmitter<IRepository>();
 
@@ -150,7 +154,7 @@ export function createMockGitService(
       (repoChange as unknown as { listeners: unknown[] }).listeners.length,
   };
 
-  return { ...base, ...overrides, ...testSurface };
+  return { ...base, ...overrides, ...testSurface, ...(gitCli ? { gitCli } : {}) };
 }
 
 /**

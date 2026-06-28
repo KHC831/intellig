@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { IBlameService, IBlameInfo, IBlameOptions } from './interfaces/IBlameService';
 import { IBlameLine, IGitService, IRepository } from '../git-core/interfaces/IGitService';
-import { GitCli, buildGitArgs, createGitCli } from '../git-core/gitCli';
+import { GitCli, buildGitArgs } from '../git-core/gitCli';
 import { parseBlame } from '../git-core/gitParser';
 import { getLogger, type Logger } from '../utils/logger';
 import { repoRelativePath } from '../utils/repoRelativePath';
@@ -30,18 +30,15 @@ interface IBlameCacheEntry {
  */
 export class BlameService implements IBlameService {
   private _gitCli: GitCli;
-  /** See {@link RebaseService._ownsGitCli}. */
-  private _ownsGitCli: boolean;
-  private _gitService: IGitService | undefined;
+  private _gitService: IGitService;
   private _onDidChangeBlame: vscode.EventEmitter<{ path: string; blame: IBlameInfo }>;
   private _disposables: vscode.Disposable[] = [];
   private _blameCache: Map<string, IBlameCacheEntry> = new Map();
   /**
-   * Per-repo file watcher map. A single `**\/*` glob across the entire
-   * workspace (a) triggered cache invalidation on every irrelevant
-   * `.vscode/` / `node_modules/` write, and (b) couldn't tell which repo
-   * a path belonged to. We now scope each watcher to a `RelativePattern`
-   * rooted at the repo root and re-create the map on
+   * Per-repo file watcher map. Each watcher is a `RelativePattern` rooted at a
+   * repo root, so cache invalidation fires only for files inside a repo (not
+   * `.vscode/` / `node_modules/` noise) and the watcher key identifies which
+   * repo a changed path belongs to. The map is rebuilt on
    * `gitService.onDidChangeRepository` / `onDidRemoveRepository`.
    */
   private _watchers: Map<string, vscode.FileSystemWatcher> = new Map();
@@ -61,72 +58,51 @@ export class BlameService implements IBlameService {
    */
   readonly onDidChangeBlame: vscode.Event<{ path: string; blame: IBlameInfo }>;
 
-  constructor(gitCli?: GitCli, gitService?: IGitService) {
-    if (gitService) {
-      this._gitCli = (gitService as unknown as IGitServiceWithCli).gitCli;
-      this._ownsGitCli = false;
-    } else {
-      this._gitCli = gitCli || createGitCli();
-      this._ownsGitCli = true;
-    }
+  constructor(gitService: IGitService) {
+    // The git CLI is owned by the gitService; BlameService borrows it so every
+    // blame command runs through the same configured process as the rest of the
+    // extension. A gitService is required — there is no standalone mode.
+    this._gitCli = (gitService as unknown as IGitServiceWithCli).gitCli;
     this._gitService = gitService;
     this._onDidChangeBlame = new vscode.EventEmitter<{ path: string; blame: IBlameInfo }>();
     this.onDidChangeBlame = this._onDidChangeBlame.event;
     this._logger = getLogger().child({ component: 'BlameService' });
-    this._logger.info('BlameService constructed', { ownsGitCli: this._ownsGitCli });
+    this._logger.info('BlameService constructed');
 
-    // Set up file watcher (per-repo when gitService is available, else
-    // legacy `**/*` global glob).
     this.setupFileWatcher();
   }
 
   /**
-   * Set up file watchers to invalidate blame cache when files change.
+   * Set up file watchers to invalidate the blame cache when files change.
    *
-   * When a `gitService` was passed at construction time we
-   * register one watcher per repo using a `RelativePattern` rooted at
-   * the repo's `rootUri.fsPath`. This:
-   *   - skips `.vscode/`, `node_modules/`, and other workspace noise
-   *     that lives outside any repo root,
-   *   - lets us track repo membership cheaply (the watcher key is the
-   *     repo root path), and
-   *   - re-creates the watcher map whenever a repo is added / removed
-   *     so multi-root workspaces work correctly.
-   *
-   * The legacy `**\/*` global glob is kept as a fallback for callers
-   * that still construct `BlameService` standalone (no shared
-   * gitService) — they're test-only paths and the over-broad glob is
-   * acceptable there.
+   * Registers one watcher per repo using a `RelativePattern` rooted at the
+   * repo's `rootUri.fsPath`. This:
+   *   - skips `.vscode/`, `node_modules/`, and other workspace noise that
+   *     lives outside any repo root,
+   *   - lets us track repo membership cheaply (the watcher key is the repo
+   *     root path), and
+   *   - re-creates the watcher map whenever a repo is added / removed so
+   *     multi-root workspaces work correctly.
    */
   private setupFileWatcher(): void {
-    if (this._gitService) {
-      this.refreshRepoWatchers();
-      this._disposables.push(
-        this._gitService.onDidChangeRepository((repo) => {
-          this.refreshRepoWatchers();
-          // A commit / checkout / reset / pull moves HEAD WITHOUT changing the
-          // working-tree file bytes, so the file watcher never fires and the
-          // HEAD-keyed blame entry would stay served (up to the 30s TTL),
-          // partially defeating the inline/gutter providers' own repo-change
-          // refresh. Invalidate this repo's cache on the same signal.
-          this.invalidateRepoCache(repo.rootUri.fsPath);
-        }),
-        this._gitService.onDidRemoveRepository((repo) => {
-          const key = repo.rootUri.fsPath;
-          this._watchers.get(key)?.dispose();
-          this._watchers.delete(key);
-          this.invalidateRepoCache(key);
-        })
-      );
-      return;
-    }
-
-    // Legacy fallback path used by tests that pass only a GitCli (no
-    // gitService). Without a gitService there is no known repoRoot, so
-    // per-repo scoped invalidation is not possible; cache entries expire via
-    // their TTL. In production the gitService path is always taken.
-    const watcher = vscode.workspace.createFileSystemWatcher('**/*');
-    this._disposables.push(watcher);
+    this.refreshRepoWatchers();
+    this._disposables.push(
+      this._gitService.onDidChangeRepository((repo) => {
+        this.refreshRepoWatchers();
+        // A commit / checkout / reset / pull moves HEAD WITHOUT changing the
+        // working-tree file bytes, so the file watcher never fires and the
+        // HEAD-keyed blame entry would stay served (up to the 30s TTL),
+        // partially defeating the inline/gutter providers' own repo-change
+        // refresh. Invalidate this repo's cache on the same signal.
+        this.invalidateRepoCache(repo.rootUri.fsPath);
+      }),
+      this._gitService.onDidRemoveRepository((repo) => {
+        const key = repo.rootUri.fsPath;
+        this._watchers.get(key)?.dispose();
+        this._watchers.delete(key);
+        this.invalidateRepoCache(key);
+      })
+    );
   }
 
   /**
@@ -135,9 +111,6 @@ export class BlameService implements IBlameService {
    * and removes watchers for repos that disappeared.
    */
   private refreshRepoWatchers(): void {
-    if (!this._gitService) {
-      return;
-    }
     const repos = this._gitService.getRepositories();
     const live = new Set(repos.map((r) => r.rootUri.fsPath));
 
@@ -454,11 +427,9 @@ export class BlameService implements IBlameService {
   }
 
   /**
-   * Dispose of resources.
-   *
-   * Only dispose `_gitCli` when WE own it.
-   * Dispose every per-repo watcher in addition to the
-   * legacy `_disposables` array.
+   * Dispose of resources. The git CLI belongs to the gitService and is NOT
+   * disposed here. Disposes the change-event emitter, the subscription
+   * disposables, and every per-repo watcher.
    */
   dispose(): void {
     this._logger.info('BlameService disposing', {
@@ -477,23 +448,16 @@ export class BlameService implements IBlameService {
       watcher.dispose();
     }
     this._watchers.clear();
-
-    if (this._ownsGitCli) {
-      const cli = this._gitCli as unknown as { dispose?: () => void };
-      if (typeof cli.dispose === 'function') {
-        cli.dispose();
-      }
-    }
   }
 }
 
 /**
  * Create a new BlameService instance.
  *
- * @param gitCli - Optional GitCli instance to use
- * @param gitService - Optional GitService whose gitCli we adopt
+ * @param gitService - The GitService whose git CLI and repository events the
+ *   blame service borrows
  * @returns A new BlameService instance
  */
-export function createBlameService(gitCli?: GitCli, gitService?: IGitService): BlameService {
-  return new BlameService(gitCli, gitService);
+export function createBlameService(gitService: IGitService): BlameService {
+  return new BlameService(gitService);
 }

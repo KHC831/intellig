@@ -243,12 +243,10 @@ export class ExtensionServices implements IExtensionServices {
       // lets unshelve route applied files into a target changelist.
       this._shelfService = new ShelfService(undefined, this._gitService, this._changelistService);
 
-      // Initialize BlameService.
-      // Pass gitService for: (a) shared GitCli so
-      // `git blame` calls flow through ConsoleService, and (b) per-repo
-      // file watchers (RelativePattern rooted at repo root) instead of
-      // the workspace-global `**/*` glob.
-      this._blameService = new BlameService(undefined, this._gitService);
+      // Initialize BlameService. It borrows the shared GitCli from gitService
+      // (so `git blame` flows through ConsoleService) and uses gitService's
+      // repository events to keep its per-repo file watchers in sync.
+      this._blameService = new BlameService(this._gitService);
 
       // Initialize ConsoleService
       // Connects to GitService to capture command output
