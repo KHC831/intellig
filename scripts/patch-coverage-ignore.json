@@ -1,0 +1,8 @@
+{
+  "_comment": "Source paths excluded from the patch-coverage gate because they are exercised by the e2e / ext-host lanes (which the unit-lane coverage report does not see), NOT because they are untestable. Keep this list tight — every entry is coverage debt invisible to the unit lane. Supports * and ** globs against repo-relative paths.",
+  "ignore": [
+    "src/extension.ts",
+    "src/registration/registerViews.ts",
+    "src/services/ExtensionServices.ts"
+  ]
+}

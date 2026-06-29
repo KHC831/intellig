@@ -171,3 +171,29 @@ jobs:
       - run: npm ci
       - run: npm run test:ext-host
       - run: npm run test:e2e
+
+  # Patch coverage: new/changed source lines in a PR must be tested. Runs only
+  # on pull_request (it diffs against the PR base), generates unit-lane coverage,
+  # then fails if changed executable lines fall below the threshold. Complements
+  # the global suite — the global % barely moves when a small untested branch
+  # lands, but this gate catches it on the lines that changed. fetch-depth: 0 so
+  # the base ref is present to diff against. e2e/ext-host-only paths are excluded
+  # via scripts/patch-coverage-ignore.json (the unit lane can't see them).
+  patch-coverage:
+    name: Patch coverage (changed lines)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run coverage
+      - name: Enforce patch coverage on changed lines
+        env:
+          PATCH_COVERAGE_BASE: origin/${{ github.event.pull_request.base.ref }}
+        run: npm run check:patch-coverage
