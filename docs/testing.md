@@ -7,8 +7,8 @@ a test without rotting the production API.
 
 ## section 1. Test layers
 
-| Layer    | Path                   | CI lane                                    | VS Code host? | Real git? | Driver     | Approx. count |
-| -------- | ---------------------- | ------------------------------------------ | ------------- | --------- | ---------- | ------------: |
+| Layer    | Path               | CI lane                                    | VS Code host? | Real git? | Driver     | Approx. count |
+| -------- | ------------------ | ------------------------------------------ | ------------- | --------- | ---------- | ------------: |
 | Unit     | `test/unit/**`     | `test:unit`                                | no            | no        | Mocha      |          2542 |
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha      |            22 |
@@ -42,6 +42,10 @@ else:
   out flakey counterexamples.
 - `test:ext-host` — the Ext-host layer (real Extension Host).
 - `test:e2e` — the E2E layer (real Extension Host + real git fixtures).
+
+For test coverage — the `npm run coverage` report, the patch-coverage PR
+gate, and how to make that gate airtight by merging coverage across these
+lanes — see [coverage.md](./coverage.md).
 
 These are exactly the lanes `.github/workflows/ci.yml` runs
 (`test:ext-host` and `test:e2e` under `xvfb-run -a`). Each Electron lane
@@ -260,9 +264,9 @@ Exemplars:
 
 | Scenario                                                    | Put it in                |
 | ----------------------------------------------------------- | ------------------------ |
-| Crosses unit + property (typed accessor into private state) | `test/typed/`        |
-| E2E-only (fixtures, workspace juggling)                     | `test/e2e/support/`  |
-| Replaces a module import at resolution time                 | `test/mocks/`        |
+| Crosses unit + property (typed accessor into private state) | `test/typed/`            |
+| E2E-only (fixtures, workspace juggling)                     | `test/e2e/support/`      |
+| Replaces a module import at resolution time                 | `test/mocks/`            |
 | One-off for a single test file                              | Inline in that test file |
 
 If a helper would be used only once, don't extract it. The overhead of
