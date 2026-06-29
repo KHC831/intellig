@@ -32,6 +32,13 @@ workspace-notes/**
 # @vscode/codicons is a prod dep but is NOT require()'d — the extension ships
 # the font as media/codicon.ttf, so its ~600-file icon set is pure package bloat.
 node_modules/@vscode/codicons/**
+# Icon source assets — only the shipped raster (images/icon.png) belongs in the
+# package; the editable SVG source and the high-res render are repo-only.
+images/*.svg
+images/icon@*.png
+# README screenshots are served from GitHub (absolute raw URLs) on the
+# marketplace, so the local copies are repo-only and don't bloat the package.
+images/screenshots/**
 docs/**
 scripts/**
 .eslintrc.json

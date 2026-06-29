@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2747a6"/>
+      <stop offset="1" stop-color="#16306f"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- git graph: a trunk lane with a branch splitting off and merging back -->
+  <g fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round">
+    <line x1="44" y1="24" x2="44" y2="104"/>
+    <path d="M44 56 C44 40, 84 40, 84 24"/>
+    <path d="M44 72 C44 88, 84 88, 84 104"/>
+  </g>
+  <g fill="#ffffff" stroke="#16306f" stroke-width="4">
+    <circle cx="44" cy="24" r="11"/>
+    <circle cx="44" cy="104" r="11"/>
+    <circle cx="84" cy="24" r="11"/>
+    <circle cx="84" cy="104" r="11"/>
+  </g>
+</svg>
