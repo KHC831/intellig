@@ -10,6 +10,21 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.10] - 2026-06-29
+
+### Added
+
+- Shelve Changes — pick which files to shelve in a dedicated dialog, from a file's right-click or the command palette.
+
+### Changed
+
+- File history now follows renames automatically, so you see a file's whole past even after it was moved or renamed.
+
+### Fixed
+
+- File history now works correctly in multi-root workspaces.
+- The Incoming tab now refreshes when you open it and after a fetch.
+
 ## [0.2.9] - 2026-06-27
 
 ### Added
