@@ -151,6 +151,25 @@ describe('File History — real git (IntelliJ GitFileHistoryTest parity)', funct
 
   // ── merges (IntelliJ: history through trivial / merged-rename merge) ────────
 
+  it('follows a rename across a branch merge — the common workflow (rename on a branch, then merge)', async () => {
+    // Rename a file on a feature branch (its own commit), edit it, then merge
+    // the branch with --no-ff. Viewed from master, the file's full history —
+    // including the pre-rename `add` — must be retained. `git log --follow`
+    // ALONE drops the pre-rename commit here because the path reaches HEAD via
+    // a merge; pairing it with --full-history --simplify-merges recovers it.
+    commitFile('a.txt', 'a\n', 'add a.txt');
+    git('checkout', '-q', '-b', 'feature');
+    git('mv', 'a.txt', 'b.txt');
+    git('commit', '-q', '-m', 'rename a.txt to b.txt');
+    commitFile('b.txt', 'a\nb\n', 'edit b.txt on feature');
+
+    git('checkout', '-q', 'master');
+    git('merge', '--no-ff', '--no-edit', '-q', 'feature');
+
+    const h = messages(await history('b.txt', { follow: true }));
+    assert.deepStrictEqual(h, ['edit b.txt on feature', 'rename a.txt to b.txt', 'add a.txt']);
+  });
+
   it('includes a branch commit pulled in by a --no-ff merge (IntelliJ: trivial merge)', async () => {
     commitFile('a.txt', 'a\n', 'add a.txt');
     commitFile('unrelated.txt', 'u\n', 'add unrelated.txt');

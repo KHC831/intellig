@@ -733,7 +733,15 @@ export class StashTagHistoryOps {
     const flags: string[] = [`--format=${format}`, '-z'];
 
     if (follow) {
-      flags.push('--follow');
+      // `--follow` alone drops a file's pre-rename history when the path reaches
+      // the start ref through a merge (e.g. the rename happened on a branch that
+      // was later merged — a common workflow). Pairing it with
+      // `--full-history --simplify-merges` walks the merged-in side so those
+      // commits are retained, matching IntelliJ's full file-history output.
+      // (A rename performed *inside* a merge commit still defeats `--follow`,
+      // returning nothing; the empty-result fallback in `_getFileHistory`
+      // covers that rarer case.)
+      flags.push('--follow', '--full-history', '--simplify-merges');
     }
     if (options?.maxCount !== undefined && options.maxCount > 0) {
       flags.push('-n', String(options.maxCount));
