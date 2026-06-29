@@ -123,6 +123,10 @@ describe('ConflictResolutionService.acceptNonConflictingChanges() — real git',
 
       const result = await service.acceptNonConflictingChanges(repo, 'feature.txt');
       assert.strictEqual(result.success, true, result.error);
+      // A true conflict remains, so the file is not fully resolved and the
+      // caller is told how many hunks are left (drives the feedback toast).
+      assert.strictEqual(result.fullyResolved, false);
+      assert.strictEqual(result.remainingHunks, 1);
 
       const merged = fs.readFileSync(path.join(root, 'feature.txt'), 'utf8');
       // Non-overlapping changes auto-applied from each side.
@@ -143,6 +147,92 @@ describe('ConflictResolutionService.acceptNonConflictingChanges() — real git',
       service.dispose();
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe('ConflictResolutionService.acceptNonConflictingChanges() — feedback fields', () => {
+  it('reports remainingHunks > 0 for an add/add conflict (the silent no-op case)', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-anc-aa-'));
+    try {
+      git(root, 'init', '-q', '-b', 'mainline');
+      git(root, 'config', 'user.email', 'test@example.com');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+      git(root, 'add', 'seed.txt');
+      git(root, 'commit', '-q', '-m', 'seed');
+      git(root, 'checkout', '-q', '-b', 'theirs');
+      fs.writeFileSync(path.join(root, 'new.txt'), 'a\nTHEIRS\nc\n');
+      git(root, 'add', 'new.txt');
+      git(root, 'commit', '-q', '-m', 't');
+      git(root, 'checkout', '-q', 'mainline');
+      fs.writeFileSync(path.join(root, 'new.txt'), 'a\nOURS\nc\n');
+      git(root, 'add', 'new.txt');
+      git(root, 'commit', '-q', '-m', 'o');
+      try {
+        git(root, 'merge', 'theirs');
+      } catch {
+        /* expected */
+      }
+
+      const { service, staged } = makeService(root);
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file(root),
+        state: 'merging',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      const result = await service.acceptNonConflictingChanges(repo, 'new.txt');
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(result.fullyResolved, false, 'add/add stays conflicted');
+      assert.ok((result.remainingHunks ?? 0) >= 1, 'must report at least one remaining hunk');
+      assert.ok(!staged.includes('new.txt'), 'must not stage while a conflict remains');
+      service.dispose();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports fullyResolved + remainingHunks 0 and stages when only one-sided changes exist', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-anc-clean-'));
+    try {
+      git(root, 'init', '-q', '-b', 'mainline');
+      git(root, 'config', 'user.email', 'test@example.com');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      fs.writeFileSync(path.join(root, 'f.txt'), 'top\nb\nc\nd\nbottom\n');
+      git(root, 'add', 'f.txt');
+      git(root, 'commit', '-q', '-m', 'base');
+      git(root, 'checkout', '-q', '-b', 'theirs');
+      fs.writeFileSync(path.join(root, 'f.txt'), 'top\nb\nc\nd\nbottom-THEIRS\n');
+      git(root, 'commit', '-q', '-am', 't');
+      git(root, 'checkout', '-q', 'mainline');
+      fs.writeFileSync(path.join(root, 'f.txt'), 'top-OURS\nb\nc\nd\nbottom\n');
+      git(root, 'commit', '-q', '-am', 'o');
+      try {
+        git(root, 'merge', 'theirs');
+      } catch {
+        /* expected — but only one-sided hunks, fully auto-mergeable */
+      }
+
+      const { service, staged } = makeService(root);
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file(root),
+        state: 'merging',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      const result = await service.acceptNonConflictingChanges(repo, 'f.txt');
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(result.fullyResolved, true, 'no true conflict → fully resolved');
+      assert.strictEqual(result.remainingHunks, 0);
+      assert.ok(staged.includes('f.txt'), 'fully merged file must be staged');
+      service.dispose();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });
@@ -215,6 +305,7 @@ describe('acceptNonConflictingChanges() — modify/delete routing (mock)', () =>
 
     const result = await service.acceptNonConflictingChanges(repo, 'gone.txt');
     assert.strictEqual(result.success, true);
+    assert.strictEqual(result.fullyResolved, false, 'delete/modify is a whole-file conflict');
     assert.ok(!calls.some((a) => a[0] === 'show' || a[0] === 'merge-file'));
     assert.ok(!staged.includes('gone.txt'));
     service.dispose();

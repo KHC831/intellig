@@ -484,6 +484,67 @@ describe('MergeView', () => {
       }
     });
 
+    it('injects a synthetic merge base for an add/add conflict before opening the native editor', async () => {
+      const { execFileSync } = await import('child_process');
+      const { createGitCli } = await import('../../../src/git-core/gitCli');
+      const g = (cwd: string, ...args: string[]): string =>
+        execFileSync('git', args, { cwd, encoding: 'utf8' });
+
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-mv-aa-'));
+      try {
+        g(root, 'init', '-q', '-b', 'mainline');
+        g(root, 'config', 'user.email', 't@t.t');
+        g(root, 'config', 'user.name', 'T');
+        fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+        g(root, 'add', 'seed.txt');
+        g(root, 'commit', '-q', '-m', 'seed');
+        g(root, 'checkout', '-q', '-b', 'theirs');
+        fs.writeFileSync(path.join(root, 'new.txt'), 'l1\nTHEIRS\nl3\n');
+        g(root, 'add', 'new.txt');
+        g(root, 'commit', '-q', '-m', 't');
+        g(root, 'checkout', '-q', 'mainline');
+        fs.writeFileSync(path.join(root, 'new.txt'), 'l1\nOURS\nl3\n');
+        g(root, 'add', 'new.txt');
+        g(root, 'commit', '-q', '-m', 'o');
+        try {
+          g(root, 'merge', 'theirs');
+        } catch {
+          /* expected add/add conflict */
+        }
+
+        const repo: IRepository = {
+          rootUri: vscode.Uri.file(root),
+          state: 'merging',
+          head: { name: 'refs/heads/mainline', ahead: 0, behind: 0 },
+          remotes: [],
+          submodules: [],
+        };
+        const svc = {
+          getRepository: (): Promise<IRepository> => Promise.resolve(repo),
+          getRepositories: (): IRepository[] => [repo],
+          stage: () => okAsync<void, GitError>(undefined),
+          getStatus: (): Promise<IFileStatus[]> => Promise.resolve([]),
+          gitCli: createGitCli(),
+        } as unknown as IGitService;
+        const mv = new MergeView(mockExtensionUri, svc);
+
+        // Precondition: no stage 1 yet.
+        assert.ok(!/\s1\t/.test(g(root, 'ls-files', '-u', '--', 'new.txt')));
+
+        await mv.show(path.join(root, 'new.txt'));
+
+        // Stage 1 now injected for the native editor.
+        assert.match(
+          g(root, 'ls-files', '-u', '--', 'new.txt'),
+          /\s1\t/,
+          'show() must inject a synthetic stage-1 base for add/add'
+        );
+        mv.dispose();
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
     it('does NOT open a custom webview panel when delegating to the native editor', async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-native-merge-nowv-'));
       try {

@@ -597,8 +597,23 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     }
   }
 
+  /**
+   * Whether ours/theirs are swapped for this operation. A rebase or
+   * unstash/unshelve replays the user's work as "theirs", so "Accept Yours"
+   * must take stage 3 (`--theirs`). Mirrors IntelliJ `GitMergeUtil.isReverseRoot`
+   * plus the reversed providers it constructs for unshelve/unstash.
+   */
+  private _isReversed(): boolean {
+    const op = this._opContext.operation;
+    return op === 'rebase' || op === 'unstash' || op === 'unshelve';
+  }
+
   private async _handleAcceptYours(path: string): Promise<void> {
-    const result = await this._conflictResolutionService.acceptCurrent(this._repo, path);
+    const result = await this._conflictResolutionService.acceptCurrent(
+      this._repo,
+      path,
+      this._isReversed()
+    );
     if (result.success) {
       this.updateFileStatus(path, 'resolved');
     } else {
@@ -611,7 +626,11 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   }
 
   private async _handleAcceptTheirs(path: string): Promise<void> {
-    const result = await this._conflictResolutionService.acceptIncoming(this._repo, path);
+    const result = await this._conflictResolutionService.acceptIncoming(
+      this._repo,
+      path,
+      this._isReversed()
+    );
     if (result.success) {
       this.updateFileStatus(path, 'resolved');
     } else {
@@ -647,14 +666,24 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       );
       return;
     }
+
     // When every region was non-conflicting the file is fully merged and now
-    // staged — reflect that as resolved. Otherwise true conflicts remain and
-    // the row stays unresolved; the watcher-driven reconcile will flip it to
-    // resolved once the user finishes those in the native merge editor.
-    const stillConflicted = await this._conflictResolutionService.getConflictedFiles(this._repo);
-    if (!stillConflicted.some((c) => c.path === path)) {
+    // staged — reflect that as resolved.
+    if (result.fullyResolved) {
       this.updateFileStatus(path, 'resolved');
+      void vscode.window.showInformationMessage(`Resolved ${path}.`);
+      return;
     }
+
+    // True conflicts remain; the row stays unresolved. Always give feedback so
+    // the button never looks dead — a pure conflict (or an add/add with no
+    // common base) has nothing one-sided to apply, which previously did nothing
+    // visible at all.
+    const n = result.remainingHunks ?? 0;
+    const plural = n === 1 ? 'conflict' : 'conflicts';
+    void vscode.window.showInformationMessage(
+      `${path}: ${n} ${plural} still need${n === 1 ? 's' : ''} resolving. Use Merge… to finish.`
+    );
   }
 
   private async _handleAbort(): Promise<void> {

@@ -39,6 +39,19 @@ export interface IConflictResolutionResult {
 }
 
 /**
+ * Result of {@link IConflictResolutionService.acceptNonConflictingChanges}.
+ * Adds enough detail for the caller to give feedback when the operation is a
+ * no-op (a pure conflict with nothing one-sided to apply) instead of silently
+ * doing nothing.
+ */
+export interface INonConflictingResult extends IConflictResolutionResult {
+  /** Whether the file is now fully merged (no conflict hunks remain) and staged. */
+  fullyResolved?: boolean;
+  /** Number of true-conflict hunks still left in the file (0 when fully resolved). */
+  remainingHunks?: number;
+}
+
+/**
  * Merge/Rebase completion result
  */
 export interface IOperationCompletionResult {
@@ -90,22 +103,38 @@ export interface IConflictResolutionService {
   markMultipleResolved(repo: IRepository, filePaths: string[]): Promise<IConflictResolutionResult>;
 
   /**
-   * Accept current (ours) version for a file and mark as resolved
+   * Accept the user's own ("Yours") version for a file and mark as resolved.
+   *
+   * During a rebase or unstash/unshelve git swaps the index sides — stage 2
+   * (`--ours`) is the branch being replayed onto, stage 3 (`--theirs`) is the
+   * user's own commit. Pass `reversed: true` so "Yours" still takes the user's
+   * work. When omitted, reversal is auto-detected from `repo.state === 'rebasing'`.
    *
    * @param repo - The repository
    * @param filePath - The file path
+   * @param reversed - Whether ours/theirs are swapped (rebase/unstash/unshelve)
    * @returns Resolution result
    */
-  acceptCurrent(repo: IRepository, filePath: string): Promise<IConflictResolutionResult>;
+  acceptCurrent(
+    repo: IRepository,
+    filePath: string,
+    reversed?: boolean
+  ): Promise<IConflictResolutionResult>;
 
   /**
-   * Accept incoming (theirs) version for a file and mark as resolved
+   * Accept the incoming ("Theirs") version for a file and mark as resolved.
+   * See {@link acceptCurrent} for the `reversed` semantics.
    *
    * @param repo - The repository
    * @param filePath - The file path
+   * @param reversed - Whether ours/theirs are swapped (rebase/unstash/unshelve)
    * @returns Resolution result
    */
-  acceptIncoming(repo: IRepository, filePath: string): Promise<IConflictResolutionResult>;
+  acceptIncoming(
+    repo: IRepository,
+    filePath: string,
+    reversed?: boolean
+  ): Promise<IConflictResolutionResult>;
 
   /**
    * Accept every change in a conflicted file that does not actually conflict
@@ -117,26 +146,27 @@ export interface IConflictResolutionService {
    * @param filePath - Repo-relative path of the conflicted file
    * @returns Resolution result
    */
-  acceptNonConflictingChanges(
-    repo: IRepository,
-    filePath: string
-  ): Promise<IConflictResolutionResult>;
+  acceptNonConflictingChanges(repo: IRepository, filePath: string): Promise<INonConflictingResult>;
 
   /**
-   * Accept current version for all conflicted files
+   * Accept the user's own ("Yours") version for all conflicted files.
+   * See {@link acceptCurrent} for the `reversed` semantics.
    *
    * @param repo - The repository
+   * @param reversed - Whether ours/theirs are swapped (rebase/unstash/unshelve)
    * @returns Resolution result
    */
-  acceptAllCurrent(repo: IRepository): Promise<IConflictResolutionResult>;
+  acceptAllCurrent(repo: IRepository, reversed?: boolean): Promise<IConflictResolutionResult>;
 
   /**
-   * Accept incoming version for all conflicted files
+   * Accept the incoming ("Theirs") version for all conflicted files.
+   * See {@link acceptCurrent} for the `reversed` semantics.
    *
    * @param repo - The repository
+   * @param reversed - Whether ours/theirs are swapped (rebase/unstash/unshelve)
    * @returns Resolution result
    */
-  acceptAllIncoming(repo: IRepository): Promise<IConflictResolutionResult>;
+  acceptAllIncoming(repo: IRepository, reversed?: boolean): Promise<IConflictResolutionResult>;
 
   /**
    * Check if merge/rebase can be completed (all conflicts resolved)

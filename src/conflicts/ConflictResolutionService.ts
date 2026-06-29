@@ -6,6 +6,7 @@ import {
   IConflictResolutionService,
   IConflictedFile,
   IConflictResolutionResult,
+  INonConflictingResult,
   IOperationCompletionResult,
 } from './interfaces/IConflictResolutionService';
 import { IGitService, IRepository, RepositoryState } from '../git-core/interfaces/IGitService';
@@ -488,36 +489,74 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
-   * Accept current (ours) version for a file and mark as resolved
+   * Whether ours/theirs are swapped for this resolution. Git reverses the index
+   * sides during a rebase (and unstash/unshelve): stage 2 (`--ours`) becomes the
+   * branch being replayed onto and stage 3 (`--theirs`) the user's own commit.
+   * Mirrors IntelliJ `GitMergeUtil.isReverseRoot` (rebase). When the caller does
+   * not pass an explicit flag (e.g. the bulk palette commands), fall back to the
+   * repository state so a paused rebase still swaps correctly.
+   */
+  private _isReversed(repo: IRepository, reversed?: boolean): boolean {
+    return reversed ?? this.getRepositoryState(repo) === 'rebasing';
+  }
+
+  /** Checkout flag that takes the user's own ("Yours") side. */
+  private _yoursFlag(repo: IRepository, reversed?: boolean): '--ours' | '--theirs' {
+    return this._isReversed(repo, reversed) ? '--theirs' : '--ours';
+  }
+
+  /** Checkout flag that takes the incoming ("Theirs") side. */
+  private _theirsFlag(repo: IRepository, reversed?: boolean): '--ours' | '--theirs' {
+    return this._isReversed(repo, reversed) ? '--ours' : '--theirs';
+  }
+
+  /**
+   * Resolve a single conflicted file by taking one index side (`--ours` or
+   * `--theirs`). A delete/modify conflict where the taken side has no blob
+   * (`--ours` + index 'D', or `--theirs` + work-tree 'D') is resolved with
+   * `git rm` instead of `checkout` (IntelliJ's GitMergeProvider routes deletions
+   * to rm); otherwise the side is checked out and staged.
+   */
+  private async _acceptSide(
+    repo: IRepository,
+    filePath: string,
+    flag: '--ours' | '--theirs'
+  ): Promise<void> {
+    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+    const options: IGitCommandOptions = {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    };
+    const status = await this._getUnmergedStatus(repo, filePath);
+    const sideDeleted = flag === '--ours' ? status?.index === 'D' : status?.workTree === 'D';
+    if (sideDeleted) {
+      await gitCli.exec(['rm', '--', filePath], options);
+    } else {
+      await gitCli.exec(['checkout', flag, '--', filePath], options);
+      await this._gitService.stage(repo, [filePath]).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+    }
+  }
+
+  /**
+   * Accept the user's own ("Yours") version for a file and mark as resolved.
    *
    * @param repo - The repository
    * @param filePath - The file path
+   * @param reversed - Whether ours/theirs are swapped (rebase/unstash/unshelve)
    * @returns Resolution result
    */
-  async acceptCurrent(repo: IRepository, filePath: string): Promise<IConflictResolutionResult> {
+  async acceptCurrent(
+    repo: IRepository,
+    filePath: string,
+    reversed?: boolean
+  ): Promise<IConflictResolutionResult> {
     try {
-      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-      const options: IGitCommandOptions = {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      };
-      const status = await this._getUnmergedStatus(repo, filePath);
-      // Delete/modify conflict where OUR side deleted the file (index 'D',
-      // i.e. DU/DD): there is no "ours" blob to check out, so `checkout --ours`
-      // errors. Accepting our side means removing the file — `git rm` resolves
-      // it (IntelliJ's GitMergeProvider routes deletions to rm, not checkout).
-      if (status?.index === 'D') {
-        await gitCli.exec(['rm', '--', filePath], options);
-      } else {
-        await gitCli.exec(['checkout', '--ours', '--', filePath], options);
-        // Stage the file to mark as resolved.
-        await this._gitService.stage(repo, [filePath]).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-      }
+      await this._acceptSide(repo, filePath, this._yoursFlag(repo, reversed));
 
       // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
@@ -561,29 +600,13 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * @param filePath - The file path
    * @returns Resolution result
    */
-  async acceptIncoming(repo: IRepository, filePath: string): Promise<IConflictResolutionResult> {
+  async acceptIncoming(
+    repo: IRepository,
+    filePath: string,
+    reversed?: boolean
+  ): Promise<IConflictResolutionResult> {
     try {
-      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-      const options: IGitCommandOptions = {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      };
-      const status = await this._getUnmergedStatus(repo, filePath);
-      // Delete/modify conflict where THEIR side deleted the file (work-tree 'D',
-      // i.e. UD/DD): no "theirs" blob exists, so `checkout --theirs` errors.
-      // Accepting their side means removing the file — `git rm` resolves it.
-      if (status?.workTree === 'D') {
-        await gitCli.exec(['rm', '--', filePath], options);
-      } else {
-        await gitCli.exec(['checkout', '--theirs', '--', filePath], options);
-        // Stage the file to mark as resolved.
-        await this._gitService.stage(repo, [filePath]).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-      }
+      await this._acceptSide(repo, filePath, this._theirsFlag(repo, reversed));
 
       // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
@@ -619,7 +642,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
   async acceptNonConflictingChanges(
     repo: IRepository,
     filePath: string
-  ): Promise<IConflictResolutionResult> {
+  ): Promise<INonConflictingResult> {
     try {
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
 
@@ -629,7 +652,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       // IntelliJ's filter to `!isConflict()` changes.
       const status = await this._getUnmergedStatus(repo, filePath);
       if (status?.index === 'D' || status?.workTree === 'D') {
-        return { success: true };
+        return { success: true, fullyResolved: false, remainingHunks: 1 };
       }
 
       // Read the three merge stages straight from the index: stage 1 = merge
@@ -659,7 +682,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       const conflicts = await this.getConflictedFiles(repo);
       this._onDidChangeConflicts.fire({ repo, conflicts });
 
-      return { success: true };
+      // Count the `<<<<<<<` hunks left so the caller can report progress instead
+      // of silently doing nothing on a pure conflict.
+      const remainingHunks = merged.hasConflicts
+        ? (merged.content.match(/^<{7}/gm) || []).length
+        : 0;
+      return { success: true, fullyResolved: !merged.hasConflicts, remainingHunks };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
@@ -693,41 +721,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * @param repo - The repository
    * @returns Resolution result
    */
-  async acceptAllCurrent(repo: IRepository): Promise<IConflictResolutionResult> {
+  async acceptAllCurrent(
+    repo: IRepository,
+    reversed?: boolean
+  ): Promise<IConflictResolutionResult> {
     try {
-      const conflicts = await this.getConflictedFiles(repo);
-
-      if (conflicts.length === 0) {
-        return { success: true };
-      }
-
-      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-      const options: IGitCommandOptions = {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      };
-
-      // Accept current version for all conflicted files. Ours-deleted files
-      // (index 'D') have no blob to check out — remove them with `git rm`.
-      const statusByPath = await this._statusByPath(repo);
-      const toStage: string[] = [];
-      for (const conflict of conflicts) {
-        if (statusByPath.get(conflict.path)?.indexStatus === 'D') {
-          await gitCli.exec(['rm', '--', conflict.path], options);
-        } else {
-          await gitCli.exec(['checkout', '--ours', '--', conflict.path], options);
-          toStage.push(conflict.path);
-        }
-      }
-      // Stage the checked-out files to mark as resolved (rm already staged its removals).
-      if (toStage.length > 0) {
-        await this._gitService.stage(repo, toStage).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-      }
+      await this._acceptAllBySide(repo, this._yoursFlag(repo, reversed));
 
       // Fire change event
       const remainingConflicts = await this.getConflictedFiles(repo);
@@ -741,46 +740,58 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
+   * Take one index side (`--ours`/`--theirs`) for every conflicted file.
+   * Files whose taken side was deleted are removed with `git rm`; the rest are
+   * checked out and staged in one batch.
+   */
+  private async _acceptAllBySide(repo: IRepository, flag: '--ours' | '--theirs'): Promise<void> {
+    const conflicts = await this.getConflictedFiles(repo);
+    if (conflicts.length === 0) {
+      return;
+    }
+
+    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+    const options: IGitCommandOptions = {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    };
+
+    const statusByPath = await this._statusByPath(repo);
+    const toStage: string[] = [];
+    for (const conflict of conflicts) {
+      const row = statusByPath.get(conflict.path);
+      const sideDeleted =
+        flag === '--ours' ? row?.indexStatus === 'D' : row?.workTreeStatus === 'D';
+      if (sideDeleted) {
+        await gitCli.exec(['rm', '--', conflict.path], options);
+      } else {
+        await gitCli.exec(['checkout', flag, '--', conflict.path], options);
+        toStage.push(conflict.path);
+      }
+    }
+    // Stage the checked-out files to mark as resolved (rm already staged removals).
+    if (toStage.length > 0) {
+      await this._gitService.stage(repo, toStage).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+    }
+  }
+
+  /**
    * Accept incoming version for all conflicted files
    *
    * @param repo - The repository
    * @returns Resolution result
    */
-  async acceptAllIncoming(repo: IRepository): Promise<IConflictResolutionResult> {
+  async acceptAllIncoming(
+    repo: IRepository,
+    reversed?: boolean
+  ): Promise<IConflictResolutionResult> {
     try {
-      const conflicts = await this.getConflictedFiles(repo);
-
-      if (conflicts.length === 0) {
-        return { success: true };
-      }
-
-      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-      const options: IGitCommandOptions = {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      };
-
-      // Accept incoming version for all conflicted files. Theirs-deleted files
-      // (work-tree 'D') have no blob to check out — remove them with `git rm`.
-      const statusByPath = await this._statusByPath(repo);
-      const toStage: string[] = [];
-      for (const conflict of conflicts) {
-        if (statusByPath.get(conflict.path)?.workTreeStatus === 'D') {
-          await gitCli.exec(['rm', '--', conflict.path], options);
-        } else {
-          await gitCli.exec(['checkout', '--theirs', '--', conflict.path], options);
-          toStage.push(conflict.path);
-        }
-      }
-      // Stage the checked-out files to mark as resolved (rm already staged its removals).
-      if (toStage.length > 0) {
-        await this._gitService.stage(repo, toStage).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-      }
+      await this._acceptAllBySide(repo, this._theirsFlag(repo, reversed));
 
       // Fire change event
       const remainingConflicts = await this.getConflictedFiles(repo);

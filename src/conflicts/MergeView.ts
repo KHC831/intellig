@@ -3,8 +3,11 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { IMergeView, IMergeState } from './interfaces/IMergeView';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import { GitCli } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
 import { repoRelativePath } from '../utils/repoRelativePath';
+import { ensureSyntheticMergeBase } from './syntheticMergeBase';
+import { getLogger } from '../utils/logger';
 
 /**
  * Thin adapter that routes 3-way conflict resolution to VS Code's built-in
@@ -91,6 +94,23 @@ export class MergeView implements IMergeView {
     // does not yield an escaping `../` pathspec that `git add` would silently
     // ignore, leaving the resolved conflict unstaged.
     this._lastFile = repoRelativePath(this._repository.rootUri.fsPath, absolutePath);
+
+    // Add/add conflicts carry no stage-1, so the native editor would show the
+    // whole file on both sides over an empty base. Inject a synthetic base from
+    // the conflict-marked working file (IntelliJ's loadMergeData fallback) so
+    // the editor can collapse the shared lines and show a real diff. Best-effort:
+    // a failure must not block opening the editor.
+    const gitCli = (this._gitService as Partial<{ gitCli: GitCli }>).gitCli;
+    if (gitCli) {
+      try {
+        await ensureSyntheticMergeBase(gitCli, this._repository.rootUri.fsPath, this._lastFile);
+      } catch (err) {
+        getLogger().debug('synthetic merge base injection failed', {
+          file: this._lastFile,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     // Hand off to VS Code's native 3-way merge editor. The command takes the
     // URI of the conflicted working-tree file; it resolves the index versions
