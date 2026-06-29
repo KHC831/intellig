@@ -2,6 +2,8 @@
 
 IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, branch popup, interactive rebase, shelf, blame annotations, merge resolution, and more — right into VS Code.
 
+![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
+
 ## Marketplace
 
 Install IntelliG from either marketplace:
@@ -63,6 +65,32 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 - **External Hosting Links** — open commit / compare / branch pages on GitHub, GitLab, or Bitbucket
 - **Status Bar** — current branch + incoming/outgoing commit badge
 - **IntelliJ Keymap Preset** — optional set of IntelliJ IDEA-style keyboard shortcuts
+
+## Screenshots
+
+**Commit tool window** — Local Changes with staged, unstaged, and untracked files.
+
+![Commit tool window](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/commit.png)
+
+**Branch popup** — local, remote, and tag groups with contextual actions.
+
+![Branch popup](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/branch.png)
+
+**Incoming tab** — commits waiting upstream before you pull.
+
+![Incoming commits tab](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/incoming.png)
+
+**File history** — follows renames across the file's whole history.
+
+![File history following a rename](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/history.png)
+
+**Blame annotations** — per-line author and commit, color-coded by commit.
+
+![Inline blame annotations](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/blame.png)
+
+**Shelve Changes** — pick which files to shelve in a dedicated dialog.
+
+![Shelve Changes dialog](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/shelf.png)
 
 ## Multi-repo support
 
