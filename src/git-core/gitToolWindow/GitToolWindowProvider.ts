@@ -546,6 +546,12 @@ export class GitToolWindowProvider
    */
   private _remoteCacheSubscription: vscode.Disposable | undefined;
 
+  /**
+   * Live `onDidFetch` subscription that re-refreshes the Incoming tab when it
+   * is visible. Re-created per `attachGitService`; disposed in {@link dispose}.
+   */
+  private _incomingFetchSubscription: vscode.Disposable | undefined;
+
   // Event emitters
   private readonly _onDidChangeState = new vscode.EventEmitter<void>();
   private readonly _onDidRequestContextAction = new vscode.EventEmitter<{
@@ -690,7 +696,14 @@ export class GitToolWindowProvider
     // The Log handler is intentionally a no-op; the existing
     // `_handleWebviewMessage` switch continues to own Log dispatch.
     this._tabRouter = new TabRouter({
-      onActiveTabChanged: (_tab: TabId): void => {
+      onActiveTabChanged: (tab: TabId): void => {
+        // The Incoming tab holds no live subscription and computes its data
+        // only in `refresh()`, so opening it must trigger one — otherwise it
+        // shows its empty initial state ("Up to date with upstream…") no matter
+        // the real incoming count.
+        if (tab === 'incoming') {
+          void this._incomingTab?.refresh();
+        }
         // Re-render the webview so the new active panel becomes visible.
         // (Inactive panels use `display: none`; a re-render is the simplest
         // way to update `aria-selected` / `aria-hidden` / `style.display`
@@ -752,6 +765,19 @@ export class GitToolWindowProvider
       }
     );
     this._tabRouter.register('incoming', this._incomingTab.asTabHandler());
+
+    // Keep the Incoming tab live after a fetch/pull: a fetch advances the
+    // remote-tracking ref the incoming set is computed against, so a tab that
+    // is currently visible must recompute. Guarded on the active tab so we
+    // never run the log diff when the user isn't looking at it (activation
+    // refresh covers the switch-to-it case). Re-subscribe on re-attach; the
+    // single live subscription is disposed in {@link dispose}.
+    this._incomingFetchSubscription?.dispose();
+    this._incomingFetchSubscription = gitService.onDidFetch((): void => {
+      if (this._tabRouter.getActiveTab() === 'incoming') {
+        void this._incomingTab?.refresh();
+      }
+    });
 
     // Parsed-remote cache must be invalidated whenever a repository
     // mutates (e.g. the user runs `git remote set-url`), otherwise
@@ -1560,6 +1586,8 @@ export class GitToolWindowProvider
   public override dispose(): void {
     this._remoteCacheSubscription?.dispose();
     this._remoteCacheSubscription = undefined;
+    this._incomingFetchSubscription?.dispose();
+    this._incomingFetchSubscription = undefined;
     super.dispose();
   }
 

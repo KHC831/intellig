@@ -2795,6 +2795,7 @@ describe('_getBranchLabelsHtml', () => {
       const emitter = new EventEmitter<IRepository>();
       const service = {
         onDidChangeRepository: emitter.event,
+        onDidFetch: () => ({ dispose: () => {} }),
         getRepositories: () => repos,
       } as unknown as IGitService;
       return { service, fire: (r: IRepository) => emitter.fire(r) };
