@@ -10,8 +10,8 @@
  * starts feeding real state in.
  */
 
-import type { FileStatus, IBranch, ICommit } from '../../interfaces/IGitService';
-import { buildHistoryDetails, type IHistoryTabState } from '../tabs/HistoryTab';
+import type { IBranch, ICommit } from '../../interfaces/IGitService';
+import type { IHistoryTabState } from '../tabs/HistoryTab';
 import { generateCommitGraph, getColumnColor, type ICommitNode } from '../../commitGraph';
 import { escapeHtml } from '../../../utils/escapeHtml';
 
@@ -50,19 +50,17 @@ function renderLoadedState(state: IHistoryTabState): string {
   // `IHistoryTabState.error` for the full reasoning.
   const error = state.error ? renderError(state.error) : '';
   const list = renderCommitList(state);
-  const details = renderHistoryDetails(state);
-  const affected = renderAffectedPaths(state);
-  // Layout mirrors IntelliJ's file-history panel: the revision list sits on
-  // top, the commit-details pane and the affected-paths pane below it.
+  // The commit-details panel reuses the Log page's renderer: it ships empty and
+  // is filled client-side by buildDetailsPanelDom from window.__intelligHistoryDetails
+  // (single source of truth for the commit-details format + changed-files tree).
   return `
     <div class="history-tab">
       ${header}
       ${toolbar}
       ${error}
-      ${list}
-      <div class="history-bottom">
-        ${details}
-        ${affected}
+      <div class="history-main">
+        <div class="history-list-panel">${list}</div>
+        <div id="history-details-panel" role="region" aria-label="Commit Details"></div>
       </div>
     </div>
   `;
@@ -229,171 +227,6 @@ function renderGraphCell(node: ICommitNode | undefined): string {
 }
 
 /**
- * Render the commit-details pane for the selected revision: full message,
- * author (name + email), authored/committed dates, full hash with a copy
- * affordance, and parent hashes.
- *
- * Mirrors IntelliJ's file-history details pane
- * (`CommitPresentationUtil.formatCommitHashAndAuthor` /
- * `getAuthorAndCommitterText`): the committer line appears only when the
- * committer is a different person from the author. Read-only and fully
- * HTML-escaped — this renderer is the single escaping boundary over the raw
- * model produced by {@link buildHistoryDetails}.
- */
-export function renderHistoryDetails(state: IHistoryTabState): string {
-  const selected = state.selectedCommit
-    ? state.commits.find((c) => c.hash === state.selectedCommit)
-    : undefined;
-  const details = buildHistoryDetails(selected);
-  const body = details ? renderHistoryDetailsBody(details) : renderHistoryDetailsEmpty();
-  return `
-    <div class="history-details" role="group" aria-label="Commit details">
-      <div class="history-details-header">Commit Details</div>
-      ${body}
-    </div>
-  `;
-}
-
-function renderHistoryDetailsEmpty(): string {
-  return `<div class="history-details-empty" role="status">Select a revision to view its details.</div>`;
-}
-
-function renderHistoryDetailsBody(d: import('../tabs/HistoryTab').IHistoryCommitDetails): string {
-  const message = escapeHtml(d.message).replace(/\n/g, '<br>');
-  const authored = formatHistoryDate(d.authorDate);
-  const committerRow = d.committer
-    ? `<div class="history-details-row"><span class="history-details-label">Committer</span><span class="history-details-value">${escapeHtml(
-        d.committer.name
-      )} &lt;${escapeHtml(d.committer.email)}&gt; on ${escapeHtml(
-        formatHistoryDate(d.commitDate)
-      )}</span></div>`
-    : '';
-  const parentsRow =
-    d.parents.length > 0
-      ? `<div class="history-details-row"><span class="history-details-label">Parent${
-          d.parents.length > 1 ? 's' : ''
-        }</span><span class="history-details-value history-details-hashes">${d.parents
-          .map((p) => `<code>${escapeHtml(p)}</code>`)
-          .join(' ')}</span></div>`
-      : '';
-  return `
-    <div class="history-details-body">
-      <div class="history-details-message">${message}</div>
-      <div class="history-details-row">
-        <span class="history-details-label">Author</span>
-        <span class="history-details-value">${escapeHtml(d.authorName)} &lt;${escapeHtml(
-          d.authorEmail
-        )}&gt; on ${escapeHtml(authored)}</span>
-      </div>
-      ${committerRow}
-      <div class="history-details-row">
-        <span class="history-details-label">Hash</span>
-        <span class="history-details-value history-details-hashes">
-          <code>${escapeHtml(d.fullHash)}</code>
-          <button type="button" class="history-details-copy" data-copy-hash="${escapeHtml(
-            d.fullHash
-          )}" title="Copy commit hash">Copy</button>
-        </span>
-      </div>
-      ${parentsRow}
-    </div>
-  `;
-}
-
-/**
- * Format a commit timestamp for the details pane. Locale string keeps parity
- * with the date column in the revision list; falls back to an empty string for
- * a missing/invalid date rather than rendering `Invalid Date`.
- */
-function formatHistoryDate(date: Date | undefined): string {
-  if (!date) {
-    return '';
-  }
-  const ms = date.getTime();
-  if (Number.isNaN(ms)) {
-    return '';
-  }
-  return date.toLocaleString();
-}
-
-/**
- * Map a {@link FileStatus} to the single-letter git status code shown in the
- * affected-paths badge — the same M/A/D/R/C/U vocabulary IntelliJ renders for a
- * commit's changed files.
- */
-export function affectedPathStatusLabel(status: FileStatus): string {
-  switch (status) {
-    case 'modified':
-      return 'M';
-    case 'added':
-      return 'A';
-    case 'deleted':
-      return 'D';
-    case 'renamed':
-      return 'R';
-    case 'copied':
-      return 'C';
-    case 'untracked':
-      return 'U';
-    case 'ignored':
-      return 'I';
-    case 'conflicted':
-      return 'U';
-    default:
-      return '?';
-  }
-}
-
-/**
- * Render the "affected paths" pane — the list of files changed by the selected
- * revision. Mirrors IntelliJ's commit changed-files view
- * (`VcsLogChangesBrowser` / the file-history details pane). Read-only: scope is
- * to *show* the affected paths, not to diff or open them.
- */
-export function renderAffectedPaths(state: IHistoryTabState): string {
-  const body = renderAffectedPathsBody(state);
-  return `
-    <div class="history-affected" role="group" aria-label="Affected paths">
-      <div class="history-affected-header">Affected Paths</div>
-      ${body}
-    </div>
-  `;
-}
-
-function renderAffectedPathsBody(state: IHistoryTabState): string {
-  if (state.affectedPathsError) {
-    return `<div class="history-affected-error" role="alert">${escapeHtml(
-      state.affectedPathsError
-    )}</div>`;
-  }
-  if (state.affectedPathsLoading) {
-    return `<div class="history-affected-empty">Loading changed files…</div>`;
-  }
-  if (state.affectedPaths.length === 0) {
-    return `<div class="history-affected-empty" role="status">No changed files for this revision.</div>`;
-  }
-  const rows = state.affectedPaths.map(renderAffectedPathRow).join('');
-  return `<div class="history-affected-list" role="list">${rows}</div>`;
-}
-
-function renderAffectedPathRow(file: IHistoryTabState['affectedPaths'][number]): string {
-  const label = affectedPathStatusLabel(file.status);
-  const status = escapeHtml(file.status);
-  const pathHtml =
-    file.oldPath && (file.status === 'renamed' || file.status === 'copied')
-      ? `${escapeHtml(file.oldPath)} → ${escapeHtml(file.path)}`
-      : escapeHtml(file.path);
-  return `
-    <div class="history-affected-row" role="listitem" title="${escapeHtml(file.path)}">
-      <span class="history-affected-status history-affected-status-${status}">${escapeHtml(
-        label
-      )}</span>
-      <span class="history-affected-path">${pathHtml}</span>
-    </div>
-  `;
-}
-
-/**
  * CSS for the History tab. Emitted alongside the existing provider styles
  * when the tabbed layout flag is on (see GitToolWindowProvider).
  */
@@ -419,30 +252,11 @@ export function historyTabStyles(): string {
     .history-commit-row.history-compare { outline: 1px dashed var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
     .history-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
     .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .history-bottom { display: flex; flex-direction: column; min-height: 0; max-height: 50%; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); overflow: auto; }
-    .history-details { display: flex; flex-direction: column; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
-    .history-details-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
-    .history-details-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
-    .history-details-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
-    .history-details-message { white-space: pre-wrap; word-break: break-word; }
-    .history-details-row { display: flex; gap: 8px; align-items: baseline; font-size: 0.9em; }
-    .history-details-label { color: var(--vscode-descriptionForeground); min-width: 8ch; flex: 0 0 auto; }
-    .history-details-value { color: var(--vscode-foreground); overflow-wrap: anywhere; }
-    .history-details-hashes code { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
-    .history-details-copy { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 0 6px; margin-left: 6px; cursor: pointer; font-size: 0.85em; }
-    .history-affected { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); }
-    .history-affected-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
-    .history-affected-list { flex: 1 1 auto; overflow: auto; }
-    .history-affected-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
-    .history-affected-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
-    .history-affected-row { display: grid; grid-template-columns: 2ch minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 1px 8px; }
-    .history-affected-status { font-family: var(--vscode-editor-font-family, monospace); font-weight: 600; text-align: center; }
-    .history-affected-status-added { color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b); }
-    .history-affected-status-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d); }
-    .history-affected-status-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
-    .history-affected-status-renamed, .history-affected-status-copied { color: var(--vscode-gitDecoration-renamedResourceForeground, #73c991); }
-    .history-affected-status-conflicted { color: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b); }
-    .history-affected-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Side-by-side layout matching the Log page: commit list on the left, the
+       commit-details panel on the right (not stacked below the list). */
+    .history-main { display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
+    .history-list-panel { display: flex; flex-direction: column; flex: 3 1 0; min-width: 0; overflow: hidden; }
+    .history-main > #history-details-panel { flex: 2 1 0; min-width: 0; overflow: auto; border-left: 1px solid var(--vscode-panel-border, #3c3c3c); }
   `;
 }
 

@@ -49,7 +49,7 @@ import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
 import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
-import { HistoryTab } from './tabs/HistoryTab';
+import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
@@ -499,6 +499,15 @@ export class GitToolWindowProvider
   private _historyTab: HistoryTab | undefined;
 
   /**
+   * Root fsPath of the repository the History tab should query, recorded when
+   * {@link loadFileHistory} is invoked with the file's resolved repo. In a
+   * multi-repo workspace this pins history to the file's OWN repo instead of
+   * defaulting to `getRepositories()[0]`. `undefined` falls back to the
+   * currently selected repository.
+   */
+  private _historyRepoRoot: string | undefined;
+
+  /**
    * Stateful handler for the Incoming tab. Constructed lazily via
    * `attachGitService()` once the data source is available.
    */
@@ -721,6 +730,7 @@ export class GitToolWindowProvider
           this._updateWebview();
         }
       },
+      getRepo: (): IRepository | undefined => this._resolveHistoryRepo(),
     });
     this._tabRouter.register('history', this._historyTab.asTabHandler());
 
@@ -778,12 +788,37 @@ export class GitToolWindowProvider
    * Called by the `intellig.showHistory` command when the tabbed layout flag
    * is on. Falls back silently when no GitService has been attached yet.
    */
-  public async loadFileHistory(filePath: string, branch?: string): Promise<void> {
+  public async loadFileHistory(
+    filePath: string,
+    repoRoot?: string,
+    branch?: string
+  ): Promise<void> {
     if (!this._historyTab) {
       return;
     }
+    // Pin history to the file's own repo (the command resolved it). Without
+    // this, the History tab defaults to `getRepositories()[0]` and a file in a
+    // non-first repo of a multi-repo workspace shows the wrong repo's history.
+    this._historyRepoRoot = repoRoot;
     await this._tabRouter.setActiveTab('history');
     await this._historyTab.loadFile(filePath, branch);
+  }
+
+  /**
+   * Resolve the repository the History tab should query: the file's own repo
+   * (recorded by {@link loadFileHistory}) when it still maps to an open repo,
+   * otherwise the currently selected repository.
+   */
+  private _resolveHistoryRepo(): IRepository | undefined {
+    if (this._historyRepoRoot) {
+      const match = this._availableRepositories.find(
+        (r) => r.rootUri.fsPath === this._historyRepoRoot
+      );
+      if (match) {
+        return match;
+      }
+    }
+    return this.getSelectedRepository();
   }
 
   /**
@@ -1999,7 +2034,7 @@ export class GitToolWindowProvider
     // EVERY webview render (the dropdown is re-rendered empty each time), so
     // without a short cache a render/refresh burst spams `git branch -a`. Serve
     // a recent result for the same repo scope instead of re-running git.
-    const cacheKey = branchSources.map((r) => r.rootUri.fsPath).join(' ');
+    const cacheKey = branchSources.map((r) => r.rootUri.fsPath).join('\0');
     const now = Date.now();
     const cached = this._logFilterOptionsCache;
     if (cached && cached.key === cacheKey && now - cached.at < LOG_FILTER_OPTIONS_TTL_MS) {
@@ -2883,11 +2918,17 @@ export class GitToolWindowProvider
    */
   private _handleCommitFileDoubleClick(commitHash: string, filePath: string): void {
     // Posture parity with `_handleCommitContextMenu`: only fire for a commit
-    // still in the rendered list, so a hash that drifted (refresh / force-push /
+    // still in a rendered list, so a hash that drifted (refresh / force-push /
     // filter change since the row was shown) can't reach `getCommit`. The diff
     // path is read-only and already contained downstream, so a stale hash is
     // dropped silently (no toast) rather than nagging on a read-only action.
     const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
+    // Include the History tab's commits — they sit outside the loaded Log graph
+    // window, so a changed-file double-click in the History details panel would
+    // otherwise be silently dropped.
+    for (const c of this._historyTab?.getState().commits ?? []) {
+      known.add(c.hash);
+    }
     if (!known.has(commitHash)) {
       return;
     }
@@ -3067,6 +3108,9 @@ export class GitToolWindowProvider
     const historyState = this._historyTab?.getState();
     const incomingState = this._incomingTab?.getState();
     const historyActive = flagOn && this._tabRouter.getActiveTab() === 'history';
+    // History tab details reuse the Log page's panel model + client renderer.
+    const historyDetailsModel =
+      historyActive && historyState ? this._getHistoryDetailsPanelModel(historyState) : null;
     const bodyMarkup = flagOn
       ? wrapTabbedBody({
           activeTab: this._tabRouter.getActiveTab(),
@@ -3115,6 +3159,7 @@ ${bodyMarkup}
 
   <script nonce="${nonce}">
     window.__intelligInitialDetails = ${JSON.stringify(detailsPanelModel).replace(/</g, '\\u003c')};
+    window.__intelligHistoryDetails = ${JSON.stringify(historyDetailsModel).replace(/</g, '\\u003c')};
     ${this._getInlineScript()}
     ${this._getDividerDragScript()}
     ${this._getColumnResizeScript()}
@@ -4150,6 +4195,37 @@ ${bodyMarkup}
    */
   public _getDetailsPanelModel(commitDetails: ICommitDetails): DetailsPanelModel {
     return buildDetailsPanelModel(this, commitDetails);
+  }
+
+  /**
+   * Build the Details Panel model for the History tab's selected revision,
+   * reusing the SAME model + renderer as the Log page (single source of truth
+   * for the commit-details format). The affected paths double as the changed
+   * files; the panel shows them in the same tree as the Log.
+   */
+  private _getHistoryDetailsPanelModel(state: IHistoryTabState): DetailsPanelModel {
+    const commit = state.selectedCommit
+      ? state.commits.find((c) => c.hash === state.selectedCommit)
+      : undefined;
+    if (!commit) {
+      return buildDetailsPanelPlaceholderModel();
+    }
+    const commitDetails: ICommitDetails = {
+      hash: commit.hash,
+      message: commit.message,
+      body: commit.body,
+      author: { name: commit.author.name, email: commit.author.email },
+      date: commit.authorDate,
+      parents: commit.parents || [],
+      branches: [],
+      tags: [],
+      changedFiles: state.affectedPathsError
+        ? []
+        : state.affectedPaths.map((p) => ({ path: p.path, status: p.status, oldPath: p.oldPath })),
+      changedFilesError: state.affectedPathsError,
+      containingBranches: state.containingBranches,
+    };
+    return this._getDetailsPanelModel(commitDetails);
   }
 
   /**

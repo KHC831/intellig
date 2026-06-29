@@ -7,6 +7,7 @@ import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitEr
 import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { PatchWriteFailed } from '../../services';
 import { canonicalizeFsPath, repoRelativePath } from '../../utils/repoRelativePath';
+import { presentFileHistory } from './commitHelpers';
 import type { ICommandContext } from './CommandContext';
 
 // Re-exported so the established `from '.../explorerCommands'` import path used
@@ -172,37 +173,9 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       try {
-        const history = await gitService.getFileHistory(repo, filePath);
-        if (history.length === 0) {
-          void vscode.window.showInformationMessage(`No history found for ${filePath}`);
-          return;
-        }
-
-        // Show history in a quick pick
-        const items = history.map((commit) => ({
-          label: commit.shortHash,
-          description: commit.message.substring(0, 60),
-          detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
-          commit,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          placeHolder: `History for ${filePath}`,
-          title: 'File History',
-        });
-
-        if (selected) {
-          // Show the diff for the selected commit
-          const diff = await gitService.getCommitDiff(repo, selected.commit.hash);
-          const fileDiff = diff.find((d) => d.path === filePath || d.oldPath === filePath);
-          if (fileDiff) {
-            // Open diff view
-            // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr
-            void vscode.window.showInformationMessage(
-              `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
-            );
-          }
-        }
+        // Identical behavior to the command-palette "Show History": open the
+        // file in the History tab (tabbed mode), else fall back to a QuickPick.
+        await presentFileHistory(ctx, repo, filePath);
       } catch (error) {
         void vscode.window.showErrorMessage(
           formatActionFailureToast('Failed to get file history', error)

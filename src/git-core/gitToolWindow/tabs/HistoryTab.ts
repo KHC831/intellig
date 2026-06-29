@@ -42,7 +42,6 @@ import * as vscode from 'vscode';
 import type { IWebviewTabMessage, TabMessageHandler } from '../tabRouter';
 import type {
   FileStatus,
-  IAuthor,
   IBranch,
   ICommit,
   IDiff,
@@ -83,95 +82,6 @@ export function mapDiffsToAffectedPaths(diffs: readonly IDiff[]): IAffectedPath[
 }
 
 /**
- * Person (name + email) shown in the commit-details pane. A lightweight copy of
- * {@link IAuthor} so the details model is self-contained and the renderer never
- * reaches back into the raw commit.
- */
-export interface IHistoryPerson {
-  name: string;
-  email: string;
-}
-
-/**
- * The selected revision projected into the fields the details pane renders.
- *
- * Mirrors IntelliJ's file-history details pane, built by
- * `CommitPresentationUtil.formatCommitHashAndAuthor` /
- * `getAuthorAndCommitterText`
- * (`platform/vcs-log/impl/.../ui/frame/CommitPresentationUtil.java`): full
- * message, short + full hash, author name/email, authored/committed dates, and
- * a separate committer line shown ONLY when the committer is a different person
- * from the author. Strings are carried RAW here — the renderer is the single
- * escaping boundary, matching the existing affected-paths / commit-row pattern.
- */
-export interface IHistoryCommitDetails {
-  /** Full 40-char commit hash. */
-  fullHash: string;
-  /** Abbreviated hash for compact display. */
-  shortHash: string;
-  /** Full commit message (subject + body), newlines preserved. */
-  message: string;
-  /** Author display name. */
-  authorName: string;
-  /** Author email. */
-  authorEmail: string;
-  /** Authoring timestamp. */
-  authorDate: Date;
-  /** Commit timestamp. */
-  commitDate: Date;
-  /**
-   * Committer, present ONLY when the committer is a different person from the
-   * author (matches IntelliJ, which suppresses the committer line for the
-   * common author == committer case).
-   */
-  committer?: IHistoryPerson;
-  /** Parent commit hashes (full). */
-  parents: string[];
-}
-
-/**
- * Two {@link IAuthor}s are the "same person" when their emails match
- * case-insensitively (the identity key git itself uses), falling back to a
- * name match when an email is absent. Mirrors IntelliJ's
- * `VcsUserUtil.isSamePerson`, which keys on email.
- */
-function isSamePerson(a: IAuthor, b: IAuthor): boolean {
-  const ea = a.email.trim().toLowerCase();
-  const eb = b.email.trim().toLowerCase();
-  if (ea.length > 0 || eb.length > 0) {
-    return ea === eb;
-  }
-  return a.name === b.name;
-}
-
-/**
- * Project a commit into the details-pane model. Returns `undefined` when there
- * is no commit to describe (no revision selected), so callers can render an
- * empty hint without a null-guard dance. Pure — no escaping, no side effects.
- */
-export function buildHistoryDetails(
-  commit: ICommit | undefined
-): IHistoryCommitDetails | undefined {
-  if (!commit) {
-    return undefined;
-  }
-  const committer = isSamePerson(commit.author, commit.committer)
-    ? undefined
-    : { name: commit.committer.name, email: commit.committer.email };
-  return {
-    fullHash: commit.hash,
-    shortHash: commit.shortHash || commit.hash.substring(0, 7),
-    message: commit.message ?? '',
-    authorName: commit.author.name,
-    authorEmail: commit.author.email,
-    authorDate: commit.authorDate,
-    commitDate: commit.commitDate,
-    committer,
-    parents: [...commit.parents],
-  };
-}
-
-/**
  * Shape of the state the tab owns, exposed so the provider / render layer
  * can serialise it back into the webview.
  */
@@ -191,7 +101,11 @@ export interface IHistoryTabState {
    * for Selection" path, `git log -L`). `undefined` = whole-file history.
    */
   lineRange: { start: number; end: number } | undefined;
-  /** Whether `--follow` is enabled. */
+  /**
+   * Whether `--follow` (rename tracking) is enabled. Defaults to `true` to
+   * match IntelliJ's file history, whose {@link GitFileHistory} always follows
+   * renames so a file's pre-rename commits are not silently dropped.
+   */
   followRenames: boolean;
   /** List of branches to render in the branch-filter dropdown. */
   availableBranches: IBranch[];
@@ -223,6 +137,8 @@ export interface IHistoryTabState {
   affectedPathsLoading: boolean;
   /** Error string for a failed affected-paths fetch, surfaced in the pane. */
   affectedPathsError: string | undefined;
+  /** Branches that contain {@link selectedCommit}; `undefined` while loading. */
+  containingBranches: string[] | undefined;
 }
 
 export function createInitialHistoryTabState(): IHistoryTabState {
@@ -233,13 +149,16 @@ export function createInitialHistoryTabState(): IHistoryTabState {
     compareCommit: undefined,
     branchFilter: undefined,
     lineRange: undefined,
-    followRenames: false,
+    // Follow renames by default — IntelliJ's file history always does, so a
+    // renamed file keeps its full pre-rename history.
+    followRenames: true,
     availableBranches: [],
     error: undefined,
     loading: false,
     affectedPaths: [],
     affectedPathsLoading: false,
     affectedPathsError: undefined,
+    containingBranches: undefined,
   };
 }
 
@@ -449,8 +368,10 @@ export class HistoryTab {
             this._state.selectedCommit &&
             this._state.selectedCommit !== before.selectedCommit
           ) {
-            // A new revision is selected — refresh its affected paths.
+            // A new revision is selected — refresh its affected paths and the
+            // containing-branches list.
             await this._loadAffectedPaths(this._state.selectedCommit);
+            await this._loadContainingBranches(this._state.selectedCommit);
           }
         }
         return;
@@ -551,10 +472,12 @@ export class HistoryTab {
         affectedPaths: [],
         affectedPathsLoading: false,
         affectedPathsError: undefined,
+        containingBranches: undefined,
       };
       this._emit();
       if (selectedCommit) {
         await this._loadAffectedPaths(selectedCommit);
+        await this._loadContainingBranches(selectedCommit);
       }
     } catch (err) {
       this._state = {
@@ -639,6 +562,39 @@ export class HistoryTab {
         affectedPathsLoading: false,
         affectedPathsError: err instanceof Error ? err.message : 'Unknown error',
       };
+      this._emit();
+    }
+  }
+
+  /**
+   * Fetch the branches that contain `rev` for the details panel's "In branches"
+   * line, mirroring {@link _loadAffectedPaths}. `containingBranches` stays
+   * `undefined` (rendered as "loading…") until this resolves; an error or a
+   * missing service falls back to `[]` ("not in any branch") rather than a
+   * stuck spinner. The stale-guard drops a result superseded by a newer select.
+   */
+  private async _loadContainingBranches(rev: string): Promise<void> {
+    const repo = this._getRepo();
+    const getContainingBranches = this._gitService.getContainingBranches?.bind(this._gitService);
+    if (!repo || !getContainingBranches) {
+      this._state = { ...this._state, containingBranches: [] };
+      this._emit();
+      return;
+    }
+    this._state = { ...this._state, containingBranches: undefined };
+    this._emit();
+    try {
+      const branches = await getContainingBranches(repo, rev);
+      if (this._state.selectedCommit !== rev) {
+        return;
+      }
+      this._state = { ...this._state, containingBranches: branches };
+      this._emit();
+    } catch {
+      if (this._state.selectedCommit !== rev) {
+        return;
+      }
+      this._state = { ...this._state, containingBranches: [] };
       this._emit();
     }
   }

@@ -707,13 +707,41 @@ export class StashTagHistoryOps {
   ): Promise<ICommit[]> {
     // Standalone implementation so we can pass `--follow` and a
     // branch ref that the generic `getLog()` doesn't understand.
+    const commits = await this._runFileLog(repo, path, options, options?.follow === true);
+
+    // `git log --follow` has a long-standing bug: when a rename happens inside a
+    // MERGE commit it can return nothing at all (IntelliJ's GitFileHistory walks
+    // renames manually to avoid this). So if `--follow` came back empty, retry
+    // once without it — we then show at least git's default history for the path
+    // rather than an empty list. The non-merge rename case is unaffected because
+    // `--follow` returns results there and this fallback never runs.
+    if (commits.length === 0 && options?.follow === true) {
+      return this._runFileLog(repo, path, options, false);
+    }
+    return commits;
+  }
+
+  private async _runFileLog(
+    repo: IRepository,
+    path: string,
+    options: IFileHistoryOptions | undefined,
+    follow: boolean
+  ): Promise<ICommit[]> {
     // `branch` is user-controlled; splice via buildGitArgs so
     // `--end-of-options` separates flag args from the ref.
     const format = getLogFormat();
     const flags: string[] = [`--format=${format}`, '-z'];
 
-    if (options?.follow) {
-      flags.push('--follow');
+    if (follow) {
+      // `--follow` alone drops a file's pre-rename history when the path reaches
+      // the start ref through a merge (e.g. the rename happened on a branch that
+      // was later merged — a common workflow). Pairing it with
+      // `--full-history --simplify-merges` walks the merged-in side so those
+      // commits are retained, matching IntelliJ's full file-history output.
+      // (A rename performed *inside* a merge commit still defeats `--follow`,
+      // returning nothing; the empty-result fallback in `_getFileHistory`
+      // covers that rarer case.)
+      flags.push('--follow', '--full-history', '--simplify-merges');
     }
     if (options?.maxCount !== undefined && options.maxCount > 0) {
       flags.push('-n', String(options.maxCount));

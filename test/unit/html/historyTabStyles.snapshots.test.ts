@@ -41,6 +41,7 @@ const DEFAULT_STATE: IHistoryTabState = {
   affectedPaths: [],
   affectedPathsLoading: false,
   affectedPathsError: undefined,
+  containingBranches: undefined,
 };
 
 describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Snapshot', () => {

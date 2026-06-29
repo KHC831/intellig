@@ -221,7 +221,7 @@ describe('HistoryTab — class behaviour', () => {
 
   // ── loadFile ───────────────────────────────────────────────────────────
 
-  it('loadFile calls getFileHistory with the path and no extras by default', async () => {
+  it('loadFile follows renames by default (IntelliJ GitFileHistory parity)', async () => {
     const repo = mkRepo();
     const { service, calls } = mkGitService({ repo, commits: [mkCommit('abc')] });
     const tab = new HistoryTab(service);
@@ -229,19 +229,21 @@ describe('HistoryTab — class behaviour', () => {
     assert.strictEqual(calls.getFileHistory.length, 1);
     const first = calls.getFileHistory[0];
     assert.strictEqual(first.path, 'src/a.ts');
-    assert.strictEqual(first.options?.follow, false);
+    // IntelliJ's file history always follows renames, so pre-rename history is
+    // not silently dropped. Default-on matches that.
+    assert.strictEqual(first.options?.follow, true);
     assert.strictEqual(first.options?.branch, undefined);
     assert.strictEqual(tab.getState().commits.length, 1);
     assert.strictEqual(tab.getState().selectedCommit, 'abc');
   });
 
-  it('loadFile with follow-renames toggled passes follow:true', async () => {
+  it('loadFile with follow-renames toggled off passes follow:false', async () => {
     const repo = mkRepo();
     const { service, calls } = mkGitService({ repo, commits: [] });
     const tab = new HistoryTab(service);
-    await tab.handleMessage({ type: 'history.toggleFollowRenames', value: true });
+    await tab.handleMessage({ type: 'history.toggleFollowRenames', value: false });
     await tab.loadFile('src/a.ts');
-    assert.strictEqual(calls.getFileHistory[0].options?.follow, true);
+    assert.strictEqual(calls.getFileHistory[0].options?.follow, false);
   });
 
   it('loadFile passes the branch filter through', async () => {
