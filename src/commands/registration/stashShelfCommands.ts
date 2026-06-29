@@ -2,8 +2,66 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError } from '../../git-core/gitError';
+import { repoRelativePath } from '../../utils/repoRelativePath';
 import { createStashView, createShelfView, type IRepository, type ShelfView } from '../../services';
+import { ShelveDialog } from '../../shelf/ShelveDialog';
 import type { ICommandContext } from './CommandContext';
+
+/**
+ * Normalize the `intellig.shelve` command argument into the set of
+ * repo-relative paths to pre-check in the Shelve dialog.
+ *
+ * Entry points pass different shapes:
+ *  - command palette → no argument → `undefined` (the dialog checks ALL files).
+ *  - Commit tool window file row → a repo-relative path string (single file).
+ *  - Explorer / editor context → a `vscode.Uri` (and a `Uri[]` of the current
+ *    selection as the second arg), absolute → made repo-relative here.
+ *
+ * Returns `undefined` (select-all) when nothing resolvable was passed, so the
+ * palette / "shelve everything" path falls through to checking every file.
+ */
+/**
+ * Extract the first `vscode.Uri` from a command argument (a Uri, or the
+ * explorer's `Uri[]` multi-select). Returns `undefined` for a path string or
+ * the no-arg palette case — used to resolve the owning repo of a right-clicked
+ * file in a multi-root workspace.
+ */
+export function firstUriArg(arg: unknown): vscode.Uri | undefined {
+  if (Array.isArray(arg)) {
+    for (const x of arg) {
+      const u = firstUriArg(x);
+      if (u) {
+        return u;
+      }
+    }
+    return undefined;
+  }
+  if (arg && typeof arg === 'object' && typeof (arg as { fsPath?: unknown }).fsPath === 'string') {
+    return arg as vscode.Uri;
+  }
+  return undefined;
+}
+
+export function normalizeShelvePreselect(arg: unknown, repoRoot: string): string[] | undefined {
+  const toRel = (uri: vscode.Uri): string => repoRelativePath(repoRoot, uri.fsPath);
+  const collect = (x: unknown): string[] => {
+    if (!x) {
+      return [];
+    }
+    if (Array.isArray(x)) {
+      return x.flatMap(collect);
+    }
+    if (typeof x === 'string') {
+      return x.trim().length > 0 ? [x] : [];
+    }
+    if (typeof x === 'object' && typeof (x as { fsPath?: unknown }).fsPath === 'string') {
+      return [toRel(x as vscode.Uri)];
+    }
+    return [];
+  };
+  const paths = collect(arg);
+  return paths.length > 0 ? paths : undefined;
+}
 
 /**
  * Stash + shelf command handlers extracted verbatim from extension.ts's
@@ -106,46 +164,73 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
     await picked.view.renameStash(picked.stash.index);
   });
 
-  // Shelve changes command
-  const shelveCommand = registerLoggedCommand('intellig.shelve', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    let repo = await resolveRepo(gitService, {
-      preferActive: true,
-      silent: true,
-    });
-
-    if (!repo) {
-      // Fallback: discover the first workspace folder's repo (cold start).
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        repo = await gitService.getRepository(workspaceFolders[0].uri);
-        if (!repo) {
-          void vscode.window.showErrorMessage('No Git repository found in workspace');
-          return;
-        }
-      } else {
-        void vscode.window.showErrorMessage('No workspace folder open');
+  // Shelve changes command — the single source of truth behind both shelve
+  // entry points (a single-file right-click and the `Shelve Changes…` palette
+  // command). Opens the IntelliJ-style {@link ShelveDialog} (checkbox file list
+  // + name field + Shelve button). `arg`/`selected` carry the optional
+  // pre-check target: the palette passes nothing (check all), a file row passes
+  // its path, and the explorer/editor context passes a Uri (+ selection array).
+  const shelveCommand = registerLoggedCommand(
+    'intellig.shelve',
+    async (arg?: unknown, selected?: unknown) => {
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
-    }
 
-    // Create shelf view if not exists and show shelve dialog
-    if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(
-        ctx.services.shelfService,
-        (r) => gitService.getStatus(r),
-        undefined,
-        ctx.services.changelistService
-      );
+      const gitService = ctx.services.gitService;
+      // When invoked from an explorer/editor right-click the first arg is the
+      // clicked file's Uri — resolve the repo that OWNS that file so a
+      // multi-root workspace shelves in the right repo (not the active
+      // editor's). Falls through to the active-editor repo for the palette.
+      const clickedUri = firstUriArg(selected) ?? firstUriArg(arg);
+      let repo = clickedUri ? await gitService.getRepository(clickedUri) : undefined;
+      if (!repo) {
+        // prefer the active-editor's repo in multi-root workspaces.
+        repo = await resolveRepo(gitService, {
+          preferActive: true,
+          silent: true,
+        });
+      }
+
+      if (!repo) {
+        // Fallback: discover the first workspace folder's repo (cold start).
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          repo = await gitService.getRepository(workspaceFolders[0].uri);
+          if (!repo) {
+            void vscode.window.showErrorMessage('No Git repository found in workspace');
+            return;
+          }
+        } else {
+          void vscode.window.showErrorMessage('No workspace folder open');
+          return;
+        }
+      }
+
+      const changedFiles = await gitService.getStatus(repo);
+      if (changedFiles.length === 0) {
+        void vscode.window.showInformationMessage('No changes to shelve');
+        return;
+      }
+
+      // The explorer passes (uri, uris[]); prefer the multi-select array.
+      const preSelectedPaths = normalizeShelvePreselect(selected ?? arg, repo.rootUri.fsPath);
+
+      new ShelveDialog(ctx.context, {
+        repo,
+        shelfService: ctx.services.shelfService,
+        changedFiles,
+        preSelectedPaths,
+        onShelved: (): void => {
+          // shelve() already fires onDidChangeShelf (shelf UI) and the working
+          // tree changes (Local Changes watcher); nudge the git tool window so
+          // the shelved files leave the changes list without the watcher debounce.
+          ctx.gitToolWindowProvider?.refresh();
+        },
+      });
     }
-    await ctx.shelfView.showShelveDialog(repo);
-  });
+  );
 
   // Helper — ensure shelf view exists and return current repo + view.
   // Kept local to the silent shelve/unshelve commands so we don't repeat the

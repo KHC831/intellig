@@ -109,6 +109,12 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.shelve",
+        "title": "Shelve Changes…",
+        "category": "IntelliG",
+        "icon": "$(archive)"
+      },
+      {
         "command": "intellig.shelve.silent",
         "title": "Shelve Silently",
         "category": "IntelliG",
@@ -1260,6 +1266,10 @@
           "group": "3_modify@1"
         },
         {
+          "command": "intellig.shelve",
+          "group": "3_modify@2"
+        },
+        {
           "command": "intellig.toggleBlame",
           "group": "4_compare@1"
         },
@@ -1320,6 +1330,10 @@
         {
           "command": "intellig.revertFile",
           "group": "4_modify@1"
+        },
+        {
+          "command": "intellig.shelve",
+          "group": "4_modify@2"
         },
         {
           "command": "intellig.patch.apply",

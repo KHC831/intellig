@@ -19,6 +19,10 @@
     "intellig.tag.newBranchFrom": { "category": "dialog", "note": "NewBranchDialog" },
     "intellig.tag.mergeIntoCurrent": { "category": "dialog", "note": "MergeDialog" },
     "intellig.patch.apply": { "category": "dialog", "note": "ApplyPatchDialog" },
+    "intellig.shelve": {
+      "category": "dialog",
+      "note": "ShelveDialog webview — checkbox file list + name field"
+    },
     "intellig.commit.resetToHere": { "category": "dialog", "note": "ResetDialog webview" },
     "intellig.commit.newBranch": { "category": "dialog", "note": "NewBranchDialog" },
     "intellig.commit.dropSelectedChanges": {

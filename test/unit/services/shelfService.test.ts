@@ -85,6 +85,39 @@ describe('ShelfService', () => {
       assert.ok(shelfItem.files[0].diff.length > 0, 'File should have diff content');
     });
 
+    it('shelves only the SELECTED file of several changes, leaving the others in the working tree', async () => {
+      // The dialog's core promise: pick a subset of changed files. Create two
+      // independent changes and shelve just one — the other must survive
+      // untouched in the working tree, and the shelf entry must hold only the
+      // selected file.
+      fs.writeFileSync(path.join(testRepoPath, 'test.txt'), 'change to test\n');
+      const otherFile = path.join(testRepoPath, 'other.txt');
+      fs.writeFileSync(otherFile, 'brand new untracked file\n');
+
+      const item = await shelfService.shelve(mockRepo, 'Just test.txt', { files: ['test.txt'] });
+
+      assert.strictEqual(item.files.length, 1, 'shelf entry holds only the selected file');
+      assert.strictEqual(item.files[0].path, 'test.txt');
+
+      // The selected file is reverted to HEAD…
+      assert.strictEqual(
+        fs.readFileSync(path.join(testRepoPath, 'test.txt'), 'utf8'),
+        'initial content\n',
+        'the shelved file is reverted to HEAD'
+      );
+      // …while the UNshelved file is left exactly as it was.
+      assert.ok(fs.existsSync(otherFile), 'the unselected file is NOT removed');
+      assert.strictEqual(
+        fs.readFileSync(otherFile, 'utf8'),
+        'brand new untracked file\n',
+        'the unselected file keeps its working-tree change'
+      );
+      assert.ok(
+        !item.partialCleanupFailures || item.partialCleanupFailures.length === 0,
+        'selected file cleaned up fully'
+      );
+    });
+
     it('captures staged + unstaged content for a full-file shelve and round-trips on unshelve', async () => {
       const testFile = path.join(testRepoPath, 'test.txt');
       // Stage one change, then add a further unstaged tweak. The shelf must

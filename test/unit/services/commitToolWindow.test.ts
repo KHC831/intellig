@@ -770,6 +770,43 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
+  it('file-level shelve (path present) opens the Shelve dialog for that one file, NOT the whole changelist', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const executed: Array<{ command: string; args: unknown[] }> = [];
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
+      executed.push({ command, args });
+      return Promise.resolve(undefined);
+    };
+
+    // A file row carries BOTH path and changelistId; the path must win so we
+    // shelve just that file (regression: it used to shelve the whole changelist).
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'shelve',
+      path: 'src/x.ts',
+      changelistId: 'abc',
+    });
+
+    const shelveCall = executed.find((e) => e.command === 'intellig.shelve');
+    assert.ok(shelveCall, 'file-level shelve routes to intellig.shelve');
+    assert.deepStrictEqual(shelveCall?.args, ['src/x.ts']);
+    assert.ok(
+      !executed.some((e) => e.command === 'intellig.changelist.shelve'),
+      'must NOT shelve the whole changelist when a single file was right-clicked'
+    );
+
+    tw.dispose();
+  });
+
   // ─── SR-4: contextOpen right-click menu wiring ─────────────────────────────
 
   it('contextOpen on a changelist row shows a QuickPick of changelist menu labels', async () => {

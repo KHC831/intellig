@@ -967,7 +967,12 @@ export class CommitToolWindow extends BaseWebviewView {
         }
         return;
       case 'shelve':
-        if (message.changelistId) {
+        // A file row carries both `path` and `changelistId` (path wins): open
+        // the Shelve dialog pre-checking that one file. A changelist-level
+        // right-click (no path) shelves the whole changelist directly.
+        if (message.path) {
+          await vscode.commands.executeCommand('intellig.shelve', message.path);
+        } else if (message.changelistId) {
           await vscode.commands.executeCommand('intellig.changelist.shelve', message.changelistId);
         }
         return;

@@ -123,6 +123,7 @@ describe('Commit File — package.json contract', () => {
       'intellig.explorer.unstage',
       'intellig.explorer.addToGitignore',
       'intellig.explorer.revert',
+      'intellig.shelve',
       'intellig.toggleBlame',
       'intellig.explorer.compareWithRepoVersion',
       'intellig.explorer.showDiff',

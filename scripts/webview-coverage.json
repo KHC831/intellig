@@ -50,6 +50,10 @@
       "status": "tested",
       "note": "rendered dialog script run in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts)"
     },
+    "src/shelf/ShelveDialog.ts": {
+      "status": "tested",
+      "note": "rendered shelve dialog script run in jsdom; checkbox file list + name field + shelve/cancel wiring (shelveDialogScript.test.ts)"
+    },
     "src/sync/PushDialog.ts": {
       "status": "tested",
       "note": "rendered dialog script run in jsdom; builds push/cancel + cancel wiring (syncPatchScript.test.ts)"
