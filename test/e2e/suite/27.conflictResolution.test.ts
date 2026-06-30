@@ -37,6 +37,9 @@ describe('e2e — conflict resolution commands', function () {
     if (stubs) {
       stubs.restore();
     }
+    // The openMergeView test opens the native merge editor; close every tab so
+    // no editor bound to the about-to-be-deleted fixture survives into later suites.
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await clearWorkspace();
     if (fix) {
       await fix.cleanup();
@@ -164,6 +167,43 @@ describe('e2e — conflict resolution commands', function () {
       fs.readFileSync(shared, 'utf8'),
       'main change\n',
       'Accept All Current during a merge must take ours (the current branch)'
+    );
+  });
+
+  it('acceptAllIncoming during a MERGE takes theirs (no swap)', async () => {
+    fix = await createFixtureRepo({ commits: 1 });
+    const shared = path.join(fix.rootPath, 'shared.txt');
+
+    fs.writeFileSync(shared, 'base\n');
+    await execGit(fix.rootPath, ['add', 'shared.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'add shared.txt']);
+
+    await execGit(fix.rootPath, ['checkout', '-b', 'feature']);
+    fs.writeFileSync(shared, 'feature change\n');
+    await execGit(fix.rootPath, ['commit', '-am', 'feature change']);
+
+    await execGit(fix.rootPath, ['checkout', fix.defaultBranch]);
+    fs.writeFileSync(shared, 'main change\n');
+    await execGit(fix.rootPath, ['commit', '-am', 'main change']);
+
+    // Merge feature INTO main → theirs (stage 3) is the feature side.
+    await execGit(fix.rootPath, ['merge', 'feature'], { allowNonZero: true });
+
+    const repo = await useFixtureWorkspace(fix.rootPath);
+    await getServices()?.gitService.reloadRepository(repo);
+    assert.strictEqual(repo.state, 'merging', 'sanity: extension sees a merge in progress');
+
+    stubs = stubPrompts({
+      warningMessage: (_m, _o, ...items) =>
+        (items.find((i) => i === 'Accept All Incoming') as string) ?? undefined,
+    });
+
+    await vscode.commands.executeCommand('intellig.conflict.acceptAllIncoming');
+
+    assert.strictEqual(
+      fs.readFileSync(shared, 'utf8'),
+      'feature change\n',
+      'Accept All Incoming during a merge must take theirs (the merged-in branch)'
     );
   });
 

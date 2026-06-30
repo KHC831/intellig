@@ -13,7 +13,7 @@ import { IGitService, IRepository, RepositoryState } from '../git-core/interface
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { isReversedOperation } from './conflictReversal';
-import { consumeSyntheticBase, clearSyntheticBasesForRepo } from './syntheticMergeBase';
+import { hasSyntheticBase, clearSyntheticBasesForRepo } from './syntheticMergeBase';
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -74,7 +74,9 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Resolve Conflicts dialog is opened. The single source of truth for whether
    * ours/theirs are swapped (see {@link _isReversed}); lets the operation-less
    * bulk palette commands agree with the dialog's per-file actions on
-   * unstash/unshelve. Cleared when the dialog closes.
+   * unstash/unshelve. Cleared when the repo's conflicts clear (NOT on dialog
+   * close — a closed tab leaves the conflict, and its unstash/unshelve reversal,
+   * still in effect).
    */
   private readonly _opByRepo: Map<string, IConflictOpContext['operation']> = new Map();
 
@@ -204,10 +206,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
         existing.reveal();
         return;
       }
-      // Disposing fires the stale dialog's onDidClose, which clears _opByRepo —
-      // restore the new operation afterwards so the bulk-accept reversal sees it.
+      // Different op: dispose the stale dialog (its onDidClose clears the
+      // dialog registry). _opByRepo already holds the new op from the top of
+      // this method, and onDidClose no longer touches it.
       existing.dispose();
-      this._opByRepo.set(key, opContext.operation);
     }
 
     const dialog = new ResolveConflictsDialog(
@@ -223,7 +225,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
 
     dialog.onDidClose((reason) => {
       this._activeDialogs.delete(key);
-      this._opByRepo.delete(key);
+      // Do NOT clear _opByRepo here: closing the editor tab ('cancelled') does
+      // not resolve the conflict, and the bulk palette accept-all commands
+      // still need the recorded operation to swap ours/theirs for an
+      // unstash/unshelve that has no repo.state signal. The recorded op is
+      // cleared when the repo's conflicts actually clear (onDidChangeRepository)
+      // or on service dispose.
       // Completion or abort implies the op is finished → flip context key
       // for this repo. Other repos' active state is preserved.
       // Bucket B: setContext failures are cosmetic (we fall
@@ -714,7 +721,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       // diffing against it would re-mark everything. The true add/add base is
       // empty (the file had no common ancestor). A genuine base is left intact,
       // even when its own content happens to contain marker-like lines.
-      if (consumeSyntheticBase(repo.rootUri.fsPath, filePath)) {
+      if (hasSyntheticBase(repo.rootUri.fsPath, filePath)) {
         base = '';
       }
 

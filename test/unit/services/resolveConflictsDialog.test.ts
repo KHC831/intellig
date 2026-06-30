@@ -1354,5 +1354,54 @@ describe('ConflictResolutionService — (a) additions', () => {
       );
       second.dispose();
     });
+
+    it('keeps the recorded op after tab close so bulk accept-all still reverses (unstash)', async () => {
+      // Unstash conflict on a.ts; repo.state is 'idle' (no rebase signal), so
+      // the reversal can only come from the recorded operation.
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      const d = conflictService.getOpenDialog(repo);
+      assert.ok(d);
+
+      // User closes the editor tab WITHOUT resolving — the conflict persists.
+      d.dispose();
+
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'a.ts'
+        ),
+        'unstash bulk Accept All Current must still reverse to --theirs after the tab is closed'
+      );
+    });
+
+    it('clears the recorded op once the repo conflicts clear (no stale reversal later)', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      // The unstash conflict resolves → onDidChangeRepository reports 0 conflicts.
+      gitService._statuses.delete('a.ts');
+      gitService._fireRepoChange(repo);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // A later, unrelated merge conflict (no dialog/op recorded, state idle)
+      // must NOT inherit the stale unstash reversal — it takes --ours.
+      gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'b.ts'
+        ),
+        'a later conflict must not inherit the cleared unstash reversal'
+      );
+    });
   });
 });

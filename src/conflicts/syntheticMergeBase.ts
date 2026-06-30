@@ -12,19 +12,15 @@ import { GitCli } from '../git-core/gitCli';
 const injectedBases = new Map<string, Set<string>>();
 
 /**
- * Whether `relPath` in `repoRoot` still has a synthetic add/add base recorded,
- * consuming (clearing) the flag. Returns `false` for any file we did not inject.
+ * Whether `relPath` in `repoRoot` has a synthetic add/add base recorded.
+ * Non-consuming: the flag matches the index (stage 1 stays synthetic until the
+ * conflict resolves), so repeated "Apply Non-Conflicting" on the same
+ * still-unresolved file keeps treating the base as empty. The flag is cleared
+ * by {@link clearSyntheticBasesForRepo} once the repo's conflicts clear.
+ * Returns `false` for any file we did not inject.
  */
-export function consumeSyntheticBase(repoRoot: string, relPath: string): boolean {
-  const set = injectedBases.get(repoRoot);
-  if (set?.has(relPath)) {
-    set.delete(relPath);
-    if (set.size === 0) {
-      injectedBases.delete(repoRoot);
-    }
-    return true;
-  }
-  return false;
+export function hasSyntheticBase(repoRoot: string, relPath: string): boolean {
+  return injectedBases.get(repoRoot)?.has(relPath) ?? false;
 }
 
 /**
