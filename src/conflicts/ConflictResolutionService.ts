@@ -12,6 +12,7 @@ import {
 import { IGitService, IRepository, RepositoryState } from '../git-core/interfaces/IGitService';
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
+import { isReversedOperation } from './conflictReversal';
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -66,6 +67,15 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Per-repository debounce timers for the state-file watcher.
    */
   private readonly _watcherDebounces: Map<string, NodeJS.Timeout> = new Map();
+
+  /**
+   * Per-repository operation that produced the active conflict, recorded when a
+   * Resolve Conflicts dialog is opened. The single source of truth for whether
+   * ours/theirs are swapped (see {@link _isReversed}); lets the operation-less
+   * bulk palette commands agree with the dialog's per-file actions on
+   * unstash/unshelve. Cleared when the dialog closes.
+   */
+  private readonly _opByRepo: Map<string, IConflictOpContext['operation']> = new Map();
 
   /**
    * Per-repository latest context-key state. Tracks the last value we
@@ -151,6 +161,11 @@ export class ConflictResolutionService implements IConflictResolutionService {
     conflicts: IConflictedFile[],
     opContext: IConflictOpContext
   ): Promise<void> {
+    // Record the operation up front (even when no dialog actually opens) so the
+    // bulk palette accept-all commands reverse ours/theirs consistently with the
+    // dialog's per-file actions for this conflict.
+    this._opByRepo.set(repo.rootUri.fsPath, opContext.operation);
+
     const autoOpen = vscode.workspace
       .getConfiguration('intellig')
       .get<boolean>(CONFIG_AUTO_OPEN_KEY, true);
@@ -189,6 +204,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
 
     dialog.onDidClose((reason) => {
       this._activeDialogs.delete(key);
+      this._opByRepo.delete(key);
       // Completion or abort implies the op is finished → flip context key
       // for this repo. Other repos' active state is preserved.
       // Bucket B: setContext failures are cosmetic (we fall
@@ -492,12 +508,24 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Whether ours/theirs are swapped for this resolution. Git reverses the index
    * sides during a rebase (and unstash/unshelve): stage 2 (`--ours`) becomes the
    * branch being replayed onto and stage 3 (`--theirs`) the user's own commit.
-   * Mirrors IntelliJ `GitMergeUtil.isReverseRoot` (rebase). When the caller does
-   * not pass an explicit flag (e.g. the bulk palette commands), fall back to the
-   * repository state so a paused rebase still swaps correctly.
+   * Mirrors IntelliJ `GitMergeUtil.isReverseRoot` (rebase).
+   *
+   * When the caller does not pass an explicit flag (e.g. the bulk palette
+   * commands, which have no operation context of their own), fall back to the
+   * recorded operation of the repo's active conflict resolution PLUS the
+   * repository state. The recorded operation is the single source of truth the
+   * dialog's per-file actions also use, so a bulk "Accept All" and a per-file
+   * "Accept Yours" never resolve the same unstash/unshelve conflict to opposite
+   * sides. The state check covers a paused rebase with no dialog open.
    */
   private _isReversed(repo: IRepository, reversed?: boolean): boolean {
-    return reversed ?? this.getRepositoryState(repo) === 'rebasing';
+    if (reversed !== undefined) {
+      return reversed;
+    }
+    if (this.getRepositoryState(repo) === 'rebasing') {
+      return true;
+    }
+    return isReversedOperation(this._opByRepo.get(repo.rootUri.fsPath));
   }
 
   /** Checkout flag that takes the user's own ("Yours") side. */
@@ -658,9 +686,19 @@ export class ConflictResolutionService implements IConflictResolutionService {
       // Read the three merge stages straight from the index: stage 1 = merge
       // base, stage 2 = ours, stage 3 = theirs. An absent stage (e.g. no common
       // ancestor in an add/add conflict) reads as empty.
-      const base = await this._readMergeStage(gitCli, repo, 1, filePath);
+      let base = await this._readMergeStage(gitCli, repo, 1, filePath);
       const ours = await this._readMergeStage(gitCli, repo, 2, filePath);
       const theirs = await this._readMergeStage(gitCli, repo, 3, filePath);
+
+      // A base that itself carries conflict markers is not a usable common
+      // ancestor — it is the synthetic add/add base injected for the native
+      // editor (or a recursive/ort incomplete-merge base). Diffing ours/theirs
+      // against it would re-mark everything. Fall back to an empty base, the
+      // genuine add/add ancestor. Mirrors IntelliJ `GitMergeUtil.loadMergeData`'s
+      // `hasMergeConflictMarkers` guard.
+      if (hasConflictMarkers(base)) {
+        base = '';
+      }
 
       const merged = await mergeNonConflictingText(gitCli, base, ours, theirs);
 
@@ -1061,6 +1099,15 @@ export class ConflictResolutionService implements IConflictResolutionService {
     }
     this._disposables = [];
   }
+}
+
+/**
+ * Whether text carries git conflict markers — a `<<<<<<<` start line paired
+ * with a `>>>>>>>` end line. Used to reject a stage-1 "base" that is really a
+ * synthetic/incomplete-merge base rather than a clean common ancestor.
+ */
+function hasConflictMarkers(text: string): boolean {
+  return /^<{7}/m.test(text) && /^>{7}/m.test(text);
 }
 
 /**

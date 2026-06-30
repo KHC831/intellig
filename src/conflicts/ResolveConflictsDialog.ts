@@ -30,6 +30,7 @@ import {
   IConflictOpContext,
 } from './interfaces/IConflictResolutionService';
 import { IMergeView } from './interfaces/IMergeView';
+import { isReversedOperation } from './conflictReversal';
 
 /**
  * Re-export for callers that prefer to import the op context from the dialog
@@ -600,12 +601,12 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   /**
    * Whether ours/theirs are swapped for this operation. A rebase or
    * unstash/unshelve replays the user's work as "theirs", so "Accept Yours"
-   * must take stage 3 (`--theirs`). Mirrors IntelliJ `GitMergeUtil.isReverseRoot`
-   * plus the reversed providers it constructs for unshelve/unstash.
+   * must take stage 3 (`--theirs`). Delegates to the shared
+   * {@link isReversedOperation} so the dialog and the service's bulk-accept
+   * auto-detect stay in lockstep.
    */
   private _isReversed(): boolean {
-    const op = this._opContext.operation;
-    return op === 'rebase' || op === 'unstash' || op === 'unshelve';
+    return isReversedOperation(this._opContext.operation);
   }
 
   private async _handleAcceptYours(path: string): Promise<void> {

@@ -430,7 +430,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Accept current (ours) version for ${conflicts.length} conflicted file(s)?`,
+        `Accept the current-branch version for ${conflicts.length} conflicted file(s)?`,
         { modal: true },
         'Accept All Current'
       );
@@ -475,7 +475,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Accept incoming (theirs) version for ${conflicts.length} conflicted file(s)?`,
+        `Accept the incoming version for ${conflicts.length} conflicted file(s)?`,
         { modal: true },
         'Accept All Incoming'
       );

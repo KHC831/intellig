@@ -195,6 +195,61 @@ describe('ConflictResolutionService.acceptNonConflictingChanges() — feedback f
     }
   });
 
+  it('ignores a marker-laden synthetic stage-1 base (add/add injected by the merge editor)', async () => {
+    const { ensureSyntheticMergeBase } = await import('../../../src/conflicts/syntheticMergeBase');
+    const { createGitCli } = await import('../../../src/git-core/gitCli');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-anc-synthbase-'));
+    try {
+      git(root, 'init', '-q', '-b', 'mainline');
+      git(root, 'config', 'user.email', 'test@example.com');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+      git(root, 'add', 'seed.txt');
+      git(root, 'commit', '-q', '-m', 'seed');
+      git(root, 'checkout', '-q', '-b', 'theirs');
+      fs.writeFileSync(path.join(root, 'new.txt'), 'a\nTHEIRS\nc\n');
+      git(root, 'add', 'new.txt');
+      git(root, 'commit', '-q', '-m', 't');
+      git(root, 'checkout', '-q', 'mainline');
+      fs.writeFileSync(path.join(root, 'new.txt'), 'a\nOURS\nc\n');
+      git(root, 'add', 'new.txt');
+      git(root, 'commit', '-q', '-m', 'o');
+      try {
+        git(root, 'merge', 'theirs');
+      } catch {
+        /* expected add/add */
+      }
+
+      // Simulate the merge editor having injected a synthetic (marker-laden)
+      // stage-1 base, then run Apply Non-Conflicting.
+      await ensureSyntheticMergeBase(createGitCli(), root, 'new.txt');
+      assert.match(git(root, 'show', ':1:new.txt'), /<{7}/, 'precondition: stage-1 has markers');
+
+      const { service } = makeService(root);
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file(root),
+        state: 'merging',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      const result = await service.acceptNonConflictingChanges(repo, 'new.txt');
+      assert.strictEqual(result.success, true, result.error);
+
+      // The written file must NOT contain nested/doubled conflict markers — the
+      // marker-laden base was rejected and an empty base used instead.
+      const merged = fs.readFileSync(path.join(root, 'new.txt'), 'utf8');
+      const starts = (merged.match(/^<{7}/gm) || []).length;
+      const ends = (merged.match(/^>{7}/gm) || []).length;
+      assert.strictEqual(starts, ends, 'balanced markers, no nesting');
+      assert.ok(starts <= 1, 'at most one conflict hunk, not a doubly-marked mess');
+      service.dispose();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('reports fullyResolved + remainingHunks 0 and stages when only one-sided changes exist', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-anc-clean-'));
     try {

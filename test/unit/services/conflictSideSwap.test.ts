@@ -158,6 +158,39 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
     }
   });
 
+  it('bulk acceptAllCurrent reverses via the recorded operation (unstash, state not rebasing)', async () => {
+    const { root, cleanup } = makeRebaseConflictRepo();
+    try {
+      const service = makeService(root);
+      // Repo state is NOT 'rebasing', so state-based auto-detect would not swap.
+      const repo = {
+        rootUri: vscode.Uri.file(root),
+        state: 'merging',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      // Record an unstash operation the way StashView does (deps unwired, so no
+      // webview opens — only the operation is recorded).
+      await service.openResolveConflictsDialog(repo, [{ path: 'f.txt', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      const result = await service.acceptAllCurrent(repo);
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(
+        fs.readFileSync(path.join(root, 'f.txt'), 'utf8'),
+        'MY-FEATURE-WORK\n',
+        'bulk Accept All Current during unstash must match the dialog and take the user side'
+      );
+      service.dispose();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('without reversal (plain merge state) Accept Yours takes --ours', async () => {
     const { root, cleanup } = makeRebaseConflictRepo();
     try {
