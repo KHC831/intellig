@@ -1404,4 +1404,140 @@ describe('ConflictResolutionService — (a) additions', () => {
       );
     });
   });
+
+  // ─── Recorded-operation reopen guard (data-loss) ─────────────────────────
+  //
+  // The manual "Resolve Conflicts…" reopen command must NOT re-guess the
+  // operation from repo.state: unstash/unshelve/applyPatch are repo.state
+  // 'idle', so a guess mislabels them 'merge', clobbers the recorded op, and
+  // flips ours/theirs to the wrong side — silently discarding stashed work.
+  describe('recorded-operation reopen guard', () => {
+    it('getRecordedOperation returns the op recorded when the dialog opened', async () => {
+      assert.strictEqual(conflictService.getRecordedOperation(repo), undefined);
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      assert.strictEqual(conflictService.getRecordedOperation(repo), 'unstash');
+    });
+
+    it('reopening with the recorded op preserves unstash reversal (keeps the stashed side)', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      // The fixed reopen command derives the op from the recording, not state.
+      const reopenOp = conflictService.getRecordedOperation(repo) ?? 'merge';
+      assert.strictEqual(reopenOp, 'unstash');
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: reopenOp,
+        canAbort: true,
+        canContinue: true,
+      });
+
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'a.ts'
+        ),
+        'reopen via the recorded op keeps unstash reversal (--theirs preserves stashed work)'
+      );
+    });
+
+    it('reopening with a state-guessed merge op WOULD discard the stashed side (the hazard the fix avoids)', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      // The OLD path: a repo.state==='idle' guess yields 'merge', clobbering
+      // the recorded 'unstash' and turning reversal OFF.
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'merge',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'a.ts'
+        ),
+        'a merge guess flips reversal off (--ours = current branch) — the data loss the fix prevents'
+      );
+    });
+  });
+
+  // ─── Per-file concurrency guard (correctness) ────────────────────────────
+  describe('per-file accept concurrency guard', () => {
+    it('drops a concurrent second accept on the SAME row so the staged side matches the click', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      const d = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMessage = (
+        d as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(d);
+
+      // Two accepts on the same row, second fired before the first resolves.
+      const p1 = onMessage({ type: 'acceptYours', path: 'a.ts' });
+      const p2 = onMessage({ type: 'acceptTheirs', path: 'a.ts' });
+      await Promise.all([p1, p2]);
+
+      const checkouts = gitService._execCalls.filter((a) => a[0] === 'checkout' && a[3] === 'a.ts');
+      assert.strictEqual(
+        checkouts.length,
+        1,
+        'only the first per-file accept on a row runs; the concurrent second is dropped'
+      );
+      d.dispose();
+    });
+
+    it('allows concurrent accepts on DIFFERENT rows', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      const d = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [
+          { path: 'a.ts', resolved: false },
+          { path: 'b.ts', resolved: false },
+        ],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMessage = (
+        d as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(d);
+
+      await Promise.all([
+        onMessage({ type: 'acceptYours', path: 'a.ts' }),
+        onMessage({ type: 'acceptYours', path: 'b.ts' }),
+      ]);
+
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'a.ts'),
+        'a.ts must be resolved'
+      );
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'b.ts'),
+        'b.ts must be resolved (different rows are independent)'
+      );
+      d.dispose();
+    });
+  });
 });

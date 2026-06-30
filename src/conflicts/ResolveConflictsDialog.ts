@@ -220,6 +220,13 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    */
   private _closeReason: 'completed' | 'aborted' | 'cancelled' | undefined;
 
+  /**
+   * Repo-relative paths whose per-file accept op is currently in flight. Guards
+   * against a second click on the same row resolving it to the other side
+   * mid-operation. See {@link _runPerFileExclusive}.
+   */
+  private readonly _inFlightPaths = new Set<string>();
+
   constructor(
     context: vscode.ExtensionContext,
     repo: IRepository,
@@ -561,16 +568,16 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
 
     switch (msg.type) {
       case 'acceptYours':
-        await this._handleAcceptYours(msg.path);
+        await this._runPerFileExclusive(msg.path, () => this._handleAcceptYours(msg.path));
         break;
       case 'acceptTheirs':
-        await this._handleAcceptTheirs(msg.path);
+        await this._runPerFileExclusive(msg.path, () => this._handleAcceptTheirs(msg.path));
         break;
       case 'openMergeView':
         await this._handleOpenMergeView(msg.path);
         break;
       case 'applyNonConflicting':
-        await this._handleApplyNonConflicting(msg.path);
+        await this._runPerFileExclusive(msg.path, () => this._handleApplyNonConflicting(msg.path));
         break;
       case 'abort':
         await this._runExclusive(() => this._handleAbort());
@@ -603,6 +610,28 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       await op();
     } finally {
       this._busy = false;
+    }
+  }
+
+  /**
+   * Run a per-file accept op (acceptYours/acceptTheirs/applyNonConflicting)
+   * under a per-PATH in-flight guard: each of these checks out a side and
+   * stages the file, so two concurrent runs on the SAME row could interleave
+   * their `checkout`+`stage` and leave the file staged with the side the user
+   * did NOT click last. A second click on a row already in flight is dropped;
+   * the gate clears in `finally` even if the op throws. Different rows stay
+   * independent (the key is the path), so resolving several files in quick
+   * succession is unaffected.
+   */
+  private async _runPerFileExclusive(path: string, op: () => Promise<void>): Promise<void> {
+    if (this._inFlightPaths.has(path)) {
+      return;
+    }
+    this._inFlightPaths.add(path);
+    try {
+      await op();
+    } finally {
+      this._inFlightPaths.delete(path);
     }
   }
 
@@ -690,8 +719,11 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     // visible at all.
     const n = result.remainingHunks ?? 0;
     const plural = n === 1 ? 'conflict' : 'conflicts';
+    // `git merge-file` caps its exit-code hunk count at 127, so a file with more
+    // than that many conflict regions reports "127+".
+    const count = n >= 127 ? '127+' : `${n}`;
     void vscode.window.showInformationMessage(
-      `${path}: ${n} ${plural} still need${n === 1 ? 's' : ''} resolving. Use Merge… to finish.`
+      `${path}: ${count} ${plural} still need${n === 1 ? 's' : ''} resolving. Use Merge… to finish.`
     );
   }
 

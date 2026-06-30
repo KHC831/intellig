@@ -219,6 +219,15 @@ export interface IConflictResolutionService {
   ): 'idle' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting';
 
   /**
+   * The operation that produced the repo's live conflict, recorded when the
+   * dialog first opened. Callers re-opening the dialog must prefer this over a
+   * `repo.state` guess so unstash/unshelve/applyPatch (all `repo.state ===
+   * 'idle'`) keep their ours/theirs reversal. `undefined` when nothing is
+   * recorded.
+   */
+  getRecordedOperation(repo: IRepository): IConflictOpContext['operation'] | undefined;
+
+  /**
    * Event fired when conflicts change
    */
   onDidChangeConflicts: vscode.Event<{ repo: IRepository; conflicts: IConflictedFile[] }>;

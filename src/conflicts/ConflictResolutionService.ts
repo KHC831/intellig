@@ -439,6 +439,20 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
+   * The operation that produced the repo's live conflict, recorded when the
+   * dialog was first opened. Callers that RE-open the dialog (the manual
+   * "Resolve Conflicts…" entry point) must prefer this over re-guessing from
+   * `repo.state`: unstash/unshelve/applyPatch all leave `repo.state === 'idle'`,
+   * so a state-based guess would mislabel them as 'merge', clobber the recorded
+   * op, and silently flip ours/theirs to the wrong side. Returns `undefined`
+   * when no operation is on record (e.g. a conflict produced outside the
+   * extension), in which case a state-based fallback is the best available.
+   */
+  getRecordedOperation(repo: IRepository): IConflictOpContext['operation'] | undefined {
+    return this._opByRepo.get(repo.rootUri.fsPath);
+  }
+
+  /**
    * Get all conflicted files in the repository
    *
    * @param repo - The repository

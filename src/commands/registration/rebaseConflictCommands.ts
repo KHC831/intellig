@@ -154,19 +154,26 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         void vscode.window.showInformationMessage('No unresolved conflicts.');
         return;
       }
-      // Best-effort operation inference based on repository state.
+      // Prefer the operation recorded when this conflict's dialog first opened.
+      // Re-guessing from repo.state would mislabel unstash/unshelve/applyPatch
+      // (all repo.state === 'idle') as 'merge', clobber the recorded op, and
+      // silently flip ours/theirs to the WRONG side — discarding the user's
+      // stashed/shelved work. Fall back to a state-based guess only when nothing
+      // is on record (a conflict produced outside the extension).
       const state = conflictService.getRepositoryState(repo);
+      const operation =
+        conflictService.getRecordedOperation(repo) ??
+        (state === 'merging'
+          ? ('merge' as const)
+          : state === 'rebasing'
+            ? ('rebase' as const)
+            : state === 'cherry-picking'
+              ? ('cherryPick' as const)
+              : state === 'reverting'
+                ? ('revert' as const)
+                : ('merge' as const));
       const opContext = {
-        operation:
-          state === 'merging'
-            ? ('merge' as const)
-            : state === 'rebasing'
-              ? ('rebase' as const)
-              : state === 'cherry-picking'
-                ? ('cherryPick' as const)
-                : state === 'reverting'
-                  ? ('revert' as const)
-                  : ('merge' as const),
+        operation,
         canAbort: true,
         canContinue: true,
       };
