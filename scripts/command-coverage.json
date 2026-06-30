@@ -47,7 +47,6 @@
       "note": "commit-selection dialog"
     },
 
-    "intellig.merge.openMergeView": { "category": "view", "note": "opens/operates the merge view" },
     "intellig.merge.acceptCurrent": { "category": "view", "note": "mergeView state" },
     "intellig.merge.acceptIncoming": { "category": "view", "note": "mergeView state" },
     "intellig.merge.acceptBoth": { "category": "view", "note": "mergeView state" },

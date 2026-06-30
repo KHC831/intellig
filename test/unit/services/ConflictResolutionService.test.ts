@@ -327,6 +327,30 @@ describe('ConflictResolutionService', () => {
       );
       assert.deepStrictEqual(stagedFiles, ['both.txt'], 'only the checked-out file is staged');
     });
+
+    it('drops a concurrent second bulk accept-all on the same repo (no interleaved batch)', async () => {
+      const calls = recordExec();
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'both.txt', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+        ]);
+
+      // Fire two bulk runs without awaiting the first; the per-repo guard must
+      // drop the second so it can't checkout a path the first already resolved.
+      const [r1, r2] = await Promise.all([
+        conflictService.acceptAllCurrent(mockRepo),
+        conflictService.acceptAllCurrent(mockRepo),
+      ]);
+      assert.strictEqual(r1.success, true);
+      assert.strictEqual(r2.success, true);
+
+      const checkouts = calls.filter((a) => a[0] === 'checkout' && a[3] === 'both.txt');
+      assert.strictEqual(
+        checkouts.length,
+        1,
+        'only one batch runs; the concurrent second invocation is dropped'
+      );
+    });
   });
 
   describe('acceptAllCurrent()', () => {

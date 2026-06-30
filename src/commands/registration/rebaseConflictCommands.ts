@@ -3,6 +3,7 @@ import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import { createMergeView } from '../../services';
+import { inferReopenOperation } from '../../conflicts/conflictReversal';
 import type { ICommandContext } from './CommandContext';
 
 /**
@@ -154,19 +155,15 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         void vscode.window.showInformationMessage('No unresolved conflicts.');
         return;
       }
-      // Best-effort operation inference based on repository state.
-      const state = conflictService.getRepositoryState(repo);
+      // Prefer the operation recorded when this conflict's dialog first opened;
+      // fall back to a state-based guess only for conflicts produced OUTSIDE the
+      // extension. See {@link inferReopenOperation} for why idle ⇒ 'unstash'.
+      const operation = inferReopenOperation(
+        conflictService.getRecordedOperation(repo),
+        conflictService.getRepositoryState(repo)
+      );
       const opContext = {
-        operation:
-          state === 'merging'
-            ? ('merge' as const)
-            : state === 'rebasing'
-              ? ('rebase' as const)
-              : state === 'cherry-picking'
-                ? ('cherryPick' as const)
-                : state === 'reverting'
-                  ? ('revert' as const)
-                  : ('merge' as const),
+        operation,
         canAbort: true,
         canContinue: true,
       };
@@ -430,7 +427,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Accept current (ours) version for ${conflicts.length} conflicted file(s)?`,
+        `Accept the current-branch version for ${conflicts.length} conflicted file(s)?`,
         { modal: true },
         'Accept All Current'
       );
@@ -475,7 +472,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Accept incoming (theirs) version for ${conflicts.length} conflicted file(s)?`,
+        `Accept the incoming version for ${conflicts.length} conflicted file(s)?`,
         { modal: true },
         'Accept All Incoming'
       );

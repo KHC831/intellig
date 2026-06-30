@@ -413,6 +413,16 @@
         "icon": "$(warning)"
       },
       {
+        "command": "intellig.conflict.acceptAllCurrent",
+        "title": "Accept Yours for All Conflicts",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.conflict.acceptAllIncoming",
+        "title": "Accept Theirs for All Conflicts",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.patch.apply",
         "title": "Apply Patch…",
         "category": "IntelliG",
@@ -808,6 +818,14 @@
         {
           "command": "intellig.branch.updateSelected",
           "when": "false"
+        },
+        {
+          "command": "intellig.conflict.acceptAllCurrent",
+          "when": "intellig.conflicts.active"
+        },
+        {
+          "command": "intellig.conflict.acceptAllIncoming",
+          "when": "intellig.conflicts.active"
         },
         {
           "command": "intellig.commit.applyFilesToBranch",

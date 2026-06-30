@@ -39,6 +39,7 @@ import type { IConflictOpContext } from '../../../src/conflicts/interfaces/IConf
 import type { IMergeView, IMergeState } from '../../../src/conflicts/interfaces/IMergeView';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
+import { installWarningMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
 
 /**
  * Factory for a minimal mock `ExtensionContext` — mirrors the helper used
@@ -1252,6 +1253,454 @@ describe('ConflictResolutionService — (a) additions', () => {
         !gitService._execCalls.some((args) => args[0] === 'rebase'),
         'git rebase --continue must not be called when repo is not mid-rebase'
       );
+    });
+  });
+
+  // ─── Dialog close lifecycle (tab close vs Continue/Abort) ─────────────────
+  //
+  // BaseWebviewPanel routes panel.onDidDispose → dispose(). The dialog must
+  // fire onDidClose('cancelled') from dispose() so the service clears its
+  // _activeDialogs / _opByRepo registries; otherwise a tab-closed dialog leaks
+  // (stranded disposed reference, stale recorded operation).
+  describe('close lifecycle', () => {
+    it('fires onDidClose(cancelled) when the editor tab is closed (dispose)', () => {
+      const d: ResolveConflictsDialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const reasons: Array<'completed' | 'aborted' | 'cancelled'> = [];
+      d.onDidClose((r) => reasons.push(r));
+
+      d.dispose();
+      assert.deepStrictEqual(
+        reasons,
+        ['cancelled'],
+        'tab close must notify owner once as cancelled'
+      );
+    });
+
+    it('fires onDidClose at most once across repeated dispose', () => {
+      const d: ResolveConflictsDialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const reasons: Array<'completed' | 'aborted' | 'cancelled'> = [];
+      d.onDidClose((r) => reasons.push(r));
+
+      d.dispose();
+      d.dispose();
+      assert.deepStrictEqual(reasons, ['cancelled'], 'must not double-fire');
+    });
+
+    it('clears the service registry on tab close so the repo can reopen a fresh dialog', async () => {
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      const first = conflictService.getOpenDialog(repo);
+      assert.ok(first, 'dialog opened');
+
+      // Simulate the user closing the editor tab.
+      first.dispose();
+      assert.strictEqual(
+        conflictService.hasOpenDialog(repo),
+        false,
+        'registry must be cleared when the tab is closed'
+      );
+
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'merge',
+        canAbort: true,
+        canContinue: true,
+      });
+      const second = conflictService.getOpenDialog(repo);
+      assert.ok(second && second !== first, 'a fresh dialog must be created, not the disposed one');
+      second.dispose();
+    });
+
+    it('replaces a lingering dialog when a different operation opens for the same repo', async () => {
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      const first = conflictService.getOpenDialog(repo);
+      assert.ok(first);
+
+      // A different operation must NOT reuse the unstash dialog (which would
+      // keep the unstash reversal/labels); it replaces it.
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'merge',
+        canAbort: true,
+        canContinue: true,
+      });
+      const second = conflictService.getOpenDialog(repo);
+      assert.ok(second && second !== first, 'different op must create a fresh dialog');
+      assert.strictEqual(second.getOpContext().operation, 'merge');
+      assert.strictEqual(
+        (first as unknown as { _disposed: boolean })._disposed,
+        true,
+        'the stale dialog must be disposed'
+      );
+      second.dispose();
+    });
+
+    it('keeps the recorded op after tab close so bulk accept-all still reverses (unstash)', async () => {
+      // Unstash conflict on a.ts; repo.state is 'idle' (no rebase signal), so
+      // the reversal can only come from the recorded operation.
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      const d = conflictService.getOpenDialog(repo);
+      assert.ok(d);
+
+      // User closes the editor tab WITHOUT resolving — the conflict persists.
+      d.dispose();
+
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'a.ts'
+        ),
+        'unstash bulk Accept All Current must still reverse to --theirs after the tab is closed'
+      );
+    });
+
+    it('clears the recorded op once the repo conflicts clear (no stale reversal later)', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      // The unstash conflict resolves → onDidChangeRepository reports 0 conflicts.
+      gitService._statuses.delete('a.ts');
+      gitService._fireRepoChange(repo);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // A later, unrelated merge conflict (no dialog/op recorded, state idle)
+      // must NOT inherit the stale unstash reversal — it takes --ours.
+      gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'b.ts'
+        ),
+        'a later conflict must not inherit the cleared unstash reversal'
+      );
+    });
+  });
+
+  // ─── Recorded-operation reopen guard (data-loss) ─────────────────────────
+  //
+  // The manual "Resolve Conflicts…" reopen command must NOT re-guess the
+  // operation from repo.state: unstash/unshelve/applyPatch are repo.state
+  // 'idle', so a guess mislabels them 'merge', clobbers the recorded op, and
+  // flips ours/theirs to the wrong side — silently discarding stashed work.
+  describe('recorded-operation reopen guard', () => {
+    it('getRecordedOperation returns the op recorded when the dialog opened', async () => {
+      assert.strictEqual(conflictService.getRecordedOperation(repo), undefined);
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      assert.strictEqual(conflictService.getRecordedOperation(repo), 'unstash');
+    });
+
+    it('reopening with the recorded op preserves unstash reversal (keeps the stashed side)', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      // The fixed reopen command derives the op from the recording, not state.
+      const reopenOp = conflictService.getRecordedOperation(repo) ?? 'merge';
+      assert.strictEqual(reopenOp, 'unstash');
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: reopenOp,
+        canAbort: true,
+        canContinue: true,
+      });
+
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'a.ts'
+        ),
+        'reopen via the recorded op keeps unstash reversal (--theirs preserves stashed work)'
+      );
+    });
+
+    it('reopening with a state-guessed merge op WOULD discard the stashed side (the hazard the fix avoids)', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      // The OLD path: a repo.state==='idle' guess yields 'merge', clobbering
+      // the recorded 'unstash' and turning reversal OFF.
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'merge',
+        canAbort: true,
+        canContinue: true,
+      });
+
+      await conflictService.acceptAllCurrent(repo);
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'a.ts'
+        ),
+        'a merge guess flips reversal off (--ours = current branch) — the data loss the fix prevents'
+      );
+    });
+  });
+
+  // ─── Per-file concurrency guard (correctness) ────────────────────────────
+  describe('per-file accept concurrency guard', () => {
+    it('drops a concurrent second accept on the SAME row so the staged side matches the click', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      const d = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMessage = (
+        d as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(d);
+
+      // Two accepts on the same row, second fired before the first resolves.
+      const p1 = onMessage({ type: 'acceptYours', path: 'a.ts' });
+      const p2 = onMessage({ type: 'acceptTheirs', path: 'a.ts' });
+      await Promise.all([p1, p2]);
+
+      const checkouts = gitService._execCalls.filter((a) => a[0] === 'checkout' && a[3] === 'a.ts');
+      assert.strictEqual(
+        checkouts.length,
+        1,
+        'only the first per-file accept on a row runs; the concurrent second is dropped'
+      );
+      d.dispose();
+    });
+
+    it('allows concurrent accepts on DIFFERENT rows', async () => {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      const d = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [
+          { path: 'a.ts', resolved: false },
+          { path: 'b.ts', resolved: false },
+        ],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMessage = (
+        d as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(d);
+
+      await Promise.all([
+        onMessage({ type: 'acceptYours', path: 'a.ts' }),
+        onMessage({ type: 'acceptYours', path: 'b.ts' }),
+      ]);
+
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'a.ts'),
+        'a.ts must be resolved'
+      );
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'b.ts'),
+        'b.ts must be resolved (different rows are independent)'
+      );
+      d.dispose();
+    });
+  });
+
+  // ─── Bulk "Accept … for All" buttons ─────────────────────────────────────
+  describe('accept-all-for-files buttons', () => {
+    /** Make the mock checkout/rm actually "resolve" the file in the status map. */
+    type ExecFn = (args: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+    function resolveOnMutation(): void {
+      const cli = (gitService as unknown as { gitCli: { exec: ExecFn } }).gitCli;
+      const inner: ExecFn = cli.exec.bind(cli);
+      cli.exec = async (args: string[]) => {
+        if (args[0] === 'checkout' || args[0] === 'rm') {
+          gitService._statuses.delete(args[args.length - 1]);
+        }
+        return inner(args);
+      };
+    }
+
+    function makeBulkDialog(operation: IConflictOpContext['operation']): {
+      d: ResolveConflictsDialog;
+      onMessage: (m: unknown) => Promise<void>;
+    } {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      resolveOnMutation();
+      const d = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [
+          { path: 'a.ts', resolved: false },
+          { path: 'b.ts', resolved: false },
+        ],
+        { operation, canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMessage = (
+        d as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(d);
+      return { d, onMessage };
+    }
+
+    afterEach(() => restoreMessageFunctions());
+
+    it('renders the bulk Accept Yours/Theirs buttons only while a row is unresolved', () => {
+      const unresolved = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const html = (unresolved as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const dom = new JSDOM(html, { runScripts: 'outside-only' });
+      const w = dom.window;
+      (w as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      w.eval(w.document.querySelector('script[nonce]')?.textContent ?? '');
+      assert.ok(
+        w.document.querySelector('[data-action="acceptAllYours"]'),
+        'Accept Yours (all) button renders while unresolved'
+      );
+      assert.ok(w.document.querySelector('[data-action="acceptAllTheirs"]'));
+      unresolved.dispose();
+
+      // All resolved → buttons gone.
+      const resolved = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: true }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const html2 = (resolved as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const dom2 = new JSDOM(html2, { runScripts: 'outside-only' });
+      const w2 = dom2.window;
+      (w2 as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      w2.eval(w2.document.querySelector('script[nonce]')?.textContent ?? '');
+      assert.strictEqual(
+        w2.document.querySelector('[data-action="acceptAllYours"]'),
+        null,
+        'no bulk buttons once everything is resolved'
+      );
+      resolved.dispose();
+    });
+
+    it('acceptAllYours (merge) confirms then checks out --ours for every file and resolves all rows', async () => {
+      installWarningMessageTracker('Accept Yours');
+      const { d, onMessage } = makeBulkDialog('merge');
+
+      await onMessage({ type: 'acceptAllYours' });
+
+      for (const f of ['a.ts', 'b.ts']) {
+        assert.ok(
+          gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === f),
+          `merge Accept Yours must checkout --ours for ${f}`
+        );
+      }
+      assert.strictEqual(d.getFileStatuses().get('a.ts'), 'resolved');
+      assert.strictEqual(d.getFileStatuses().get('b.ts'), 'resolved');
+      assert.ok(d.allResolved(), 'all rows resolved → Continue enabled');
+      d.dispose();
+    });
+
+    it('acceptAllTheirs (merge) checks out --theirs for every file', async () => {
+      installWarningMessageTracker('Accept Theirs');
+      const { d, onMessage } = makeBulkDialog('merge');
+
+      await onMessage({ type: 'acceptAllTheirs' });
+
+      for (const f of ['a.ts', 'b.ts']) {
+        assert.ok(
+          gitService._execCalls.some(
+            (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === f
+          ),
+          `merge Accept Theirs must checkout --theirs for ${f}`
+        );
+      }
+      d.dispose();
+    });
+
+    it('reverses for an unstash dialog — Accept Yours for all takes --theirs (the stashed side)', async () => {
+      installWarningMessageTracker('Accept Yours');
+      const { d, onMessage } = makeBulkDialog('unstash');
+
+      await onMessage({ type: 'acceptAllYours' });
+
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--theirs'),
+        'unstash bulk Accept Yours must reverse to --theirs'
+      );
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--ours'),
+        'must NOT take --ours during an unstash'
+      );
+      d.dispose();
+    });
+
+    it('does nothing when the confirm is dismissed', async () => {
+      installWarningMessageTracker(undefined); // user cancels
+      const { d, onMessage } = makeBulkDialog('merge');
+
+      await onMessage({ type: 'acceptAllYours' });
+
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'checkout'),
+        'cancelling the confirm must not check out anything'
+      );
+      assert.strictEqual(d.getFileStatuses().get('a.ts'), 'unresolved');
+      d.dispose();
     });
   });
 });
