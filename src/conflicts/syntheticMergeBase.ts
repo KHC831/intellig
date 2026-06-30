@@ -1,6 +1,42 @@
 import { GitCli } from '../git-core/gitCli';
 
 /**
+ * Files that received a synthetic add/add stage-1 base, keyed by repo root →
+ * set of repo-relative paths. The base is the conflict-marked working file
+ * (good for the native editor's 3-way diff) but is NOT a real common ancestor,
+ * so "Apply Non-Conflicting" must treat it as the genuine add/add base (empty)
+ * rather than diffing against the markers. Tracked precisely here — rather than
+ * sniffing the stage-1 content for markers — so a real base that legitimately
+ * contains marker-like lines is never mistaken for a synthetic one.
+ */
+const injectedBases = new Map<string, Set<string>>();
+
+/**
+ * Whether `relPath` in `repoRoot` still has a synthetic add/add base recorded,
+ * consuming (clearing) the flag. Returns `false` for any file we did not inject.
+ */
+export function consumeSyntheticBase(repoRoot: string, relPath: string): boolean {
+  const set = injectedBases.get(repoRoot);
+  if (set?.has(relPath)) {
+    set.delete(relPath);
+    if (set.size === 0) {
+      injectedBases.delete(repoRoot);
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Drop all synthetic-base flags for a repo. Called when the repo's conflicts
+ * clear, so a flag can never go stale into a later, unrelated conflict on the
+ * same path.
+ */
+export function clearSyntheticBasesForRepo(repoRoot: string): void {
+  injectedBases.delete(repoRoot);
+}
+
+/**
  * Stage of a conflicted file in the index, parsed from `git ls-files -u`.
  */
 interface IUnmergedStage {
@@ -116,6 +152,15 @@ export async function ensureSyntheticMergeBase(
     input: indexInfo,
     throwOnError: true,
   });
+
+  // Record so "Apply Non-Conflicting" treats this file's base as the true
+  // (empty) add/add ancestor rather than the marker-laden synthetic blob.
+  let set = injectedBases.get(repoRoot);
+  if (!set) {
+    set = new Set<string>();
+    injectedBases.set(repoRoot, set);
+  }
+  set.add(relPath);
 
   return true;
 }

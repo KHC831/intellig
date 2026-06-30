@@ -1254,4 +1254,105 @@ describe('ConflictResolutionService — (a) additions', () => {
       );
     });
   });
+
+  // ─── Dialog close lifecycle (tab close vs Continue/Abort) ─────────────────
+  //
+  // BaseWebviewPanel routes panel.onDidDispose → dispose(). The dialog must
+  // fire onDidClose('cancelled') from dispose() so the service clears its
+  // _activeDialogs / _opByRepo registries; otherwise a tab-closed dialog leaks
+  // (stranded disposed reference, stale recorded operation).
+  describe('close lifecycle', () => {
+    it('fires onDidClose(cancelled) when the editor tab is closed (dispose)', () => {
+      const d: ResolveConflictsDialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const reasons: Array<'completed' | 'aborted' | 'cancelled'> = [];
+      d.onDidClose((r) => reasons.push(r));
+
+      d.dispose();
+      assert.deepStrictEqual(
+        reasons,
+        ['cancelled'],
+        'tab close must notify owner once as cancelled'
+      );
+    });
+
+    it('fires onDidClose at most once across repeated dispose', () => {
+      const d: ResolveConflictsDialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const reasons: Array<'completed' | 'aborted' | 'cancelled'> = [];
+      d.onDidClose((r) => reasons.push(r));
+
+      d.dispose();
+      d.dispose();
+      assert.deepStrictEqual(reasons, ['cancelled'], 'must not double-fire');
+    });
+
+    it('clears the service registry on tab close so the repo can reopen a fresh dialog', async () => {
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      const first = conflictService.getOpenDialog(repo);
+      assert.ok(first, 'dialog opened');
+
+      // Simulate the user closing the editor tab.
+      first.dispose();
+      assert.strictEqual(
+        conflictService.hasOpenDialog(repo),
+        false,
+        'registry must be cleared when the tab is closed'
+      );
+
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'merge',
+        canAbort: true,
+        canContinue: true,
+      });
+      const second = conflictService.getOpenDialog(repo);
+      assert.ok(second && second !== first, 'a fresh dialog must be created, not the disposed one');
+      second.dispose();
+    });
+
+    it('replaces a lingering dialog when a different operation opens for the same repo', async () => {
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'unstash',
+        canAbort: true,
+        canContinue: true,
+      });
+      const first = conflictService.getOpenDialog(repo);
+      assert.ok(first);
+
+      // A different operation must NOT reuse the unstash dialog (which would
+      // keep the unstash reversal/labels); it replaces it.
+      await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+        operation: 'merge',
+        canAbort: true,
+        canContinue: true,
+      });
+      const second = conflictService.getOpenDialog(repo);
+      assert.ok(second && second !== first, 'different op must create a fresh dialog');
+      assert.strictEqual(second.getOpContext().operation, 'merge');
+      assert.strictEqual(
+        (first as unknown as { _disposed: boolean })._disposed,
+        true,
+        'the stale dialog must be disposed'
+      );
+      second.dispose();
+    });
+  });
 });

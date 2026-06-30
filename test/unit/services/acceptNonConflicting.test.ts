@@ -250,6 +250,73 @@ describe('ConflictResolutionService.acceptNonConflictingChanges() — feedback f
     }
   });
 
+  it('does NOT empty a real base whose content happens to contain marker-like lines', async () => {
+    // Regression: a modify/modify conflict whose genuine common ancestor has
+    // lines like `<<<<<<<`/`>>>>>>>` (a doc about conflicts, ASCII art) must keep
+    // that real base — emptying it would spuriously re-conflict one-sided hunks.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-anc-markerbase-'));
+    try {
+      git(root, 'init', '-q', '-b', 'mainline');
+      git(root, 'config', 'user.email', 'test@example.com');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'commit.gpgsign', 'false');
+
+      // Base file legitimately contains conflict-marker-like CONTENT lines.
+      const base = ['TOP', 'mid', '<<<<<<< literal', 'keep', '>>>>>>> literal', 'end', ''].join(
+        '\n'
+      );
+      fs.writeFileSync(path.join(root, 'f.txt'), base);
+      git(root, 'add', 'f.txt');
+      git(root, 'commit', '-q', '-m', 'base');
+
+      git(root, 'checkout', '-q', '-b', 'theirs');
+      // theirs changes only `mid` (the true conflict); leaves TOP alone.
+      fs.writeFileSync(
+        path.join(root, 'f.txt'),
+        ['TOP', 'mid-THEIRS', '<<<<<<< literal', 'keep', '>>>>>>> literal', 'end', ''].join('\n')
+      );
+      git(root, 'commit', '-q', '-am', 'theirs');
+
+      git(root, 'checkout', '-q', 'mainline');
+      // ours changes TOP (one-sided) AND mid (the true conflict).
+      fs.writeFileSync(
+        path.join(root, 'f.txt'),
+        ['TOP-OURS', 'mid-OURS', '<<<<<<< literal', 'keep', '>>>>>>> literal', 'end', ''].join('\n')
+      );
+      git(root, 'commit', '-q', '-am', 'ours');
+
+      try {
+        git(root, 'merge', 'theirs');
+      } catch {
+        /* expected */
+      }
+
+      const { service } = makeService(root);
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file(root),
+        state: 'merging',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      const result = await service.acceptNonConflictingChanges(repo, 'f.txt');
+      assert.strictEqual(result.success, true, result.error);
+      // With the REAL base the one-sided TOP change auto-applies and exactly one
+      // true conflict (mid) remains. Emptying the base would re-conflict TOP too,
+      // giving remainingHunks === 2.
+      assert.strictEqual(result.remainingHunks, 1, 'one-sided TOP must apply; only mid conflicts');
+      const merged = fs.readFileSync(path.join(root, 'f.txt'), 'utf8');
+      assert.ok(merged.includes('TOP-OURS'), 'one-sided TOP change applied (base not emptied)');
+      assert.ok(
+        merged.includes('mid-OURS') && merged.includes('mid-THEIRS'),
+        'true mid conflict preserved'
+      );
+      service.dispose();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('reports fullyResolved + remainingHunks 0 and stages when only one-sided changes exist', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-anc-clean-'));
     try {
@@ -302,6 +369,7 @@ describe('mergeNonConflictingText() — git merge-file three-way', () => {
 
     const r = await mergeNonConflictingText(cli, base, ours, theirs);
     assert.strictEqual(r.hasConflicts, false);
+    assert.strictEqual(r.conflictCount, 0, 'clean merge reports zero conflict hunks');
     assert.ok(r.content.includes('top-OURS') && r.content.includes('bottom-THEIRS'));
     assert.ok(!r.content.includes('<<<<<<<'));
   });
@@ -313,8 +381,22 @@ describe('mergeNonConflictingText() — git merge-file three-way', () => {
 
     const r = await mergeNonConflictingText(cli, base, ours, theirs);
     assert.strictEqual(r.hasConflicts, true);
+    assert.strictEqual(r.conflictCount, 1, 'exact conflict-hunk count from git merge-file');
     assert.ok(r.content.includes('<<<<<<<'));
     assert.ok(r.content.includes('middle-OURS') && r.content.includes('middle-THEIRS'));
+  });
+
+  it('counts two well-separated conflict regions as conflictCount 2', async () => {
+    // Enough unchanged context between the two changes that git keeps them as
+    // two distinct hunks (close-together changes collapse into one).
+    const mid = ['1', '2', '3', '4', '5', '6', '7', '8'];
+    const base = ['a1', ...mid, 'c1', ''].join('\n');
+    const ours = ['a1-O', ...mid, 'c1-O', ''].join('\n');
+    const theirs = ['a1-T', ...mid, 'c1-T', ''].join('\n');
+
+    const r = await mergeNonConflictingText(cli, base, ours, theirs);
+    assert.strictEqual(r.hasConflicts, true);
+    assert.strictEqual(r.conflictCount, 2, 'two disjoint conflicts → exit code 2');
   });
 });
 

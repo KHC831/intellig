@@ -13,6 +13,7 @@ import { IGitService, IRepository, RepositoryState } from '../git-core/interface
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { isReversedOperation } from './conflictReversal';
+import { consumeSyntheticBase, clearSyntheticBasesForRepo } from './syntheticMergeBase';
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -132,6 +133,14 @@ export class ConflictResolutionService implements IConflictResolutionService {
     this._disposables.push(
       this._gitService.onDidChangeRepository(async (repo) => {
         const conflicts = await this.getConflictedFiles(repo);
+        // Once the repo is conflict-free the recorded operation and any
+        // synthetic add/add bases are stale — drop them so a later, unrelated
+        // conflict never inherits the wrong ours/theirs reversal or an empty
+        // base from them.
+        if (conflicts.length === 0) {
+          this._opByRepo.delete(repo.rootUri.fsPath);
+          clearSyntheticBasesForRepo(repo.rootUri.fsPath);
+        }
         this._onDidChangeConflicts.fire({ repo, conflicts });
         this._reconcileOpenDialog(repo, conflicts);
         this._scheduleStateFileCheck(repo);
@@ -186,9 +195,19 @@ export class ConflictResolutionService implements IConflictResolutionService {
     const key = repo.rootUri.fsPath;
     const existing = this._activeDialogs.get(key);
     if (existing) {
-      existing.updateConflicts(conflicts);
-      existing.reveal();
-      return;
+      // Only reuse a dialog for the SAME operation. A lingering dialog from a
+      // finished op would otherwise show the new op's files while keeping the
+      // old operation's reversal/labels. Different op ⇒ dispose it (its
+      // onDidClose clears the registry) and fall through to a fresh dialog.
+      if (existing.getOpContext().operation === opContext.operation) {
+        existing.updateConflicts(conflicts);
+        existing.reveal();
+        return;
+      }
+      // Disposing fires the stale dialog's onDidClose, which clears _opByRepo —
+      // restore the new operation afterwards so the bulk-accept reversal sees it.
+      existing.dispose();
+      this._opByRepo.set(key, opContext.operation);
     }
 
     const dialog = new ResolveConflictsDialog(
@@ -690,13 +709,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
       const ours = await this._readMergeStage(gitCli, repo, 2, filePath);
       const theirs = await this._readMergeStage(gitCli, repo, 3, filePath);
 
-      // A base that itself carries conflict markers is not a usable common
-      // ancestor — it is the synthetic add/add base injected for the native
-      // editor (or a recursive/ort incomplete-merge base). Diffing ours/theirs
-      // against it would re-mark everything. Fall back to an empty base, the
-      // genuine add/add ancestor. Mirrors IntelliJ `GitMergeUtil.loadMergeData`'s
-      // `hasMergeConflictMarkers` guard.
-      if (hasConflictMarkers(base)) {
+      // If the native editor injected a synthetic add/add base for this file,
+      // stage 1 is the conflict-marked working blob, not a real ancestor —
+      // diffing against it would re-mark everything. The true add/add base is
+      // empty (the file had no common ancestor). A genuine base is left intact,
+      // even when its own content happens to contain marker-like lines.
+      if (consumeSyntheticBase(repo.rootUri.fsPath, filePath)) {
         base = '';
       }
 
@@ -720,12 +738,14 @@ export class ConflictResolutionService implements IConflictResolutionService {
       const conflicts = await this.getConflictedFiles(repo);
       this._onDidChangeConflicts.fire({ repo, conflicts });
 
-      // Count the `<<<<<<<` hunks left so the caller can report progress instead
-      // of silently doing nothing on a pure conflict.
-      const remainingHunks = merged.hasConflicts
-        ? (merged.content.match(/^<{7}/gm) || []).length
-        : 0;
-      return { success: true, fullyResolved: !merged.hasConflicts, remainingHunks };
+      // `git merge-file`'s exit code is the exact number of conflict hunks left,
+      // so the caller can report progress rather than silently doing nothing on
+      // a pure conflict.
+      return {
+        success: true,
+        fullyResolved: !merged.hasConflicts,
+        remainingHunks: merged.conflictCount,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
@@ -1088,26 +1108,19 @@ export class ConflictResolutionService implements IConflictResolutionService {
     }
     this._watcherDebounces.clear();
 
-    // Dispose any open Resolve Conflicts dialogs.
+    // Dispose any open Resolve Conflicts dialogs (each fires onDidClose, which
+    // clears its _activeDialogs/_opByRepo entry).
     for (const dialog of this._activeDialogs.values()) {
       dialog.dispose();
     }
     this._activeDialogs.clear();
+    this._opByRepo.clear();
 
     for (const disposable of this._disposables) {
       disposable.dispose();
     }
     this._disposables = [];
   }
-}
-
-/**
- * Whether text carries git conflict markers — a `<<<<<<<` start line paired
- * with a `>>>>>>>` end line. Used to reject a stage-1 "base" that is really a
- * synthetic/incomplete-merge base rather than a clean common ancestor.
- */
-function hasConflictMarkers(text: string): boolean {
-  return /^<{7}/m.test(text) && /^>{7}/m.test(text);
 }
 
 /**
@@ -1118,6 +1131,8 @@ export interface IMergeNonConflictingResult {
   content: string;
   /** Whether any true-conflict hunks (with `<<<<<<<` markers) remain. */
   hasConflicts: boolean;
+  /** Exact number of conflict hunks left (git merge-file's exit code; 0 = clean). */
+  conflictCount: number;
 }
 
 /**
@@ -1175,7 +1190,15 @@ export async function mergeNonConflictingText(
       throw new Error(`git merge-file failed: ${result.stderr || 'unknown error'}`);
     }
 
-    return { content: result.stdout, hasConflicts: result.exitCode !== 0 };
+    // The exit code is the conflict-hunk count (git caps it at 127). It is the
+    // precise count for the caller's progress message — far better than scanning
+    // the output for `<<<<<<<`, which would also match marker-like file content.
+    const hasConflicts = result.exitCode !== 0;
+    return {
+      content: result.stdout,
+      hasConflicts,
+      conflictCount: hasConflicts ? result.exitCode : 0,
+    };
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
   }

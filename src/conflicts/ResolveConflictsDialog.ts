@@ -212,6 +212,14 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    */
   private _busy = false;
 
+  /**
+   * The terminal reason this dialog closed, set once. Guards against firing
+   * `_onDidClose` twice: `_close()` sets it before disposing, and the
+   * dispose() override fires a fallback `'cancelled'` only when it is still
+   * unset (the user closed the editor tab without Continue/Abort/Skip).
+   */
+  private _closeReason: 'completed' | 'aborted' | 'cancelled' | undefined;
+
   constructor(
     context: vscode.ExtensionContext,
     repo: IRepository,
@@ -950,9 +958,28 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    * Tear the dialog down with the given reason, notifying subscribers.
    */
   private _close(reason: 'completed' | 'aborted' | 'cancelled'): void {
+    if (this._closeReason !== undefined) {
+      return;
+    }
+    this._closeReason = reason;
     void this.postMessage({ type: 'closeDialog', reason } as OutgoingMessage);
     this._onDidClose.fire(reason);
     this.dispose();
+  }
+
+  /**
+   * Fire `onDidClose('cancelled')` when the editor tab is closed directly
+   * (BaseWebviewPanel routes `panel.onDidDispose` here) so the owner clears its
+   * per-repo registry and recorded operation. Without this, closing the tab
+   * instead of clicking Continue/Abort would leave a disposed dialog stranded in
+   * the service's `_activeDialogs`/`_opByRepo` maps.
+   */
+  override dispose(): void {
+    if (this._closeReason === undefined && !this._disposed) {
+      this._closeReason = 'cancelled';
+      this._onDidClose.fire('cancelled');
+    }
+    super.dispose();
   }
 
   /**
