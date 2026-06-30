@@ -52,6 +52,10 @@ type IncomingMessage =
   | { type: 'openMergeView'; path: string }
   /** Apply only the non-conflicting (one-sided) changes in a file. */
   | { type: 'applyNonConflicting'; path: string }
+  /** Take the user's ("Yours") side for every remaining unresolved file. */
+  | { type: 'acceptAllYours' }
+  /** Take the incoming ("Theirs") side for every remaining unresolved file. */
+  | { type: 'acceptAllTheirs' }
   | { type: 'abort' }
   | { type: 'continue' }
   /** Skip This Commit — rebase-only; drops the conflicting commit. */
@@ -399,6 +403,9 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       skipVisible: this._opContext.operation === 'rebase' && this._opContext.canContinue === true,
       continueVisible: this._opContext.canContinue,
       allResolved: this.allResolved(),
+      // Whether any row is still unresolved — gates the bulk "Accept … for All"
+      // buttons (no point offering them once everything is resolved).
+      hasUnresolved: !this.allResolved(),
     }).replace(/</g, '\\u003c');
 
     this._panel.webview.html = `<!DOCTYPE html>
@@ -461,6 +468,22 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   }
   root.append(fileList);
 
+  if (INIT.hasUnresolved) {
+    const bulkActions = el('div', { className: 'bulk-row' });
+    const bulkBtn = (action, text, title) => {
+      const b = el('button', { className: 'btn secondary', textContent: text });
+      b.setAttribute('data-action', action);
+      b.setAttribute('title', title);
+      return b;
+    };
+    bulkActions.append(
+      el('span', { textContent: 'For all remaining files:' }),
+      bulkBtn('acceptAllYours', 'Accept Yours', 'Take your side for every unresolved file'),
+      bulkBtn('acceptAllTheirs', 'Accept Theirs', 'Take the incoming side for every unresolved file')
+    );
+    root.append(bulkActions);
+  }
+
   const bulk = el('div', { className: 'bulk-row' });
   bulk.append(
     'Tip: use ',
@@ -506,6 +529,8 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       case 'applyNonConflicting':
         if (path) send({ type: action, path: path });
         break;
+      case 'acceptAllYours':
+      case 'acceptAllTheirs':
       case 'abort':
       case 'continue':
       case 'skip':
@@ -583,6 +608,12 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       case 'applyNonConflicting':
         await this._runPerFileExclusive(msg.path, () => this._handleApplyNonConflicting(msg.path));
         break;
+      case 'acceptAllYours':
+        await this._runExclusive(() => this._handleAcceptAll('yours'));
+        break;
+      case 'acceptAllTheirs':
+        await this._runExclusive(() => this._handleAcceptAll('theirs'));
+        break;
       case 'abort':
         await this._runExclusive(() => this._handleAbort());
         break;
@@ -648,6 +679,53 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    */
   private _isReversed(): boolean {
     return isReversedOperation(this._opContext.operation);
+  }
+
+  /**
+   * Take one side ("Yours"/"Theirs") for every still-unresolved file. Confirms
+   * once (it discards the other side across all files), then delegates to the
+   * service's bulk accept-all with this dialog's explicit reversal so it matches
+   * the per-row buttons. Already-resolved rows are untouched (the service only
+   * acts on git's unmerged set). On success every row that left the unmerged set
+   * flips to resolved, enabling Continue.
+   */
+  private async _handleAcceptAll(side: 'yours' | 'theirs'): Promise<void> {
+    const unresolved = [...this._statuses.entries()].filter(([, s]) => s === 'unresolved').length;
+    if (unresolved === 0) {
+      return;
+    }
+    const label = side === 'yours' ? 'Yours' : 'Theirs';
+    const choice = await vscode.window.showWarningMessage(
+      `Accept ${label} for all ${unresolved} unresolved file(s)? The other side will be discarded.`,
+      { modal: true },
+      `Accept ${label}`
+    );
+    if (choice !== `Accept ${label}`) {
+      return;
+    }
+
+    const reversed = this._isReversed();
+    const result =
+      side === 'yours'
+        ? await this._conflictResolutionService.acceptAllCurrent(this._repo, reversed)
+        : await this._conflictResolutionService.acceptAllIncoming(this._repo, reversed);
+    if (!result.success) {
+      void vscode.window.showErrorMessage(
+        sanitizeGitError(result.error || `Failed to accept ${label.toLowerCase()} for all files`)
+      );
+      return;
+    }
+
+    // Flip every row that git no longer reports as unmerged to resolved (some
+    // may remain — e.g. a binary the bulk op could not check out).
+    const stillConflicted = new Set(
+      (await this._conflictResolutionService.getConflictedFiles(this._repo)).map((c) => c.path)
+    );
+    for (const [path, status] of this._statuses) {
+      if (status === 'unresolved' && !stillConflicted.has(path)) {
+        this.updateFileStatus(path, 'resolved');
+      }
+    }
   }
 
   private async _handleAcceptYours(path: string): Promise<void> {

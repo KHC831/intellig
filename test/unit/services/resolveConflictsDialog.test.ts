@@ -39,6 +39,7 @@ import type { IConflictOpContext } from '../../../src/conflicts/interfaces/IConf
 import type { IMergeView, IMergeState } from '../../../src/conflicts/interfaces/IMergeView';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
+import { installWarningMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
 
 /**
  * Factory for a minimal mock `ExtensionContext` — mirrors the helper used
@@ -1537,6 +1538,168 @@ describe('ConflictResolutionService — (a) additions', () => {
         gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'b.ts'),
         'b.ts must be resolved (different rows are independent)'
       );
+      d.dispose();
+    });
+  });
+
+  // ─── Bulk "Accept … for All" buttons ─────────────────────────────────────
+  describe('accept-all-for-files buttons', () => {
+    /** Make the mock checkout/rm actually "resolve" the file in the status map. */
+    type ExecFn = (args: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+    function resolveOnMutation(): void {
+      const cli = (gitService as unknown as { gitCli: { exec: ExecFn } }).gitCli;
+      const inner: ExecFn = cli.exec.bind(cli);
+      cli.exec = async (args: string[]) => {
+        if (args[0] === 'checkout' || args[0] === 'rm') {
+          gitService._statuses.delete(args[args.length - 1]);
+        }
+        return inner(args);
+      };
+    }
+
+    function makeBulkDialog(operation: IConflictOpContext['operation']): {
+      d: ResolveConflictsDialog;
+      onMessage: (m: unknown) => Promise<void>;
+    } {
+      gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      resolveOnMutation();
+      const d = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [
+          { path: 'a.ts', resolved: false },
+          { path: 'b.ts', resolved: false },
+        ],
+        { operation, canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const onMessage = (
+        d as unknown as { _onMessage: (m: unknown) => Promise<void> }
+      )._onMessage.bind(d);
+      return { d, onMessage };
+    }
+
+    afterEach(() => restoreMessageFunctions());
+
+    it('renders the bulk Accept Yours/Theirs buttons only while a row is unresolved', () => {
+      const unresolved = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const html = (unresolved as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const dom = new JSDOM(html, { runScripts: 'outside-only' });
+      const w = dom.window;
+      (w as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      w.eval(w.document.querySelector('script[nonce]')?.textContent ?? '');
+      assert.ok(
+        w.document.querySelector('[data-action="acceptAllYours"]'),
+        'Accept Yours (all) button renders while unresolved'
+      );
+      assert.ok(w.document.querySelector('[data-action="acceptAllTheirs"]'));
+      unresolved.dispose();
+
+      // All resolved → buttons gone.
+      const resolved = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: true }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const html2 = (resolved as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const dom2 = new JSDOM(html2, { runScripts: 'outside-only' });
+      const w2 = dom2.window;
+      (w2 as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      w2.eval(w2.document.querySelector('script[nonce]')?.textContent ?? '');
+      assert.strictEqual(
+        w2.document.querySelector('[data-action="acceptAllYours"]'),
+        null,
+        'no bulk buttons once everything is resolved'
+      );
+      resolved.dispose();
+    });
+
+    it('acceptAllYours (merge) confirms then checks out --ours for every file and resolves all rows', async () => {
+      installWarningMessageTracker('Accept Yours');
+      const { d, onMessage } = makeBulkDialog('merge');
+
+      await onMessage({ type: 'acceptAllYours' });
+
+      for (const f of ['a.ts', 'b.ts']) {
+        assert.ok(
+          gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === f),
+          `merge Accept Yours must checkout --ours for ${f}`
+        );
+      }
+      assert.strictEqual(d.getFileStatuses().get('a.ts'), 'resolved');
+      assert.strictEqual(d.getFileStatuses().get('b.ts'), 'resolved');
+      assert.ok(d.allResolved(), 'all rows resolved → Continue enabled');
+      d.dispose();
+    });
+
+    it('acceptAllTheirs (merge) checks out --theirs for every file', async () => {
+      installWarningMessageTracker('Accept Theirs');
+      const { d, onMessage } = makeBulkDialog('merge');
+
+      await onMessage({ type: 'acceptAllTheirs' });
+
+      for (const f of ['a.ts', 'b.ts']) {
+        assert.ok(
+          gitService._execCalls.some(
+            (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === f
+          ),
+          `merge Accept Theirs must checkout --theirs for ${f}`
+        );
+      }
+      d.dispose();
+    });
+
+    it('reverses for an unstash dialog — Accept Yours for all takes --theirs (the stashed side)', async () => {
+      installWarningMessageTracker('Accept Yours');
+      const { d, onMessage } = makeBulkDialog('unstash');
+
+      await onMessage({ type: 'acceptAllYours' });
+
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--theirs'),
+        'unstash bulk Accept Yours must reverse to --theirs'
+      );
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--ours'),
+        'must NOT take --ours during an unstash'
+      );
+      d.dispose();
+    });
+
+    it('does nothing when the confirm is dismissed', async () => {
+      installWarningMessageTracker(undefined); // user cancels
+      const { d, onMessage } = makeBulkDialog('merge');
+
+      await onMessage({ type: 'acceptAllYours' });
+
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'checkout'),
+        'cancelling the confirm must not check out anything'
+      );
+      assert.strictEqual(d.getFileStatuses().get('a.ts'), 'unresolved');
       d.dispose();
     });
   });
