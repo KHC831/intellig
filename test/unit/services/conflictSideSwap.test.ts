@@ -215,4 +215,98 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
       cleanup();
     }
   });
+
+  /**
+   * Leave the repo mid-rebase of `feature` onto `mainline`, where the user's own
+   * commit (feature) DELETED `f.txt` and the upstream (mainline) MODIFIED it —
+   * a modify/delete conflict (porcelain UD: work-tree deleted, stage 3 absent).
+   */
+  function makeRebaseDeleteModifyRepo(): { root: string; cleanup: () => void } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-revdel-'));
+    git(root, 'init', '-q', '-b', 'mainline');
+    git(root, 'config', 'user.email', 'test@example.com');
+    git(root, 'config', 'user.name', 'Test');
+    git(root, 'config', 'commit.gpgsign', 'false');
+
+    fs.writeFileSync(path.join(root, 'f.txt'), 'l1\nl2\nl3\n');
+    git(root, 'add', 'f.txt');
+    git(root, 'commit', '-q', '-m', 'base');
+
+    git(root, 'checkout', '-q', '-b', 'feature');
+    git(root, 'rm', '-q', 'f.txt');
+    git(root, 'commit', '-q', '-m', 'feature deletes f.txt');
+
+    git(root, 'checkout', '-q', 'mainline');
+    fs.writeFileSync(path.join(root, 'f.txt'), 'l1\nMAIN-MOD\nl3\n');
+    git(root, 'commit', '-q', '-am', 'mainline modifies f.txt');
+
+    git(root, 'checkout', '-q', 'feature');
+    try {
+      git(root, 'rebase', 'mainline');
+    } catch {
+      // expected — modify/delete conflict
+    }
+    return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  }
+
+  it('reversed rebase modify/delete — Accept Yours git-rm-s the file (the user deleted it)', async () => {
+    const { root, cleanup } = makeRebaseDeleteModifyRepo();
+    try {
+      assert.match(
+        git(root, 'status', '--porcelain', 'f.txt'),
+        /^UD /,
+        'fixture: UD modify/delete'
+      );
+      const service = makeService(root);
+      const repo = {
+        rootUri: vscode.Uri.file(root),
+        state: 'rebasing',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      // Accept Yours during a rebase = the user's feature commit = the deletion.
+      const result = await service.acceptCurrent(repo, 'f.txt');
+      assert.strictEqual(result.success, true, result.error);
+      assert.ok(
+        !fs.existsSync(path.join(root, 'f.txt')),
+        'Accept Yours must remove the file (rm), matching the user-side deletion'
+      );
+      // `git rm` resolves the conflict (no unmerged stages) while staging the
+      // deletion — so the file is no longer in the unmerged set.
+      assert.strictEqual(
+        git(root, 'ls-files', '-u', '--', 'f.txt').trim(),
+        '',
+        'f.txt must no longer be unmerged (conflict resolved by rm)'
+      );
+      service.dispose();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('reversed rebase modify/delete — Accept Theirs keeps the upstream-modified file', async () => {
+    const { root, cleanup } = makeRebaseDeleteModifyRepo();
+    try {
+      const service = makeService(root);
+      const repo = {
+        rootUri: vscode.Uri.file(root),
+        state: 'rebasing',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      // Accept Theirs during a rebase = upstream = the modified file.
+      const result = await service.acceptIncoming(repo, 'f.txt');
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(
+        fs.readFileSync(path.join(root, 'f.txt'), 'utf8'),
+        'l1\nMAIN-MOD\nl3\n',
+        'Accept Theirs keeps the upstream-modified content (checkout --ours)'
+      );
+      service.dispose();
+    } finally {
+      cleanup();
+    }
+  });
 });

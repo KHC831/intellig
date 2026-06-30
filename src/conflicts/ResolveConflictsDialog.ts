@@ -574,7 +574,11 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         await this._runPerFileExclusive(msg.path, () => this._handleAcceptTheirs(msg.path));
         break;
       case 'openMergeView':
-        await this._handleOpenMergeView(msg.path);
+        // Guarded on the same per-path key as the accept handlers: opening the
+        // merge view can inject a synthetic stage-1 (rewriting the index entry),
+        // which must not interleave with a same-row Accept that just staged a
+        // resolution.
+        await this._runPerFileExclusive(msg.path, () => this._handleOpenMergeView(msg.path));
         break;
       case 'applyNonConflicting':
         await this._runPerFileExclusive(msg.path, () => this._handleApplyNonConflicting(msg.path));

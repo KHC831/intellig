@@ -81,6 +81,15 @@ export class ConflictResolutionService implements IConflictResolutionService {
   private readonly _opByRepo: Map<string, IConflictOpContext['operation']> = new Map();
 
   /**
+   * Repos with a bulk accept-all (acceptAllCurrent/acceptAllIncoming) in flight.
+   * The palette commands gate on a modal confirm, but a double-confirm could
+   * launch two concurrent batches; the second would re-query conflicts and run
+   * `checkout`/`rm` on a path the first already resolved, erroring mid-batch.
+   * A second bulk op on the same repo is dropped while one is running.
+   */
+  private readonly _bulkInFlight: Set<string> = new Set();
+
+  /**
    * Per-repository latest context-key state. Tracks the last value we
    * published for each repo so we can avoid redundant `setContext` calls
    * AND correctly report the aggregate (any-repo-has-conflicts) state in
@@ -804,17 +813,34 @@ export class ConflictResolutionService implements IConflictResolutionService {
     repo: IRepository,
     reversed?: boolean
   ): Promise<IConflictResolutionResult> {
-    try {
-      await this._acceptAllBySide(repo, this._yoursFlag(repo, reversed));
+    return this._runBulk(repo, () => this._acceptAllBySide(repo, this._yoursFlag(repo, reversed)));
+  }
 
-      // Fire change event
+  /**
+   * Run a bulk accept-all batch under the per-repo {@link _bulkInFlight} guard
+   * so a concurrent second invocation can't interleave `checkout`/`rm` with the
+   * first and error mid-batch. A dropped second call returns success (the first
+   * batch is resolving the same files); the guard clears in `finally`.
+   */
+  private async _runBulk(
+    repo: IRepository,
+    batch: () => Promise<void>
+  ): Promise<IConflictResolutionResult> {
+    const key = repo.rootUri.fsPath;
+    if (this._bulkInFlight.has(key)) {
+      return { success: true };
+    }
+    this._bulkInFlight.add(key);
+    try {
+      await batch();
       const remainingConflicts = await this.getConflictedFiles(repo);
       this._onDidChangeConflicts.fire({ repo, conflicts: remainingConflicts });
-
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to accept all current: ${errorMessage}` };
+      return { success: false, error: `Failed to accept all: ${errorMessage}` };
+    } finally {
+      this._bulkInFlight.delete(key);
     }
   }
 
@@ -869,18 +895,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
     repo: IRepository,
     reversed?: boolean
   ): Promise<IConflictResolutionResult> {
-    try {
-      await this._acceptAllBySide(repo, this._theirsFlag(repo, reversed));
-
-      // Fire change event
-      const remainingConflicts = await this.getConflictedFiles(repo);
-      this._onDidChangeConflicts.fire({ repo, conflicts: remainingConflicts });
-
-      return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to accept all incoming: ${errorMessage}` };
-    }
+    return this._runBulk(repo, () => this._acceptAllBySide(repo, this._theirsFlag(repo, reversed)));
   }
 
   /**
