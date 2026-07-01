@@ -189,6 +189,27 @@ function makeMockGitService(): IGitService & {
       ): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
         execCalls.push(args);
         execOpts.push(opts);
+        // Synthesize `git ls-files -u -z [-- <path>]` from `_statuses` so the
+        // accept paths see the index stage model: stage 2 present unless ours is
+        // deleted (index 'D'), stage 3 present unless theirs is deleted (work-tree
+        // 'D'). Records are `<mode> <sha> <stage>\t<path>` NUL-terminated.
+        if (args[0] === 'ls-files' && args.includes('-u')) {
+          const dashDash = args.indexOf('--');
+          const only = dashDash >= 0 ? args[dashDash + 1] : undefined;
+          let stdout = '';
+          for (const [p, s] of statuses) {
+            if (only !== undefined && p !== only) {
+              continue;
+            }
+            if (s.indexStatus !== 'D') {
+              stdout += `100644 ${'2'.repeat(40)} 2\t${p}\0`;
+            }
+            if (s.workTreeStatus !== 'D') {
+              stdout += `100644 ${'3'.repeat(40)} 3\t${p}\0`;
+            }
+          }
+          return { exitCode: 0, stdout, stderr: '' };
+        }
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     },
@@ -307,6 +328,72 @@ describe('ResolveConflictsDialog', () => {
       assert.ok(header?.textContent?.includes("Merge from 'feature/x'"), 'header shows the op');
     });
 
+    it('renders "Accept from {branch}" buttons when side names are supplied', () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        {
+          operation: 'merge',
+          canAbort: true,
+          canContinue: true,
+          sideNames: { yours: 'main', theirs: 'feature' },
+        },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      const doc = renderDoc(dialog);
+      const labels = [...doc.querySelectorAll('button')].map((b) => b.textContent);
+      assert.ok(labels.includes('Accept from main'), 'per-row yours button names the branch');
+      assert.ok(labels.includes('Accept from feature'), 'per-row theirs button names the branch');
+      // The bulk row reuses the same names.
+      assert.strictEqual(
+        labels.filter((l) => l === 'Accept from main').length,
+        2,
+        'both the per-row and bulk "yours" buttons name the branch'
+      );
+    });
+
+    it('mixes a named side with the generic fallback when only one side resolves', () => {
+      // unstash: the stashed (yours) side has no ref name → "Accept Yours"; the
+      // theirs side names the current branch.
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        {
+          operation: 'unstash',
+          canAbort: true,
+          canContinue: true,
+          sideNames: { theirs: 'main' },
+        },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const labels = [...renderDoc(dialog).querySelectorAll('button')].map((b) => b.textContent);
+      assert.ok(labels.includes('Accept Yours'), 'unnamed yours side falls back to generic');
+      assert.ok(labels.includes('Accept from main'), 'named theirs side shows the ref');
+    });
+
+    it('falls back to "Accept Yours/Theirs" when no side names are supplied', () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      const labels = [...renderDoc(dialog).querySelectorAll('button')].map((b) => b.textContent);
+      assert.ok(labels.includes('Accept Yours'), 'generic yours label when no name resolved');
+      assert.ok(labels.includes('Accept Theirs'), 'generic theirs label when no name resolved');
+    });
+
     it('hides Abort button when canAbort is false', () => {
       dialog = new ResolveConflictsDialog(
         ctx,
@@ -392,6 +479,33 @@ describe('ResolveConflictsDialog', () => {
       dialog.updateFileStatus('a.ts', 'resolved');
       dialog.updateFileStatus('b.ts', 'resolved');
       assert.strictEqual(dialog.allResolved(), true);
+    });
+
+    it('opens with Continue ENABLED when there are no conflicts but an op is in progress', () => {
+      // Reached when the user resolved everything in the native merge editor (which
+      // just stages the file) and clicks the in-progress badge: the dialog must
+      // offer Continue to finish the rebase, not dead-end.
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [],
+        { operation: 'rebase', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const doc = renderDoc(dialog);
+      const continueBtn = doc.querySelector('[data-action="continue"]') as HTMLButtonElement;
+      assert.ok(continueBtn, 'continue button should render');
+      assert.strictEqual(
+        continueBtn.hasAttribute('disabled'),
+        false,
+        'continue must be enabled when nothing is left to resolve'
+      );
+      assert.ok(
+        doc.body.textContent?.includes('All conflicts resolved'),
+        'shows the ready-to-continue message'
+      );
     });
   });
 
@@ -497,6 +611,73 @@ describe('ResolveConflictsDialog', () => {
         1,
         'a double-clicked Continue must run rebaseContinue exactly once'
       );
+    });
+
+    it('a bulk/terminal op is dropped while a per-file accept is in flight', async () => {
+      // The per-file guard (_inFlightPaths) and the bulk/terminal guard (_busy)
+      // must see each other: an Accept-All must not interleave its checkout/stage
+      // with an in-flight per-row accept on the same path.
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const d = dialog as unknown as {
+        _runExclusive: (op: () => Promise<void>) => Promise<void>;
+        _runPerFileExclusive: (p: string, op: () => Promise<void>) => Promise<void>;
+      };
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      let bulkRan = false;
+      const perFile = d._runPerFileExclusive('a.ts', () => gate);
+      await d._runExclusive(async () => {
+        bulkRan = true;
+      });
+      assert.strictEqual(
+        bulkRan,
+        false,
+        'bulk op must not run while a per-file accept is in flight'
+      );
+      release();
+      await perFile;
+    });
+
+    it('a per-file accept is dropped while a bulk/terminal op is in flight', async () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const d = dialog as unknown as {
+        _runExclusive: (op: () => Promise<void>) => Promise<void>;
+        _runPerFileExclusive: (p: string, op: () => Promise<void>) => Promise<void>;
+      };
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      let perFileRan = false;
+      const bulk = d._runExclusive(() => gate);
+      await d._runPerFileExclusive('a.ts', async () => {
+        perFileRan = true;
+      });
+      assert.strictEqual(
+        perFileRan,
+        false,
+        'per-file accept must not run while a bulk/terminal op is in flight'
+      );
+      release();
+      await bulk;
     });
 
     it('MergeView.onDidResolve flips the row status to resolved', () => {
@@ -985,6 +1166,73 @@ describe('ResolveConflictsDialog', () => {
     });
   });
 
+  // C1 — cherry-pick / revert Continue must surface a non-conflict failure the
+  // same way the rebase branch does, instead of falling through to a false
+  // "completed". `cherry-pick --continue` can exit non-zero with zero remaining
+  // conflicts (e.g. "the previous cherry-pick is now empty", or "no cherry-pick
+  // in progress"): reporting success then leaves the sequencer stuck mid-op
+  // while telling the user it finished.
+  describe('C1 — cherry-pick/revert Continue surfaces a non-conflict failure', () => {
+    const cases: Array<{
+      op: 'cherryPick' | 'revert';
+      method: 'cherryPickContinue' | 'revertContinue';
+      reason: string;
+    }> = [
+      {
+        op: 'cherryPick',
+        method: 'cherryPickContinue',
+        reason: 'the previous cherry-pick is now empty',
+      },
+      { op: 'revert', method: 'revertContinue', reason: 'no revert in progress' },
+    ];
+
+    cases.forEach(({ op, method, reason }) => {
+      it(`${op}: reports git's reason instead of a false "completed"`, async () => {
+        // A real ResultAsync whose Ok value is a non-conflict failure.
+        (gitService as unknown as Record<string, unknown>)[method] = () =>
+          okAsync({ success: false, conflicts: [], failureReason: reason });
+
+        dialog = new ResolveConflictsDialog(
+          ctx,
+          repo,
+          [{ path: 'a.ts', resolved: true }],
+          { operation: op, canAbort: true, canContinue: true },
+          conflictService,
+          mergeView,
+          gitService
+        );
+
+        let closeReason: string | undefined;
+        dialog.onDidClose((r) => {
+          closeReason = r;
+        });
+
+        const errors: string[] = [];
+        const origErr = vscode.window.showErrorMessage;
+        (
+          vscode.window as unknown as {
+            showErrorMessage: (msg: string) => Thenable<string | undefined>;
+          }
+        ).showErrorMessage = (msg: string): Thenable<string | undefined> => {
+          errors.push(msg);
+          return Promise.resolve(undefined);
+        };
+        try {
+          await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+            type: 'continue',
+          });
+        } finally {
+          (vscode.window as unknown as { showErrorMessage: typeof origErr }).showErrorMessage =
+            origErr;
+        }
+
+        assert.strictEqual(errors.length, 1, 'a non-conflict failure must surface an error toast');
+        assert.ok(errors[0].includes(reason), `toast should carry git's reason, got: ${errors[0]}`);
+        assert.notStrictEqual(closeReason, 'completed', 'must not close as completed on failure');
+      });
+    });
+  });
+
   // M5 — merge Continue must run non-interactively. `git merge --continue`
   // opens $EDITOR for the merge message by default; under VS Code's non-TTY
   // spawn that hangs/fails. completeMerge already commits with `--no-edit`, so
@@ -1092,6 +1340,27 @@ describe('ConflictResolutionService — (a) additions', () => {
     );
   });
 
+  it('explicit invocation opens the dialog even when auto-open is disabled', async () => {
+    // The `autoOpenResolveConflictsDialog=false` opt-out only suppresses the
+    // AUTOMATIC post-op open — an explicit user action (status-bar "click to
+    // resolve" / VCS menu "Resolve Conflicts…") must still open, otherwise that
+    // entry point dead-ends with no way to reach Continue/Abort.
+    setMockConfigValue('intellig', 'autoOpenResolveConflictsDialog', false);
+
+    await conflictService.openResolveConflictsDialog(
+      repo,
+      [{ path: 'a.ts', resolved: false }],
+      { operation: 'merge', canAbort: true, canContinue: true },
+      { explicit: true }
+    );
+
+    assert.strictEqual(
+      conflictService.hasOpenDialog(repo),
+      true,
+      'explicit open must show the dialog despite auto-open=false'
+    );
+  });
+
   it('flips an open dialog row to resolved when a repo change reports the file no longer unmerged', async () => {
     // Two files conflicted; dialog opens with both unresolved.
     gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
@@ -1121,11 +1390,15 @@ describe('ConflictResolutionService — (a) additions', () => {
   });
 
   it('in-progress probe surfaces a non-ENOENT fs fault instead of masking it as "absent"', async () => {
-    // Make `.git` a FILE so the state-file / rebase-dir existence probes hit
-    // ENOTDIR (a real fs fault) rather than ENOENT. The probe must now LOG
-    // the non-ENOENT fault — the prior code swallowed every errno as "absent".
+    // Point the resolved gitdir at a regular FILE so the state-file / rebase-dir
+    // existence probes hit ENOTDIR (a real fs fault) rather than ENOENT. The
+    // probe must LOG the non-ENOENT fault — the prior code swallowed every errno
+    // as "absent". (`resolveGitDir` follows the `.git`-file pointer, so the fault
+    // has to live under the resolved path, not on the `.git` file itself.)
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-rc-enotdir-'));
-    fs.writeFileSync(path.join(root, '.git'), 'gitdir: /nowhere\n');
+    const gitDirIsAFile = path.join(root, 'resolved-gitdir');
+    fs.writeFileSync(gitDirIsAFile, 'not a directory\n');
+    fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDirIsAFile}\n`);
     const badRepo = {
       rootUri: vscode.Uri.file(root),
       state: 'idle',
@@ -1134,7 +1407,7 @@ describe('ConflictResolutionService — (a) additions', () => {
     } as unknown as IRepository;
 
     const debugMessages: string[] = [];
-    (conflictService as unknown as { _logger: unknown })._logger = {
+    (conflictService as unknown as { _coordinator: { _logger: unknown } })._coordinator._logger = {
       debug: (msg: string): void => void debugMessages.push(msg),
       info: (): void => {},
       warn: (): void => {},
@@ -1158,7 +1431,7 @@ describe('ConflictResolutionService — (a) additions', () => {
   it('in-progress probe stays silent for the normal ENOENT (absent) case', async () => {
     // gitDir exists with no state files → ENOENT on every probe → no fault log.
     const debugMessages: string[] = [];
-    (conflictService as unknown as { _logger: unknown })._logger = {
+    (conflictService as unknown as { _coordinator: { _logger: unknown } })._coordinator._logger = {
       debug: (msg: string): void => void debugMessages.push(msg),
       info: (): void => {},
       warn: (): void => {},
@@ -1206,55 +1479,13 @@ describe('ConflictResolutionService — (a) additions', () => {
     );
   });
 
-  // ─── Finding #6: completeMerge / completeRebase stale-dialog guard ────────
-  //
-  // Regression: "Continue" on a stale merge dialog can commit whatever is
-  // staged if the repo is no longer mid-merge. completeMerge / completeRebase
-  // must bail early when repo.state === 'idle', not fall through to the git
-  // command.
-
-  describe('completeMerge — stale-dialog guard', () => {
-    it('returns "not in a merge" error when repo state is idle', async () => {
-      // repo created by makeRepoInTmp() already has state: 'idle'.
-      const result = await conflictService.completeMerge(repo);
-
-      assert.strictEqual(result.success, false);
-      assert.ok(
-        result.error && /not.*merge|no.*merge/i.test(result.error),
-        `expected a "not in a merge" error, got: ${result.error}`
-      );
-    });
-
-    it('does not invoke git commit when repo is not mid-merge', async () => {
-      await conflictService.completeMerge(repo);
-
-      assert.ok(
-        !gitService._execCalls.some((args) => args[0] === 'commit'),
-        'git commit --no-edit must not be called when repo is not mid-merge'
-      );
-    });
-  });
-
-  describe('completeRebase — stale-dialog guard', () => {
-    it('returns "not in a rebase" error when repo state is idle', async () => {
-      const result = await conflictService.completeRebase(repo);
-
-      assert.strictEqual(result.success, false);
-      assert.ok(
-        result.error && /not.*rebase|no.*rebase/i.test(result.error),
-        `expected a "not in a rebase" error, got: ${result.error}`
-      );
-    });
-
-    it('does not invoke git rebase when repo is not mid-rebase', async () => {
-      await conflictService.completeRebase(repo);
-
-      assert.ok(
-        !gitService._execCalls.some((args) => args[0] === 'rebase'),
-        'git rebase --continue must not be called when repo is not mid-rebase'
-      );
-    });
-  });
+  // completeMerge / completeRebase no longer hand-roll a `repo.state` guard
+  // (which used a possibly-stale cached value). git self-guards live: `merge
+  // --continue` / `rebase --continue` error when no MERGE_HEAD / rebase dir is
+  // present, so "Continue" on a stale dialog cannot commit arbitrary staged
+  // content. The finish path is real-git-covered in completeMergeRealGit.test
+  // (commits a genuine merge even when repo.state reads idle; fails with no
+  // commit when no merge is in progress).
 
   // ─── Dialog close lifecycle (tab close vs Continue/Abort) ─────────────────
   //
@@ -1393,8 +1624,11 @@ describe('ConflictResolutionService — (a) additions', () => {
       gitService._fireRepoChange(repo);
       await new Promise((resolve) => setImmediate(resolve));
 
-      // A later, unrelated merge conflict (no dialog/op recorded, state idle)
-      // must NOT inherit the stale unstash reversal — it takes --ours.
+      // A later, unrelated forward merge conflict (state 'merging', no op
+      // recorded) must NOT inherit the stale unstash reversal: with the recorded
+      // op cleared, 'merging' infers a non-reversed merge → --ours. Had the
+      // 'unstash' op leaked, it would win the inference and force --theirs.
+      (repo as unknown as { state: string }).state = 'merging';
       gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
       await conflictService.acceptAllCurrent(repo);
       assert.ok(

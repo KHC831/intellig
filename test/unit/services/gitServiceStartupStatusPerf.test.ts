@@ -1,18 +1,17 @@
 /**
  * Startup-latency guard for repository discovery.
  *
- * `loadRepository` runs a `git status` purely to detect the repository state
- * (idle / rebasing / merging / cherry-picking / reverting) via
- * `parseRepositoryState`, which only reads status *header* lines. A bare
- * `git status` also enumerates EVERY untracked file by walking the whole
- * working tree — on a large repo that walk takes 5–10s and, because repo
- * discovery is on the critical path the graph load awaits, it stalls the
- * "Loading git graph…" view for that whole time.
+ * `loadRepository` detects the repository state (idle / rebasing / merging /
+ * cherry-picking / reverting) purely from the on-disk `.git` in-progress markers
+ * — it does NOT run `git status`. A bare `git status` enumerates EVERY untracked
+ * file by walking the whole working tree (5–10s on a large repo) and, because
+ * repo discovery is on the critical path the graph load awaits, that walk stalls
+ * the "Loading git graph…" view. Detecting state from markers avoids the
+ * subprocess entirely.
  *
- * The state probe must therefore suppress untracked enumeration
- * (`--untracked-files=no`). These tests pin that: the discovery-time status
- * call never runs a bare `git status`, and state detection still works because
- * the rebase/merge/etc. header lines are unaffected by the untracked flag.
+ * This test pins that: the discovery-time load never issues a `git status`.
+ * Marker-based state detection itself is covered against real git in
+ * `repositoryStateRealGit.test.ts`.
  */
 
 import '../../setup';
@@ -72,33 +71,17 @@ describe('GitService startup — repository state probe avoids the untracked-fil
     gitService.dispose();
   });
 
-  function statusCalls(): string[][] {
-    return cli.executedCommands.map((c) => c.args).filter((a) => a.includes('status'));
-  }
-
-  it('discovery never issues a bare `git status` (the full untracked-file walk)', async () => {
+  it('discovery never issues a `git status` (state comes from .git markers, no untracked walk)', async () => {
     await gitService.getRepository(Uri.file('/test/repo'));
 
-    const statuses = statusCalls();
-    assert.ok(statuses.length > 0, 'expected a state-probe status call during discovery');
-    for (const args of statuses) {
-      assert.ok(
-        args.includes('--untracked-files=no'),
-        `state-probe status must suppress untracked enumeration; got: git ${args.join(' ')}`
-      );
-      assert.notDeepStrictEqual(args, ['status'], 'a bare `git status` walks the whole work tree');
-    }
-  });
-
-  it('still detects a non-idle state from the status header with untracked suppressed', async () => {
-    cli.setByPrefix('status', {
-      exitCode: 0,
-      stdout: 'interactive rebase in progress; onto deadbeef\n',
-      stderr: '',
-    });
-
-    const repo = await gitService.getRepository(Uri.file('/test/repo'));
-    assert.ok(repo, 'repository should load');
-    assert.strictEqual(repo.state, 'rebasing', 'state header still parsed with -uno');
+    const statuses = gitService['_gitCli'] as unknown as RecordingGitCli;
+    const statusCalls = statuses.executedCommands
+      .map((c) => c.args)
+      .filter((a) => a.includes('status'));
+    assert.strictEqual(
+      statusCalls.length,
+      0,
+      `loadRepository must not run git status; got: ${statusCalls.map((a) => 'git ' + a.join(' ')).join(', ')}`
+    );
   });
 });

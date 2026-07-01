@@ -101,7 +101,7 @@ describe('e2e — conflict resolution commands', function () {
 
     stubs = stubPrompts({
       warningMessage: (_m, _o, ...items) =>
-        (items.find((i) => i === 'Accept All Current') as string) ?? undefined,
+        (items.find((i) => typeof i === 'string' && i.startsWith('Accept')) as string) ?? undefined,
     });
 
     await vscode.commands.executeCommand('intellig.conflict.acceptAllCurrent');
@@ -121,7 +121,7 @@ describe('e2e — conflict resolution commands', function () {
 
     stubs = stubPrompts({
       warningMessage: (_m, _o, ...items) =>
-        (items.find((i) => i === 'Accept All Incoming') as string) ?? undefined,
+        (items.find((i) => typeof i === 'string' && i.startsWith('Accept')) as string) ?? undefined,
     });
 
     await vscode.commands.executeCommand('intellig.conflict.acceptAllIncoming');
@@ -158,7 +158,7 @@ describe('e2e — conflict resolution commands', function () {
 
     stubs = stubPrompts({
       warningMessage: (_m, _o, ...items) =>
-        (items.find((i) => i === 'Accept All Current') as string) ?? undefined,
+        (items.find((i) => typeof i === 'string' && i.startsWith('Accept')) as string) ?? undefined,
     });
 
     await vscode.commands.executeCommand('intellig.conflict.acceptAllCurrent');
@@ -195,7 +195,7 @@ describe('e2e — conflict resolution commands', function () {
 
     stubs = stubPrompts({
       warningMessage: (_m, _o, ...items) =>
-        (items.find((i) => i === 'Accept All Incoming') as string) ?? undefined,
+        (items.find((i) => typeof i === 'string' && i.startsWith('Accept')) as string) ?? undefined,
     });
 
     await vscode.commands.executeCommand('intellig.conflict.acceptAllIncoming');

@@ -11,6 +11,33 @@ import {
 import { IGitCommandResult } from '../../../src/git-core/gitCli';
 
 /**
+ * Synthesize `git ls-files -u -z [-- <path>]` stdout from porcelain statuses so a
+ * mock `gitCli.exec` serves the accept path's index stage model: stage 2 present
+ * unless ours is deleted (index 'D'), stage 3 present unless theirs is deleted
+ * (work-tree 'D'). Returns null for any other command so callers fall through.
+ */
+function lsFilesUnmerged(args: string[], status: IFileStatus[]): string | null {
+  if (args[0] !== 'ls-files' || !args.includes('-u')) {
+    return null;
+  }
+  const dashDash = args.indexOf('--');
+  const only = dashDash >= 0 ? args[dashDash + 1] : undefined;
+  let out = '';
+  for (const f of status) {
+    if (only !== undefined && f.path !== only) {
+      continue;
+    }
+    if (f.indexStatus !== 'D') {
+      out += `100644 ${'2'.repeat(40)} 2\t${f.path}\0`;
+    }
+    if (f.workTreeStatus !== 'D') {
+      out += `100644 ${'3'.repeat(40)} 3\t${f.path}\0`;
+    }
+  }
+  return out;
+}
+
+/**
  * Unit tests for ConflictResolutionService
  */
 describe('ConflictResolutionService', () => {
@@ -46,10 +73,13 @@ describe('ConflictResolutionService', () => {
       },
     };
 
-    // Create mock repository
+    // Create mock repository. Default to 'merging' — a forward (non-reversed)
+    // conflict. An 'idle' repo with unmerged files is the external stash-pop/
+    // apply case, which the service now treats as reversed (see inferReopenOperation),
+    // so tests that want the non-reversed --ours/--theirs mapping use 'merging'.
     mockRepo = {
       rootUri: vscode.Uri.file('/mock/repo'),
-      state: 'idle',
+      state: 'merging',
       remotes: [],
       submodules: [],
     };
@@ -244,9 +274,11 @@ describe('ConflictResolutionService', () => {
   describe('accept ours/theirs — delete/modify conflicts (P1: git rm, not checkout)', () => {
     function recordExec(): string[][] {
       const calls: string[][] = [];
-      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+      mockGitCli.exec = async (args: string[]): Promise<IGitCommandResult> => {
         calls.push(args);
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+        const ls = lsFilesUnmerged(args, await mockGitService.getStatus!(mockRepo));
+        const stdout = ls ?? '';
+        return { exitCode: 0, stdout, stderr: '', combined: stdout };
       };
       return calls;
     }
@@ -260,7 +292,10 @@ describe('ConflictResolutionService', () => {
 
       const result = await conflictService.acceptCurrent(mockRepo, 'gone.txt');
       assert.strictEqual(result.success, true);
-      assert.deepStrictEqual(calls[0], ['rm', '--', 'gone.txt']);
+      assert.ok(
+        calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'),
+        'ours-deleted file must be resolved with git rm'
+      );
       assert.ok(
         !calls.some((a) => a[0] === 'checkout'),
         'must not checkout an ours-side blob that does not exist'
@@ -276,7 +311,10 @@ describe('ConflictResolutionService', () => {
 
       const result = await conflictService.acceptIncoming(mockRepo, 'gone.txt');
       assert.strictEqual(result.success, true);
-      assert.deepStrictEqual(calls[0], ['rm', '--', 'gone.txt']);
+      assert.ok(
+        calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'),
+        'theirs-deleted file must be resolved with git rm'
+      );
       assert.ok(
         !calls.some((a) => a[0] === 'checkout'),
         'must not checkout a theirs-side blob that does not exist'
@@ -342,7 +380,11 @@ describe('ConflictResolutionService', () => {
         conflictService.acceptAllCurrent(mockRepo),
       ]);
       assert.strictEqual(r1.success, true);
-      assert.strictEqual(r2.success, true);
+      // The dropped second call is a benign no-op: not success (the in-flight
+      // batch may take the other side), not an error to toast — marked skipped.
+      assert.strictEqual(r2.success, false);
+      assert.strictEqual(r2.skipped, true);
+      assert.strictEqual(r2.error, undefined);
 
       const checkouts = calls.filter((a) => a[0] === 'checkout' && a[3] === 'both.txt');
       assert.strictEqual(
@@ -353,28 +395,46 @@ describe('ConflictResolutionService', () => {
     });
   });
 
+  describe('abortWorkingTreeConflicts()', () => {
+    it('checks out HEAD for the given paths', async () => {
+      const calls: string[][] = [];
+      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+        calls.push(args);
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+      };
+      const res = await conflictService.abortWorkingTreeConflicts(mockRepo, ['a.ts', 'b.ts']);
+      assert.strictEqual(res.success, true);
+      assert.deepStrictEqual(calls[0], ['checkout', 'HEAD', '--', 'a.ts', 'b.ts']);
+    });
+
+    it('is a no-op success for an empty path list (never runs a bare checkout)', async () => {
+      const calls: string[][] = [];
+      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+        calls.push(args);
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+      };
+      const res = await conflictService.abortWorkingTreeConflicts(mockRepo, []);
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(calls.length, 0, 'must not run git for zero paths');
+    });
+  });
+
   describe('acceptAllCurrent()', () => {
     it('should accept current for all conflicted files', async () => {
       const checkedOutFiles: string[] = [];
+      const conflicted: IFileStatus[] = [
+        { path: 'file1.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
+        { path: 'file2.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
+      ];
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
         if (args[0] === 'checkout' && args[1] === '--ours') {
           checkedOutFiles.push(args[3]);
         }
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+        const ls = lsFilesUnmerged(args, conflicted);
+        const stdout = ls ?? '';
+        return Promise.resolve({ exitCode: 0, stdout, stderr: '', combined: stdout });
       };
-
-      // First call returns conflicts, subsequent calls return empty (after resolution)
-      let callCount = 0;
-      mockGitService.getStatus = (): Promise<IFileStatus[]> => {
-        callCount++;
-        if (callCount === 1) {
-          return Promise.resolve([
-            { path: 'file1.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
-            { path: 'file2.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
-          ]);
-        }
-        return Promise.resolve([]);
-      };
+      mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
       const result = await conflictService.acceptAllCurrent(mockRepo);
       assert.strictEqual(result.success, true);
@@ -393,24 +453,19 @@ describe('ConflictResolutionService', () => {
   describe('acceptAllIncoming()', () => {
     it('should accept incoming for all conflicted files', async () => {
       const checkedOutFiles: string[] = [];
+      const conflicted: IFileStatus[] = [
+        { path: 'file1.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
+        { path: 'file2.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
+      ];
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
         if (args[0] === 'checkout' && args[1] === '--theirs') {
           checkedOutFiles.push(args[3]);
         }
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+        const ls = lsFilesUnmerged(args, conflicted);
+        const stdout = ls ?? '';
+        return Promise.resolve({ exitCode: 0, stdout, stderr: '', combined: stdout });
       };
-
-      let callCount = 0;
-      mockGitService.getStatus = (): Promise<IFileStatus[]> => {
-        callCount++;
-        if (callCount === 1) {
-          return Promise.resolve([
-            { path: 'file1.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
-            { path: 'file2.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
-          ]);
-        }
-        return Promise.resolve([]);
-      };
+      mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
       const result = await conflictService.acceptAllIncoming(mockRepo);
       assert.strictEqual(result.success, true);
@@ -457,33 +512,42 @@ describe('ConflictResolutionService', () => {
   });
 
   describe('completeMerge()', () => {
-    it('should complete merge when no conflicts', async () => {
-      mockRepo.state = 'merging';
+    it('finishes the merge with `git merge --continue` (no cached-state guard)', async () => {
+      // repo.state deliberately 'idle' — completeMerge must not guard on it; git
+      // self-guards live off MERGE_HEAD. (Real-git coverage: completeMergeRealGit.)
+      mockRepo.state = 'idle';
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
-      let commitCalled = false;
+      let mergeContinueCalled = false;
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
-        if (args[0] === 'commit') {
-          commitCalled = true;
+        if (args[0] === 'merge' && args[1] === '--continue') {
+          mergeContinueCalled = true;
         }
         return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
       };
 
       const result = await conflictService.completeMerge(mockRepo);
       assert.strictEqual(result.success, true);
-      assert.strictEqual(commitCalled, true);
+      assert.strictEqual(mergeContinueCalled, true);
     });
 
-    it('should fail when conflicts remain', async () => {
+    it("surfaces git's error when merge --continue fails (e.g. unmerged files)", async () => {
       mockRepo.state = 'merging';
-      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
-        Promise.resolve([
-          { path: 'file1.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
-        ]);
+      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+        if (args[0] === 'merge' && args[1] === '--continue') {
+          return Promise.resolve({
+            exitCode: 1,
+            stdout: '',
+            stderr: 'Committing is not possible because you have unmerged files.',
+            combined: '',
+          });
+        }
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+      };
 
       const result = await conflictService.completeMerge(mockRepo);
       assert.strictEqual(result.success, false);
-      assert.ok(result.remainingConflicts?.includes('file1.txt'));
+      assert.ok(result.error?.includes('unmerged files'), result.error);
     });
   });
 
@@ -505,12 +569,20 @@ describe('ConflictResolutionService', () => {
       assert.strictEqual(rebaseContinueCalled, true);
     });
 
-    it('should fail when conflicts remain', async () => {
+    it('reports remaining conflicts when rebase --continue pauses on the next commit', async () => {
       mockRepo.state = 'rebasing';
       mockGitService.getStatus = (): Promise<IFileStatus[]> =>
         Promise.resolve([
           { path: 'file1.txt', indexStatus: 'U', workTreeStatus: ' ' } as IFileStatus,
         ]);
+      // git rebase --continue exits non-zero and leaves unmerged files when the
+      // next replayed commit conflicts; completeRebase surfaces those.
+      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+        if (args[0] === 'rebase' && args[1] === '--continue') {
+          return Promise.resolve({ exitCode: 1, stdout: '', stderr: 'conflict', combined: '' });
+        }
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+      };
 
       const result = await conflictService.completeRebase(mockRepo);
       assert.strictEqual(result.success, false);
@@ -624,9 +696,11 @@ describe('ConflictResolutionService', () => {
       // Mark repo A conflicted.
       await (
         conflictService as unknown as {
-          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          _coordinator: {
+            _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          };
         }
-      )._setConflictsActive(repoA, true);
+      )._coordinator._setConflictsActive(repoA, true);
       assert.strictEqual(conflictService.getConflictsActive(), true);
       assert.strictEqual(conflictService.getConflictsActiveForRepo(repoA), true);
       assert.strictEqual(conflictService.getConflictsActiveForRepo(repoB), false);
@@ -634,9 +708,11 @@ describe('ConflictResolutionService', () => {
       // Mark repo B conflicted as well.
       await (
         conflictService as unknown as {
-          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          _coordinator: {
+            _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          };
         }
-      )._setConflictsActive(repoB, true);
+      )._coordinator._setConflictsActive(repoB, true);
       assert.strictEqual(conflictService.getConflictsActive(), true);
 
       // Clear repo B — aggregate should STAY true because repo A is still
@@ -644,9 +720,11 @@ describe('ConflictResolutionService', () => {
       // to false here.
       await (
         conflictService as unknown as {
-          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          _coordinator: {
+            _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          };
         }
-      )._setConflictsActive(repoB, false);
+      )._coordinator._setConflictsActive(repoB, false);
       assert.strictEqual(
         conflictService.getConflictsActive(),
         true,
@@ -658,9 +736,11 @@ describe('ConflictResolutionService', () => {
       // Clear repo A — now aggregate flips to false.
       await (
         conflictService as unknown as {
-          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          _coordinator: {
+            _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          };
         }
-      )._setConflictsActive(repoA, false);
+      )._coordinator._setConflictsActive(repoA, false);
       assert.strictEqual(conflictService.getConflictsActive(), false);
     });
 
@@ -680,14 +760,18 @@ describe('ConflictResolutionService', () => {
 
       await (
         conflictService as unknown as {
-          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          _coordinator: {
+            _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          };
         }
-      )._setConflictsActive(repoA, true);
+      )._coordinator._setConflictsActive(repoA, true);
       await (
         conflictService as unknown as {
-          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          _coordinator: {
+            _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+          };
         }
-      )._setConflictsActive(repoB, false);
+      )._coordinator._setConflictsActive(repoB, false);
 
       assert.strictEqual(conflictService.getConflictsActiveForRepo(repoA), true);
       assert.strictEqual(conflictService.getConflictsActiveForRepo(repoB), false);

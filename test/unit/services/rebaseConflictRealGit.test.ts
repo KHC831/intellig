@@ -184,3 +184,120 @@ describe('isConflictError — real conflicting pull (M4)', () => {
     );
   });
 });
+
+describe('rebaseContinue — commits without an ambient editor (regression)', () => {
+  // User-reported: with no EDITOR/GIT_EDITOR and a dumb terminal, `git rebase
+  // --continue` tried to open an editor to commit the replayed pick and died
+  // ("Terminal is dumb, but EDITOR unset … could not commit staged changes").
+  // The service must pin GIT_EDITOR itself, independent of the host env.
+  let repoPath: string;
+  let gitCli: GitCli;
+  let gitService: GitService;
+  let repo: IRepository;
+  const EDITOR_VARS = ['GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'EDITOR', 'VISUAL', 'TERM'];
+  const saved: Record<string, string | undefined> = {};
+
+  async function commit(content: string, message: string): Promise<void> {
+    fs.writeFileSync(path.join(repoPath, 'f.txt'), content);
+    await gitCli.exec(['add', '.'], { cwd: repoPath });
+    await gitCli.exec(['commit', '-m', message], { cwd: repoPath });
+  }
+
+  beforeEach(async () => {
+    for (const k of EDITOR_VARS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    process.env.TERM = 'dumb';
+
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-continue-noeditor-'));
+    gitCli = new GitCli();
+    await gitCli.exec(['-c', 'init.defaultBranch=main', 'init'], { cwd: repoPath });
+    await gitCli.exec(['config', 'user.email', 'test@example.com'], { cwd: repoPath });
+    await gitCli.exec(['config', 'user.name', 'Test User'], { cwd: repoPath });
+    // Force NO usable editor regardless of the machine's global git config, so
+    // an unpinned `--continue` fails deterministically (as it did for the user).
+    await gitCli.exec(['config', 'core.editor', ''], { cwd: repoPath });
+
+    gitService = new GitService();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    (gitService as any)._gitCli = gitCli;
+    repo = repoFor(repoPath);
+  });
+
+  afterEach(() => {
+    for (const k of EDITOR_VARS) {
+      if (saved[k] === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = saved[k];
+      }
+    }
+    try {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors.
+    }
+  });
+
+  it('completes the rebase and preserves the replayed message with no host editor', async () => {
+    await commit('base\n', 'A');
+    await gitCli.exec(['checkout', '-b', 'feature'], { cwd: repoPath });
+    await commit('FEATURE\n', 'feature commit');
+    await gitCli.exec(['checkout', 'main'], { cwd: repoPath });
+    await commit('MAIN\n', 'main commit');
+    await gitCli.exec(['checkout', 'feature'], { cwd: repoPath });
+
+    const start = await gitService.rebaseBranch(repo, 'main');
+    assert.strictEqual(start.success, false, 'rebase should stop at the conflict');
+
+    // Resolve + stage, then continue — this is what failed for the user.
+    fs.writeFileSync(path.join(repoPath, 'f.txt'), 'RESOLVED\n');
+    await gitCli.exec(['add', 'f.txt'], { cwd: repoPath });
+
+    const cont = await gitService.rebaseContinue(repo);
+    assert.strictEqual(
+      cont.success,
+      true,
+      `rebase --continue must succeed without a host editor; reason: ${cont.failureReason ?? '(none)'}`
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(repoPath, '.git', 'rebase-merge')),
+      false,
+      'rebase metadata must be gone after completion'
+    );
+    // GIT_EDITOR=true accepts the prepared message → the replayed commit keeps it.
+    const log = (await gitCli.exec(['log', '--format=%s', '-3'], { cwd: repoPath })).stdout;
+    assert.ok(log.includes('feature commit'), 'replayed commit must keep its original message');
+  });
+
+  it('cherry-pick --continue also commits with no host editor', async () => {
+    await commit('base\n', 'A');
+    await gitCli.exec(['checkout', '-b', 'feature'], { cwd: repoPath });
+    await commit('PICKED\n', 'picked commit');
+    const pick = (await gitCli.exec(['rev-parse', 'HEAD'], { cwd: repoPath })).stdout.trim();
+    await gitCli.exec(['checkout', 'main'], { cwd: repoPath });
+    await commit('MAIN\n', 'main commit');
+    await gitCli.exec(['cherry-pick', pick], { cwd: repoPath }); // conflicts (non-zero, ignored)
+
+    fs.writeFileSync(path.join(repoPath, 'f.txt'), 'RESOLVED\n');
+    await gitCli.exec(['add', 'f.txt'], { cwd: repoPath });
+
+    const cont = await gitService.cherryPickContinue(repo).match(
+      (r) => r,
+      (e) => {
+        throw e;
+      }
+    );
+    assert.strictEqual(
+      cont.success,
+      true,
+      'cherry-pick --continue must succeed without a host editor'
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(repoPath, '.git', 'CHERRY_PICK_HEAD')),
+      false,
+      'cherry-pick metadata must be gone after completion'
+    );
+  });
+});

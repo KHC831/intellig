@@ -19,19 +19,19 @@ export function isReversedOperation(operation?: IConflictOpContext['operation'])
 export type ConflictRepoState = 'idle' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting';
 
 /**
- * Operation to assume when (re)opening the Resolve Conflicts dialog. Prefers the
- * operation recorded when the conflict's dialog first opened (the truth, set by
- * whichever flow produced the conflict). When nothing is on record — a conflict
- * produced OUTSIDE the extension — fall back to the repository state:
+ * Operation to assume when (re)opening the Resolve Conflicts dialog and when
+ * deciding ours/theirs reversal. The repository STATE leads — a definitive
+ * in-progress op is a git fact:
  *
- *  - merging/rebasing/cherry-picking/reverting map to their operation.
- *  - idle ⇒ the repo carries unmerged files but NO `*_HEAD`/rebase state, which
- *    a real merge/rebase/cherry-pick/revert never does — it is a working-tree
- *    apply, overwhelmingly an external `git stash pop`/apply. Guess 'unstash'
- *    (reversed) so "Accept Yours" keeps the user's stashed work (stage 3) and
- *    Abort restores the working tree rather than running `merge --abort` on an
- *    idle repo. (An external `git apply --3way` is the rare wrong guess here,
- *    and it stays recoverable from the patch.)
+ *  - merging/rebasing/cherry-picking/reverting map to their operation, even if a
+ *    stale op is still recorded (a leftover 'merge' must not mask a live rebase).
+ *  - idle ⇒ the repo carries unmerged files but NO `*_HEAD`/rebase state, which a
+ *    real merge/rebase/cherry-pick/revert never does — it is a working-tree apply
+ *    (unstash / unshelve / applyPatch). Here the recorded op is the only signal of
+ *    which one; absent it, guess 'unstash' (reversed) so "Accept Yours" keeps the
+ *    user's applied work (stage 3) and Abort restores the working tree rather than
+ *    running `merge --abort` on an idle repo. (An external `git apply --3way` with
+ *    no recorded op is the rare wrong guess, and stays recoverable from the patch.)
  *
  * Pure so it can be unit-tested without the command/extension host.
  */
@@ -39,9 +39,10 @@ export function inferReopenOperation(
   recordedOp: IConflictOpContext['operation'] | undefined,
   state: ConflictRepoState
 ): IConflictOpContext['operation'] {
-  if (recordedOp !== undefined) {
-    return recordedOp;
-  }
+  // A definitive in-progress state is a git fact and wins over a possibly-stale
+  // recorded op (a leftover 'merge' must not mask a live rebase, or the accept
+  // side flips). The recorded op only disambiguates an idle repo — a working-tree
+  // apply (unstash / unshelve / applyPatch) that leaves no *_HEAD marker.
   switch (state) {
     case 'merging':
       return 'merge';
@@ -52,6 +53,6 @@ export function inferReopenOperation(
     case 'reverting':
       return 'revert';
     case 'idle':
-      return 'unstash';
+      return recordedOp ?? 'unstash';
   }
 }

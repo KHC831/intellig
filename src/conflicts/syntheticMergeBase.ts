@@ -1,71 +1,5 @@
 import { GitCli } from '../git-core/gitCli';
-
-/**
- * Files that received a synthetic add/add stage-1 base, keyed by repo root →
- * set of repo-relative paths. The base is the conflict-marked working file
- * (good for the native editor's 3-way diff) but is NOT a real common ancestor,
- * so "Apply Non-Conflicting" must treat it as the genuine add/add base (empty)
- * rather than diffing against the markers. Tracked precisely here — rather than
- * sniffing the stage-1 content for markers — so a real base that legitimately
- * contains marker-like lines is never mistaken for a synthetic one.
- */
-const injectedBases = new Map<string, Set<string>>();
-
-/**
- * Whether `relPath` in `repoRoot` has a synthetic add/add base recorded.
- * Non-consuming: the flag matches the index (stage 1 stays synthetic until the
- * conflict resolves), so repeated "Apply Non-Conflicting" on the same
- * still-unresolved file keeps treating the base as empty. The flag is cleared
- * by {@link clearSyntheticBasesForRepo} once the repo's conflicts clear.
- * Returns `false` for any file we did not inject.
- */
-export function hasSyntheticBase(repoRoot: string, relPath: string): boolean {
-  return injectedBases.get(repoRoot)?.has(relPath) ?? false;
-}
-
-/**
- * Drop all synthetic-base flags for a repo. Called when the repo's conflicts
- * clear, so a flag can never go stale into a later, unrelated conflict on the
- * same path.
- */
-export function clearSyntheticBasesForRepo(repoRoot: string): void {
-  injectedBases.delete(repoRoot);
-}
-
-/**
- * Stage of a conflicted file in the index, parsed from `git ls-files -u`.
- */
-interface IUnmergedStage {
-  mode: string;
-  sha: string;
-  stage: 1 | 2 | 3;
-}
-
-/**
- * Parse `git ls-files -u -z -- <path>` output into the stages present for a
- * single path. Each record is `<mode> <sha> <stage>\t<path>` terminated by NUL.
- */
-function parseUnmergedStages(output: string): IUnmergedStage[] {
-  const stages: IUnmergedStage[] = [];
-  for (const record of output.split('\0')) {
-    if (record.length === 0) {
-      continue;
-    }
-    const tab = record.indexOf('\t');
-    if (tab < 0) {
-      continue;
-    }
-    const meta = record.slice(0, tab).trim().split(/\s+/);
-    if (meta.length < 3) {
-      continue;
-    }
-    const stage = Number(meta[2]);
-    if (stage === 1 || stage === 2 || stage === 3) {
-      stages.push({ mode: meta[0], sha: meta[1], stage });
-    }
-  }
-  return stages;
-}
+import { readUnmergedStages } from './conflictStageModel';
 
 /**
  * Give an add/add conflict a synthetic merge base so VS Code's native merge
@@ -107,24 +41,14 @@ export async function ensureSyntheticMergeBase(
     return false;
   }
 
-  const listed = await gitCli.exec(['ls-files', '-u', '-z', '--', relPath], {
-    cwd: repoRoot,
-    throwOnError: false,
-  });
-  if (listed.exitCode !== 0) {
+  // Read the index stage model (Layer 0) for this path. add/add = both sides
+  // present with no base; an absent stage 2/3 is a delete/modify (no three-way
+  // text) and a present stage 1 means the native editor can already diff.
+  const entry = (await readUnmergedStages(gitCli, repoRoot, relPath)).get(relPath);
+  if (!entry || entry.stage1 || !entry.stage2 || !entry.stage3) {
     return false;
   }
-
-  const stages = parseUnmergedStages(listed.stdout);
-  const stage2 = stages.find((s) => s.stage === 2);
-  const stage3 = stages.find((s) => s.stage === 3);
-  const hasStage1 = stages.some((s) => s.stage === 1);
-
-  // Only add/add qualifies: a base already present means the native editor can
-  // already diff; a missing ours/theirs is a delete/modify (no three-way text).
-  if (hasStage1 || !stage2 || !stage3) {
-    return false;
-  }
+  const { stage2, stage3 } = entry;
 
   // Write the conflict-marked working file as a blob to serve as the base.
   const hashed = await gitCli.exec(['hash-object', '-w', '--', relPath], {
@@ -148,15 +72,6 @@ export async function ensureSyntheticMergeBase(
     input: indexInfo,
     throwOnError: true,
   });
-
-  // Record so "Apply Non-Conflicting" treats this file's base as the true
-  // (empty) add/add ancestor rather than the marker-laden synthetic blob.
-  let set = injectedBases.get(repoRoot);
-  if (!set) {
-    set = new Set<string>();
-    injectedBases.set(repoRoot, set);
-  }
-  set.add(relPath);
 
   return true;
 }

@@ -104,12 +104,15 @@ function setWorkspaceFolders(folders: string[]): void {
 }
 
 async function flushMicrotasks(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setImmediate(resolve);
-  });
-  await new Promise<void>((resolve) => {
-    setImmediate(resolve);
-  });
+  // Rediscovery awaits `loadRepository`, which interleaves git execs with
+  // several on-disk marker reads (fs I/O for repository-state detection). Those
+  // resolve across multiple event-loop turns, so yield generously to let the
+  // full async tail of every re-loaded repo settle before asserting.
+  for (let i = 0; i < 20; i++) {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
 }
 
 describe('GitService — config-change rediscovery (TL-86 / #211)', () => {

@@ -31,6 +31,7 @@ import {
 } from './interfaces/IConflictResolutionService';
 import { IMergeView } from './interfaces/IMergeView';
 import { isReversedOperation } from './conflictReversal';
+import { acceptLabels } from './conflictSideNames';
 
 /**
  * Re-export for callers that prefer to import the op context from the dialog
@@ -50,8 +51,6 @@ type IncomingMessage =
   | { type: 'acceptYours'; path: string }
   | { type: 'acceptTheirs'; path: string }
   | { type: 'openMergeView'; path: string }
-  /** Apply only the non-conflicting (one-sided) changes in a file. */
-  | { type: 'applyNonConflicting'; path: string }
   /** Take the user's ("Yours") side for every remaining unresolved file. */
   | { type: 'acceptAllYours' }
   /** Take the incoming ("Theirs") side for every remaining unresolved file. */
@@ -160,7 +159,7 @@ body {
 }
 .btn.secondary:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
 
-.bulk-row {
+.bulk-row, .bulk-actions {
   padding: 8px 12px;
   margin-bottom: 12px;
   background: var(--vscode-editorWidget-background);
@@ -406,6 +405,10 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       // Whether any row is still unresolved — gates the bulk "Accept … for All"
       // buttons (no point offering them once everything is resolved).
       hasUnresolved: !this.allResolved(),
+      // "Accept from {branch}" labels when a name resolved for the side; the
+      // generic "Accept Yours/Theirs" otherwise.
+      yoursLabel: this._acceptButtonLabel('yours'),
+      theirsLabel: this._acceptButtonLabel('theirs'),
     }).replace(/</g, '\\u003c');
 
     this._panel.webview.html = `<!DOCTYPE html>
@@ -450,10 +453,9 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         return b;
       };
       actions.append(
-        btn('secondary', 'acceptYours', 'Accept Yours'),
-        btn('secondary', 'acceptTheirs', 'Accept Theirs'),
-        btn('', 'openMergeView', 'Merge…'),
-        btn('secondary', 'applyNonConflicting', 'Apply Non-Conflicting', "Apply changes that don't conflict, leaving the true conflicts to resolve")
+        btn('secondary', 'acceptYours', INIT.yoursLabel),
+        btn('secondary', 'acceptTheirs', INIT.theirsLabel),
+        btn('', 'openMergeView', 'Merge…')
       );
     }
     row.append(actions);
@@ -463,13 +465,20 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     for (const f of INIT.files) fileList.append(buildRow(f.path, f.status));
   } else {
     const empty = el('div', { className: 'file-row' });
-    empty.append(el('span', { className: 'file-path', textContent: 'No conflicted files.' }));
+    empty.append(
+      el('span', {
+        className: 'file-path',
+        textContent: INIT.continueVisible
+          ? 'All conflicts resolved — click Continue to finish.'
+          : 'No conflicted files.',
+      })
+    );
     fileList.append(empty);
   }
   root.append(fileList);
 
   if (INIT.hasUnresolved) {
-    const bulkActions = el('div', { className: 'bulk-row' });
+    const bulkActions = el('div', { className: 'bulk-actions' });
     const bulkBtn = (action, text, title) => {
       const b = el('button', { className: 'btn secondary', textContent: text });
       b.setAttribute('data-action', action);
@@ -478,21 +487,11 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     };
     bulkActions.append(
       el('span', { textContent: 'For all remaining files:' }),
-      bulkBtn('acceptAllYours', 'Accept Yours', 'Take your side for every unresolved file'),
-      bulkBtn('acceptAllTheirs', 'Accept Theirs', 'Take the incoming side for every unresolved file')
+      bulkBtn('acceptAllYours', INIT.yoursLabel, 'Take your side for every unresolved file'),
+      bulkBtn('acceptAllTheirs', INIT.theirsLabel, 'Take the incoming side for every unresolved file')
     );
     root.append(bulkActions);
   }
-
-  const bulk = el('div', { className: 'bulk-row' });
-  bulk.append(
-    'Tip: use ',
-    el('strong', { textContent: 'Apply Non-Conflicting' }),
-    ' to take every one-sided change automatically, then ',
-    el('strong', { textContent: 'Merge…' }),
-    ' for the true conflicts.'
-  );
-  root.append(bulk);
 
   const footer = el('div', { className: 'footer' });
   if (INIT.canAbort) {
@@ -526,7 +525,6 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       case 'acceptYours':
       case 'acceptTheirs':
       case 'openMergeView':
-      case 'applyNonConflicting':
         if (path) send({ type: action, path: path });
         break;
       case 'acceptAllYours':
@@ -605,9 +603,6 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         // resolution.
         await this._runPerFileExclusive(msg.path, () => this._handleOpenMergeView(msg.path));
         break;
-      case 'applyNonConflicting':
-        await this._runPerFileExclusive(msg.path, () => this._handleApplyNonConflicting(msg.path));
-        break;
       case 'acceptAllYours':
         await this._runExclusive(() => this._handleAcceptAll('yours'));
         break;
@@ -637,7 +632,10 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    * if the op throws.
    */
   private async _runExclusive(op: () => Promise<void>): Promise<void> {
-    if (this._busy) {
+    // Bulk and terminal ops touch every file, so they must not overlap an
+    // in-flight per-file accept either — otherwise an Accept-All could interleave
+    // its `checkout`/`stage` with a per-row accept on the same path.
+    if (this._busy || this._inFlightPaths.size > 0) {
       return;
     }
     this._busy = true;
@@ -649,8 +647,8 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   }
 
   /**
-   * Run a per-file accept op (acceptYours/acceptTheirs/applyNonConflicting)
-   * under a per-PATH in-flight guard: each of these checks out a side and
+   * Run a per-file accept op (acceptYours/acceptTheirs) under a per-PATH
+   * in-flight guard: each of these checks out a side and
    * stages the file, so two concurrent runs on the SAME row could interleave
    * their `checkout`+`stage` and leave the file staged with the side the user
    * did NOT click last. A second click on a row already in flight is dropped;
@@ -659,7 +657,9 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    * succession is unaffected.
    */
   private async _runPerFileExclusive(path: string, op: () => Promise<void>): Promise<void> {
-    if (this._inFlightPaths.has(path)) {
+    // Drop the click if this row is already in flight, or if a bulk/terminal op
+    // (which acts on every file) is running — they must not interleave on a path.
+    if (this._busy || this._inFlightPaths.has(path)) {
       return;
     }
     this._inFlightPaths.add(path);
@@ -681,6 +681,16 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     return isReversedOperation(this._opContext.operation);
   }
 
+  /** Resolved ref name for a side, or undefined when none resolved. */
+  private _sideName(side: 'yours' | 'theirs'): string | undefined {
+    return side === 'yours' ? this._opContext.sideNames?.yours : this._opContext.sideNames?.theirs;
+  }
+
+  /** Button label: "Accept from {ref}" when a name resolved, else "Accept Yours/Theirs". */
+  private _acceptButtonLabel(side: 'yours' | 'theirs'): string {
+    return acceptLabels(this._sideName(side), side).button;
+  }
+
   /**
    * Take one side ("Yours"/"Theirs") for every still-unresolved file. Confirms
    * once (it discards the other side across all files), then delegates to the
@@ -694,13 +704,13 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     if (unresolved === 0) {
       return;
     }
-    const label = side === 'yours' ? 'Yours' : 'Theirs';
+    const { button, subject } = acceptLabels(this._sideName(side), side);
     const choice = await vscode.window.showWarningMessage(
-      `Accept ${label} for all ${unresolved} unresolved file(s)? The other side will be discarded.`,
+      `Accept ${subject} for all ${unresolved} unresolved file(s)? The other side will be discarded.`,
       { modal: true },
-      `Accept ${label}`
+      button
     );
-    if (choice !== `Accept ${label}`) {
+    if (choice !== button) {
       return;
     }
 
@@ -710,9 +720,12 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         ? await this._conflictResolutionService.acceptAllCurrent(this._repo, reversed)
         : await this._conflictResolutionService.acceptAllIncoming(this._repo, reversed);
     if (!result.success) {
-      void vscode.window.showErrorMessage(
-        sanitizeGitError(result.error || `Failed to accept ${label.toLowerCase()} for all files`)
-      );
+      // A dropped concurrent bulk (skipped) is a benign no-op — stay silent.
+      if (!result.skipped) {
+        void vscode.window.showErrorMessage(
+          sanitizeGitError(result.error || `Failed to accept ${subject} for all files`)
+        );
+      }
       return;
     }
 
@@ -773,53 +786,15 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     }
   }
 
-  private async _handleApplyNonConflicting(path: string): Promise<void> {
-    const result = await this._conflictResolutionService.acceptNonConflictingChanges(
-      this._repo,
-      path
-    );
-    if (!result.success) {
-      // `result.error` may include git stderr which can embed credentials in
-      // remote URLs — scrub before surfacing.
-      void vscode.window.showErrorMessage(
-        sanitizeGitError(result.error || `Failed to apply non-conflicting changes for ${path}`)
-      );
-      return;
-    }
-
-    // When every region was non-conflicting the file is fully merged and now
-    // staged — reflect that as resolved.
-    if (result.fullyResolved) {
-      this.updateFileStatus(path, 'resolved');
-      void vscode.window.showInformationMessage(`Resolved ${path}.`);
-      return;
-    }
-
-    // True conflicts remain; the row stays unresolved. Always give feedback so
-    // the button never looks dead — a pure conflict (or an add/add with no
-    // common base) has nothing one-sided to apply, which previously did nothing
-    // visible at all.
-    const n = result.remainingHunks ?? 0;
-    const plural = n === 1 ? 'conflict' : 'conflicts';
-    // `git merge-file` caps its exit-code hunk count at 127, so a file with more
-    // than that many conflict regions reports "127+".
-    const count = n >= 127 ? '127+' : `${n}`;
-    void vscode.window.showInformationMessage(
-      `${path}: ${count} ${plural} still need${n === 1 ? 's' : ''} resolving. Use Merge… to finish.`
-    );
-  }
-
   private async _handleAbort(): Promise<void> {
     const op = this._opContext.operation;
     try {
       switch (op) {
         case 'merge':
-          // No IGitService.mergeAbort — shell out via gitCli (existing pattern
-          // used by CommitContextMenuCommands._handleMergeIntoCurrent).
-          await this._execGit(['merge', '--abort']);
+          this._throwIfFailed(await this._conflictResolutionService.abortMerge(this._repo));
           break;
         case 'rebase':
-          await this._execGit(['rebase', '--abort']);
+          this._throwIfFailed(await this._conflictResolutionService.abortRebase(this._repo));
           break;
         case 'cherryPick':
           await this._gitService.cherryPickAbort(this._repo).match(
@@ -838,23 +813,18 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
           );
           break;
         case 'unshelve':
-          // Unshelve doesn't leave git in a well-known "aborting" state (it
-          // applies patches directly). Restrict the checkout to only the
-          // conflicted paths — a bare `checkout -- .` would wipe unrelated
-          // working-tree changes the user made before/around the unshelve.
-          await this._abortConflictedPaths();
-          break;
         case 'unstash':
-          // Stash apply/pop that conflicts leaves markers in the working tree
-          // and the stash entry intact (for `apply`). Restrict the reset to
-          // conflicted paths only — see `unshelve` note above for rationale.
-          await this._abortConflictedPaths();
-          break;
         case 'applyPatch':
-          // `git apply` with --3way leaves conflict markers in the working
-          // tree; there's no `--abort`. Restrict the reset to conflicted
-          // paths only so we don't wipe unrelated working-tree changes.
-          await this._abortConflictedPaths();
+          // These apply patches directly and leave conflict markers with no
+          // git-level "aborting" state, so the service restores just the
+          // unresolved paths to HEAD (a bare `checkout -- .` would wipe
+          // unrelated working-tree changes).
+          this._throwIfFailed(
+            await this._conflictResolutionService.abortWorkingTreeConflicts(
+              this._repo,
+              this._unresolvedPaths()
+            )
+          );
           break;
         default:
           // Unreachable.
@@ -879,13 +849,10 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     try {
       switch (op) {
         case 'merge': {
-          // Prefer `git merge --continue` (honors merge-specific hooks and
-          // MERGE_MSG) over `git commit --no-edit`. Available since git 2.12.
-          // `git merge --continue` opens $EDITOR for the merge message; under
-          // VS Code's non-TTY spawn that hangs/fails. `--no-edit` is rejected
-          // ("--continue expects no arguments"), so suppress the editor via
-          // GIT_EDITOR=true — the prepared MERGE_MSG is committed verbatim.
-          await this._execGit(['merge', '--continue'], { GIT_EDITOR: 'true' });
+          // completeMerge runs `git merge --continue` (honors merge hooks +
+          // MERGE_MSG), homed in the service so the view holds no raw CLI. Same
+          // method the palette "Complete Merge" uses.
+          this._throwIfFailed(await this._conflictResolutionService.completeMerge(this._repo));
           break;
         }
         case 'rebase': {
@@ -927,6 +894,13 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
             );
             return;
           }
+          if (!res.success) {
+            // Non-conflict failure (e.g. "the previous cherry-pick is now
+            // empty", no cherry-pick in progress). Surface git's reason rather
+            // than a false "completed" that leaves the sequencer stuck — mirror
+            // the rebase branch above.
+            throw new Error(res.failureReason ?? 'Failed to continue cherry-pick');
+          }
           break;
         }
         case 'revert': {
@@ -942,6 +916,11 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
               `Additional conflicts in ${res.conflicts.length} file(s). Please resolve.`
             );
             return;
+          }
+          if (!res.success) {
+            // Non-conflict failure — surface git's reason, not a false
+            // "completed" (mirrors the rebase/cherry-pick branches).
+            throw new Error(res.failureReason ?? 'Failed to continue revert');
           }
           break;
         }
@@ -1019,53 +998,25 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   }
 
   /**
-   * Execute a git command in the dialog's repository using the underlying
-   * GitService's git CLI. Mirrors the existing pattern used by
-   * ConflictResolutionService for `commit` / `rebase --continue`.
+   * Throw a service operation's failure into the surrounding try/catch so it is
+   * surfaced (scrubbed) as an error toast — the abort/continue handlers reuse
+   * one catch for both thrown and result-shaped failures.
    */
-  private async _execGit(args: string[], envOverride?: NodeJS.ProcessEnv): Promise<void> {
-    const gitCli = (
-      this._gitService as unknown as {
-        gitCli: {
-          exec: (
-            a: string[],
-            o: object
-          ) => Promise<{ exitCode: number; stderr: string; stdout: string }>;
-        };
-      }
-    ).gitCli;
-    const options: { cwd: string; env?: NodeJS.ProcessEnv } = {
-      cwd: this._repo.rootUri.fsPath,
-    };
-    if (envOverride) {
-      // Merge over the ambient env so PATH/HOME survive; the override only
-      // pins editor-suppression vars (GIT_EDITOR) for non-interactive runs.
-      options.env = { ...process.env, ...envOverride };
-    }
-    const result = await gitCli.exec(args, options);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || result.stdout || `git ${args.join(' ')} failed`);
+  private _throwIfFailed(result: { success: boolean; error?: string }): void {
+    if (!result.success) {
+      throw new Error(result.error ?? 'Operation failed');
     }
   }
 
-  /**
-   * Abort an unshelve / unstash / applyPatch by restoring ONLY the currently
-   * conflicted paths to HEAD. A bare `git checkout -- .` would wipe unrelated
-   * working-tree changes the user made around the failing op — hence this
-   * narrower form. Paths are passed via `--` so a leading `-` in a filename
-   * can never be interpreted as a flag.
-   */
-  private async _abortConflictedPaths(): Promise<void> {
+  /** The paths still unresolved in the dialog — the set an abort restores. */
+  private _unresolvedPaths(): string[] {
     const paths: string[] = [];
     for (const [path, status] of this._statuses) {
       if (status === 'unresolved') {
         paths.push(path);
       }
     }
-    if (paths.length === 0) {
-      return;
-    }
-    await this._execGit(['checkout', 'HEAD', '--', ...paths]);
+    return paths;
   }
 
   /**

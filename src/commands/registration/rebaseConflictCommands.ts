@@ -4,6 +4,7 @@ import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import { createMergeView } from '../../services';
 import { inferReopenOperation } from '../../conflicts/conflictReversal';
+import { acceptLabels } from '../../conflicts/conflictSideNames';
 import type { ICommandContext } from './CommandContext';
 
 /**
@@ -151,23 +152,29 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
       const conflicts = await conflictService.getConflictedFiles(repo);
-      if (conflicts.length === 0) {
+      const state = conflictService.getRepositoryState(repo);
+      if (conflicts.length === 0 && state === 'idle') {
+        // Nothing unresolved AND no operation in progress — genuinely nothing to do.
         void vscode.window.showInformationMessage('No unresolved conflicts.');
         return;
       }
-      // Prefer the operation recorded when this conflict's dialog first opened;
-      // fall back to a state-based guess only for conflicts produced OUTSIDE the
-      // extension. See {@link inferReopenOperation} for why idle ⇒ 'unstash'.
-      const operation = inferReopenOperation(
-        conflictService.getRecordedOperation(repo),
-        conflictService.getRepositoryState(repo)
-      );
+      // With zero conflicts but an operation still in progress, the user resolved
+      // everything (e.g. in the native merge editor, which just stages the file);
+      // open the dialog anyway so Continue/Abort are reachable — otherwise the
+      // in-progress badge would dead-end with no way to finish the operation.
+      //
+      // The repository state leads (a definitive in-progress op is a git fact);
+      // the recorded op only disambiguates an idle repo — a working-tree apply
+      // produced outside the extension. See {@link inferReopenOperation}.
+      const operation = inferReopenOperation(conflictService.getRecordedOperation(repo), state);
       const opContext = {
         operation,
         canAbort: true,
         canContinue: true,
       };
-      await conflictService.openResolveConflictsDialog(repo, conflicts, opContext);
+      await conflictService.openResolveConflictsDialog(repo, conflicts, opContext, {
+        explicit: true,
+      });
     }
   );
 
@@ -426,23 +433,23 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
 
+      const { yours } = await conflictService.getConflictSideNames(repo);
+      const { button, subject } = acceptLabels(yours, 'yours');
       const confirm = await vscode.window.showWarningMessage(
-        `Accept the current-branch version for ${conflicts.length} conflicted file(s)?`,
+        `Accept ${subject} for ${conflicts.length} conflicted file(s)? The incoming side will be discarded.`,
         { modal: true },
-        'Accept All Current'
+        button
       );
 
-      if (confirm !== 'Accept All Current') {
+      if (confirm !== button) {
         return;
       }
 
       const result = await conflictService.acceptAllCurrent(repo);
       if (result.success) {
-        void vscode.window.showInformationMessage(
-          'Accepted current version for all conflicted files'
-        );
-      } else {
-        void vscode.window.showErrorMessage(result.error || 'Failed to accept current version');
+        void vscode.window.showInformationMessage(`Accepted ${subject} for all conflicted files`);
+      } else if (!result.skipped) {
+        void vscode.window.showErrorMessage(result.error || `Failed to accept ${subject}`);
       }
     }
   );
@@ -471,23 +478,23 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
 
+      const { theirs } = await conflictService.getConflictSideNames(repo);
+      const { button, subject } = acceptLabels(theirs, 'theirs');
       const confirm = await vscode.window.showWarningMessage(
-        `Accept the incoming version for ${conflicts.length} conflicted file(s)?`,
+        `Accept ${subject} for ${conflicts.length} conflicted file(s)? Your side will be discarded.`,
         { modal: true },
-        'Accept All Incoming'
+        button
       );
 
-      if (confirm !== 'Accept All Incoming') {
+      if (confirm !== button) {
         return;
       }
 
       const result = await conflictService.acceptAllIncoming(repo);
       if (result.success) {
-        void vscode.window.showInformationMessage(
-          'Accepted incoming version for all conflicted files'
-        );
-      } else {
-        void vscode.window.showErrorMessage(result.error || 'Failed to accept incoming version');
+        void vscode.window.showInformationMessage(`Accepted ${subject} for all conflicted files`);
+      } else if (!result.skipped) {
+        void vscode.window.showErrorMessage(result.error || `Failed to accept ${subject}`);
       }
     }
   );

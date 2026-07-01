@@ -5,7 +5,6 @@ import {
   parseStashList,
   parseRemotes,
   parseHead,
-  parseRepositoryState,
   parseHunks,
   parseDiff,
   parseBranches,
@@ -386,30 +385,6 @@ describe('Git Parser Utilities', () => {
       // which doesn't start with refs/, so it's treated as the branch name
       assert.strictEqual(result.name, 'abc123');
       assert.strictEqual(result.commit, 'abc123');
-    });
-  });
-
-  describe('parseRepositoryState', () => {
-    it('should detect rebasing state', () => {
-      assert.strictEqual(parseRepositoryState('rebase in progress'), 'rebasing');
-      assert.strictEqual(parseRepositoryState('interactive rebase in progress'), 'rebasing');
-    });
-
-    it('should detect merging state', () => {
-      assert.strictEqual(parseRepositoryState('merge in progress'), 'merging');
-      assert.strictEqual(parseRepositoryState('You have unmerged paths'), 'merging');
-    });
-
-    it('should detect cherry-picking state', () => {
-      assert.strictEqual(parseRepositoryState('cherry-pick in progress'), 'cherry-picking');
-    });
-
-    it('should detect reverting state', () => {
-      assert.strictEqual(parseRepositoryState('revert in progress'), 'reverting');
-    });
-
-    it('should return idle for normal state', () => {
-      assert.strictEqual(parseRepositoryState('On branch main\nnothing to commit'), 'idle');
     });
   });
 

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { IRepository } from '../../git-core/interfaces/IGitService';
+import { IConflictSideNames } from '../conflictSideNames';
 
 /**
  * Operation context carried through a conflict-producing git op. Describes the
@@ -16,6 +17,13 @@ export interface IConflictOpContext {
   canAbort: boolean;
   /** Whether the `Continue` button should be available. */
   canContinue: boolean;
+  /**
+   * Human-readable name for each conflict side ("Accept from {yours/theirs}").
+   * Resolved and filled in by the service when it opens the dialog; callers
+   * that build the context don't set it. Absent ⇒ the dialog shows the generic
+   * "Accept Yours"/"Accept Theirs".
+   */
+  sideNames?: IConflictSideNames;
 }
 
 /**
@@ -36,19 +44,12 @@ export interface IConflictResolutionResult {
   success: boolean;
   /** Error message if operation failed */
   error?: string;
-}
-
-/**
- * Result of {@link IConflictResolutionService.acceptNonConflictingChanges}.
- * Adds enough detail for the caller to give feedback when the operation is a
- * no-op (a pure conflict with nothing one-sided to apply) instead of silently
- * doing nothing.
- */
-export interface INonConflictingResult extends IConflictResolutionResult {
-  /** Whether the file is now fully merged (no conflict hunks remain) and staged. */
-  fullyResolved?: boolean;
-  /** Number of true-conflict hunks still left in the file (0 when fully resolved). */
-  remainingHunks?: number;
+  /**
+   * The call was a benign no-op dropped by a re-entrancy guard (a concurrent
+   * bulk accept-all was already running). Not a success and not an error —
+   * handlers should stay silent rather than toast.
+   */
+  skipped?: boolean;
 }
 
 /**
@@ -137,18 +138,6 @@ export interface IConflictResolutionService {
   ): Promise<IConflictResolutionResult>;
 
   /**
-   * Accept every change in a conflicted file that does not actually conflict
-   * (the regions exactly one side edited), leaving the true conflicts (regions
-   * both sides changed) for the user. Mirrors IntelliJ's
-   * "Apply Non-Conflicting Changes" (platform/diff-impl `ApplyNonConflictsAction`).
-   *
-   * @param repo - The repository
-   * @param filePath - Repo-relative path of the conflicted file
-   * @returns Resolution result
-   */
-  acceptNonConflictingChanges(repo: IRepository, filePath: string): Promise<INonConflictingResult>;
-
-  /**
    * Accept the user's own ("Yours") version for all conflicted files.
    * See {@link acceptCurrent} for the `reversed` semantics.
    *
@@ -193,6 +182,15 @@ export interface IConflictResolutionService {
   completeRebase(repo: IRepository): Promise<IOperationCompletionResult>;
 
   /**
+   * Abort an unshelve / unstash / apply-patch conflict by restoring the given
+   * conflicted paths to HEAD (those ops have no git-level `--abort`).
+   */
+  abortWorkingTreeConflicts(
+    repo: IRepository,
+    paths: string[]
+  ): Promise<IOperationCompletionResult>;
+
+  /**
    * Abort the current merge operation
    *
    * @param repo - The repository
@@ -228,6 +226,17 @@ export interface IConflictResolutionService {
   getRecordedOperation(repo: IRepository): IConflictOpContext['operation'] | undefined;
 
   /**
+   * Resolve a human-readable name for each conflict side ("Accept from
+   * {yours}" / "{theirs}"). Reversal-correct per operation; walks the
+   * branch-name → short-SHA → generic fallback ladder. Uses the recorded
+   * operation when `operation` is omitted. Never throws.
+   */
+  getConflictSideNames(
+    repo: IRepository,
+    operation?: IConflictOpContext['operation']
+  ): Promise<IConflictSideNames>;
+
+  /**
    * Event fired when conflicts change
    */
   onDidChangeConflicts: vscode.Event<{ repo: IRepository; conflicts: IConflictedFile[] }>;
@@ -240,12 +249,16 @@ export interface IConflictResolutionService {
    *
    * When the `intellig.autoOpenResolveConflictsDialog` config is `false`,
    * this method only publishes the `intellig.conflicts.active` context key
-   * (driving the status-bar prompt) and does not open a dialog.
+   * (driving the status-bar prompt) and does not open a dialog — UNLESS
+   * `options.explicit` is set. Automatic post-op callers omit it (they respect
+   * the opt-out); a user-initiated open (status-bar prompt / VCS menu) passes
+   * `{ explicit: true }` so the config only governs automatic opening.
    */
   openResolveConflictsDialog(
     repo: IRepository,
     conflicts: IConflictedFile[],
-    opContext: IConflictOpContext
+    opContext: IConflictOpContext,
+    options?: { explicit?: boolean }
   ): Promise<void>;
 
   /**

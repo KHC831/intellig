@@ -1,0 +1,155 @@
+/**
+ * Low-level readers for `.git/` marker files, shared by every module that needs
+ * to peek at in-progress operation state without spawning git: the status-bar
+ * in-progress reader ({@link readInProgressOperation}) and the conflict
+ * side-name resolver. Keeping these in one place stops the two surfaces from
+ * drifting (e.g. a newline-injection scrub fixed in one but not the other).
+ *
+ * Pure except for the file reads and the injected {@link ShortenSha} callback.
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+/** Hex-only git object id: 40-char (SHA-1) or 64-char (SHA-256). */
+export const FULL_SHA_RE = /^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$/;
+
+/**
+ * Translates a full 40/64-char SHA into its abbreviated form. Production callers
+ * wire this to `git rev-parse --short`; tests pass a pure substring helper. May
+ * resolve `undefined` (or reject) on failure — callers fall back to a 7-char
+ * substring.
+ */
+export type ShortenSha = (sha: string) => Promise<string | undefined>;
+
+/**
+ * The two directories git uses to hold live rebase state: `rebase-merge/`
+ * (interactive / merge-strategy rebase) and `rebase-apply/` (legacy `am`-style).
+ * Only one exists at a time. Shared so every "is a rebase in progress" probe
+ * checks the same set instead of re-listing the literal.
+ */
+export const REBASE_STATE_DIRS = ['rebase-merge', 'rebase-apply'] as const;
+
+/**
+ * Read a file from whichever rebase state directory is live. Only one exists at
+ * a time, so the first hit is authoritative. Single home for the "which rebase
+ * dir" walk shared by the status-bar reader and the conflict side-name resolver.
+ */
+export async function readRebaseMarker(
+  gitDir: string,
+  fileName: string
+): Promise<string | undefined> {
+  for (const dir of REBASE_STATE_DIRS) {
+    const raw = await tryReadGitFile(path.join(gitDir, dir, fileName));
+    if (raw !== undefined) {
+      return raw;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a repo root's real `.git` directory. For a normal checkout `<root>/.git`
+ * is a directory and is returned as-is. For a linked worktree or a submodule
+ * `<root>/.git` is instead a FILE holding `gitdir: <path>` (that path is where the
+ * per-worktree markers — MERGE_HEAD, CHERRY_PICK_HEAD, rebase dirs — actually
+ * live). Parsing it here (a single fs read, no git subprocess) keeps marker-based
+ * state detection correct inside worktrees, where `path.join(root, '.git')` would
+ * otherwise point at the file and find no markers.
+ *
+ * Best-effort: falls back to `<root>/.git` on any read/parse failure.
+ */
+export async function resolveGitDir(rootPath: string): Promise<string> {
+  const dotGit = path.join(rootPath, '.git');
+  // The common case is a `.git` DIRECTORY; a single stat distinguishes it from
+  // the worktree/submodule `.git` FILE without provoking an EISDIR read error.
+  try {
+    if ((await fs.stat(dotGit)).isDirectory()) {
+      return dotGit;
+    }
+  } catch {
+    // `.git` missing / unreadable: fall back to the raw path (best-effort).
+    return dotGit;
+  }
+  const raw = await tryReadGitFile(dotGit);
+  const match = raw?.match(/^gitdir:\s*(.+?)\s*$/m);
+  if (!match) {
+    return dotGit;
+  }
+  const target = match[1].trim();
+  return path.isAbsolute(target) ? target : path.resolve(rootPath, target);
+}
+
+/** Read a file as utf-8. Returns undefined on any error (ENOENT, EACCES, …). */
+export async function tryReadGitFile(filePath: string): Promise<string | undefined> {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The first whitespace-delimited token of a marker file, but only when it is a
+ * literal full SHA. Rejecting anything else before it reaches `git rev-parse`
+ * defends the CLI against attacker-controlled / corrupt marker contents and
+ * keeps junk out of any label derived from it.
+ */
+export function firstShaToken(raw: string | undefined): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const sha = raw.trim().split(/\s+/)[0] ?? '';
+  return FULL_SHA_RE.test(sha) ? sha : undefined;
+}
+
+/** Abbreviate a SHA, falling back to a 7-char substring if the callback fails. */
+export async function abbreviateSha(sha: string, shortenSha: ShortenSha): Promise<string> {
+  try {
+    return (await shortenSha(sha)) ?? sha.substring(0, 7);
+  } catch {
+    return sha.substring(0, 7);
+  }
+}
+
+/**
+ * Read a SHA-bearing marker file (e.g. CHERRY_PICK_HEAD / REVERT_HEAD / onto)
+ * and return its abbreviated SHA, or undefined when the file is absent or does
+ * not hold a literal SHA.
+ */
+export async function readAbbreviatedShaMarker(
+  filePath: string,
+  shortenSha: ShortenSha
+): Promise<string | undefined> {
+  const sha = firstShaToken(await tryReadGitFile(filePath));
+  return sha ? abbreviateSha(sha, shortenSha) : undefined;
+}
+
+/**
+ * Strip the `refs/heads/` prefix from a `head-name`-style value. Returns
+ * undefined when the input is undefined, empty after trim, or a parenthesised
+ * pseudo-ref (`(no branch, …)`). The value is reduced to its first line and
+ * scrubbed of any residual CR/LF so a corrupt/hand-edited marker cannot leak a
+ * line terminator into a status-bar label or screen-reader narration.
+ */
+export function stripRefsHeads(raw: string | undefined): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  const firstLine = trimmed.split(/\r\n|\r|\n/, 1)[0] ?? '';
+  const scrubbed = firstLine.replace(/[\r\n]/g, '');
+  if (scrubbed.length === 0) {
+    return undefined;
+  }
+  if (scrubbed.startsWith('(') && scrubbed.endsWith(')')) {
+    return undefined;
+  }
+  if (scrubbed.startsWith('refs/heads/')) {
+    return scrubbed.substring('refs/heads/'.length);
+  }
+  return scrubbed;
+}

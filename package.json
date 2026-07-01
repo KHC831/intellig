@@ -414,12 +414,12 @@
       },
       {
         "command": "intellig.conflict.acceptAllCurrent",
-        "title": "Accept Yours for All Conflicts",
+        "title": "Accept My Changes for All Conflicts",
         "category": "IntelliG"
       },
       {
         "command": "intellig.conflict.acceptAllIncoming",
-        "title": "Accept Theirs for All Conflicts",
+        "title": "Accept Incoming Changes for All Conflicts",
         "category": "IntelliG"
       },
       {

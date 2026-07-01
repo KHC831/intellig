@@ -137,7 +137,6 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
     const { root, cleanup } = makeRebaseConflictRepo();
     try {
       const service = makeService(root);
-      // State 'idle' would NOT auto-detect a swap; the explicit flag forces it.
       const repo = {
         rootUri: vscode.Uri.file(root),
         state: 'idle',
@@ -158,14 +157,45 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
     }
   });
 
-  it('bulk acceptAllCurrent reverses via the recorded operation (unstash, state not rebasing)', async () => {
+  it('idle repo with no recorded op auto-detects reversal (external stash pop)', async () => {
+    // An idle repo with unmerged files and no dialog ever opened is the external
+    // `git stash pop` case. The flagless palette path must match the dialog
+    // (idle ⇒ unstash ⇒ reversed): "Accept Yours" keeps the user's stashed work
+    // (stage 3 / --theirs), NOT the index side. Regression for the bulk-vs-dialog
+    // split-brain that silently discarded stashed changes.
     const { root, cleanup } = makeRebaseConflictRepo();
     try {
       const service = makeService(root);
-      // Repo state is NOT 'rebasing', so state-based auto-detect would not swap.
       const repo = {
         rootUri: vscode.Uri.file(root),
-        state: 'merging',
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      // No explicit flag, no openResolveConflictsDialog → no recorded op.
+      const result = await service.acceptAllCurrent(repo);
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(
+        fs.readFileSync(path.join(root, 'f.txt'), 'utf8'),
+        'MY-FEATURE-WORK\n',
+        'flagless Accept All Current on an idle repo must keep the user side, matching the dialog'
+      );
+      service.dispose();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('bulk acceptAllCurrent reverses via the recorded operation (unstash on an idle repo)', async () => {
+    const { root, cleanup } = makeRebaseConflictRepo();
+    try {
+      const service = makeService(root);
+      // A real unstash leaves the repo IDLE (no *_HEAD); the recorded op is what
+      // tells the idle case it's a reversed working-tree apply rather than a guess.
+      const repo = {
+        rootUri: vscode.Uri.file(root),
+        state: 'idle',
         remotes: [],
         submodules: [],
       } as unknown as IRepository;
@@ -213,6 +243,57 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
       service.dispose();
     } finally {
       cleanup();
+    }
+  });
+
+  it('a cherry-pick conflict is NOT reversed — Accept All Current keeps the current branch', async () => {
+    // Regression: an external `git cherry-pick` conflict reports state
+    // 'cherry-picking' (once parsed correctly); it must resolve non-reversed so
+    // "Accept All Current" keeps the current branch (stage 2 / --ours), not the
+    // picked commit. Misclassifying it as idle⇒unstash silently discarded it.
+    const tmp = path.resolve(__dirname, '../../..', 'workspace-notes', 'tmp');
+    fs.mkdirSync(tmp, { recursive: true });
+    const root = fs.mkdtempSync(path.join(tmp, 'intellig-cp-'));
+    try {
+      git(root, 'init', '-q', '-b', 'main');
+      git(root, 'config', 'user.email', 'test@example.com');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      fs.writeFileSync(path.join(root, 'f.txt'), 'base\n');
+      git(root, 'add', 'f.txt');
+      git(root, 'commit', '-q', '-m', 'base');
+      git(root, 'checkout', '-q', '-b', 'feature');
+      fs.writeFileSync(path.join(root, 'f.txt'), 'PICKED-COMMIT\n');
+      git(root, 'commit', '-q', '-am', 'feature');
+      const picked = git(root, 'rev-parse', 'HEAD').trim();
+      git(root, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(root, 'f.txt'), 'CURRENT-BRANCH\n');
+      git(root, 'commit', '-q', '-am', 'main');
+      try {
+        git(root, 'cherry-pick', picked);
+      } catch {
+        // expected — cherry-pick stops on the conflict
+      }
+
+      const service = makeService(root);
+      const repo = {
+        rootUri: vscode.Uri.file(root),
+        state: 'cherry-picking',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      // No flag, no recorded op → reversal is inferred from state.
+      const result = await service.acceptAllCurrent(repo);
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(
+        fs.readFileSync(path.join(root, 'f.txt'), 'utf8'),
+        'CURRENT-BRANCH\n',
+        'cherry-pick Accept All Current must keep the current branch (--ours), not the picked commit'
+      );
+      service.dispose();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 

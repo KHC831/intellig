@@ -191,13 +191,16 @@ describe('GitService — _drainPendingReloads (structural drain fix)', () => {
       'drain must wait for the in-flight loadRepository to settle'
     );
 
-    // Now release the chain of git execs. `loadRepository` chains
-    // multiple `await this._gitCli.exec(...)` calls; we resolve each
-    // one as it appears so the entire async tail completes.
-    while (stubCli.execResolve) {
-      const release = stubCli.execResolve;
-      stubCli.execResolve = null;
-      release({ exitCode: 0, stdout: 'main\n', stderr: '', combined: 'main\n' });
+    // Release the async tail. `loadRepository` interleaves `git exec` calls
+    // with on-disk marker reads (fs I/O for repository-state detection), so an
+    // exec is not always parked between steps — drive off drain completion, not
+    // "an exec is in flight", and resolve each exec as it appears.
+    for (let i = 0; i < 100 && !drainResolved; i++) {
+      if (stubCli.execResolve) {
+        const release = stubCli.execResolve;
+        stubCli.execResolve = null;
+        release({ exitCode: 0, stdout: 'main\n', stderr: '', combined: 'main\n' });
+      }
       await flushMicrotasks();
     }
 

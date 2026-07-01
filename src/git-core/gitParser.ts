@@ -15,7 +15,6 @@ import {
   FileStatus,
   BranchType,
   DiffLineType,
-  RepositoryState,
 } from './interfaces/IGitService';
 
 /**
@@ -641,38 +640,6 @@ export function parseHead(
     ahead,
     behind,
   };
-}
-
-/**
- * Parse repository state from Git status.
- *
- * @param gitDir - Path to the .git directory
- * @param statusOutput - Output from `git status`
- * @returns The repository state
- */
-export function parseRepositoryState(statusOutput: string): RepositoryState {
-  const lowerOutput = statusOutput.toLowerCase();
-
-  if (
-    lowerOutput.includes('rebase in progress') ||
-    lowerOutput.includes('interactive rebase in progress')
-  ) {
-    return 'rebasing';
-  }
-  if (
-    lowerOutput.includes('merge in progress') ||
-    lowerOutput.includes('you have unmerged paths')
-  ) {
-    return 'merging';
-  }
-  if (lowerOutput.includes('cherry-pick in progress')) {
-    return 'cherry-picking';
-  }
-  if (lowerOutput.includes('revert in progress')) {
-    return 'reverting';
-  }
-
-  return 'idle';
 }
 
 /**

@@ -53,13 +53,27 @@ function makeDialog(messages: {
       messages.record('acceptIncoming');
       return { success: true };
     },
-    acceptNonConflictingChanges: async () => {
-      messages.record('acceptNonConflictingChanges');
+    // Reconcile lookup the per-file handlers perform after a successful accept;
+    // return no conflicts so it resolves to a single observable dispatch.
+    getConflictedFiles: async () => [],
+    // Operation abort/continue are homed in the service; the dialog routes to
+    // these (op is 'merge' here), each a single observable dispatch.
+    abortMerge: async () => {
+      messages.record('abortMerge');
       return { success: true };
     },
-    // Reconcile lookup the handler performs after a successful apply; return no
-    // conflicts so it resolves to a single observable dispatch.
-    getConflictedFiles: async () => [],
+    abortRebase: async () => {
+      messages.record('abortRebase');
+      return { success: true };
+    },
+    completeMerge: async () => {
+      messages.record('completeMerge');
+      return { success: true };
+    },
+    abortWorkingTreeConflicts: async () => {
+      messages.record('abortWorkingTreeConflicts');
+      return { success: true };
+    },
   } as unknown as IConflictResolutionService;
 
   const mergeView = {
@@ -142,7 +156,6 @@ const messageArb = fc.oneof(
   fc.record({ type: fc.constant('acceptYours'), path: fc.string({ minLength: 1 }) }),
   fc.record({ type: fc.constant('acceptTheirs'), path: fc.string({ minLength: 1 }) }),
   fc.record({ type: fc.constant('openMergeView'), path: fc.string({ minLength: 1 }) }),
-  fc.record({ type: fc.constant('applyNonConflicting'), path: fc.string({ minLength: 1 }) }),
   fc.record({ type: fc.constant('abort') }),
   fc.record({ type: fc.constant('continue') })
 );

@@ -11,6 +11,7 @@ import { GitError, InvalidArgumentError, classifyGitCommandError } from '../erro
 import { parseStatus, isConflictedStatus } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
+import { NON_INTERACTIVE_GIT_ENV } from '../gitEnv';
 
 /**
  * Cherry-pick + revert lifecycle operations extracted from the
@@ -223,8 +224,12 @@ export class CherryPickRevertOps {
   }
 
   private async _cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
+    // Pin the editor to a no-op: `cherry-pick --continue` commits the picked
+    // change with its stored message and would otherwise try to open an editor,
+    // failing under the non-TTY spawn when the host has no EDITOR set.
     const result = await this.ctx.gitCli.exec(['cherry-pick', '--continue'], {
       cwd: repo.rootUri.fsPath,
+      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
     });
 
     this.ctx.invalidateCache(repo.rootUri.fsPath);
@@ -391,8 +396,12 @@ export class CherryPickRevertOps {
   }
 
   private async _revertContinue(repo: IRepository): Promise<IRevertResult> {
+    // Pin the editor to a no-op: `revert --continue` commits with its stored
+    // message and would otherwise try to open an editor, failing under the
+    // non-TTY spawn when the host has no EDITOR set.
     const result = await this.ctx.gitCli.exec(['revert', '--continue'], {
       cwd: repo.rootUri.fsPath,
+      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
     });
 
     this.ctx.invalidateCache(repo.rootUri.fsPath);

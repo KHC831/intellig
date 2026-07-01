@@ -16,6 +16,7 @@ import { GitCli, createGitCli, IGitCommandResult, buildGitArgs } from './gitCli'
 import { parseStatus, isConflictedStatus } from './gitParser';
 import { IGitService } from './interfaces/IGitService';
 import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
+import { NON_INTERACTIVE_GIT_ENV } from './gitEnv';
 
 /**
  * Rebase Service implementation.
@@ -262,7 +263,15 @@ export class RebaseService implements IRebaseService {
     const cwd = repo.rootUri.fsPath;
     const repoKey = this.getRepoKey(repo);
 
-    const result = await this._gitCli.exec(['rebase', '--continue'], { cwd });
+    // `rebase --continue` commits the replayed pick using its stored message.
+    // Pin the editor to a no-op so git commits it verbatim instead of trying to
+    // open an editor under the non-TTY spawn — which fails outright when the
+    // host has no EDITOR set ("Terminal is dumb, but EDITOR unset"). Mirrors the
+    // GIT_EDITOR handling on the interactive-rebase start.
+    const result = await this._gitCli.exec(['rebase', '--continue'], {
+      cwd,
+      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
+    });
 
     // Reconcile against git reality: if git reports no rebase in progress, the
     // cached session is a phantom (e.g. an abandoned planning session). Clear

@@ -50,7 +50,7 @@ import {
   isNewRepoPathIgnored,
   resolveWorktreeGitDir,
 } from './repo/RepositoryDiscovery';
-import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
+import { parseRemotes, parseHead } from './gitParser';
 import { sanitizeGitError } from './gitError';
 import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { StagingOps } from './ops/StagingOps';
@@ -64,6 +64,7 @@ import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/Worktree
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
+import { resolveGitDir } from './gitDirMarkers';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 
@@ -812,80 +813,44 @@ export class GitService implements IGitService, IGitServiceCli {
     // When BOTH probes fail OR rev-parse fails with a non-empty-repo
     // stderr, leave head undefined.
 
-    // Get repository state.
-    //
-    // `parseRepositoryState` only reads the rebase/merge/cherry-pick/revert
-    // HEADER lines, never the untracked-file listing — but a bare `git status`
-    // still walks the ENTIRE working tree to enumerate untracked files, which
-    // costs 5–10s on a large repo. Since discovery is on the critical path the
-    // graph load awaits, that walk is what stalls "Loading git graph…" at
-    // startup. `--untracked-files=no` skips the walk; `--no-optional-locks`
-    // keeps this read-only probe from contending for the index lock. State
-    // detection is unaffected — the header lines still print.
-    let state: RepositoryState = 'idle';
+    // Repository operation state comes from the on-disk in-progress markers
+    // (`MERGE_HEAD` / `CHERRY_PICK_HEAD` / `REVERT_HEAD` / `rebase-merge|
+    // rebase-apply/`), which are also the source of the StatusBar verb-form
+    // label ("Rebasing onto main", "Cherry-picking abc1234"). The markers are
+    // authoritative and complete for every operation the conflict UI handles:
+    // merge/rebase/cherry-pick/revert each leave a marker, while unstash /
+    // unshelve / apply-patch leave NONE and are correctly `idle` (their recorded
+    // operation drives ours/theirs reversal). We deliberately do NOT parse `git
+    // status` prose for state: it is localized (a non-English locale hides the
+    // header phrases, misdetecting a conflict as idle and flipping the accepted
+    // side), it substring-collides with conflicted file paths, and it would be a
+    // redundant subprocess on the graph-load critical path. Marker file NAMES
+    // are neither localized nor ambiguous. Cherry-pick + revert markers carry a
+    // 40-char SHA abbreviated via `git rev-parse --short` (one git invocation,
+    // only when such a marker exists). `resolveGitDir` handles the linked-
+    // worktree / submodule `.git`-file pointer.
+    let inProgress;
     try {
-      const statusResult = await this._gitCli.exec(
-        ['--no-optional-locks', 'status', '--untracked-files=no'],
-        options
-      );
-      state = parseRepositoryState(statusResult.stdout);
+      const gitDir = await resolveGitDir(rootPath);
+      inProgress = await readInProgressOperation(gitDir, async (sha) => {
+        const result = await this._gitCli.exec(
+          buildGitArgs('rev-parse', ['--short'], [sha]),
+          options
+        );
+        return result.exitCode === 0 ? result.stdout.trim() : sha.substring(0, 7);
+      });
     } catch (error) {
-      // A status-probe failure leaves `state` at the 'idle' default; log so
-      // the swallowed error is visible rather than silently masking a real
-      // repository state.
-      this._logger.debug('loadRepository: status probe failed', {
+      // A marker-read failure leaves state at the 'idle' default; log so the
+      // swallowed read failure stays visible rather than masking a real state.
+      this._logger.debug('loadRepository: in-progress marker read failed', {
         rootPath,
         err: error instanceof Error ? error.message : String(error),
       });
     }
 
-    // When state is non-idle, read on-disk in-progress markers
-    // (`MERGE_HEAD` / `rebase-merge/head-name` / `CHERRY_PICK_HEAD` /
-    // `REVERT_HEAD`) so the StatusBar can render verb-form labels with
-    // the operation's target ("Rebasing onto main", "Cherry-picking
-    // abc1234"). Cherry-pick + revert markers carry a 40-char SHA;
-    // abbreviate via `git rev-parse --short` (single git invocation per
-    // non-idle reload, skipped entirely for idle repos).
-    let inProgress;
-    if (state !== 'idle') {
-      const gitDir = path.join(rootPath, '.git');
-      try {
-        inProgress = await readInProgressOperation(gitDir, async (sha) => {
-          const result = await this._gitCli.exec(
-            buildGitArgs('rev-parse', ['--short'], [sha]),
-            options
-          );
-          return result.exitCode === 0 ? result.stdout.trim() : sha.substring(0, 7);
-        });
-      } catch (error) {
-        // Read failures fall through; the verb-only fallback in
-        // StatusBarService still renders a useful label without the target.
-        // Log so the swallowed read failure stays visible.
-        this._logger.debug('loadRepository: in-progress marker read failed', {
-          rootPath,
-          err: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    // Invariant: when both `state` and `inProgress` are populated, their
-    // classifications must agree. `state` is parsed from `git status` text;
-    // `inProgress.kind` is derived from on-disk marker files. They can
-    // drift if the parsers diverge or if a future repo-state gets added
-    // to one source but not the other. Surface the drift in dev/test
-    // without crashing production. The duplication of the kind enum is
-    // intentional and locked: see `IInProgressOperation.kind` JSDoc.
-    if (
-      inProgress !== undefined &&
-      inProgress.kind !== state &&
-      process.env.NODE_ENV !== 'production'
-    ) {
-      this._logger.warn('inProgress.kind out of sync with repository state', {
-        rootPath,
-        state,
-        inProgressKind: inProgress.kind,
-      });
-    }
+    // `inProgress.kind` (`merging`/`rebasing`/`cherry-picking`/`reverting`) IS
+    // the non-idle RepositoryState; no marker ⇒ idle.
+    const state: RepositoryState = inProgress?.kind ?? 'idle';
 
     // Get remotes
     let remotes: IRemote[] = [];

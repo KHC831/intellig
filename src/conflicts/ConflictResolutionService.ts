@@ -1,43 +1,23 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
 import {
   IConflictResolutionService,
   IConflictedFile,
   IConflictResolutionResult,
-  INonConflictingResult,
   IOperationCompletionResult,
 } from './interfaces/IConflictResolutionService';
 import { IGitService, IRepository, RepositoryState } from '../git-core/interfaces/IGitService';
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
-import { isReversedOperation } from './conflictReversal';
-import { hasSyntheticBase, clearSyntheticBasesForRepo } from './syntheticMergeBase';
+import { inferReopenOperation, isReversedOperation } from './conflictReversal';
+import { resolveConflictSideNames, IConflictSideNames } from './conflictSideNames';
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
-import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { resolveGitDir } from '../git-core/gitDirMarkers';
+import { RepoCommandQueue } from './repoCommandQueue';
+import { IConflictIndexWriter, ConflictIndexWriter } from './conflictIndexWriter';
+import { ConflictUiCoordinator } from './conflictUiCoordinator';
 import { getLogger, type Logger } from '../utils/logger';
-
-/**
- * Context key flipped `true` whenever a conflict-producing state file exists
- * in `.git/` AND there are unmerged files. Consumed by `when` clauses for the
- * status-bar item and VCS menu entries.
- */
-const CONTEXT_KEY_CONFLICTS_ACTIVE = 'intellig.conflicts.active';
-
-/**
- * Debounce interval for the `.git/*_HEAD` state-file watcher. Matches the
- * existing GitService `setupRepositoryWatcher` debounce (300ms) so we don't
- * stack concurrent work.
- */
-const STATE_FILE_DEBOUNCE_MS = 300;
-
-/**
- * Config key gating the auto-open behavior. Defaults to `true` (locked per
- * REVIEW.md section 7).
- */
-const CONFIG_AUTO_OPEN_KEY = 'autoOpenResolveConflictsDialog';
+import { NON_INTERACTIVE_GIT_ENV } from '../git-core/gitEnv';
 
 /**
  * Interface for accessing GitCli from GitService
@@ -56,18 +36,6 @@ export class ConflictResolutionService implements IConflictResolutionService {
     repo: IRepository;
     conflicts: IConflictedFile[];
   }>;
-
-  /**
-   * Per-repository open dialog registry. Keyed by repo rootUri.fsPath so we
-   * only have one Resolve Conflicts dialog open per repository at a time
-   * (reveal + update the existing one instead of stacking dialogs).
-   */
-  private readonly _activeDialogs: Map<string, ResolveConflictsDialog> = new Map();
-
-  /**
-   * Per-repository debounce timers for the state-file watcher.
-   */
-  private readonly _watcherDebounces: Map<string, NodeJS.Timeout> = new Map();
 
   /**
    * Per-repository operation that produced the active conflict, recorded when a
@@ -89,34 +57,8 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   private readonly _bulkInFlight: Set<string> = new Set();
 
-  /**
-   * Per-repository latest context-key state. Tracks the last value we
-   * published for each repo so we can avoid redundant `setContext` calls
-   * AND correctly report the aggregate (any-repo-has-conflicts) state in
-   * multi-root workspaces.
-   *
-   * The previous single-boolean impl reflected only the last repo
-   * touched, so two repos (one conflicted, one clean) would flip the key
-   * whenever either fired — yielding correct aggregate only incidentally.
-   * Map keyed by `repo.rootUri.fsPath` → last known active bool; aggregate
-   * is `true` iff any value in the map is `true`.
-   */
-  private readonly _conflictsActiveByRepo: Map<string, boolean> = new Map();
-
-  /**
-   * Memoized aggregate of `_conflictsActiveByRepo.values()`. Updated lazily
-   * from `_recomputeAggregateActive()`; exposed via `getConflictsActive()`
-   * (which stays pure-read for tests).
-   */
-  private _conflictsActiveAggregate = false;
-
-  /**
-   * Optional dependencies for opening the dialog. Wired via
-   * `setResolveConflictsDependencies` so existing callers that just use
-   * acceptCurrent/acceptIncoming can construct the service without them.
-   */
-  private _context: vscode.ExtensionContext | undefined;
-  private _mergeView: IMergeView | undefined;
+  /** Layer 4 — dialog lifecycle + context key. Set in the constructor. */
+  private readonly _coordinator: ConflictUiCoordinator;
 
   /**
    * Component-bound Logger emitted on construction and disposal so
@@ -126,325 +68,102 @@ export class ConflictResolutionService implements IConflictResolutionService {
   private readonly _logger: Logger;
 
   /**
+   * Serializes index-mutating accept ops per repo so concurrent per-file /
+   * bulk accepts never collide on `.git/index.lock`.
+   */
+  private readonly _indexQueue = new RepoCommandQueue();
+
+  /** Layer 1 git index plumbing (checkout/rm/read-stages). */
+  private readonly _indexWriter: IConflictIndexWriter;
+
+  /**
    * Event fired when conflicts change
    */
   readonly onDidChangeConflicts: vscode.Event<{ repo: IRepository; conflicts: IConflictedFile[] }>;
 
-  constructor(private readonly _gitService: IGitService) {
+  constructor(
+    private readonly _gitService: IGitService,
+    indexWriter?: IConflictIndexWriter
+  ) {
+    // The one place GitService's raw GitCli is derived; the accept paths depend
+    // on the IConflictIndexWriter seam, not the downcast. Tests may inject a
+    // fault-injecting writer.
+    this._indexWriter =
+      indexWriter ?? new ConflictIndexWriter((_gitService as IGitServiceWithCli).gitCli);
     this._onDidChangeConflicts = new vscode.EventEmitter();
     this.onDidChangeConflicts = this._onDidChangeConflicts.event;
     this._logger = getLogger().child({ component: 'ConflictResolutionService' });
     this._logger.info('ConflictResolutionService constructed');
 
-    // Listen for repository changes to detect conflict changes. Also
-    // piggybacks the state-file watcher check — setupRepositoryWatcher in
-    // GitService fires this event on any `.git/**` change (300ms debounced),
-    // which means MERGE_HEAD / REBASE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD
-    // appearance and removal both flow through here without extra plumbing.
+    // Layer 4 — dialog lifecycle + context key. Composed here; the service
+    // delegates its UI-facing surface to it and stays the headless resolver.
+    this._coordinator = new ConflictUiCoordinator(this, this._gitService);
+
+    // Listen for repository changes to detect conflict changes. `.git/**`
+    // changes (300ms-debounced in GitService) flow through here, so MERGE_HEAD /
+    // REBASE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD appearance and removal both
+    // update conflicts + the coordinator's dialog/context-key state.
     this._disposables.push(
       this._gitService.onDidChangeRepository(async (repo) => {
         const conflicts = await this.getConflictedFiles(repo);
-        // Once the repo is conflict-free the recorded operation and any
-        // synthetic add/add bases are stale — drop them so a later, unrelated
-        // conflict never inherits the wrong ours/theirs reversal or an empty
-        // base from them.
+        // Once the repo is conflict-free the recorded operation is stale — drop
+        // it so a later, unrelated conflict never inherits the wrong ours/theirs
+        // reversal from it.
         if (conflicts.length === 0) {
           this._opByRepo.delete(repo.rootUri.fsPath);
-          clearSyntheticBasesForRepo(repo.rootUri.fsPath);
         }
         this._onDidChangeConflicts.fire({ repo, conflicts });
-        this._reconcileOpenDialog(repo, conflicts);
-        this._scheduleStateFileCheck(repo);
+        this._coordinator.onRepositoryChanged(repo, conflicts);
       })
     );
   }
 
   /**
-   * Wire late-bound dependencies needed to open the Resolve Conflicts dialog.
-   * Called once during extension activation after MergeView is constructed.
+   * Record the operation that produced the repo's live conflict, so the bulk
+   * accept-all reversal (which has no repo.state signal for unstash/unshelve)
+   * stays consistent with the dialog. Written by the UI coordinator on open.
    */
-  setResolveConflictsDependencies(context: vscode.ExtensionContext, mergeView: IMergeView): void {
-    this._context = context;
-    this._mergeView = mergeView;
+  recordOperation(repo: IRepository, operation: IConflictOpContext['operation']): void {
+    this._opByRepo.set(repo.rootUri.fsPath, operation);
   }
 
-  /**
-   * Open (or reveal + update) the Resolve Conflicts dialog for a repository.
-   * If the `intellig.autoOpenResolveConflictsDialog` config is `false` we skip
-   * the dialog entirely; the status-bar prompt (driven by the state-file
-   * watcher and the context key) remains the only surface.
-   *
-   * One dialog per repo at any given time.
-   */
-  async openResolveConflictsDialog(
+  /** @see IConflictResolutionService — delegated to the Layer-4 UI coordinator. */
+  setResolveConflictsDependencies(context: vscode.ExtensionContext, mergeView: IMergeView): void {
+    this._coordinator.setResolveConflictsDependencies(context, mergeView);
+  }
+
+  openResolveConflictsDialog(
     repo: IRepository,
     conflicts: IConflictedFile[],
-    opContext: IConflictOpContext
+    opContext: IConflictOpContext,
+    options?: { explicit?: boolean }
   ): Promise<void> {
-    // Record the operation up front (even when no dialog actually opens) so the
-    // bulk palette accept-all commands reverse ours/theirs consistently with the
-    // dialog's per-file actions for this conflict.
-    this._opByRepo.set(repo.rootUri.fsPath, opContext.operation);
-
-    const autoOpen = vscode.workspace
-      .getConfiguration('intellig')
-      .get<boolean>(CONFIG_AUTO_OPEN_KEY, true);
-
-    if (!autoOpen) {
-      // Feature flag off: surface context key only so the status-bar prompt
-      // remains but don't steal focus.
-      await this._setConflictsActive(repo, true);
-      return;
-    }
-
-    if (!this._context || !this._mergeView) {
-      // Dependencies not yet wired — fall back to context-key only.
-      await this._setConflictsActive(repo, true);
-      return;
-    }
-
-    const key = repo.rootUri.fsPath;
-    const existing = this._activeDialogs.get(key);
-    if (existing) {
-      // Only reuse a dialog for the SAME operation. A lingering dialog from a
-      // finished op would otherwise show the new op's files while keeping the
-      // old operation's reversal/labels. Different op ⇒ dispose it (its
-      // onDidClose clears the registry) and fall through to a fresh dialog.
-      if (existing.getOpContext().operation === opContext.operation) {
-        existing.updateConflicts(conflicts);
-        existing.reveal();
-        return;
-      }
-      // Different op: dispose the stale dialog (its onDidClose clears the
-      // dialog registry). _opByRepo already holds the new op from the top of
-      // this method, and onDidClose no longer touches it.
-      existing.dispose();
-    }
-
-    const dialog = new ResolveConflictsDialog(
-      this._context,
-      repo,
-      conflicts,
-      opContext,
-      this,
-      this._mergeView,
-      this._gitService
-    );
-    this._activeDialogs.set(key, dialog);
-
-    dialog.onDidClose((reason) => {
-      this._activeDialogs.delete(key);
-      // Do NOT clear _opByRepo here: closing the editor tab ('cancelled') does
-      // not resolve the conflict, and the bulk palette accept-all commands
-      // still need the recorded operation to swap ours/theirs for an
-      // unstash/unshelve that has no repo.state signal. The recorded op is
-      // cleared when the repo's conflicts actually clear (onDidChangeRepository)
-      // or on service dispose.
-      // Completion or abort implies the op is finished → flip context key
-      // for this repo. Other repos' active state is preserved.
-      // Bucket B: setContext failures are cosmetic (we fall
-      // through to the next state transition), but we log them instead
-      // of silently dropping the rejection so a broken setContext proxy
-      // is diagnosable from the extension-host console.
-      if (reason === 'completed' || reason === 'aborted') {
-        safeFireAndForget(
-          this._setConflictsActive(repo, false),
-          'ConflictResolutionService.openResolveConflictsDialog: clear active on dialog close'
-        );
-      }
-    });
-
-    // Seed the context key so the VCS menu item & status-bar prompt reflect
-    // the live state as soon as the dialog opens.
-    await this._setConflictsActive(repo, true);
+    return this._coordinator.openResolveConflictsDialog(repo, conflicts, opContext, options);
   }
 
-  /**
-   * Sync an open Resolve Conflicts dialog against the freshly-queried unmerged
-   * set. When a conflicted file stops being unmerged — typically because the
-   * user finished it in VS Code's native merge editor (`git.openMergeEditor`),
-   * which stages the file and so mutates `.git/index` (a watched entry) — its
-   * row flips to resolved and the dialog's Continue button enables once every
-   * row is resolved.
-   *
-   * Mirrors IntelliJ `MultipleFileMergeDialog.updateModelFromFiles`
-   * (platform/vcs-impl), which re-reads `git ls-files --unmerged`
-   * (GitMergeProvider) on a refresh and drops rows no longer reported.
-   */
-  private _reconcileOpenDialog(repo: IRepository, conflicts: IConflictedFile[]): void {
-    const dialog = this._activeDialogs.get(repo.rootUri.fsPath);
-    if (!dialog) {
-      return;
-    }
-    const unmergedPaths = new Set(conflicts.map((c) => c.path));
-    dialog.reconcileResolved(unmergedPaths);
+  /** Publish the combined conflict state + context key for a repo. */
+  runStateFileCheck(repo: IRepository): Promise<boolean> {
+    return this._coordinator.runStateFileCheck(repo);
   }
 
-  /**
-   * Poll `.git/MERGE_HEAD`, `.git/REBASE_HEAD`, `.git/CHERRY_PICK_HEAD`, and
-   * `.git/REVERT_HEAD` for the repository, combine with the unmerged-files
-   * check, and publish the context key `intellig.conflicts.active`.
-   *
-   * Debounced at {@link STATE_FILE_DEBOUNCE_MS} so a flurry of `.git/**`
-   * changes produces a single publish.
-   */
-  private _scheduleStateFileCheck(repo: IRepository): void {
-    const key = repo.rootUri.fsPath;
-    const existing = this._watcherDebounces.get(key);
-    if (existing) {
-      clearTimeout(existing);
-    }
-    const timer = setTimeout(() => {
-      this._watcherDebounces.delete(key);
-      // Bucket B: state-file check errors are transient (race with
-      // concurrent `.git/**` mutations); log-and-suppress is the right
-      // answer here because the next watcher event will retry the check.
-      // `_runStateFileCheck` returns `Promise<boolean>` so we drop the
-      // value before handing to safeFireAndForget.
-      safeFireAndForget(
-        this._runStateFileCheck(repo).then(() => undefined),
-        'ConflictResolutionService._scheduleStateFileCheck: debounced state-file check'
-      );
-    }, STATE_FILE_DEBOUNCE_MS);
-    this._watcherDebounces.set(key, timer);
-  }
-
-  /**
-   * Resolve the combined conflict state for a repo and publish the context
-   * key. Exposed as a separate method so tests can drive it deterministically.
-   */
-  async runStateFileCheck(repo: IRepository): Promise<boolean> {
-    return this._runStateFileCheck(repo);
-  }
-
-  private async _runStateFileCheck(repo: IRepository): Promise<boolean> {
-    const stateFiles = ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'];
-    const gitDir = path.join(repo.rootUri.fsPath, '.git');
-    let anyStateFilePresent = false;
-
-    for (const file of stateFiles) {
-      try {
-        await fs.promises.access(path.join(gitDir, file));
-        anyStateFilePresent = true;
-        break;
-      } catch (error) {
-        // ENOENT is the expected "state file absent" signal — keep looking.
-        // Any other errno (EACCES/EIO/ENOTDIR…) is a real fs fault that must
-        // not be masked as "no operation in progress"; log+degrade so it's visible.
-        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-          this._logger.debug('in-progress state-file probe failed', {
-            file,
-            err: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    }
-
-    // Rebase uses a directory (rebase-merge/rebase-apply), not just a file.
-    if (!anyStateFilePresent) {
-      for (const dir of ['rebase-merge', 'rebase-apply']) {
-        try {
-          const stat = await fs.promises.stat(path.join(gitDir, dir));
-          if (stat.isDirectory()) {
-            anyStateFilePresent = true;
-            break;
-          }
-        } catch (error) {
-          // ENOENT is the expected "rebase dir absent" signal. Any other errno
-          // is a real fs fault that must not be masked; log+degrade so it's visible.
-          if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-            this._logger.debug('in-progress rebase-dir probe failed', {
-              dir,
-              err: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-      }
-    }
-
-    const unmerged = await this.hasUnresolvedConflicts(repo);
-    const active = anyStateFilePresent && unmerged;
-    await this._setConflictsActive(repo, active);
-    return active;
-  }
-
-  /**
-   * Record the per-repo active state and publish the aggregate
-   * `intellig.conflicts.active` context key. The aggregate flips to `true`
-   * whenever any repo has conflicts and back to `false` only when every
-   * repo reports clean.
-   *
-   * Only invokes `setContext` when the aggregate actually changes, so the
-   * original memoization guarantee is preserved.
-   */
-  private async _setConflictsActive(repo: IRepository, active: boolean): Promise<void> {
-    const key = repo.rootUri.fsPath;
-    const previous = this._conflictsActiveByRepo.get(key) ?? false;
-    if (previous === active) {
-      // Per-repo state unchanged — aggregate can't change, nothing to do.
-      return;
-    }
-    this._conflictsActiveByRepo.set(key, active);
-
-    const nextAggregate = this._recomputeAggregateActive();
-    if (nextAggregate === this._conflictsActiveAggregate) {
-      // Aggregate unchanged (e.g. another repo is still conflicted).
-      return;
-    }
-    this._conflictsActiveAggregate = nextAggregate;
-    try {
-      await vscode.commands.executeCommand(
-        'setContext',
-        CONTEXT_KEY_CONFLICTS_ACTIVE,
-        nextAggregate
-      );
-      // eslint-disable-next-line no-restricted-syntax -- setContext is a non-essential UI context key; a failure (e.g. unit tests that don't mock it) is non-fatal.
-    } catch {
-      // setContext isn't available in non-test extension-host builds; swallow
-      // so this call is safe in unit tests that don't mock it.
-    }
-  }
-
-  /**
-   * Compute the aggregate — any repo conflicted ⇒ true.
-   */
-  private _recomputeAggregateActive(): boolean {
-    for (const v of this._conflictsActiveByRepo.values()) {
-      if (v) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Current aggregate value of the context key we last published. Exposed
-   * for tests.
-   */
+  /** Current aggregate value of the `intellig.conflicts.active` context key. */
   getConflictsActive(): boolean {
-    return this._conflictsActiveAggregate;
+    return this._coordinator.getConflictsActive();
   }
 
-  /**
-   * Per-repo active state snapshot. Exposed for tests that want to verify
-   * multi-root behavior (one repo conflicted, another clean).
-   */
+  /** Per-repo active flag (multi-root test helper). */
   getConflictsActiveForRepo(repo: IRepository): boolean {
-    return this._conflictsActiveByRepo.get(repo.rootUri.fsPath) ?? false;
+    return this._coordinator.getConflictsActiveForRepo(repo);
   }
 
-  /**
-   * Whether a Resolve Conflicts dialog is currently open for a repo.
-   */
+  /** Whether a Resolve Conflicts dialog is currently open for a repo. */
   hasOpenDialog(repo: IRepository): boolean {
-    return this._activeDialogs.has(repo.rootUri.fsPath);
+    return this._coordinator.hasOpenDialog(repo);
   }
 
-  /**
-   * Return the open dialog for a repo, if any. Primarily useful to tests.
-   */
+  /** The open dialog for a repo, if any (test helper). */
   getOpenDialog(repo: IRepository): ResolveConflictsDialog | undefined {
-    return this._activeDialogs.get(repo.rootUri.fsPath);
+    return this._coordinator.getOpenDialog(repo);
   }
 
   /**
@@ -459,6 +178,41 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   getRecordedOperation(repo: IRepository): IConflictOpContext['operation'] | undefined {
     return this._opByRepo.get(repo.rootUri.fsPath);
+  }
+
+  async getConflictSideNames(
+    repo: IRepository,
+    operation?: IConflictOpContext['operation']
+  ): Promise<IConflictSideNames> {
+    const op =
+      operation ??
+      inferReopenOperation(this._opByRepo.get(repo.rootUri.fsPath), this.getRepositoryState(repo));
+    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+    const cwd = repo.rootUri.fsPath;
+    const run = async (args: string[]): Promise<string | undefined> => {
+      try {
+        const r = await gitCli.exec(args, { cwd, throwOnError: false });
+        return r.exitCode === 0 ? r.stdout.trim() || undefined : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    // The `.git` dir is a *file* in linked worktrees/submodules — resolve it via
+    // the shared fs helper (no subprocess, same logic as loadRepository).
+    const gitDir = await resolveGitDir(cwd);
+    const shortenSha = (sha: string): Promise<string | undefined> =>
+      run(['rev-parse', '--short', sha]);
+    const nameRev = async (sha: string): Promise<string | undefined> => {
+      const name = await run(['name-rev', '--name-only', '--no-undefined', sha]);
+      // name-rev can return an ancestor expression ("main~2") or a prefixed name
+      // ("remotes/origin/x", "tags/v1"); only a clean tip name is a useful
+      // "Accept from {name}".
+      if (!name || /[~^]/.test(name)) {
+        return undefined;
+      }
+      return name.replace(/^(?:remotes|tags)\//, '');
+    };
+    return resolveConflictSideNames(gitDir, op, repo.head?.name, shortenSha, nameRev);
   }
 
   /**
@@ -560,21 +314,22 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Mirrors IntelliJ `GitMergeUtil.isReverseRoot` (rebase).
    *
    * When the caller does not pass an explicit flag (e.g. the bulk palette
-   * commands, which have no operation context of their own), fall back to the
-   * recorded operation of the repo's active conflict resolution PLUS the
-   * repository state. The recorded operation is the single source of truth the
-   * dialog's per-file actions also use, so a bulk "Accept All" and a per-file
-   * "Accept Yours" never resolve the same unstash/unshelve conflict to opposite
-   * sides. The state check covers a paused rebase with no dialog open.
+   * commands, which have no operation context of their own), resolve the
+   * operation through {@link inferReopenOperation} — the repository state leads
+   * (a definitive in-progress op is a git fact), and the recorded op only
+   * disambiguates an idle repo (a working-tree apply ⇒ unstash). That is the
+   * same inference the dialog and the naming use, so a bulk "Accept All" and a
+   * per-file "Accept Yours" always resolve the same conflict to the same side.
    */
   private _isReversed(repo: IRepository, reversed?: boolean): boolean {
     if (reversed !== undefined) {
       return reversed;
     }
-    if (this.getRepositoryState(repo) === 'rebasing') {
-      return true;
-    }
-    return isReversedOperation(this._opByRepo.get(repo.rootUri.fsPath));
+    const operation = inferReopenOperation(
+      this._opByRepo.get(repo.rootUri.fsPath),
+      this.getRepositoryState(repo)
+    );
+    return isReversedOperation(operation);
   }
 
   /** Checkout flag that takes the user's own ("Yours") side. */
@@ -588,35 +343,28 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
-   * Resolve a single conflicted file by taking one index side (`--ours` or
-   * `--theirs`). A delete/modify conflict where the taken side has no blob
-   * (`--ours` + index 'D', or `--theirs` + work-tree 'D') is resolved with
-   * `git rm` instead of `checkout` (IntelliJ's GitMergeProvider routes deletions
-   * to rm); otherwise the side is checked out and staged.
+   * Resolve a single conflicted file by taking one index side (via the Layer 1
+   * {@link IConflictIndexWriter}) and staging the checked-out result, serialized
+   * against other index writes for this repo.
    */
   private async _acceptSide(
     repo: IRepository,
     filePath: string,
     flag: '--ours' | '--theirs'
   ): Promise<void> {
-    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-    const options: IGitCommandOptions = {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    };
-    const status = await this._getUnmergedStatus(repo, filePath);
-    const sideDeleted = flag === '--ours' ? status?.index === 'D' : status?.workTree === 'D';
-    if (sideDeleted) {
-      await gitCli.exec(['rm', '--', filePath], options);
-    } else {
-      await gitCli.exec(['checkout', flag, '--', filePath], options);
-      await this._gitService.stage(repo, [filePath]).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-    }
+    const root = repo.rootUri.fsPath;
+    await this._indexQueue.withLock(root, async () => {
+      const entry = (await this._indexWriter.readStages(root, filePath)).get(filePath);
+      const needsStage = await this._indexWriter.takeSide(root, filePath, flag, entry);
+      if (needsStage) {
+        await this._gitService.stage(repo, [filePath]).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+      }
+    });
   }
 
   /**
@@ -647,30 +395,6 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
-   * Look up the porcelain unmerged status (index X / work-tree Y) of a single
-   * file, used to distinguish a normal both-modified conflict from a
-   * delete/modify one. Returns undefined if the file is absent from
-   * `git status` (callers then take the default checkout path).
-   */
-  private async _getUnmergedStatus(
-    repo: IRepository,
-    filePath: string
-  ): Promise<{ index: string; workTree: string } | undefined> {
-    const file = (await this._statusByPath(repo)).get(filePath);
-    return file ? { index: file.indexStatus, workTree: file.workTreeStatus } : undefined;
-  }
-
-  /** path → porcelain X/Y status for the repo, for routing bulk accept-all ops. */
-  private async _statusByPath(
-    repo: IRepository
-  ): Promise<Map<string, { indexStatus: string; workTreeStatus: string }>> {
-    const status = await this._gitService.getStatus(repo);
-    return new Map(
-      status.map((f) => [f.path, { indexStatus: f.indexStatus, workTreeStatus: f.workTreeStatus }])
-    );
-  }
-
-  /**
    * Accept incoming (theirs) version for a file and mark as resolved
    *
    * @param repo - The repository
@@ -697,113 +421,6 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
-   * Accept every change in a conflicted file that does NOT actually conflict —
-   * the regions exactly one side edited — taking that side, and leave the
-   * regions both sides changed (the true conflicts) for the user.
-   *
-   * Mirrors IntelliJ's "Apply Non-Conflicting Changes"
-   * (platform/diff-impl `ApplyNonConflictsAction` →
-   * `MergeThreesideViewer.applyNonConflictedChanges`, which resolves
-   * `ContainerUtil.filter(getAllChanges(), change -> !change.isConflict())`).
-   *
-   * Rather than hand-roll a diff3 hunk engine, we delegate the three-way text
-   * merge to git's own `git merge-file`: fed the index's base/ours/theirs
-   * stages it auto-applies every one-sided hunk and re-emits conflict markers
-   * for two-sided ones. If no conflict hunks remain the file is fully merged
-   * and we stage it (resolved); otherwise it stays unstaged for the user.
-   *
-   * @param repo - The repository
-   * @param filePath - Repo-relative path of the conflicted file
-   * @returns Resolution result
-   */
-  async acceptNonConflictingChanges(
-    repo: IRepository,
-    filePath: string
-  ): Promise<INonConflictingResult> {
-    try {
-      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-
-      // A modify/delete conflict (one side deleted the file) has no three-way
-      // text to merge — it is a true conflict in its entirety, so there are no
-      // non-conflicting regions to auto-apply. Leave it for the user, matching
-      // IntelliJ's filter to `!isConflict()` changes.
-      const status = await this._getUnmergedStatus(repo, filePath);
-      if (status?.index === 'D' || status?.workTree === 'D') {
-        return { success: true, fullyResolved: false, remainingHunks: 1 };
-      }
-
-      // Read the three merge stages straight from the index: stage 1 = merge
-      // base, stage 2 = ours, stage 3 = theirs. An absent stage (e.g. no common
-      // ancestor in an add/add conflict) reads as empty.
-      let base = await this._readMergeStage(gitCli, repo, 1, filePath);
-      const ours = await this._readMergeStage(gitCli, repo, 2, filePath);
-      const theirs = await this._readMergeStage(gitCli, repo, 3, filePath);
-
-      // If the native editor injected a synthetic add/add base for this file,
-      // stage 1 is the conflict-marked working blob, not a real ancestor —
-      // diffing against it would re-mark everything. The true add/add base is
-      // empty (the file had no common ancestor). A genuine base is left intact,
-      // even when its own content happens to contain marker-like lines.
-      if (hasSyntheticBase(repo.rootUri.fsPath, filePath)) {
-        base = '';
-      }
-
-      const merged = await mergeNonConflictingText(gitCli, base, ours, theirs);
-
-      const absPath = path.join(repo.rootUri.fsPath, filePath);
-      await fs.promises.writeFile(absPath, merged.content);
-
-      // No conflict hunks remain ⇒ the file is fully merged; stage it so it
-      // drops out of the unmerged set. Otherwise leave it unstaged so the user
-      // settles the remaining true conflicts.
-      if (!merged.hasConflicts) {
-        await this._gitService.stage(repo, [filePath]).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-      }
-
-      const conflicts = await this.getConflictedFiles(repo);
-      this._onDidChangeConflicts.fire({ repo, conflicts });
-
-      // `git merge-file`'s exit code is the exact number of conflict hunks left,
-      // so the caller can report progress rather than silently doing nothing on
-      // a pure conflict.
-      return {
-        success: true,
-        fullyResolved: !merged.hasConflicts,
-        remainingHunks: merged.conflictCount,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        error: `Failed to accept non-conflicting changes: ${errorMessage}`,
-      };
-    }
-  }
-
-  /**
-   * Read one merge stage of a conflicted file straight from the index
-   * (`git show :<stage>:<path>`). Returns empty string when the stage is
-   * absent — e.g. an add/add conflict has no stage 1 (no common ancestor).
-   */
-  private async _readMergeStage(
-    gitCli: GitCli,
-    repo: IRepository,
-    stage: 1 | 2 | 3,
-    filePath: string
-  ): Promise<string> {
-    const result = await gitCli.exec(['show', `:${stage}:${filePath}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: false,
-    });
-    return result.exitCode === 0 ? result.stdout : '';
-  }
-
-  /**
    * Accept current version for all conflicted files
    *
    * @param repo - The repository
@@ -819,8 +436,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
   /**
    * Run a bulk accept-all batch under the per-repo {@link _bulkInFlight} guard
    * so a concurrent second invocation can't interleave `checkout`/`rm` with the
-   * first and error mid-batch. A dropped second call returns success (the first
-   * batch is resolving the same files); the guard clears in `finally`.
+   * first and error mid-batch. A dropped second call is a benign no-op marked
+   * `skipped` — NOT a success (the in-flight batch may be taking the other side,
+   * so claiming success would mislabel it) and NOT an error to toast. The guard
+   * clears in `finally`.
    */
   private async _runBulk(
     repo: IRepository,
@@ -828,7 +447,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
   ): Promise<IConflictResolutionResult> {
     const key = repo.rootUri.fsPath;
     if (this._bulkInFlight.has(key)) {
-      return { success: true };
+      return { success: false, skipped: true };
     }
     this._bulkInFlight.add(key);
     try {
@@ -850,39 +469,35 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * checked out and staged in one batch.
    */
   private async _acceptAllBySide(repo: IRepository, flag: '--ours' | '--theirs'): Promise<void> {
-    const conflicts = await this.getConflictedFiles(repo);
-    if (conflicts.length === 0) {
-      return;
-    }
-
-    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-    const options: IGitCommandOptions = {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    };
-
-    const statusByPath = await this._statusByPath(repo);
-    const toStage: string[] = [];
-    for (const conflict of conflicts) {
-      const row = statusByPath.get(conflict.path);
-      const sideDeleted =
-        flag === '--ours' ? row?.indexStatus === 'D' : row?.workTreeStatus === 'D';
-      if (sideDeleted) {
-        await gitCli.exec(['rm', '--', conflict.path], options);
-      } else {
-        await gitCli.exec(['checkout', flag, '--', conflict.path], options);
-        toStage.push(conflict.path);
+    const root = repo.rootUri.fsPath;
+    // Serialize the whole batch against per-file accepts for this repo so the
+    // checkouts/rms/stage never race another accept on `.git/index.lock`.
+    await this._indexQueue.withLock(root, async () => {
+      // One index-only read of every unmerged path + its stages (git4idea's
+      // `git ls-files -u` model) — the canonical conflict set, and the single
+      // source for the per-file delete-vs-checkout decision.
+      const stagesByPath = await this._indexWriter.readStages(root);
+      if (stagesByPath.size === 0) {
+        return;
       }
-    }
-    // Stage the checked-out files to mark as resolved (rm already staged removals).
-    if (toStage.length > 0) {
-      await this._gitService.stage(repo, toStage).match(
-        () => undefined,
-        (e) => {
-          throw e;
+
+      const toStage: string[] = [];
+      for (const [conflictPath, entry] of stagesByPath) {
+        const needsStage = await this._indexWriter.takeSide(root, conflictPath, flag, entry);
+        if (needsStage) {
+          toStage.push(conflictPath);
         }
-      );
-    }
+      }
+      // Stage the checked-out files to mark resolved (rm already staged removals).
+      if (toStage.length > 0) {
+        await this._gitService.stage(repo, toStage).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+      }
+    });
   }
 
   /**
@@ -925,39 +540,19 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   async completeMerge(repo: IRepository): Promise<IOperationCompletionResult> {
     try {
-      // Bail immediately when the repo is not in a merge state — proceeding
-      // to `git commit --no-edit` on a non-merging repo would commit whatever
-      // happens to be staged, which is never the intent (mirrors IntelliJ
-      // GitConflictResolver.proceedIfNothingToMerge).
-      const state = this.getRepositoryState(repo);
-      if (state !== 'merging') {
-        return {
-          success: false,
-          error: 'Repository is not in a merge state',
-        };
-      }
-
-      // Check for unresolved conflicts before committing.
-      const canComplete = await this.canCompleteOperation(repo);
-      if (!canComplete) {
-        const conflicts = await this.getConflictedFiles(repo);
-        if (conflicts.length > 0) {
-          return {
-            success: false,
-            error: 'Cannot complete merge: unresolved conflicts remain',
-            remainingConflicts: conflicts.map((c) => c.path),
-          };
-        }
-      }
-
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-      const options: IGitCommandOptions = {
+      // `git merge --continue` commits the resolved index honoring MERGE_MSG and
+      // the merge hooks; the editor is suppressed (it would hang under the
+      // non-TTY spawn). No cached-`repo.state` guard — git self-guards live off
+      // `MERGE_HEAD` (errors when no merge is in progress) and off unmerged
+      // entries, so this stays guardless like abortMerge. The friendly pre-check
+      // belongs to the callers: the palette runs canCompleteOperation, the
+      // dialog its allResolved() gate. Both the dialog Continue and the palette
+      // "Complete Merge" route here (git4idea's single GitConflictResolver.merge).
+      const result: IGitCommandResult = await gitCli.exec(['merge', '--continue'], {
         cwd: repo.rootUri.fsPath,
-      };
-
-      // Complete the merge with a commit
-      const result: IGitCommandResult = await gitCli.exec(['commit', '--no-edit'], options);
-
+        env: { ...NON_INTERACTIVE_GIT_ENV },
+      });
       if (result.exitCode !== 0) {
         return {
           success: false,
@@ -965,10 +560,8 @@ export class ConflictResolutionService implements IConflictResolutionService {
         };
       }
 
-      // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
       this._onDidChangeConflicts.fire({ repo, conflicts });
-
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -984,30 +577,11 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   async completeRebase(repo: IRepository): Promise<IOperationCompletionResult> {
     try {
-      // Bail immediately when the repo is not in a rebase state — same guard
-      // as completeMerge: proceeding would run a git command against the wrong
-      // repo state.
-      const state = this.getRepositoryState(repo);
-      if (state !== 'rebasing') {
-        return {
-          success: false,
-          error: 'Repository is not in a rebase state',
-        };
-      }
-
-      // Check for unresolved conflicts before continuing.
-      const canComplete = await this.canCompleteOperation(repo);
-      if (!canComplete) {
-        const conflicts = await this.getConflictedFiles(repo);
-        if (conflicts.length > 0) {
-          return {
-            success: false,
-            error: 'Cannot complete rebase: unresolved conflicts remain',
-            remainingConflicts: conflicts.map((c) => c.path),
-          };
-        }
-      }
-
+      // No cached-`repo.state` guard (matches completeMerge / the abort methods):
+      // `git rebase --continue` self-guards live — it errors when no rebase is in
+      // progress and pauses with the remaining conflicts (handled below) when
+      // any are unresolved. The palette's canCompleteOperation is the friendly
+      // pre-check.
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
       const options: IGitCommandOptions = {
         cwd: repo.rootUri.fsPath,
@@ -1015,7 +589,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
         // commit's message; under VS Code's non-TTY spawn that hangs forever
         // (timeout 0). GIT_EDITOR=true commits the prepared message verbatim,
         // mirroring the dialog/merge continue paths.
-        env: { GIT_EDITOR: 'true' },
+        env: { ...NON_INTERACTIVE_GIT_ENV },
       };
 
       // Continue the rebase
@@ -1046,6 +620,41 @@ export class ConflictResolutionService implements IConflictResolutionService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return { success: false, error: `Failed to complete rebase: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * Abort an unshelve / unstash / apply-patch conflict by restoring ONLY the
+   * given paths to HEAD. Those ops leave conflict markers in the working tree
+   * with no git-level "aborting" state, so there is no `--abort`; a bare
+   * `checkout -- .` would wipe unrelated working-tree changes, hence the caller
+   * passes just the unresolved paths. Paths follow `--` so a leading `-` in a
+   * filename can never be read as a flag.
+   */
+  async abortWorkingTreeConflicts(
+    repo: IRepository,
+    paths: string[]
+  ): Promise<IOperationCompletionResult> {
+    if (paths.length === 0) {
+      return { success: true };
+    }
+    try {
+      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+      const result: IGitCommandResult = await gitCli.exec(['checkout', 'HEAD', '--', ...paths], {
+        cwd: repo.rootUri.fsPath,
+      });
+      if (result.exitCode !== 0) {
+        return {
+          success: false,
+          error: `Failed to abort: ${result.stderr || result.stdout}`,
+        };
+      }
+      const conflicts = await this.getConflictedFiles(repo);
+      this._onDidChangeConflicts.fire({ repo, conflicts });
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Failed to abort: ${errorMessage}` };
     }
   }
 
@@ -1133,110 +742,18 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   dispose(): void {
     this._logger.info('ConflictResolutionService disposing', {
-      activeDialogs: this._activeDialogs.size,
-      pendingWatchers: this._watcherDebounces.size,
+      activeDialogs: this._coordinator.openDialogCount,
     });
     this._onDidChangeConflicts.dispose();
 
-    // Clear any pending state-file watcher timers.
-    for (const timer of this._watcherDebounces.values()) {
-      clearTimeout(timer);
-    }
-    this._watcherDebounces.clear();
-
-    // Dispose any open Resolve Conflicts dialogs (each fires onDidClose, which
-    // clears its _activeDialogs/_opByRepo entry).
-    for (const dialog of this._activeDialogs.values()) {
-      dialog.dispose();
-    }
-    this._activeDialogs.clear();
+    // Tear down Layer 4 (watcher timers + open dialogs + context-key state).
+    this._coordinator.dispose();
     this._opByRepo.clear();
 
     for (const disposable of this._disposables) {
       disposable.dispose();
     }
     this._disposables = [];
-  }
-}
-
-/**
- * Result of a three-way text merge that applies only non-conflicting changes.
- */
-export interface IMergeNonConflictingResult {
-  /** Merged file content: one-sided hunks applied, two-sided hunks re-marked. */
-  content: string;
-  /** Whether any true-conflict hunks (with `<<<<<<<` markers) remain. */
-  hasConflicts: boolean;
-  /** Exact number of conflict hunks left (git merge-file's exit code; 0 = clean). */
-  conflictCount: number;
-}
-
-/**
- * Run git's own three-way text merge over the base/ours/theirs contents and
- * return the result. `git merge-file` auto-applies every hunk only one side
- * changed and re-emits conflict markers for hunks both sides changed — the
- * machinery behind "accept non-conflicting changes". Its exit code is the
- * number of conflict hunks (0 = clean), which we map to {@link
- * IMergeNonConflictingResult.hasConflicts}.
- *
- * The three sides are staged into a private temp directory so the merge is
- * independent of any working tree; the directory is always cleaned up.
- */
-export async function mergeNonConflictingText(
-  gitCli: GitCli,
-  base: string,
-  ours: string,
-  theirs: string
-): Promise<IMergeNonConflictingResult> {
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'intellig-merge-'));
-  const oursPath = path.join(tmpDir, 'ours');
-  const basePath = path.join(tmpDir, 'base');
-  const theirsPath = path.join(tmpDir, 'theirs');
-  try {
-    await Promise.all([
-      fs.promises.writeFile(oursPath, ours),
-      fs.promises.writeFile(basePath, base),
-      fs.promises.writeFile(theirsPath, theirs),
-    ]);
-
-    // `-p` prints the merged result to stdout (leaving the inputs untouched);
-    // `-L` labels the conflict markers with the side they came from. Arg order
-    // is current(ours) / base / other(theirs).
-    const result = await gitCli.exec(
-      [
-        'merge-file',
-        '-p',
-        '-L',
-        'Current (ours)',
-        '-L',
-        'Merge base',
-        '-L',
-        'Incoming (theirs)',
-        oursPath,
-        basePath,
-        theirsPath,
-      ],
-      { cwd: tmpDir, throwOnError: false }
-    );
-
-    // A clean run exits 0; conflicts exit with the (positive) hunk count. Git
-    // signals real trouble (unreadable input, binary) with 255 and no stdout —
-    // surface that rather than silently returning an empty merge.
-    if (result.exitCode === 255 && result.stdout.length === 0) {
-      throw new Error(`git merge-file failed: ${result.stderr || 'unknown error'}`);
-    }
-
-    // The exit code is the conflict-hunk count (git caps it at 127). It is the
-    // precise count for the caller's progress message — far better than scanning
-    // the output for `<<<<<<<`, which would also match marker-like file content.
-    const hasConflicts = result.exitCode !== 0;
-    return {
-      content: result.stdout,
-      hasConflicts,
-      conflictCount: hasConflicts ? result.exitCode : 0,
-    };
-  } finally {
-    await fs.promises.rm(tmpDir, { recursive: true, force: true });
   }
 }
 

@@ -31,6 +31,7 @@ import { sanitizeGitError } from '../gitError';
 import { parseGitVersion, supportsUpdateRefs, IGitVersion } from '../gitVersion';
 import { getOutputChannel } from '../../utils/outputChannel';
 import { IGitOpsContext } from './GitOpsContext';
+import { NON_INTERACTIVE_GIT_ENV } from '../gitEnv';
 
 /**
  * Translate {@link IRebaseOptions} into git flags, in IntelliJ git4idea's
@@ -692,8 +693,13 @@ export class BranchOps {
   }
 
   private async _rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
+    // `rebase --continue` commits the replayed pick using its stored message.
+    // Pin the editor to a no-op so git commits it verbatim instead of trying to
+    // open an editor under the non-TTY spawn — which fails outright when the host
+    // has no EDITOR set ("Terminal is dumb, but EDITOR unset").
     const result = await this.ctx.gitCli.exec(['rebase', '--continue'], {
       cwd: repo.rootUri.fsPath,
+      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
     });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
 
