@@ -488,14 +488,17 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       return;
     }
 
+    // Install the summary into the Update Info tab BEFORE the refresh + the
+    // deep-link, so the tab renders the results the moment the user opens it.
+    ctx.gitToolWindowProvider?.setUpdateSummary(summary);
+
     if (ctx.gitToolWindowProvider) {
       ctx.gitToolWindowProvider.refresh();
     }
 
     // Surface the structured outcome with a deep-link to the Update Info tab.
-    // The full Update Info tab rendering is wired by the Log/Graph workstream
-    // (see UpdateInfoTab.setSummary); the notification's deep-link focuses that
-    // tab via intellig.toolWindow.focusTab.
+    // The notification's deep-link focuses that tab via
+    // intellig.toolWindow.focusTab.
     const notification = buildUpdateNotification(
       summary.allClean,
       sanitizeGitError(updateInfoHeadline(summary))

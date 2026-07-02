@@ -39,7 +39,7 @@ import { isTabbedGitToolWindowEnabled } from './config';
 import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
 import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
 import { renderIncomingTabBody } from './html/incomingHtml';
-import { renderUpdateInfoTabBody } from './html/updateInfoHtml';
+import { renderUpdateInfoTabBody, updateInfoTabStyles } from './html/updateInfoHtml';
 import {
   renderHistoryTabBody,
   historyTabStyles,
@@ -48,7 +48,8 @@ import {
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
-import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
+import { createUpdateInfoTabHandler, UpdateInfoTab } from './tabs/UpdateInfoTab';
+import type { IUpdateInfoSummary } from '../../sync/updateProject';
 import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
@@ -514,6 +515,13 @@ export class GitToolWindowProvider
   private _incomingTab: IncomingTab | undefined;
 
   /**
+   * Stateful handler for the Update Info tab. Holds the latest Update Project
+   * summary ({@link setUpdateSummary}); the tab body renders its state. Created
+   * in {@link attachGitService} (replacing the constructor-time no-op handler).
+   */
+  private _updateInfoTab: UpdateInfoTab | undefined;
+
+  /**
    * Reference to the GitService set by
    * {@link attachGitService}. Used by {@link setFocusedBranch} to call
    * `getMergeBase` when computing the path-to-merge-base for a focused
@@ -766,6 +774,24 @@ export class GitToolWindowProvider
     );
     this._tabRouter.register('incoming', this._incomingTab.asTabHandler());
 
+    // Wire the Update Info tab (replacing the constructor-time no-op handler).
+    // It holds the latest Update Project summary; `setUpdateSummary` (called by
+    // the `intellig.updateProject` command) installs a new one, and the body
+    // renders the tab's state. A jump-to-commit routes into the Log tab's
+    // scroll-to-commit path, mirroring the Incoming tab's row-click behavior.
+    this._updateInfoTab = new UpdateInfoTab({
+      onStateChange: (): void => {
+        if (this._tabRouter.getActiveTab() === 'updateInfo') {
+          this._updateWebview();
+        }
+      },
+      jumpToCommit: (hash: string): void => {
+        // Focus the Log tab, then scroll+select the commit there.
+        void this.focusTab('log').then(() => this.scrollToCommit(hash));
+      },
+    });
+    this._tabRouter.register('updateInfo', this._updateInfoTab.asTabHandler());
+
     // Keep the Incoming tab live after a fetch/pull: a fetch advances the
     // remote-tracking ref the incoming set is computed against, so a tab that
     // is currently visible must recompute. Guarded on the active tab so we
@@ -862,6 +888,19 @@ export class GitToolWindowProvider
    */
   public getActiveTab(): TabId {
     return this._tabRouter.getActiveTab();
+  }
+
+  /**
+   * Install a fresh Update Project summary into the Update Info tab. Called by
+   * the `intellig.updateProject` command after a run. The tab's onStateChange
+   * re-renders the body when it's the active tab; otherwise the new state is
+   * shown the next time the user switches to (or deep-links into) the tab.
+   *
+   * A no-op until {@link attachGitService} has created the tab (the git service
+   * is wired at activation, well before any user-triggered update).
+   */
+  public setUpdateSummary(summary: IUpdateInfoSummary): void {
+    this._updateInfoTab?.setSummary(summary);
   }
 
   /**
@@ -3145,7 +3184,7 @@ export class GitToolWindowProvider
           logBodyHtml: logBody,
           consoleBodyHtml: renderConsoleTabBody(this._consoleEntries),
           incomingBodyHtml: renderIncomingTabBody(incomingState),
-          updateInfoBodyHtml: renderUpdateInfoTabBody(),
+          updateInfoBodyHtml: renderUpdateInfoTabBody(this._updateInfoTab?.getState()),
           historyBodyHtml:
             renderHistoryTabBody(historyState) +
             (historyActive
@@ -3156,7 +3195,7 @@ export class GitToolWindowProvider
       : logBody;
 
     const extraStyles = flagOn
-      ? `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}`
+      ? `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}\n${updateInfoTabStyles()}`
       : '';
 
     // / HIG — codicon font loader. Without a `@font-face`
