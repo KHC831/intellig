@@ -15,13 +15,14 @@ export enum MergeConflictTypeKind {
 export class MergeConflictType {
   resolutionStrategy: MergeConflictResolutionStrategy | undefined;
 
+  // The strategy is required — `undefined` means "cannot be resolved" (Kotlin
+  // null). A default parameter here would silently upgrade an explicit
+  // `undefined` to DEFAULT, marking unresolvable conflicts resolvable.
   constructor(
     readonly type: MergeConflictTypeKind,
     private readonly leftChange: boolean,
     private readonly rightChange: boolean,
-    resolutionStrategy:
-      | MergeConflictResolutionStrategy
-      | undefined = MergeConflictResolutionStrategy.DEFAULT
+    resolutionStrategy: MergeConflictResolutionStrategy | undefined
   ) {
     this.resolutionStrategy = resolutionStrategy;
   }

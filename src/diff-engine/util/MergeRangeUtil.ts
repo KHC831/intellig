@@ -28,15 +28,30 @@ export function getMergeType(
   if (isBaseEmpty) {
     if (isLeftEmpty) {
       // --=
-      return new MergeConflictType(MergeConflictTypeKind.INSERTED, false, true);
+      return new MergeConflictType(
+        MergeConflictTypeKind.INSERTED,
+        false,
+        true,
+        MergeConflictResolutionStrategy.DEFAULT
+      );
     } else if (isRightEmpty) {
       // =--
-      return new MergeConflictType(MergeConflictTypeKind.INSERTED, true, false);
+      return new MergeConflictType(
+        MergeConflictTypeKind.INSERTED,
+        true,
+        false,
+        MergeConflictResolutionStrategy.DEFAULT
+      );
     } else {
       // =-=
       const equalModifications = equality(ThreeSide.LEFT, ThreeSide.RIGHT);
       if (equalModifications) {
-        return new MergeConflictType(MergeConflictTypeKind.INSERTED, true, true);
+        return new MergeConflictType(
+          MergeConflictTypeKind.INSERTED,
+          true,
+          true,
+          MergeConflictResolutionStrategy.DEFAULT
+        );
       }
       return new MergeConflictType(MergeConflictTypeKind.CONFLICT, true, true, undefined);
     }
@@ -44,7 +59,12 @@ export function getMergeType(
 
   if (isLeftEmpty && isRightEmpty) {
     // -=-
-    return new MergeConflictType(MergeConflictTypeKind.DELETED, true, true);
+    return new MergeConflictType(
+      MergeConflictTypeKind.DELETED,
+      true,
+      true,
+      MergeConflictResolutionStrategy.DEFAULT
+    );
   }
 
   // -==, ==-, ===
@@ -63,7 +83,8 @@ export function getMergeType(
     return new MergeConflictType(
       MergeConflictTypeKind.MODIFIED,
       !trueUnchangedLeft,
-      !trueUnchangedRight
+      !trueUnchangedRight,
+      MergeConflictResolutionStrategy.DEFAULT
     );
   }
 
@@ -71,20 +92,27 @@ export function getMergeType(
     return new MergeConflictType(
       isRightEmpty ? MergeConflictTypeKind.DELETED : MergeConflictTypeKind.MODIFIED,
       false,
-      true
+      true,
+      MergeConflictResolutionStrategy.DEFAULT
     );
   }
   if (unchangedRight) {
     return new MergeConflictType(
       isLeftEmpty ? MergeConflictTypeKind.DELETED : MergeConflictTypeKind.MODIFIED,
       true,
-      false
+      false,
+      MergeConflictResolutionStrategy.DEFAULT
     );
   }
 
   const equalModifications = equality(ThreeSide.LEFT, ThreeSide.RIGHT);
   if (equalModifications) {
-    return new MergeConflictType(MergeConflictTypeKind.MODIFIED, true, true);
+    return new MergeConflictType(
+      MergeConflictTypeKind.MODIFIED,
+      true,
+      true,
+      MergeConflictResolutionStrategy.DEFAULT
+    );
   }
 
   const canBeResolved = !isLeftEmpty && !isRightEmpty && conflictResolver();
@@ -254,19 +282,39 @@ function getLeftToRightDiffType(
   if (isBaseEmpty) {
     if (isLeftEmpty) {
       // --=
-      return new MergeConflictType(MergeConflictTypeKind.INSERTED, false, true);
+      return new MergeConflictType(
+        MergeConflictTypeKind.INSERTED,
+        false,
+        true,
+        MergeConflictResolutionStrategy.DEFAULT
+      );
     } else if (isRightEmpty) {
       // =--
-      return new MergeConflictType(MergeConflictTypeKind.DELETED, true, false);
+      return new MergeConflictType(
+        MergeConflictTypeKind.DELETED,
+        true,
+        false,
+        MergeConflictResolutionStrategy.DEFAULT
+      );
     } else {
       // =-=
-      return new MergeConflictType(MergeConflictTypeKind.MODIFIED, true, true);
+      return new MergeConflictType(
+        MergeConflictTypeKind.MODIFIED,
+        true,
+        true,
+        MergeConflictResolutionStrategy.DEFAULT
+      );
     }
   }
 
   if (isLeftEmpty && isRightEmpty) {
     // -=-
-    return new MergeConflictType(MergeConflictTypeKind.MODIFIED, true, true);
+    return new MergeConflictType(
+      MergeConflictTypeKind.MODIFIED,
+      true,
+      true,
+      MergeConflictResolutionStrategy.DEFAULT
+    );
   }
 
   // -==, ==-, ===
@@ -280,16 +328,23 @@ function getLeftToRightDiffType(
     return new MergeConflictType(
       isRightEmpty ? MergeConflictTypeKind.DELETED : MergeConflictTypeKind.MODIFIED,
       false,
-      true
+      true,
+      MergeConflictResolutionStrategy.DEFAULT
     );
   }
   if (unchangedRight) {
     return new MergeConflictType(
       isLeftEmpty ? MergeConflictTypeKind.INSERTED : MergeConflictTypeKind.MODIFIED,
       true,
-      false
+      false,
+      MergeConflictResolutionStrategy.DEFAULT
     );
   }
 
-  return new MergeConflictType(MergeConflictTypeKind.MODIFIED, true, true);
+  return new MergeConflictType(
+    MergeConflictTypeKind.MODIFIED,
+    true,
+    true,
+    MergeConflictResolutionStrategy.DEFAULT
+  );
 }
