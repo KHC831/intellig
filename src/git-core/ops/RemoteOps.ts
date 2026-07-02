@@ -22,6 +22,80 @@ import { parseRemotes, parseStatus, isConflictedStatus } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
+ * Parse `for-each-ref --format=%(refname)\x1f%(objectname)` output into a
+ * `ref → object id` map. Malformed lines are skipped.
+ */
+export function parseRefSnapshot(stdout: string): Map<string, string> {
+  const snapshot = new Map<string, string>();
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    const sep = line.indexOf('\x1f');
+    if (sep <= 0) {
+      continue;
+    }
+    const ref = line.slice(0, sep);
+    const sha = line.slice(sep + 1).trim();
+    if (sha.length === 0) {
+      continue;
+    }
+    snapshot.set(ref, sha);
+  }
+  return snapshot;
+}
+
+/**
+ * Diff two ref snapshots into the fetch's updated-ref report. A ref created
+ * by the fetch gets an all-zero `oldSha`, a pruned ref an all-zero `newSha`
+ * (both padded to the object-id length of the surviving side, so SHA-1 and
+ * SHA-256 repos each report their native width — the shape git's own
+ * porcelain output uses). Unchanged refs are omitted. Output is sorted by
+ * ref name for deterministic reporting.
+ */
+export function diffRefSnapshots(
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>
+): IFetchRefUpdate[] {
+  const updates: IFetchRefUpdate[] = [];
+  for (const [ref, newSha] of after) {
+    const oldSha = before.get(ref);
+    if (oldSha === undefined) {
+      updates.push({ ref, oldSha: '0'.repeat(newSha.length), newSha });
+    } else if (oldSha !== newSha) {
+      updates.push({ ref, oldSha, newSha });
+    }
+  }
+  for (const [ref, oldSha] of before) {
+    if (!after.has(ref)) {
+      updates.push({ ref, oldSha, newSha: '0'.repeat(oldSha.length) });
+    }
+  }
+  return updates.sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
+}
+
+/**
+ * Filter a fetch's stderr down to genuinely diagnostic lines, dropping the
+ * informational ref-listing chatter git emits there (`From …`, ` -> …`,
+ * `* [new branch] …`, `+ forced-update` lines).
+ */
+export function collectFetchErrors(stderr: string): string[] {
+  const errors: string[] = [];
+  if (!stderr) {
+    return errors;
+  }
+  for (const rawLine of stderr.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    if (/^From\s|^\s*->\s|^\s*\*\s|^\s*\+/.test(line)) {
+      continue;
+    }
+    errors.push(line);
+  }
+  return errors;
+}
+
+/**
  * Commit + remote-interaction git verbs (commit/amend/fetch/pull/push and
  * remote add/remove/list) extracted from the {@link GitService} façade.
  * Stateless: reaches the live GitCli + cache invalidation lazily through
@@ -155,7 +229,14 @@ export class RemoteOps {
     // `--end-of-options` between them; defends against argv injection
     // through a hostile remote name (the auto-fetch loop runs unattended
     // and remote names come from `.git/config`).
-    const flags: string[] = ['--porcelain'];
+    //
+    // Updated refs are derived from a before/after ref SNAPSHOT (see
+    // `_snapshotRefs`), NOT `fetch --porcelain`: the porcelain flag requires
+    // git ≥ 2.41 and hard-failed every fetch (manual, Pull pre-fetch,
+    // AutoFetch, Update Project) on older gits still common in LTS distros.
+    // Two local `for-each-ref` reads work on every supported git with one
+    // code path and no version probe.
+    const flags: string[] = [];
     if (options.prune) {
       flags.push('--prune');
     }
@@ -197,74 +278,46 @@ export class RemoteOps {
     }
 
     const args = buildGitArgs('fetch', flags, refs);
+    const cwd = repo.rootUri.fsPath;
+
+    const before = await this._snapshotRefs(cwd);
     const cliResult = await this.ctx.gitCli.exec(args, {
-      cwd: repo.rootUri.fsPath,
+      cwd,
       throwOnError: true,
     });
+    const after = await this._snapshotRefs(cwd);
 
-    const result = this._parseFetchPorcelain(cliResult.stdout, cliResult.stderr);
-    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    const updatedRefs = diffRefSnapshots(before, after);
+    const result: IFetchResult = {
+      updatedRefs,
+      ahead: 0,
+      behind: updatedRefs.length,
+      errors: collectFetchErrors(cliResult.stderr),
+    };
+    this.ctx.invalidateCache(cwd);
     this.ctx.fireDidFetch({ repo, result });
     return result;
   }
 
   /**
-   * Parse `git fetch --porcelain` output.
+   * Snapshot every remote-tracking ref + tag as a `ref → object id` map via
+   * `git for-each-ref` (a cheap local read). Taken immediately before and
+   * after a fetch; the diff of the two snapshots is the set of refs the fetch
+   * updated. A failed read degrades to an empty map — the fetch itself still
+   * succeeds, only the updated-ref report is lost (best-effort field).
    *
-   * Each porcelain line has the shape `<flag> <old-sha> <new-sha> <ref>` where
-   * `<flag>` is a SINGLE character — and for an ordinary fast-forward it is a
-   * literal SPACE. The flag column must be preserved (not trimmed away), or a
-   * fast-forward — the most common fetch outcome — would lose a column and be
-   * dropped. We match fixed columns anchored on the one-char flag; lines that
-   * do not conform are skipped, and stderr diagnostics surface as non-fatal
-   * errors.
+   * The `\x1f` separator matches the log/branch/tag formats: a ref name can
+   * never contain a C0 control character (git-check-ref-format).
    */
-  private _parseFetchPorcelain(stdout: string, stderr: string): IFetchResult {
-    const updatedRefs: IFetchRefUpdate[] = [];
-    const errors: string[] = [];
-
-    // <flag><sep><old-oid><sep><new-oid><sep><ref>; oid is 40-hex (SHA-1) or
-    // 64-hex (SHA-256). `^(.)` captures the flag (which may be a space), so the
-    // following `\s+` consumes only the field separator.
-    const hex = '[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?';
-    const lineRe = new RegExp(`^(.)\\s+(${hex})\\s+(${hex})\\s+(.+)$`);
-
-    for (const rawLine of stdout.split('\n')) {
-      // Strip a trailing CR (CRLF endings) only — never the leading flag column.
-      const line = rawLine.replace(/\r$/, '');
-      const m = lineRe.exec(line);
-      if (!m) {
-        continue;
-      }
-      const oldSha = m[2];
-      const newSha = m[3];
-      const ref = m[4].trim();
-      if (oldSha === newSha) {
-        continue;
-      }
-      updatedRefs.push({ ref, oldSha, newSha });
+  private async _snapshotRefs(cwd: string): Promise<Map<string, string>> {
+    const result = await this.ctx.gitCli.exec(
+      ['for-each-ref', '--format=%(refname)\x1f%(objectname)', 'refs/remotes', 'refs/tags'],
+      { cwd }
+    );
+    if (result.exitCode !== 0) {
+      return new Map();
     }
-
-    if (stderr) {
-      for (const rawLine of stderr.split('\n')) {
-        const line = rawLine.trim();
-        if (!line) {
-          continue;
-        }
-        // Skip informational lines git emits on stderr.
-        if (/^From\s|^\s*->\s|^\s*\*\s|^\s*\+/.test(line)) {
-          continue;
-        }
-        errors.push(line);
-      }
-    }
-
-    return {
-      updatedRefs,
-      ahead: 0,
-      behind: updatedRefs.length,
-      errors,
-    };
+    return parseRefSnapshot(result.stdout);
   }
 
   pull(repo: IRepository, options?: IPullOptions): ResultAsync<void, GitError> {

@@ -40,11 +40,21 @@ function installGitService(): { gitService: GitService; executed: string[][] } {
   return { gitService, executed };
 }
 
+/** The `fetch` invocation among the executed calls (a fetch is now bracketed
+ * by two `for-each-ref` snapshot reads, so it is no longer `executed[0]`). */
+function fetchArgs(executed: string[][]): string[] {
+  const call = executed.find((args) => args.find((a) => !a.startsWith('-')) === 'fetch');
+  if (!call) {
+    throw new Error('no fetch call was executed');
+  }
+  return call;
+}
+
 describe('GitService.fetch — argv-injection guard', () => {
   it('splices --end-of-options before a remote-specific fetch', async () => {
     const { gitService, executed } = installGitService();
     await gitService.fetch(makeRepo(), 'origin');
-    const args = executed[0];
+    const args = fetchArgs(executed);
     const eooIdx = args.indexOf('--end-of-options');
     const remoteIdx = args.indexOf('origin');
     assert.ok(eooIdx >= 0, `expected --end-of-options in args: ${args.join(' ')}`);
@@ -59,7 +69,7 @@ describe('GitService.fetch — argv-injection guard', () => {
     const { gitService, executed } = installGitService();
     const hostile = '--upload-pack=touch /tmp/pwned';
     await gitService.fetch(makeRepo(), hostile);
-    const args = executed[0];
+    const args = fetchArgs(executed);
     const eooIdx = args.indexOf('--end-of-options');
     const hostileIdx = args.indexOf(hostile);
     assert.ok(eooIdx >= 0, `expected --end-of-options in args: ${args.join(' ')}`);
@@ -72,7 +82,7 @@ describe('GitService.fetch — argv-injection guard', () => {
   it('--all fetch emits no --end-of-options (no user ref to guard)', async () => {
     const { gitService, executed } = installGitService();
     await gitService.fetch(makeRepo(), { all: true });
-    const args = executed[0];
+    const args = fetchArgs(executed);
     assert.ok(args.includes('--all'), `args: ${args.join(' ')}`);
     assert.ok(
       !args.includes('--end-of-options'),

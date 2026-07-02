@@ -55,6 +55,16 @@ async function setFetchTags(value: 'auto' | 'all' | 'never'): Promise<void> {
   await vscode.workspace.getConfiguration('intellig').update('fetchTags', value);
 }
 
+/** The `fetch` invocation among the executed calls (a fetch is now bracketed
+ * by two `for-each-ref` snapshot reads, so it is no longer `executed[0]`). */
+function fetchArgs(executed: string[][]): string[] {
+  const call = executed.find((args) => args.find((a) => !a.startsWith('-')) === 'fetch');
+  if (!call) {
+    throw new Error('no fetch call was executed');
+  }
+  return call;
+}
+
 describe('GitService.fetch — intellig.fetchTags config', () => {
   afterEach(async () => {
     // Restore default so state doesn't leak between tests.
@@ -67,7 +77,7 @@ describe('GitService.fetch — intellig.fetchTags config', () => {
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo());
       assert.ok(executed.length > 0);
-      const args = executed[0];
+      const args = fetchArgs(executed);
       assert.ok(!args.includes('--tags'), `args should NOT include --tags: ${args.join(' ')}`);
       assert.ok(
         !args.includes('--no-tags'),
@@ -79,24 +89,27 @@ describe('GitService.fetch — intellig.fetchTags config', () => {
       await setFetchTags('all');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo());
-      assert.ok(executed[0].includes('--tags'), `args: ${executed[0].join(' ')}`);
-      assert.ok(!executed[0].includes('--no-tags'));
+      assert.ok(fetchArgs(executed).includes('--tags'), `args: ${fetchArgs(executed).join(' ')}`);
+      assert.ok(!fetchArgs(executed).includes('--no-tags'));
     });
 
     it('"never" → args include --no-tags', async () => {
       await setFetchTags('never');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo());
-      assert.ok(executed[0].includes('--no-tags'), `args: ${executed[0].join(' ')}`);
-      assert.ok(!executed[0].includes('--tags'));
+      assert.ok(
+        fetchArgs(executed).includes('--no-tags'),
+        `args: ${fetchArgs(executed).join(' ')}`
+      );
+      assert.ok(!fetchArgs(executed).includes('--tags'));
     });
 
     it('applies to remote-specific fetch too', async () => {
       await setFetchTags('all');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo(), 'origin');
-      assert.ok(executed[0].includes('--tags'));
-      assert.ok(executed[0].includes('origin'));
+      assert.ok(fetchArgs(executed).includes('--tags'));
+      assert.ok(fetchArgs(executed).includes('origin'));
     });
   });
 
@@ -105,23 +118,26 @@ describe('GitService.fetch — intellig.fetchTags config', () => {
       await setFetchTags('never');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo(), { tags: true });
-      assert.ok(executed[0].includes('--tags'), `args: ${executed[0].join(' ')}`);
-      assert.ok(!executed[0].includes('--no-tags'));
+      assert.ok(fetchArgs(executed).includes('--tags'), `args: ${fetchArgs(executed).join(' ')}`);
+      assert.ok(!fetchArgs(executed).includes('--no-tags'));
     });
 
     it('config "all" + options.noTags=true → --no-tags wins (user opts out)', async () => {
       await setFetchTags('all');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo(), { noTags: true });
-      assert.ok(executed[0].includes('--no-tags'), `args: ${executed[0].join(' ')}`);
-      assert.ok(!executed[0].includes('--tags'));
+      assert.ok(
+        fetchArgs(executed).includes('--no-tags'),
+        `args: ${fetchArgs(executed).join(' ')}`
+      );
+      assert.ok(!fetchArgs(executed).includes('--tags'));
     });
 
     it('config "auto" + options.tags=true → --tags added', async () => {
       await setFetchTags('auto');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo(), { tags: true });
-      assert.ok(executed[0].includes('--tags'));
+      assert.ok(fetchArgs(executed).includes('--tags'));
     });
   });
 
@@ -130,7 +146,7 @@ describe('GitService.fetch — intellig.fetchTags config', () => {
       await setFetchTags('all');
       const { gitService, executed } = installGitService();
       await gitService.fetch(makeRepo(), 'origin');
-      const args = executed[0];
+      const args = fetchArgs(executed);
       const tagsIdx = args.indexOf('--tags');
       const remoteIdx = args.indexOf('origin');
       assert.ok(tagsIdx >= 0 && remoteIdx >= 0);
