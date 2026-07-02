@@ -10,6 +10,7 @@ import { buildGitArgs } from '../gitCli';
 import { GitError, InvalidArgumentError, classifyGitCommandError } from '../errors';
 import { parseStatus, isConflictedStatus } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
+import { restorePathsToHead } from '../worktree/restoreToHead';
 import { IGitOpsContext } from './GitOpsContext';
 import { NON_INTERACTIVE_GIT_ENV } from '../gitEnv';
 
@@ -175,24 +176,22 @@ export class CherryPickRevertOps {
   }
 
   /**
-   * Unstage + restore a set of files to their HEAD content. Used by the
-   * cherry-pick file-subset path to drop files outside the user's
-   * selection. Batches the `reset` and `checkout` calls (one call each
-   * for the whole set) to avoid N round-trips.
+   * Restore a set of files to their HEAD content — the cherry-pick file-subset
+   * path uses this to drop the files OUTSIDE the user's selection after a
+   * `cherry-pick -n`. Delegates to the shared restore-to-HEAD writer in PROBE
+   * mode (no reliable status after a partial cherry-pick): a file the picked
+   * commit newly ADDED has no HEAD blob, so the writer unindexes it (and drops
+   * the untracked copy) instead of a fatal `checkout` of a path not in HEAD.
    */
   private async _restoreFilesToHead(repo: IRepository, files: string[]): Promise<void> {
     if (files.length === 0) {
       return;
     }
-    // Unstage (may fail if already unstaged; we tolerate that).
-    await this.ctx.gitCli.exec(['reset', 'HEAD', '--', ...files], {
-      cwd: repo.rootUri.fsPath,
-    });
-    // Restore working-tree copy.
-    await this.ctx.gitCli.exec(['checkout', '--', ...files], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
+    await restorePathsToHead(
+      this.ctx.gitCli,
+      repo.rootUri.fsPath,
+      files.map((path) => ({ path, removeFromDiskIfAbsentFromHead: true }))
+    );
   }
 
   /**

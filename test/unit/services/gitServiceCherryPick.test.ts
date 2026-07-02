@@ -219,14 +219,49 @@ describe('GitService.cherryPick — variants', () => {
         'abc1234',
       ]);
 
-      // The reset + checkout for the NON-selected files.
-      const reset = mockGitCli.findCommand(['reset', 'HEAD']);
-      assert.ok(reset);
-      assert.deepStrictEqual(reset.args, ['reset', 'HEAD', '--', 'b.ts', 'c.ts']);
+      // The NON-selected files are restored to HEAD. Both are tracked in HEAD
+      // (the default mock cat-file exits 0), so they are batched into ONE
+      // `checkout HEAD -- …` — restoring from HEAD, not the index.
+      const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
+      assert.ok(checkout, 'a checkout HEAD must restore the dropped files');
+      assert.deepStrictEqual(checkout.args, ['checkout', 'HEAD', '--', 'b.ts', 'c.ts']);
+      assert.strictEqual(
+        mockGitCli.findCommand(['reset', 'HEAD']),
+        undefined,
+        'the shared writer restores from HEAD, not via reset'
+      );
+    });
 
-      const checkout = mockGitCli.findCommand(['checkout', '--']);
-      assert.ok(checkout);
-      assert.deepStrictEqual(checkout.args, ['checkout', '--', 'b.ts', 'c.ts']);
+    it('unindexes (does not fatally checkout) a file the commit ADDED outside the selection', async () => {
+      // A file newly ADDED by the picked commit has no HEAD blob, so
+      // `git checkout HEAD -- <added>` fatals. The shared writer probes HEAD
+      // and unindexes it (+ drops the untracked copy) instead.
+      const { gitService, mockGitCli } = installGitService();
+      mockGitCli.setMockResult('show --name-only -z --format= --end-of-options abc1234', {
+        exitCode: 0,
+        stdout: 'keep.ts\0added.ts\0',
+        stderr: '',
+      });
+      // keep.ts is in HEAD; added.ts is NOT.
+      mockGitCli.setMockResultByPrefix('cat-file -e HEAD:added.ts', {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'fatal: path added.ts does not exist in HEAD',
+      });
+
+      const result = (
+        await gitService.cherryPick(makeRepo(), ['abc1234'], { files: ['keep.ts'] })
+      )._unsafeUnwrap();
+      assert.strictEqual(result.success, true);
+
+      const rm = mockGitCli.findCommand(['rm', '--cached']);
+      assert.ok(rm, 'the commit-added file must be unindexed, not checked out');
+      assert.ok(rm.args.includes('added.ts'));
+      const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
+      assert.ok(
+        !checkout || !checkout.args.includes('added.ts'),
+        'the HEAD-absent added file must never be checked out'
+      );
     });
 
     it('collects touched files with show --name-only -z, keeping a non-ASCII name verbatim', async () => {
@@ -246,13 +281,11 @@ describe('GitService.cherryPick — variants', () => {
       )._unsafeUnwrap();
 
       assert.strictEqual(result.success, true);
-      // café.ts is kept (matched verbatim); only other.ts is dropped.
-      const reset = mockGitCli.findCommand(['reset', 'HEAD']);
-      assert.ok(reset, 'a reset should narrow the index to drop non-selected files');
-      assert.deepStrictEqual(reset.args, ['reset', 'HEAD', '--', 'other.ts']);
-      const checkout = mockGitCli.findCommand(['checkout', '--']);
-      assert.ok(checkout);
-      assert.deepStrictEqual(checkout.args, ['checkout', '--', 'other.ts']);
+      // café.ts is kept (matched verbatim); only other.ts is dropped, restored
+      // from HEAD via the shared writer.
+      const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
+      assert.ok(checkout, 'a checkout HEAD should restore the dropped file');
+      assert.deepStrictEqual(checkout.args, ['checkout', 'HEAD', '--', 'other.ts']);
     });
 
     it('forces --no-commit even when caller did not request it', async () => {
@@ -293,9 +326,9 @@ describe('GitService.cherryPick — variants', () => {
         stderr: '',
       });
       await gitService.cherryPick(makeRepo(), ['abc1234'], { files: ['a.ts', 'b.ts'] });
-      // cherry-pick + show ran; reset + checkout should NOT have (drop list empty).
+      // cherry-pick + show ran; no restore (drop list empty).
       assert.strictEqual(mockGitCli.findCommand(['reset', 'HEAD']), undefined);
-      assert.strictEqual(mockGitCli.findCommand(['checkout', '--']), undefined);
+      assert.strictEqual(mockGitCli.findCommand(['checkout', 'HEAD']), undefined);
     });
 
     it('multi-commit: unions touched files across every commit', async () => {
@@ -313,10 +346,12 @@ describe('GitService.cherryPick — variants', () => {
       await gitService.cherryPick(makeRepo(), ['abc1234', 'def5678'], {
         files: ['a.ts'], // keep only a.ts; drop b.ts + c.ts (union minus keep)
       });
-      const reset = mockGitCli.findCommand(['reset', 'HEAD']);
-      assert.ok(reset);
+      // Both dropped files are tracked in HEAD (default mock cat-file exits 0),
+      // so they are restored together via one `checkout HEAD -- …`.
+      const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
+      assert.ok(checkout, 'a checkout HEAD should restore the dropped union');
       // Order of b.ts / c.ts depends on Set iteration; assert set equality.
-      const dropped = reset.args.slice(3); // skip 'reset', 'HEAD', '--'
+      const dropped = checkout.args.slice(3); // skip 'checkout', 'HEAD', '--'
       assert.deepStrictEqual([...dropped].sort(), ['b.ts', 'c.ts']);
     });
   });

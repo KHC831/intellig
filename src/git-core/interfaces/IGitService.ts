@@ -68,6 +68,13 @@ export type BranchType = 'local' | 'remote' | 'tag';
 export interface IRollbackChange {
   path: string;
   status: FileStatus;
+  /**
+   * For a renamed/copied file, the path it had in HEAD. Rolling back a rename
+   * must restore THIS path (the pre-rename file), not check out the new path —
+   * which does not exist in HEAD and makes `git checkout HEAD -- <newPath>`
+   * fatal. Populated from `IFileStatus.renamed`.
+   */
+  oldPath?: string;
 }
 
 /** Options gating the destructive parts of {@link IGitService.rollbackChanges}. */

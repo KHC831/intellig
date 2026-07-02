@@ -989,6 +989,9 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
           .map((s) => ({
             path: s.path,
             status: statusCodeToFileStatus(s.indexStatus, s.workTreeStatus),
+            // Carry the pre-rename path so a rename rolls back to its OLD path
+            // instead of a fatal checkout of the HEAD-absent new path.
+            ...(s.renamed ? { oldPath: s.renamed } : {}),
           }))
           .filter((c) => c.status !== 'ignored' && c.status !== 'conflicted');
         if (candidates.length === 0) {

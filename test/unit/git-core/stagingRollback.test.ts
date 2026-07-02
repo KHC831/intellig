@@ -67,6 +67,39 @@ describe('StagingOps.rollbackChanges', () => {
     assert.ok(revert.args.indexOf('--force') > sep, 'path must follow the -- terminator');
   });
 
+  it('rolls back a RENAME by restoring the old path, not the (HEAD-absent) new path', async () => {
+    const { ops, calls } = makeMockOps();
+    await ops.rollbackChanges(repo('/r'), [
+      { path: 'src/new-name.ts', status: 'renamed', oldPath: 'src/old-name.ts' },
+    ]);
+    // The new path must be unindexed (it is not in HEAD); the OLD path is the
+    // one restored via checkout — checking out the new path would fatal.
+    const rm = calls.find((c) => c.args[0] === 'rm');
+    const checkout = calls.find((c) => c.args[0] === 'checkout');
+    assert.ok(rm && rm.args.includes('src/new-name.ts'), 'new path must be unindexed');
+    assert.ok(checkout, 'a checkout must run');
+    assert.ok(
+      checkout.args.includes('src/old-name.ts'),
+      `the OLD path must be restored (got: ${checkout.args.join(' ')})`
+    );
+    assert.ok(
+      !checkout.args.includes('src/new-name.ts'),
+      'the HEAD-absent new path must never be checked out'
+    );
+  });
+
+  it('added file is unstaged before the batched checkout — a mixed selection cannot half-apply', async () => {
+    const { ops, calls } = makeMockOps();
+    await ops.rollbackChanges(repo('/r'), [
+      { path: 'added.ts', status: 'added' },
+      { path: 'mod.ts', status: 'modified' },
+    ]);
+    const verbs = calls.map((c) => c.args[0]);
+    const checkoutCalls = verbs.filter((v) => v === 'checkout');
+    assert.strictEqual(checkoutCalls.length, 1, 'checkouts must be batched into one call');
+    assert.ok(verbs.indexOf('rm') < verbs.lastIndexOf('checkout'), 'unindex before checkout');
+  });
+
   it('added (staged) file is unstaged via rm --cached -f, not checked out', async () => {
     const { ops, calls } = makeMockOps();
     await ops.rollbackChanges(repo('/r'), [{ path: 'new.ts', status: 'added' }]);

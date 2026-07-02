@@ -19,7 +19,21 @@ import {
 } from '../errors';
 import { parseStatus } from '../gitParser';
 import { buildHunkPatch } from '../patchBuilder';
+import { restorePathsToHead, IRestoreToHeadRequest } from '../worktree/restoreToHead';
 import { IGitOpsContext } from './GitOpsContext';
+
+/**
+ * Recognise the stderr `git reset HEAD` emits on an UNBORN branch (a repo with
+ * no commits, where HEAD does not resolve) so `unstage` can fall back to
+ * `git rm --cached`. Two canonical shapes across git versions.
+ */
+function isUnbornHeadStderr(stderr: string): boolean {
+  return (
+    stderr.includes("ambiguous argument 'HEAD'") ||
+    stderr.includes("Failed to resolve 'HEAD'") ||
+    stderr.includes('bad revision')
+  );
+}
 
 /**
  * Working-tree index & patch staging operations extracted from the
@@ -55,15 +69,26 @@ export class StagingOps {
   }
 
   unstage(repo: IRepository, paths: string[]): ResultAsync<void, GitError> {
-    return ResultAsync.fromPromise(
-      this.ctx.gitCli.exec(['reset', 'HEAD', '--', ...paths], {
-        cwd: repo.rootUri.fsPath,
+    return ResultAsync.fromPromise(this._unstage(repo, paths), classifyGitCommandError);
+  }
+
+  private async _unstage(repo: IRepository, paths: string[]): Promise<void> {
+    const cwd = repo.rootUri.fsPath;
+    // `git reset HEAD -- <paths>` is the normal unstage, but it fatals on an
+    // unborn branch (a repo with no commits — HEAD does not resolve), which is
+    // exactly the state when un-staging the FIRST files of a fresh repo. git4idea
+    // special-cases this: with no HEAD there is nothing to diff the index
+    // against, so `git rm --cached` empties the index entry directly.
+    const reset = await this.ctx.gitCli.exec(['reset', 'HEAD', '--', ...paths], { cwd });
+    if (reset.exitCode !== 0 && isUnbornHeadStderr(reset.stderr)) {
+      await this.ctx.gitCli.exec(['rm', '--cached', '-r', '--', ...paths], {
+        cwd,
         throwOnError: true,
-      }),
-      classifyGitCommandError
-    ).map(() => {
-      this.ctx.invalidateCache(repo.rootUri.fsPath);
-    });
+      });
+    } else if (reset.exitCode !== 0) {
+      throw new CommandFailedError(reset.exitCode, reset.stderr, undefined, reset);
+    }
+    this.ctx.invalidateCache(cwd);
   }
 
   /**
@@ -205,13 +230,15 @@ export class StagingOps {
    * @param path - The file path to revert
    */
   revertFile(repo: IRepository, path: string): ResultAsync<void, GitError> {
-    // Use git checkout -- <path> to discard changes
-    // This works for both modified and deleted files
+    // Restore the file to its last-COMMITTED state via the shared
+    // restore-to-HEAD writer. `git checkout HEAD -- <path>` (not the old
+    // `checkout -- <path>`, which restores from the INDEX) so a partially-
+    // staged file discards its staged edits too — matching the confirm
+    // dialog's "revert changes… cannot be undone" promise. The writer probes
+    // HEAD membership, so a revert of an added-then-selected file unindexes it
+    // instead of a fatal checkout.
     return ResultAsync.fromPromise(
-      this.ctx.gitCli.exec(['checkout', '--', path], {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      }),
+      restorePathsToHead(this.ctx.gitCli, repo.rootUri.fsPath, [{ path }]),
       classifyGitCommandError
     ).map(() => {
       this.ctx.invalidateCache(repo.rootUri.fsPath);
@@ -244,64 +271,65 @@ export class StagingOps {
     changes: IRollbackChange[],
     options: IRollbackOptions = {}
   ): Promise<void> {
-    const toRevert: string[] = []; // modified/deleted/renamed → checkout HEAD
-    const toUnindex: string[] = []; // added (staged-new) → rm --cached
-    const toDelete: string[] = []; // working-tree files to remove from disk
+    const cwd = repo.rootUri.fsPath;
+
+    // The status came from `git status`, so it is authoritative — pass the
+    // `inHead` hint to the shared writer rather than making it re-probe. The
+    // writer owns the added/renamed/tracked partition and the safe ordering
+    // (unindex → delete → batched checkout), so a rename now restores its OLD
+    // path instead of a fatal checkout of the (HEAD-absent) new path.
+    const restoreRequests: IRestoreToHeadRequest[] = [];
+    // Untracked files have no committed state and are never staged, so they
+    // are pure disk deletions — kept out of the writer (which would unindex).
+    const untrackedToDelete: string[] = [];
 
     for (const change of changes) {
       switch (change.status) {
         case 'modified':
         case 'deleted':
+          restoreRequests.push({ path: change.path, inHead: true });
+          break;
         case 'renamed':
         case 'copied':
-          toRevert.push(change.path);
+          restoreRequests.push({
+            path: change.path,
+            oldPath: change.oldPath,
+            inHead: false,
+            removeFromDiskIfAbsentFromHead: true,
+          });
           break;
         case 'added':
-          // Unindex so the file reverts to untracked, matching git4idea's
-          // "unversion" step; only destroy it on disk when asked.
-          toUnindex.push(change.path);
-          if (options.deleteAddedFiles) {
-            toDelete.push(change.path);
-          }
+          // Unindex so the file reverts to untracked (git4idea's "unversion"
+          // step); only destroy it on disk when asked.
+          restoreRequests.push({
+            path: change.path,
+            inHead: false,
+            removeFromDiskIfAbsentFromHead: options.deleteAddedFiles === true,
+          });
           break;
         case 'untracked':
-          // No committed state to restore — only removable, and only when the
-          // caller explicitly included it.
           if (options.deleteUntracked) {
-            toDelete.push(change.path);
+            untrackedToDelete.push(change.path);
           }
           break;
         // ignored / conflicted: not rolled back here.
       }
     }
 
-    const cwd = repo.rootUri.fsPath;
-
-    if (toUnindex.length > 0) {
-      await this.ctx.gitCli.exec(['rm', '--cached', '-f', '--', ...toUnindex], {
-        cwd,
-        throwOnError: true,
-      });
+    if (restoreRequests.length > 0) {
+      await restorePathsToHead(this.ctx.gitCli, cwd, restoreRequests);
     }
 
-    for (const rel of toDelete) {
-      // This is a recursive force-delete, so never trust `rel` to stay inside
-      // the repo: an empty/"."/absolute/`..`-escaping path would otherwise
-      // resolve to the working-tree root (or outside it) and wipe it. Require
-      // the resolved target to be STRICTLY inside the repo root.
+    for (const rel of untrackedToDelete) {
+      // Recursive force-delete: never trust `rel` to stay inside the repo — an
+      // empty/"."/absolute/`..`-escaping path would resolve to the work-tree
+      // root (or beyond) and wipe it. Require a target strictly inside root.
       const abs = nodePath.resolve(cwd, rel);
       const root = nodePath.resolve(cwd);
       if (abs === root || !abs.startsWith(root + nodePath.sep)) {
         throw new InvalidArgumentError(`Refusing to delete a path outside the repository: ${rel}`);
       }
       await fsp.rm(abs, { force: true, recursive: true });
-    }
-
-    if (toRevert.length > 0) {
-      await this.ctx.gitCli.exec(['checkout', 'HEAD', '--', ...toRevert], {
-        cwd,
-        throwOnError: true,
-      });
     }
 
     this.ctx.invalidateCache(cwd);
