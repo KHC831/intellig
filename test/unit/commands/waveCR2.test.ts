@@ -130,8 +130,10 @@ describe('structural pins', () => {
       // 'Squash'. Either form satisfies the contract that the squash branch
       // surfaces an unstash failure tagged "Squash".
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*['"]Squash['"]\s*\)/.test(body) ||
-          /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*mode\s*===\s*['"]fixup['"]\s*\?\s*['"]Fixup['"]\s*:\s*['"]Squash['"]\s*\)/.test(
+        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*['"]Squash['"]\s*\)/.test(
+          body
+        ) ||
+          /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*mode\s*===\s*['"]fixup['"]\s*\?\s*['"]Fixup['"]\s*:\s*['"]Squash['"]\s*\)/.test(
             body
           ),
         '_handleSquashCommits success path must call _unstashWithErrorReport(cwd, "Squash") (or the Wave K mode-aware ternary form)'
@@ -143,7 +145,9 @@ describe('structural pins', () => {
       const squashIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
       const body = src.substring(handlerIdx, squashIdx > 0 ? squashIdx : handlerIdx + 12000);
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*['"]Drop['"]\s*\)/.test(body),
+        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*['"]Drop['"]\s*\)/.test(
+          body
+        ),
         '_handleDropCommitMulti success path must call _unstashWithErrorReport(cwd, "Drop")'
       );
     });

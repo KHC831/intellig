@@ -105,7 +105,7 @@ describe('StagingOps.rollbackChanges', () => {
     await ops.rollbackChanges(repo('/r'), [{ path: 'new.ts', status: 'added' }]);
     const rm = calls.find((c) => c.args[0] === 'rm');
     assert.ok(rm, 'expected a rm --cached call');
-    assert.deepStrictEqual(rm.args, ['rm', '--cached', '-f', '--', 'new.ts']);
+    assert.deepStrictEqual(rm.args, ['rm', '--cached', '-f', '--ignore-unmatch', '--', 'new.ts']);
     assert.ok(!calls.some((c) => c.args[0] === 'checkout'), 'added file must not be checked out');
   });
 

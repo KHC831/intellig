@@ -309,6 +309,61 @@ describe('Git Parser Utilities', () => {
     });
   });
 
+  describe('parseHunks — line numbering + count-bounded body', () => {
+    const DIFF = [
+      '@@ -1,3 +1,3 @@',
+      '-x',
+      '+X',
+      ' mid',
+      '-last',
+      '\\ No newline at end of file',
+      '+last!',
+      '\\ No newline at end of file',
+      '', // split('\n') artifact after the final newline
+    ];
+
+    it('assigns oldLineNumber/newLineNumber from the hunk header', () => {
+      // Line-subset staging keys selections by these numbers, and the dialog
+      // renders the per-line checkbox only when the number is defined — an
+      // unnumbered parse leaves the whole line-staging surface dead.
+      const [hunk] = parseHunks(DIFF);
+      const [del1, add1, ctx, del2, add2] = hunk.lines;
+      assert.deepStrictEqual(
+        [del1.type, del1.oldLineNumber, del1.newLineNumber],
+        ['delete', 1, undefined]
+      );
+      assert.deepStrictEqual(
+        [add1.type, add1.newLineNumber, add1.oldLineNumber],
+        ['add', 1, undefined]
+      );
+      assert.deepStrictEqual([ctx.type, ctx.oldLineNumber, ctx.newLineNumber], ['context', 2, 2]);
+      assert.deepStrictEqual([del2.type, del2.oldLineNumber], ['delete', 3]);
+      assert.deepStrictEqual([add2.type, add2.newLineNumber], ['add', 3]);
+      assert.strictEqual(del2.noNewline, true);
+      assert.strictEqual(add2.noNewline, true);
+    });
+
+    it('stops consuming at the header counts — a trailing split artifact is not a context line', () => {
+      const [hunk] = parseHunks(DIFF);
+      assert.strictEqual(hunk.lines.length, 5, 'exactly the counted hunk body');
+      assert.ok(
+        hunk.lines.every((l) => l.content !== '' || l.type !== 'context'),
+        'no phantom empty context line'
+      );
+    });
+
+    it('numbers a second hunk from its own header', () => {
+      const twoHunks = ['@@ -1,1 +1,1 @@', '-a', '+A', '@@ -10,2 +10,3 @@', ' k', '+n', ' t'];
+      const [, second] = parseHunks(twoHunks);
+      const [k, n, t] = second.lines;
+      assert.strictEqual(k.oldLineNumber, 10);
+      assert.strictEqual(k.newLineNumber, 10);
+      assert.strictEqual(n.newLineNumber, 11);
+      assert.strictEqual(t.oldLineNumber, 11);
+      assert.strictEqual(t.newLineNumber, 12);
+    });
+  });
+
   describe('parseStashList', () => {
     it('parses the dated `--format=%gd<sep>%ci<sep>%gs` output incl. REAL dates', () => {
       const sep = '\x1f';

@@ -200,7 +200,9 @@ describe('Wave C R1 — review fixes', () => {
       // shared `_unstashWithErrorReport` helper so squash-multi can
       // share the phrasing. Pin the call shape.
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*['"]Drop['"]\s*\)/.test(body),
+        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*['"]Drop['"]\s*\)/.test(
+          body
+        ),
         '_handleDropCommitMulti success path must call _unstashWithErrorReport(cwd, "Drop")'
       );
     });

@@ -235,6 +235,26 @@ function createMockGitCli(overrides?: Record<string, unknown>): MockGitCli {
   } as unknown as MockGitCli;
 }
 
+/**
+ * Scripted answers for the pinned-stash save/restore protocol
+ * (preservedChanges): `rev-parse refs/stash` returns the created entry's sha
+ * and `stash list --format=…` lists it at the top, so a bracket's restore
+ * finds and pops exactly the entry it created.
+ */
+const PINNED_STASH_SHA = 'f'.repeat(40);
+function pinnedStashResponse(
+  cmdArgs: string[]
+): { exitCode: number; stdout: string; stderr: string; combined: string } | undefined {
+  if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'refs/stash') {
+    return { exitCode: 0, stdout: `${PINNED_STASH_SHA}\n`, stderr: '', combined: '' };
+  }
+  if (cmdArgs[0] === 'stash' && cmdArgs[1] === 'list') {
+    const out = `stash@{0}\x1f${PINNED_STASH_SHA}\n`;
+    return { exitCode: 0, stdout: out, stderr: '', combined: out };
+  }
+  return undefined;
+}
+
 /** GitCli mock that returns clean status (empty porcelain output). */
 function createCleanGitCli(overrides?: Record<string, unknown>): MockGitCli {
   return createMockGitCli({
@@ -1167,6 +1187,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
             return { exitCode: 0, stdout: ' M src/dirty.ts\n', stderr: '', combined: '' };
           }
+          const pinned = pinnedStashResponse(cmdArgs);
+          if (pinned) {
+            return pinned;
+          }
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         },
       });
@@ -1367,6 +1391,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
             // Dirty tree → stash will be pushed.
             return { exitCode: 0, stdout: ' M file.ts', stderr: '', combined: '' };
+          }
+          const pinned = pinnedStashResponse(cmdArgs);
+          if (pinned) {
+            return pinned;
           }
           if (cmdArgs[0] === 'stash' && cmdArgs[1] === 'pop') {
             stashPopCalls.push('pop');
@@ -1576,6 +1604,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           }
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
             return { exitCode: 0, stdout: ' M src/file.ts\n', stderr: '', combined: '' };
+          }
+          const pinned = pinnedStashResponse(cmdArgs);
+          if (pinned) {
+            return pinned;
           }
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         },
@@ -3004,6 +3036,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           }
           if (cmdArgs[0] === 'status') {
             return { exitCode: 0, stdout: statusOut, stderr: '', combined: statusOut };
+          }
+          const pinned = pinnedStashResponse(cmdArgs);
+          if (pinned) {
+            return pinned;
           }
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         },

@@ -31,8 +31,13 @@ export type SaveLocalChangesResult =
   | { status: 'clean' }
   /** Unmerged files present — the operation must be refused, not stashed over. */
   | { status: 'blocked-unmerged' }
-  /** Dirty tree stashed (incl. untracked); caller owes a restore. */
-  | { status: 'saved' };
+  /**
+   * Dirty tree stashed (incl. untracked); caller owes a restore. `stashSha`
+   * pins the CREATED entry so the restore pops exactly it — `stash@{0}` is
+   * not stable when a concurrent bracket or the user pushes another stash
+   * mid-operation (git4idea's GitStashChangesSaver records the same pin).
+   */
+  | { status: 'saved'; stashSha: string };
 
 /**
  * Stash the working tree (including untracked files) when dirty, refusing
@@ -59,7 +64,8 @@ export async function saveLocalChanges(
     cwd,
     throwOnError: true,
   });
-  return { status: 'saved' };
+  const sha = await gitCli.exec(['rev-parse', 'refs/stash'], { cwd, throwOnError: true });
+  return { status: 'saved', stashSha: sha.stdout.trim() };
 }
 
 /** Outcome of {@link restoreLocalChanges}. */
@@ -72,16 +78,39 @@ export type RestoreLocalChangesResult =
   | { status: 'failed'; detail: string };
 
 /**
- * Pop the most recent stash entry back onto the working tree. Never throws:
- * a failed pop (conflict, spawn fault) leaves the changes safely in the
+ * Pop the PINNED stash entry back onto the working tree. The entry is looked
+ * up by its commit sha at pop time — its `stash@{N}` position may have moved
+ * since the save (a concurrent bracket, a user stash, an autostash all
+ * renumber the stack), and popping the head blindly would apply the WRONG
+ * stash while stranding the saved changes. Never throws: a failed pop
+ * (conflict, spawn fault, vanished entry) leaves the changes safely in the
  * stash and reports the sanitized reason for the caller to surface.
  */
 export async function restoreLocalChanges(
   gitCli: GitCli,
-  cwd: string
+  cwd: string,
+  stashSha: string
 ): Promise<RestoreLocalChangesResult> {
   try {
-    const res = await gitCli.exec(['stash', 'pop'], { cwd });
+    const list = await gitCli.exec(['stash', 'list', '--format=%gd\x1f%H'], { cwd });
+    if (list.exitCode !== 0) {
+      return {
+        status: 'failed',
+        detail: sanitizeGitError((list.stderr || list.stdout).trim() || 'stash list failed'),
+      };
+    }
+    const row = list.stdout
+      .split('\n')
+      .map((line) => line.split('\x1f'))
+      .find(([, sha]) => sha === stashSha);
+    if (!row) {
+      return {
+        status: 'failed',
+        detail: 'the saved stash entry is no longer in the stash list',
+      };
+    }
+    // The ref comes from git's own `%gd` output (`stash@{N}`), not user input.
+    const res = await gitCli.exec(['stash', 'pop', row[0]], { cwd });
     if (res.exitCode === 0) {
       return { status: 'restored' };
     }
@@ -135,7 +164,7 @@ export async function withSavedChanges<T>(
     result = await op();
   } catch (error) {
     if (saved.status === 'saved') {
-      const restore = await restoreLocalChanges(gitCli, cwd);
+      const restore = await restoreLocalChanges(gitCli, cwd, saved.stashSha);
       if (restore.status === 'failed') {
         getLogger().warn('withSavedChanges: restore after failed op did not apply cleanly', {
           cwd,
@@ -149,5 +178,9 @@ export async function withSavedChanges<T>(
   if (saved.status === 'clean') {
     return { status: 'done', result, restore: { status: 'not-needed' } };
   }
-  return { status: 'done', result, restore: await restoreLocalChanges(gitCli, cwd) };
+  return {
+    status: 'done',
+    result,
+    restore: await restoreLocalChanges(gitCli, cwd, saved.stashSha),
+  };
 }

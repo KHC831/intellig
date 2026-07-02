@@ -770,10 +770,29 @@ export class BranchContextMenuCommands {
    *   parked in the stash (already surfaced to the user).
    */
   private async _restoreStashAfterSwitch(
-    repo: IRepository
+    repo: IRepository,
+    stashSha?: string
   ): Promise<'restored' | 'conflict-routed' | 'failed'> {
+    // Resolve the CREATED entry's current position first — `stash@{0}` is not
+    // stable between the push and this pop (an autostash, a concurrent flow
+    // or the user can push another entry, renumbering the stack), and popping
+    // the head blindly applies the WRONG stash. `stashSha` is captured right
+    // after the push; a legacy no-hash listing falls back to the head.
+    let index = 0;
+    if (stashSha !== undefined) {
+      const entries = await this._gitService.stashList(repo);
+      const entry = entries.find((e) => e.hash === stashSha);
+      if (!entry) {
+        void vscode.window.showWarningMessage(
+          'Switched, but the auto-stash created for this checkout is no longer in the stash ' +
+            'list — your changes were not restored.'
+        );
+        return 'failed';
+      }
+      index = entry.index;
+    }
     try {
-      await this._gitService.stashPop(repo, 0).match(
+      await this._gitService.stashPop(repo, index).match(
         () => undefined,
         (e) => {
           throw e;
@@ -787,7 +806,7 @@ export class BranchContextMenuCommands {
         if (conflicts.length > 0) {
           await this._conflictResolutionService.openResolveConflictsDialog(repo, conflicts, {
             operation: 'unstash',
-            target: 'stash@{0}',
+            target: `stash@{${index}}`,
             canAbort: true,
             canContinue: true,
           });
@@ -799,6 +818,21 @@ export class BranchContextMenuCommands {
           `They remain in the stash list.`
       );
       return 'failed';
+    }
+  }
+
+  /**
+   * The sha of the most recently created stash entry, captured immediately
+   * after a `stash push` so {@link _restoreStashAfterSwitch} can pop exactly
+   * that entry later. `undefined` when the listing carries no hash (legacy
+   * stash-list form) — the restore then falls back to the head.
+   */
+  private async _createdStashSha(repo: IRepository): Promise<string | undefined> {
+    try {
+      const entries = await this._gitService.stashList(repo);
+      return entries[0]?.hash;
+    } catch {
+      return undefined;
     }
   }
 
@@ -877,6 +911,7 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
+          const createdStashSha = await this._createdStashSha(repo);
           await this._gitService.checkout(repo, ref).match(
             () => undefined,
             (e) => {
@@ -884,7 +919,7 @@ export class BranchContextMenuCommands {
             }
           );
           // Smart-checkout parity: restore the stash onto the new branch.
-          const restore = await this._restoreStashAfterSwitch(repo);
+          const restore = await this._restoreStashAfterSwitch(repo, createdStashSha);
           // Stash + checkout (+ pop) moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
           if (restore !== 'conflict-routed') {
@@ -1846,12 +1881,13 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
+          const createdStashSha = await this._createdStashSha(repo);
           await checkout();
           // Smart-checkout parity: restore the stash before the rebase (the
           // rebase itself runs with --autostash, so restored dirtiness is
           // handled). A conflicted restore hands off to the Resolve
           // Conflicts flow and must NOT start a rebase over an unmerged tree.
-          const restoreOutcome = await this._restoreStashAfterSwitch(repo);
+          const restoreOutcome = await this._restoreStashAfterSwitch(repo, createdStashSha);
           if (restoreOutcome === 'conflict-routed') {
             await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
@@ -2104,6 +2140,7 @@ export class BranchContextMenuCommands {
       const ahead = local?.ahead ?? 0;
 
       let stashedBeforeReset = false;
+      let stashShaBeforeReset: string | undefined;
       if (local && ahead > 0) {
         const choice = await vscode.window.showWarningMessage(
           `Local branch '${branchName}' has ${ahead} commit${ahead === 1 ? '' : 's'} ` +
@@ -2120,6 +2157,7 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
+          stashShaBeforeReset = await this._createdStashSha(repo);
           stashedBeforeReset = true;
         } else if (choice !== 'Reset anyway') {
           // Cancel (or dialog dismissed): do not touch the local branch.
@@ -2137,7 +2175,7 @@ export class BranchContextMenuCommands {
 
       // Smart-checkout parity: a "Stash and reset" restores the stash too.
       const resetRestore = stashedBeforeReset
-        ? await this._restoreStashAfterSwitch(repo)
+        ? await this._restoreStashAfterSwitch(repo, stashShaBeforeReset)
         : 'restored';
 
       // checkout-as-local moved HEAD; reload before refresh.
@@ -2161,6 +2199,7 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
+          const createdStashSha = await this._createdStashSha(repo);
           // `-B` create-or-resets regardless of whether a local exists.
           await this._gitService.checkout(repo, branchName, { forceCreate: true, track }).match(
             () => undefined,
@@ -2169,7 +2208,7 @@ export class BranchContextMenuCommands {
             }
           );
           // Smart-checkout parity: restore the stash onto the new branch.
-          const restore = await this._restoreStashAfterSwitch(repo);
+          const restore = await this._restoreStashAfterSwitch(repo, createdStashSha);
           // Stash + checkout (+ pop) moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
           if (restore !== 'conflict-routed') {

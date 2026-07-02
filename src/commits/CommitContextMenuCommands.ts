@@ -665,7 +665,7 @@ export class CommitContextMenuCommands {
       if (saved.status !== 'saved') {
         return;
       }
-      const restore = await restoreLocalChanges(this._gitCli, cwd);
+      const restore = await restoreLocalChanges(this._gitCli, cwd, saved.stashSha);
       if (restore.status === 'failed') {
         void vscode.window.showWarningMessage(
           `Drop finished, but restoring your stashed local changes failed: ${restore.detail}. ` +
@@ -937,19 +937,28 @@ export class CommitContextMenuCommands {
    * Stash dirty working tree if needed, returning whether a stash was created.
    * Refuses to stash if there are unmerged files (returns false and shows error).
    */
-  private async _stashIfDirty(cwd: string): Promise<{ stashed: boolean; blocked: boolean }> {
+  private async _stashIfDirty(
+    cwd: string
+  ): Promise<{ stashed: boolean; blocked: boolean; stashSha?: string }> {
     // Thin adapter over the shared save-local-changes bracket
     // (git-core/ops/preservedChanges) so every dirty-tree-sensitive flow
     // shares ONE save/restore implementation.
     const saved = await saveLocalChanges(this._gitCli, cwd, 'Auto-stash before git operation');
-    return { stashed: saved.status === 'saved', blocked: saved.status === 'blocked-unmerged' };
+    return {
+      stashed: saved.status === 'saved',
+      blocked: saved.status === 'blocked-unmerged',
+      stashSha: saved.status === 'saved' ? saved.stashSha : undefined,
+    };
   }
 
   /**
    * Pop the stash if one was created.
    */
-  private async _unstash(cwd: string): Promise<void> {
-    const restore = await restoreLocalChanges(this._gitCli, cwd);
+  private async _unstash(cwd: string, stashSha: string | undefined): Promise<void> {
+    if (stashSha === undefined) {
+      return;
+    }
+    const restore = await restoreLocalChanges(this._gitCli, cwd, stashSha);
     if (restore.status === 'failed') {
       // Leave in stash if pop fails (the success-path variant surfaces a
       // toast; this cleanup path stays quiet). Log so it isn't silent.
@@ -975,8 +984,15 @@ export class CommitContextMenuCommands {
    * existing `_unstash` shape; the follow-up TODO tracks adopting
    * this helper there too.
    */
-  private async _unstashWithErrorReport(cwd: string, opName: string): Promise<void> {
-    const restore = await restoreLocalChanges(this._gitCli, cwd);
+  private async _unstashWithErrorReport(
+    cwd: string,
+    stashSha: string | undefined,
+    opName: string
+  ): Promise<void> {
+    if (stashSha === undefined) {
+      return;
+    }
+    const restore = await restoreLocalChanges(this._gitCli, cwd, stashSha);
     if (restore.status === 'failed') {
       void vscode.window.showWarningMessage(
         `${opName} succeeded but failed to restore stash: ${restore.detail}`
@@ -2310,7 +2326,7 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      const { stashed, blocked } = await this._stashIfDirty(cwd);
+      const { stashed, blocked, stashSha } = await this._stashIfDirty(cwd);
       if (blocked) {
         void vscode.window.showErrorMessage(
           'Cannot drop commit while you have unmerged files. Please resolve conflicts first.'
@@ -2330,7 +2346,7 @@ export class CommitContextMenuCommands {
           );
           await this._rebaseService.abortRebase(repo);
           if (stashed) {
-            await this._unstash(cwd);
+            await this._unstash(cwd, stashSha);
           }
           return;
         }
@@ -2363,7 +2379,7 @@ export class CommitContextMenuCommands {
             await this._rebaseService.abortRebase(repo);
           }
           if (stashed) {
-            await this._unstash(cwd);
+            await this._unstash(cwd, stashSha);
           }
           void vscode.window.showWarningMessage(
             `Drop commit conflicts in ${result.conflictedFiles.length} file(s). The operation has been aborted.`
@@ -2380,13 +2396,13 @@ export class CommitContextMenuCommands {
         }
       } catch (opError) {
         if (stashed) {
-          await this._unstash(cwd);
+          await this._unstash(cwd, stashSha);
         }
         throw opError;
       }
 
       if (stashed) {
-        await this._unstash(cwd);
+        await this._unstash(cwd, stashSha);
       }
       // drop-via-rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -2532,11 +2548,13 @@ export class CommitContextMenuCommands {
 
     const cwd = repo.rootUri.fsPath;
     let stashed = false;
+    let stashSha: string | undefined;
 
     try {
       // 6. Stash dirty tree.
       const stashResult = await this._stashIfDirty(cwd);
       stashed = stashResult.stashed;
+      stashSha = stashResult.stashSha;
       if (stashResult.blocked) {
         void vscode.window.showErrorMessage(
           'Cannot drop commits while you have unmerged files. Please resolve conflicts first.'
@@ -2579,7 +2597,7 @@ export class CommitContextMenuCommands {
           // Mirror the conflict path: pop the stash so the user's dirty working-tree
           // changes aren't left stranded when we return without executing the rebase.
           if (stashed) {
-            await this._unstashWithErrorReport(cwd, 'Drop');
+            await this._unstashWithErrorReport(cwd, stashSha, 'Drop');
             stashed = false;
           }
           return;
@@ -2608,7 +2626,7 @@ export class CommitContextMenuCommands {
             await this._rebaseService.abortRebase(repo);
           }
           if (stashed) {
-            await this._unstash(cwd);
+            await this._unstash(cwd, stashSha);
             stashed = false;
           }
           await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
@@ -2628,7 +2646,7 @@ export class CommitContextMenuCommands {
         }
       } catch (opError) {
         if (stashed) {
-          await this._unstash(cwd);
+          await this._unstash(cwd, stashSha);
           stashed = false;
         }
         throw opError;
@@ -2638,7 +2656,7 @@ export class CommitContextMenuCommands {
       // the shared {@link _unstashWithErrorReport} helper so the drop
       // and squash success paths share the same phrasing.
       if (stashed) {
-        await this._unstashWithErrorReport(cwd, 'Drop');
+        await this._unstashWithErrorReport(cwd, stashSha, 'Drop');
       }
       // multi-drop rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -2844,7 +2862,7 @@ export class CommitContextMenuCommands {
 
     try {
       // 5. Stash dirty tree.
-      const { stashed, blocked } = await this._stashIfDirty(cwd);
+      const { stashed, blocked, stashSha } = await this._stashIfDirty(cwd);
       if (blocked) {
         const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
         void vscode.window.showErrorMessage(
@@ -2901,7 +2919,7 @@ export class CommitContextMenuCommands {
             await this._rebaseService.abortRebase(repo);
           }
           if (stashed) {
-            await this._unstash(cwd);
+            await this._unstash(cwd, stashSha);
           }
           // The squash has been ROLLED BACK by now — either we just aborted the
           // live rebase, or it was a post-completion autostash-pop conflict with
@@ -2927,7 +2945,7 @@ export class CommitContextMenuCommands {
         }
       } catch (opError) {
         if (stashed) {
-          await this._unstash(cwd);
+          await this._unstash(cwd, stashSha);
         }
         throw opError;
       }
@@ -2937,7 +2955,7 @@ export class CommitContextMenuCommands {
       // the drop path. The earlier silent `_unstash` would leave the user
       // believing the squash had restored their working changes.
       if (stashed) {
-        await this._unstashWithErrorReport(cwd, mode === 'fixup' ? 'Fixup' : 'Squash');
+        await this._unstashWithErrorReport(cwd, stashSha, mode === 'fixup' ? 'Fixup' : 'Squash');
       }
       // Squash rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -3186,7 +3204,7 @@ export class CommitContextMenuCommands {
         );
       } else {
         // Non-HEAD: interactive rebase requires a clean working tree.
-        const { stashed, blocked } = await this._stashIfDirty(cwd);
+        const { stashed, blocked, stashSha } = await this._stashIfDirty(cwd);
         if (blocked) {
           void vscode.window.showErrorMessage(
             'Cannot edit a non-HEAD commit message while you have unmerged files. Please resolve conflicts first.'
@@ -3206,7 +3224,7 @@ export class CommitContextMenuCommands {
             );
             await this._rebaseService.abortRebase(repo);
             if (stashed) {
-              await this._unstash(cwd);
+              await this._unstash(cwd, stashSha);
             }
             return;
           }
@@ -3229,7 +3247,7 @@ export class CommitContextMenuCommands {
               await this._rebaseService.abortRebase(repo);
             }
             if (stashed) {
-              await this._unstash(cwd);
+              await this._unstash(cwd, stashSha);
             }
             void vscode.window.showErrorMessage(
               'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
@@ -3271,7 +3289,7 @@ export class CommitContextMenuCommands {
                 await this._rebaseService.abortRebase(repo);
               }
               if (stashed) {
-                await this._unstash(cwd);
+                await this._unstash(cwd, stashSha);
               }
               void vscode.window.showErrorMessage(
                 'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
@@ -3284,13 +3302,13 @@ export class CommitContextMenuCommands {
           clearedStale = pausedResult.status === 'cleared-stale';
         } catch (opError) {
           if (stashed) {
-            await this._unstash(cwd);
+            await this._unstash(cwd, stashSha);
           }
           throw opError;
         }
 
         if (stashed) {
-          await this._unstash(cwd);
+          await this._unstash(cwd, stashSha);
         }
       }
 

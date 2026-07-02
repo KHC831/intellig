@@ -58,23 +58,45 @@ async function existsInHead(gitCli: GitCli, cwd: string, path: string): Promise<
  * Delete `relPath` from the working tree, refusing anything that resolves
  * outside the repo root (the shelf/rollback stores are attacker-deliverable,
  * and an empty/`.`/absolute/`..`-escaping path would otherwise wipe the root
- * or beyond). Missing paths are a no-op — the desired end state is "gone".
+ * or beyond). The PARENT directory is realpath'd before the containment
+ * check: a lexical `startsWith(root)` passes for `repo/link/sub/f` even when
+ * `link` is a symlink pointing outside the repo, and the delete would land
+ * outside. The final component itself may be a symlink — `rm` removes the
+ * link, never its target. Missing paths are a no-op — the desired end state
+ * is "gone". Exported as THE delete guard for every worktree-mutation flow
+ * (rollback, untracked deletes, drop-selected) so the escape class stays
+ * closed in one place.
  */
-async function removeInsideRepo(cwd: string, relPath: string): Promise<void> {
+export async function removeInsideRepo(cwd: string, relPath: string): Promise<void> {
   const abs = nodePath.resolve(cwd, relPath);
   const root = nodePath.resolve(cwd);
   if (abs === root || !abs.startsWith(root + nodePath.sep)) {
     throw new Error(`Refusing to delete a path outside the repository: ${relPath}`);
   }
-  await fsp.rm(abs, { force: true, recursive: true });
+  let realRoot: string;
+  let realParent: string;
+  try {
+    realRoot = await fsp.realpath(root);
+    realParent = await fsp.realpath(nodePath.dirname(abs));
+  } catch {
+    // The parent (or root) doesn't exist — nothing to delete.
+    return;
+  }
+  if (realParent !== realRoot && !realParent.startsWith(realRoot + nodePath.sep)) {
+    throw new Error(`Refusing to delete a path outside the repository: ${relPath}`);
+  }
+  await fsp.rm(nodePath.join(realParent, nodePath.basename(abs)), {
+    force: true,
+    recursive: true,
+  });
 }
 
 /**
  * Restore the requested paths to their HEAD state.
  *
- * @throws when git could not spawn, or the final `checkout HEAD -- …` fails
- *   (a genuine restore failure). The tolerant `rm --cached` unindex step never
- *   throws — an added path may already be unstaged.
+ * @throws when git could not spawn, when the `rm --cached --ignore-unmatch`
+ *   unindex batch fails for a real reason (e.g. index.lock contention), or
+ *   when the final `checkout HEAD -- …` fails (a genuine restore failure).
  */
 export async function restorePathsToHead(
   gitCli: GitCli,
@@ -112,9 +134,16 @@ export async function restorePathsToHead(
   }
 
   if (unindexPaths.length > 0) {
-    // Tolerant: an untracked path (or an already-unstaged add) is not in the
-    // index, so `rm --cached` returning non-zero is expected and harmless.
-    await gitCli.exec(['rm', '--cached', '-f', '--', ...unindexPaths], { cwd });
+    // `--ignore-unmatch` handles the expected case (an untracked path or an
+    // already-unstaged add is not in the index) WITHOUT tolerating real
+    // failures: without it, one unmatched pathspec makes the whole batch exit
+    // 128 having removed NOTHING — batch-mates silently stayed staged. With
+    // it, a non-zero exit means something real (index.lock contention) and
+    // must throw.
+    await gitCli.exec(['rm', '--cached', '-f', '--ignore-unmatch', '--', ...unindexPaths], {
+      cwd,
+      throwOnError: true,
+    });
   }
 
   for (const rel of diskDeletes) {

@@ -1,5 +1,3 @@
-import { promises as fsp } from 'fs';
-import * as nodePath from 'path';
 import { ResultAsync, ok, err, okAsync, errAsync } from 'neverthrow';
 import {
   IRepository,
@@ -19,7 +17,11 @@ import {
 } from '../errors';
 import { parseStatus } from '../gitParser';
 import { buildHunkPatch } from '../patchBuilder';
-import { restorePathsToHead, IRestoreToHeadRequest } from '../worktree/restoreToHead';
+import {
+  restorePathsToHead,
+  removeInsideRepo,
+  IRestoreToHeadRequest,
+} from '../worktree/restoreToHead';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -321,15 +323,11 @@ export class StagingOps {
     }
 
     for (const rel of untrackedToDelete) {
-      // Recursive force-delete: never trust `rel` to stay inside the repo — an
-      // empty/"."/absolute/`..`-escaping path would resolve to the work-tree
-      // root (or beyond) and wipe it. Require a target strictly inside root.
-      const abs = nodePath.resolve(cwd, rel);
-      const root = nodePath.resolve(cwd);
-      if (abs === root || !abs.startsWith(root + nodePath.sep)) {
-        throw new InvalidArgumentError(`Refusing to delete a path outside the repository: ${rel}`);
-      }
-      await fsp.rm(abs, { force: true, recursive: true });
+      // Recursive force-delete via the shared symlink-aware containment guard
+      // — never trust `rel` to stay inside the repo (an empty/"."/absolute/
+      // `..`-escaping path, or a symlinked intermediate dir, would land the
+      // delete at the work-tree root or beyond).
+      await removeInsideRepo(cwd, rel);
     }
 
     this.ctx.invalidateCache(cwd);
@@ -414,12 +412,15 @@ export class StagingOps {
           newLines.push(line);
           oldLines++;
         } else {
-          // Convert unselected deletions to context
+          // Convert unselected deletions to context. `noNewline` must ride
+          // along: dropping it made the patch claim a trailing newline the
+          // index blob doesn't have (EOF of a no-trailing-newline file).
           newLines.push({
             type: 'context',
             content: line.content,
             oldLineNumber: line.oldLineNumber,
             newLineNumber: currentNewLine,
+            noNewline: line.noNewline,
           });
           oldLines++;
           newLinesCount++;
@@ -431,6 +432,29 @@ export class StagingOps {
     const hasChanges = newLines.some((l) => l.type === 'add' || l.type === 'delete');
     if (!hasChanges) {
       return '';
+    }
+
+    // A no-newline CONTEXT line is only valid as the FINAL patch line. When a
+    // selected add follows the kept EOF line, git's own diff shape is a
+    // delete + marker + re-add pair (the kept line gains its newline) — emit
+    // that instead. Counts are unchanged: context (1 old + 1 new) becomes
+    // delete (1 old) + add (1 new).
+    for (let i = 0; i < newLines.length - 1; i++) {
+      const l = newLines[i];
+      if (l.type === 'context' && l.noNewline) {
+        newLines.splice(
+          i,
+          1,
+          {
+            type: 'delete',
+            content: l.content,
+            oldLineNumber: l.oldLineNumber,
+            noNewline: true,
+          },
+          { type: 'add', content: l.content, newLineNumber: l.newLineNumber }
+        );
+        i++; // skip the inserted re-add
+      }
     }
 
     // Generate the new hunk header

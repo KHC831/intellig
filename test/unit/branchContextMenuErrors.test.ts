@@ -492,6 +492,69 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
     });
 
+    it('pops the stash it CREATED even when another stash landed on top (pinned pop)', async () => {
+      // Between our `stash push` and the post-checkout pop, an autostash /
+      // concurrent flow / the user can push another entry — stash@{0} is then
+      // the WRONG stash. The restore must find our entry by sha and pop ITS
+      // current index.
+      const ourSha = 'a'.repeat(40);
+      const otherSha = 'b'.repeat(40);
+      installWarningMessageTracker('Stash & Switch');
+      installInfoMessageTracker();
+
+      let checkoutCallCount = 0;
+      let stashed = false;
+      const poppedIndexes: number[] = [];
+      const gitService = createMockGitService({
+        checkout: () => {
+          checkoutCallCount++;
+          return checkoutCallCount === 1
+            ? errAsync(
+                new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+              )
+            : okAsync(undefined);
+        },
+        stash: () => {
+          stashed = true;
+          return okAsync(undefined);
+        },
+        stashList: async () => {
+          if (!stashed) {
+            return [];
+          }
+          // After our push the entry is at index 0; by pop time another
+          // stash sits on top and ours moved to index 1.
+          if (poppedIndexes.length === 0 && checkoutCallCount >= 2) {
+            return [
+              { index: 0, message: 'other', date: new Date(), hash: otherSha },
+              { index: 1, message: 'ours', date: new Date(), hash: ourSha },
+            ];
+          }
+          return [{ index: 0, message: 'ours', date: new Date(), hash: ourSha }];
+        },
+        stashPop: (_repo: IRepository, index: number) => {
+          poppedIndexes.push(index);
+          return okAsync(undefined);
+        },
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService)
+      );
+
+      await invokePrivateHandler(
+        commands,
+        '_handleCheckout',
+        createLocalBranchTreeItem('feature/x')
+      );
+
+      assert.deepStrictEqual(
+        poppedIndexes,
+        [1],
+        'must pop OUR entry at its current index, not stash@{0}'
+      );
+    });
+
     it('routes a stash-restore conflict into the Resolve Conflicts flow (operation: unstash)', async () => {
       installWarningMessageTracker('Stash & Switch');
       installInfoMessageTracker();

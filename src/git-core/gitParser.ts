@@ -14,7 +14,6 @@ import {
   StatusCode,
   FileStatus,
   BranchType,
-  DiffLineType,
 } from './interfaces/IGitService';
 
 /**
@@ -934,6 +933,17 @@ function parseCombinedDiffHeader(header: string, lines: string[]): IDiff | undef
 export function parseHunks(lines: string[]): IHunk[] {
   const hunks: IHunk[] = [];
   let currentHunk: IHunk | undefined;
+  // Running per-side line numbers (seeded from the hunk header) and the
+  // remaining body budget. Selections key adds by newLineNumber and deletes
+  // by oldLineNumber, and the dialog renders a line's checkbox only when its
+  // number is defined — so every body line must carry its number(s). The
+  // budget bounds consumption to exactly the counted body, so a trailing
+  // `split('\n')` artifact (or any junk between hunks) can't be swallowed
+  // as a phantom context line.
+  let oldLine = 0;
+  let newLine = 0;
+  let remainingOld = 0;
+  let remainingNew = 0;
 
   for (const line of lines) {
     // Hunk header: @@ -oldStart,oldLines +newStart,newLines @@ optional context
@@ -955,6 +965,10 @@ export function parseHunks(lines: string[]): IHunk[] {
         header: line,
         lines: [],
       };
+      oldLine = currentHunk.oldStart;
+      newLine = currentHunk.newStart;
+      remainingOld = currentHunk.oldLines;
+      remainingNew = currentHunk.newLines;
 
       continue;
     }
@@ -964,6 +978,8 @@ export function parseHunks(lines: string[]): IHunk[] {
       // `\ No newline at end of file` applies to the line just emitted: its
       // side has no trailing newline. Flag the preceding line so a rebuilt
       // patch re-emits the marker (git apply rejects a patch that drops it).
+      // It is not part of the counted body, so it is handled before the
+      // budget check.
       if (line.startsWith('\\')) {
         const prev = currentHunk.lines[currentHunk.lines.length - 1];
         if (prev) {
@@ -972,27 +988,36 @@ export function parseHunks(lines: string[]): IHunk[] {
         continue;
       }
 
-      let type: DiffLineType;
-      let content = line;
-
-      if (line.startsWith('+')) {
-        type = 'add';
-        content = line.substring(1);
-      } else if (line.startsWith('-')) {
-        type = 'delete';
-        content = line.substring(1);
-      } else if (line.startsWith(' ') || line === '') {
-        type = 'context';
-        content = line.substring(1);
-      } else {
-        // Skip any other non-diff line.
+      if (remainingOld <= 0 && remainingNew <= 0) {
+        // The counted body is complete — whatever follows is not hunk content.
         continue;
       }
 
-      currentHunk.lines.push({
-        type,
-        content,
-      });
+      if (line.startsWith('+')) {
+        currentHunk.lines.push({ type: 'add', content: line.substring(1), newLineNumber: newLine });
+        newLine++;
+        remainingNew--;
+      } else if (line.startsWith('-')) {
+        currentHunk.lines.push({
+          type: 'delete',
+          content: line.substring(1),
+          oldLineNumber: oldLine,
+        });
+        oldLine++;
+        remainingOld--;
+      } else if (line.startsWith(' ') || line === '') {
+        currentHunk.lines.push({
+          type: 'context',
+          content: line.substring(1),
+          oldLineNumber: oldLine,
+          newLineNumber: newLine,
+        });
+        oldLine++;
+        newLine++;
+        remainingOld--;
+        remainingNew--;
+      }
+      // Any other non-diff line is skipped.
     }
   }
 
