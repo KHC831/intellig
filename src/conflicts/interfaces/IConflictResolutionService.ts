@@ -42,7 +42,13 @@ export interface IConflictedFile {
 export interface IConflictResolutionResult {
   /** Whether the operation was successful */
   success: boolean;
-  /** Error message if operation failed */
+  /**
+   * Error message if operation failed. DISPLAY-READY: pre-sanitized at the
+   * source (`sanitizeGitError`), so consumers may toast it directly. Sanitizing
+   * here rather than per-consumer is deliberate — several palette toasts render
+   * `result.error` raw, outside the reach of the toast-sanitizer structural
+   * guard.
+   */
   error?: string;
   /**
    * The call was a benign no-op dropped by a re-entrancy guard (a concurrent
@@ -58,7 +64,8 @@ export interface IConflictResolutionResult {
 export interface IOperationCompletionResult {
   /** Whether the operation completed successfully */
   success: boolean;
-  /** Error message if operation failed */
+  /** Error message if operation failed. DISPLAY-READY (pre-sanitized) — see
+   * {@link IConflictResolutionResult.error}. */
   error?: string;
   /** Any remaining conflicted files */
   remainingConflicts?: string[];

@@ -684,8 +684,10 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       const url = origin.fetchUrl ?? origin.pushUrl;
       const parsed = parseRemoteUrl(url);
       if (!parsed) {
+        // A remote URL can embed `user:token@host` credentials — scrub before
+        // it lands in a toast / notification history.
         void vscode.window.showErrorMessage(
-          `Open on Host: could not parse remote URL "${url ?? '(none)'}".`
+          `Open on Host: could not parse remote URL "${url ? sanitizeGitError(url) : '(none)'}".`
         );
         return;
       }

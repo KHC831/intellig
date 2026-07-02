@@ -10,6 +10,7 @@ import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCl
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { inferReopenOperation, isReversedOperation } from './conflictReversal';
 import { resolveConflictSideNames, IConflictSideNames } from './conflictSideNames';
+import { sanitizeGitError } from '../git-core/gitError';
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { resolveGitDir } from '../git-core/gitDirMarkers';
@@ -299,7 +300,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to mark file as resolved: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Failed to mark file as resolved: ${sanitizeGitError(errorMessage)}`,
+      };
     }
   }
 
@@ -330,7 +334,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to mark files as resolved: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Failed to mark files as resolved: ${sanitizeGitError(errorMessage)}`,
+      };
     }
   }
 
@@ -417,7 +424,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to accept current version: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Failed to accept current version: ${sanitizeGitError(errorMessage)}`,
+      };
     }
   }
 
@@ -443,7 +453,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to accept incoming version: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Failed to accept incoming version: ${sanitizeGitError(errorMessage)}`,
+      };
     }
   }
 
@@ -484,7 +497,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to accept all: ${errorMessage}` };
+      return { success: false, error: `Failed to accept all: ${sanitizeGitError(errorMessage)}` };
     } finally {
       this._bulkInFlight.delete(key);
     }
@@ -583,7 +596,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       if (result.exitCode !== 0) {
         return {
           success: false,
-          error: `Failed to complete merge: ${result.stderr || result.stdout}`,
+          error: `Failed to complete merge: ${sanitizeGitError(result.stderr || result.stdout)}`,
         };
       }
 
@@ -592,7 +605,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to complete merge: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Failed to complete merge: ${sanitizeGitError(errorMessage)}`,
+      };
     }
   }
 
@@ -635,7 +651,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
 
         return {
           success: false,
-          error: `Failed to continue rebase: ${result.stderr || result.stdout}`,
+          error: `Failed to continue rebase: ${sanitizeGitError(result.stderr || result.stdout)}`,
         };
       }
 
@@ -646,7 +662,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to complete rebase: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Failed to complete rebase: ${sanitizeGitError(errorMessage)}`,
+      };
     }
   }
 
@@ -673,7 +692,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       if (result.exitCode !== 0) {
         return {
           success: false,
-          error: `Failed to abort: ${result.stderr || result.stdout}`,
+          error: `Failed to abort: ${sanitizeGitError(result.stderr || result.stdout)}`,
         };
       }
       const conflicts = await this.getConflictedFiles(repo);
@@ -681,7 +700,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to abort: ${errorMessage}` };
+      return { success: false, error: `Failed to abort: ${sanitizeGitError(errorMessage)}` };
     }
   }
 
@@ -703,7 +722,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       if (result.exitCode !== 0) {
         return {
           success: false,
-          error: `Failed to abort merge: ${result.stderr || result.stdout}`,
+          error: `Failed to abort merge: ${sanitizeGitError(result.stderr || result.stdout)}`,
         };
       }
 
@@ -714,7 +733,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to abort merge: ${errorMessage}` };
+      return { success: false, error: `Failed to abort merge: ${sanitizeGitError(errorMessage)}` };
     }
   }
 
@@ -736,7 +755,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       if (result.exitCode !== 0) {
         return {
           success: false,
-          error: `Failed to abort rebase: ${result.stderr || result.stdout}`,
+          error: `Failed to abort rebase: ${sanitizeGitError(result.stderr || result.stdout)}`,
         };
       }
 
@@ -747,7 +766,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, error: `Failed to abort rebase: ${errorMessage}` };
+      return { success: false, error: `Failed to abort rebase: ${sanitizeGitError(errorMessage)}` };
     }
   }
 
