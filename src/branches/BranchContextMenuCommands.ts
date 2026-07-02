@@ -754,6 +754,54 @@ export class BranchContextMenuCommands {
     return null;
   }
 
+  /**
+   * Restore ("pop") the auto-stash created by a Stash & Switch / Stash and
+   * reset flow after the checkout landed — git4idea's Smart Checkout is
+   * stash → checkout → UNSTASH; stopping after the checkout silently parks
+   * the user's changes in the stash.
+   *
+   * A pop that conflicts with the switched-to branch routes into the
+   * Resolve Conflicts flow as an `unstash` (same handoff StashView uses, so
+   * ours/theirs reversal is correct); any other failure keeps the changes
+   * safely in the stash and says so.
+   *
+   * @returns `'restored'` on a clean pop, `'conflict-routed'` when the
+   *   Resolve Conflicts dialog took over, `'failed'` when the changes stay
+   *   parked in the stash (already surfaced to the user).
+   */
+  private async _restoreStashAfterSwitch(
+    repo: IRepository
+  ): Promise<'restored' | 'conflict-routed' | 'failed'> {
+    try {
+      await this._gitService.stashPop(repo, 0).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+      return 'restored';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (this._conflictResolutionService && /conflict|needs merge/i.test(message)) {
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(repo);
+        if (conflicts.length > 0) {
+          await this._conflictResolutionService.openResolveConflictsDialog(repo, conflicts, {
+            operation: 'unstash',
+            target: 'stash@{0}',
+            canAbort: true,
+            canContinue: true,
+          });
+          return 'conflict-routed';
+        }
+      }
+      void vscode.window.showWarningMessage(
+        `Switched, but restoring your stashed changes failed: ${sanitizeGitError(message)}. ` +
+          `They remain in the stash list.`
+      );
+      return 'failed';
+    }
+  }
+
   // ============================================
   // Local Branch Command Handlers
   // ============================================
@@ -789,10 +837,14 @@ export class BranchContextMenuCommands {
       item.branch
         ? `Auto-stash before checkout ${item.branch.name}`
         : `Auto-stash before checkout ${ref.substring(0, 7)}`;
-    const stashSuccessToast = (): string =>
-      item.branch
-        ? `Stashed changes and switched to '${item.branch.name}'`
-        : `Stashed changes and re-checked out detached HEAD at ${ref.substring(0, 7)}`;
+    const stashSuccessToast = (restored: boolean): string => {
+      const target = item.branch
+        ? `switched to '${item.branch.name}'`
+        : `re-checked out detached HEAD at ${ref.substring(0, 7)}`;
+      return restored
+        ? `Stashed changes, ${target}, and restored them`
+        : `Stashed changes and ${target}`;
+    };
     const forceSuccessToast = (): string =>
       item.branch
         ? `Force switched to '${item.branch.name}'`
@@ -831,9 +883,13 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
-          // Stash + checkout pair moved HEAD; reload before refresh.
+          // Smart-checkout parity: restore the stash onto the new branch.
+          const restore = await this._restoreStashAfterSwitch(repo);
+          // Stash + checkout (+ pop) moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
-          void vscode.window.showInformationMessage(stashSuccessToast());
+          if (restore !== 'conflict-routed') {
+            void vscode.window.showInformationMessage(stashSuccessToast(restore === 'restored'));
+          }
           this._branchTreeProvider.refresh();
         } catch (stashError) {
           const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
@@ -1791,6 +1847,16 @@ export class BranchContextMenuCommands {
             }
           );
           await checkout();
+          // Smart-checkout parity: restore the stash before the rebase (the
+          // rebase itself runs with --autostash, so restored dirtiness is
+          // handled). A conflicted restore hands off to the Resolve
+          // Conflicts flow and must NOT start a rebase over an unmerged tree.
+          const restoreOutcome = await this._restoreStashAfterSwitch(repo);
+          if (restoreOutcome === 'conflict-routed') {
+            await this._gitService.reloadRepository(repo);
+            this._branchTreeProvider.refresh();
+            return;
+          }
           const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
           if (result.success) {
             void vscode.window.showInformationMessage(
@@ -2037,6 +2103,7 @@ export class BranchContextMenuCommands {
       const local = branches.find((b) => b.type === 'local' && b.name === branchName);
       const ahead = local?.ahead ?? 0;
 
+      let stashedBeforeReset = false;
       if (local && ahead > 0) {
         const choice = await vscode.window.showWarningMessage(
           `Local branch '${branchName}' has ${ahead} commit${ahead === 1 ? '' : 's'} ` +
@@ -2053,6 +2120,7 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
+          stashedBeforeReset = true;
         } else if (choice !== 'Reset anyway') {
           // Cancel (or dialog dismissed): do not touch the local branch.
           return;
@@ -2067,9 +2135,16 @@ export class BranchContextMenuCommands {
         }
       );
 
+      // Smart-checkout parity: a "Stash and reset" restores the stash too.
+      const resetRestore = stashedBeforeReset
+        ? await this._restoreStashAfterSwitch(repo)
+        : 'restored';
+
       // checkout-as-local moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Switched to branch '${branchName}'`);
+      if (resetRestore !== 'conflict-routed') {
+        void vscode.window.showInformationMessage(`Switched to branch '${branchName}'`);
+      }
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2093,11 +2168,17 @@ export class BranchContextMenuCommands {
               throw e;
             }
           );
-          // Stash + checkout moved HEAD; reload before refresh.
+          // Smart-checkout parity: restore the stash onto the new branch.
+          const restore = await this._restoreStashAfterSwitch(repo);
+          // Stash + checkout (+ pop) moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
-          void vscode.window.showInformationMessage(
-            `Stashed changes and switched to '${branchName}'`
-          );
+          if (restore !== 'conflict-routed') {
+            void vscode.window.showInformationMessage(
+              restore === 'restored'
+                ? `Stashed changes, switched to '${branchName}', and restored them`
+                : `Stashed changes and switched to '${branchName}'`
+            );
+          }
           this._branchTreeProvider.refresh();
         } catch (stashError) {
           const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';

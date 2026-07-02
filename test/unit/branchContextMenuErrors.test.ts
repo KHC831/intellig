@@ -17,6 +17,7 @@ import { SpawnFailedError, CommandFailedError, GitError } from '../../src/git-co
 import * as assert from 'assert';
 import { okAsync, errAsync, ResultAsync } from 'neverthrow';
 import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
+import { IConflictResolutionService } from '../../src/conflicts/interfaces/IConflictResolutionService';
 import { BranchTreeItem, BranchTreeProvider } from '../../src/branches/BranchTreeProvider';
 import {
   IGitService,
@@ -444,6 +445,98 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(
         warningTracker.calls.length > 0,
         'showWarningMessage should have been called for "Please commit" error'
+      );
+    });
+
+    it('restores the stash after a successful Stash & Switch (smart-checkout parity)', async () => {
+      // git4idea's Smart Checkout is stash -> checkout -> UNSTASH; stopping
+      // after the checkout silently parks the user's changes in the stash.
+      const calls: string[] = [];
+      installWarningMessageTracker('Stash & Switch');
+      installInfoMessageTracker();
+
+      let checkoutCallCount = 0;
+      const gitService = createMockGitService({
+        checkout: () => {
+          checkoutCallCount++;
+          return checkoutCallCount === 1
+            ? errAsync(
+                new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+              )
+            : okAsync(undefined);
+        },
+        stash: () => {
+          calls.push('stash');
+          return okAsync(undefined);
+        },
+        stashPop: () => {
+          calls.push('pop');
+          return okAsync(undefined);
+        },
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService)
+      );
+
+      await invokePrivateHandler(
+        commands,
+        '_handleCheckout',
+        createLocalBranchTreeItem('feature/x')
+      );
+
+      assert.deepStrictEqual(
+        calls,
+        ['stash', 'pop'],
+        'the stash must be POPPED after the switch, not left parked'
+      );
+    });
+
+    it('routes a stash-restore conflict into the Resolve Conflicts flow (operation: unstash)', async () => {
+      installWarningMessageTracker('Stash & Switch');
+      installInfoMessageTracker();
+
+      let checkoutCallCount = 0;
+      const gitService = createMockGitService({
+        checkout: () => {
+          checkoutCallCount++;
+          return checkoutCallCount === 1
+            ? errAsync(
+                new CommandFailedError(1, '', 'Your local changes would be overwritten by checkout')
+              )
+            : okAsync(undefined);
+        },
+        stash: () => okAsync(undefined),
+        stashPop: () =>
+          errAsync(new CommandFailedError(1, 'CONFLICT (content): merge conflict in a.ts')),
+      });
+      const dialogOpens: Array<{ operation: string }> = [];
+      const conflictService = {
+        getConflictedFiles: async () => [{ path: 'a.ts', resolved: false }],
+        openResolveConflictsDialog: async (
+          _repo: unknown,
+          _conflicts: unknown,
+          opContext: { operation: string }
+        ) => {
+          dialogOpens.push({ operation: opContext.operation });
+        },
+      } as unknown as IConflictResolutionService;
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService),
+        conflictService
+      );
+
+      await invokePrivateHandler(
+        commands,
+        '_handleCheckout',
+        createLocalBranchTreeItem('feature/x')
+      );
+
+      assert.deepStrictEqual(
+        dialogOpens,
+        [{ operation: 'unstash' }],
+        'a conflicting pop must open the Resolve Conflicts dialog as an unstash'
       );
     });
 

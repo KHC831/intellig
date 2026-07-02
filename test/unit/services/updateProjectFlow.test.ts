@@ -63,6 +63,13 @@ describe('buildUpdatePullOptions', () => {
     assert.strictEqual(o.rebase, undefined);
     assert.strictEqual(o.prune, true);
   });
+  it('always autostashes so a dirty working tree does not fail the update', () => {
+    // git4idea GitUpdateProcess saves local changes before updating; without
+    // --autostash a plain pull dead-ends on "local changes would be
+    // overwritten" and every dirty repo becomes an error row.
+    assert.strictEqual(buildUpdatePullOptions(true).autostash, true);
+    assert.strictEqual(buildUpdatePullOptions(false).autostash, true);
+  });
 });
 
 describe('repoDisplayName', () => {

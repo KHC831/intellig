@@ -2941,6 +2941,112 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
+  // ─── dropSelectedChangesFromCommit — dirty-tree save bracket (K1) ───────
+
+  describe('dropSelectedChangesFromCommit — saves local changes around the rewrite', () => {
+    const dscHash = 'c'.repeat(40);
+
+    function makeHarness(statusOut: string): {
+      calls: string[][];
+      commands: CommitContextMenuCommands;
+      messages: ReturnType<typeof createMessageTrackers>;
+    } {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(dscHash);
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: dscHash,
+          shortHash: dscHash.substring(0, 8),
+          message: 'test',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+        getCommitDiff: async () => [
+          { path: 'dropped.ts', status: 'modified' as const, hunks: [], binary: false },
+          { path: 'kept.ts', status: 'modified' as const, hunks: [], binary: false },
+        ],
+      });
+      const calls: string[][] = [];
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          calls.push([...cmdArgs]);
+          if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'HEAD') {
+            return { exitCode: 0, stdout: dscHash, stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'branch' && cmdArgs.includes('--remotes')) {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'status') {
+            return { exitCode: 0, stdout: statusOut, stderr: '', combined: statusOut };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        gitCli,
+        undefined,
+        async () => repo
+      );
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
+        Promise.resolve([
+          (items as { label: string; path: string }[]).find((i) => i.path === 'dropped.ts'),
+        ]);
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Drop');
+      return { calls, commands, messages };
+    }
+
+    it('stashes a dirty tree BEFORE the soft reset and pops it after the rewrite', async () => {
+      // Without the bracket, `reset --soft HEAD^` merges the user's STAGED
+      // work into the index and `commit -C <hash>` silently absorbs it into
+      // the rewritten commit; `checkout HEAD -- <dropped>` also clobbers any
+      // uncommitted edits to a dropped file. The sibling drop/squash flows
+      // already pre-stash — this entry point must too.
+      const { calls, commands } = makeHarness('M  unrelated-staged.ts\0');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      const verbs = calls.map((c) => `${c[0]}${c[1] ? ' ' + c[1] : ''}`);
+      const stashPush = verbs.indexOf('stash push');
+      const softReset = verbs.findIndex((v) => v === 'reset --soft');
+      const stashPop = verbs.indexOf('stash pop');
+      assert.ok(stashPush !== -1, `must stash the dirty tree (verbs: ${verbs.join(', ')})`);
+      assert.ok(softReset !== -1, 'the rewrite must still run');
+      assert.ok(stashPush < softReset, 'stash must happen BEFORE the soft reset');
+      assert.ok(stashPop > softReset, 'the stash must be popped after the rewrite');
+    });
+
+    it('refuses outright when unmerged files are present', async () => {
+      const { calls, commands, messages } = makeHarness('UU conflicted.ts\0');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      const verbs = calls.map((c) => `${c[0]}${c[1] ? ' ' + c[1] : ''}`);
+      assert.ok(!verbs.includes('reset --soft'), 'the rewrite must not run over a conflict');
+      assert.strictEqual(messages.error.length, 1, 'expected a refusal toast');
+      assert.ok(/unmerged|conflict/i.test(messages.error[0].message));
+    });
+
+    it('does not stash when the tree is clean', async () => {
+      const { calls, commands } = makeHarness('');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      const verbs = calls.map((c) => c[0]);
+      assert.ok(!verbs.includes('stash'), 'clean tree needs no stash');
+      assert.ok(verbs.includes('reset'), 'the rewrite must run');
+    });
+  });
+
   // ─── dropSelectedChangesFromCommit — rollback error toast (R3-5) ────────
 
   describe('dropSelectedChangesFromCommit — honest rollback error toast', () => {

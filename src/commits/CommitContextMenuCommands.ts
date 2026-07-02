@@ -28,6 +28,7 @@ import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
 import { CommitMessageDialog } from './CommitMessageDialog';
 import { buildSquashRebasePlan } from './squashPlan';
+import { saveLocalChanges, restoreLocalChanges } from '../git-core/ops/preservedChanges';
 
 /**
  * Defence-in-depth hash format check.
@@ -642,6 +643,36 @@ export class CommitContextMenuCommands {
     // version via `git checkout HEAD -- <path>`.
     const otherDropped = droppedPaths.filter((p) => statusByPath.get(p) !== 'added');
 
+    // 4b. Save local changes around the rewrite (shared bracket — same
+    //     discipline as the drop/squash rebase flows). Without it,
+    //     `reset --soft HEAD^` merges the user's STAGED work into the index
+    //     and `commit -C` silently absorbs it into the rewritten commit, and
+    //     `checkout HEAD -- <dropped>` clobbers uncommitted edits to a
+    //     dropped file.
+    const saved = await saveLocalChanges(
+      this._gitCli,
+      cwd,
+      'Auto-stash before drop selected changes'
+    );
+    if (saved.status === 'blocked-unmerged') {
+      void vscode.window.showErrorMessage(
+        'Cannot drop selected changes while you have unmerged files. Resolve the conflicts first.'
+      );
+      return;
+    }
+    const restoreSavedChanges = async (): Promise<void> => {
+      if (saved.status !== 'saved') {
+        return;
+      }
+      const restore = await restoreLocalChanges(this._gitCli, cwd);
+      if (restore.status === 'failed') {
+        void vscode.window.showWarningMessage(
+          `Drop finished, but restoring your stashed local changes failed: ${restore.detail}. ` +
+            `They remain in the stash list.`
+        );
+      }
+    };
+
     // 5. Rewrite HEAD.
     //    Strategy (safer than interactive rebase for HEAD-only):
     //      a. git reset --soft HEAD^   (uncommit, keep index + working tree intact)
@@ -702,6 +733,7 @@ export class CommitContextMenuCommands {
         // partial side-effects from rm --cached / checkout. Tell the user to
         // inspect git status rather than silently leaving them confused.
         await this._gitCli.exec(['reset', '--soft', hash], { cwd });
+        await restoreSavedChanges();
         const msg = innerError instanceof Error ? innerError.message : 'Unknown error';
         void vscode.window.showErrorMessage(
           `Failed to drop changes: ${sanitizeGitError(msg)}. Original commit restored; check \`git status\` for any partially-applied changes.`
@@ -722,11 +754,16 @@ export class CommitContextMenuCommands {
         return;
       }
 
+      await restoreSavedChanges();
+
       // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` (history rewrite moved HEAD).
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
+      // The initial soft-reset itself failed — HEAD is untouched; still put
+      // the user's saved changes back.
+      await restoreSavedChanges();
       const msg = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to drop changes: ${sanitizeGitError(msg)}`);
     }
@@ -897,43 +934,24 @@ export class CommitContextMenuCommands {
    * Refuses to stash if there are unmerged files (returns false and shows error).
    */
   private async _stashIfDirty(cwd: string): Promise<{ stashed: boolean; blocked: boolean }> {
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], { cwd });
-    const hasChanges = statusResult.stdout.trim().length > 0;
-    if (!hasChanges) {
-      return { stashed: false, blocked: false };
-    }
-    const statusLines = statusResult.stdout.trim().split('\n');
-    const hasUnmerged = statusLines.some(
-      (l) =>
-        l.startsWith('U') ||
-        l.startsWith('AA') ||
-        l.startsWith('DD') ||
-        (l.length > 1 && l.charAt(1) === 'U')
-    );
-    if (hasUnmerged) {
-      return { stashed: false, blocked: true };
-    }
-    await this._gitCli.exec(
-      ['stash', 'push', '--include-untracked', '-m', 'Auto-stash before git operation'],
-      { cwd, throwOnError: true }
-    );
-    return { stashed: true, blocked: false };
+    // Thin adapter over the shared save-local-changes bracket
+    // (git-core/ops/preservedChanges) so every dirty-tree-sensitive flow
+    // shares ONE save/restore implementation.
+    const saved = await saveLocalChanges(this._gitCli, cwd, 'Auto-stash before git operation');
+    return { stashed: saved.status === 'saved', blocked: saved.status === 'blocked-unmerged' };
   }
 
   /**
    * Pop the stash if one was created.
    */
   private async _unstash(cwd: string): Promise<void> {
-    try {
-      await this._gitCli.exec(['stash', 'pop'], { cwd });
-    } catch (error) {
+    const restore = await restoreLocalChanges(this._gitCli, cwd);
+    if (restore.status === 'failed') {
       // Leave in stash if pop fails (the success-path variant surfaces a
       // toast; this cleanup path stays quiet). Log so it isn't silent.
       getLogger()
         .child({ component: 'CommitContextMenuCommands' })
-        .debug('_unstash: stash pop failed', {
-          err: error instanceof Error ? error.message : String(error),
-        });
+        .debug('_unstash: stash pop failed', { err: restore.detail });
     }
   }
 
@@ -954,18 +972,10 @@ export class CommitContextMenuCommands {
    * this helper there too.
    */
   private async _unstashWithErrorReport(cwd: string, opName: string): Promise<void> {
-    try {
-      const popResult = await this._gitCli.exec(['stash', 'pop'], { cwd });
-      if (popResult.exitCode !== 0) {
-        const stderr = (popResult.stderr || popResult.stdout || '').trim();
-        void vscode.window.showWarningMessage(
-          `${opName} succeeded but failed to restore stash: ${sanitizeGitError(stderr || 'unknown stash pop failure')}`
-        );
-      }
-    } catch (unstashErr) {
-      const msg = unstashErr instanceof Error ? unstashErr.message : 'Unknown error';
+    const restore = await restoreLocalChanges(this._gitCli, cwd);
+    if (restore.status === 'failed') {
       void vscode.window.showWarningMessage(
-        `${opName} succeeded but failed to restore stash: ${sanitizeGitError(msg)}`
+        `${opName} succeeded but failed to restore stash: ${restore.detail}`
       );
     }
   }

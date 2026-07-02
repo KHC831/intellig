@@ -92,6 +92,12 @@ export function buildUpdatePullOptions(rebase: boolean): IPullOptions {
     // `git pull` fast-forwards when possible, which is IntelliJ's MERGE
     // behaviour.
     prune: true,
+    // Save local changes around the update — git4idea's GitUpdateProcess
+    // stashes/shelves before updating and restores after. Without it a dirty
+    // working tree dead-ends the pull on "local changes would be overwritten"
+    // and every such repo becomes an error row. `_pull` already detects an
+    // autostash-pop conflict and routes it into the Resolve Conflicts flow.
+    autostash: true,
   };
 }
 
