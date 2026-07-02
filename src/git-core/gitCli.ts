@@ -151,7 +151,7 @@ export interface IGitCommandOptions {
  *
  * Downstream consumers MUST run `sanitizeGitError(error.message)`
  * (or the higher-level `formatActionFailureToast(prefix, error)`
- * helper, both in `src/utils/gitError.ts`) before surfacing the
+ * helper, both in `src/git-core/gitError.ts`) before surfacing the
  * message in any user-visible channel — toasts, OutputChannel,
  * structured error responses, etc. The structural guard
  * (`scripts/check-action-toasts-sanitized.sh`) enforces this for

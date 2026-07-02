@@ -29,6 +29,15 @@ export abstract class BaseWebviewPanel {
   protected readonly _disposables: vscode.Disposable[] = [];
   protected readonly _title: string;
   protected _disposed = false;
+  private readonly _onDidDisposeEmitter = new vscode.EventEmitter<void>();
+
+  /**
+   * Fires exactly once when the panel is disposed — whether the user closed
+   * the tab or `dispose()` was called programmatically. Lets an owner that
+   * keys panels by resource (e.g. one merge window per file) drop its
+   * registry entry.
+   */
+  readonly onDidDispose: vscode.Event<void> = this._onDidDisposeEmitter.event;
 
   constructor(
     protected readonly _context: vscode.ExtensionContext,
@@ -129,6 +138,9 @@ export abstract class BaseWebviewPanel {
         }
       }
     }
+
+    this._onDidDisposeEmitter.fire();
+    this._onDidDisposeEmitter.dispose();
   }
 
   /**

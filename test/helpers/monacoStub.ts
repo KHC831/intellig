@@ -214,16 +214,22 @@ export interface IMonacoStub {
   stub: Record<string, unknown>;
   /** Editors in creation order: [left, result, right]. */
   editors: StubEditor[];
+  /** Themes passed to `monaco.editor.setTheme`, in call order. */
+  themeCalls: string[];
 }
 
 export function createMonacoStub(): IMonacoStub {
   const editors: StubEditor[] = [];
+  const themeCalls: string[] = [];
   const stub = {
     editor: {
       create(_el: unknown, options: Record<string, unknown>): StubEditor {
         const editor = new StubEditor(new StubTextModel(String(options.value ?? '')), options);
         editors.push(editor);
         return editor;
+      },
+      setTheme(theme: string): void {
+        themeCalls.push(theme);
       },
       EndOfLineSequence: { LF: 0 },
       EndOfLinePreference: { LF: 1 },
@@ -240,5 +246,5 @@ export function createMonacoStub(): IMonacoStub {
     KeyMod: { CtrlCmd: 2048, Shift: 1024 },
     KeyCode: { KeyZ: 56, KeyY: 55 },
   };
-  return { stub, editors };
+  return { stub, editors, themeCalls };
 }

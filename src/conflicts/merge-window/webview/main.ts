@@ -189,6 +189,7 @@ class MergeWindow {
     this.wireScrollSync();
     this.wireToolbar();
     this.wireMagicGlyph();
+    this.wireThemeSync();
     window.addEventListener('resize', () => this.layoutGutters());
 
     this.model.addListener(() => this.scheduleRender());
@@ -377,6 +378,29 @@ class MergeWindow {
     on('btn-abort', () => {
       post({ type: 'abort', modified: this.model.contentModified });
     });
+  }
+
+  /**
+   * Follow VS Code theme switches while the window is open. Monaco's theme
+   * and the cached connector colors are both derived at construction; VS Code
+   * signals a switch by swapping the body's `vscode-light`/`vscode-dark`
+   * class, so observe it and re-derive both.
+   */
+  private wireThemeSync(): void {
+    let applied = document.body.classList.contains('vscode-light') ? 'vs' : 'vs-dark';
+    const observer = new MutationObserver(() => {
+      const theme = document.body.classList.contains('vscode-light') ? 'vs' : 'vs-dark';
+      if (theme === applied) {
+        return;
+      }
+      applied = theme;
+      monaco.editor.setTheme(theme);
+      // Connector fills read theme CSS variables; drop the cache so the next
+      // layout samples the new theme's values.
+      this.connectorColorCache.clear();
+      this.layoutGutters();
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
   /** Clicking the wand in the result gutter magic-resolves that conflict. */

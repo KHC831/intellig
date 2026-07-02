@@ -32,6 +32,8 @@ interface IMergeWindowFixture {
   /** Keyboard undo/redo (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z) via the result editor. */
   undo(): Promise<void>;
   redo(): Promise<void>;
+  /** Themes passed to `monaco.editor.setTheme`, in call order. */
+  themeCalls: string[];
   dispose(): void;
 }
 
@@ -40,11 +42,12 @@ const MAIN_MODULE = '../../../src/conflicts/merge-window/webview/main';
 function bootMergeWindow(left: string, base: string, right: string): IMergeWindowFixture {
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
   const posted: unknown[] = [];
-  const { stub, editors } = createMonacoStub();
+  const { stub, editors, themeCalls } = createMonacoStub();
 
   const g = global as Record<string, unknown>;
   g.window = dom.window;
   g.document = dom.window.document;
+  g.MutationObserver = dom.window.MutationObserver;
   g.monaco = stub;
   g.acquireVsCodeApi = (): { postMessage(m: unknown): void } => ({
     postMessage: (m: unknown): void => {
@@ -122,9 +125,11 @@ function bootMergeWindow(left: string, base: string, right: string): IMergeWindo
     },
     resultText: (): string => editors[1].getModel().getValue(),
     counterText: (): string => doc.getElementById('counter')?.textContent ?? '',
+    themeCalls,
     dispose: (): void => {
       delete g.window;
       delete g.document;
+      delete g.MutationObserver;
       delete g.monaco;
       delete g.acquireVsCodeApi;
       dom.window.close();
@@ -387,5 +392,20 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     f.editors[1].setScrollTop(36);
     assert.strictEqual(f.editors[0].getScrollTop(), 36);
     assert.strictEqual(f.editors[2].getScrollTop(), 36);
+  });
+
+  it('follows a VS Code theme switch while open', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+    assert.deepStrictEqual(f.themeCalls, [], 'no theme change yet');
+
+    f.document.body.classList.add('vscode-light');
+    await f.flush();
+    assert.deepStrictEqual(f.themeCalls, ['vs'], 'light theme must reach Monaco');
+
+    f.document.body.classList.remove('vscode-light');
+    f.document.body.classList.add('vscode-dark');
+    await f.flush();
+    assert.deepStrictEqual(f.themeCalls, ['vs', 'vs-dark'], 'dark theme must reach Monaco');
   });
 });

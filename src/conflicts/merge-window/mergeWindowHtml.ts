@@ -6,9 +6,10 @@
 // Layout, per IntelliJ's merge dialog: action toolbar top-left with the
 // unresolved counter on its right; three panes separated by two dividers
 // that carry ONLY the curved canvas connectors linking each side block to
-// its result block. The per-change action icons (apply/ignore/revert/wand)
-// live in each editor's own glyph margin, like IntelliJ's editor-gutter
-// operations; big Apply/Abort buttons bottom-right.
+// its result block. The per-change apply/ignore/revert icons live in
+// divider-hugging action strips (Monaco cannot mirror a gutter the way
+// IntelliJ does); the result editor's glyph margin carries only the
+// magic-resolve wand; big Apply/Abort buttons bottom-right.
 
 function el<K extends keyof HTMLElementTagNameMap>(
   doc: Document,

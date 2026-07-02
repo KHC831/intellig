@@ -49,6 +49,16 @@ export class MergeView implements IMergeView {
    */
   private readonly _shownFiles = new Map<string, IShownConflictFile>();
 
+  /**
+   * Open merge windows keyed by the file's canonical absolute path. One
+   * window per file: a second `show()` reveals the existing window instead
+   * of stacking a duplicate whose stale stage data would, on Apply, silently
+   * overwrite a resolution completed in the first. (The native-editor path
+   * gets this dedup from VS Code itself.) Entries are dropped on panel
+   * dispose.
+   */
+  private readonly _openMergeWindows = new Map<string, MergeWindowPanel>();
+
   private _onDidResolve: vscode.EventEmitter<string>;
   readonly onDidResolve: vscode.Event<string>;
 
@@ -206,6 +216,12 @@ export class MergeView implements IMergeView {
     if (!deps) {
       return;
     }
+    const windowKey = canonicalizeFsPath(absolutePath);
+    const existing = this._openMergeWindows.get(windowKey);
+    if (existing) {
+      existing.reveal(vscode.ViewColumn.Active);
+      return;
+    }
     let names: IConflictSideNames = {};
     try {
       names = await deps.getSideNames(repository);
@@ -214,7 +230,7 @@ export class MergeView implements IMergeView {
         err: err instanceof Error ? err.message : String(err),
       });
     }
-    new MergeWindowPanel(deps.context, {
+    const panel = new MergeWindowPanel(deps.context, {
       repository,
       relPath,
       absolutePath,
@@ -223,9 +239,15 @@ export class MergeView implements IMergeView {
       gitCli,
       gitService: this._gitService,
       onApplied: (applied): void => {
-        this._shownFiles.delete(canonicalizeFsPath(absolutePath));
+        this._shownFiles.delete(windowKey);
         this._onDidResolve.fire(applied);
       },
+    });
+    this._openMergeWindows.set(windowKey, panel);
+    panel.onDidDispose(() => {
+      if (this._openMergeWindows.get(windowKey) === panel) {
+        this._openMergeWindows.delete(windowKey);
+      }
     });
   }
 
@@ -424,6 +446,10 @@ export class MergeView implements IMergeView {
   dispose(): void {
     this._onDidResolve.dispose();
     this._shownFiles.clear();
+    for (const panel of this._openMergeWindows.values()) {
+      panel.dispose();
+    }
+    this._openMergeWindows.clear();
   }
 }
 

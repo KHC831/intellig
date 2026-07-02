@@ -6,6 +6,7 @@ import { IGitService, IRepository } from '../../git-core/interfaces/IGitService'
 import { GitCli } from '../../git-core/gitCli';
 import { sanitizeGitError } from '../../git-core/gitError';
 import { atomicWriteFileSync } from '../../utils/atomicWrite';
+import { escapeHtml } from '../../utils/escapeHtml';
 import { getLogger } from '../../utils/logger';
 import { loadMergeStageContents } from './mergeStages';
 import { mergeWindowStyles } from './mergeWindowHtml';
@@ -62,7 +63,16 @@ export class MergeWindowPanel extends BaseWebviewPanel {
         await this._sendInit();
         return;
       case 'apply':
-        await this._apply(typeof msg.resultText === 'string' ? msg.resultText : '');
+        // Fail closed: a malformed message must not become an empty-file
+        // write + stage. Only our own bundle posts 'apply', so a missing
+        // resultText is a protocol bug to surface, not a state to default.
+        if (typeof msg.resultText !== 'string') {
+          getLogger()
+            .child({ component: 'MergeWindowPanel' })
+            .error("merge window posted 'apply' without resultText; ignoring");
+          return;
+        }
+        await this._apply(msg.resultText);
         return;
       case 'abort':
         await this._abort(msg.modified === true);
@@ -196,7 +206,7 @@ export class MergeWindowPanel extends BaseWebviewPanel {
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <title>${this._title}</title>
+  <title>${escapeHtml(this._title)}</title>
   ${styleBlock}
 </head>
 <body>
