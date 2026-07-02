@@ -3,7 +3,7 @@
  */
 
 import * as assert from 'assert';
-import { RepoCommandQueue } from '../../../src/conflicts/repoCommandQueue';
+import { RepoCommandQueue } from '../../../src/git-core/repoCommandQueue';
 
 const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
 

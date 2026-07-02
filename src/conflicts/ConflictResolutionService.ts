@@ -13,7 +13,7 @@ import { resolveConflictSideNames, IConflictSideNames } from './conflictSideName
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { resolveGitDir } from '../git-core/gitDirMarkers';
-import { RepoCommandQueue } from './repoCommandQueue';
+import { RepoCommandQueue } from '../git-core/repoCommandQueue';
 import { IConflictIndexWriter, ConflictIndexWriter } from './conflictIndexWriter';
 import { ConflictUiCoordinator } from './conflictUiCoordinator';
 import { getLogger, type Logger } from '../utils/logger';
@@ -24,6 +24,15 @@ import { NON_INTERACTIVE_GIT_ENV } from '../git-core/gitEnv';
  */
 interface IGitServiceWithCli extends IGitService {
   gitCli: GitCli;
+}
+
+/**
+ * Narrowing for the shared per-repo index lock the concrete GitService
+ * exposes (ADR-001: post-freeze capabilities live on the class, consumers
+ * narrow like the `gitCli` hatch).
+ */
+interface IGitServiceWithIndexLock extends IGitService {
+  withIndexLock<T>(rootPath: string, fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -68,10 +77,28 @@ export class ConflictResolutionService implements IConflictResolutionService {
   private readonly _logger: Logger;
 
   /**
-   * Serializes index-mutating accept ops per repo so concurrent per-file /
-   * bulk accepts never collide on `.git/index.lock`.
+   * Fallback per-repo serializer, used ONLY when the injected git service
+   * does not expose the shared {@link GitService.withIndexLock} hatch (narrow
+   * test stubs). Production always routes through the SHARED GitService lock
+   * so accepts serialize against every other index-mutating feature (e.g.
+   * the merge editor's synthetic-base injection), not just against other
+   * accepts.
    */
-  private readonly _indexQueue = new RepoCommandQueue();
+  private readonly _fallbackIndexQueue = new RepoCommandQueue();
+
+  /**
+   * Acquire the per-repo index lock: the shared GitService one when exposed,
+   * else the local fallback. NOT re-entrant (see RepoCommandQueue).
+   */
+  private _withIndexLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
+    const shared = (this._gitService as Partial<IGitServiceWithIndexLock>).withIndexLock;
+    if (typeof shared === 'function') {
+      // The Partial<> narrowing erases the method's generic; the underlying
+      // contract is `<T>(root, fn: () => Promise<T>) => Promise<T>`.
+      return shared.call(this._gitService, root, fn) as Promise<T>;
+    }
+    return this._fallbackIndexQueue.withLock(root, fn);
+  }
 
   /** Layer 1 git index plumbing (checkout/rm/read-stages). */
   private readonly _indexWriter: IConflictIndexWriter;
@@ -353,7 +380,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
     flag: '--ours' | '--theirs'
   ): Promise<void> {
     const root = repo.rootUri.fsPath;
-    await this._indexQueue.withLock(root, async () => {
+    await this._withIndexLock(root, async () => {
       const entry = (await this._indexWriter.readStages(root, filePath)).get(filePath);
       const needsStage = await this._indexWriter.takeSide(root, filePath, flag, entry);
       if (needsStage) {
@@ -472,7 +499,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
     const root = repo.rootUri.fsPath;
     // Serialize the whole batch against per-file accepts for this repo so the
     // checkouts/rms/stage never race another accept on `.git/index.lock`.
-    await this._indexQueue.withLock(root, async () => {
+    await this._withIndexLock(root, async () => {
       // One index-only read of every unmerged path + its stages (git4idea's
       // `git ls-files -u` model) — the canonical conflict set, and the single
       // source for the per-file delete-vs-checkout decision.

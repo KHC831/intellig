@@ -110,10 +110,25 @@ export class MergeView implements IMergeView {
     // the conflict-marked working file (IntelliJ's loadMergeData fallback) so
     // the editor can collapse the shared lines and show a real diff. Best-effort:
     // a failure must not block opening the editor.
+    //
+    // The injection READS the stage model and WRITES the index
+    // (`update-index --index-info`), so the whole sequence runs under the
+    // shared per-repo index lock — otherwise it can interleave with a
+    // concurrent bulk accept and re-write unmerged stages for a path the
+    // accept just resolved.
     const gitCli = (this._gitService as Partial<{ gitCli: GitCli }>).gitCli;
     if (gitCli) {
+      const root = repository.rootUri.fsPath;
+      const inject = (): Promise<boolean> => ensureSyntheticMergeBase(gitCli, root, relPath);
+      const withIndexLock = (
+        this._gitService as Partial<{
+          withIndexLock: <T>(rootPath: string, fn: () => Promise<T>) => Promise<T>;
+        }>
+      ).withIndexLock;
       try {
-        await ensureSyntheticMergeBase(gitCli, repository.rootUri.fsPath, relPath);
+        await (typeof withIndexLock === 'function'
+          ? withIndexLock.call(this._gitService, root, inject)
+          : inject());
       } catch (err) {
         getLogger().debug('synthetic merge base injection failed', {
           file: relPath,

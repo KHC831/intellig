@@ -67,6 +67,7 @@ import { readInProgressOperation } from './gitInProgress';
 import { resolveGitDir } from './gitDirMarkers';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
+import { RepoCommandQueue } from './repoCommandQueue';
 
 /**
  * Cache entry for repository information
@@ -418,6 +419,26 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   get gitCli(): GitCli {
     return this._gitCli;
+  }
+
+  /**
+   * The ONE per-repo serializer for index-mutating command sequences. A git
+   * repository's index is a single resource guarded by `.git/index.lock`, and
+   * IntelliG mutates it from several independent features (conflict accepts,
+   * the merge editor's synthetic-base injection, staging flows) — a private
+   * per-feature queue only serializes a feature with itself. Owned here so
+   * every feature acquires the SAME lock (new capability on the concrete
+   * GitService per ADR-001; consumers narrow to it like the `gitCli` hatch).
+   */
+  private readonly _indexQueue = new RepoCommandQueue();
+
+  /**
+   * Run `fn` after every previously-enqueued index mutation for `rootPath`
+   * has settled. NOT re-entrant: an `fn` that calls `withIndexLock` for the
+   * same root deadlocks — compose the whole sequence into one callback.
+   */
+  withIndexLock<T>(rootPath: string, fn: () => Promise<T>): Promise<T> {
+    return this._indexQueue.withLock(rootPath, fn);
   }
 
   // ============================================
