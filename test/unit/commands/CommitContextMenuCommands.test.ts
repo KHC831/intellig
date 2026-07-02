@@ -1747,6 +1747,28 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(execCalls.length, 0, 'no git exec should run for a non-hex hash');
     });
 
+    it('_isCommitPushed queries git for a 64-hex SHA-256 hash (guard must not fail open)', async () => {
+      // A 40-hex cap silently returned "not pushed" for SHA-256 repos,
+      // skipping the already-pushed warning before a history rewrite — the
+      // OPPOSITE failure direction of the conservative exec-failure path.
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const result = await (
+        commands as unknown as {
+          _isCommitPushed(cwd: string, hash: string): Promise<boolean>;
+        }
+      )._isCommitPushed('/test-repo', 'a'.repeat(64));
+
+      const execCalls = gitCli.calls.filter((c) => c.method === 'exec');
+      assert.strictEqual(execCalls.length, 1, 'a 64-hex object id must be probed via git');
+      assert.strictEqual(typeof result, 'boolean');
+    });
+
     it('warns before rewording an already-pushed HEAD commit and aborts the amend when declined', async () => {
       // IntelliJ's GitCommitEditingActionBase.checkCommitsCanBeEdited gates
       // reword on the commit's containing branches regardless of whether it is

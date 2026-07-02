@@ -126,7 +126,6 @@ describe('RemoteOps fetch ref-snapshot reporting', () => {
     const snapshot = snapshotLine('refs/remotes/origin/main', OLD);
     const { result } = await runFetch(snapshot, snapshot);
     assert.deepStrictEqual(result.updatedRefs, []);
-    assert.strictEqual(result.behind, 0);
   });
 
   it('still collects non-informational stderr lines as non-fatal errors', async () => {

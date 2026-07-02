@@ -17,6 +17,7 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
+import { isHexObjectId } from '../git-core/gitDirMarkers';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import {
   isSelectionContiguous,
@@ -780,7 +781,10 @@ export class CommitContextMenuCommands {
     // `hash` is passed positionally to `git branch --contains <hash>`, which has
     // no `--end-of-options`. It is always a git SHA in practice; reject anything
     // that is not a valid hex object name before exec as a defensive guard.
-    if (!/^[0-9a-fA-F]{4,40}$/.test(hash)) {
+    // `isHexObjectId` accepts 64-hex too — a 40-cap regex silently skipped the
+    // already-pushed warning in SHA-256 repos (this guard fails OPEN, unlike
+    // the conservative exec-failure path below).
+    if (!isHexObjectId(hash, { allowPrefix: true })) {
       return false;
     }
     try {

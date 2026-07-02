@@ -354,6 +354,7 @@ export class ShelfView implements IShelfView {
       // tells the user their view may be stale.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Shelf list refresh failed: ${refreshResult.error}`);
       }
 
@@ -498,6 +499,7 @@ export class ShelfView implements IShelfView {
       // its own toast above, so a failed refresh is a secondary signal.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Shelf list refresh failed: ${refreshResult.error}`);
       }
 
@@ -799,6 +801,7 @@ export class ShelfView implements IShelfView {
       // already produced a success toast above.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Shelf list refresh failed: ${refreshResult.error}`);
       }
 
@@ -1272,6 +1275,7 @@ export class ShelfView implements IShelfView {
     // already reported above.
     const refreshResult = await this.refresh();
     if (refreshResult.error) {
+      // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
       void vscode.window.showWarningMessage(`Shelf list refresh failed: ${refreshResult.error}`);
     }
     return results;
@@ -1336,6 +1340,7 @@ export class ShelfView implements IShelfView {
     // apply here).
     const refreshResult = await this.refresh();
     if (refreshResult.error) {
+      // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
       void vscode.window.showErrorMessage(`Failed to load shelf items: ${refreshResult.error}`);
       return;
     }

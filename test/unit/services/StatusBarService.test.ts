@@ -914,7 +914,7 @@ describe('StatusBarService — incoming/outgoing badge', () => {
         const repo = makeRepo({ ahead: 1, behind: 2 });
         h.gitService._fireFetch({
           repo,
-          result: { updatedRefs: [], ahead: 1, behind: 2, errors: [] },
+          result: { updatedRefs: [], errors: [] },
         });
         assert.ok(h.item.text.includes('↑1'), `after fetch: "${h.item.text}"`);
         assert.ok(h.item.text.includes('↓2'));
@@ -950,7 +950,7 @@ describe('StatusBarService — incoming/outgoing badge', () => {
         for (let i = 1; i <= 5; i++) {
           h.gitService._fireFetch({
             repo: makeRepo({ ahead: i, behind: 0 }),
-            result: { updatedRefs: [], ahead: i, behind: 0, errors: [] },
+            result: { updatedRefs: [], errors: [] },
           });
         }
 

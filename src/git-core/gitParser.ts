@@ -201,14 +201,16 @@ export function statusCodeToFileStatus(
 
 /**
  * Parse Git log output into commit objects.
- * Expects format: %H<sep>%h<sep>%an<sep>%ae<sep>%aI<sep>%cn<sep>%ce<sep>%cI<sep>%P<sep>%s%n%b
+ * Expects format ({@link getLogFormat}):
+ * %H<sep>%h<sep>%an<sep>%ae<sep>%aI<sep>%cn<sep>%ce<sep>%cI<sep>%P<sep>%s<sep>%G?%n%b
  *
  * Separator switched from `|` to `\x1f` (ASCII Unit Separator,
  * RFC 1345). The previous pipe separator collided with author/committer
  * names containing `|` (legitimate in Unicode-name policies, common in
  * imported histories) and silently corrupted every downstream field.
  * `\x1f` is in the C0 control range and never appears in a normalised
- * git ident or commit subject.
+ * git ident; a commit SUBJECT is free text and can carry it, which is why
+ * the subject is read as the rejoined tail rather than one positional field.
  *
  * @param output - The output from `git log` with the specified format
  * @param separator - The field separator (default: `\x1f`)
@@ -241,13 +243,17 @@ export function parseLog(output: string, separator: string = '\x1f'): ICommit[] 
       committerEmail,
       commitDateStr,
       parentsStr,
-      subject,
-      // Field 10: %G? — GPG/SSH signature status character. Present only when
-      // the format string includes it (getLogFormat() now does). Absent in
-      // old cached output; guard with `?? undefined` so old callers that pass
-      // a 10-field format string still parse cleanly.
-      gpgStatusRaw,
     ] = parts;
+
+    // Fields 9..end: `%s` then `%G?` (getLogFormat). The subject is the ONE
+    // free-text field on the line and can itself contain the separator, so a
+    // positional read truncated it and mis-read a subject fragment as the
+    // signature status. The tail between the fixed fields and the last field
+    // is the subject — rejoin it. A 10-part line (a caller passing a format
+    // without `%G?`) has no status field: the whole tail is the subject.
+    const subject =
+      parts.length >= 11 ? parts.slice(9, parts.length - 1).join(separator) : parts[9];
+    const gpgStatusRaw = parts.length >= 11 ? parts[parts.length - 1] : undefined;
 
     const body = lines.slice(1).join('\n').trim() || undefined;
     const parents = parentsStr ? parentsStr.split(' ').filter((p) => p.length > 0) : [];

@@ -162,6 +162,15 @@ export async function performCommit(
     };
   }
 
+  // Deltas actually applied to the index, tracked so a failure ANYWHERE after
+  // them (the other delta, the commit itself) can put the user's pre-dialog
+  // staging split back instead of silently replacing it with the dialog's
+  // selection. File-level reversal is exact for the whole-file operations this
+  // dialog performs; a hunk-level split inside a delta file is not recoverable
+  // once `stage` has run.
+  const appliedStaged: string[] = [];
+  const appliedUnstaged: string[] = [];
+
   try {
     // A message-only amend must NOT touch the index — reconciling the empty
     // selection against `allFiles` would unstage everything. Skip the delta
@@ -180,6 +189,7 @@ export async function performCommit(
             throw e;
           }
         );
+        appliedStaged.push(...filesToStage);
       }
 
       // Unstage files that are staged but not selected.
@@ -193,6 +203,7 @@ export async function performCommit(
             throw e;
           }
         );
+        appliedUnstaged.push(...filesToUnstage);
       }
     }
 
@@ -214,7 +225,27 @@ export async function performCommit(
     return { success: true, files: options.selectedFiles };
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return { success: false, error: msg };
+    // Best-effort restore of the pre-dialog split: reverse only the deltas
+    // that were applied. A restore failure is appended rather than swallowed —
+    // the user needs to know the index no longer matches what they had.
+    let restoreNote = '';
+    if (appliedStaged.length > 0) {
+      await gitService.unstage(repository, appliedStaged).match(
+        () => undefined,
+        () => {
+          restoreNote = ' (restoring the previous staging state also failed — check git status)';
+        }
+      );
+    }
+    if (appliedUnstaged.length > 0) {
+      await gitService.stage(repository, appliedUnstaged).match(
+        () => undefined,
+        () => {
+          restoreNote = ' (restoring the previous staging state also failed — check git status)';
+        }
+      );
+    }
+    return { success: false, error: msg + restoreNote };
   }
 }
 

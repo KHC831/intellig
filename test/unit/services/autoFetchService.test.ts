@@ -130,8 +130,6 @@ function makeRepo(path: string = '/r1'): IRepository {
 
 const EMPTY_RESULT: IFetchResult = {
   updatedRefs: [],
-  ahead: 0,
-  behind: 0,
   errors: [],
 };
 

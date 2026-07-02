@@ -85,8 +85,6 @@ export function createMockGitService(
     fetch: () =>
       okAsync<IFetchResult, never>({
         updatedRefs: [],
-        ahead: 0,
-        behind: 0,
         errors: [],
       }),
     onDidFetch: () => ({ dispose: () => {} }),

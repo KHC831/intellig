@@ -188,6 +188,18 @@ describe('Git CLI Utilities', () => {
       assert.strictEqual(result.stdout.trim(), 'ce013625030ba8dba906f756967f9e9ca394464a');
     });
 
+    it('closes stdin for an EMPTY input string (empty-buffer blame class)', async () => {
+      // BlameService passes `input: contents` where contents can be `''`
+      // (empty live buffer). A falsy check on `input` never closes stdin and
+      // `git hash-object --stdin` (like `blame --contents -`) waits for EOF
+      // until the timeout kills it. An explicit `!== undefined` gate must
+      // close the pipe so the command completes with the empty-blob sha.
+      const result = await gitCli.exec(['hash-object', '--stdin'], { input: '', timeout: 5000 });
+      assert.strictEqual(result.exitCode, 0);
+      // Well-known git blob sha for the empty blob.
+      assert.strictEqual(result.stdout.trim(), 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391');
+    });
+
     it('handles a stdin stream error (EPIPE) without an uncaught throw', async () => {
       // `git --version` ignores stdin and exits immediately, so a large write
       // races against a closed pipe and emits EPIPE on the child's stdin. The

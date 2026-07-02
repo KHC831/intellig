@@ -253,7 +253,11 @@ for file in $FILES; do
       # `.stdout` is included because `git` echoes credentials in stdout
       # for some commands (e.g. `git remote -v`). `.stderr` is the more
       # common leak surface but `.stdout` deserves the same guard.
-      message_pattern = "\\$\\{[^}]*\\.(message|stderr|stdout)[^}]*\\}"
+      # `.error` covers result-object error fields (`${result.error}`,
+      # `${outcome.error}`) — several IResult contracts carry the failure
+      # text in an `error` property, the same leak surface under a
+      # different name. Pre-sanitized producers use a sanitize-exempt.
+      message_pattern = "\\$\\{[^}]*\\.(message|stderr|stdout|error)[^}]*\\}"
       # Structured exempt: `// sanitize-exempt: <category>: <reason>`
       # where category matches the allowlist + reason is non-empty.
       good_exempt_pattern = "//[[:space:]]*sanitize-exempt:[[:space:]]*(" CATS ")[[:space:]]*:[[:space:]]*[^[:space:]]"

@@ -290,8 +290,6 @@ export class RemoteOps {
     const updatedRefs = diffRefSnapshots(before, after);
     const result: IFetchResult = {
       updatedRefs,
-      ahead: 0,
-      behind: updatedRefs.length,
       errors: collectFetchErrors(cliResult.stderr),
     };
     this.ctx.invalidateCache(cwd);

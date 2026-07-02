@@ -356,6 +356,83 @@ describe('CommitDialog — recent messages + author + gear', () => {
     });
   });
 
+  describe('performCommit — staging restore on failure (K3)', () => {
+    it('restores the pre-dialog staging split when the commit itself fails', async () => {
+      // The dialog stages a.ts (selected, unstaged) and unstages b.ts (staged,
+      // unselected) before committing. When the commit is rejected (hook), the
+      // user's pre-dialog index split must come back — not stay silently
+      // replaced by the dialog's selection.
+      const svc = makeGitService({
+        commitImpl: async () => {
+          throw new Error('pre-commit hook rejected');
+        },
+      });
+      const repo = makeRepo();
+      const result = await performCommit(svc, repo, {
+        message: 'x',
+        selectedFiles: ['a.ts'],
+        allFiles: [
+          { path: 'a.ts', staged: false },
+          { path: 'b.ts', staged: true },
+        ],
+      });
+      assert.strictEqual(result.success, false);
+      assert.deepStrictEqual(
+        svc.calls.map((c) => c.method),
+        ['stage', 'unstage', 'commit', 'unstage', 'stage'],
+        'the applied deltas are reversed after the failed commit'
+      );
+      assert.deepStrictEqual(svc.calls[3].args[1], ['a.ts'], 'the staged delta is unstaged back');
+      assert.deepStrictEqual(svc.calls[4].args[1], ['b.ts'], 'the unstaged delta is re-staged');
+    });
+
+    it('reverses only the delta that was actually applied when unstaging fails mid-way', async () => {
+      const svc = makeGitService({
+        unstageImpl: async (_repo, paths) => {
+          if (paths.includes('b.ts')) {
+            // Fail the DELTA unstage; the restore unstage (a.ts) succeeds.
+            throw new Error('index.lock held');
+          }
+        },
+      });
+      const repo = makeRepo();
+      const result = await performCommit(svc, repo, {
+        message: 'x',
+        selectedFiles: ['a.ts'],
+        allFiles: [
+          { path: 'a.ts', staged: false },
+          { path: 'b.ts', staged: true },
+        ],
+      });
+      assert.strictEqual(result.success, false);
+      assert.deepStrictEqual(
+        svc.calls.map((c) => c.method),
+        ['stage', 'unstage', 'unstage'],
+        'no commit runs; only the stage that succeeded is reversed'
+      );
+      assert.deepStrictEqual(svc.calls[2].args[1], ['a.ts']);
+    });
+
+    it('does not run any restore calls when the commit succeeds', async () => {
+      const svc = makeGitService();
+      const repo = makeRepo();
+      const result = await performCommit(svc, repo, {
+        message: 'x',
+        selectedFiles: ['a.ts'],
+        allFiles: [
+          { path: 'a.ts', staged: false },
+          { path: 'b.ts', staged: true },
+        ],
+      });
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(
+        svc.calls.map((c) => c.method),
+        ['stage', 'unstage', 'commit'],
+        'the success path is unchanged'
+      );
+    });
+  });
+
   describe('CommitDialog recent-messages LRU', () => {
     it('pushes the commit message onto the shared recent-messages LRU on success', async () => {
       const mem = new InMemoryMemento();

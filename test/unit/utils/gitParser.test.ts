@@ -805,6 +805,35 @@ index 1234567,abcdefg..fedcba9
       assert.strictEqual(commits[0].message, 'Subject line');
     });
 
+    it('a subject containing the `\\x1f` separator itself does not shift fields', () => {
+      // The separator is chosen because it never appears in NORMALIZED git
+      // fields — but a commit subject is free text and CAN carry a literal
+      // C0 control. Since %s is the only free-text field on the line and
+      // %G? follows it, the tail between field 8 and the final field IS the
+      // subject: rejoin it instead of truncating at the first `\x1f` (which
+      // also mis-read a subject fragment as the signature status).
+      const sep = '\x1f';
+      const weirdSubject = `left${sep}middle${sep}right`;
+      const fields = [
+        'a'.repeat(40), // %H
+        'aaaaaaa', // %h
+        'Author', // %an
+        'a@x.com', // %ae
+        '2024-05-01T12:00:00Z', // %aI
+        'Author', // %cn
+        'a@x.com', // %ce
+        '2024-05-01T12:00:00Z', // %cI
+        '', // %P
+        weirdSubject, // %s ← contains the separator
+        'G', // %G?
+      ];
+      const commits = parseLog(fields.join(sep) + '\nbody line\0');
+      assert.strictEqual(commits.length, 1);
+      assert.strictEqual(commits[0].message, weirdSubject, 'subject rejoined, not truncated');
+      assert.strictEqual(commits[0].gpgStatus, 'G', 'signature status read from the LAST field');
+      assert.strictEqual(commits[0].body, 'body line');
+    });
+
     /**
      * parseLog-separator-2: multi-commit log round-trips under
      * the new separator. Confirms the entry split on `\0` and the field

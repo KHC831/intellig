@@ -467,7 +467,9 @@ export interface IFetchOptions {
 }
 
 /**
- * A single ref update returned by `git fetch --porcelain`.
+ * A single ref update, computed by diffing `for-each-ref` snapshots taken
+ * before and after the fetch (version-independent; `--porcelain` needs
+ * git >= 2.41).
  */
 export interface IFetchRefUpdate {
   /** The ref that was updated (e.g. `refs/remotes/origin/main`). */
@@ -479,15 +481,11 @@ export interface IFetchRefUpdate {
 }
 
 /**
- * Result of a fetch operation, parsed from `git fetch --porcelain` output.
+ * Result of a fetch operation, computed from before/after ref snapshots.
  */
 export interface IFetchResult {
-  /** Updated refs reported by the remote. */
+  /** Refs the fetch created, updated or pruned. */
   updatedRefs: IFetchRefUpdate[];
-  /** Total number of commits ahead across all fetched refs (best-effort). */
-  ahead: number;
-  /** Total number of commits behind across all fetched refs (best-effort). */
-  behind: number;
   /** Non-fatal error messages emitted on stderr (e.g. auth prompts). */
   errors: string[];
 }

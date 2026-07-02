@@ -233,6 +233,7 @@ export class StashView implements IStashView {
       // not showErrorMessage. Mirrors ShelfView's post-stash refresh policy.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
       }
 
@@ -406,6 +407,7 @@ export class StashView implements IStashView {
       // policy rationale.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
       }
 
@@ -497,6 +499,7 @@ export class StashView implements IStashView {
       // refresh() never rejects — surface failure as a warning toast.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
       }
 
@@ -581,6 +584,7 @@ export class StashView implements IStashView {
       // refresh() never rejects — surface failure as a warning toast.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
       }
       this._onDidRequestAction.fire({ action: 'rename', stash });
@@ -638,6 +642,7 @@ export class StashView implements IStashView {
       // refresh() never rejects — surface failure as a warning toast.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
       }
 
@@ -893,6 +898,7 @@ export class StashView implements IStashView {
     // return value is the canonical error channel for QuickPick views.
     const refreshResult = await this.refresh();
     if (refreshResult.error) {
+      // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
       void vscode.window.showErrorMessage(`Failed to load stashes: ${refreshResult.error}`);
       return;
     }
