@@ -30,6 +30,7 @@ import { SquashMessageDialog } from './SquashMessageDialog';
 import { CommitMessageDialog } from './CommitMessageDialog';
 import { buildSquashRebasePlan } from './squashPlan';
 import { saveLocalChanges, restoreLocalChanges } from '../git-core/ops/preservedChanges';
+import { restorePathsToHead, IRestoreToHeadRequest } from '../git-core/worktree/restoreToHead';
 
 /**
  * Defence-in-depth hash format check.
@@ -633,16 +634,29 @@ export class CommitContextMenuCommands {
     const droppedPaths = dropPicks.map((p) => p.path);
     const keptPaths = diffs.map((d) => d.path).filter((p) => !droppedPaths.includes(p));
 
-    // Partition the dropped files by their status so we can choose the
-    // right git command per file type.
-    const statusByPath = new Map(diffs.map((d) => [d.path, d.status]));
-    // Newly-added files have no history in the parent commit. Restoring
-    // them via `git checkout HEAD -- <path>` would fail (path not in
-    // parent tree). Remove them from the index instead.
-    const addedDropped = droppedPaths.filter((p) => statusByPath.get(p) === 'added');
-    // Modified / deleted / renamed / copied files — restore the parent's
-    // version via `git checkout HEAD -- <path>`.
-    const otherDropped = droppedPaths.filter((p) => statusByPath.get(p) !== 'added');
+    // Map each dropped file to a restore-to-HEAD request for the shared
+    // writer (which owns the added/renamed/tracked partition): an ADDED file
+    // has no parent blob (unindex, keep on disk as untracked); a RENAMED or
+    // COPIED file's new path is likewise absent from the parent while its
+    // source is what gets restored; modified/deleted restore in place. At
+    // apply time HEAD IS the parent (post soft-reset), so `inHead` is decided
+    // against the parent tree.
+    const diffByPath = new Map(diffs.map((d) => [d.path, d]));
+    const restoreRequests: IRestoreToHeadRequest[] = droppedPaths.map((p) => {
+      const diff = diffByPath.get(p);
+      const status = diff?.status;
+      if (status === 'added') {
+        return { path: p, inHead: false };
+      }
+      if (status === 'renamed' || status === 'copied') {
+        return { path: p, oldPath: diff?.oldPath, inHead: false };
+      }
+      return { path: p, inHead: true };
+    });
+    const addedDropped = droppedPaths.filter((p) => {
+      const st = diffByPath.get(p)?.status;
+      return st === 'added' || st === 'renamed' || st === 'copied';
+    });
 
     // 4b. Save local changes around the rewrite (shared bracket — same
     //     discipline as the drop/squash rebase flows). Without it,
@@ -692,26 +706,14 @@ export class CommitContextMenuCommands {
       await this._gitCli.exec(['reset', '--soft', 'HEAD^'], { cwd, throwOnError: true });
 
       try {
-        if (addedDropped.length > 0) {
-          await this._gitCli.exec(['rm', '--cached', '--', ...addedDropped], {
-            cwd,
-            throwOnError: true,
-          });
-        }
-
-        if (otherDropped.length > 0) {
-          await this._gitCli.exec(['checkout', 'HEAD', '--', ...otherDropped], {
-            cwd,
-            throwOnError: true,
-          });
-        }
+        await restorePathsToHead(this._gitCli, cwd, restoreRequests);
 
         // `git rm --cached` removes newly-added files from the index but leaves
         // them as untracked files on disk. Clarify this in the success toast so
         // the user isn't surprised to find the file still in their working tree.
         const untrackedNote =
           addedDropped.length > 0
-            ? `; ${addedDropped.length} newly-added file(s) remain on disk as untracked: ${addedDropped.join(', ')}`
+            ? `; ${addedDropped.length} file(s) new in this commit remain on disk as untracked: ${addedDropped.join(', ')}`
             : '';
 
         if (keptPaths.length > 0) {

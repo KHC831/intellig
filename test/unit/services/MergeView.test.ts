@@ -44,7 +44,19 @@ describe('MergeView', () => {
       getRepository: (): Promise<undefined> => Promise.resolve(undefined),
       getRepositories: (): IRepository[] => [],
       stage: () => okAsync<void, GitError>(undefined),
-      getStatus: (): Promise<IFileStatus[]> => Promise.resolve([]),
+      // Report every tracked path as still-unmerged so markResolved's
+      // stale-entry pruning (files resolved elsewhere are dropped before
+      // staging) keeps the primed entries alive in these tests.
+      getStatus: (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'README.md', indexStatus: 'U', workTreeStatus: 'U', renamed: undefined },
+          {
+            path: 'src/conflict.ts',
+            indexStatus: 'U',
+            workTreeStatus: 'U',
+            renamed: undefined,
+          },
+        ] as IFileStatus[]),
     };
 
     mergeView = new MergeView(mockExtensionUri, mockGitService as IGitService);
@@ -527,7 +539,19 @@ describe('MergeView', () => {
           getRepository: (): Promise<IRepository> => Promise.resolve(repo),
           getRepositories: (): IRepository[] => [repo],
           stage: () => okAsync<void, GitError>(undefined),
-          getStatus: (): Promise<IFileStatus[]> => Promise.resolve([]),
+          // Report every tracked path as still-unmerged so markResolved's
+          // stale-entry pruning (files resolved elsewhere are dropped before
+          // staging) keeps the primed entries alive in these tests.
+          getStatus: (): Promise<IFileStatus[]> =>
+            Promise.resolve([
+              { path: 'README.md', indexStatus: 'U', workTreeStatus: 'U', renamed: undefined },
+              {
+                path: 'src/conflict.ts',
+                indexStatus: 'U',
+                workTreeStatus: 'U',
+                renamed: undefined,
+              },
+            ] as IFileStatus[]),
           gitCli: createGitCli(),
         } as unknown as IGitService;
         const mv = new MergeView(mockExtensionUri, svc);

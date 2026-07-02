@@ -5,6 +5,7 @@ import { IMergeView, IMergeState } from './interfaces/IMergeView';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { GitCli } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
+import { isConflictedStatus } from '../git-core/gitParser';
 import { canonicalizeFsPath, repoRelativePath } from '../utils/repoRelativePath';
 import { ensureSyntheticMergeBase } from './syntheticMergeBase';
 import { getLogger } from '../utils/logger';
@@ -218,12 +219,23 @@ export class MergeView implements IMergeView {
    * still unresolved.
    */
   async markResolved(): Promise<void> {
+    // Drop entries resolved elsewhere (bulk accept, palette, terminal, a tab
+    // closed after an external resolve) FIRST: a stale entry could otherwise
+    // win the sole-entry fallback and stage whatever content the file has
+    // now — or keep the command needlessly ambiguous.
+    await this._pruneEntriesNoLongerConflicted();
+
     const target = resolveMarkResolvedTarget(this._shownFiles, this._activeEditorFsPath());
     if (!target) {
       if (this._shownFiles.size > 0) {
         getLogger().debug('markResolved: ambiguous target (several merge files outstanding)', {
           outstanding: this._shownFiles.size,
         });
+        // The user pressed a button — a silent no-op reads as breakage.
+        void vscode.window.showInformationMessage(
+          'Several conflicted files are open — focus the merge editor of the file to mark ' +
+            'resolved, then run the command again.'
+        );
       }
       return;
     }
@@ -244,6 +256,41 @@ export class MergeView implements IMergeView {
 
     this._shownFiles.delete(key);
     this._onDidResolve.fire(entry.relPath);
+  }
+
+  /**
+   * Remove tracked files that no longer have unmerged index entries. A
+   * conflict can be resolved outside this view's flow; the tracking entry
+   * then goes stale, and staging it would silently commit whatever the
+   * worktree holds. Best-effort: a missing/failed status read prunes nothing
+   * (the sole-entry fallback then behaves as before).
+   */
+  private async _pruneEntriesNoLongerConflicted(): Promise<void> {
+    if (this._shownFiles.size === 0 || typeof this._gitService.getStatus !== 'function') {
+      return;
+    }
+    const byRoot = new Map<string, { repository: IRepository; keys: string[] }>();
+    for (const [key, entry] of this._shownFiles) {
+      const root = entry.repository.rootUri.fsPath;
+      const group = byRoot.get(root) ?? { repository: entry.repository, keys: [] };
+      group.keys.push(key);
+      byRoot.set(root, group);
+    }
+    for (const group of byRoot.values()) {
+      let conflicted: Set<string>;
+      try {
+        const status = await this._gitService.getStatus(group.repository);
+        conflicted = new Set(status.filter(isConflictedStatus).map((f) => f.path));
+      } catch {
+        continue;
+      }
+      for (const key of group.keys) {
+        const entry = this._shownFiles.get(key);
+        if (entry && !conflicted.has(entry.relPath)) {
+          this._shownFiles.delete(key);
+        }
+      }
+    }
   }
 
   /**

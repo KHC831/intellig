@@ -3000,7 +3000,15 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   describe('dropSelectedChangesFromCommit — saves local changes around the rewrite', () => {
     const dscHash = 'c'.repeat(40);
 
-    function makeHarness(statusOut: string): {
+    function makeHarness(
+      statusOut: string,
+      diffs?: Array<{
+        path: string;
+        oldPath?: string;
+        status: 'modified' | 'added' | 'renamed' | 'copied' | 'deleted';
+      }>,
+      dropPath = 'dropped.ts'
+    ): {
       calls: string[][];
       commands: CommitContextMenuCommands;
       messages: ReturnType<typeof createMessageTrackers>;
@@ -3018,10 +3026,13 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           authorDate: new Date(),
           commitDate: new Date(),
         }),
-        getCommitDiff: async () => [
-          { path: 'dropped.ts', status: 'modified' as const, hunks: [], binary: false },
-          { path: 'kept.ts', status: 'modified' as const, hunks: [], binary: false },
-        ],
+        getCommitDiff: async () =>
+          (
+            diffs ?? [
+              { path: 'dropped.ts', status: 'modified' as const },
+              { path: 'kept.ts', status: 'modified' as const },
+            ]
+          ).map((d) => ({ ...d, hunks: [], binary: false })),
       });
       const calls: string[][] = [];
       const gitCli = createMockGitCli({
@@ -3054,7 +3065,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       );
       writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
         Promise.resolve([
-          (items as { label: string; path: string }[]).find((i) => i.path === 'dropped.ts'),
+          (items as { label: string; path: string }[]).find((i) => i.path === dropPath),
         ]);
       writableWindow().showWarningMessage = (
         _message: string,
@@ -3092,6 +3103,45 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(!verbs.includes('reset --soft'), 'the rewrite must not run over a conflict');
       assert.strictEqual(messages.error.length, 1, 'expected a refusal toast');
       assert.ok(/unmerged|conflict/i.test(messages.error[0].message));
+    });
+
+    it('drops a RENAMED file by unindexing the new path and restoring the old path', async () => {
+      // The inline partition sent renamed/copied files to
+      // `checkout HEAD -- <newPath>` — the parent has no such path, git
+      // fatals, and the inner rollback undoes the whole drop ("Failed to
+      // drop changes: pathspec…"). The shared restore-to-HEAD writer knows
+      // the rename shape: unindex the new path, restore the old one.
+      const { calls, commands, messages } = makeHarness(
+        '',
+        [
+          { path: 'renamed-new.ts', oldPath: 'renamed-old.ts', status: 'renamed' },
+          { path: 'kept.ts', status: 'modified' },
+        ],
+        'renamed-new.ts'
+      );
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      const checkoutHead = calls.filter((c) => c[0] === 'checkout' && c[1] === 'HEAD');
+      const checkoutTargets = checkoutHead.flatMap((c) => c.slice(c.indexOf('--') + 1));
+      assert.ok(
+        !checkoutTargets.includes('renamed-new.ts'),
+        'the rename DESTINATION must never be checked out from the parent (it does not exist there)'
+      );
+      assert.ok(
+        checkoutTargets.includes('renamed-old.ts'),
+        `the rename SOURCE must be restored from the parent; checkouts: ${JSON.stringify(checkoutTargets)}`
+      );
+      const rm = calls.find((c) => c[0] === 'rm' && c.includes('--cached'));
+      assert.ok(rm, 'the new path must be unindexed');
+      assert.ok(rm.slice(rm.indexOf('--') + 1).includes('renamed-new.ts'));
+      assert.strictEqual(
+        messages.error.length,
+        0,
+        `no error toast: ${JSON.stringify(messages.error)}`
+      );
+      const commit = calls.find((c) => c[0] === 'commit');
+      assert.ok(commit, 'the kept file must be re-committed');
     });
 
     it('does not stash when the tree is clean', async () => {

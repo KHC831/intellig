@@ -36,7 +36,13 @@ interface Harness {
   resolved: string[];
 }
 
-function makeHarness(): Harness {
+/**
+ * @param conflicted - When provided, the harness exposes `getStatus` reporting
+ *   exactly these repo-relative paths as unmerged (UU) — driving the
+ *   stale-entry pruning. Omitted ⇒ no `getStatus` (pruning is skipped, the
+ *   pre-pruning behavior).
+ */
+function makeHarness(conflicted?: string[]): Harness {
   const repo = makeRepo();
   const stagedPaths: string[][] = [];
   const gitService: Partial<IGitService> = {
@@ -46,6 +52,17 @@ function makeHarness(): Harness {
       stagedPaths.push([...paths]);
       return okAsync<void, GitError>(undefined);
     },
+    ...(conflicted !== undefined
+      ? {
+          getStatus: async () =>
+            conflicted.map((path) => ({
+              path,
+              indexStatus: 'U' as const,
+              workTreeStatus: 'U' as const,
+              renamed: undefined,
+            })),
+        }
+      : {}),
   };
   const mergeView = new MergeView(vscode.Uri.file('/mock/extension'), gitService as IGitService);
   const resolved: string[] = [];
@@ -121,5 +138,63 @@ describe('MergeView markResolved targeting', () => {
     await mergeView.markResolved();
 
     assert.deepStrictEqual(stagedPaths, [['only.ts']]);
+  });
+
+  it('prunes an entry resolved elsewhere, so the remaining file wins the sole-entry fallback', async () => {
+    // a.ts got resolved by a bulk accept / palette / terminal while its
+    // tracking entry lived on. The stale entry must not keep markResolved
+    // ambiguous (or worse, get staged with whatever the worktree holds NOW).
+    const { mergeView, stagedPaths } = makeHarness(['b.ts']);
+    await mergeView.show(`${ROOT}/a.ts`);
+    await mergeView.show(`${ROOT}/b.ts`);
+
+    setActiveEditorFile(undefined);
+    await mergeView.markResolved();
+
+    assert.deepStrictEqual(
+      stagedPaths,
+      [['b.ts']],
+      'the still-conflicted file is the sole fallback once the stale entry is pruned'
+    );
+  });
+
+  it('refuses to stage a tracked file that is no longer conflicted', async () => {
+    const { mergeView, stagedPaths } = makeHarness([]);
+    await mergeView.show(`${ROOT}/a.ts`);
+
+    setActiveEditorFile(`${ROOT}/a.ts`);
+    await mergeView.markResolved();
+
+    assert.deepStrictEqual(
+      stagedPaths,
+      [],
+      'a file resolved elsewhere must not be re-staged with its current worktree content'
+    );
+  });
+
+  it('surfaces an information toast instead of a silent no-op when the target is ambiguous', async () => {
+    const infos: string[] = [];
+    const win = vscode.window as unknown as {
+      showInformationMessage: (msg: string) => Promise<undefined>;
+    };
+    const orig = win.showInformationMessage;
+    win.showInformationMessage = (msg: string): Promise<undefined> => {
+      infos.push(msg);
+      return Promise.resolve(undefined);
+    };
+    try {
+      const { mergeView, stagedPaths } = makeHarness(['a.ts', 'b.ts']);
+      await mergeView.show(`${ROOT}/a.ts`);
+      await mergeView.show(`${ROOT}/b.ts`);
+
+      setActiveEditorFile(`${ROOT}/unrelated.ts`);
+      await mergeView.markResolved();
+
+      assert.deepStrictEqual(stagedPaths, [], 'still must not guess');
+      assert.strictEqual(infos.length, 1, 'the user pressed a button — tell them what to do');
+      assert.match(infos[0], /focus/i);
+    } finally {
+      win.showInformationMessage = orig;
+    }
   });
 });
