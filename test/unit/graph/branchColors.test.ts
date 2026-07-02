@@ -34,6 +34,30 @@ describe('branchColors — palette', () => {
   });
 });
 
+describe('branchColors — trunk pinned to blue', () => {
+  it('main / master (and their remote forms) always get the blue slot, not a hashed hue', () => {
+    // The trunk is the line users stare at all day; a name hash would hand
+    // `main` orange (hashCode % 10 === 1). Pin every trunk spelling to blue.
+    for (const name of ['main', 'master', 'origin/main', 'origin/master', 'upstream/main']) {
+      assert.strictEqual(branchColorFor(name), P[0], `${name} is blue`);
+    }
+  });
+
+  it('local trunk and its remote-tracking form share one color', () => {
+    assert.strictEqual(branchColorFor('main'), branchColorFor('origin/main'));
+    assert.strictEqual(branchColorFor('master'), branchColorFor('upstream/master'));
+  });
+
+  it('non-trunk names still hash across the palette (not everything is blue)', () => {
+    assert.notStrictEqual(branchColorFor('feature/login'), P[0]);
+    assert.notStrictEqual(
+      branchColorFor('origin/mainline'),
+      P[0],
+      'prefix-only match is not trunk'
+    );
+  });
+});
+
 describe('branchColors — name-stable (position-independent)', () => {
   it('colors each branch by its NAME, not its row — branchColorFor() is the source of truth', () => {
     const nodes = [

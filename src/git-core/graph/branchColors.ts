@@ -43,9 +43,10 @@ import { buildGraphLayout, linearGraphFromDownAdjacency } from './graphLayout';
  * red-green confusion hue) and grey. The hues are spread around the wheel and
  * mid-toned so each is distinguishable from the others — including under
  * deuteranopia / protanopia / tritanopia — and reads on both the dark and light
- * default themes. A branch's slot is chosen by a stable hash of its name (see
- * {@link branchColorFor}), so colours are consistent across edits; with 10 slots
- * two branches collide far less often, but it's still possible — add more here.
+ * default themes. Blue leads because the trunk is pinned to slot 0 (see
+ * {@link branchColorFor}); every other branch's slot is a stable hash of its
+ * name, so colours are consistent across edits. With 10 slots two branches
+ * collide far less often, but it's still possible — add more here.
  */
 export const GRAPH_BRANCH_COLORS: readonly string[] = [
   '#3c6699', // blue (darkened from Tol's #4477aa for contrast against the cyan)
@@ -79,8 +80,19 @@ function stableColorIndex(name: string): number {
  * The fixed palette color a branch name maps to — name-stable and
  * position-independent (see {@link stableColorIndex}). Exposed so callers and
  * tests can resolve a branch's colour without re-deriving the hash.
+ *
+ * The trunk (`master`/`main`, in local or any `<remote>/` form) is PINNED to
+ * the blue slot rather than hashed: the mainline is the spine users read the
+ * graph against, and blue is the conventional calm mainline hue (IntelliJ,
+ * GitKraken, Fork all lead with blue/purple there — a hashed `main` landed on
+ * orange). Pinning also keeps `main` and `origin/main` the same color. Blue is
+ * not reserved: a non-trunk branch can still hash to it, the same accepted
+ * collision class as any two branches sharing a slot.
  */
 export function branchColorFor(name: string): string {
+  if (isTrunkName(remoteTail(name))) {
+    return GRAPH_BRANCH_COLORS[0];
+  }
   return GRAPH_BRANCH_COLORS[stableColorIndex(name)];
 }
 
