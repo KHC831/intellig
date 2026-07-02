@@ -144,7 +144,12 @@ export async function performCommit(
   if (!trimmed) {
     return { success: false, error: 'Commit message cannot be empty' };
   }
-  if (!options.selectedFiles || options.selectedFiles.length === 0) {
+  // A message-only amend (fix just the last commit's message, no file changes)
+  // is a first-class git4idea flow, so an empty selection is only an error when
+  // NOT amending. When amending with no selection we skip the stage/unstage
+  // deltas entirely and let `git commit --amend` re-commit the unchanged tree.
+  const messageOnlyAmend = options.amend === true && (options.selectedFiles?.length ?? 0) === 0;
+  if (!messageOnlyAmend && (!options.selectedFiles || options.selectedFiles.length === 0)) {
     return { success: false, error: 'No files selected for commit' };
   }
 
@@ -158,32 +163,37 @@ export async function performCommit(
   }
 
   try {
-    const selectedSet = new Set(options.selectedFiles);
+    // A message-only amend must NOT touch the index — reconciling the empty
+    // selection against `allFiles` would unstage everything. Skip the delta
+    // and go straight to `commit --amend`, which re-commits the current tree.
+    if (!messageOnlyAmend) {
+      const selectedSet = new Set(options.selectedFiles);
 
-    // Stage selected files that aren't already staged.
-    const filesToStage = options.allFiles
-      .filter((f) => selectedSet.has(f.path) && !f.staged)
-      .map((f) => f.path);
-    if (filesToStage.length > 0) {
-      await gitService.stage(repository, filesToStage).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-    }
+      // Stage selected files that aren't already staged.
+      const filesToStage = options.allFiles
+        .filter((f) => selectedSet.has(f.path) && !f.staged)
+        .map((f) => f.path);
+      if (filesToStage.length > 0) {
+        await gitService.stage(repository, filesToStage).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+      }
 
-    // Unstage files that are staged but not selected.
-    const filesToUnstage = options.allFiles
-      .filter((f) => !selectedSet.has(f.path) && f.staged)
-      .map((f) => f.path);
-    if (filesToUnstage.length > 0) {
-      await gitService.unstage(repository, filesToUnstage).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
+      // Unstage files that are staged but not selected.
+      const filesToUnstage = options.allFiles
+        .filter((f) => !selectedSet.has(f.path) && f.staged)
+        .map((f) => f.path);
+      if (filesToUnstage.length > 0) {
+        await gitService.unstage(repository, filesToUnstage).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+      }
     }
 
     const commitOptions: ICommitOptions = {

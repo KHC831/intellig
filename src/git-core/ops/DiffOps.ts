@@ -230,18 +230,58 @@ export class DiffOps {
       baseRef = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
     }
 
-    // Get the diff between the base and the newest commit.
-    // Both refs are user-controlled (well, baseRef may be a
-    // computed parent SHA; newestCommit is direct user input). Splice
-    // via buildGitArgs.
+    // Restrict the range diff to only the paths the SELECTED commits actually
+    // touched. Without this scoping a non-contiguous selection (pick A and C,
+    // skip B) surfaced every file B changed too — the range `A^..C` includes B.
+    // IntelliJ unions the selected commits' own change lists
+    // (VcsLogUtil.collectChanges → zipChanges); scoping the range diff to the
+    // union of touched paths is the git-native equivalent: a path touched only
+    // by an unselected intermediate commit is excluded, while a path several
+    // selected commits changed shows its net effect across the range.
+    // Both refs are user-controlled (baseRef may be a computed parent SHA;
+    // newestCommit is direct user input) and the paths ride behind `--` via
+    // buildGitArgs, so nothing can be reinterpreted as a flag. When no touched
+    // paths are discovered (should not happen for real non-empty commits),
+    // fall back to the UNSCOPED range diff rather than hiding a real change.
+    const touchedPaths = await this._collectTouchedPaths(cwd, commits);
     const diffResult = await this.ctx.gitCli.exec(
-      buildGitArgs('diff', this.whitespaceFlags(), [baseRef, newestCommit]),
+      buildGitArgs(
+        'diff',
+        this.whitespaceFlags(),
+        [baseRef, newestCommit],
+        touchedPaths.length > 0 ? touchedPaths : undefined
+      ),
       {
         cwd,
       }
     );
 
     return parseDiff(diffResult.stdout);
+  }
+
+  /**
+   * Union of the file paths the given commits touched, via
+   * `git show --name-only -z --format=` per commit. `-z` keeps non-ASCII /
+   * special-character paths verbatim (git otherwise C-quotes them). Used to
+   * scope the multi-commit range diff to only the selected commits' changes.
+   */
+  private async _collectTouchedPaths(cwd: string, commits: string[]): Promise<string[]> {
+    const touched = new Set<string>();
+    for (const commit of commits) {
+      const res = await this.ctx.gitCli.exec(
+        buildGitArgs('show', ['--name-only', '-z', '--format='], [commit]),
+        { cwd }
+      );
+      if (res.exitCode !== 0) {
+        continue;
+      }
+      for (const name of res.stdout.split('\0')) {
+        if (name.length > 0) {
+          touched.add(name);
+        }
+      }
+    }
+    return [...touched];
   }
 
   /**

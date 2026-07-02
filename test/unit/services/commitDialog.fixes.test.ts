@@ -239,6 +239,36 @@ describe('CommitDialog — recent messages + author + gear', () => {
   });
 
   describe('performCommit — author pass-through', () => {
+    it('allows a message-only amend with NO files selected', async () => {
+      // git4idea's amend checkbox works with an empty change selection
+      // (fix just the last commit's message). performCommit rejected an empty
+      // selection before consulting the amend flag, dead-ending the flow.
+      const gitService = makeGitService();
+      const repo = makeRepo();
+      const result = await performCommit(gitService, repo, {
+        message: 'reword: fix subject',
+        selectedFiles: [],
+        allFiles: [{ path: 'a.ts', staged: false }],
+        amend: true,
+      });
+      assert.strictEqual(result.success, true, JSON.stringify(result));
+      const commitCall = gitService.calls.find((c) => c.method === 'commit');
+      assert.ok(commitCall, 'commit --amend must still run');
+      assert.strictEqual((commitCall.args[2] as ICommitOptions).amend, true);
+      assert.ok(!gitService.calls.some((c) => c.method === 'stage' || c.method === 'unstage'));
+    });
+
+    it('still rejects an empty selection when NOT amending', async () => {
+      const gitService = makeGitService();
+      const result = await performCommit(gitService, makeRepo(), {
+        message: 'feat: thing',
+        selectedFiles: [],
+        allFiles: [{ path: 'a.ts', staged: false }],
+      });
+      assert.strictEqual(result.success, false);
+      assert.match(result.error ?? '', /No files selected/);
+    });
+
     it('passes --author when the override is valid', async () => {
       const gitService = makeGitService();
       const repo = makeRepo();

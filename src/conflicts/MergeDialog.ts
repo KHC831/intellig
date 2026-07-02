@@ -459,8 +459,15 @@ ${body}
         return;
       }
       // No conflict service wired OR no conflicts: fall back to a warning.
+      // Surface git's own reason (already sanitized by the ops layer) when it
+      // gave one — "refusing to merge unrelated histories", "local changes
+      // would be overwritten", etc. — rather than the generic run-git-status.
+      const reason = result.failureReason
+        ? `: ${result.failureReason}`
+        : ". Run 'git status' for details.";
+      // sanitize-exempt: pre-sanitized: `reason` embeds result.failureReason, which BranchOps._mergeBranch already runs through sanitizeGitError; `sourceBranch` is a validated branch name, not git stderr.
       void vscode.window.showWarningMessage(
-        `Merge of '${this._sourceBranch}' did not complete cleanly. Run 'git status' for details.`
+        `Merge of '${this._sourceBranch}' did not complete cleanly${reason}`
       );
       this._busy = false;
     } catch (error) {
