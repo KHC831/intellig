@@ -3586,12 +3586,16 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
   describe('fetch()', () => {
     describe('Fetch from all remotes', () => {
-      it('should execute git fetch --porcelain --all when no remote is specified', async () => {
+      it('should execute git fetch --all when no remote is specified', async () => {
         await gitService.fetch(mockRepo);
 
-        const lastCommand = mockGitCli.getLastCommand();
-        assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['fetch', '--porcelain', '--all']);
+        // A fetch is bracketed by two `for-each-ref` snapshot reads, so it is
+        // not the LAST command, and it no longer passes `--porcelain`.
+        const fetch = mockGitCli.executedCommands.find(
+          (c) => c.args.find((a) => !a.startsWith('-')) === 'fetch'
+        );
+        assert.ok(fetch, 'a fetch must have run');
+        assert.deepStrictEqual(fetch.args, ['fetch', '--all']);
       });
 
       it('should pass the correct working directory', async () => {
@@ -3603,7 +3607,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
 
       it('should throw on error when fetch fails', async () => {
-        mockGitCli.setMockResult('fetch --porcelain --all', {
+        mockGitCli.setMockResult('fetch --all', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: unable to access remote',
@@ -3620,32 +3624,26 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       it('should execute git fetch with specific remote name', async () => {
         await gitService.fetch(mockRepo, 'origin');
 
-        const lastCommand = mockGitCli.getLastCommand();
-        assert.ok(lastCommand, 'Command should have been executed');
+        const fetch = mockGitCli.executedCommands.find(
+          (c) => c.args.find((a) => !a.startsWith('-')) === 'fetch'
+        );
+        assert.ok(fetch, 'a fetch must have run');
         // Remote name is user-controlled, so it sits behind --end-of-options.
-        assert.deepStrictEqual(lastCommand.args, [
-          'fetch',
-          '--porcelain',
-          '--end-of-options',
-          'origin',
-        ]);
+        assert.deepStrictEqual(fetch.args, ['fetch', '--end-of-options', 'origin']);
       });
 
       it('should fetch from upstream remote', async () => {
         await gitService.fetch(mockRepo, 'upstream');
 
-        const lastCommand = mockGitCli.getLastCommand();
-        assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, [
-          'fetch',
-          '--porcelain',
-          '--end-of-options',
-          'upstream',
-        ]);
+        const fetch = mockGitCli.executedCommands.find(
+          (c) => c.args.find((a) => !a.startsWith('-')) === 'fetch'
+        );
+        assert.ok(fetch, 'a fetch must have run');
+        assert.deepStrictEqual(fetch.args, ['fetch', '--end-of-options', 'upstream']);
       });
 
       it('should throw on error when fetching from non-existent remote', async () => {
-        mockGitCli.setMockResult('fetch --porcelain --end-of-options nonexistent', {
+        mockGitCli.setMockResult('fetch --end-of-options nonexistent', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: 'nonexistent' does not appear to be a git repository",

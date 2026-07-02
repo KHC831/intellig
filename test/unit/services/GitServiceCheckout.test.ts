@@ -414,20 +414,28 @@ describe('GitService - Command Argument Correctness', () => {
   // fetch() argument construction
   // ============================================
   describe('fetch() argument construction', () => {
-    it('fetch all: git fetch --porcelain --all', async () => {
+    // Updated refs come from a before/after ref snapshot, so a fetch is
+    // bracketed by two `for-each-ref` reads — the fetch is no longer the LAST
+    // command. It also no longer passes `--porcelain` (which requires git
+    // ≥ 2.41 and broke fetch on older gits).
+    const fetchCmd = (): string[] => {
+      const call = mockGitCli.executedCommands.find(
+        (c) => c.args.find((a) => !a.startsWith('-')) === 'fetch'
+      );
+      assert.ok(call, 'a fetch must have run');
+      return call.args;
+    };
+
+    it('fetch all: git fetch --all (no --porcelain)', async () => {
       await gitService.fetch(mockRepo);
-      const cmd = mockGitCli.getLastCommand();
-      assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', '--all']);
+      assert.deepStrictEqual(fetchCmd(), ['fetch', '--all']);
     });
 
-    it('fetch specific remote: git fetch --porcelain --end-of-options <remote>', async () => {
+    it('fetch specific remote: git fetch --end-of-options <remote>', async () => {
       await gitService.fetch(mockRepo, 'origin');
-      const cmd = mockGitCli.getLastCommand();
-      assert.ok(cmd);
       // The remote name is user-controlled (`.git/config`), so it's spliced
       // behind `--end-of-options` to defend against argv injection.
-      assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', '--end-of-options', 'origin']);
+      assert.deepStrictEqual(fetchCmd(), ['fetch', '--end-of-options', 'origin']);
     });
   });
 
