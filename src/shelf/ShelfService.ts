@@ -534,8 +534,12 @@ export class ShelfService implements IShelfService {
       throw new Error('Shelf name cannot be empty');
     }
 
-    // Validate that we have something to shelve
-    if (!changes.files?.length && !changes.changelists?.length && !changes.hunks?.size) {
+    // Validate that we have something to shelve. `changes.changelists` is NOT
+    // counted here: `resolveFilesToShelve` does not expand changelists into
+    // files yet, so counting them would pass this gate and then throw the
+    // confusing "No files found to shelve" below. Until expansion lands, a
+    // changelists-only selection is treated as "nothing selected".
+    if (!changes.files?.length && !changes.hunks?.size) {
       throw new Error('No changes selected to shelve');
     }
 

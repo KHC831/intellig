@@ -14,6 +14,20 @@ import * as path from 'path';
 /** Hex-only git object id: 40-char (SHA-1) or 64-char (SHA-256). */
 export const FULL_SHA_RE = /^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$/;
 
+/** An abbreviated-or-full hex object id: 4–64 hex chars (SHA-1 or SHA-256). */
+const HEX_OBJECT_ID_RE = /^[0-9a-fA-F]{4,64}$/;
+
+/**
+ * Whether `value` is a hex git object id — a full 40/64-char id, or (with
+ * `{ allowPrefix: true }`) an abbreviated 4–64-char prefix. The single home for
+ * this test so every argv guard stays SHA-256-ready instead of hard-capping at
+ * 40 hex chars (which silently broke containing-branches, hash filters, stash
+ * rename, and cherry marks in SHA-256 repos).
+ */
+export function isHexObjectId(value: string, options?: { allowPrefix?: boolean }): boolean {
+  return options?.allowPrefix ? HEX_OBJECT_ID_RE.test(value) : FULL_SHA_RE.test(value);
+}
+
 /**
  * Translates a full 40/64-char SHA into its abbreviated form. Production callers
  * wire this to `git rev-parse --short`; tests pass a pure substring helper. May

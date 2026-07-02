@@ -8,9 +8,9 @@
  *
  * ```
  * ┌ Resolve Conflicts — merge from 'feature/x' ──────────────────────────┐
- * │  ⚠  path/a.ts  [Accept Yours][Accept Theirs][Merge…][Apply Non-Conf.] │
+ * │  ⚠  path/a.ts          [Accept Yours][Accept Theirs][Merge…]         │
  * │  ✓  path/b.ts  resolved                                              │
- * │                                                                      │
+ * │  For all remaining files: [Accept Yours][Accept Theirs]             │
  * │         [ Abort {Op} ]  [ Continue ]                                 │
  * └──────────────────────────────────────────────────────────────────────┘
  * ```

@@ -27,6 +27,7 @@ import {
 } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 import { getOutputChannel } from '../../utils/outputChannel';
+import { isHexObjectId } from '../gitDirMarkers';
 
 /**
  * Stash + tag + history (getLog/getCommit/getFileHistory) operations
@@ -240,7 +241,7 @@ export class StashTagHistoryOps {
       throwOnError: true,
     });
     const commitHash = revParse.stdout.trim();
-    if (!commitHash || !/^[a-f0-9]{7,40}$/i.test(commitHash)) {
+    if (!commitHash || !isHexObjectId(commitHash, { allowPrefix: true })) {
       throw new InvalidArgumentError(`Could not resolve stash@{${index}} to a commit`);
     }
 
@@ -839,7 +840,7 @@ export class StashTagHistoryOps {
 }
 
 /** A hash arg for the `--no-walk` filter: hex only (cannot smuggle a flag). */
-const HASH_ARG = /^[0-9a-fA-F]{1,40}$/;
+const HASH_ARG = /^[0-9a-fA-F]{4,64}$/;
 
 /**
  * Guard a hash passed positionally to `git log/rev-list --no-walk`. The

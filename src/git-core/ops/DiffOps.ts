@@ -14,6 +14,7 @@ import { sortCommitsStable } from '../commitSort';
 import { diffIgnorePolicyFlags, normalizeDiffIgnorePolicy } from '../diffIgnorePolicy';
 import { IGitOpsContext } from './GitOpsContext';
 import { getOutputChannel } from '../../utils/outputChannel';
+import { isHexObjectId } from '../gitDirMarkers';
 
 /**
  * Diff / blame / changed-files / merge-base / cherry-mark operations
@@ -45,9 +46,9 @@ export class DiffOps {
    *
    *   git log --cherry-mark --left-right --pretty=format:%H %m HEAD...<baseRef>
    *
-   * Each output line is `<40-hex> <mark>`. We parse into a Map so the Log tab
-   * can O(1)-look-up a given commit's classification. Errors resolve to an
-   * empty map (caller gracefully degrades — the feature is non-critical).
+   * Each output line is `<hex-object-id> <mark>` (SHA-1 or SHA-256). We parse
+   * into a Map so the Log tab can O(1)-look-up a given commit's classification.
+   * Errors resolve to an empty map (caller gracefully degrades — non-critical).
    */
   async getCherryMarks(repo: IRepository, baseRef: string): Promise<Map<string, CherryMark>> {
     const out = new Map<string, CherryMark>();
@@ -87,12 +88,16 @@ export class DiffOps {
         if (!line) {
           continue;
         }
-        // Format: "<hash> <mark>" — hash is 40 hex, mark is one char.
+        // Format: "<hash> <mark>" — hash is a full 40/64-hex object id
+        // (SHA-256-ready), mark is one char.
         const space = line.indexOf(' ');
-        if (space !== 40) {
+        if (space < 0) {
           continue;
         }
-        const hash = line.substring(0, 40);
+        const hash = line.substring(0, space);
+        if (!isHexObjectId(hash)) {
+          continue;
+        }
         const mark = line.substring(space + 1).trim();
         if (isCherryMark(mark)) {
           out.set(hash, mark);

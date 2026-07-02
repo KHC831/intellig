@@ -32,6 +32,7 @@ import { parseGitVersion, supportsUpdateRefs, IGitVersion } from '../gitVersion'
 import { getOutputChannel } from '../../utils/outputChannel';
 import { IGitOpsContext } from './GitOpsContext';
 import { NON_INTERACTIVE_GIT_ENV } from '../gitEnv';
+import { isHexObjectId } from '../gitDirMarkers';
 
 /**
  * Translate {@link IRebaseOptions} into git flags, in IntelliJ git4idea's
@@ -102,7 +103,7 @@ export class BranchOps {
     // no `--end-of-options`. Reject anything that is not a hex object name
     // before exec so a crafted ref can never smuggle in flags. A guard miss is
     // benign (not a git fault) → Ok([]), no error noise.
-    if (!/^[0-9a-fA-F]{4,40}$/.test(hash)) {
+    if (!isHexObjectId(hash, { allowPrefix: true })) {
       return okAsync([]);
     }
     return ResultAsync.fromPromise(

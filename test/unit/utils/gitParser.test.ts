@@ -295,6 +295,18 @@ describe('Git Parser Utilities', () => {
       const result = parseRemotes('');
       assert.strictEqual(result.length, 0);
     });
+
+    it('keeps a local-path remote whose URL contains spaces', () => {
+      // `git remote -v` prints `name\turl (type)`. A local path with spaces
+      // ("/Users/me/My Repos/lib") was dropped by the old `\\S+` URL match, so
+      // the remote vanished from push/fetch pickers and hosting links.
+      const output =
+        'origin\t/Users/me/My Repos/lib (fetch)\n' + 'origin\t/Users/me/My Repos/lib (push)\n';
+      const result = parseRemotes(output);
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].fetchUrl, '/Users/me/My Repos/lib');
+      assert.strictEqual(result[0].pushUrl, '/Users/me/My Repos/lib');
+    });
   });
 
   describe('parseStashList', () => {

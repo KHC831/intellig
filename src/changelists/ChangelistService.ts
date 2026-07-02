@@ -710,14 +710,33 @@ export class ChangelistService implements IChangelistService {
 
     // Set of current dirty paths per git status (uses renamed -> target path).
     const dirtyPaths = new Set<string>();
+    // Map a rename's OLD path → its NEW path so a file that was renamed keeps
+    // its user-assigned changelist instead of being pruned (old path gone) and
+    // re-added to the default (new path unseen).
+    const renamedFrom = new Map<string, string>();
     for (const entry of statuses) {
       dirtyPaths.add(entry.path);
+      if (entry.renamed) {
+        renamedFrom.set(entry.renamed, entry.path);
+      }
     }
 
     const storage = this.loadChangelistStorage(repo);
     this.ensureDefaultChangelist(storage);
 
     let changed = false;
+
+    // Step a: migrate a rename in place — swap the old path for the new one in
+    // whatever changelist held it, so the assignment survives the rename.
+    for (const cl of storage.changelists) {
+      for (let i = 0; i < cl.files.length; i++) {
+        const newPath = renamedFrom.get(cl.files[i]);
+        if (newPath !== undefined && cl.files[i] !== newPath) {
+          cl.files[i] = newPath;
+          changed = true;
+        }
+      }
+    }
 
     // Step b: prune storage entries whose path is no longer dirty.
     for (const cl of storage.changelists) {

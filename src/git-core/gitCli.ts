@@ -51,10 +51,37 @@ const NETWORK_GIT_VERBS = new Set(['fetch', 'pull', 'push']);
  * `ls-remote` is the interactive credential probe. */
 const UNBOUNDED_GIT_VERBS = new Set(['clone', 'ls-remote']);
 
-/** The git subcommand (verb) = the first non-flag argv token, so a leading
- * global flag like `--no-optional-locks` is skipped. */
+/**
+ * git global flags that take a SEPARATE value token (`-c key=val`, `-C <path>`,
+ * `--git-dir <dir>`, …). The value must be skipped when scanning for the verb,
+ * or it is mistaken for the subcommand (e.g. `['-c','http.x=y','fetch']` would
+ * read the verb as `http.x=y` and mis-classify the command's timeout).
+ * `--flag=value` forms carry their value inline (they start with `-`), so they
+ * are handled by the leading-`-` skip and are not listed here.
+ */
+const VALUE_TAKING_GLOBAL_FLAGS = new Set([
+  '-c',
+  '-C',
+  '--git-dir',
+  '--work-tree',
+  '--exec-path',
+  '--namespace',
+]);
+
+/** The git subcommand (verb) = the first argv token that is neither a flag nor
+ * the value of a value-taking global flag (`-c key=val`, `-C <path>`, …). */
 function gitVerb(args: string[]): string | undefined {
-  return args.find((arg) => !arg.startsWith('-'));
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (VALUE_TAKING_GLOBAL_FLAGS.has(arg)) {
+      i += 1; // skip this flag's value token
+      continue;
+    }
+    if (!arg.startsWith('-')) {
+      return arg;
+    }
+  }
+  return undefined;
 }
 
 /**

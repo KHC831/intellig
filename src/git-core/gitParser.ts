@@ -559,22 +559,32 @@ export function parseRemotes(output: string): IRemote[] {
   const lines = output.split('\n').filter((line) => line.trim().length > 0);
 
   for (const line of lines) {
-    // Format: name\turl (fetch|push)
-    const match = line.match(/^(\S+)\s+(\S+)\s+\((fetch|push)\)$/);
-    if (match) {
-      const [, name, url, type] = match;
+    // Format: `name\turl (fetch|push)`. The URL can contain spaces (a local
+    // path like `/Users/me/My Repos/lib`), so split on the FIRST tab and strip
+    // the trailing ` (fetch)`/` (push)` suffix rather than matching `\S+` for
+    // the URL (which dropped any space-bearing remote).
+    const typeMatch = line.match(/\s+\((fetch|push)\)$/);
+    const tab = line.indexOf('\t');
+    if (!typeMatch || tab <= 0) {
+      continue;
+    }
+    const type = typeMatch[1];
+    const name = line.slice(0, tab);
+    const url = line.slice(tab + 1, line.length - typeMatch[0].length).trim();
+    if (name.length === 0 || url.length === 0) {
+      continue;
+    }
 
-      let remote = remoteMap.get(name);
-      if (!remote) {
-        remote = { name };
-        remoteMap.set(name, remote);
-      }
+    let remote = remoteMap.get(name);
+    if (!remote) {
+      remote = { name };
+      remoteMap.set(name, remote);
+    }
 
-      if (type === 'fetch') {
-        remote.fetchUrl = url;
-      } else {
-        remote.pushUrl = url;
-      }
+    if (type === 'fetch') {
+      remote.fetchUrl = url;
+    } else {
+      remote.pushUrl = url;
     }
   }
 

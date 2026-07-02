@@ -391,6 +391,16 @@ describe('resolveGitTimeoutMs — per-verb default bounds', () => {
     );
   });
 
+  it('skips a value-taking global flag and its value when finding the verb', () => {
+    // `-c http.proxy=… fetch` must classify as the NETWORK verb `fetch`, not
+    // read the config value as the verb (which fell to the local default).
+    assert.strictEqual(
+      resolveGitTimeoutMs(['-c', 'http.proxy=http://p', 'fetch', 'origin']),
+      NETWORK_GIT_TIMEOUT_MS
+    );
+    assert.strictEqual(resolveGitTimeoutMs(['-C', '/some/path', 'pull']), NETWORK_GIT_TIMEOUT_MS);
+  });
+
   it('an explicit timeout always wins — including 0 (opt-out) on a network verb', () => {
     assert.strictEqual(resolveGitTimeoutMs(['fetch'], 0), 0);
     assert.strictEqual(resolveGitTimeoutMs(['status'], 5000), 5000);

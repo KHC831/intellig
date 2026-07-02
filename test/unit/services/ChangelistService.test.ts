@@ -891,6 +891,58 @@ describe('ChangelistService', () => {
       };
     }
 
+    it('a renamed file keeps its changelist assignment (old path swapped for new)', async () => {
+      // reconcile builds dirtyPaths from the NEW path; without a rename
+      // migration the OLD path is pruned from its changelist and the NEW path
+      // lands in Default, silently moving the file out of the user's list.
+      const repoChangeListeners: Array<(repo: IRepository) => void> = [];
+      let phase: 'before' | 'after' = 'before';
+      const gitService = {
+        getStatus: async () =>
+          phase === 'before'
+            ? [{ path: 'old.ts', indexStatus: ' ' as const, workTreeStatus: 'M' as const }]
+            : [
+                {
+                  path: 'new.ts',
+                  indexStatus: 'R' as const,
+                  workTreeStatus: ' ' as const,
+                  renamed: 'old.ts',
+                },
+              ],
+        onDidChangeRepository: (listener: (repo: IRepository) => void) => {
+          repoChangeListeners.push(listener);
+          return { dispose: (): void => {} };
+        },
+      } as unknown as IGitService;
+
+      const svc = createChangelistService(gitService);
+      try {
+        // Seed: old.ts is dirty and moved into a custom changelist.
+        await svc.reconcileWithGitStatus(mockRepo);
+        const custom = svc.createChangelist(mockRepo, 'Feature');
+        svc.moveToChangelist(mockRepo, ['old.ts'], custom.id);
+
+        // Now old.ts is renamed to new.ts.
+        phase = 'after';
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        const lists = svc.getChangelists(mockRepo);
+        const feature = lists.find((c) => c.id === custom.id)!;
+        const def = lists.find((c) => c.isDefault)!;
+        assert.deepStrictEqual(
+          feature.files.map((f) => f.path),
+          ['new.ts'],
+          'the renamed file must stay in its changelist under the new path'
+        );
+        assert.ok(
+          !def.files.some((f) => f.path === 'new.ts'),
+          'the renamed file must NOT leak into Default'
+        );
+      } finally {
+        svc.dispose();
+      }
+    });
+
     it('empty storage + dirty files → all assigned to default changelist', async () => {
       const stub = makeGitServiceStub(
         new Map([[testRepoPath, [{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'c.txt' }]]])
