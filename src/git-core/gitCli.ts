@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { spawn, SpawnOptions, execFileSync } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import { ResultAsync, ok, err } from 'neverthrow';
 import { getOutputChannel } from '../utils/outputChannel';
 import { GitError, CommandFailedError, classifyGitCommandError } from './errors';
@@ -305,7 +306,16 @@ export class GitCli {
     try {
       return await this._spawnOnce(args, options);
     } catch (err) {
-      if (err instanceof GitCommandError && /ENOENT/i.test(err.result.stderr)) {
+      // Retry ONLY the true spawn-failure shape (the `process.on('error')`
+      // path, whose message carries the `Failed to execute git:` prefix).
+      // Matching ENOENT anywhere in stderr re-executed the whole
+      // side-effectful command (commit/push/merge) whenever a failing HOOK
+      // merely printed a node `spawn foo ENOENT` error.
+      if (
+        err instanceof GitCommandError &&
+        err.message.startsWith('Failed to execute git:') &&
+        /ENOENT/i.test(err.message)
+      ) {
         await new Promise((r) => setTimeout(r, 50));
         return this._spawnOnce(args, options);
       }
@@ -362,9 +372,18 @@ export class GitCli {
       // uncaught, it crashed the extension host. appendCapped bounds growth;
       // the try/catch is belt-and-braces so nothing thrown here ever escapes
       // as an uncaught async exception.
+      // One StringDecoder PER STREAM: a multi-byte UTF-8 character can be
+      // split across two pipe chunks (the 64 KB boundary lands anywhere), and
+      // per-chunk `toString()` decoded both halves as U+FFFD — every
+      // downstream parser (status -z paths, log subjects) inherited the
+      // garbage nondeterministically on large outputs. The decoder buffers
+      // the partial sequence; `end()` on close flushes any dangling bytes.
+      const stdoutDecoder = new StringDecoder('utf8');
+      const stderrDecoder = new StringDecoder('utf8');
+
       process.stdout?.on('data', (data: Buffer) => {
         try {
-          const str = data.toString();
+          const str = stdoutDecoder.write(data);
           stdout = appendCapped(stdout, str, MAX_GIT_OUTPUT_BYTES);
           combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
           // eslint-disable-next-line no-restricted-syntax -- defensive belt-and-braces; a capture error in this high-frequency data handler must never escape as an uncaught async exception that crashes the host (see the block comment above).
@@ -375,7 +394,7 @@ export class GitCli {
 
       process.stderr?.on('data', (data: Buffer) => {
         try {
-          const str = data.toString();
+          const str = stderrDecoder.write(data);
           stderr = appendCapped(stderr, str, MAX_GIT_OUTPUT_BYTES);
           combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
           // eslint-disable-next-line no-restricted-syntax -- defensive belt-and-braces; a capture error in this high-frequency data handler must never escape as an uncaught async exception that crashes the host (see the block comment above).
@@ -384,9 +403,25 @@ export class GitCli {
         }
       });
 
+      // Flush any bytes still buffered in the decoders (a truncated final
+      // multi-byte sequence decodes to U+FFFD rather than being dropped).
+      const flushDecoders = (): void => {
+        const stdoutTail = stdoutDecoder.end();
+        if (stdoutTail.length > 0) {
+          stdout = appendCapped(stdout, stdoutTail, MAX_GIT_OUTPUT_BYTES);
+          combined = appendCapped(combined, stdoutTail, MAX_GIT_OUTPUT_BYTES);
+        }
+        const stderrTail = stderrDecoder.end();
+        if (stderrTail.length > 0) {
+          stderr = appendCapped(stderr, stderrTail, MAX_GIT_OUTPUT_BYTES);
+          combined = appendCapped(combined, stderrTail, MAX_GIT_OUTPUT_BYTES);
+        }
+      };
+
       // Handle process completion
       process.on('close', (code) => {
         clearTimers();
+        flushDecoders();
 
         const result: IGitCommandResult = {
           exitCode: killed ? -1 : (code ?? -1),
@@ -410,6 +445,7 @@ export class GitCli {
       // Handle process errors
       process.on('error', (error) => {
         clearTimers();
+        flushDecoders();
 
         const result: IGitCommandResult = {
           exitCode: -1,
@@ -417,6 +453,10 @@ export class GitCli {
           stderr: error.message,
           combined: combined + error.message,
         };
+
+        // Spawn failures are exactly the confusing ones — surface them in the
+        // console view like every other executed command.
+        this._onCommandExecuted.fire({ command: this._gitPath, args, result });
 
         reject(
           new GitCommandError(

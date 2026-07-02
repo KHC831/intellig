@@ -419,6 +419,106 @@ describe('resolveGitTimeoutMs — per-verb default bounds', () => {
   });
 });
 
+describe('GitCli — byte-stream decoding + spawn-retry narrowing', () => {
+  /** A scriptable fake child for exact chunk/exit control. */
+  class ScriptedChild extends EventEmitter {
+    readonly stdout = new EventEmitter();
+    readonly stderr = new EventEmitter();
+    readonly stdin = Object.assign(new EventEmitter(), {
+      write: (): boolean => true,
+      end: (): void => {},
+    });
+    kill(): boolean {
+      return true;
+    }
+  }
+
+  it('reassembles a multi-byte UTF-8 char split across stdout chunks', async () => {
+    // The 64 KB pipe boundary can land mid-character; per-chunk toString()
+    // turned both halves into U+FFFD and every downstream parser inherited
+    // the garbage (paths, subjects) nondeterministically on large outputs.
+    const child = new ScriptedChild();
+    const cli = new GitCli('git', (() => child as unknown as ChildProcess) as never);
+    const pending = cli.exec(['log']);
+    const euro = Buffer.from('€'); // 0xE2 0x82 0xAC
+    setImmediate(() => {
+      child.stdout.emit('data', euro.subarray(0, 1));
+      child.stdout.emit('data', euro.subarray(1));
+      child.emit('close', 0);
+    });
+    const result = await pending;
+    assert.strictEqual(result.stdout, '€');
+    assert.strictEqual(result.combined, '€');
+  });
+
+  it('reassembles a split multi-byte char on stderr too', async () => {
+    const child = new ScriptedChild();
+    const cli = new GitCli('git', (() => child as unknown as ChildProcess) as never);
+    const pending = cli.exec(['log']);
+    const cjk = Buffer.from('路径'); // two 3-byte chars
+    setImmediate(() => {
+      child.stderr.emit('data', cjk.subarray(0, 4)); // splits the second char
+      child.stderr.emit('data', cjk.subarray(4));
+      child.emit('close', 0);
+    });
+    const result = await pending;
+    assert.strictEqual(result.stderr, '路径');
+  });
+
+  it('does NOT re-execute a command whose hook printed ENOENT to stderr', async () => {
+    // A failing husky hook commonly prints a node `spawn foo ENOENT` error.
+    // Retrying on stderr CONTENT re-ran the whole side-effectful command
+    // (commit/push/merge). Only a true spawn failure may retry.
+    let spawns = 0;
+    const mkChild = (): ScriptedChild => {
+      spawns++;
+      const c = new ScriptedChild();
+      setImmediate(() => {
+        c.stderr.emit('data', Buffer.from('husky > pre-commit: spawn foo ENOENT\n'));
+        c.emit('close', 1);
+      });
+      return c;
+    };
+    const cli = new GitCli('git', (() => mkChild() as unknown as ChildProcess) as never);
+    await assert.rejects(() => cli.exec(['commit', '-m', 'x'], { throwOnError: true }));
+    assert.strictEqual(spawns, 1, 'a hook-printed ENOENT must not re-run the command');
+  });
+
+  it('still retries ONCE on a true spawn ENOENT failure', async () => {
+    let spawns = 0;
+    const mkChild = (): ScriptedChild => {
+      spawns++;
+      const c = new ScriptedChild();
+      setImmediate(() => {
+        c.emit('error', Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }));
+      });
+      return c;
+    };
+    const cli = new GitCli('git', (() => mkChild() as unknown as ChildProcess) as never);
+    await assert.rejects(() => cli.exec(['status']), /Failed to execute git/);
+    assert.strictEqual(spawns, 2, 'a true spawn ENOENT retries exactly once');
+  });
+
+  it('fires onCommandExecuted for a spawn failure (console-view visibility)', async () => {
+    const child = new ScriptedChild();
+    const cli = new GitCli('git', (() => child as unknown as ChildProcess) as never);
+    const fired: number[] = [];
+    const sub = cli.onCommandExecuted((e) => {
+      fired.push(e.result.exitCode);
+    });
+    const pending = cli.exec(['status']);
+    setImmediate(() => {
+      child.emit('error', Object.assign(new Error('spawn git EACCES'), { code: 'EACCES' }));
+    });
+    try {
+      await assert.rejects(() => pending, /Failed to execute git/);
+    } finally {
+      sub.dispose();
+    }
+    assert.deepStrictEqual(fired, [-1], 'the failed spawn must reach the console view');
+  });
+});
+
 describe('GitCli command timeout — kill machinery', () => {
   /** A controllable fake child: records kill signals and emits `close` only
    * when killed with a signal in `closeOn` (so a child can "ignore" SIGTERM). */
