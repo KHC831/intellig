@@ -1,8 +1,10 @@
 # IntelliG for VS Code
 
-IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, branch popup, interactive rebase, shelf, blame annotations, merge resolution, and more — right into VS Code.
+The native-feeling Git UI for VS Code users who miss IntelliJ's. It borrows the ideas that made Git pleasant in IntelliJ IDEA — changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log — and rebuilds them as first-class VS Code, so you feel at home instead of like you're running a transplanted IDE.
 
 ![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
+
+**The idea:** IntelliJ's `git4idea` is the inspiration, not a spec to clone. IntelliG keeps its best daily workflows, embraces native VS Code idioms (the built-in 3-way merge editor, the native SCM commit surface) rather than transplanting Swing, and puts trusting-it-with-your-repo ahead of matching every menu item.
 
 ## Marketplace
 
