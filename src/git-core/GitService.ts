@@ -47,6 +47,7 @@ import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoSca
 import {
   isPathInsideOrEqual,
   repoRootFromGitDir,
+  isNewRepoBeyondScanDepth,
   isNewRepoPathIgnored,
   resolveWorktreeGitDir,
 } from './repo/RepositoryDiscovery';
@@ -685,10 +686,11 @@ export class GitService implements IGitService, IGitServiceCli {
    * npm-packaged repos.
    *
    * **Why this is safe vs. the infinite-loop guards:**
-   *   - Listens to creation events ONLY (`ignoreChangeEvents: true`,
-   * `ignoreDeleteEvents: true`). The loop was caused by
-   *     `**\/*` watching every modify of `.git/objects/**`; we don't watch
-   *     modifies and we restrict to `.git` basename.
+   *   - Listens to create + delete of the `.git` basename only
+   *     (`ignoreChangeEvents: true`). The loop was caused by `**\/*`
+   *     watching every modify of `.git/objects/**`; we don't watch modifies,
+   *     and a `.git` entry itself is created/deleted only when a repo
+   *     appears or is destroyed — never during normal git operations.
    *   - The handler re-runs `discoverRepository` on the parent dir, which
    *     dedupes via `_repositories.has(root)` — so a clone that creates a
    *     `.git/` won't kick off a second `loadRepository` for the same root.
@@ -707,7 +709,7 @@ export class GitService implements IGitService, IGitServiceCli {
       new vscode.RelativePattern(vscode.Uri.file(folderPath), '**/.git'),
       false /* ignoreCreateEvents */,
       true /* ignoreChangeEvents */,
-      true /* ignoreDeleteEvents */
+      false /* ignoreDeleteEvents — deletion of a repo dir must evict it (see onDidDelete) */
     );
     watcher.onDidCreate((uri) => {
       if (this._disposed) {
@@ -728,6 +730,14 @@ export class GitService implements IGitService, IGitServiceCli {
       if (isNewRepoPathIgnored(folderPath, repoParentDir, userIgnored)) {
         return;
       }
+      // Depth parity with the initial scan: the `**/.git` glob has no depth
+      // bound, so without this a repo created at any depth (e.g. a test-run
+      // scratch repo) registers live even though a window reload would never
+      // discover it.
+      const maxDepth = config.get<number>('repositoryScanMaxDepth', 1);
+      if (isNewRepoBeyondScanDepth(folderPath, repoParentDir, maxDepth)) {
+        return;
+      }
 
       if (this._repositories.has(repoParentDir)) {
         return;
@@ -741,6 +751,43 @@ export class GitService implements IGitService, IGitServiceCli {
       safeFireAndForget(
         this.discoverRepository(repoParentDir),
         `GitService.setupNewRepoWatcher: discover new repo at ${repoParentDir}`
+      );
+    });
+
+    // Deletion pruning. The per-repo `.git/HEAD` watcher covers `rm -rf .git`
+    // inside a live repo, but deleting the whole repo DIRECTORY does not
+    // reliably surface a HEAD delete event — the repo then lingered in every
+    // picker until window reload. This watcher sees the `.git` deletion
+    // itself. A delete event is not proof of deletion (FSEvents surfaces
+    // rename-based updates as delete+create), so verify the path is really
+    // gone before routing to the shared `removeRepositoryWatcher` teardown
+    // (which fires `onDidRemoveRepository` and bumps the removal generation).
+    watcher.onDidDelete((uri) => {
+      if (this._disposed) {
+        return;
+      }
+      const repoParentDir = repoRootFromGitDir(uri.fsPath);
+      if (repoParentDir === undefined || !this._repositories.has(repoParentDir)) {
+        return;
+      }
+      safeFireAndForget(
+        (async (): Promise<void> => {
+          let gitPathExists: boolean;
+          try {
+            // `realpath` resolves for both a `.git` directory and a `.git`
+            // file (worktree/submodule), so a live repo of either shape
+            // survives a transient event.
+            await this._repoScanFs.realpath(uri.fsPath);
+            gitPathExists = true;
+          } catch {
+            gitPathExists = false;
+          }
+          if (this._disposed || gitPathExists || !this._repositories.has(repoParentDir)) {
+            return;
+          }
+          this.removeRepositoryWatcher(repoParentDir);
+        })(),
+        `GitService.setupNewRepoWatcher: confirm repo deletion at ${repoParentDir}`
       );
     });
 

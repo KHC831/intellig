@@ -136,3 +136,29 @@ export function isNewRepoPathIgnored(
   }
   return false;
 }
+
+/**
+ * True when a newly-discovered `.git/` at `repoParentDir` sits DEEPER below
+ * the watched `folderPath` than `maxDepth` allows — the same rule
+ * `scanFolderForGitRepos` applies (`maxDepth` 1 = the folder itself plus
+ * direct children; `-1` = unlimited). The mid-session `**\/.git` watcher must
+ * apply it too: its glob has no depth bound, so without this check a repo
+ * created at any depth (e.g. a test-run scratch repo) registers live even
+ * though a window reload would never discover it.
+ *
+ * Callers pass a `repoParentDir` already verified to be inside `folderPath`
+ * (see {@link isNewRepoPathIgnored}); an outside path is not this
+ * predicate's concern and returns false.
+ */
+export function isNewRepoBeyondScanDepth(
+  folderPath: string,
+  repoParentDir: string,
+  maxDepth: number
+): boolean {
+  if (maxDepth === -1) {
+    return false;
+  }
+  const rel = path.relative(folderPath, repoParentDir); // pathspec-guard-allow: containment check, not a git pathspec
+  const depth = rel.split(/[/\\]/).filter((s) => s.length > 0).length;
+  return depth > maxDepth;
+}
