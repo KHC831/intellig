@@ -1225,7 +1225,17 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // can subscribe to `onDidResolve` from the moment the service is wired.
     // MergeView is otherwise cheap — it only opens a panel on `show()`.
     if (!ctx.mergeView) {
-      ctx.mergeView = createMergeView(ctx.context.extensionUri, gitService);
+      const sideNamesService = ctx.services.conflictResolutionService;
+      ctx.mergeView = createMergeView(
+        ctx.context.extensionUri,
+        gitService,
+        sideNamesService
+          ? {
+              context: ctx.context,
+              getSideNames: (repo) => sideNamesService.getConflictSideNames(repo),
+            }
+          : undefined
+      );
     }
     const conflictService = ctx.services.conflictResolutionService;
     if (

@@ -48,3 +48,4 @@ out-test/
 # (`vsce package` unpacked output). Glob so every version is covered;
 # `.vsix` files themselves are already ignored above.
 intellig-*/
+media/mergeWindow.js

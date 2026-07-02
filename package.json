@@ -1455,6 +1455,11 @@
           "default": false,
           "description": "Add Signed-off-by line to commit messages by default"
         },
+        "intellig.mergeWindow.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental: resolve conflicts in the IntelliG merge window (IntelliJ-style three-pane editor with an editable result). When off, conflicts open in VS Code's built-in merge editor."
+        },
         "intellig.lineStatus.enabled": {
           "type": "boolean",
           "default": true,
@@ -1891,10 +1896,13 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run prepublish:guard && npm run check:config-coherence && npm run check:100-gate && npm run compile",
+    "vscode:prepublish": "npm run prepublish:guard && npm run check:config-coherence && npm run check:100-gate && npm run compile && npm run minify:js",
     "prepublish:guard": "node scripts/prepublish-guard.mjs",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run build:webview",
+    "minify:js": "node scripts/minify-js.mjs && npm run build:webview -- --minify",
+    "build:webview": "esbuild src/conflicts/merge-window/webview/main.ts --bundle --outfile=media/mergeWindow.js --format=iife --global-name=intelligMergeWindow --platform=browser --target=es2020 --log-level=warning",
     "watch": "tsc -watch -p ./",
+    "watch:webview": "npm run build:webview -- --watch",
     "lint": "eslint src test --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -1950,6 +1958,7 @@
     "@typescript-eslint/parser": "^6.13.0",
     "@vscode/test-electron": "^2.3.8",
     "c8": "^10.1.3",
+    "esbuild": "^0.25.5",
     "eslint": "^8.55.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-neverthrow": "^1.1.4",
@@ -1971,6 +1980,7 @@
   },
   "dependencies": {
     "@vscode/codicons": "^0.0.45",
+    "monaco-editor": "^0.52.2",
     "neverthrow": "^8.2.0"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer — invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' — the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet — printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
+  "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer \u2014 invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' \u2014 the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet \u2014 printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
   "statuses": ["tested", "backlog"],
   "files": {
     "src/git-core/gitToolWindow/provider/scriptBuilder.ts": {
@@ -20,7 +20,7 @@
     },
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
       "status": "tested",
-      "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom — no behavior script (toolWindowHtmlPieces.test.ts)"
+      "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom \u2014 no behavior script (toolWindowHtmlPieces.test.ts)"
     },
     "src/commits/CommitToolWindow.ts": {
       "status": "tested",
@@ -73,6 +73,10 @@
     "src/rebase/RebaseProgressView.ts": {
       "status": "tested",
       "note": "_getScript run in jsdom over #progress-root skeleton (rebaseViewsScript.test.ts)"
+    },
+    "src/conflicts/merge-window/webview/main.ts": {
+      "status": "tested",
+      "note": "boot + init + toolbar/gutter actions driven under jsdom with a monaco stub (mergeWindowScript.test.ts); connector canvas geometry stays on the F5 lane."
     }
   }
 }

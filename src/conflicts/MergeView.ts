@@ -8,7 +8,19 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { canonicalizeFsPath, repoRelativePath } from '../utils/repoRelativePath';
 import { ensureSyntheticMergeBase } from './syntheticMergeBase';
+import { IConflictSideNames } from './conflictSideNames';
+import { MergeWindowPanel } from './merge-window/MergeWindowPanel';
 import { getLogger } from '../utils/logger';
+
+/**
+ * What the experimental merge window needs beyond MergeView's own
+ * dependencies. Absent (older wiring) means the native-editor path is used
+ * regardless of the setting.
+ */
+export interface IMergeWindowDeps {
+  context: vscode.ExtensionContext;
+  getSideNames: (repository: IRepository) => Promise<IConflictSideNames>;
+}
 
 /**
  * Thin adapter that routes 3-way conflict resolution to VS Code's built-in
@@ -42,7 +54,8 @@ export class MergeView implements IMergeView {
 
   constructor(
     _extensionUri: vscode.Uri,
-    private readonly _gitService: IGitService
+    private readonly _gitService: IGitService,
+    private readonly _mergeWindowDeps?: IMergeWindowDeps
   ) {
     this._onDidResolve = new vscode.EventEmitter<string>();
     this.onDidResolve = this._onDidResolve.event;
@@ -106,42 +119,114 @@ export class MergeView implements IMergeView {
     const relPath = repoRelativePath(repository.rootUri.fsPath, absolutePath);
     this._shownFiles.set(canonicalizeFsPath(absolutePath), { repository, relPath });
 
-    // Add/add conflicts carry no stage-1, so the native editor would show the
-    // whole file on both sides over an empty base. Inject a synthetic base from
-    // the conflict-marked working file (IntelliJ's loadMergeData fallback) so
-    // the editor can collapse the shared lines and show a real diff. Best-effort:
-    // a failure must not block opening the editor.
-    //
-    // The injection READS the stage model and WRITES the index
-    // (`update-index --index-info`), so the whole sequence runs under the
-    // shared per-repo index lock — otherwise it can interleave with a
-    // concurrent bulk accept and re-write unmerged stages for a path the
-    // accept just resolved.
     const gitCli = (this._gitService as Partial<{ gitCli: GitCli }>).gitCli;
-    if (gitCli) {
-      const root = repository.rootUri.fsPath;
-      const inject = (): Promise<boolean> => ensureSyntheticMergeBase(gitCli, root, relPath);
-      const withIndexLock = (
-        this._gitService as Partial<{
-          withIndexLock: <T>(rootPath: string, fn: () => Promise<T>) => Promise<T>;
-        }>
-      ).withIndexLock;
-      try {
-        await (typeof withIndexLock === 'function'
-          ? withIndexLock.call(this._gitService, root, inject)
-          : inject());
-      } catch (err) {
-        getLogger().debug('synthetic merge base injection failed', {
-          file: relPath,
-          err: err instanceof Error ? err.message : String(err),
-        });
-      }
+
+    // Experimental IntelliG merge window (Monaco three-pane, ported IntelliJ
+    // engine) behind a setting; the native editor stays the default path.
+    // The window handles a missing add/add base in memory (the same
+    // conflict-marked-file fallback IntelliJ's loadMergeData uses), so only
+    // the native editor — which reads stages from the index itself — needs
+    // the synthetic stage-1 written into the index.
+    if (this._isMergeWindowEnabled() && this._mergeWindowDeps && gitCli) {
+      await this._openMergeWindow(repository, absolutePath, relPath, gitCli);
+      return;
     }
 
-    // Hand off to VS Code's native 3-way merge editor. The command takes the
-    // URI of the conflicted working-tree file; it resolves the index versions
-    // (:1/:2/:3) itself.
+    if (gitCli) {
+      await this._injectSyntheticBase(repository, relPath, gitCli);
+    }
+    await this._openNativeMergeEditor(absolutePath);
+  }
+
+  /**
+   * Add/add conflicts carry no stage-1, so the native editor would show the
+   * whole file on both sides over an empty base. Inject a synthetic base from
+   * the conflict-marked working file (IntelliJ's loadMergeData fallback) so
+   * the editor can collapse the shared lines and show a real diff.
+   * Best-effort: a failure must not block opening the editor.
+   *
+   * The injection READS the stage model and WRITES the index
+   * (`update-index --index-info`), so the whole sequence runs under the
+   * shared per-repo index lock — otherwise it can interleave with a
+   * concurrent bulk accept and re-write unmerged stages for a path the
+   * accept just resolved.
+   */
+  protected async _injectSyntheticBase(
+    repository: IRepository,
+    relPath: string,
+    gitCli: GitCli
+  ): Promise<void> {
+    const root = repository.rootUri.fsPath;
+    const inject = (): Promise<boolean> => ensureSyntheticMergeBase(gitCli, root, relPath);
+    const withIndexLock = (
+      this._gitService as Partial<{
+        withIndexLock: <T>(rootPath: string, fn: () => Promise<T>) => Promise<T>;
+      }>
+    ).withIndexLock;
+    try {
+      await (typeof withIndexLock === 'function'
+        ? withIndexLock.call(this._gitService, root, inject)
+        : inject());
+    } catch (err) {
+      getLogger().debug('synthetic merge base injection failed', {
+        file: relPath,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private _isMergeWindowEnabled(): boolean {
+    return (
+      vscode.workspace.getConfiguration('intellig').get<boolean>('mergeWindow.enabled', false) ===
+      true
+    );
+  }
+
+  /**
+   * Hand off to VS Code's native 3-way merge editor. The command takes the
+   * URI of the conflicted working-tree file; it resolves the index versions
+   * (:1/:2/:3) itself.
+   */
+  protected async _openNativeMergeEditor(absolutePath: string): Promise<void> {
     await vscode.commands.executeCommand('git.openMergeEditor', vscode.Uri.file(absolutePath));
+  }
+
+  /**
+   * Open the IntelliG merge window for the conflicted file. Side labels come
+   * from the conflict-operation context (rebase swaps ours/theirs there);
+   * label resolution is best-effort and never blocks opening.
+   */
+  protected async _openMergeWindow(
+    repository: IRepository,
+    absolutePath: string,
+    relPath: string,
+    gitCli: GitCli
+  ): Promise<void> {
+    const deps = this._mergeWindowDeps;
+    if (!deps) {
+      return;
+    }
+    let names: IConflictSideNames = {};
+    try {
+      names = await deps.getSideNames(repository);
+    } catch (err) {
+      getLogger().debug('merge window: side-name resolution failed', {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+    new MergeWindowPanel(deps.context, {
+      repository,
+      relPath,
+      absolutePath,
+      leftLabel: names.yours ? `Yours (${names.yours})` : 'Yours',
+      rightLabel: names.theirs ? `Theirs (${names.theirs})` : 'Theirs',
+      gitCli,
+      gitService: this._gitService,
+      onApplied: (applied): void => {
+        this._shownFiles.delete(canonicalizeFsPath(absolutePath));
+        this._onDidResolve.fire(applied);
+      },
+    });
   }
 
   /**
@@ -376,10 +461,15 @@ export function resolveMarkResolvedTarget(
 }
 
 /**
- * Create a new MergeView instance
+ * Create a new MergeView instance. `mergeWindowDeps` enables the experimental
+ * IntelliG merge window path (still gated by `intellig.mergeWindow.enabled`).
  */
-export function createMergeView(extensionUri: vscode.Uri, gitService: IGitService): MergeView {
-  return new MergeView(extensionUri, gitService);
+export function createMergeView(
+  extensionUri: vscode.Uri,
+  gitService: IGitService,
+  mergeWindowDeps?: IMergeWindowDeps
+): MergeView {
+  return new MergeView(extensionUri, gitService, mergeWindowDeps);
 }
 
 /** Side of a conflict marker — left = current (ours), right = incoming (theirs). */
