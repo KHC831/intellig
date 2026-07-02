@@ -23,6 +23,21 @@ export interface IGitVersion {
 }
 
 /**
+ * The oldest git IntelliG supports. Judge every new flag against this floor
+ * (the discipline gap behind past field failures: `fetch --porcelain` needed
+ * git 2.41 and broke older gits until the ref-snapshot redesign). The floor
+ * is set by the newest flag we emit UNCONDITIONALLY:
+ *   - `pull --autostash` in MERGE mode — accepted from git 2.27 (older git
+ *     fatals "--autostash is only valid with --rebase"; updateProject sets it
+ *     unconditionally).
+ * Version-gated flags above the floor (e.g. `rebase --update-refs`, 2.38) get
+ * an explicit pre-flight check instead. All mainstream 2022+ distros ship
+ * >= 2.30 (Ubuntu 22.04 = 2.34), so the floor sits comfortably below the
+ * field.
+ */
+export const MIN_SUPPORTED_GIT: IGitVersion = { major: 2, minor: 27, patch: 0 };
+
+/**
  * Parse the `git --version` banner into a {@link IGitVersion}.
  *
  * Accepts the standard `git version 2.38.1` form and vendor-suffixed variants

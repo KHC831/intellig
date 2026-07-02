@@ -124,7 +124,11 @@ export class RemoteOps {
       return errAsync(new InvalidArgumentError('Commit message cannot be empty'));
     }
 
-    const args = ['commit', '-m', message];
+    // A keep-message amend (empty message + amend) must NOT emit `-m ''` —
+    // git aborts on an empty commit message. `--no-edit` re-uses the
+    // previous message instead.
+    const args =
+      !trimmedMessage && options.amend ? ['commit', '--no-edit'] : ['commit', '-m', message];
 
     if (options.amend) {
       args.push('--amend');
@@ -287,7 +291,9 @@ export class RemoteOps {
     });
     const after = await this._snapshotRefs(cwd);
 
-    const updatedRefs = diffRefSnapshots(before, after);
+    // Suppress the report (not fabricate one) when either snapshot failed.
+    const updatedRefs =
+      before !== undefined && after !== undefined ? diffRefSnapshots(before, after) : [];
     const result: IFetchResult = {
       updatedRefs,
       errors: collectFetchErrors(cliResult.stderr),
@@ -301,19 +307,23 @@ export class RemoteOps {
    * Snapshot every remote-tracking ref + tag as a `ref → object id` map via
    * `git for-each-ref` (a cheap local read). Taken immediately before and
    * after a fetch; the diff of the two snapshots is the set of refs the fetch
-   * updated. A failed read degrades to an empty map — the fetch itself still
-   * succeeds, only the updated-ref report is lost (best-effort field).
+   * updated. A failed read returns `undefined` — distinct from an EMPTY map
+   * (a repo with no remote refs yet): degrading a failed BEFORE read to empty
+   * made the diff report the WHOLE ref namespace as freshly created, so the
+   * manual-fetch toast claimed "N ref(s) updated" for an up-to-date repo.
+   * The caller suppresses the report when either side failed (best-effort
+   * field; the fetch itself still succeeds).
    *
    * The `\x1f` separator matches the log/branch/tag formats: a ref name can
    * never contain a C0 control character (git-check-ref-format).
    */
-  private async _snapshotRefs(cwd: string): Promise<Map<string, string>> {
+  private async _snapshotRefs(cwd: string): Promise<Map<string, string> | undefined> {
     const result = await this.ctx.gitCli.exec(
       ['for-each-ref', '--format=%(refname)\x1f%(objectname)', 'refs/remotes', 'refs/tags'],
       { cwd }
     );
     if (result.exitCode !== 0) {
-      return new Map();
+      return undefined;
     }
     return parseRefSnapshot(result.stdout);
   }

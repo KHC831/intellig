@@ -817,16 +817,23 @@ describe('GitService - Branch Operations', () => {
     });
 
     describe('Checkout with track option', () => {
-      it('should include --track with remote branch when track is specified', async () => {
+      it('emits --track only on the branch-creating path (plain checkout drops it)', async () => {
+        // On the plain path `--track` would land behind `--end-of-options`
+        // where git reads it as a pathspec and fatals — the flag is only
+        // meaningful (and only emitted) when a branch is being created.
         await gitService.checkout(mockRepo, 'local-branch', { track: 'origin/remote-branch' });
+        const plain = mockGitCli.getLastCommand();
+        assert.ok(plain, 'Command should have been executed');
+        assert.ok(!plain.args.includes('--track'), 'plain checkout must not emit --track');
 
-        const lastCommand = mockGitCli.getLastCommand();
-        assert.ok(lastCommand, 'Command should have been executed');
-        assert.ok(lastCommand.args.includes('--track'), 'Should include --track flag');
-        assert.ok(
-          lastCommand.args.includes('origin/remote-branch'),
-          'Should include remote branch'
-        );
+        await gitService.checkout(mockRepo, 'local-branch', {
+          createBranch: true,
+          track: 'origin/remote-branch',
+        });
+        const creating = mockGitCli.getLastCommand();
+        assert.ok(creating);
+        assert.ok(creating.args.includes('--track'), 'branch-creating checkout keeps --track');
+        assert.ok(creating.args.includes('origin/remote-branch'));
       });
     });
 

@@ -43,7 +43,8 @@ interface IExecCall {
 function installGitService(
   beforeSnapshot: string,
   afterSnapshot: string,
-  fetchStderr = ''
+  fetchStderr = '',
+  failBeforeSnapshot = false
 ): { gitService: GitService; calls: IExecCall[] } {
   const gitService = new GitService();
   const calls: IExecCall[] = [];
@@ -54,6 +55,9 @@ function installGitService(
       calls.push({ args });
       const verb = args.find((a) => !a.startsWith('-'));
       if (verb === 'for-each-ref') {
+        if (failBeforeSnapshot && !fetched) {
+          return { exitCode: 128, stdout: '', stderr: 'fatal: boom', combined: 'fatal: boom' };
+        }
         const stdout = fetched ? afterSnapshot : beforeSnapshot;
         return { exitCode: 0, stdout, stderr: '', combined: stdout };
       }
@@ -119,6 +123,24 @@ describe('RemoteOps fetch ref-snapshot reporting', () => {
         { ref: 'refs/remotes/origin/feature', oldSha: ZERO, newSha: NEW },
         { ref: 'refs/remotes/origin/gone', oldSha: NEW2, newSha: ZERO },
       ]
+    );
+  });
+
+  it('suppresses the report when the BEFORE snapshot failed — not "every ref created"', async () => {
+    // Degrading a failed before-read to an empty map diffed the whole ref
+    // namespace as freshly created and the fetch toast claimed updates on an
+    // up-to-date repo. A failed side must suppress the diff, not fake one.
+    const after = [
+      snapshotLine('refs/remotes/origin/main', OLD),
+      snapshotLine('refs/remotes/origin/feature', NEW),
+    ].join('\n');
+    const { gitService } = installGitService('', after, '', true);
+    const result = await gitService.fetch(makeRepo(), 'origin');
+    assert.ok(result.isOk());
+    assert.deepStrictEqual(
+      result._unsafeUnwrap().updatedRefs,
+      [],
+      'a failed snapshot side must yield NO updated-ref report'
     );
   });
 

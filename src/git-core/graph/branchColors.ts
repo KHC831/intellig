@@ -89,8 +89,11 @@ function stableColorIndex(name: string): number {
  * not reserved: a non-trunk branch can still hash to it, the same accepted
  * collision class as any two branches sharing a slot.
  */
-export function branchColorFor(name: string): string {
-  if (isTrunkName(remoteTail(name))) {
+export function branchColorFor(name: string, type?: 'local' | 'remote'): string {
+  // The remote-tail strip applies only to remote refs: a LOCAL branch whose
+  // last segment happens to be main/master (`dev/main`) is just a branch.
+  // An unknown type keeps the tail heuristic (name-only callers/tests).
+  if (isTrunkName(name) || (type !== 'local' && isTrunkName(remoteTail(name)))) {
     return GRAPH_BRANCH_COLORS[0];
   }
   return GRAPH_BRANCH_COLORS[stableColorIndex(name)];
@@ -228,6 +231,7 @@ export function computeBranchColors(
   interface ITip {
     index: number;
     refName: string;
+    refType: 'local' | 'remote';
     priority: number;
   }
   const tips: ITip[] = [];
@@ -241,7 +245,7 @@ export function computeBranchColors(
     // (tier 0), so a sibling remote feature can't outrank it and steal the spine.
     // `pickRef` still chooses only the display name / palette representative.
     const priority = Math.min(...nodes[i].refs.map(layoutPriority));
-    tips.push({ index: i, refName: ref.name, priority });
+    tips.push({ index: i, refName: ref.name, refType: ref.type, priority });
   }
 
   // Assign each tip a palette color from a STABLE hash of its branch name, so a
@@ -253,7 +257,7 @@ export function computeBranchColors(
   // so adjacent branches are no longer guaranteed to differ.
   const tipColor = new Map<number, string>();
   for (const tip of tips) {
-    tipColor.set(tip.index, branchColorFor(tip.refName));
+    tipColor.set(tip.index, branchColorFor(tip.refName, tip.refType));
   }
 
   // Build the FIRST-PARENT-ONLY linear graph: each node's lone down-edge is its

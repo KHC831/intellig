@@ -191,18 +191,15 @@ describe('GitService - Command Argument Correctness', () => {
       assert.ok(cmd.args.includes('origin/onebox'));
     });
 
-    it('track without createBranch produces: git checkout <ref> --track <upstream>', async () => {
+    it('track without createBranch is IGNORED — after --end-of-options git reads it as a pathspec', async () => {
+      // Emitting `--track` behind `--end-of-options <ref>` made git fatal
+      // ("'--track' cannot be used with updating paths"). No caller reaches
+      // plain checkout with `track` (remote-branch checkout uses
+      // forceCreate); the flag is dropped rather than emitted broken.
       await gitService.checkout(mockRepo, 'branch', { track: 'origin/branch' });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      // non-createBranch refs follow `--end-of-options`.
-      assert.deepStrictEqual(cmd.args, [
-        'checkout',
-        '--end-of-options',
-        'branch',
-        '--track',
-        'origin/branch',
-      ]);
+      assert.deepStrictEqual(cmd.args, ['checkout', '--end-of-options', 'branch']);
     });
 
     it('createBranch=false does not include -b', async () => {

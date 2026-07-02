@@ -97,6 +97,8 @@ export function buildUpdatePullOptions(rebase: boolean): IPullOptions {
     // working tree dead-ends the pull on "local changes would be overwritten"
     // and every such repo becomes an error row. `_pull` already detects an
     // autostash-pop conflict and routes it into the Resolve Conflicts flow.
+    // MERGE-mode `--autostash` needs git >= 2.27 — this flag SETS the
+    // project's supported-git floor (gitVersion.MIN_SUPPORTED_GIT).
     autostash: true,
   };
 }

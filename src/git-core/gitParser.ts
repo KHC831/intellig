@@ -468,7 +468,9 @@ export function parseTags(output: string, separator: string = '\x1f'): ITag[] {
     if (isAnnotated && taggerName && taggerEmail) {
       tagger = {
         name: taggerName,
-        email: taggerEmail,
+        // `%(taggeremail)` emits `<a@b>` — strip the brackets so the field
+        // matches the bare-email convention of every other IAuthor producer.
+        email: taggerEmail.replace(/^<|>$/g, ''),
       };
       if (taggerDate) {
         date = new Date(taggerDate);

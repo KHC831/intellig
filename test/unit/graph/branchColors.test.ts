@@ -56,6 +56,22 @@ describe('branchColors — trunk pinned to blue', () => {
       'prefix-only match is not trunk'
     );
   });
+
+  it('a LOCAL branch named dev/main is not trunk — only a remote-form tail pins', () => {
+    // The remote-tail strip applies to remote refs (`origin/main`); a local
+    // branch whose LAST segment happens to be main/master is just a branch.
+    // (Fixture names chosen so their hash slot is NOT blue.)
+    assert.notStrictEqual(branchColorFor('dev/main', 'local'), P[0]);
+    assert.notStrictEqual(branchColorFor('fix/master', 'local'), P[0]);
+    assert.strictEqual(branchColorFor('origin/main', 'remote'), P[0]);
+    assert.strictEqual(branchColorFor('main', 'local'), P[0]);
+  });
+
+  it('the graph colors a local dev/main by hash, not the trunk pin', () => {
+    const colors = computeBranchColors([node('tip', [], [{ name: 'dev/main', type: 'local' }])]);
+    assert.strictEqual(colors.get('tip'), branchColorFor('dev/main', 'local'));
+    assert.notStrictEqual(colors.get('tip'), P[0], 'must not be trunk-pinned blue');
+  });
 });
 
 describe('branchColors — name-stable (position-independent)', () => {

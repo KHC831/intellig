@@ -281,17 +281,17 @@ export class BranchOps {
     }
 
     // Plain checkout path: the ref is user-controlled, so we splice
-    // `--end-of-options` before it.
+    // `--end-of-options` before it. `--track` is NOT emitted here: after
+    // `--end-of-options <ref>` git would read it as a pathspec and fatal
+    // ("'--track' cannot be used with updating paths") — tracking checkouts
+    // go through the forceCreate path above, where `-B <name>` keeps the
+    // flag in flag position.
     const flags: string[] = [];
     if (options?.force) {
       flags.push('-f');
     }
-    const trailing: string[] = [];
-    if (options?.track) {
-      trailing.push('--track', options.track);
-    }
 
-    const args = [...buildGitArgs('checkout', flags, [ref]), ...trailing];
+    const args = buildGitArgs('checkout', flags, [ref]);
     await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }

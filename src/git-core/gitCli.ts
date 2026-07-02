@@ -15,7 +15,7 @@ import { GitError, CommandFailedError, classifyGitCommandError } from './errors'
  * safe: a runaway command yields a truncated-but-usable result instead of a
  * crash.
  */
-export const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+export const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024; // UTF-16 code units, not bytes: worst case ~128 MiB heap per stream, still far under the V8 cap.
 
 /**
  * Append `chunk` to `existing` without letting the result exceed `cap` chars.

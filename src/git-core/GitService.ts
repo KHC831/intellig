@@ -425,11 +425,14 @@ export class GitService implements IGitService, IGitServiceCli {
   /**
    * The ONE per-repo serializer for index-mutating command sequences. A git
    * repository's index is a single resource guarded by `.git/index.lock`, and
-   * IntelliG mutates it from several independent features (conflict accepts,
-   * the merge editor's synthetic-base injection, staging flows) — a private
-   * per-feature queue only serializes a feature with itself. Owned here so
-   * every feature acquires the SAME lock (new capability on the concrete
-   * GitService per ADR-001; consumers narrow to it like the `gitCli` hatch).
+   * a private per-feature queue only serializes a feature with itself. Owned
+   * here so every routed feature acquires the SAME lock (new capability on
+   * the concrete GitService per ADR-001; consumers narrow to it like the
+   * `gitCli` hatch). Routed today: conflict accepts (single + bulk) and the
+   * merge editor's synthetic-base injection. Plain staging writes are NOT
+   * routed — they are single git commands whose worst collision is a
+   * transient `index.lock` error, not corruption; route them here if that
+   * trade-off changes.
    */
   private readonly _indexQueue = new RepoCommandQueue();
 
@@ -2120,12 +2123,13 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Get the combined diff for multiple commits.
-   * This calculates the cumulative changes across all selected commits,
-   * showing the total changes from the oldest commit's parent to the newest commit.
-   *
-   * The method sorts commits by their commit date to find the range,
-   * then computes the diff between the oldest commit's parent and the newest commit.
+   * Get the combined diff for multiple commits: the range from the oldest
+   * selected commit's parent to the newest, SCOPED to the union of paths the
+   * selected commits actually touched (IntelliJ zipChanges semantics) — a
+   * path changed only by an unselected intermediate commit is excluded,
+   * while a path several selected commits changed shows its net effect.
+   * Commits are date-sorted with a topological tiebreak; see
+   * DiffOps._multiCommitDiff for the mechanics.
    *
    * @param repo - The repository
    * @param commits - Array of commit hashes (can be in any order)

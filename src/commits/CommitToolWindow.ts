@@ -798,10 +798,11 @@ export class CommitToolWindow extends BaseWebviewView {
     });
 
     if (!result.success) {
+      // The webview renders nothing from this message beyond the flag — the
+      // error itself is surfaced via the toast below.
       this._postMessage({
         type: 'commitDone',
         success: false,
-        error: result.error,
       });
       void vscode.window.showErrorMessage(
         result.error ? `Commit failed: ${sanitizeGitError(result.error)}` : 'Commit failed'

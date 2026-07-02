@@ -117,7 +117,7 @@ export interface IPerformCommitOptions {
 export interface IPerformCommitResult {
   /** True when the commit landed. */
   success: boolean;
-  /** User-facing error message when {@link success} is false. */
+  /** User-facing, pre-sanitized error message when {@link success} is false. */
   error?: string;
   /** Paths that ended up in the commit. Echoes {@link IPerformCommitOptions.selectedFiles} on success. */
   files?: string[];
@@ -224,7 +224,10 @@ export async function performCommit(
 
     return { success: true, files: options.selectedFiles };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
+    // Sanitize at source so the error field is display-ready everywhere —
+    // raw git stderr can carry credentialed URLs / home paths, and a mixed
+    // raw/sanitized convention across IResult contracts invites a raw toast.
+    const msg = sanitizeGitError(error instanceof Error ? error.message : 'Unknown error');
     // Best-effort restore of the pre-dialog split: reverse only the deltas
     // that were applied. A restore failure is appended rather than swallowed —
     // the user needs to know the index no longer matches what they had.
