@@ -199,6 +199,13 @@ export interface IDiffLine {
   content: string;
   oldLineNumber?: number;
   newLineNumber?: number;
+  /**
+   * True when git emitted `\ No newline at end of file` immediately after this
+   * line — i.e. this line's side (old for delete/context, new for add/context)
+   * has no trailing newline. Any patch rebuilt from this hunk must re-emit the
+   * marker, or `git apply` rejects the patch / silently re-adds the newline.
+   */
+  noNewline?: boolean;
 }
 
 /**

@@ -945,6 +945,17 @@ export function parseHunks(lines: string[]): IHunk[] {
 
     // Parse diff lines within a hunk
     if (currentHunk) {
+      // `\ No newline at end of file` applies to the line just emitted: its
+      // side has no trailing newline. Flag the preceding line so a rebuilt
+      // patch re-emits the marker (git apply rejects a patch that drops it).
+      if (line.startsWith('\\')) {
+        const prev = currentHunk.lines[currentHunk.lines.length - 1];
+        if (prev) {
+          prev.noNewline = true;
+        }
+        continue;
+      }
+
       let type: DiffLineType;
       let content = line;
 
@@ -958,7 +969,7 @@ export function parseHunks(lines: string[]): IHunk[] {
         type = 'context';
         content = line.substring(1);
       } else {
-        // Skip non-diff lines (like "\ No newline at end of file")
+        // Skip any other non-diff line.
         continue;
       }
 

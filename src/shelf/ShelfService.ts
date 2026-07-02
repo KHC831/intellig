@@ -22,6 +22,7 @@ interface IGitServiceWithCli {
   gitCli: GitCli;
 }
 import { parseDiff } from '../git-core/gitParser';
+import { buildPatchHeader, serializeHunkLines } from '../git-core/patchBuilder';
 import { splitPatchByFile } from '../patches/PatchService';
 import { applyTextPatch } from '../patches/applyTextPatch';
 import { isPathInsideOrEqual, resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
@@ -1407,38 +1408,20 @@ export class ShelfService implements IShelfService {
   }
 
   /**
-   * Generate a diff string for specific hunks.
+   * Generate a multi-hunk diff string for a file. Delegates to the shared
+   * patch builder so path escaping and the `\ No newline at end of file`
+   * marker match every other patch surface — the previous hand-rolled builder
+   * emitted neither, so a partial-hunk shelve of a special-char-path or
+   * no-trailing-newline file produced a patch git could not reverse-apply.
    *
    * @param filePath - The file path
    * @param hunks - The hunks to include
    * @returns The diff string
    */
   private generateHunksDiff(filePath: string, hunks: IHunk[]): string {
-    const lines: string[] = [
-      `diff --git a/${filePath} b/${filePath}`,
-      `--- a/${filePath}`,
-      `+++ b/${filePath}`,
-    ];
-
-    for (const hunk of hunks) {
-      lines.push(hunk.header);
-
-      for (const line of hunk.lines) {
-        switch (line.type) {
-          case 'add':
-            lines.push(`+${line.content}`);
-            break;
-          case 'delete':
-            lines.push(`-${line.content}`);
-            break;
-          case 'context':
-            lines.push(` ${line.content}`);
-            break;
-        }
-      }
-    }
-
-    return lines.join('\n') + '\n';
+    const header = buildPatchHeader(filePath);
+    const body = hunks.flatMap((hunk) => [hunk.header, ...serializeHunkLines(hunk)]);
+    return [...header, ...body].join('\n') + '\n';
   }
 
   /**
@@ -1476,8 +1459,24 @@ export class ShelfService implements IShelfService {
       if (selectedHunks?.has(file.path)) {
         // Partial-hunk shelve: reverse just the selected hunks from the
         // working tree, leaving the index and the unselected hunks untouched.
+        //
+        // `gitCli.exec` only REJECTS on a spawn fault; a non-zero exit (the
+        // patch did not apply — a stale buffer, or the old header/no-newline
+        // defects) RESOLVES. Check the exit code too, or a failed cleanup is
+        // reported as a clean shelve and the "shelved" hunks stay live in the
+        // working tree — a later unshelve then double-applies or conflicts.
         try {
-          await this._gitCli.exec(['apply', '-R', '-'], { cwd, input: file.diff });
+          const revert = await this._gitCli.exec(['apply', '-R', '-'], {
+            cwd,
+            input: file.diff,
+          });
+          if (revert.exitCode !== 0) {
+            this._logger.debug('shelve: reverse-apply of partial hunks exited non-zero', {
+              path: file.path,
+              stderr: revert.stderr,
+            });
+            failedPaths.push(file.path);
+          }
         } catch (error) {
           this._logger.debug('shelve: reverse-apply of partial hunks failed', {
             path: file.path,

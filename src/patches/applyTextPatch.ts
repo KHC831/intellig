@@ -34,6 +34,10 @@ export function applyTextPatch(base: string, diff: IDiff): string {
   const { lines: baseLines } = splitToLines(base);
   const result: string[] = [];
   let cursor = 0; // 0-based index into baseLines
+  // Set when the last hunk line contributing to the after-image carried the
+  // `\ No newline at end of file` marker (see parseHunks). When a later line
+  // is emitted it clears, so only a genuinely-final no-newline line sticks.
+  let afterLacksTrailingNewline = false;
 
   // Hunks are emitted in ascending source order by git; walk them in turn,
   // copying the untouched stretch of base before each.
@@ -51,6 +55,10 @@ export function applyTextPatch(base: string, diff: IDiff): string {
           // advance past the matching base line.
           result.push(line.content);
           cursor++;
+          // A context/add line carrying the no-newline marker is the final
+          // after-image line and has no trailing newline; a later emitted line
+          // clears it.
+          afterLacksTrailingNewline = line.noNewline === true;
           break;
         case 'delete':
           // Dropped from the after-image; skip the base line.
@@ -59,14 +67,18 @@ export function applyTextPatch(base: string, diff: IDiff): string {
         case 'add':
           // New line that has no base counterpart.
           result.push(line.content);
+          afterLacksTrailingNewline = line.noNewline === true;
           break;
       }
     }
   }
 
-  // Trailing untouched base lines after the last hunk.
+  // Trailing untouched base lines after the last hunk. When these follow the
+  // hunks, the after-image's final line is a base line, so the patch's
+  // no-newline marker no longer describes the tail.
   if (cursor < baseLines.length) {
     result.push(...baseLines.slice(cursor));
+    afterLacksTrailingNewline = false;
   }
 
   if (result.length === 0) {
@@ -74,10 +86,13 @@ export function applyTextPatch(base: string, diff: IDiff): string {
   }
 
   const joined = result.join('\n');
-  // Preserve the base file's trailing-newline convention. An added file has an
-  // empty base, so default to a trailing newline — git text patches add whole
-  // lines. The "\ No newline at end of file" marker is stripped during parse,
-  // so a base that genuinely lacks a final newline reconstructs without one.
+  // The patch's no-newline marker (when the final after-image line carried it)
+  // is authoritative for the reconstructed tail. Otherwise preserve the base
+  // file's trailing-newline convention; an added file has an empty base, so
+  // default to a trailing newline — git text patches add whole lines.
+  if (afterLacksTrailingNewline) {
+    return joined;
+  }
   const baseHadTrailingNewline = base.length === 0 || base.endsWith('\n');
   return baseHadTrailingNewline ? `${joined}\n` : joined;
 }

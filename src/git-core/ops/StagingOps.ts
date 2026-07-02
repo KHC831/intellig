@@ -18,6 +18,7 @@ import {
   classifyGitCommandError,
 } from '../errors';
 import { parseStatus } from '../gitParser';
+import { buildHunkPatch } from '../patchBuilder';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -330,114 +331,12 @@ export class StagingOps {
   }
 
   /**
-   * Build the `diff --git` / `---` / `+++` header lines for a hunk patch,
-   * quoting the path exactly as git would (see {@link escapePatchPath}).
-   *
-   * `git apply` parses the path off the `---`/`+++` lines treating a TAB as a
-   * field delimiter and a NEWLINE as a line delimiter, so a raw `a/<path>` on a
-   * name carrying a tab/newline (or other special byte) makes git stage the
-   * WRONG file or reject the patch. When the path is unquoted but contains a
-   * space, git tab-delimits the `---`/`+++` name so its parser still finds the
-   * end of the filename — mirror that too.
-   *
-   * @param path - The file path
-   * @returns The three header lines, in order.
-   */
-  private patchHeader(path: string): string[] {
-    const a = this.escapePatchPath(`a/${path}`);
-    const b = this.escapePatchPath(`b/${path}`);
-    const quoted = a.startsWith('"');
-    const tail = !quoted && path.includes(' ') ? '\t' : '';
-    return [`diff --git ${a} ${b}`, `--- ${a}${tail}`, `+++ ${b}${tail}`];
-  }
-
-  /**
-   * Quote a prefixed patch path the way git's own diff writer does.
-   *
-   * git C-style double-quotes the name (wrapping the `a/`|`b/` prefix INSIDE the
-   * quotes, with `\t \n \" \\ \NNN` escapes) when it contains a double quote,
-   * backslash, control byte, DEL, or non-ASCII byte; otherwise it emits the name
-   * bare. The escapes are byte-wise over the UTF-8 encoding, matching git's
-   * `quote_c_style` (e.g. `é` → `\303\251`).
-   *
-   * @param name - The prefixed name token, e.g. `a/<path>` or `b/<path>`.
-   * @returns The bare name, or its C-style quoted form when quoting is required.
-   */
-  private escapePatchPath(name: string): string {
-    const bytes = Buffer.from(name, 'utf8');
-    const needsQuoting = bytes.some(
-      (byte) => byte < 0x20 || byte === 0x22 || byte === 0x5c || byte >= 0x7f
-    );
-    if (!needsQuoting) {
-      return name;
-    }
-
-    let out = '"';
-    for (const byte of bytes) {
-      switch (byte) {
-        case 0x07:
-          out += '\\a';
-          break;
-        case 0x08:
-          out += '\\b';
-          break;
-        case 0x09:
-          out += '\\t';
-          break;
-        case 0x0a:
-          out += '\\n';
-          break;
-        case 0x0b:
-          out += '\\v';
-          break;
-        case 0x0c:
-          out += '\\f';
-          break;
-        case 0x0d:
-          out += '\\r';
-          break;
-        case 0x22:
-          out += '\\"';
-          break;
-        case 0x5c:
-          out += '\\\\';
-          break;
-        default:
-          if (byte < 0x20 || byte >= 0x7f) {
-            out += '\\' + byte.toString(8).padStart(3, '0');
-          } else {
-            out += String.fromCharCode(byte);
-          }
-      }
-    }
-    return out + '"';
-  }
-
-  /**
-   * Generate a patch string for a single hunk.
-   *
-   * @param path - The file path
-   * @param hunk - The hunk to generate a patch for
-   * @returns The patch string
+   * Generate a patch string for a single hunk. Delegates to the shared
+   * {@link buildHunkPatch} so path escaping and the `\ No newline at end of
+   * file` marker are handled identically everywhere.
    */
   private generateHunkPatch(path: string, hunk: IHunk): string {
-    const lines: string[] = [...this.patchHeader(path), hunk.header];
-
-    for (const line of hunk.lines) {
-      switch (line.type) {
-        case 'add':
-          lines.push(`+${line.content}`);
-          break;
-        case 'delete':
-          lines.push(`-${line.content}`);
-          break;
-        case 'context':
-          lines.push(` ${line.content}`);
-          break;
-      }
-    }
-
-    return lines.join('\n') + '\n';
+    return buildHunkPatch(path, hunk);
   }
 
   /**
@@ -509,22 +408,17 @@ export class StagingOps {
     // Generate the new hunk header
     const newHeader = `@@ -${hunk.oldStart},${oldLines} +${hunk.newStart},${newLinesCount} @@`;
 
-    const patchLines: string[] = [...this.patchHeader(path), newHeader];
-
-    for (const line of newLines) {
-      switch (line.type) {
-        case 'add':
-          patchLines.push(`+${line.content}`);
-          break;
-        case 'delete':
-          patchLines.push(`-${line.content}`);
-          break;
-        case 'context':
-          patchLines.push(` ${line.content}`);
-          break;
-      }
-    }
-
-    return patchLines.join('\n') + '\n';
+    // Reuse the shared serializer so path escaping AND the no-newline marker
+    // (carried on each `IDiffLine`) are emitted identically to the whole-hunk
+    // path. Wrap the selected lines back into a hunk shape for it.
+    const syntheticHunk: IHunk = {
+      oldStart: hunk.oldStart,
+      oldLines,
+      newStart: hunk.newStart,
+      newLines: newLinesCount,
+      header: newHeader,
+      lines: newLines,
+    };
+    return buildHunkPatch(path, syntheticHunk);
   }
 }
