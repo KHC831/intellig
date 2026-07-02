@@ -24,8 +24,7 @@ import {
  * the test file, single-purpose, no `I`-prefix.
  */
 interface MergeViewInternals {
-  _repository: IRepository | undefined;
-  _lastFile: string | undefined;
+  _shownFiles: Map<string, { repository: IRepository; relPath: string }>;
 }
 
 /**
@@ -166,14 +165,16 @@ describe('MergeView', () => {
       try {
         // Prime the adapter's internal state as if show() had been called.
         const internals = mergeView as unknown as MergeViewInternals;
-        internals._repository = {
-          rootUri: vscode.Uri.file('/mock/repo'),
-          state: 'merging',
-          head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
-          remotes: [],
-          submodules: [],
-        };
-        internals._lastFile = 'README.md';
+        internals._shownFiles.set('/mock/repo/README.md', {
+          repository: {
+            rootUri: vscode.Uri.file('/mock/repo'),
+            state: 'merging',
+            head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+            remotes: [],
+            submodules: [],
+          } as unknown as IRepository,
+          relPath: 'README.md',
+        });
 
         // Must NOT throw — error handling is internalised.
         await mergeView.markResolved();
@@ -219,14 +220,16 @@ describe('MergeView', () => {
       try {
         // Prime the adapter state as if show() had been called.
         const internals = mergeView as unknown as MergeViewInternals;
-        internals._repository = {
-          rootUri: vscode.Uri.file('/mock/repo'),
-          state: 'merging',
-          head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
-          remotes: [],
-          submodules: [],
-        };
-        internals._lastFile = 'src/conflict.ts';
+        internals._shownFiles.set('/mock/repo/src/conflict.ts', {
+          repository: {
+            rootUri: vscode.Uri.file('/mock/repo'),
+            state: 'merging',
+            head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+            remotes: [],
+            submodules: [],
+          } as unknown as IRepository,
+          relPath: 'src/conflict.ts',
+        });
 
         await mergeView.markResolved();
 
@@ -340,14 +343,15 @@ describe('MergeView', () => {
 
         await mergeView.show(relPath);
 
-        // The repo must be resolved and bound internally so markResolved()
+        // The repo must be resolved and tracked internally so markResolved()
         // can stage against the correct repo after the user finishes in the
         // native editor.
         const internals = mergeView as unknown as MergeViewInternals;
+        const entries = [...internals._shownFiles.values()];
         assert.strictEqual(
-          internals._repository?.rootUri.fsPath,
+          entries[0]?.repository.rootUri.fsPath,
           tmpDir,
-          'show() should bind the repo found via the relative-path fallback'
+          'show() should track the repo found via the relative-path fallback'
         );
       } finally {
         try {

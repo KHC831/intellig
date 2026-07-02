@@ -5,7 +5,7 @@ import { IMergeView, IMergeState } from './interfaces/IMergeView';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { GitCli } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
-import { repoRelativePath } from '../utils/repoRelativePath';
+import { canonicalizeFsPath, repoRelativePath } from '../utils/repoRelativePath';
 import { ensureSyntheticMergeBase } from './syntheticMergeBase';
 import { getLogger } from '../utils/logger';
 
@@ -27,7 +27,14 @@ import { getLogger } from '../utils/logger';
  * hunk-level resolution internally.
  */
 export class MergeView implements IMergeView {
-  private _repository: IRepository | undefined;
+  /**
+   * Every conflict file handed to `show()` that has not been staged yet,
+   * keyed by the file's CANONICAL absolute path. `markResolved()` resolves
+   * its target here from the active editor (falling back to the sole
+   * outstanding entry) — a single "last shown file" slot silently staged the
+   * WRONG file whenever more than one merge editor was open.
+   */
+  private readonly _shownFiles = new Map<string, IShownConflictFile>();
 
   private _onDidResolve: vscode.EventEmitter<string>;
   readonly onDidResolve: vscode.Event<string>;
@@ -59,28 +66,28 @@ export class MergeView implements IMergeView {
     // Resolve the repository owning this file. Try the verbatim path first
     // (covers absolute-path callers), then fall back to joining against each
     // known repo root (covers repo-relative paths from `git status`).
-    this._repository = await this._gitService.getRepository(vscode.Uri.file(file));
+    let repository = await this._gitService.getRepository(vscode.Uri.file(file));
 
     const searchedRoots: string[] = [];
     let absolutePath = file;
 
-    if (!this._repository && !path.isAbsolute(file)) {
+    if (!repository && !path.isAbsolute(file)) {
       for (const repo of this._gitService.getRepositories()) {
         searchedRoots.push(repo.rootUri.fsPath);
         const candidate = path.join(repo.rootUri.fsPath, file);
         if (fs.existsSync(candidate)) {
-          this._repository = await this._gitService.getRepository(vscode.Uri.file(candidate));
-          if (this._repository) {
+          repository = await this._gitService.getRepository(vscode.Uri.file(candidate));
+          if (repository) {
             absolutePath = candidate;
             break;
           }
         }
       }
-    } else if (this._repository && !path.isAbsolute(file)) {
-      absolutePath = path.join(this._repository.rootUri.fsPath, file);
+    } else if (repository && !path.isAbsolute(file)) {
+      absolutePath = path.join(repository.rootUri.fsPath, file);
     }
 
-    if (!this._repository) {
+    if (!repository) {
       const rootList =
         searchedRoots.length > 0 ? searchedRoots.join(', ') : '(no repositories discovered)';
       throw new Error(
@@ -88,12 +95,15 @@ export class MergeView implements IMergeView {
       );
     }
 
-    // Record the repo-relative path so markResolved() can stage it later.
+    // Track the shown file so markResolved() can stage it later.
     // `repoRelativePath` canonicalizes both ends so a symlinked working-tree
     // path against a realpath-resolved root (macOS `/var` → `/private/var`)
     // does not yield an escaping `../` pathspec that `git add` would silently
-    // ignore, leaving the resolved conflict unstaged.
-    this._lastFile = repoRelativePath(this._repository.rootUri.fsPath, absolutePath);
+    // ignore, leaving the resolved conflict unstaged. The map key is the
+    // canonical absolute path so the active-editor lookup in markResolved()
+    // compares like with like.
+    const relPath = repoRelativePath(repository.rootUri.fsPath, absolutePath);
+    this._shownFiles.set(canonicalizeFsPath(absolutePath), { repository, relPath });
 
     // Add/add conflicts carry no stage-1, so the native editor would show the
     // whole file on both sides over an empty base. Inject a synthetic base from
@@ -103,10 +113,10 @@ export class MergeView implements IMergeView {
     const gitCli = (this._gitService as Partial<{ gitCli: GitCli }>).gitCli;
     if (gitCli) {
       try {
-        await ensureSyntheticMergeBase(gitCli, this._repository.rootUri.fsPath, this._lastFile);
+        await ensureSyntheticMergeBase(gitCli, repository.rootUri.fsPath, relPath);
       } catch (err) {
         getLogger().debug('synthetic merge base injection failed', {
-          file: this._lastFile,
+          file: relPath,
           err: err instanceof Error ? err.message : String(err),
         });
       }
@@ -119,12 +129,11 @@ export class MergeView implements IMergeView {
   }
 
   /**
-   * No-op: the native merge editor manages its own lifecycle. Kept for
+   * No-op: the native merge editor manages its own lifecycle (per-file
+   * bookkeeping is dropped by `markResolved` as files are staged). Kept for
    * interface compatibility with `ResolveConflictsDialog`.
    */
-  hide(): void {
-    this._repository = undefined;
-  }
+  hide(): void {}
 
   /**
    * No-op: hunk-level acceptance is handled inside the native merge editor.
@@ -179,28 +188,34 @@ export class MergeView implements IMergeView {
   /**
    * Stage the resolved file and fire `onDidResolve`. Called from the
    * `intellig.merge.markResolved` command after the user finishes editing in
-   * the native merge editor and signals completion. Returns immediately when
-   * no repository is bound (e.g. before `show()` was called).
+   * the native merge editor and signals completion.
    *
-   * Error handling: atomic-write + git-stage failures are caught, surfaced as
-   * a sanitised toast, and do NOT fire `onDidResolve` so downstream
-   * consumers (e.g. `ResolveConflictsDialog`) treat the file as still
-   * unresolved — matching the behaviour of the previous webview path.
+   * Target selection: the file the ACTIVE editor is showing (merge-editor
+   * result pane or a plain editor on the conflicted file), falling back to
+   * the sole outstanding shown file. With several files outstanding and no
+   * active-editor match the command is a NO-OP — guessing here staged a file
+   * the user had not finished, silently making its conflict markers
+   * committable.
+   *
+   * Error handling: git-stage failures are caught, surfaced as a sanitised
+   * toast, and do NOT fire `onDidResolve` (nor drop the tracking entry) so
+   * downstream consumers (e.g. `ResolveConflictsDialog`) treat the file as
+   * still unresolved.
    */
   async markResolved(): Promise<void> {
-    if (!this._repository) {
+    const target = resolveMarkResolvedTarget(this._shownFiles, this._activeEditorFsPath());
+    if (!target) {
+      if (this._shownFiles.size > 0) {
+        getLogger().debug('markResolved: ambiguous target (several merge files outstanding)', {
+          outstanding: this._shownFiles.size,
+        });
+      }
       return;
     }
-
-    // The native editor writes the resolved working-tree content itself; we
-    // only need to stage the file.
-    const relativeFile = this._currentFile;
-    if (!relativeFile) {
-      return;
-    }
+    const { key, entry } = target;
 
     try {
-      await this._gitService.stage(this._repository, [relativeFile]).match(
+      await this._gitService.stage(entry.repository, [entry.relPath]).match(
         () => undefined,
         (e) => {
           throw e;
@@ -212,8 +227,32 @@ export class MergeView implements IMergeView {
       return;
     }
 
-    this._onDidResolve.fire(relativeFile);
-    this.hide();
+    this._shownFiles.delete(key);
+    this._onDidResolve.fire(entry.relPath);
+  }
+
+  /**
+   * The absolute fsPath of the file the user is actively looking at: the
+   * active tab's merge-editor RESULT document when the tab is a merge
+   * editor, else the active text editor's file-scheme document. Every access
+   * is optional-chained — test hosts (and older VS Code builds) may lack the
+   * tab-input API.
+   */
+  private _activeEditorFsPath(): string | undefined {
+    const activeTab = (
+      vscode.window as Partial<{
+        tabGroups: { activeTabGroup?: { activeTab?: { input?: unknown } } };
+      }>
+    ).tabGroups?.activeTabGroup?.activeTab;
+    const input = activeTab?.input as Partial<{ result: { fsPath?: unknown } }> | undefined;
+    if (input && typeof input.result?.fsPath === 'string') {
+      return input.result.fsPath;
+    }
+    const doc = vscode.window.activeTextEditor?.document;
+    if (doc && doc.uri.scheme === 'file') {
+      return doc.uri.fsPath;
+    }
+    return undefined;
   }
 
   /**
@@ -237,14 +276,41 @@ export class MergeView implements IMergeView {
    */
   dispose(): void {
     this._onDidResolve.dispose();
+    this._shownFiles.clear();
   }
+}
 
-  /** Repo-relative path of the file last opened via `show()`. */
-  private get _currentFile(): string | undefined {
-    return this._lastFile;
+/** A conflict file opened via `show()` that has not been staged yet. */
+export interface IShownConflictFile {
+  /** Repository that owns the file. */
+  repository: IRepository;
+  /** Repo-root-relative pathspec `git add` needs. */
+  relPath: string;
+}
+
+/**
+ * Pick the file `markResolved()` should stage: the shown entry matching the
+ * active editor's file (compared canonically, so symlinked paths match), or
+ * the sole outstanding entry when exactly one file is left. Ambiguity
+ * (several outstanding, no match) resolves to `undefined` — never a guess.
+ * Pure; exported for unit tests.
+ */
+export function resolveMarkResolvedTarget(
+  shown: ReadonlyMap<string, IShownConflictFile>,
+  activeFsPath: string | undefined
+): { key: string; entry: IShownConflictFile } | undefined {
+  if (activeFsPath !== undefined) {
+    const key = canonicalizeFsPath(activeFsPath);
+    const entry = shown.get(key);
+    if (entry) {
+      return { key, entry };
+    }
   }
-
-  private _lastFile: string | undefined;
+  if (shown.size === 1) {
+    const [key, entry] = shown.entries().next().value as [string, IShownConflictFile];
+    return { key, entry };
+  }
+  return undefined;
 }
 
 /**
