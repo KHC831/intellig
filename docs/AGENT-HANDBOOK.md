@@ -204,6 +204,11 @@ Runtime & platform:
   `%gd` row at pop time (`preservedChanges.ts` is the pattern).
 - **A `git status` prose parse is a localization bug** — read `.git/`
   marker FILES for in-progress state (names aren't localized).
+- **A `view/item/context` command can fire with NO argument** — the tree
+  can refresh under the click (live repro: checkout-as-local refreshed the
+  branch tree; the next context click crashed on `item.branch`). Tree-item
+  params are typed `| undefined` and guarded; `check:tree-item-optional`
+  fences the class.
 - **Rebase reverses ours/theirs** (so do unstash/unshelve). Any new
   conflict-adjacent feature must route side selection through the
   existing reversal inference, or bulk and per-file actions will disagree.

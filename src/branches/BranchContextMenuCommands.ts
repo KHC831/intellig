@@ -629,7 +629,7 @@ export class BranchContextMenuCommands {
   register(context: vscode.ExtensionContext): void {
     // Local branch commands
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.checkout', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.checkout', (item?: BranchTreeItem) =>
         this._handleCheckout(item)
       )
     );
@@ -638,155 +638,155 @@ export class BranchContextMenuCommands {
       registerLoggedCommand('intellig.branch.new', () => this._handleNewBranch())
     );
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.newBranchFrom', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.newBranchFrom', (item?: BranchTreeItem) =>
         this._handleNewBranchFrom(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.mergeIntoCurrent', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.mergeIntoCurrent', (item?: BranchTreeItem) =>
         this._handleMergeIntoCurrent(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.rebaseCurrentOnto', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.rebaseCurrentOnto', (item?: BranchTreeItem) =>
         this._handleRebaseCurrentOnto(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.compareWithCurrent', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.compareWithCurrent', (item?: BranchTreeItem) =>
         this._handleCompareWithCurrent(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.rename', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.rename', (item?: BranchTreeItem) =>
         this._handleRename(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.delete', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.delete', (item?: BranchTreeItem) =>
         this._handleDelete(item)
       )
     );
 
     // Remote branch commands
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.checkoutAsLocal', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.checkoutAsLocal', (item?: BranchTreeItem) =>
         this._handleCheckoutAsLocal(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.cherryPickCommits', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.cherryPickCommits', (item?: BranchTreeItem) =>
         this._handleCherryPickCommits(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.pullIntoCurrent', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.pullIntoCurrent', (item?: BranchTreeItem) =>
         this._handlePullIntoCurrent(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.deleteRemote', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.deleteRemote', (item?: BranchTreeItem) =>
         this._handleDeleteRemote(item)
       )
     );
 
     // Track Remote Branch single-entry smart-detect.
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.trackBranch', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.trackBranch', (item?: BranchTreeItem) =>
         this._handleTrackRemote(item)
       )
     );
 
     // New command handlers
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.update', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.update', (item?: BranchTreeItem) =>
         this._handleUpdate(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.updateSelected', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.updateSelected', (item?: BranchTreeItem) =>
         this._handleUpdateSelected(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.push', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.push', (item?: BranchTreeItem) =>
         this._handlePush(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.showDiffWithWorkingTree', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.showDiffWithWorkingTree', (item?: BranchTreeItem) =>
         this._handleShowDiffWithWorkingTree(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.checkoutAndRebase', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.checkoutAndRebase', (item?: BranchTreeItem) =>
         this._handleCheckoutAndRebase(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.pullUsingRebase', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.pullUsingRebase', (item?: BranchTreeItem) =>
         this._handlePullUsingRebase(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.pullUsingMerge', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.pullUsingMerge', (item?: BranchTreeItem) =>
         this._handlePullUsingMerge(item)
       )
     );
 
     // Tag commands
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.checkoutDetached', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.checkoutDetached', (item?: BranchTreeItem) =>
         this._handleTagCheckoutDetached(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.newBranchFrom', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.newBranchFrom', (item?: BranchTreeItem) =>
         this._handleTagNewBranchFrom(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.cherryPick', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.cherryPick', (item?: BranchTreeItem) =>
         this._handleTagCherryPick(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.mergeIntoCurrent', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.mergeIntoCurrent', (item?: BranchTreeItem) =>
         this._handleTagMergeIntoCurrent(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.delete', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.delete', (item?: BranchTreeItem) =>
         this._handleTagDelete(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.push', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.push', (item?: BranchTreeItem) =>
         this._handleTagPush(item)
       )
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.deleteRemote', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.deleteRemote', (item?: BranchTreeItem) =>
         this._handleTagDeleteRemote(item)
       )
     );
@@ -968,9 +968,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle checkout command for local branches.
    */
-  private async _handleCheckout(item: BranchTreeItem): Promise<void> {
+  private async _handleCheckout(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo) {
+    if (!repo || !item) {
       return;
     }
 
@@ -1105,9 +1105,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle new branch from here command.
    */
-  private async _handleNewBranchFrom(item: BranchTreeItem): Promise<void> {
+  private async _handleNewBranchFrom(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo) {
+    if (!repo || !item) {
       return;
     }
 
@@ -1185,9 +1185,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle merge into current command.
    */
-  private async _handleMergeIntoCurrent(item: BranchTreeItem): Promise<void> {
+  private async _handleMergeIntoCurrent(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1262,9 +1262,9 @@ export class BranchContextMenuCommands {
    * `inProgress.kind` ensures we never touch a rebase the user already had
    * in progress before they clicked.
    */
-  private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
+  private async _handleRebaseCurrentOnto(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1386,9 +1386,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle compare with current command.
    */
-  private async _handleCompareWithCurrent(item: BranchTreeItem): Promise<void> {
+  private async _handleCompareWithCurrent(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1419,9 +1419,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle rename command.
    */
-  private async _handleRename(item: BranchTreeItem): Promise<void> {
+  private async _handleRename(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1482,9 +1482,9 @@ export class BranchContextMenuCommands {
    * failure, prompt the user with a "Force delete?" modal and, on
    * confirm, retry with `git branch -D` (force).
    */
-  private async _handleDelete(item: BranchTreeItem): Promise<void> {
+  private async _handleDelete(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1563,9 +1563,9 @@ export class BranchContextMenuCommands {
    * "Fetched … N commit(s) behind" — rather than claiming the branch itself
    * was updated.
    */
-  private async _handleUpdate(item: BranchTreeItem): Promise<void> {
+  private async _handleUpdate(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1635,9 +1635,9 @@ export class BranchContextMenuCommands {
    * and tell the user to use Update/Pull, since fetching into a checked-out ref
    * is refused. Surfaced from BranchesDashboardActions.UpdateSelectedBranchAction.
    */
-  private async _handleUpdateSelected(item: BranchTreeItem): Promise<void> {
+  private async _handleUpdateSelected(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
     await this._alignLocalBranch(repo, item.branch);
@@ -1820,9 +1820,9 @@ export class BranchContextMenuCommands {
    * Handle push command for local branches.
    * Pushes the branch to its upstream remote, or sets upstream if none configured.
    */
-  private async _handlePush(item: BranchTreeItem): Promise<void> {
+  private async _handlePush(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1903,9 +1903,9 @@ export class BranchContextMenuCommands {
    *      title  = `<basename> (<branchRef> ↔ Working Tree)`
    *   5. User cancels the QuickPick → no-op, no toast, no error.
    */
-  private async _handleShowDiffWithWorkingTree(item: BranchTreeItem): Promise<void> {
+  private async _handleShowDiffWithWorkingTree(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -1982,9 +1982,9 @@ export class BranchContextMenuCommands {
    * `checkout -B <local> --track <remote>` when the right-clicked item is
    * a remote branch, mirroring `_handleCheckoutAsLocal`'s pattern.
    */
-  private async _handleCheckoutAndRebase(item: BranchTreeItem): Promise<void> {
+  private async _handleCheckoutAndRebase(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -2151,7 +2151,7 @@ export class BranchContextMenuCommands {
    * QuickPick is intentionally bypassed — the menu entry already chose the
    * strategy.
    */
-  private async _handlePullUsingRebase(item: BranchTreeItem): Promise<void> {
+  private async _handlePullUsingRebase(item: BranchTreeItem | undefined): Promise<void> {
     await this._runPullFromBranchMenu(item, 'rebase');
   }
 
@@ -2160,7 +2160,7 @@ export class BranchContextMenuCommands {
    * Pulls directly with the `merge` preset (rebase=false). The
    * second "Pull: Options" QuickPick is intentionally bypassed.
    */
-  private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
+  private async _handlePullUsingMerge(item: BranchTreeItem | undefined): Promise<void> {
     await this._runPullFromBranchMenu(item, 'merge');
   }
 
@@ -2305,9 +2305,9 @@ export class BranchContextMenuCommands {
    * not on the remote (which would become unreachable), show a modal
    * confirmation before resetting.
    */
-  private async _handleCheckoutAsLocal(item: BranchTreeItem): Promise<void> {
+  private async _handleCheckoutAsLocal(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -2534,9 +2534,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle delete remote branch command.
    */
-  private async _handleDeleteRemote(item: BranchTreeItem): Promise<void> {
+  private async _handleDeleteRemote(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -2615,9 +2615,9 @@ export class BranchContextMenuCommands {
    * cross-tracking case had no menu surface at all. Closes that
    * IntelliJ-parity gap.
    */
-  private async _handleTrackRemote(item: BranchTreeItem): Promise<void> {
+  private async _handleTrackRemote(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -2731,9 +2731,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle tag checkout (detached) command.
    */
-  private async _handleTagCheckoutDetached(item: BranchTreeItem): Promise<void> {
+  private async _handleTagCheckoutDetached(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.tag) {
+    if (!repo || !item?.tag) {
       return;
     }
 
@@ -2773,7 +2773,7 @@ export class BranchContextMenuCommands {
   /**
    * Handle new branch from tag command.
    */
-  private async _handleTagNewBranchFrom(item: BranchTreeItem): Promise<void> {
+  private async _handleTagNewBranchFrom(item: BranchTreeItem | undefined): Promise<void> {
     // Reuse the same logic as branch new branch from
     await this._handleNewBranchFrom(item);
   }
@@ -2781,9 +2781,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle tag cherry-pick command.
    */
-  private async _handleTagCherryPick(item: BranchTreeItem): Promise<void> {
+  private async _handleTagCherryPick(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.tag) {
+    if (!repo || !item?.tag) {
       return;
     }
 
@@ -2831,9 +2831,9 @@ export class BranchContextMenuCommands {
    * handoff), falling back to a direct `mergeBranch` with the same conflict /
    * non-conflict-failure routing as `_handleMergeIntoCurrent`.
    */
-  private async _handleTagMergeIntoCurrent(item: BranchTreeItem): Promise<void> {
+  private async _handleTagMergeIntoCurrent(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.tag) {
+    if (!repo || !item?.tag) {
       return;
     }
 
@@ -2878,9 +2878,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle delete tag command.
    */
-  private async _handleTagDelete(item: BranchTreeItem): Promise<void> {
+  private async _handleTagDelete(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.tag) {
+    if (!repo || !item?.tag) {
       return;
     }
 
@@ -2917,9 +2917,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle push tag command.
    */
-  private async _handleTagPush(item: BranchTreeItem): Promise<void> {
+  private async _handleTagPush(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.tag) {
+    if (!repo || !item?.tag) {
       return;
     }
 
@@ -2960,9 +2960,9 @@ export class BranchContextMenuCommands {
    * {@link StashTagHistoryOps.deleteRemoteTag} op. Errors route through
    * {@link sanitizeGitError} so credentials in remote URLs are stripped.
    */
-  private async _handleTagDeleteRemote(item: BranchTreeItem): Promise<void> {
+  private async _handleTagDeleteRemote(item: BranchTreeItem | undefined): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.tag) {
+    if (!repo || !item?.tag) {
       return;
     }
 
