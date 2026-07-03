@@ -153,6 +153,8 @@ export interface IAddWorktreeOptions {
 export interface IWorktreeCapableService {
   listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError>;
   addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError>;
+  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError>;
+  pruneWorktrees(repo: IRepository): ResultAsync<void, GitError>;
 }
 
 /**
@@ -236,6 +238,51 @@ export class WorktreeOps {
 
     return ResultAsync.fromPromise(
       this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
+  }
+
+  /**
+   * Remove a linked worktree (`git worktree remove [--force] -- <path>`).
+   *
+   * Injection safety: the user-controlled path is the only positional and
+   * follows a single `--`, so a flag-shaped path can never be parsed as an
+   * option (same grammar note as {@link addWorktree}). Git itself refuses a
+   * dirty or locked worktree without `--force`; the caller decides whether
+   * to retry forced after surfacing that refusal.
+   */
+  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError> {
+    if (!path || path.trim().length === 0) {
+      return errAsync(new InvalidArgumentError('Worktree path is required'));
+    }
+
+    const args: string[] = ['worktree', 'remove'];
+    if (force) {
+      args.push('--force');
+    }
+    args.push('--', path);
+
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
+  }
+
+  /**
+   * Prune stale worktree records (`git worktree prune`) — cleans the
+   * `.git/worktrees/` bookkeeping for worktrees whose directories are gone.
+   * No user-controlled arguments.
+   */
+  pruneWorktrees(repo: IRepository): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['worktree', 'prune'], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
       classifyGitCommandError
     ).map(() => {
       this.ctx.invalidateCache(repo.rootUri.fsPath);

@@ -148,12 +148,19 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranch');
     });
 
-    it('should have exactly 16 menu items', () => {
+    it('should have exactly 17 menu items', () => {
       // intellig.branch.focusOnGraph (inline) + intellig.branch.toggleFavorite
-      // (6_favorite) on top of the branch-op entries, including the two
-      // worktree commands (New Worktree… / Open Worktree…) and the align-local
+      // (6_favorite) on top of the branch-op entries, including the three
+      // worktree commands (New / Open / Remove Worktree…) and the align-local
       // Update Selected entry (4_sync).
-      assert.strictEqual(entries.length, 16, `Expected 16 items, got ${entries.length}`);
+      assert.strictEqual(entries.length, 17, `Expected 17 items, got ${entries.length}`);
+    });
+
+    it('should include Remove Worktree next to New Worktree (3_worktree@2)', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.removeWorktree' && e.group === '3_worktree@2'
+      );
+      assert.ok(entry, 'intellig.branch.removeWorktree should be at 3_worktree@2');
     });
 
     it('should include New Worktree in its own section between Integrate and Sync (3_worktree@1)', () => {

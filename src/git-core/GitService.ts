@@ -1832,6 +1832,22 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._worktrees.addWorktree(repo, options);
   }
 
+  /**
+   * Remove a linked worktree (`git worktree remove`). See
+   * {@link WorktreeOps.removeWorktree}.
+   */
+  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError> {
+    return this._worktrees.removeWorktree(repo, path, force);
+  }
+
+  /**
+   * Prune stale worktree records (`git worktree prune`). See
+   * {@link WorktreeOps.pruneWorktrees}.
+   */
+  pruneWorktrees(repo: IRepository): ResultAsync<void, GitError> {
+    return this._worktrees.pruneWorktrees(repo);
+  }
+
   // ============================================
   // Stash Operations
   // ============================================

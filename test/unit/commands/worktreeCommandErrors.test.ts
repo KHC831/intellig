@@ -17,7 +17,13 @@ import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitS
 import { GitError, SpawnFailedError, CommandFailedError } from '../../../src/git-core/errors';
 import { IWorktreeEntry, IAddWorktreeOptions } from '../../../src/git-core/ops/WorktreeOps';
 import { Uri } from '../../mocks/vscode';
-import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
+import {
+  installErrorMessageTracker,
+  installInfoMessageTracker,
+  installWarningMessageTracker,
+  restoreMessageFunctions,
+  writableWindow,
+} from '../../typed/windowStub';
 
 function makeRepo(): IRepository {
   return { rootUri: Uri.file('/test-repo') } as unknown as IRepository;
@@ -34,11 +40,19 @@ function makeProvider(repo: IRepository | undefined): BranchTreeProvider {
 function makeGitService(over: {
   listWorktrees?: () => ResultAsync<IWorktreeEntry[], GitError>;
   addWorktree?: (repo: IRepository, options: IAddWorktreeOptions) => ResultAsync<void, GitError>;
+  removeWorktree?: (
+    repo: IRepository,
+    path: string,
+    force?: boolean
+  ) => ResultAsync<void, GitError>;
+  pruneWorktrees?: (repo: IRepository) => ResultAsync<void, GitError>;
 }): IGitService {
   return {
     listWorktrees:
       over.listWorktrees ?? ((): ResultAsync<IWorktreeEntry[], GitError> => okAsync([])),
     addWorktree: over.addWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
+    removeWorktree: over.removeWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
+    pruneWorktrees: over.pruneWorktrees ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
   } as unknown as IGitService;
 }
 
@@ -82,5 +96,180 @@ describe('worktree command handlers — Result Err arm', () => {
 
     assert.strictEqual(tracker.calls.length, 1);
     assert.match(tracker.calls[0].message, /Failed to list worktrees/);
+  });
+});
+
+interface RemoveWorktreeSurface {
+  _handleRemoveWorktree(): Promise<void>;
+}
+
+/** QuickPick stub: selects the first item whose label matches `pick`. */
+function installQuickPickChooser(pick: RegExp | undefined): { seenLabels: string[][] } {
+  const seen: { seenLabels: string[][] } = { seenLabels: [] };
+  writableWindow().showQuickPick = async (items: unknown[]) => {
+    const resolved = items as Array<{ label: string }>;
+    seen.seenLabels.push(resolved.map((i) => i.label));
+    if (!pick) {
+      return undefined;
+    }
+    return resolved.find((i) => pick.test(i.label));
+  };
+  return seen;
+}
+
+const MAIN_WT: IWorktreeEntry = {
+  path: '/test-repo',
+  head: 'a'.repeat(40),
+  branch: 'refs/heads/main',
+  isMain: true,
+  isDetached: false,
+  isBare: false,
+  isLocked: false,
+};
+const LINKED_WT: IWorktreeEntry = {
+  path: '/elsewhere/wt-feature',
+  head: 'b'.repeat(40),
+  branch: 'refs/heads/feature/x',
+  isMain: false,
+  isDetached: false,
+  isBare: false,
+  isLocked: false,
+};
+
+describe('_handleRemoveWorktree', () => {
+  afterEach(() => {
+    restoreMessageFunctions();
+  });
+
+  it('offers only non-main, non-current worktrees plus a prune item', async () => {
+    const seen = installQuickPickChooser(undefined);
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+    });
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.strictEqual(seen.seenLabels.length, 1);
+    const labels = seen.seenLabels[0].join(' | ');
+    assert.ok(labels.includes('feature/x'), `linked worktree offered: ${labels}`);
+    assert.ok(!labels.includes('main'), `main worktree must not be offered: ${labels}`);
+    assert.ok(/prune/i.test(labels), `prune item offered: ${labels}`);
+  });
+
+  it('removes the picked worktree after one modal confirm and refreshes', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const removeCalls: Array<{ path: string; force?: boolean }> = [];
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      removeWorktree: (_r, p, force) => {
+        removeCalls.push({ path: p, force });
+        return okAsync(undefined);
+      },
+    });
+    installWarningMessageTracker('Remove');
+    const info = installInfoMessageTracker();
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.deepStrictEqual(removeCalls, [{ path: '/elsewhere/wt-feature', force: undefined }]);
+    assert.ok(info.calls.some((c) => c.message.includes('Removed')));
+  });
+
+  it('does nothing when the confirm is dismissed', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const removeCalls: string[] = [];
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      removeWorktree: (_r, p) => {
+        removeCalls.push(p);
+        return okAsync(undefined);
+      },
+    });
+    installWarningMessageTracker(undefined);
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.strictEqual(removeCalls.length, 0);
+  });
+
+  it('offers Force Remove when git refuses a dirty worktree, and retries with force', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const removeCalls: Array<{ path: string; force?: boolean }> = [];
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      removeWorktree: (_r, p, force) => {
+        removeCalls.push({ path: p, force });
+        if (!force) {
+          return errAsync(
+            new CommandFailedError(
+              128,
+              "fatal: '/elsewhere/wt-feature' contains modified or untracked files, use --force to delete it"
+            )
+          );
+        }
+        return okAsync(undefined);
+      },
+    });
+    // First modal = Remove confirm; second modal = Force Remove offer. The
+    // tracker returns the SAME choice for both, so use a per-call dispatcher.
+    const responses = ['Remove', 'Force Remove'];
+    let call = 0;
+    writableWindow().showWarningMessage = async () => {
+      const r = responses[call];
+      call += 1;
+      return r;
+    };
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.deepStrictEqual(removeCalls, [
+      { path: '/elsewhere/wt-feature', force: undefined },
+      { path: '/elsewhere/wt-feature', force: true },
+    ]);
+  });
+
+  it('runs prune when the prune item is picked', async () => {
+    installQuickPickChooser(/[Pp]rune/);
+    let pruned = 0;
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      pruneWorktrees: () => {
+        pruned += 1;
+        return okAsync(undefined);
+      },
+    });
+    const info = installInfoMessageTracker();
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.strictEqual(pruned, 1);
+    assert.ok(info.calls.some((c) => /prune/i.test(c.message)));
+  });
+
+  it('surfaces a SANITIZED toast when the remove fails for a non-dirty reason', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const tracker = installErrorMessageTracker();
+    installWarningMessageTracker('Remove');
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      removeWorktree: () =>
+        errAsync(
+          new SpawnFailedError(
+            "fatal: unable to access 'https://x-access-token:ghp_SECRETTOKEN123456@github.com/o/r.git/'"
+          )
+        ),
+    });
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.strictEqual(tracker.calls.length, 1);
+    assert.match(tracker.calls[0].message, /Failed to remove worktree/);
+    assert.ok(!tracker.calls[0].message.includes('ghp_SECRETTOKEN123456'));
   });
 });

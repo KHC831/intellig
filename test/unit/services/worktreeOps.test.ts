@@ -368,4 +368,115 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/spawned');
   });
+
+  it('removes a clean linked worktree from disk and from the list', async () => {
+    const target = path.join(worktreeParent, 'wt-remove');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    assert.ok(fs.existsSync(target));
+
+    const removed = await ops.removeWorktree(repo, target);
+    assert.ok(removed.isOk(), 'removeWorktree should succeed on a clean worktree');
+    assert.ok(!fs.existsSync(target), 'worktree directory should be gone');
+
+    const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
+    assert.ok(
+      !entries.some((e) => e.path.endsWith('wt-remove')),
+      'removed worktree must not be listed'
+    );
+  });
+
+  it('refuses a dirty worktree without force, removes it with force', async () => {
+    const target = path.join(worktreeParent, 'wt-dirty');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    fs.writeFileSync(path.join(target, 'untracked.txt'), 'dirt');
+
+    const refused = await ops.removeWorktree(repo, target);
+    assert.ok(refused.isErr(), 'a dirty worktree must be refused without force');
+    assert.match(refused._unsafeUnwrapErr().message, /force/i);
+
+    const forced = await ops.removeWorktree(repo, target, true);
+    assert.ok(forced.isOk(), 'force removal should succeed');
+    assert.ok(!fs.existsSync(target));
+  });
+
+  it('prunes a stale record after the worktree directory is deleted manually', async () => {
+    const target = path.join(worktreeParent, 'wt-stale');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    fs.rmSync(target, { recursive: true, force: true });
+
+    const before = (await ops.listWorktrees(repo))._unsafeUnwrap();
+    assert.ok(
+      before.some((e) => e.path.endsWith('wt-stale')),
+      'stale record still listed before prune'
+    );
+
+    (await ops.pruneWorktrees(repo))._unsafeUnwrap();
+
+    const after = (await ops.listWorktrees(repo))._unsafeUnwrap();
+    assert.ok(!after.some((e) => e.path.endsWith('wt-stale')), 'stale record must be pruned');
+  });
+});
+
+describe('WorktreeOps.removeWorktree argv', () => {
+  it('places a single -- before the user path so a hostile path cannot become a flag', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+
+    await ops.removeWorktree(makeRepo('/repo'), '--upload-pack=evil');
+
+    const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'remove');
+    assert.ok(argv, 'expected a `git worktree remove` invocation');
+    const dashDashIndex = argv.indexOf('--');
+    const pathIndex = argv.indexOf('--upload-pack=evil');
+    assert.ok(dashDashIndex >= 0, 'expected -- in argv');
+    assert.strictEqual(argv.filter((a) => a === '--').length, 1, 'exactly one -- separator');
+    assert.ok(pathIndex > dashDashIndex, 'user path must follow --');
+    assert.ok(!argv.includes('--force'), 'no --force unless requested');
+  });
+
+  it('adds --force before the -- when forced', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+
+    await ops.removeWorktree(makeRepo('/repo'), '/wt', true);
+
+    const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'remove')!;
+    const forceIndex = argv.indexOf('--force');
+    const dashDashIndex = argv.indexOf('--');
+    assert.ok(forceIndex >= 0, 'expected --force');
+    assert.ok(forceIndex < dashDashIndex, '--force must precede the -- separator');
+  });
+
+  it('requires a non-empty path (invalid-argument Err, no git run)', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const result = await ops.removeWorktree(makeRepo('/repo'), '   ');
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'invalid-argument');
+    assert.strictEqual(cli.executed.length, 0, 'a rejected argument must never reach git');
+  });
+
+  it('returns a typed command-failed Err when git refuses (dirty worktree)', async () => {
+    const { ops } = makeOps(() => ({
+      exitCode: 128,
+      stderr: "fatal: '/wt' contains modified or untracked files, use --force to delete it",
+    }));
+    const result = await ops.removeWorktree(makeRepo('/repo'), '/wt');
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'command-failed');
+    assert.match(result._unsafeUnwrapErr().message, /--force/);
+  });
+});
+
+describe('WorktreeOps.pruneWorktrees', () => {
+  it('runs `git worktree prune`', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const result = await ops.pruneWorktrees(makeRepo('/repo'));
+    assert.ok(result.isOk());
+    assert.deepStrictEqual(cli.executed[0], ['worktree', 'prune']);
+  });
+
+  it('returns a typed command-failed Err on failure', async () => {
+    const { ops } = makeOps(() => ({ exitCode: 128, stderr: 'fatal: bad state' }));
+    const result = await ops.pruneWorktrees(makeRepo('/repo'));
+    assert.ok(result.isErr());
+    assert.strictEqual(result._unsafeUnwrapErr().kind, 'command-failed');
+  });
 });

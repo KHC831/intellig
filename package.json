@@ -281,6 +281,11 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.branch.removeWorktree",
+        "title": "Remove Worktree…",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.branch.mergeIntoCurrent",
         "title": "Merge This into Current",
         "category": "IntelliG"
@@ -798,6 +803,10 @@
           "when": "false"
         },
         {
+          "command": "intellig.branch.removeWorktree",
+          "when": "false"
+        },
+        {
           "command": "intellig.branch.push",
           "when": "false"
         },
@@ -1080,6 +1089,11 @@
           "command": "intellig.branch.newWorktree",
           "when": "viewItem == intellig.localBranch",
           "group": "3_worktree@1"
+        },
+        {
+          "command": "intellig.branch.removeWorktree",
+          "when": "viewItem == intellig.localBranch",
+          "group": "3_worktree@2"
         },
         {
           "command": "intellig.branch.openWorktree",

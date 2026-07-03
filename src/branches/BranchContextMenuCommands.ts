@@ -474,6 +474,128 @@ export class BranchContextMenuCommands {
   }
 
   /**
+   * "Remove Worktree…" — pick a linked worktree (never the main worktree or
+   * the checkout this window has open), confirm once, and `git worktree
+   * remove` it. Git's dirty/locked refusal is surfaced with a Force Remove
+   * retry. The same picker carries a prune item (`git worktree prune`) so
+   * stale records of manually-deleted worktrees are cleanable from one
+   * front door.
+   */
+  private async _handleRemoveWorktree(): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo) {
+      return;
+    }
+
+    const worktrees = await this._worktreeService()
+      .listWorktrees(repo)
+      .match(
+        (list) => list,
+        (error) => {
+          void vscode.window.showErrorMessage(
+            formatActionFailureToast('Failed to list worktrees', error)
+          );
+          return undefined;
+        }
+      );
+    if (!worktrees) {
+      return;
+    }
+
+    const repoRoot = repo.rootUri.fsPath;
+    const removable = worktrees.filter((wt) => !wt.isMain && wt.path !== repoRoot);
+
+    type RemoveItem = vscode.QuickPickItem & { worktree?: IWorktreeEntry; prune?: boolean };
+    const items: RemoveItem[] = removable.map((wt) => ({
+      label: this._worktreeLabel(wt),
+      description: wt.path,
+      worktree: wt,
+    }));
+    items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+    items.push({ label: '$(trash) Prune stale worktree records', prune: true });
+
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder:
+        removable.length === 0
+          ? 'No linked worktrees to remove — prune cleans records of deleted ones'
+          : 'Select a worktree to remove',
+    });
+    if (!picked) {
+      return;
+    }
+
+    if (picked.prune) {
+      const pruned = await this._worktreeService()
+        .pruneWorktrees(repo)
+        .match(
+          () => true,
+          (error) => {
+            void vscode.window.showErrorMessage(
+              formatActionFailureToast('Failed to prune worktrees', error)
+            );
+            return false;
+          }
+        );
+      if (pruned) {
+        void vscode.window.showInformationMessage('Pruned stale worktree records.');
+        this._branchTreeProvider.refresh();
+      }
+      return;
+    }
+
+    const worktree = picked.worktree;
+    if (!worktree) {
+      return;
+    }
+    const confirm = await vscode.window.showWarningMessage(
+      `Remove worktree '${worktree.path}'?`,
+      { modal: true },
+      'Remove'
+    );
+    if (confirm !== 'Remove') {
+      return;
+    }
+    await this._removeWorktreeReporting(repo, worktree.path, false);
+  }
+
+  /**
+   * Run one `git worktree remove`; on git's use-`--force` refusal (dirty or
+   * locked tree) offer a single Force Remove retry, otherwise surface the
+   * sanitized failure.
+   */
+  private async _removeWorktreeReporting(
+    repo: IRepository,
+    worktreePath: string,
+    force: boolean
+  ): Promise<void> {
+    const failure = await this._worktreeService()
+      .removeWorktree(repo, worktreePath, force ? true : undefined)
+      .match(
+        () => undefined,
+        (error) => error
+      );
+    if (!failure) {
+      void vscode.window.showInformationMessage(`Removed worktree '${worktreePath}'.`);
+      this._branchTreeProvider.refresh();
+      return;
+    }
+    if (!force && /--force/.test(failure.message)) {
+      const choice = await vscode.window.showWarningMessage(
+        `Worktree '${worktreePath}' has local modifications or is locked. Remove it anyway?`,
+        { modal: true },
+        'Force Remove'
+      );
+      if (choice === 'Force Remove') {
+        await this._removeWorktreeReporting(repo, worktreePath, true);
+      }
+      return;
+    }
+    void vscode.window.showErrorMessage(
+      formatActionFailureToast('Failed to remove worktree', failure)
+    );
+  }
+
+  /**
    * Human-readable label for a worktree pick: the short branch name (stripping
    * the `refs/heads/` prefix git's porcelain emits), `(detached)` /
    * `(bare)` for those states, plus a `(locked)` / `(main)` suffix.
@@ -677,6 +799,9 @@ export class BranchContextMenuCommands {
     );
     this._disposables.push(
       registerLoggedCommand('intellig.branch.openWorktree', () => this._handleOpenWorktree())
+    );
+    this._disposables.push(
+      registerLoggedCommand('intellig.branch.removeWorktree', () => this._handleRemoveWorktree())
     );
 
     // Refresh command
