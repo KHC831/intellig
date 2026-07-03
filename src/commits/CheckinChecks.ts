@@ -23,6 +23,8 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GitCli } from '../git-core/gitCli';
 import {
   FileStatus,
@@ -137,6 +139,63 @@ async function isDetachedHead(gitCli: GitCli, repo: IRepository): Promise<boolea
  *   unresolved-merge check ignores conflicts in files the user isn't
  *   committing.
  */
+/** Injectable fs seam for {@link sampleFileFacts}. */
+export interface IFileFactsFs {
+  stat(absPath: string): Promise<{ size: number }>;
+  /** Read the first few KiB of the file (enough to spot CRLF / binary). */
+  readChunk(absPath: string): Promise<Buffer>;
+}
+
+const FACTS_CHUNK_BYTES = 8192;
+
+const realFileFactsFs: IFileFactsFs = {
+  stat: (absPath) => fs.promises.stat(absPath),
+  async readChunk(absPath) {
+    const handle = await fs.promises.open(absPath, 'r');
+    try {
+      const buffer = Buffer.alloc(FACTS_CHUNK_BYTES);
+      const { bytesRead } = await handle.read(buffer, 0, FACTS_CHUNK_BYTES, 0);
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  },
+};
+
+/**
+ * Sample the on-disk facts the CRLF and large-file checks need: size and
+ * whether the leading chunk contains a CRLF separator. NUL in the chunk
+ * marks the file binary (CRLF is meaningless there). Deleted files and any
+ * fs failure leave the fields undefined — the checks stay silent on an
+ * unknown rather than guessing.
+ */
+export async function sampleFileFacts(
+  repoRootFsPath: string,
+  files: ReadonlyArray<ICheckinFile>,
+  fsLike: IFileFactsFs = realFileFactsFs
+): Promise<ICheckinFile[]> {
+  return Promise.all(
+    files.map(async (file) => {
+      if (file.status === 'deleted') {
+        return { ...file };
+      }
+      const absPath = path.join(repoRootFsPath, file.path);
+      let sizeBytes: number | undefined;
+      let hasCrlf: boolean | undefined;
+      try {
+        sizeBytes = (await fsLike.stat(absPath)).size;
+        const chunk = await fsLike.readChunk(absPath);
+        hasCrlf = chunk.includes(0) ? false : chunk.includes('\r\n');
+      } catch {
+        // Missing/unreadable file: leave both facts undefined (checks skip).
+        sizeBytes = undefined;
+        hasCrlf = undefined;
+      }
+      return { ...file, sizeBytes, hasCrlf };
+    })
+  );
+}
+
 export async function gatherCheckinContext(
   gitService: IGitService,
   repo: IRepository,
@@ -173,13 +232,24 @@ export async function gatherCheckinContext(
     };
   }
 
-  const [userName, userEmail, detachedHead] = await Promise.all([
+  const [userName, userEmail, autoCrlfRaw, detachedHead, sampledFiles] = await Promise.all([
     readGitConfig(gitCli, repo, 'user.name'),
     readGitConfig(gitCli, repo, 'user.email'),
+    readGitConfig(gitCli, repo, 'core.autocrlf'),
     isDetachedHead(gitCli, repo),
+    sampleFileFacts(repo.rootUri.fsPath, files),
   ]);
+  const coreAutoCrlf = autoCrlfRaw ? autoCrlfRaw.trim().toLowerCase() : undefined;
 
-  return { userName, userEmail, userIdentityResolved: true, files, detachedHead, statusReadFailed };
+  return {
+    userName,
+    userEmail,
+    userIdentityResolved: true,
+    files: sampledFiles,
+    detachedHead,
+    coreAutoCrlf,
+    statusReadFailed,
+  };
 }
 
 /**

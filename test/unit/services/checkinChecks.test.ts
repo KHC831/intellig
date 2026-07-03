@@ -10,7 +10,15 @@
 import '../../setup';
 import * as assert from 'assert';
 import { gatherCheckinContext, formatCheckinProblems } from '../../../src/commits/CheckinChecks';
-import { runCheckinHandlers } from '../../../src/commits/CheckinHandlers';
+import {
+  runCheckinHandlers,
+  crlfCheckinHandler,
+  largeFileCheckinHandler,
+  badFilenameCheckinHandler,
+  LARGE_FILE_WARNING_BYTES,
+  ICheckinContext,
+} from '../../../src/commits/CheckinHandlers';
+import { sampleFileFacts } from '../../../src/commits/CheckinChecks';
 import type {
   IGitService,
   IRepository,
@@ -179,5 +187,171 @@ describe('formatCheckinProblems', () => {
     const warnIdx = out.indexOf('a warning');
     assert.ok(errIdx >= 0 && warnIdx >= 0);
     assert.ok(errIdx < warnIdx, 'errors should be listed before warnings');
+  });
+});
+
+// ─── CRLF / large-file / bad-filename checks ─────────────────────────────────
+
+function ctxWith(over: Partial<ICheckinContext>): ICheckinContext {
+  return { files: [], detachedHead: false, ...over };
+}
+
+describe('crlfCheckinHandler', () => {
+  it('warns when a committed file has CRLF and core.autocrlf is unset', () => {
+    const problems = crlfCheckinHandler.check(
+      ctxWith({ files: [{ path: 'a.ts', status: 'modified', hasCrlf: true }] })
+    );
+    assert.strictEqual(problems.length, 1);
+    assert.strictEqual(problems[0].severity, 'warning');
+    assert.ok(problems[0].text.includes('a.ts'), problems[0].text);
+    assert.match(problems[0].text, /CRLF/);
+  });
+
+  it('stays silent when core.autocrlf is true or input', () => {
+    for (const autocrlf of ['true', 'input'] as const) {
+      const problems = crlfCheckinHandler.check(
+        ctxWith({
+          coreAutoCrlf: autocrlf,
+          files: [{ path: 'a.ts', status: 'modified', hasCrlf: true }],
+        })
+      );
+      assert.deepStrictEqual(problems, [], `autocrlf=${autocrlf}`);
+    }
+  });
+
+  it('stays silent when no committed file has CRLF', () => {
+    const problems = crlfCheckinHandler.check(
+      ctxWith({ files: [{ path: 'a.ts', status: 'modified', hasCrlf: false }] })
+    );
+    assert.deepStrictEqual(problems, []);
+  });
+});
+
+describe('largeFileCheckinHandler', () => {
+  it('warns for a file over the threshold, naming it with its size', () => {
+    const problems = largeFileCheckinHandler.check(
+      ctxWith({
+        files: [
+          { path: 'big.bin', status: 'added', sizeBytes: LARGE_FILE_WARNING_BYTES + 1 },
+          { path: 'small.ts', status: 'modified', sizeBytes: 10 },
+        ],
+      })
+    );
+    assert.strictEqual(problems.length, 1);
+    assert.strictEqual(problems[0].severity, 'warning');
+    assert.ok(problems[0].text.includes('big.bin'), problems[0].text);
+    assert.ok(!problems[0].text.includes('small.ts'));
+  });
+
+  it('stays silent at or below the threshold or with unknown size', () => {
+    const problems = largeFileCheckinHandler.check(
+      ctxWith({
+        files: [
+          { path: 'edge.bin', status: 'added', sizeBytes: LARGE_FILE_WARNING_BYTES },
+          { path: 'unknown.bin', status: 'added' },
+        ],
+      })
+    );
+    assert.deepStrictEqual(problems, []);
+  });
+});
+
+describe('badFilenameCheckinHandler', () => {
+  it('warns for NEW files whose names break on Windows', () => {
+    const problems = badFilenameCheckinHandler.check(
+      ctxWith({
+        files: [
+          { path: 'aux.txt', status: 'added' },
+          { path: 'a<b.txt', status: 'added' },
+          { path: 'dir./f.txt', status: 'untracked' },
+          { path: 'trail /x.txt', status: 'added' },
+          { path: 'com1.log', status: 'added' },
+        ],
+      })
+    );
+    assert.strictEqual(problems.length, 1, JSON.stringify(problems));
+    assert.strictEqual(problems[0].severity, 'warning');
+    for (const bad of ['aux.txt', 'a<b.txt', 'dir./f.txt', 'com1.log']) {
+      assert.ok(problems[0].text.includes(bad), `${bad} in ${problems[0].text}`);
+    }
+  });
+
+  it('ignores clean names and pre-existing (modified) files', () => {
+    const problems = badFilenameCheckinHandler.check(
+      ctxWith({
+        files: [
+          { path: 'src/ok-file.ts', status: 'added' },
+          { path: 'aux.txt', status: 'modified' },
+          { path: 'auxiliary.txt', status: 'added' },
+          { path: 'a.b.c.txt', status: 'added' },
+        ],
+      })
+    );
+    assert.deepStrictEqual(problems, []);
+  });
+});
+
+// ─── sampleFileFacts (fs sampling for the CRLF + size checks) ────────────────
+
+describe('sampleFileFacts', () => {
+  const fakeFs = (byPath: Record<string, { size?: number; chunk?: string; fail?: boolean }>) => ({
+    stat: async (p: string) => {
+      const e = byPath[p];
+      if (!e || e.fail) {
+        throw new Error('ENOENT');
+      }
+      return { size: e.size ?? 0 };
+    },
+    readChunk: async (p: string) => {
+      const e = byPath[p];
+      if (!e || e.fail || e.chunk === undefined) {
+        throw new Error('ENOENT');
+      }
+      return Buffer.from(e.chunk, 'binary');
+    },
+  });
+
+  it('flags CRLF content and reports the size', async () => {
+    const files = [{ path: 'a.ts', status: 'modified' as const }];
+    const out = await sampleFileFacts(
+      '/root',
+      files,
+      fakeFs({ '/root/a.ts': { size: 42, chunk: 'line one\r\nline two\n' } })
+    );
+    assert.strictEqual(out[0].hasCrlf, true);
+    assert.strictEqual(out[0].sizeBytes, 42);
+  });
+
+  it('treats LF-only and binary (NUL) content as not CRLF', async () => {
+    const files = [
+      { path: 'lf.ts', status: 'modified' as const },
+      { path: 'bin.dat', status: 'added' as const },
+    ];
+    const out = await sampleFileFacts(
+      '/root',
+      files,
+      fakeFs({
+        '/root/lf.ts': { size: 5, chunk: 'a\nb\n' },
+        '/root/bin.dat': { size: 9, chunk: 'x\u0000y\r\nz' },
+      })
+    );
+    assert.strictEqual(out[0].hasCrlf, false);
+    assert.strictEqual(out[1].hasCrlf, false);
+  });
+
+  it('skips deleted files and tolerates read failures', async () => {
+    const files = [
+      { path: 'gone.ts', status: 'deleted' as const },
+      { path: 'unreadable.ts', status: 'modified' as const },
+    ];
+    const out = await sampleFileFacts(
+      '/root',
+      files,
+      fakeFs({ '/root/unreadable.ts': { fail: true } })
+    );
+    assert.strictEqual(out[0].sizeBytes, undefined);
+    assert.strictEqual(out[0].hasCrlf, undefined);
+    assert.strictEqual(out[1].sizeBytes, undefined);
+    assert.strictEqual(out[1].hasCrlf, undefined);
   });
 });

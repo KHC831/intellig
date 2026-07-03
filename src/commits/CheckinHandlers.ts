@@ -24,11 +24,10 @@
  * checks. That keeps the gear-menu toggle's meaning ("skip the safety
  * nets") consistent across hooks and IDE-side checks.
  *
- * Cheap checks ported first (this wave): user.name-undefined and
- * unresolved-merge. Detached-root is included as a third low-cost check
- * because the context already carries the flag. CRLF / large-file /
- * bad-filename are scaffolded as TODO follow-ups — the framework is shaped
- * to accept them without change.
+ * Checks: user.name-undefined, unresolved-merge, CRLF-without-autocrlf,
+ * large-file, Windows-hostile filename, detached-root, and a status-read
+ * watchdog. The file facts the CRLF/large-file checks need (`hasCrlf`,
+ * `sizeBytes`) are sampled once by `CheckinChecks.sampleFileFacts`.
  */
 
 import { FileStatus } from '../git-core/interfaces/IGitService';
@@ -59,6 +58,10 @@ export interface ICheckinProblem {
 export interface ICheckinFile {
   path: string;
   status: FileStatus;
+  /** File contains CRLF line separators (sampled; undefined = not sampled). */
+  hasCrlf?: boolean;
+  /** On-disk size in bytes (undefined = not sampled / file absent). */
+  sizeBytes?: number;
 }
 
 /**
@@ -85,6 +88,12 @@ export interface ICheckinContext {
   files: ReadonlyArray<ICheckinFile>;
   /** True when HEAD is detached (committing lands on no branch). */
   detachedHead: boolean;
+  /**
+   * `git config core.autocrlf`, lower-cased (`'true'` / `'input'` /
+   * `'false'`), or `undefined` when unset or unreadable. The CRLF check only
+   * fires when git is NOT normalizing (`true`/`input` suppress it).
+   */
+  coreAutoCrlf?: string;
   /**
    * True when the working-tree status could not be read (e.g. `getStatus`
    * threw). When set, {@link files} is empty and the conflict check cannot
@@ -236,15 +245,137 @@ export const statusReadCheckinHandler: ICheckinHandler = {
 };
 
 /**
- * The default cheap-check chain, in run order. user.name first (it blocks
- * the hardest), then unresolved-merge, then the detached-HEAD + status-read
- * warnings.
+ * Warn threshold for the large-file check: 50 MiB, the size at which the
+ * major hosting providers start warning or refusing pushes.
+ */
+export const LARGE_FILE_WARNING_BYTES = 50 * 1024 * 1024;
+
+/**
+ * CRLF check (`GitCheckinHandlerFactory`'s CRLF handler / GitCrlfDialog).
  *
- * CRLF / large-file / bad-filename checks plug in here when ported.
+ * When a committed file contains CRLF separators and `core.autocrlf` is not
+ * normalizing (`true`/`input`), the CRLFs land in the repository — a
+ * cross-platform diff-noise trap. git4idea offers a fix dialog; IntelliG
+ * warns (non-blocking) and points at core.autocrlf.
+ */
+export const crlfCheckinHandler: ICheckinHandler = {
+  id: 'git.crlf',
+  displayName: 'No CRLF committed without autocrlf',
+  check(context: ICheckinContext): ICheckinProblem[] {
+    if (context.coreAutoCrlf === 'true' || context.coreAutoCrlf === 'input') {
+      return [];
+    }
+    const crlf = context.files.filter((f) => f.hasCrlf === true);
+    if (crlf.length === 0) {
+      return [];
+    }
+    const sample = crlf
+      .slice(0, 5)
+      .map((f) => f.path)
+      .join(', ');
+    const more = crlf.length > 5 ? `, and ${crlf.length - 5} more` : '';
+    return [
+      {
+        handlerId: 'git.crlf',
+        text: `${crlf.length} file${
+          crlf.length === 1 ? '' : 's'
+        } being committed contain${crlf.length === 1 ? 's' : ''} CRLF line separators (${sample}${more}) and core.autocrlf is not set, so the CRLFs will be committed as-is. Consider "git config core.autocrlf input" (macOS/Linux) or "true" (Windows).`,
+        severity: 'warning',
+      },
+    ];
+  },
+};
+
+/**
+ * Large-file check: warns for files over {@link LARGE_FILE_WARNING_BYTES}.
+ * Hosting providers warn at 50 MiB and hard-refuse near 100 MiB, and a blob
+ * once pushed is in history forever — worth one warning before the commit.
+ */
+export const largeFileCheckinHandler: ICheckinHandler = {
+  id: 'git.large.file',
+  displayName: 'No unexpectedly large files',
+  check(context: ICheckinContext): ICheckinProblem[] {
+    const big = context.files.filter(
+      (f) => typeof f.sizeBytes === 'number' && f.sizeBytes > LARGE_FILE_WARNING_BYTES
+    );
+    if (big.length === 0) {
+      return [];
+    }
+    const list = big
+      .slice(0, 5)
+      .map((f) => `${f.path} (${Math.round((f.sizeBytes ?? 0) / (1024 * 1024))} MB)`)
+      .join(', ');
+    const more = big.length > 5 ? `, and ${big.length - 5} more` : '';
+    return [
+      {
+        handlerId: 'git.large.file',
+        text: `${big.length} file${big.length === 1 ? ' is' : 's are'} larger than 50 MB: ${list}${more}. Large blobs stay in history forever and most hosts refuse them — consider Git LFS or excluding the file.`,
+        severity: 'warning',
+      },
+    ];
+  },
+};
+
+/** Windows-reserved device names (any extension still reserves the name). */
+const WINDOWS_RESERVED_SEGMENT = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/** True when one path segment cannot exist on a Windows checkout. */
+function isWindowsHostileSegment(segment: string): boolean {
+  return (
+    // eslint-disable-next-line no-control-regex
+    /[<>:"|?*\u0000-\u001f]/.test(segment) ||
+    /[. ]$/.test(segment) ||
+    WINDOWS_RESERVED_SEGMENT.test(segment)
+  );
+}
+
+/**
+ * Bad-filename check: a NEW file whose name Windows cannot represent
+ * (reserved device names, `<>:"|?*` or control characters, trailing dot or
+ * space in any segment) makes the whole repository uncloneable on Windows.
+ * Only added/untracked files are checked — an existing bad name would warn
+ * on every commit forever.
+ */
+export const badFilenameCheckinHandler: ICheckinHandler = {
+  id: 'git.bad.filename',
+  displayName: 'File names are portable',
+  check(context: ICheckinContext): ICheckinProblem[] {
+    const bad = context.files.filter(
+      (f) =>
+        (f.status === 'added' || f.status === 'untracked') &&
+        f.path.split('/').some(isWindowsHostileSegment)
+    );
+    if (bad.length === 0) {
+      return [];
+    }
+    const sample = bad
+      .slice(0, 5)
+      .map((f) => f.path)
+      .join(', ');
+    const more = bad.length > 5 ? `, and ${bad.length - 5} more` : '';
+    return [
+      {
+        handlerId: 'git.bad.filename',
+        text: `${bad.length} new file name${
+          bad.length === 1 ? ' is' : 's are'
+        } not valid on Windows (${sample}${more}) — the repository would fail to check out there. Rename before committing.`,
+        severity: 'warning',
+      },
+    ];
+  },
+};
+
+/**
+ * The default check chain, in run order: user.name first (it blocks the
+ * hardest), unresolved-merge next, then the warning-grade content checks
+ * (CRLF, large file, bad filename), then detached-HEAD + status-read.
  */
 export const DEFAULT_CHECKIN_HANDLERS: ReadonlyArray<ICheckinHandler> = [
   userNameCheckinHandler,
   unresolvedMergeCheckinHandler,
+  crlfCheckinHandler,
+  largeFileCheckinHandler,
+  badFilenameCheckinHandler,
   detachedRootCheckinHandler,
   statusReadCheckinHandler,
 ];
