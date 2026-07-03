@@ -10,6 +10,19 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.12] - 2026-07-03
+
+### Fixed
+
+- Clicking a tag in the branches tree now jumps the graph to the tagged commit, just like clicking a branch.
+- Background refreshes no longer fight your git commands over the index lock, which could make a checkout or rebase fail with "index.lock: File exists".
+- A repository removed from the workspace no longer comes back as a ghost in repository pickers.
+- Continue/Abort/Skip on a paused rebase could be refused right after resolving a conflict; they now read fresh repository state.
+
+### Changed
+
+- The extension is now shipped as a single bundled file — a smaller download that loads faster.
+
 ## [0.2.11] - 2026-07-03
 
 ### Added
