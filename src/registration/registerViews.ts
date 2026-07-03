@@ -20,6 +20,7 @@ import {
   COMMIT_TOOL_WINDOW_VIEW_ID,
 } from '../services';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
+import { graphRowKey } from '../git-core/commitGraph';
 import { createCommandTitleProvider } from '../commits/CommandTitleProvider';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
 import { getOutputChannel } from '../utils/outputChannel';
@@ -760,16 +761,21 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           )
         );
 
+        // Keyed by (hash, root) — graphRowKey — so a ref only ever labels the
+        // row of the repo that carries it. Two checkouts of the same repo
+        // share every hash; a bare-hash map pooled all their refs onto one row.
         const combinedBranchMap = new Map<
           string,
           Array<{ name: string; type: 'local' | 'remote' }>
         >();
-        perRepoBranches.forEach((branches) => {
+        perRepoBranches.forEach((branches, repoIndex) => {
+          const root = repos[repoIndex].rootUri.fsPath;
           for (const branch of branches) {
             if (branch.commit && branch.type !== 'tag') {
-              const existing = combinedBranchMap.get(branch.commit) || [];
+              const key = graphRowKey(branch.commit, root);
+              const existing = combinedBranchMap.get(key) || [];
               existing.push({ name: branch.name, type: branch.type });
-              combinedBranchMap.set(branch.commit, existing);
+              combinedBranchMap.set(key, existing);
             }
           }
         });
@@ -804,6 +810,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           .sort((a, b) => b.commitDate.getTime() - a.commitDate.getTime())
           .slice(0, 500);
 
+        // Same (hash, root) keying as the branch map above.
         const combinedTagMap = new Map<string, string[]>();
         await Promise.all(
           repos.map(async (repo) => {
@@ -811,9 +818,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               const tags = await gitService.getTags(repo);
               for (const tag of tags) {
                 if (tag.commit) {
-                  const existing = combinedTagMap.get(tag.commit) || [];
+                  const key = graphRowKey(tag.commit, repo.rootUri.fsPath);
+                  const existing = combinedTagMap.get(key) || [];
                   existing.push(tag.name);
-                  combinedTagMap.set(tag.commit, existing);
+                  combinedTagMap.set(key, existing);
                 }
               }
             } catch (error) {

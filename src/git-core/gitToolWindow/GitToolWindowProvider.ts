@@ -452,8 +452,13 @@ export class GitToolWindowProvider
    * resolve the repo the CLICKED commit actually belongs to rather than the
    * single "context" repo — see {@link getRepoRootForCommit}. Empty in the
    * single-repo / specific-scope paths, where commits carry no `repoRoot`.
+   *
+   * `null` marks a hash present in MORE THAN ONE root (two checkouts of the
+   * same repo in the merged view): the hash alone cannot identify a target,
+   * so the lookup refuses instead of guessing — see the fail-closed note on
+   * {@link getRepoRootForCommit}.
    */
-  private _commitRepoRoots: Map<string, string> = new Map();
+  private _commitRepoRoots: Map<string, string | null> = new Map();
 
   /**
    * HEAD commit hashes of every root in the merged "all roots" log. In merged
@@ -1089,7 +1094,15 @@ export class GitToolWindowProvider
     this._commitRepoRoots = new Map();
     for (const commit of commits) {
       if (commit.repoRoot) {
-        this._commitRepoRoots.set(commit.hash, commit.repoRoot);
+        const existing = this._commitRepoRoots.get(commit.hash);
+        if (existing === undefined) {
+          this._commitRepoRoots.set(commit.hash, commit.repoRoot);
+        } else if (existing !== null && existing !== commit.repoRoot) {
+          // Same hash from a second root (two checkouts of one repo in the
+          // merged view) — the hash is ambiguous; mark it so the lookup
+          // refuses rather than aiming an action at an arbitrary checkout.
+          this._commitRepoRoots.set(commit.hash, null);
+        }
       }
     }
     // Reset the per-root HEAD set; the merged loader repopulates it via
@@ -2812,13 +2825,17 @@ export class GitToolWindowProvider
   /**
    * Source repository root for a commit in the merged "all roots" log, or
    * `undefined` when the commit isn't from the merged view (single-repo /
-   * specific-scope log) or isn't in the current snapshot. Commit-targeted
-   * operations use this to act on the repo the CLICKED commit belongs to
-   * rather than the single "context" repo {@link getSelectedRepository}
-   * returns.
+   * specific-scope log), isn't in the current snapshot, or — fail closed —
+   * exists in MORE THAN ONE root (two checkouts of the same repo carry
+   * identical hashes; the hash alone cannot say which one was meant).
+   * Commit-targeted operations use this to act on the repo the CLICKED
+   * commit belongs to rather than the single "context" repo
+   * {@link getSelectedRepository} returns; on the ambiguous answer they fall
+   * back to their context chain (or the clicked row's own root, which the
+   * context-menu dispatch prefers and which stays unambiguous).
    */
   public getRepoRootForCommit(hash: string): string | undefined {
-    return this._commitRepoRoots.get(hash);
+    return this._commitRepoRoots.get(hash) ?? undefined;
   }
 
   /**

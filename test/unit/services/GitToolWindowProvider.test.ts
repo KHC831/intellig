@@ -220,6 +220,29 @@ describe('Log View', () => {
     };
   }
 
+  describe('getRepoRootForCommit — merged-log source index', () => {
+    it('returns the recorded root for a hash unique to one repo', () => {
+      provider.updateLogState([
+        { ...createMockCommit('a'.repeat(40), 'one'), repoRoot: '/w/r1' },
+        { ...createMockCommit('b'.repeat(40), 'two'), repoRoot: '/w/r2' },
+      ]);
+      assert.strictEqual(provider.getRepoRootForCommit('a'.repeat(40)), '/w/r1');
+      assert.strictEqual(provider.getRepoRootForCommit('b'.repeat(40)), '/w/r2');
+    });
+
+    it('refuses to guess when the same hash exists in several repos', () => {
+      // Two checkouts of one repo: the hash alone cannot identify a target
+      // repo. Last-writer-wins here silently aimed commit-targeted (incl.
+      // destructive) actions at an arbitrary checkout — fail closed instead;
+      // callers fall back to their context-repo chain or the clicked row.
+      provider.updateLogState([
+        { ...createMockCommit('c'.repeat(40), 'same'), repoRoot: '/w/r1' },
+        { ...createMockCommit('c'.repeat(40), 'same'), repoRoot: '/w/r2' },
+      ]);
+      assert.strictEqual(provider.getRepoRootForCommit('c'.repeat(40)), undefined);
+    });
+  });
+
   describe('updateLogState', () => {
     it('should update log state with commits', () => {
       // `updateLogState` trusts the topo-ordered input from

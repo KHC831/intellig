@@ -18,11 +18,13 @@
 
 import {
   ICommitNode,
+  commitNodeKey,
   computeChildCountMap,
   computeIncomingBendsMap,
   computeTerminalNodes,
   getColumnColor,
   isBranchSplit,
+  parentNodeKey,
 } from '../commitGraph';
 import { computeBranchColors, type IColorNode } from './branchColors';
 import {
@@ -245,8 +247,8 @@ export function projectRow(
   // branchColors supplied) — so behavior is unchanged when coloring is off.
   const branchColors = ctx.branchColors;
   const colorForRow = (row: number, fallbackLane: number): string => {
-    const hash = nodes[row]?.commit.hash;
-    const c = hash !== undefined ? branchColors?.get(hash) : undefined;
+    const commit = nodes[row]?.commit;
+    const c = commit !== undefined ? branchColors?.get(commitNodeKey(commit)) : undefined;
     return c ?? getColumnColor(fallbackLane);
   };
 
@@ -604,7 +606,13 @@ export interface IBuildPrintModelOptions {
 
 /** Map graph nodes to the minimal shape {@link computeBranchColors} needs. */
 export function colorNodesFrom(nodes: ICommitNode[]): IColorNode[] {
-  return nodes.map((n) => ({ hash: n.commit.hash, parents: n.commit.parents, refs: n.branches }));
+  // Node-keyed ids (hash + root in the merged window) so the branch-color
+  // first-parent walk can't hop between same-hash copies from different roots.
+  return nodes.map((n) => ({
+    hash: commitNodeKey(n.commit),
+    parents: n.commit.parents.map((p) => parentNodeKey(n.commit, p)),
+    refs: n.branches,
+  }));
 }
 
 /**
@@ -645,11 +653,11 @@ export function buildGraphPrintModel(
       activeLanes: activeLaneMap.get(rowIndex) ?? new Set<number>(),
       continuesFromAbove: continuesFromAboveMap.get(rowIndex) ?? new Set<number>(),
       continuesBelow: continuesBelowMap.get(rowIndex) ?? new Set<number>(),
-      incomingBendLanes: incomingBendsMap.get(node.commit.hash) ?? new Set<number>(),
+      incomingBendLanes: incomingBendsMap.get(commitNodeKey(node.commit)) ?? new Set<number>(),
       bendsLandingBelow: bendsLandingBelowMap.get(rowIndex) ?? new Set<number>(),
-      isTerminal: terminalNodes.has(node.commit.hash),
+      isTerminal: terminalNodes.has(commitNodeKey(node.commit)),
       isCurrentHead: node.commit.hash === currentHeadHash,
-      isBranchSplit: isBranchSplit(node.commit.hash, childCountMap),
+      isBranchSplit: isBranchSplit(commitNodeKey(node.commit), childCountMap),
       isLastRow: rowIndex === nodes.length - 1,
       hasFocusedBranch,
       nodes,
@@ -665,7 +673,8 @@ export function buildGraphPrintModel(
 function buildHashToRow(nodes: ICommitNode[]): Map<string, number> {
   const hashToRow = new Map<string, number>();
   for (let i = 0; i < nodes.length; i++) {
-    hashToRow.set(nodes[i].commit.hash, i);
+    // Node-keyed: same-hash copies across roots each keep their own row.
+    hashToRow.set(commitNodeKey(nodes[i].commit), i);
   }
   return hashToRow;
 }
@@ -684,7 +693,7 @@ function findParentRow(
   rowIndex: number
 ): number | undefined {
   for (const parentHash of node.commit.parents) {
-    const pr = hashToRow.get(parentHash);
+    const pr = hashToRow.get(parentNodeKey(node.commit, parentHash));
     if (pr !== undefined && pr > rowIndex && nodes[pr].graphColumn === toColumn) {
       return pr;
     }
