@@ -40,7 +40,17 @@ WORK on it.
 9. **Tests-passing traps**: a green suite can coexist with a broken
    product when a mock hides the runtime (see section 5). Runtime lanes
    (ext-host, e2e, webview-harness) must gate UI changes.
-10. **A class fix is not done until the class is FENCED.** Fixing the
+10. **Design prevents bug classes — decide where invariants LIVE before
+    writing bodies.** When a plan calls for N similar handlers/views/ops,
+    design ONE skeleton (spine/wrapper/base/type) that carries the shared
+    invariants (guards, argument contracts, error surfacing, sanitize,
+    refresh) and N thin bodies — never N hand-rolled skeletons. The command
+    spine (src/commands/registration/commandSpine.ts) is the model: eight
+    audit rounds kept re-finding classes that one up-front abstraction made
+    unwritable. The Nth copy of a skeleton is a design finding even while
+    every copy is still correct. Prefer unwritable (compile error / gate
+    failure) over documented.
+11. **A class fix is not done until the class is FENCED.** Fixing the
     found instances of a bug pattern is an instance fix; audits have
     re-found "closed" classes twice (unpinned stash pops, unanchored
     path strips) because nothing stopped new code from rejoining the
