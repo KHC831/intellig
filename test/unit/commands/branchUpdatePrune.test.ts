@@ -1,8 +1,11 @@
 /**
  * Unit test for the Branches-tree → Update command path.
  *
- * Verifies that `_handleUpdate` invokes `gitService.fetch` with
- * `{ remote, prune: true }` so stale remote-tracking refs are cleaned.
+ * `_handleUpdate` splits by checked-out state: the CURRENT branch fetches its
+ * upstream remote with `{ remote, prune: true }` (stale remote-tracking refs
+ * cleaned; a checked-out ref cannot be fetched into), while a NON-current
+ * branch is genuinely updated via the align-local `<remoteRef>:<localRef>`
+ * fast-forward refspec.
  */
 
 /*
@@ -59,26 +62,30 @@ function createMockBranchTreeProvider(repo: IRepository): BranchTreeProvider {
   } as unknown as BranchTreeProvider;
 }
 
-function createLocalBranchItem(branchName: string, upstream: IUpstream): BranchTreeItem {
+function createLocalBranchItem(
+  branchName: string,
+  upstream: IUpstream,
+  isHead = false
+): BranchTreeItem {
   const branch: IBranch = {
     name: branchName,
     type: 'local',
     commit: 'abc1234567890abcdef1234567890abcdef123456',
-    isHead: false,
+    isHead,
     upstream,
   };
   return new BranchTreeItem(branchName, 0, 'local-branch', branch, undefined, false);
 }
 
 describe('BranchContextMenuCommands._handleUpdate — fetch --prune', () => {
-  it('passes { remote, prune: true } to gitService.fetch (no string-form)', async () => {
+  it('passes { remote, prune: true } to gitService.fetch for the CURRENT branch (no string-form)', async () => {
     const repo = createMockRepo();
     const gitService = createRecordingGitService();
     const provider = createMockBranchTreeProvider(repo);
     const commands = new BranchContextMenuCommands(gitService, provider);
 
     const upstream: IUpstream = { remote: 'origin', name: 'feature' };
-    const item = createLocalBranchItem('feature', upstream);
+    const item = createLocalBranchItem('feature', upstream, true);
 
     await invokePrivateHandler(commands, '_handleUpdate', item);
 

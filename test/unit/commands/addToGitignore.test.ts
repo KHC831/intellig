@@ -16,6 +16,8 @@ import * as assert from 'assert';
 import {
   gitignorePatternFor,
   buildGitignoreAppendContent,
+  gitignoreAppendToast,
+  revertPrecheck,
 } from '../../../src/commands/registration/explorerCommands';
 
 describe('gitignorePatternFor (#P2 add-to-gitignore path)', () => {
@@ -77,5 +79,42 @@ describe('buildGitignoreAppendContent (#P2 dedup + newline)', () => {
       buildGitignoreAppendContent(existing, '/secret.env'),
       '# /secret.env is intentional\n/secret.env\n'
     );
+  });
+});
+
+describe('gitignoreAppendToast', () => {
+  it('plain success for an untracked file (the intended use case)', () => {
+    const t = gitignoreAppendToast('/a.log', 'untracked');
+    assert.strictEqual(t.severity, 'info');
+    assert.strictEqual(t.message, 'Added to .gitignore: /a.log');
+  });
+
+  it('warns that a TRACKED file keeps being tracked (append alone is a no-op)', () => {
+    const t = gitignoreAppendToast('/src/a.ts', 'modified');
+    assert.strictEqual(t.severity, 'warning');
+    assert.ok(/keep tracking/i.test(t.message), t.message);
+    assert.ok(/git rm --cached/.test(t.message), t.message);
+  });
+
+  it('hedges when the file is absent from status (clean-tracked or already ignored)', () => {
+    const t = gitignoreAppendToast('/x', undefined);
+    assert.strictEqual(t.severity, 'warning');
+    assert.ok(/if the file is tracked/i.test(t.message), t.message);
+  });
+});
+
+describe('revertPrecheck', () => {
+  it('lets a modified file proceed to the confirm dialog', () => {
+    assert.strictEqual(revertPrecheck('modified', 'a.ts'), undefined);
+  });
+
+  it('reports an untracked file instead of confirming a no-op revert', () => {
+    const msg = revertPrecheck('untracked', 'a.ts');
+    assert.ok(msg && /not tracked/i.test(msg), String(msg));
+  });
+
+  it('reports a clean file (absent from status) as having nothing to revert', () => {
+    const msg = revertPrecheck(undefined, 'a.ts');
+    assert.ok(msg && /no local changes/i.test(msg), String(msg));
   });
 });

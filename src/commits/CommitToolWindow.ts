@@ -2196,13 +2196,17 @@ function commitToolWindowBehaviorScript(model: ICommitToolWindowInitModel): stri
   `;
 }
 
-/** Read the `intellig.useCommitToolWindow` flag. Defaults to `false`. */
+/**
+ * Read the `intellig.useCommitToolWindow` flag. The manifest default is
+ * `true`, so the in-code fallback matches it (it only fires when the
+ * configuration service is unavailable).
+ */
 export function isCommitToolWindowEnabled(): boolean {
   try {
     const config = vscode.workspace.getConfiguration('intellig');
-    return Boolean(config.get<boolean>(COMMIT_TOOL_WINDOW_CONFIG_KEY, false));
+    return Boolean(config.get<boolean>(COMMIT_TOOL_WINDOW_CONFIG_KEY, true));
   } catch {
-    return false;
+    return true;
   }
 }
 

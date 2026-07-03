@@ -17,6 +17,7 @@ import {
   type PullDialogOutcome,
 } from '../../services';
 import type { ICommandContext } from './CommandContext';
+import { fileStatusFor, revertPrecheck } from './explorerCommands';
 import { extractCommitHash, runNewTagFlowFromContext, presentFileHistory } from './commitHelpers';
 import {
   runUpdateProject,
@@ -26,7 +27,11 @@ import {
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
 import { buildUpdateNotification } from '../../ui-shell/NotificationService';
 import { statusCodeToFileStatus } from '../../git-core/gitParser';
-import type { IRollbackChange, FileStatus } from '../../git-core/interfaces/IGitService';
+import type {
+  IRollbackChange,
+  IFileStatus,
+  FileStatus,
+} from '../../git-core/interfaces/IGitService';
 
 /**
  * Build the modal confirmation text for the Rollback / Revert Local Changes
@@ -86,13 +91,45 @@ export function extractRollbackChanges(arg: unknown): IRollbackChange[] | undefi
       typeof (item as { path?: unknown }).path === 'string' &&
       ROLLBACK_STATUSES.has((item as { status?: FileStatus }).status as FileStatus)
     ) {
+      // `oldPath` (a rename/copy's HEAD path) must survive the narrowing —
+      // dropping it makes the rollback delete the renamed file without
+      // restoring the original.
+      const oldPath = (item as { oldPath?: unknown }).oldPath;
       out.push({
         path: (item as { path: string }).path,
         status: (item as { status: FileStatus }).status,
+        ...(typeof oldPath === 'string' && oldPath.length > 0 ? { oldPath } : {}),
       });
     }
   }
   return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Re-derive each arg-supplied change's status and rename source from a fresh
+ * `git status` read. Arg callers (webview rows, context menus) often carry a
+ * bare `{path, status}` — and a stale or oldPath-less 'renamed' entry makes
+ * the rollback delete the renamed file WITHOUT restoring the original. The
+ * porcelain read is authoritative, so it wins whenever the path appears in
+ * it; a path absent from status keeps the caller's claim (the git op then
+ * fails informatively rather than us guessing).
+ */
+export function enrichRollbackChanges(
+  changes: readonly IRollbackChange[],
+  statuses: readonly IFileStatus[]
+): IRollbackChange[] {
+  const byPath = new Map(statuses.map((s) => [s.path, s]));
+  return changes.map((c) => {
+    const s = byPath.get(c.path);
+    if (!s) {
+      return c;
+    }
+    return {
+      path: c.path,
+      status: statusCodeToFileStatus(s.indexStatus, s.workTreeStatus),
+      ...(s.renamed ? { oldPath: s.renamed } : {}),
+    };
+  });
 }
 
 /**
@@ -154,6 +191,24 @@ export async function commitThenPush(
     return { pushed: true };
   }
   return { pushed: false };
+}
+
+/**
+ * Follow-up toast for `intellig.commitAndPush` when the commit leg revealed
+ * the Commit tool window instead of running a modal commit: the reveal
+ * returns no result, so the chained push is (correctly) skipped — but the
+ * user asked for commit AND push, so say where the push went. Quiet when the
+ * push ran, and quiet on the modal path (a cancelled dialog is the user's
+ * own choice).
+ */
+export function commitAndPushFollowUp(
+  pushed: boolean,
+  toolWindowPathTaken: boolean
+): string | undefined {
+  if (pushed || !toolWindowPathTaken) {
+    return undefined;
+  }
+  return "Commit tool window opened — use its 'Commit and Push' button to push after committing.";
 }
 
 /**
@@ -401,9 +456,10 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     if (ctx.gitToolWindowProvider) {
       // In the 2-panel layout, always refresh all panels
       ctx.gitToolWindowProvider.refresh();
+      void vscode.window.showInformationMessage('Git views refreshed');
+    } else {
+      void vscode.window.showInformationMessage('Git tool window is not initialized yet.');
     }
-
-    void vscode.window.showInformationMessage('Git views refreshed');
   });
 
   // Update Project — IntelliJ's Vcs.UpdateProject (GitUpdateOptionsDialog +
@@ -654,7 +710,8 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       return;
     }
 
-    // Get the active editor's file or selected files from explorer
+    // Stage the ACTIVE EDITOR file (the palette title says "Active File";
+    // explorer selections go through intellig.explorer.stage instead).
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
       // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
@@ -700,7 +757,8 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       return;
     }
 
-    // Get the active editor's file or selected files from explorer
+    // Unstage the ACTIVE EDITOR file (the palette title says "Active File";
+    // explorer selections go through intellig.explorer.unstage instead).
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
       // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
@@ -934,6 +992,17 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     // for nested/multi-root repos (see repoRelativePath).
     const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
 
+    // Nothing-to-revert pre-check (untracked / clean file): inform instead of
+    // confirming a no-op that would then toast "Reverted".
+    const precheckMsg = revertPrecheck(
+      fileStatusFor(await gitService.getStatus(repo), filePath),
+      filePath
+    );
+    if (precheckMsg) {
+      void vscode.window.showInformationMessage(precheckMsg);
+      return;
+    }
+
     const confirm = await vscode.window.showWarningMessage(
       `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,
       { modal: true },
@@ -986,6 +1055,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       // roll back. Otherwise gather the working-tree changes and let the user
       // choose.
       let changes = extractRollbackChanges(arg);
+      if (changes) {
+        // Arg-supplied entries are re-derived against fresh porcelain so a
+        // renamed file's oldPath (and any stale status) is corrected before
+        // the destructive op.
+        changes = enrichRollbackChanges(changes, await gitService.getStatus(repo));
+      }
       if (!changes) {
         const statuses = await gitService.getStatus(repo);
         const candidates: IRollbackChange[] = statuses
@@ -1073,13 +1148,18 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // reusing both rather than re-implementing either — and only push when the
   // commit reported `committed: true`.
   const commitAndPushCommand = registerLoggedCommand('intellig.commitAndPush', async () => {
-    await commitThenPush(
+    const toolWindowPathTaken = isCommitToolWindowEnabled() && !!ctx.commitToolWindow;
+    const { pushed } = await commitThenPush(
       async () =>
         vscode.commands.executeCommand<ICommitDialogResult | undefined>('intellig.commit'),
       async () => {
         await vscode.commands.executeCommand('intellig.push');
       }
     );
+    const followUp = commitAndPushFollowUp(pushed, toolWindowPathTaken);
+    if (followUp) {
+      void vscode.window.showInformationMessage(followUp);
+    }
   });
 
   // Push up to here — IntelliJ's Git.PushUpToHere. Accepts a commit hash,
@@ -1117,10 +1197,37 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
       const branch = repo.head?.name;
-      const remote = repo.head?.upstream?.remote ?? 'origin';
       if (!branch) {
         void vscode.window.showErrorMessage('Cannot push: HEAD is detached (no current branch).');
         return;
+      }
+      // Without a configured upstream, ask which remote to move rather than
+      // silently assuming origin (fork workflows: origin vs upstream).
+      let remote = repo.head?.upstream?.remote;
+      if (!remote) {
+        const remotes = await gitService.getRemotes(repo).match(
+          (r) => r,
+          () => []
+        );
+        if (remotes.length === 0) {
+          void vscode.window.showErrorMessage('Cannot push: no remotes configured.');
+          return;
+        }
+        if (remotes.length === 1) {
+          remote = remotes[0].name;
+        } else {
+          const picked = await vscode.window.showQuickPick(
+            remotes.map((r) => ({ label: r.name })),
+            {
+              title: 'Push up to here — Choose Remote',
+              placeHolder: `No upstream configured for '${branch}' — select the remote to push to`,
+            }
+          );
+          if (!picked) {
+            return;
+          }
+          remote = picked.label;
+        }
       }
       try {
         await vscode.window.withProgress(

@@ -1308,6 +1308,16 @@ export interface IGitService {
   getChangedFilesAgainstWorkingTree?(repo: IRepository, ref: string): Promise<IRefDiffFile[]>;
 
   /**
+   * List files that differ between two refs (`git diff --name-status -z
+   * <refA> <refB>`). Optional capability like its working-tree sibling.
+   */
+  getChangedFilesBetweenRefs?(
+    repo: IRepository,
+    refA: string,
+    refB: string
+  ): Promise<IRefDiffFile[]>;
+
+  /**
    * Compute the merge-base between two refs.
    *
    * Returns the SHA of the best common ancestor. Backed by

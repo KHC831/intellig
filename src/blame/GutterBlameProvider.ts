@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { INTELLIG_GIT_SCHEME, parseIntelligGitTarget } from '../utils/intelligGitUri';
 import { IGutterBlameProvider } from './interfaces/IGutterBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine } from '../git-core/interfaces/IGitService';
@@ -522,11 +523,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return;
     }
 
-    // Skip if not a file scheme (e.g., output, debug console)
-    if (editor.document.uri.scheme !== 'file') {
-      log.debug('updateDecorations: skipped — non-file scheme', {
-        scheme: editor.document.uri.scheme,
-      });
+    // Only file documents and intellig-git revision documents can be blamed
+    // (the latter pin a ref, so blame aligns with their content by
+    // construction); skip everything else (output, debug console, …).
+    const scheme = editor.document.uri.scheme;
+    if (scheme !== 'file' && scheme !== INTELLIG_GIT_SCHEME) {
+      log.debug('updateDecorations: skipped — unsupported scheme', { scheme });
       this.clearDecorationsFor(editor);
       return;
     }
@@ -799,7 +801,53 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * @param editor - The text editor
    * @returns The blame information, or undefined if not available
    */
+  /**
+   * Blame an `intellig-git:` revision document at its own pinned ref. The
+   * repo comes from the structured query's repoRoot (the reliable hint for a
+   * repo-relative path); a legacy ref-only URI falls back to the URI itself.
+   * Cached per full URI (path + query), so distinct refs never collide.
+   */
+  private async getBlameForRevisionDoc(uri: vscode.Uri): Promise<IBlameInfo | undefined> {
+    const log = getLogger().child({ component: 'GutterBlameProvider' });
+    const target = parseIntelligGitTarget(uri);
+    if (!target) {
+      log.debug('getBlameForRevisionDoc: unparseable intellig-git URI', {
+        uri: uri.toString(),
+      });
+      return undefined;
+    }
+    const repo = target.repoRoot
+      ? await this._gitService.getRepository(vscode.Uri.file(target.repoRoot))
+      : await this._gitService.getRepository(uri);
+    if (!repo) {
+      log.debug('getBlameForRevisionDoc: no repository for revision doc', {
+        uri: uri.toString(),
+      });
+      return undefined;
+    }
+    const cacheKey = `${uri.toString()}?${uri.query}`;
+    let blameInfo = this._blameCache.get(cacheKey);
+    if (!blameInfo) {
+      blameInfo = await this._blameService.getBlame(
+        repo,
+        target.filePath,
+        target.ref,
+        this._optionsSource?.asBlameOptions()
+      );
+      this._blameCache.set(cacheKey, blameInfo);
+    }
+    return blameInfo;
+  }
+
   private async getBlameForFile(editor: vscode.TextEditor): Promise<IBlameInfo | undefined> {
+    // An intellig-git revision document shows `git show <ref>:<path>` — blame
+    // it at that pinned ref so the annotation matches the content exactly.
+    // (The working-tree cache below is keyed by URI too, but a distinct path
+    // keeps the dirty-buffer and repoRelativePath logic file-scheme-only.)
+    if (editor.document.uri.scheme === INTELLIG_GIT_SCHEME) {
+      return this.getBlameForRevisionDoc(editor.document.uri);
+    }
+
     const document = editor.document;
     const uri = document.uri;
 

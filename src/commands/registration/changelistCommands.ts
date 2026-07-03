@@ -19,6 +19,66 @@ import type { ICommandContext } from './CommandContext';
  * singleton write-back in this domain. Returns its disposables; extension.ts
  * owns the single `context.subscriptions.push(...)` (RULE E4).
  */
+
+/** Minimal changelist shape the pickers need (service-agnostic). */
+interface IPickableChangelist {
+  id: string;
+  name: string;
+  files: { path: string }[];
+}
+
+/**
+ * Resolve the target changelist id for a palette invocation: the context
+ * menus pass the id as the command argument, but Cmd+Shift+P passes nothing —
+ * without this picker every id-guarded changelist command was a silent no-op
+ * from the palette.
+ */
+async function pickChangelistId(
+  changelists: readonly IPickableChangelist[],
+  title: string
+): Promise<string | undefined> {
+  if (changelists.length === 0) {
+    void vscode.window.showInformationMessage('No changelists found.');
+    return undefined;
+  }
+  const picked = await vscode.window.showQuickPick(
+    changelists.map((cl) => ({
+      label: cl.name,
+      description: `${cl.files.length} file${cl.files.length === 1 ? '' : 's'}`,
+      id: cl.id,
+    })),
+    { title, placeHolder: 'Select a changelist' }
+  );
+  return picked?.id;
+}
+
+/**
+ * Palette fallback for "Move Files to Another Changelist…": multi-select the
+ * files to move from across all changelists (the webview rows pass an
+ * explicit file list instead).
+ */
+async function pickFilesToMove(
+  changelists: readonly IPickableChangelist[]
+): Promise<string[] | undefined> {
+  const items = changelists.flatMap((cl) =>
+    cl.files.map((f) => ({ label: f.path, description: cl.name }))
+  );
+  if (items.length === 0) {
+    void vscode.window.showInformationMessage('No changed files to move.');
+    return undefined;
+  }
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Move Files to Another Changelist',
+    placeHolder: 'Select files to move',
+    canPickMany: true,
+    matchOnDescription: true,
+  });
+  if (!picked || picked.length === 0) {
+    return undefined;
+  }
+  return picked.map((p) => p.label);
+}
+
 export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposable[] {
   const changelistNewCommand = registerLoggedCommand('intellig.changelist.new', async () => {
     if (!ctx.services) {
@@ -57,11 +117,18 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         preferActive: true,
         silent: true,
       });
-      if (!repo || !changelistId) {
+      if (!repo) {
+        return;
+      }
+      const service = ctx.services.changelistService;
+      const targetId =
+        changelistId ??
+        (await pickChangelistId(service.getChangelists(repo), 'Set Active Changelist'));
+      if (!targetId) {
         return;
       }
       try {
-        await ctx.services.changelistService.setActiveChangelist(repo, changelistId);
+        await service.setActiveChangelist(repo, targetId);
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
         void vscode.window.showErrorMessage(
@@ -81,12 +148,16 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         preferActive: true,
         silent: true,
       });
-      if (!repo || !changelistId) {
+      if (!repo) {
         return;
       }
-      const current = ctx.services.changelistService
-        .getChangelists(repo)
-        .find((cl) => cl.id === changelistId);
+      const service = ctx.services.changelistService;
+      const targetId =
+        changelistId ?? (await pickChangelistId(service.getChangelists(repo), 'Rename Changelist'));
+      if (!targetId) {
+        return;
+      }
+      const current = service.getChangelists(repo).find((cl) => cl.id === targetId);
       if (!current) {
         return;
       }
@@ -99,7 +170,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       try {
-        ctx.services.changelistService.renameChangelist(repo, changelistId, newName.trim());
+        ctx.services.changelistService.renameChangelist(repo, targetId, newName.trim());
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Failed to rename changelist: ${sanitizeGitError(m)}`);
@@ -117,11 +188,30 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         preferActive: true,
         silent: true,
       });
-      if (!repo || !changelistId) {
+      if (!repo) {
         return;
       }
+      const service = ctx.services.changelistService;
+      const targetId =
+        changelistId ?? (await pickChangelistId(service.getChangelists(repo), 'Remove Changelist'));
+      if (!targetId) {
+        return;
+      }
+      // A non-empty changelist gets a confirm — its files fall back to the
+      // default changelist (no data loss, but the grouping is gone).
+      const target = service.getChangelists(repo).find((cl) => cl.id === targetId);
+      if (target && target.files.length > 0) {
+        const confirm = await vscode.window.showWarningMessage(
+          `Remove changelist '${target.name}'? Its ${target.files.length} file(s) will move to the default changelist.`,
+          { modal: true },
+          'Remove'
+        );
+        if (confirm !== 'Remove') {
+          return;
+        }
+      }
       try {
-        ctx.services.changelistService.deleteChangelist(repo, changelistId);
+        service.deleteChangelist(repo, targetId);
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Failed to delete changelist: ${sanitizeGitError(m)}`);
@@ -139,11 +229,17 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         preferActive: true,
         silent: true,
       });
-      if (!repo || !changelistId) {
+      if (!repo) {
         return;
       }
       const service = ctx.services.changelistService;
-      const current = service.getChangelists(repo).find((cl) => cl.id === changelistId);
+      const targetId =
+        changelistId ??
+        (await pickChangelistId(service.getChangelists(repo), 'Edit Changelist Description'));
+      if (!targetId) {
+        return;
+      }
+      const current = service.getChangelists(repo).find((cl) => cl.id === targetId);
       if (!current) {
         return;
       }
@@ -157,7 +253,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       // setDescription is a ChangelistService-only addition.
       if (service instanceof ChangelistService) {
         try {
-          service.setDescription(repo, changelistId, newDescription);
+          service.setDescription(repo, targetId, newDescription);
         } catch (err) {
           const m = err instanceof Error ? err.message : 'Unknown error';
           void vscode.window.showErrorMessage(
@@ -178,20 +274,25 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         preferActive: true,
         silent: true,
       });
-      if (!repo || !files || files.length === 0) {
+      if (!repo) {
         return;
       }
       const service = ctx.services.changelistService;
+      const toMove =
+        files && files.length > 0 ? files : await pickFilesToMove(service.getChangelists(repo));
+      if (!toMove || toMove.length === 0) {
+        return;
+      }
       const targets = service.getChangelists(repo).map((cl) => ({ label: cl.name, id: cl.id }));
       const picked = await vscode.window.showQuickPick(targets, {
-        title: `Move ${files.length} file${files.length === 1 ? '' : 's'} to…`,
+        title: `Move ${toMove.length} file${toMove.length === 1 ? '' : 's'} to…`,
         placeHolder: 'Select target changelist',
       });
       if (!picked) {
         return;
       }
       try {
-        service.moveToChangelist(repo, files, picked.id);
+        service.moveToChangelist(repo, toMove, picked.id);
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Failed to move files: ${sanitizeGitError(m)}`);
@@ -209,7 +310,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
   const changelistCommitOnlyCommand = registerLoggedCommand(
     'intellig.changelist.commitOnly',
     async (changelistId?: string) => {
-      if (!ctx.services || !changelistId) {
+      if (!ctx.services) {
         return;
       }
       const repo = await resolveRepo(ctx.services.gitService, {
@@ -223,7 +324,12 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
 
       const service = ctx.services.changelistService;
       const changelists = service.getChangelists(repo);
-      const target = changelists.find((cl) => cl.id === changelistId);
+      const targetId =
+        changelistId ?? (await pickChangelistId(changelists, 'Commit Only This Changelist'));
+      if (!targetId) {
+        return;
+      }
+      const target = changelists.find((cl) => cl.id === targetId);
       if (!target) {
         return;
       }
@@ -266,7 +372,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         ctx.services.gitService,
         repo,
         changelists,
-        changelistId,
+        targetId,
         message.trim(),
         { noVerify }
       );
@@ -287,7 +393,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
   const changelistShelveCommand = registerLoggedCommand(
     'intellig.changelist.shelve',
     async (changelistId?: string) => {
-      if (!ctx.services || !changelistId) {
+      if (!ctx.services) {
         return;
       }
       const repo = await resolveRepo(ctx.services.gitService, {
@@ -297,9 +403,13 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       if (!repo) {
         return;
       }
-      const changelist = ctx.services.changelistService
-        .getChangelists(repo)
-        .find((cl) => cl.id === changelistId);
+      const service = ctx.services.changelistService;
+      const targetId =
+        changelistId ?? (await pickChangelistId(service.getChangelists(repo), 'Shelve Changelist'));
+      if (!targetId) {
+        return;
+      }
+      const changelist = service.getChangelists(repo).find((cl) => cl.id === targetId);
       if (!changelist) {
         return;
       }

@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { registerLoggedCommand } from '../../utils/logger';
+import { getLogger, registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { PatchWriteFailed } from '../../services';
 import { canonicalizeFsPath, repoRelativePath } from '../../utils/repoRelativePath';
+import { statusCodeToFileStatus } from '../../git-core/gitParser';
+import type { FileStatus, IFileStatus } from '../../git-core/interfaces/IGitService';
 import { presentFileHistory } from './commitHelpers';
 import type { ICommandContext } from './CommandContext';
 
@@ -36,6 +38,32 @@ export function resolveExplorerFileUri(
     return activeEditorUri;
   }
   return undefined;
+}
+
+/**
+ * Resolve the full target set for an explorer-context command. VS Code
+ * invokes explorer/context commands as `(clickedUri, selectedUris[])`; the
+ * mutating commands must act on the WHOLE selection — operating on just the
+ * right-clicked file while toasting success silently drops the rest of the
+ * user's selection. Falls back to the clicked uri, then the active editor
+ * (palette invocations).
+ */
+export function resolveExplorerSelection(
+  fileUri: vscode.Uri | undefined,
+  selectedUris: unknown,
+  activeEditorUri: vscode.Uri | undefined
+): vscode.Uri[] {
+  if (Array.isArray(selectedUris)) {
+    const uris = selectedUris.filter(
+      (u): u is vscode.Uri =>
+        !!u && typeof u === 'object' && typeof (u as { fsPath?: unknown }).fsPath === 'string'
+    );
+    if (uris.length > 0) {
+      return uris;
+    }
+  }
+  const single = resolveExplorerFileUri(fileUri, activeEditorUri);
+  return single ? [single] : [];
 }
 
 /**
@@ -131,6 +159,62 @@ export function buildGitignoreAppendContent(existing: string, pattern: string): 
   }
   const needsSeparator = existing.length > 0 && !existing.endsWith('\n');
   return `${existing}${needsSeparator ? '\n' : ''}${pattern}\n`;
+}
+
+/**
+ * Toast for "Add to .gitignore", honest about tracked files: appending a
+ * pattern does NOT stop Git from tracking an already-tracked file, so a
+ * plain success toast would over-claim. `fileStatus` is the file's porcelain
+ * status ('untracked' when Git ignores→untracked it; undefined when the file
+ * is absent from status — clean-tracked or already ignored).
+ */
+export function gitignoreAppendToast(
+  pattern: string,
+  fileStatus: FileStatus | undefined
+): { message: string; severity: 'info' | 'warning' } {
+  if (fileStatus === 'untracked' || fileStatus === 'ignored') {
+    return { message: `Added to .gitignore: ${pattern}`, severity: 'info' };
+  }
+  const qualifier =
+    fileStatus === undefined
+      ? 'If the file is tracked, Git will keep tracking it'
+      : 'The file is tracked, so Git will keep tracking it';
+  return {
+    message: `Added to .gitignore: ${pattern} — ${qualifier} until it is untracked (git rm --cached).`,
+    severity: 'warning',
+  };
+}
+
+/**
+ * Pre-check for Revert File: returns the info message to show INSTEAD of the
+ * confirm dialog when there is nothing to revert (an untracked file, or a
+ * file absent from status), or `undefined` when the revert should proceed.
+ * Without this the flow confirmed "cannot be undone", did nothing, and
+ * toasted "Reverted".
+ */
+export function revertPrecheck(
+  fileStatus: FileStatus | undefined,
+  filePath: string
+): string | undefined {
+  if (fileStatus === 'untracked') {
+    return `'${filePath}' is not tracked by Git — nothing to revert.`;
+  }
+  if (fileStatus === undefined || fileStatus === 'ignored') {
+    return `No local changes to revert for '${filePath}'.`;
+  }
+  return undefined;
+}
+
+/**
+ * Look up a file's porcelain status by repo-relative path. Undefined when the
+ * file is absent from status (clean-tracked, or ignored).
+ */
+export function fileStatusFor(
+  statuses: readonly IFileStatus[],
+  filePath: string
+): FileStatus | undefined {
+  const s = statuses.find((entry) => entry.path === filePath);
+  return s ? statusCodeToFileStatus(s.indexStatus, s.workTreeStatus) : undefined;
 }
 
 /**
@@ -252,37 +336,51 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // Revert command for file explorer
   const explorerRevertCommand = registerLoggedCommand(
     'intellig.explorer.revert',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
 
       const gitService = ctx.services.gitService;
-      // honor the explorer-selected file's repo (hintRepoPath);
-      // fall back to the active-editor's repo in multi-root workspaces.
+      // The whole explorer selection, not just the right-clicked file.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
+      }
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: fileUri?.fsPath,
+        hintRepoPath: targets[0].fsPath,
         preferActive: true,
       });
       if (!repo) {
         return;
       }
 
-      // Resolve the target file (explorer selection, else active editor) and
-      // derive its REPO-root-relative path — the value git needs under
-      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
-      // relative and breaks for nested/multi-root repos (see repoRelativePath).
-      const targetUri = _resolveExplorerFileUri(fileUri);
-      if (!targetUri) {
-        void vscode.window.showErrorMessage('No file selected');
+      const paths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
+
+      // Nothing-to-revert pre-check: untracked or clean files must not be
+      // walked through a "cannot be undone" confirm into a no-op "Reverted"
+      // toast. Selections that mix both keep only the revertable files.
+      const statuses = await gitService.getStatus(repo);
+      const revertable: string[] = [];
+      const skippedMsgs: string[] = [];
+      for (const p of paths) {
+        const msg = revertPrecheck(fileStatusFor(statuses, p), p);
+        if (msg) {
+          skippedMsgs.push(msg);
+        } else {
+          revertable.push(p);
+        }
+      }
+      if (revertable.length === 0) {
+        void vscode.window.showInformationMessage(skippedMsgs.join(' '));
         return;
       }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
-      // Confirm revert
+      // Confirm revert — the message names EVERY file the confirm covers.
       const confirm = await vscode.window.showWarningMessage(
-        `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,
+        `Are you sure you want to revert changes to ${revertable.join(', ')}? This cannot be undone.`,
         { modal: true },
         'Revert'
       );
@@ -291,22 +389,31 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      try {
-        await gitService.revertFile(repo, filePath).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
+      const failed: string[] = [];
+      for (const p of revertable) {
+        try {
+          await gitService.revertFile(repo, p).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+        } catch (error) {
+          failed.push(p);
+          void vscode.window.showErrorMessage(
+            formatActionFailureToast(`Failed to revert ${p}`, error)
+          );
+        }
+      }
+      const reverted = revertable.filter((p) => !failed.includes(p));
+      if (reverted.length > 0) {
+        void vscode.window.showInformationMessage(
+          reverted.length === 1 ? `Reverted: ${reverted[0]}` : `Reverted ${reverted.length} files`
         );
-        void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
         // Refresh views
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
         }
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to revert file', error)
-        );
       }
     }
   );
@@ -314,42 +421,42 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // Stage command for file explorer
   const explorerStageCommand = registerLoggedCommand(
     'intellig.explorer.stage',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
 
       const gitService = ctx.services.gitService;
-      // honor the explorer-selected file's repo (hintRepoPath);
-      // fall back to the active-editor's repo in multi-root workspaces.
+      // The whole explorer selection (VS Code's second argument), not just
+      // the right-clicked file; repo from the first target's path.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
+      }
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: fileUri?.fsPath,
+        hintRepoPath: targets[0].fsPath,
         preferActive: true,
       });
       if (!repo) {
         return;
       }
 
-      // Resolve the target file (explorer selection, else active editor) and
-      // derive its REPO-root-relative path — the value git needs under
-      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
-      // relative and breaks for nested/multi-root repos (see repoRelativePath).
-      const targetUri = _resolveExplorerFileUri(fileUri);
-      if (!targetUri) {
-        void vscode.window.showErrorMessage('No file selected');
-        return;
-      }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
+      // REPO-root-relative paths — the values git needs under
+      // `cwd = repo.rootUri.fsPath` (see repoRelativePath).
+      const paths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
 
       try {
-        await gitService.stage(repo, [filePath]).match(
+        await gitService.stage(repo, paths).match(
           () => undefined,
           (e) => {
             throw e;
           }
         );
-        void vscode.window.showInformationMessage(`Staged: ${filePath}`);
+        void vscode.window.showInformationMessage(
+          paths.length === 1 ? `Staged: ${paths[0]}` : `Staged ${paths.length} files`
+        );
         // Refresh views
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
@@ -365,42 +472,42 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // Unstage command for file explorer
   const explorerUnstageCommand = registerLoggedCommand(
     'intellig.explorer.unstage',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
 
       const gitService = ctx.services.gitService;
-      // honor the explorer-selected file's repo (hintRepoPath);
-      // fall back to the active-editor's repo in multi-root workspaces.
+      // The whole explorer selection (VS Code's second argument), not just
+      // the right-clicked file; repo from the first target's path.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
+      }
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: fileUri?.fsPath,
+        hintRepoPath: targets[0].fsPath,
         preferActive: true,
       });
       if (!repo) {
         return;
       }
 
-      // Resolve the target file (explorer selection, else active editor) and
-      // derive its REPO-root-relative path — the value git needs under
-      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
-      // relative and breaks for nested/multi-root repos (see repoRelativePath).
-      const targetUri = _resolveExplorerFileUri(fileUri);
-      if (!targetUri) {
-        void vscode.window.showErrorMessage('No file selected');
-        return;
-      }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
+      // REPO-root-relative paths — the values git needs under
+      // `cwd = repo.rootUri.fsPath` (see repoRelativePath).
+      const paths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
 
       try {
-        await gitService.unstage(repo, [filePath]).match(
+        await gitService.unstage(repo, paths).match(
           () => undefined,
           (e) => {
             throw e;
           }
         );
-        void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
+        void vscode.window.showInformationMessage(
+          paths.length === 1 ? `Unstaged: ${paths[0]}` : `Unstaged ${paths.length} files`
+        );
         // Refresh views
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
@@ -416,41 +523,44 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // Show Diff command for file explorer
   const explorerShowDiffCommand = registerLoggedCommand(
     'intellig.explorer.showDiff',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
 
       const gitService = ctx.services.gitService;
-      const fileUriToUse = _resolveExplorerFileUri(fileUri);
-      if (!fileUriToUse) {
+      // The whole explorer selection — one diff tab per selected file.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
         void vscode.window.showErrorMessage('No file selected');
         return;
       }
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: fileUriToUse.fsPath,
+        hintRepoPath: targets[0].fsPath,
         preferActive: true,
       });
       if (!repo) {
         return;
       }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, fileUriToUse.fsPath);
 
-      // Diff the working-tree file against its HEAD revision via the
+      // Diff each working-tree file against its HEAD revision via the
       // `intellig-git:` content provider (the scheme this extension serves;
       // the built-in `git:` scheme is unavailable when the user runs IntelliG
       // in place of the bundled Git extension). The repo root is encoded so
       // the provider resolves the right repo for a nested/multi-root layout.
-      const headUri = buildIntelligGitUri(filePath, 'HEAD', repo.rootUri.fsPath);
-      await openRevisionDiff(
-        {
-          leftUri: headUri,
-          rightUri: fileUriToUse,
-          title: `${filePath} (HEAD ↔ Working Tree)`,
-        },
-        'Failed to show diff'
-      );
+      for (const target of targets) {
+        const filePath = repoRelativePath(repo.rootUri.fsPath, target.fsPath);
+        const headUri = buildIntelligGitUri(filePath, 'HEAD', repo.rootUri.fsPath);
+        await openRevisionDiff(
+          {
+            leftUri: headUri,
+            rightUri: target,
+            title: `${filePath} (HEAD ↔ Working Tree)`,
+          },
+          'Failed to show diff'
+        );
+      }
     }
   );
 
@@ -460,6 +570,14 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
     return resolveExplorerFileUri(fileUri, vscode.window.activeTextEditor?.document.uri);
   }
 
+  function _resolveSelection(fileUri?: vscode.Uri, selectedUris?: unknown): vscode.Uri[] {
+    return resolveExplorerSelection(
+      fileUri,
+      selectedUris,
+      vscode.window.activeTextEditor?.document.uri
+    );
+  }
+
   // Commit File (git4idea Git.FileActions → CheckinFiles, the head of the
   // submenu). Per ADR-014 commit/staging routes through the native SCM API,
   // not a webview: stage the selected file, then reveal the SCM view so the
@@ -467,29 +585,31 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // SourceControl input (mirrors VS Code's built-in Git flow).
   const explorerCommitFileCommand = registerLoggedCommand(
     'intellig.explorer.commitFile',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
-      const resolvedUri = _resolveExplorerFileUri(fileUri);
-      if (!resolvedUri) {
+      // The whole explorer selection — every selected file gets staged for
+      // the commit, not just the right-clicked one.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
         void vscode.window.showErrorMessage('No file selected to commit');
         return;
       }
 
       const gitService = ctx.services.gitService;
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: resolvedUri.fsPath,
+        hintRepoPath: targets[0].fsPath,
         pickerTitle: 'Commit File — Choose Repository',
         pickerPlaceholder: 'Select a repository',
       });
       if (!repo) {
         return;
       }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
+      const paths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
       try {
-        await gitService.stage(repo, [filePath]).match(
+        await gitService.stage(repo, paths).match(
           () => undefined,
           (e) => {
             throw e;
@@ -497,6 +617,25 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         );
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
+        }
+        // The SCM accept commits the WHOLE staged index — when other files
+        // are already staged, say so before the user hits commit.
+        try {
+          const statuses = await gitService.getStatus(repo);
+          const otherStaged = statuses.filter(
+            (st) => st.indexStatus !== ' ' && st.indexStatus !== '?' && !paths.includes(st.path)
+          ).length;
+          if (otherStaged > 0) {
+            void vscode.window.showInformationMessage(
+              `Note: ${otherStaged} other staged file(s) will be included in the commit.`
+            );
+          }
+        } catch (statusError) {
+          getLogger()
+            .child({ component: 'explorerCommands' })
+            .debug('commitFile: staged-index probe failed', {
+              err: statusError instanceof Error ? statusError.message : String(statusError),
+            });
         }
         // Reveal the native SCM view so the just-staged file can be committed
         // from the IntelliG SourceControl input (acceptInputCommand commits on
@@ -519,35 +658,38 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // becomes tracked. Shown in the IntelliJ-parity explorer submenu.
   const explorerAddToVcsCommand = registerLoggedCommand(
     'intellig.explorer.addToVcs',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
-      const resolvedUri = _resolveExplorerFileUri(fileUri);
-      if (!resolvedUri) {
+      // The whole explorer selection, not just the right-clicked file.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
         void vscode.window.showErrorMessage('No file selected to add to VCS');
         return;
       }
 
       const gitService = ctx.services.gitService;
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: resolvedUri.fsPath,
+        hintRepoPath: targets[0].fsPath,
         pickerTitle: 'Add to VCS — Choose Repository',
         pickerPlaceholder: 'Select a repository',
       });
       if (!repo) {
         return;
       }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
+      const paths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
       try {
-        await gitService.stage(repo, [filePath]).match(
+        await gitService.stage(repo, paths).match(
           () => undefined,
           (e) => {
             throw e;
           }
         );
-        void vscode.window.showInformationMessage(`Added to VCS: ${filePath}`);
+        void vscode.window.showInformationMessage(
+          paths.length === 1 ? `Added to VCS: ${paths[0]}` : `Added ${paths.length} files to VCS`
+        );
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
         }
@@ -562,20 +704,21 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // repo-root-relative path to `<root>/.gitignore`, idempotently.
   const explorerAddToGitignoreCommand = registerLoggedCommand(
     'intellig.explorer.addToGitignore',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
-      const resolvedUri = _resolveExplorerFileUri(fileUri);
-      if (!resolvedUri) {
+      // The whole explorer selection — one pattern per selected file.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
         void vscode.window.showErrorMessage('No file selected to add to .gitignore');
         return;
       }
 
       const gitService = ctx.services.gitService;
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: resolvedUri.fsPath,
+        hintRepoPath: targets[0].fsPath,
         pickerTitle: 'Add to .gitignore — Choose Repository',
         pickerPlaceholder: 'Select a repository',
       });
@@ -586,27 +729,59 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       // Canonicalize both ends so a symlinked path component (macOS
       // `/var` → `/private/var`: git reports the resolved root, the URI keeps
       // the symlink) doesn't defeat the pure prefix match in gitignorePatternFor.
-      const pattern = gitignorePatternFor(
-        canonicalizeFsPath(repo.rootUri.fsPath),
-        canonicalizeFsPath(resolvedUri.fsPath)
-      );
-      if (!pattern) {
-        void vscode.window.showErrorMessage(
-          'Cannot add to .gitignore: the file is outside the repository.'
-        );
-        return;
+      const root = canonicalizeFsPath(repo.rootUri.fsPath);
+      const patterns: string[] = [];
+      for (const target of targets) {
+        const pattern = gitignorePatternFor(root, canonicalizeFsPath(target.fsPath));
+        if (!pattern) {
+          void vscode.window.showErrorMessage(
+            'Cannot add to .gitignore: the file is outside the repository.'
+          );
+          return;
+        }
+        patterns.push(pattern);
       }
 
       const gitignorePath = path.join(repo.rootUri.fsPath, '.gitignore');
       try {
         const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
-        const updated = buildGitignoreAppendContent(existing, pattern);
+        let updated = existing;
+        for (const pattern of patterns) {
+          updated = buildGitignoreAppendContent(updated, pattern);
+        }
         if (updated === existing) {
-          void vscode.window.showInformationMessage(`Already in .gitignore: ${pattern}`);
+          void vscode.window.showInformationMessage(
+            patterns.length === 1
+              ? `Already in .gitignore: ${patterns[0]}`
+              : 'Already in .gitignore: all selected files.'
+          );
           return;
         }
         fs.writeFileSync(gitignorePath, updated, 'utf8');
-        void vscode.window.showInformationMessage(`Added to .gitignore: ${pattern}`);
+        // Honest feedback: appending a rule does not untrack a tracked file.
+        // With several files, one tracked file is enough to warrant the
+        // warning wording.
+        let statuses: readonly IFileStatus[] = [];
+        let statusesKnown = true;
+        try {
+          statuses = await gitService.getStatus(repo);
+        } catch {
+          statusesKnown = false;
+        }
+        const fileStatuses = targets.map((t) =>
+          statusesKnown
+            ? fileStatusFor(statuses, repoRelativePath(repo.rootUri.fsPath, t.fsPath))
+            : undefined
+        );
+        const worst =
+          fileStatuses.find((st) => gitignoreAppendToast('x', st).severity === 'warning') ??
+          fileStatuses[0];
+        const toast = gitignoreAppendToast(patterns.join(', '), worst);
+        if (toast.severity === 'warning') {
+          void vscode.window.showWarningMessage(toast.message);
+        } else {
+          void vscode.window.showInformationMessage(toast.message);
+        }
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
         }
@@ -661,27 +836,29 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   // scoped to one file.
   const explorerCreatePatchFromFileCommand = registerLoggedCommand(
     'intellig.explorer.createPatchFromFile',
-    async (fileUri?: vscode.Uri) => {
+    async (fileUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
-      const resolvedUri = _resolveExplorerFileUri(fileUri);
-      if (!resolvedUri) {
+      // The whole explorer selection — the patch covers every selected file.
+      const targets = _resolveSelection(fileUri, selectedUris);
+      if (targets.length === 0) {
         void vscode.window.showErrorMessage('No file selected to create patch from');
         return;
       }
 
       const gitService = ctx.services.gitService;
       const repo = await resolveRepo(gitService, {
-        hintRepoPath: resolvedUri.fsPath,
+        hintRepoPath: targets[0].fsPath,
         pickerTitle: 'Create Patch — Choose Repository',
         pickerPlaceholder: 'Select a repository',
       });
       if (!repo) {
         return;
       }
-      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
+      const filePaths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
+      const filePath = filePaths[0];
 
       const target = await vscode.window.showQuickPick(
         [
@@ -697,18 +874,21 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       try {
         if (target.id === 'clipboard') {
           const patch = await ctx.services.patchService.createPatchFromLocalChanges(repo, {
-            files: [filePath],
+            files: filePaths,
             toClipboard: true,
           });
           if (!patch || patch.trim().length === 0) {
-            void vscode.window.showInformationMessage('No local changes to diff for this file.');
+            void vscode.window.showInformationMessage(
+              'No local changes to diff for the selected file(s).'
+            );
             return;
           }
           void vscode.window.showInformationMessage('Patch copied to clipboard.');
           return;
         }
 
-        const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
+        const basename =
+          filePaths.length === 1 ? filePath.substring(filePath.lastIndexOf('/') + 1) : 'changes';
         const defaultUri = vscode.Uri.joinPath(repo.rootUri, `${basename}.patch`);
         const uri = await vscode.window.showSaveDialog({
           defaultUri,
@@ -719,11 +899,13 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
           return;
         }
         const patch = await ctx.services.patchService.createPatchFromLocalChanges(repo, {
-          files: [filePath],
+          files: filePaths,
           outputPath: uri.fsPath,
         });
         if (!patch || patch.trim().length === 0) {
-          void vscode.window.showInformationMessage('No local changes to diff for this file.');
+          void vscode.window.showInformationMessage(
+            'No local changes to diff for the selected file(s).'
+          );
           return;
         }
         void vscode.window.showInformationMessage(`Patch saved to ${uri.fsPath}`);

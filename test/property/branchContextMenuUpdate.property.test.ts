@@ -113,6 +113,7 @@ function createTrackingMockGitService(): IGitService & {
       behindCount: 0,
       changedFiles: [],
     }),
+    reloadRepository: async (repo: IRepository) => repo,
     fetch: (repo: IRepository, optionsOrRemote?: IFetchOptions | string) => {
       // Accept both IFetchOptions and the legacy string form so the asserted
       // `remote` field is populated either way.

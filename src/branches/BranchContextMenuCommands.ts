@@ -1275,11 +1275,12 @@ export class BranchContextMenuCommands {
         item.branch.name
       );
 
+      // Single line — VS Code notifications collapse newlines.
       const message =
-        `Comparing ${currentBranch} with ${item.branch.name}:\n` +
-        `• ${comparison.aheadCount} commit(s) ahead\n` +
-        `• ${comparison.behindCount} commit(s) behind\n` +
-        `• ${comparison.changedFiles.length} file(s) changed`;
+        `Comparing ${currentBranch} with ${item.branch.name}: ` +
+        `${comparison.aheadCount} commit(s) ahead · ` +
+        `${comparison.behindCount} commit(s) behind · ` +
+        `${comparison.changedFiles.length} file(s) changed`;
 
       void vscode.window.showInformationMessage(message);
     } catch (error) {
@@ -1428,8 +1429,14 @@ export class BranchContextMenuCommands {
   // ============================================
 
   /**
-   * Handle update command for local branches.
-   * Fetches the latest changes from the upstream remote for the branch.
+   * Handle update command for local branches — git4idea updateBranches parity.
+   *
+   * A NON-current branch gets a real update: the align-local fast-forward via
+   * a `<remoteRef>:<localRef>` fetch refspec (shared with Update Selected).
+   * The CURRENT branch cannot be fetched into, so it fetches its upstream
+   * remote (with prune) and reports the resulting divergence honestly —
+   * "Fetched … N commit(s) behind" — rather than claiming the branch itself
+   * was updated.
    */
   private async _handleUpdate(item: BranchTreeItem): Promise<void> {
     const repo = this._resolveRepository(item);
@@ -1445,6 +1452,11 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    if (!item.branch.isHead) {
+      await this._alignLocalBranch(repo, item.branch);
+      return;
+    }
+
     try {
       await this._gitService.fetch(repo, { remote: upstream.remote, prune: true }).match(
         () => undefined,
@@ -1455,9 +1467,28 @@ export class BranchContextMenuCommands {
       // Fetch updated remote-tracking refs; reload so ahead/behind
       // counts on the branch tree match the post-fetch state.
       await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(
-        `Updated branch '${item.branch.name}' from '${upstream.remote}'`
-      );
+      // Post-fetch divergence report. A probe failure degrades to the bare
+      // fetch confirmation — never to an unverified claim.
+      let incoming: number | undefined;
+      const fetcher = getIncomingOutgoingFetcher(this._gitService);
+      if (fetcher) {
+        try {
+          incoming = (await fetcher(repo, item.branch.name)).incoming;
+        } catch {
+          incoming = undefined;
+        }
+      }
+      const base = `Fetched '${upstream.remote}'.`;
+      if (incoming === undefined) {
+        void vscode.window.showInformationMessage(base);
+      } else if (incoming === 0) {
+        void vscode.window.showInformationMessage(`${base} '${item.branch.name}' is up to date.`);
+      } else {
+        void vscode.window.showInformationMessage(
+          `${base} '${item.branch.name}' is ${incoming} commit(s) behind — ` +
+            `use Update Project or Pull to integrate.`
+        );
+      }
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1484,35 +1515,67 @@ export class BranchContextMenuCommands {
     if (!repo || !item.branch) {
       return;
     }
+    await this._alignLocalBranch(repo, item.branch);
+  }
 
-    const branch = item.branch;
+  /**
+   * Fast-forward one local branch to its tracked remote via the align-local
+   * refspec fetch, shared by Update (non-current branches) and Update
+   * Selected. When the divergence probe is unavailable or fails, the FF fetch
+   * is attempted anyway — git itself refuses a non-fast-forward into a
+   * non-checked-out ref — instead of claiming "up to date" on data we never
+   * read.
+   */
+  private async _alignLocalBranch(repo: IRepository, branch: IBranch): Promise<void> {
     // Incoming/outgoing lives on the concrete GitService, not the frozen
     // IGitService (ADR-001), so reach it through the same duck-typed fetcher
     // the branch popup/tree use rather than widening the interface.
     const fetcher = getIncomingOutgoingFetcher(this._gitService);
-    let counts: { incoming: number; outgoing: number };
-    try {
-      const io = fetcher ? await fetcher(repo, branch.name) : { incoming: 0, outgoing: 0 };
-      counts = { incoming: io.incoming, outgoing: io.outgoing };
-    } catch {
-      // Counts unavailable (rare) — treat as in-sync so we never attempt a
-      // blind fetch that could be a non-FF; the user can fall back to Update.
-      counts = { incoming: 0, outgoing: 0 };
+    let counts: { incoming: number; outgoing: number } | undefined;
+    if (fetcher) {
+      try {
+        const io = await fetcher(repo, branch.name);
+        counts = { incoming: io.incoming, outgoing: io.outgoing };
+      } catch {
+        counts = undefined;
+      }
     }
 
-    const plan = planAlignLocal([
-      {
-        name: branch.name,
-        isCurrent: branch.isHead,
-        upstream: branch.upstream,
-        incoming: counts.incoming,
-        outgoing: counts.outgoing,
-      },
-    ]);
+    let fetches: IAlignLocalFetch[];
+    const skipped: { branch: string; reason: string }[] = [];
+    let upToDate: string[] = [];
+    if (counts === undefined) {
+      // Divergence unknown. Classify via the planner with a synthetic
+      // behind-only count so the checked-out / no-upstream skip reasons stay
+      // canonical, then let git enforce FF-only on the attempted fetch.
+      const plan = planAlignLocal([
+        {
+          name: branch.name,
+          isCurrent: branch.isHead,
+          upstream: branch.upstream,
+          incoming: 1,
+          outgoing: 0,
+        },
+      ]);
+      fetches = plan.fetches;
+      skipped.push(...plan.skipped);
+    } else {
+      const plan = planAlignLocal([
+        {
+          name: branch.name,
+          isCurrent: branch.isHead,
+          upstream: branch.upstream,
+          incoming: counts.incoming,
+          outgoing: counts.outgoing,
+        },
+      ]);
+      fetches = plan.fetches;
+      skipped.push(...plan.skipped);
+      upToDate = plan.upToDate;
+    }
 
     const advanced: string[] = [];
-    const skipped = [...plan.skipped];
-    for (const fetch of plan.fetches) {
+    for (const fetch of fetches) {
       try {
         await this._gitService.fetch(repo, { remote: fetch.remote, refspec: fetch.refspec }).match(
           () => undefined,
@@ -1538,7 +1601,7 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     }
 
-    this._reportAlignLocalResult(advanced, skipped, plan.upToDate);
+    this._reportAlignLocalResult(advanced, skipped, upToDate);
   }
 
   /**
@@ -1994,11 +2057,11 @@ export class BranchContextMenuCommands {
    * entry point is where strategy IS the question.
    */
   private async _runPullFromBranchMenu(
-    item: BranchTreeItem,
+    item: BranchTreeItem | undefined,
     preset: 'rebase' | 'merge'
   ): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -2257,9 +2320,9 @@ export class BranchContextMenuCommands {
   /**
    * Handle cherry-pick commits command.
    */
-  private async _handleCherryPickCommits(item: BranchTreeItem): Promise<void> {
+  private async _handleCherryPickCommits(item?: BranchTreeItem): Promise<void> {
     const repo = this._resolveRepository(item);
-    if (!repo || !item.branch) {
+    if (!repo || !item?.branch) {
       return;
     }
 
@@ -2339,7 +2402,7 @@ export class BranchContextMenuCommands {
    * entry already chose the strategy. The conflict-handoff
    * still fires on a conflicted pull.
    */
-  private async _handlePullIntoCurrent(item: BranchTreeItem): Promise<void> {
+  private async _handlePullIntoCurrent(item?: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'merge');
   }
 

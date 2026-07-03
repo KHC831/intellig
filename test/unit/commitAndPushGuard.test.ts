@@ -14,7 +14,10 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { commitThenPush } from '../../src/commands/registration/commitRepoCoreCommands';
+import {
+  commitAndPushFollowUp,
+  commitThenPush,
+} from '../../src/commands/registration/commitRepoCoreCommands';
 
 describe('commitThenPush (A-1 commit-and-push guard)', () => {
   it('pushes after a successful commit', async () => {
@@ -69,5 +72,26 @@ describe('commitThenPush (A-1 commit-and-push guard)', () => {
       )
     );
     assert.strictEqual(pushed, false, 'a blocked/failed commit must not push');
+  });
+});
+
+describe('commitAndPushFollowUp (tool-window reveal handoff)', () => {
+  // In the default config `intellig.commit` reveals the Commit tool window
+  // and returns undefined, so the chained push is (correctly) skipped — but
+  // the user who asked for "Commit and Push" must be told where the push
+  // went, or the second half of the command silently evaporates.
+  it('directs the user to the panel button when the tool-window reveal swallowed the push', () => {
+    const msg = commitAndPushFollowUp(false, true);
+    assert.ok(msg, 'a follow-up toast is required');
+    assert.ok(/commit and push/i.test(msg), `should name the panel button; got: "${msg}"`);
+  });
+
+  it('stays quiet when the push actually ran', () => {
+    assert.strictEqual(commitAndPushFollowUp(true, true), undefined);
+    assert.strictEqual(commitAndPushFollowUp(true, false), undefined);
+  });
+
+  it('stays quiet when the modal dialog path was taken (a cancelled commit is the user choice)', () => {
+    assert.strictEqual(commitAndPushFollowUp(false, false), undefined);
   });
 });

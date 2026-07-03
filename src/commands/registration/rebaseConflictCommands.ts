@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
+import { repoRelativePath } from '../../utils/repoRelativePath';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import { createMergeView } from '../../services';
 import { inferReopenOperation } from '../../conflicts/conflictReversal';
@@ -83,51 +84,76 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   );
 
+  // The merge.* commands act on the lazily-created MergeView singleton; when
+  // it has never been opened, say so instead of silently doing nothing (all
+  // eight are palette-visible).
+  function noMergeViewToast(): void {
+    void vscode.window.showInformationMessage(
+      'No merge view is open — run "IntelliG: Open Merge View" on a conflicted file first.'
+    );
+  }
+
   const acceptCurrentCommand = registerLoggedCommand('intellig.merge.acceptCurrent', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptCurrent();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const acceptIncomingCommand = registerLoggedCommand('intellig.merge.acceptIncoming', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptIncoming();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const acceptBothCommand = registerLoggedCommand('intellig.merge.acceptBoth', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptBoth();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const acceptAllCurrentCommand = registerLoggedCommand('intellig.merge.acceptAllCurrent', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptAllCurrent();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const acceptAllIncomingCommand = registerLoggedCommand('intellig.merge.acceptAllIncoming', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptAllIncoming();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const nextConflictCommand = registerLoggedCommand('intellig.merge.nextConflict', () => {
     if (ctx.mergeView) {
       ctx.mergeView.nextConflict();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const previousConflictCommand = registerLoggedCommand('intellig.merge.previousConflict', () => {
     if (ctx.mergeView) {
       ctx.mergeView.previousConflict();
+    } else {
+      noMergeViewToast();
     }
   });
 
   const markResolvedCommand = registerLoggedCommand('intellig.merge.markResolved', async () => {
     if (ctx.mergeView) {
       await ctx.mergeView.markResolved();
+    } else {
+      noMergeViewToast();
     }
   });
 
@@ -379,8 +405,10 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       // Get file path
       let filePath: string;
       if (fileUri) {
-        const repoRoot = repo.rootUri.fsPath;
-        filePath = fileUri.fsPath.replace(repoRoot + '/', '').replace(repoRoot + '\\', '');
+        // Shared repo-relative derivation (canonicalizes symlinks, anchored at
+        // the root) — an unanchored String.replace mangles paths that repeat
+        // the root segment and misses macOS /var → /private/var.
+        filePath = repoRelativePath(repo.rootUri.fsPath, fileUri.fsPath);
       } else {
         // Show picker for conflicted files
         const conflicts = await conflictService.getConflictedFiles(repo);
@@ -602,7 +630,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
 
     const confirm = await vscode.window.showWarningMessage(
-      'Are you sure you want to abort the merge? All changes will be lost.',
+      'Abort the merge? The merge in progress is discarded and your working tree is restored to its pre-merge state.',
       { modal: true },
       'Abort Merge'
     );
@@ -638,7 +666,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
 
     const confirm = await vscode.window.showWarningMessage(
-      'Are you sure you want to abort the rebase? All changes will be lost.',
+      'Abort the rebase? The rebase in progress is discarded and your working tree is restored to its pre-rebase state.',
       { modal: true },
       'Abort Rebase'
     );

@@ -346,6 +346,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
           arbitraryErrorMessage(),
           async (branchName, remoteName, errorMsg) => {
             errorTracker.reset();
+            warningTracker.reset();
 
             const gitService = createErrorThrowingMockGitService({
               fetch: () => {
@@ -362,11 +363,16 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             await invokePrivateHandler(commands, '_handleUpdate', item);
 
-            assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
-            const calledMessage = errorTracker.calls[0].message;
+            // A non-current branch routes through the align-local FF, where a
+            // failed fetch surfaces as a skip WARNING; the current branch's
+            // plain fetch failure surfaces as an error toast. Either way the
+            // failure must be surfaced with the error text.
+            const surfaced = [...errorTracker.calls, ...warningTracker.calls];
+            assert.ok(surfaced.length > 0, 'a failure notification should have been shown');
+            const calledMessage = surfaced[0].message;
             assert.ok(
               calledMessage.includes(errorMsg),
-              `Error notification "${calledMessage}" should contain the error message "${errorMsg}"`
+              `Failure notification "${calledMessage}" should contain the error message "${errorMsg}"`
             );
           }
         ),

@@ -238,13 +238,13 @@
       },
       {
         "command": "intellig.stageSelected",
-        "title": "Stage Selected Files",
+        "title": "Stage Active File",
         "category": "IntelliG",
         "icon": "$(add)"
       },
       {
         "command": "intellig.unstageSelected",
-        "title": "Unstage Selected Files",
+        "title": "Unstage Active File",
         "category": "IntelliG",
         "icon": "$(remove)"
       },
@@ -945,6 +945,14 @@
         },
         {
           "command": "intellig.remoteBranch.checkoutAsLocal",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.cherryPickCommits",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.pullIntoCurrent",
           "when": "false"
         },
         {

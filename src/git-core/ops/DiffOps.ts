@@ -304,17 +304,37 @@ export class DiffOps {
     );
   }
 
+  /**
+   * List files that differ between two refs (`git diff --name-status -z
+   * <refA> <refB>`). Same parser and injection discipline as the
+   * working-tree variant; both refs splice via buildGitArgs.
+   */
+  getChangedFilesBetweenRefs(
+    repo: IRepository,
+    refA: string,
+    refB: string
+  ): ResultAsync<IRefDiffFile[], GitError> {
+    return ResultAsync.fromPromise(
+      this._changedFilesForDiffArgs(repo, [refA, refB]),
+      classifyGitCommandError
+    );
+  }
+
   private async _changedFilesAgainstWorkingTree(
     repo: IRepository,
     ref: string
   ): Promise<IRefDiffFile[]> {
-    // `ref` is user-controlled; splice via buildGitArgs.
-    const result = await this.ctx.gitCli.exec(
-      buildGitArgs('diff', ['--name-status', '-z'], [ref]),
-      {
-        cwd: repo.rootUri.fsPath,
-      }
-    );
+    return this._changedFilesForDiffArgs(repo, [ref]);
+  }
+
+  private async _changedFilesForDiffArgs(
+    repo: IRepository,
+    refs: string[]
+  ): Promise<IRefDiffFile[]> {
+    // refs are user-controlled; splice via buildGitArgs.
+    const result = await this.ctx.gitCli.exec(buildGitArgs('diff', ['--name-status', '-z'], refs), {
+      cwd: repo.rootUri.fsPath,
+    });
 
     if (result.exitCode !== 0) {
       return [];

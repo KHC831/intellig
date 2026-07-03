@@ -187,11 +187,37 @@ describe('changelist commands — handler branch coverage', () => {
 
   // ── setActive / delete (id-guarded, no input) ───────────────────────────────
 
-  it('setActive: ignores a missing changelist id', async () => {
-    const { ctx, calls } = makeContext();
+  it('setActive: prompts with a changelist picker when the id is missing (palette invocation)', async () => {
+    const { ctx, calls } = makeContext({
+      changelists: [
+        { id: 'cl-1', name: 'Default', files: [] },
+        { id: 'cl-2', name: 'Feature', files: [{ path: 'a.ts' }] },
+      ],
+    });
+    register(ctx);
+    win.showQuickPick = async (items: Array<{ id: string; label: string }>) =>
+      items.find((i) => i.label === 'Feature');
+    await invoke('intellig.changelist.setActive', undefined);
+    assert.deepStrictEqual(calls.setActiveChangelist, [[REPO, 'cl-2']]);
+  });
+
+  it('setActive: a cancelled picker is a silent no-op', async () => {
+    const { ctx, calls } = makeContext({
+      changelists: [{ id: 'cl-1', name: 'Default', files: [] }],
+    });
+    register(ctx);
+    win.showQuickPick = async () => undefined;
+    await invoke('intellig.changelist.setActive', undefined);
+    assert.ok(!calls.setActiveChangelist);
+    assert.deepStrictEqual(rec.errors, []);
+  });
+
+  it('setActive: informs when there are no changelists to pick from', async () => {
+    const { ctx, calls } = makeContext({ changelists: [] });
     register(ctx);
     await invoke('intellig.changelist.setActive', undefined);
     assert.ok(!calls.setActiveChangelist);
+    assert.deepStrictEqual(rec.infos, ['No changelists found.']);
   });
 
   it('setActive: calls the service and toasts on failure', async () => {
@@ -276,11 +302,35 @@ describe('changelist commands — handler branch coverage', () => {
 
   // ── moveFilesTo ─────────────────────────────────────────────────────────────
 
-  it('moveFilesTo: ignores an empty file list', async () => {
-    const { ctx, calls } = makeContext();
+  it('moveFilesTo: prompts with a file picker when no files are supplied (palette invocation)', async () => {
+    const { ctx, calls } = makeContext({
+      changelists: [
+        { id: 'cl-1', name: 'Default', files: [{ path: 'a.ts' }, { path: 'b.ts' }] },
+        { id: 'cl-2', name: 'Feature', files: [] },
+      ],
+    });
     register(ctx);
-    await invoke('intellig.changelist.moveFilesTo', []);
+    let pickCall = 0;
+    win.showQuickPick = async (items: Array<{ path?: string; id?: string; label: string }>) => {
+      pickCall += 1;
+      if (pickCall === 1) {
+        // multi-select file picker: choose a.ts only
+        return items.filter((i) => i.label === 'a.ts');
+      }
+      return items.find((i) => i.label === 'Feature');
+    };
+    await invoke('intellig.changelist.moveFilesTo', undefined);
+    assert.deepStrictEqual(calls.moveToChangelist, [[REPO, ['a.ts'], 'cl-2']]);
+  });
+
+  it('moveFilesTo: informs when there are no changed files to move', async () => {
+    const { ctx, calls } = makeContext({
+      changelists: [{ id: 'cl-1', name: 'Default', files: [] }],
+    });
+    register(ctx);
+    await invoke('intellig.changelist.moveFilesTo', undefined);
     assert.ok(!calls.moveToChangelist);
+    assert.deepStrictEqual(rec.infos, ['No changed files to move.']);
   });
 
   it('moveFilesTo: cancels when no target is picked', async () => {
@@ -305,12 +355,16 @@ describe('changelist commands — handler branch coverage', () => {
 
   // ── commitOnly (guard branches; deep commit path stays in e2e) ──────────────
 
-  it('commitOnly: ignores a missing id', async () => {
-    const { ctx } = makeContext();
+  it('commitOnly: prompts with a changelist picker when the id is missing (palette invocation)', async () => {
+    const { ctx } = makeContext({
+      changelists: [{ id: 'cl-1', name: 'Default', files: [] }],
+    });
     register(ctx);
+    win.showQuickPick = async (items: Array<{ id: string }>) => items[0];
     await invoke('intellig.changelist.commitOnly', undefined);
-    assert.deepStrictEqual(rec.errors, []);
-    assert.deepStrictEqual(rec.infos, []);
+    // Picked changelist has no files -> the empty-changelist info fires,
+    // proving the picker fed the id through instead of a silent return.
+    assert.deepStrictEqual(rec.infos, ["Changelist 'Default' has no changes to commit."]);
   });
 
   it('commitOnly: errors when no repository resolves', async () => {

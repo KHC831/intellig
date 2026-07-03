@@ -174,13 +174,14 @@ function createMockBranchTreeProviderNoRepo(gitService: IGitService): BranchTree
  */
 function createLocalBranchTreeItem(
   branchName: string,
-  upstream?: { remote: string; name: string }
+  upstream?: { remote: string; name: string },
+  isHead = false
 ): BranchTreeItem {
   const branch: IBranch = {
     name: branchName,
     type: 'local',
     commit: 'abc1234',
-    isHead: false,
+    isHead,
     upstream,
   };
   return new BranchTreeItem(branchName, 0, 'local-branch', branch, undefined, false);
@@ -1570,7 +1571,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
   // ─── General Error Handling ─────────────────────────────
 
   describe('General error handling', () => {
-    it('_handleUpdate should show error message when fetch fails', async () => {
+    it('_handleUpdate should show error message when fetch fails (current branch)', async () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
@@ -1581,7 +1582,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-      const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' });
+      // The current branch keeps the plain prune-fetch path whose failure is
+      // an error toast; a non-current branch routes through align-local where
+      // a failed FF fetch is reported as a skip warning (covered in
+      // branchAlignLocal.test.ts).
+      const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' }, true);
       await invokePrivateHandler(commands, '_handleUpdate', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');

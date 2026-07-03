@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
-import { resolveExplorerFileUri } from './explorerCommands';
+import { buildIntelligGitUri, resolveExplorerFileUri } from './explorerCommands';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { formatActionFailureToast } from '../../git-core/gitError';
 import {
@@ -208,8 +208,16 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
           return;
         }
 
-        // Get the file history and filter to commits that modified this line
-        const history = await gitService.getFileHistory(repo, filePath);
+        // Line-scoped history (`git log -L line,line:path`) when the service
+        // provides it; whole-file history otherwise, with an honest title.
+        const history = gitService.getLineHistory
+          ? await gitService.getLineHistory(repo, filePath, line, line)
+          : await gitService.getFileHistory(repo, filePath);
+        const lineScoped = typeof gitService.getLineHistory === 'function';
+        if (history.length === 0) {
+          void vscode.window.showInformationMessage('No history found for this line.');
+          return;
+        }
 
         // Show history in a quick pick
         const items = history.map((commit) => ({
@@ -220,8 +228,10 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
         }));
 
         const selected = await vscode.window.showQuickPick(items, {
-          placeHolder: `History for line ${line} in ${filePath}`,
-          title: 'Line History',
+          placeHolder: lineScoped
+            ? `History for line ${line} in ${filePath}`
+            : `File history for ${filePath} (line-scoped history unavailable)`,
+          title: lineScoped ? 'Line History' : 'File History',
         });
 
         if (selected) {
@@ -486,8 +496,11 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     return { editor, repo, filePath: relative, line, blameLine };
   }
 
-  // Annotate Previous Revision — re-blame the file at <sha>^ (parent of the
-  // blamed commit). Uses the parent SHA recorded by git blame when available.
+  // Annotate Previous Revision — open the file AS IT WAS at the parent of
+  // the blamed commit (an intellig-git revision document) and annotate that
+  // document. Parent-revision blame cannot align with the current buffer, so
+  // the annotation lives on the parent's own content, like IntelliJ's
+  // annotate-previous view.
   const blameAnnotatePreviousCommand = registerLoggedCommand(
     'intellig.blame.annotatePrevious',
     async () => {
@@ -510,18 +523,18 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
           );
           return;
         }
-        // Resolve the parent SHA for the toast.
-        const shortParent = (
-          blameCtx.blameLine.previousCommit ?? `${blameCtx.blameLine.commit}^`
-        ).substring(0, 7);
-        void vscode.window.showInformationMessage(
-          `Annotated at ${shortParent}: ${info.lines.length} line(s) blamed.`
-        );
-        // Refresh providers so the gutter / inline decorations re-render
-        // against the new cached result; the providers keep HEAD-based blame
-        // as their default view, so we hint refresh here.
-        await ctx.gutterBlameProvider?.refresh();
-        await ctx.inlineBlameProvider?.refresh();
+        const parentRef = blameCtx.blameLine.previousCommit ?? `${blameCtx.blameLine.commit}^`;
+        const revUri = buildIntelligGitUri(targetPath, parentRef, blameCtx.repo.rootUri.fsPath);
+        const doc = await vscode.workspace.openTextDocument(revUri);
+        const editor = await vscode.window.showTextDocument(doc);
+        if (!ctx.gutterBlameProvider) {
+          ctx.gutterBlameProvider = createGutterBlameProvider(
+            ctx.services.blameService,
+            ctx.services.gitService,
+            ctx.services.blameOptionsSource
+          );
+        }
+        ctx.gutterBlameProvider.enable(editor, { force: true });
       } catch (error) {
         void vscode.window.showErrorMessage(
           formatActionFailureToast('Annotate Previous failed', error)

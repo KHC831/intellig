@@ -291,3 +291,60 @@ describe('Align-local Update Selected — handler', () => {
     assert.match(warn.calls[0].message, /fast-forward failed/i);
   });
 });
+
+describe('Update / Update Selected — honesty contract', () => {
+  afterEach(() => restoreMessageFunctions());
+
+  it('updateSelected: a failed divergence probe attempts the FF fetch instead of claiming up to date', async () => {
+    const { service, fetchCalls } = makeStub({ incoming: 0, outgoing: 0 });
+    (service as unknown as Record<string, unknown>).getIncomingOutgoingForBranch = async () => {
+      throw new Error('probe failed');
+    };
+    const info = installInfoMessageTracker();
+    const warn = installWarningMessageTracker();
+    const cmds = new BranchContextMenuCommands(service, makeProvider(service));
+
+    await invokePrivateHandler(cmds, '_handleUpdateSelected', localBranchItem('feature', false));
+
+    assert.strictEqual(fetchCalls.length, 1, 'the FF fetch is attempted (git enforces FF-only)');
+    assert.strictEqual(fetchCalls[0].refspec, 'feature:feature');
+    const all = [...info.calls, ...warn.calls].map((c) => c.message).join(' | ');
+    assert.ok(!/up to date/i.test(all), `must not claim up-to-date on a failed probe; got: ${all}`);
+  });
+
+  it('update on a NON-current branch fast-forwards via the refspec (a bare fetch is not an update)', async () => {
+    const { service, fetchCalls } = makeStub({ incoming: 2, outgoing: 0 });
+    const info = installInfoMessageTracker();
+    const cmds = new BranchContextMenuCommands(service, makeProvider(service));
+
+    await invokePrivateHandler(cmds, '_handleUpdate', localBranchItem('feature', false));
+
+    assert.strictEqual(fetchCalls.length, 1);
+    assert.strictEqual(fetchCalls[0].refspec, 'feature:feature', 'must FF the local ref');
+    assert.ok(
+      info.calls.some((c) => /fast-forward/i.test(c.message)),
+      `toast should describe the fast-forward; got: ${info.calls.map((c) => c.message).join(' | ')}`
+    );
+  });
+
+  it('update on the CURRENT branch fetches with prune and reports the divergence honestly', async () => {
+    const { service, fetchCalls } = makeStub({ incoming: 3, outgoing: 0 });
+    const info = installInfoMessageTracker();
+    const cmds = new BranchContextMenuCommands(service, makeProvider(service));
+
+    await invokePrivateHandler(cmds, '_handleUpdate', localBranchItem('feature', true));
+
+    assert.strictEqual(fetchCalls.length, 1);
+    assert.strictEqual(fetchCalls[0].prune, true, 'current branch keeps the prune fetch');
+    assert.strictEqual(fetchCalls[0].refspec, undefined, 'no FF into a checked-out ref');
+    assert.strictEqual(info.calls.length, 1);
+    assert.ok(
+      !/^Updated branch/.test(info.calls[0].message),
+      `must not claim the branch was updated; got: "${info.calls[0].message}"`
+    );
+    assert.ok(
+      /3 commit/.test(info.calls[0].message) && /behind/i.test(info.calls[0].message),
+      `should report how far behind the branch is; got: "${info.calls[0].message}"`
+    );
+  });
+});

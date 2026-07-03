@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { registerLoggedCommand } from '../../utils/logger';
+import { getLogger, registerLoggedCommand } from '../../utils/logger';
 import { sanitizeGitError, worktreeConflictMessage } from '../../git-core/gitError';
 import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { parseRemoteUrl } from '../../utils/remoteUrl';
@@ -519,8 +519,13 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       return;
     }
 
-    // Stash dirty state (best-effort), switch, cherry-pick, restore.
+    // Stash dirty state (best-effort), switch, cherry-pick, restore. The
+    // created entry's sha is captured right after the push so the restore
+    // pops exactly that entry — `stash@{0}` is not stable between the push
+    // and the pop (another flow or the user can push an entry, renumbering
+    // the stack).
     let stashed = false;
+    let stashSha: string | undefined;
     try {
       const status = await gitService.getStatus(repo);
       if (status.length > 0) {
@@ -531,6 +536,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
           }
         );
         stashed = true;
+        try {
+          stashSha = (await gitService.stashList(repo))[0]?.hash;
+        } catch {
+          // Legacy no-hash listing — the pop falls back to the head.
+          stashSha = undefined;
+        }
       }
     } catch (stashError) {
       const msg = stashError instanceof Error ? stashError.message : 'Unknown error';
@@ -540,6 +551,10 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       return;
     }
 
+    // When the flow ends on the TARGET branch — a routed conflict, or staged
+    // changes left uncommitted — the cleanup below must neither switch back
+    // over that state nor pop the original branch's stash onto it.
+    let stayOnTarget = false;
     try {
       await gitService.checkout(repo, targetBranch).match(
         () => undefined,
@@ -559,10 +574,45 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
           }
         );
       if (result.success) {
-        void vscode.window.showInformationMessage(
-          `Applied ${files.length} file(s) from ${shortHash} onto '${targetBranch}'. ` +
-            `Review and commit on that branch, or reset to discard.`
-        );
+        // `-n` leaves the applied files STAGED. Uncommitted changes travel
+        // with the worktree, so they cannot be "left on" the target across a
+        // branch switch — commit them here before returning. A cancelled
+        // prompt keeps the user on the target with the changes staged.
+        const message = await vscode.window.showInputBox({
+          prompt: `Commit message for the ${files.length} file(s) applied to '${targetBranch}'`,
+          value: `Apply changes from ${shortHash}`,
+          validateInput: (v) => (v && v.trim() ? undefined : 'Commit message cannot be empty'),
+        });
+        if (message && message.trim()) {
+          try {
+            await gitService.commit(repo, message.trim(), {}).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
+            void vscode.window.showInformationMessage(
+              `Committed ${files.length} file(s) from ${shortHash} onto '${targetBranch}'.`
+            );
+          } catch (commitError) {
+            // Keep the staged application on the target rather than dragging
+            // it back to the original branch with the switch.
+            stayOnTarget = true;
+            const msg = commitError instanceof Error ? commitError.message : 'Unknown error';
+            void vscode.window.showErrorMessage(
+              `Failed to commit on '${targetBranch}': ${sanitizeGitError(msg)}. ` +
+                `The changes remain staged there.` +
+                (stashed ? ' Your original changes remain in the stash.' : '')
+            );
+          }
+        } else {
+          stayOnTarget = true;
+          void vscode.window.showWarningMessage(
+            `Changes from ${shortHash} are staged on '${targetBranch}' but not committed — ` +
+              `commit or reset them there.` +
+              (stashed ? ' Your original changes remain in the stash.' : '')
+          );
+        }
       } else if (result.conflicts && result.conflicts.length > 0) {
         const conflictService = ctx.services.conflictResolutionService;
         if (conflictService) {
@@ -581,15 +631,15 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
             `Conflicts in ${result.conflicts.length} file(s) on '${targetBranch}'. Resolve and commit manually.`
           );
         }
-        // Leave the user on the target branch so they can resolve.
-        // Checkout + cherry-pick advanced HEAD onto
-        // target branch; reload before refresh so the user sees the
-        // post-checkout panel state with the unresolved conflicts.
-        await gitService.reloadRepository(repo);
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.refresh();
+        // Leave the user on the target branch so they can resolve; the
+        // finally's reload/refresh shows the post-checkout conflicted state.
+        stayOnTarget = true;
+        if (stashed) {
+          void vscode.window.showWarningMessage(
+            `Your original changes remain in the stash — pop them after resolving ` +
+              `('git stash pop').`
+          );
         }
-        return;
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -607,38 +657,30 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         );
       }
     } finally {
-      // Always return to the original branch unless we're on the target with
-      // unresolved conflicts (already returned above). Pop the stash after
-      // the switch-back so the user sees their original state.
-      if (currentBranchName) {
-        try {
-          await gitService.checkout(repo, currentBranchName).match(
-            () => undefined,
-            (e) => {
-              throw e;
-            }
-          );
-        } catch (backError) {
-          const msg = backError instanceof Error ? backError.message : 'Unknown error';
-          void vscode.window.showWarningMessage(
-            `Could not return to '${currentBranchName}': ${sanitizeGitError(msg)}. ` +
-              `You may be on '${targetBranch}' now.`
-          );
+      // Return to the original branch and restore the stash — UNLESS the
+      // flow deliberately ended on the target (routed conflict, or staged
+      // changes left uncommitted): switching back would fail over an
+      // unmerged index or drag the staged application along, and popping
+      // would dump the original branch's dirt onto the target.
+      if (!stayOnTarget) {
+        if (currentBranchName) {
+          try {
+            await gitService.checkout(repo, currentBranchName).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
+          } catch (backError) {
+            const msg = backError instanceof Error ? backError.message : 'Unknown error';
+            void vscode.window.showWarningMessage(
+              `Could not return to '${currentBranchName}': ${sanitizeGitError(msg)}. ` +
+                `You may be on '${targetBranch}' now.`
+            );
+          }
         }
-      }
-      if (stashed) {
-        try {
-          await gitService.stashPop(repo, 0).match(
-            () => undefined,
-            (e) => {
-              throw e;
-            }
-          );
-        } catch (popError) {
-          const msg = popError instanceof Error ? popError.message : 'Unknown error';
-          void vscode.window.showWarningMessage(
-            `Could not pop auto-stash: ${sanitizeGitError(msg)}. Run 'git stash pop' manually.`
-          );
+        if (stashed) {
+          await _popApplyFlowStash(gitService, repo, stashSha);
         }
       }
       // Finally block runs after multi-step pipeline
@@ -649,6 +691,56 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       if (ctx.gitToolWindowProvider) {
         ctx.gitToolWindowProvider.refresh();
       }
+    }
+  }
+
+  /**
+   * Pop the auto-stash created by the apply-files flow, pinned to the entry's
+   * sha: the stack may have been renumbered by entries pushed in between, so
+   * the entry's CURRENT index is resolved from a fresh listing first. A sha
+   * that has vanished from the list warns instead of popping a stranger's
+   * entry; a legacy no-hash capture (`stashSha === undefined`) falls back to
+   * the head.
+   */
+  async function _popApplyFlowStash(
+    gitService: IGitService,
+    repo: IRepository,
+    stashSha: string | undefined
+  ): Promise<void> {
+    let index = 0;
+    if (stashSha !== undefined) {
+      try {
+        const entries = await gitService.stashList(repo);
+        const entry = entries.find((e) => e.hash === stashSha);
+        if (!entry) {
+          void vscode.window.showWarningMessage(
+            'The auto-stash created for this apply is no longer in the stash list — ' +
+              'your changes were not restored.'
+          );
+          return;
+        }
+        index = entry.index;
+      } catch (listError) {
+        // Listing failed — fall back to the head, matching the pre-pin behavior.
+        getLogger()
+          .child({ component: 'commitMenuCommands' })
+          .warn('apply-files stash pop: stash list failed; falling back to stash@{0}', {
+            err: listError instanceof Error ? listError.message : String(listError),
+          });
+      }
+    }
+    try {
+      await gitService.stashPop(repo, index).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+    } catch (popError) {
+      const msg = popError instanceof Error ? popError.message : 'Unknown error';
+      void vscode.window.showWarningMessage(
+        `Could not pop auto-stash: ${sanitizeGitError(msg)}. Run 'git stash pop' manually.`
+      );
     }
   }
 
@@ -757,15 +849,20 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     gitService: IGitService
   ): Promise<void> {
     try {
-      // Use getCommitDiff for the commit as the file list. For a true
-      // symmetric compare, a future enhancement can run `git diff a..b`.
-      const diffs = await gitService.getCommitDiff(repo, commitHash);
-      if (diffs.length === 0) {
-        void vscode.window.showInformationMessage('No files to compare for this commit.');
+      // Files that DIFFER between the two refs (`git diff --name-status
+      // target commit`) — not just the commit's own touched files, which
+      // missed everything changed by other commits in between. Falls back to
+      // the commit's own diff when the capability is absent (mock services).
+      const entries =
+        typeof gitService.getChangedFilesBetweenRefs === 'function'
+          ? await gitService.getChangedFilesBetweenRefs(repo, target, commitHash)
+          : await gitService.getCommitDiff(repo, commitHash);
+      if (entries.length === 0) {
+        void vscode.window.showInformationMessage('No differences to compare.');
         return;
       }
       const picked = await vscode.window.showQuickPick(
-        diffs.map((d) => ({ label: d.path, description: d.status })),
+        entries.map((d) => ({ label: d.path, description: d.status })),
         {
           title: `Compare ${commitHash.substring(0, 8)} ↔ ${target.substring(0, 8)}`,
           placeHolder: 'Select a file to diff',

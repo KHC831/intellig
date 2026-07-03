@@ -2167,6 +2167,29 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
+   * List files that differ between two refs (`git diff --name-status -z
+   * <refA> <refB>`).
+   */
+  getChangedFilesBetweenRefs(
+    repo: IRepository,
+    refA: string,
+    refB: string
+  ): Promise<IRefDiffFile[]> {
+    // Absorbs the ops Result: a system fault is LOGGED and degraded to [].
+    return this._diff.getChangedFilesBetweenRefs(repo, refA, refB).match(
+      (files) => files,
+      (error) => {
+        this._logger.error(
+          'getChangedFilesBetweenRefs failed',
+          { rootPath: repo.rootUri.fsPath, refA, refB },
+          error
+        );
+        return [];
+      }
+    );
+  }
+
+  /**
    * Compute the merge-base of two refs.
    *
    * Wraps `git merge-base --end-of-options <refA> <refB>`. Returns the
