@@ -17,6 +17,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The packaged extension no longer includes 35 MB of internal test-coverage data that shipped in 0.2.10.
 - Right-clicking a branch just as the tree refreshed could crash the command instead of running it.
 - Many command-surface fixes from a full user's-point-of-view review: multi-file selections are respected everywhere, palette commands no longer fail silently, and error messages are honest about what happened.
 

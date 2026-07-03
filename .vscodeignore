@@ -47,9 +47,14 @@ scripts/**
 .mocharc.json
 .gitignore
 tsconfig.json
+tsconfig.test.json
 package-lock.json
 CONTRIBUTING.md
+CLAUDE.md
 AGENT_WORKSPACE.md
+# c8 coverage output (coverage-final.json + tmp/ per-process V8 dumps) —
+# 35 MB of pure bloat that shipped unnoticed in 0.2.10.
+coverage/**
 **/*.map
 **/*.ts
 out/test/**

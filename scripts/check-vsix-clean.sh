@@ -18,7 +18,9 @@
 #    Run `vsce ls` (the same listing logic vsce uses for `vsce
 #    package`) and grep for a hand-curated list of forbidden POSIX
 #    extended-regex patterns covering: test JS, .map files, source
-#    `.ts`, `.agent/`, `AGENT_WORKSPACE`, `.idea/`, `.kiro/`,
+#    `.ts`, `.agent/`, `AGENT_WORKSPACE`, `CLAUDE.md`, `coverage/`
+#    (c8 output — 35 MB shipped unnoticed in 0.2.10),
+#    `tsconfig.test.json`, `.idea/`, `.kiro/`,
 #    `.vscode-test/`, `docs/`, `scripts/`, `src/`, `tsconfig.json`,
 #    `eslintrc`/`prettierrc`/`mocharc`, `package-lock.json`,
 #    `CONTRIBUTING.md`, `.DS_Store`. Each pattern targets a known
@@ -67,7 +69,7 @@ VSCE_VERSION="2.24.0"
 
 # Patterns that MUST NOT appear in `vsce ls` output. POSIX-extended
 # regex; pipe-separated alternatives.
-FORBIDDEN_PATTERNS='(\.test\.js$|^out/test/|^test/|^workspace-notes/|/\.agent/|^\.agent/|AGENT_WORKSPACE|^\.idea/|^\.kiro/|^\.vscode-test/|^docs/|^scripts/|^src/|tsconfig\.json|^\.eslintrc|^\.prettierrc|^\.prettierignore|^\.mocharc|^package-lock\.json$|^CONTRIBUTING\.md$|\.DS_Store|\.map$|\.ts$)'
+FORBIDDEN_PATTERNS='(\.test\.js$|^out/test/|^test/|^workspace-notes/|^coverage/|^CLAUDE\.md$|tsconfig\.test\.json|/\.agent/|^\.agent/|AGENT_WORKSPACE|^\.idea/|^\.kiro/|^\.vscode-test/|^docs/|^scripts/|^src/|tsconfig\.json|^\.eslintrc|^\.prettierrc|^\.prettierignore|^\.mocharc|^package-lock\.json$|^CONTRIBUTING\.md$|\.DS_Store|\.map$|\.ts$)'
 
 # Capture stderr to a temp file so we can surface vsce errors on FAIL
 # rather than swallowing them behind a generic message.
