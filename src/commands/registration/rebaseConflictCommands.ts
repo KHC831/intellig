@@ -177,7 +177,10 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     run: async ({ services, repo }) => {
       const conflictService = services.conflictResolutionService;
       const conflicts = await conflictService.getConflictedFiles(repo);
-      const state = conflictService.getRepositoryState(repo);
+      // Read the state off a RELOADED repo: the cached object trails the
+      // 250ms watcher debounce, and a user can click faster than that.
+      const fresh = (await services.gitService.reloadRepository(repo)) ?? repo;
+      const state = conflictService.getRepositoryState(fresh);
       if (conflicts.length === 0 && state === 'idle') {
         // Nothing unresolved AND no operation in progress — genuinely nothing to do.
         void vscode.window.showInformationMessage('No unresolved conflicts.');
@@ -212,7 +215,11 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     failureTitle: 'Failed to skip commit',
     run: async ({ services, gitService, repo }) => {
       const conflictService = services.conflictResolutionService;
-      const state = conflictService.getRepositoryState(repo);
+      // Guard against the STALE cache, not just the state: the repo object
+      // trails the 250ms watcher debounce, and "rebase paused" is exactly
+      // when a user clicks fastest. Reload before deciding to refuse.
+      const fresh = (await gitService.reloadRepository(repo)) ?? repo;
+      const state = conflictService.getRepositoryState(fresh);
       if (state !== 'rebasing') {
         void vscode.window.showInformationMessage(
           'Rebase --skip is only available while a rebase is in progress.'
@@ -264,7 +271,11 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     failureTitle: 'Failed to continue rebase',
     run: async ({ services, gitService, repo }) => {
       const conflictService = services.conflictResolutionService;
-      const state = conflictService.getRepositoryState(repo);
+      // Guard against the STALE cache, not just the state: the repo object
+      // trails the 250ms watcher debounce, and "rebase paused" is exactly
+      // when a user clicks fastest. Reload before deciding to refuse.
+      const fresh = (await gitService.reloadRepository(repo)) ?? repo;
+      const state = conflictService.getRepositoryState(fresh);
       if (state !== 'rebasing') {
         void vscode.window.showInformationMessage(
           'Rebase --continue is only available while a rebase is in progress.'
@@ -303,7 +314,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     failureTitle: 'Failed to abort rebase',
     run: async ({ services, gitService, repo }) => {
       const conflictService = services.conflictResolutionService;
-      const state = conflictService.getRepositoryState(repo);
+      // Same stale-cache guard as --skip/--continue above.
+      const fresh = (await gitService.reloadRepository(repo)) ?? repo;
+      const state = conflictService.getRepositoryState(fresh);
       if (state !== 'rebasing') {
         void vscode.window.showInformationMessage(
           'Rebase --abort is only available while a rebase is in progress.'

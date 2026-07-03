@@ -111,6 +111,8 @@ describe('e2e — rebase recovery (real in-progress rebase)', function () {
   });
 
   it('intellig.rebase.abort — restores the pre-rebase branch state', async () => {
+    // TEMP PROBE: getRepository is the discovery entry — its caller still
+    // has a synchronous frame, so wrapping it names the resurrector.
     await startConflictingRebase();
     stubs = stubPrompts({ warningMessage: () => 'Abort' });
 
@@ -119,7 +121,13 @@ describe('e2e — rebase recovery (real in-progress rebase)', function () {
 
     assert.ok(
       !rebaseInProgress(),
-      `rebase metadata should be gone; err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+      `rebase metadata should be gone; err=${JSON.stringify(
+        stubs.errorMessageCalls.map((c) => c.message)
+      )}; info=${JSON.stringify(
+        stubs.informationMessageCalls.map((c) => c.message)
+      )}; warn=${JSON.stringify(
+        stubs.warningMessageCalls.map((c) => c.message)
+      )}; picks=${stubs.quickPickCalls.length}`
     );
     assert.strictEqual(await currentBranch(), 'feature', 'abort should restore the feature branch');
   });

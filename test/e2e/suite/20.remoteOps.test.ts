@@ -98,6 +98,11 @@ describe('e2e — remote ops (against file:// origin)', function () {
     await vscode.commands.executeCommand(
       'intellig.branch.update',
       branchItem(fix.defaultBranch, 'local', {
+        // The default branch is checked out — the real tree item carries
+        // isHead: true, which routes Update down the fetch path (align-local
+        // is only for non-checked-out branches; git refuses to ff a
+        // checked-out ref via refspec fetch).
+        isHead: true,
         upstream: { remote: 'origin', name: fix.defaultBranch },
       })
     );

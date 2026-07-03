@@ -171,20 +171,30 @@ describe('e2e — explorer context-menu commands (nested repo, real git state)',
 
   it('intellig.explorer.showHistory — finds commits for the file and offers the picker', async () => {
     await setup();
-    stubs = stubPrompts({ quickPick: () => undefined }); // open the picker, pick nothing
+    // The tabbed tool window (default on) routes history to the History TAB;
+    // the picker under test here is the fallback. Opt into it explicitly so
+    // the assertion pins the path this test exists for: a correct
+    // repo-relative `git log -- file0.txt`.
+    const cfg = vscode.workspace.getConfiguration('intellig');
+    await cfg.update('useTabbedGitToolWindow', false, vscode.ConfigurationTarget.Global);
+    try {
+      stubs = stubPrompts({ quickPick: () => undefined }); // open the picker, pick nothing
 
-    await vscode.commands.executeCommand('intellig.explorer.showHistory', uriFor('file0.txt'));
+      await vscode.commands.executeCommand('intellig.explorer.showHistory', uriFor('file0.txt'));
 
-    // With a correct repo-relative path `git log -- file0.txt` returns the
-    // seed commit and the history picker is shown. The buggy workspace-relative
-    // path yields an empty log and a "No history found" info toast instead.
-    assert.strictEqual(
-      stubs.quickPickCalls.length,
-      1,
-      `history picker should be shown once; info toasts=${JSON.stringify(
-        stubs.informationMessageCalls.map((c) => c.message)
-      )}`
-    );
+      // With a correct repo-relative path `git log -- file0.txt` returns the
+      // seed commit and the history picker is shown. The buggy workspace-relative
+      // path yields an empty log and a "No history found" info toast instead.
+      assert.strictEqual(
+        stubs.quickPickCalls.length,
+        1,
+        `history picker should be shown once; info toasts=${JSON.stringify(
+          stubs.informationMessageCalls.map((c) => c.message)
+        )}`
+      );
+    } finally {
+      await cfg.update('useTabbedGitToolWindow', undefined, vscode.ConfigurationTarget.Global);
+    }
   });
 
   it('intellig.explorer.createPatchFromFile — copies a non-empty patch to the clipboard', async () => {

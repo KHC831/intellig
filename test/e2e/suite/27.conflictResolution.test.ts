@@ -208,40 +208,57 @@ describe('e2e — conflict resolution commands', function () {
   });
 
   it('openMergeView injects a synthetic stage-1 base for an add/add conflict', async () => {
-    fix = await createFixtureRepo({ commits: 1 });
-    const newFile = path.join(fix.rootPath, 'added.txt');
+    // Synthetic stage-1 injection is the NATIVE merge editor's path (it
+    // reads stages from the index). The IntelliG merge window — the default
+    // since 0.2.11 — handles a missing base IN MEMORY, so this test opts
+    // into the native route explicitly.
+    const cfg = vscode.workspace.getConfiguration('intellig');
+    await cfg.update('mergeWindow.enabled', false, vscode.ConfigurationTarget.Global);
+    try {
+      fix = await createFixtureRepo({ commits: 1 });
+      const newFile = path.join(fix.rootPath, 'added.txt');
 
-    // Both branches ADD `added.txt` with different content → add/add (no base).
-    await execGit(fix.rootPath, ['checkout', '-b', 'feature']);
-    fs.writeFileSync(newFile, 'l1\nFEATURE\nl3\n');
-    await execGit(fix.rootPath, ['add', 'added.txt']);
-    await execGit(fix.rootPath, ['commit', '-m', 'feature adds added.txt']);
+      // Both branches ADD `added.txt` with different content → add/add (no base).
+      await execGit(fix.rootPath, ['checkout', '-b', 'feature']);
+      fs.writeFileSync(newFile, 'l1\nFEATURE\nl3\n');
+      await execGit(fix.rootPath, ['add', 'added.txt']);
+      await execGit(fix.rootPath, ['commit', '-m', 'feature adds added.txt']);
 
-    await execGit(fix.rootPath, ['checkout', fix.defaultBranch]);
-    fs.writeFileSync(newFile, 'l1\nMAIN\nl3\n');
-    await execGit(fix.rootPath, ['add', 'added.txt']);
-    await execGit(fix.rootPath, ['commit', '-m', 'main adds added.txt']);
+      await execGit(fix.rootPath, ['checkout', fix.defaultBranch]);
+      fs.writeFileSync(newFile, 'l1\nMAIN\nl3\n');
+      await execGit(fix.rootPath, ['add', 'added.txt']);
+      await execGit(fix.rootPath, ['commit', '-m', 'main adds added.txt']);
 
-    await execGit(fix.rootPath, ['merge', 'feature'], { allowNonZero: true });
+      await execGit(fix.rootPath, ['merge', 'feature'], { allowNonZero: true });
 
-    // Precondition: an add/add conflict has stages 2 and 3 but NO stage 1.
-    const before = await unmergedStages(fix.rootPath, 'added.txt');
-    assert.deepStrictEqual([...before].sort(), [2, 3], 'fixture: add/add has only stages 2 and 3');
+      // Precondition: an add/add conflict has stages 2 and 3 but NO stage 1.
+      const before = await unmergedStages(fix.rootPath, 'added.txt');
+      assert.deepStrictEqual(
+        [...before].sort(),
+        [2, 3],
+        'fixture: add/add has only stages 2 and 3'
+      );
 
-    await useFixtureWorkspace(fix.rootPath);
-    stubs = stubPrompts({});
+      await useFixtureWorkspace(fix.rootPath);
+      stubs = stubPrompts({});
 
-    await vscode.commands.executeCommand('intellig.merge.openMergeView', vscode.Uri.file(newFile));
+      await vscode.commands.executeCommand(
+        'intellig.merge.openMergeView',
+        vscode.Uri.file(newFile)
+      );
 
-    // The native editor needs a base; show() must have injected a synthetic
-    // stage-1 so all three stages are now present.
-    const after = await unmergedStages(fix.rootPath, 'added.txt');
-    assert.ok(after.has(1), 'openMergeView must inject a synthetic stage-1 base for add/add');
-    assert.ok(after.has(2) && after.has(3), 'ours/theirs stages must be preserved');
+      // The native editor needs a base; show() must have injected a synthetic
+      // stage-1 so all three stages are now present.
+      const after = await unmergedStages(fix.rootPath, 'added.txt');
+      assert.ok(after.has(1), 'openMergeView must inject a synthetic stage-1 base for add/add');
+      assert.ok(after.has(2) && after.has(3), 'ours/theirs stages must be preserved');
 
-    // Stage 1 equals the conflict-marked working file (IntelliJ loadMergeData
-    // fallback) — so it carries markers and is not a real ancestor.
-    const stage1 = (await execGit(fix.rootPath, ['show', ':1:added.txt'])).stdout;
-    assert.ok(stage1.includes('<<<<<<<'), 'synthetic base is the conflict-marked working file');
+      // Stage 1 equals the conflict-marked working file (IntelliJ loadMergeData
+      // fallback) — so it carries markers and is not a real ancestor.
+      const stage1 = (await execGit(fix.rootPath, ['show', ':1:added.txt'])).stdout;
+      assert.ok(stage1.includes('<<<<<<<'), 'synthetic base is the conflict-marked working file');
+    } finally {
+      await cfg.update('mergeWindow.enabled', undefined, vscode.ConfigurationTarget.Global);
+    }
   });
 });

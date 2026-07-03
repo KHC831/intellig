@@ -128,6 +128,15 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   private _removalGeneration: Map<string, number> = new Map();
   /**
+   * Roots explicitly REMOVED from the workspace (folder removal, watcher
+   * teardown). Reload/refresh paths are no-ops for tombstoned roots — a
+   * late fire-and-forget reload or queued watcher event must not resurrect
+   * a phantom repo into the pickers. Fresh discovery (`getRepository` /
+   * `loadRepository` completing a successful cache write) clears the
+   * tombstone, so deliberately re-adding the folder works.
+   */
+  private _removedRoots: Set<string> = new Set();
+  /**
    * In-flight `getStatus` promises, keyed by rootPath. On activation several
    * subscribers (SCM provider, changelist + shelf views) request the same
    * repo's status at once; each `git status --porcelain` walks the whole work
@@ -562,6 +571,16 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   async reloadRepository(repo: IRepository): Promise<IRepository | undefined> {
     const rootPath = repo.rootUri.fsPath;
+    // A repo that was REMOVED (workspace folder removed, teardown) must not
+    // be re-discovered by a late fire-and-forget reload — that resurrects a
+    // phantom into every repository picker. Tombstone check, not cache
+    // membership: the cache entry is legitimately absent mid-reload
+    // (invalidate → load), and a transient load failure must not unhook
+    // the root forever.
+    if (this._removedRoots.has(rootPath)) {
+      this._logger.info('reloadRepository skipped: repo was removed', { rootPath });
+      return undefined;
+    }
     this._logger.info('reloadRepository entry', { rootPath });
     this.invalidateCache(rootPath);
     try {
@@ -971,6 +990,7 @@ export class GitService implements IGitService, IGitServiceCli {
     const isFirstInsertion = !this._fileWatchers.has(rootPath);
 
     // Cache the repository
+    this._removedRoots.delete(rootPath);
     this._repositories.set(rootPath, {
       repository,
       lastUpdated: Date.now(),
@@ -1237,6 +1257,12 @@ export class GitService implements IGitService, IGitServiceCli {
     if (this._disposed) {
       return;
     }
+    // Same removal tombstone as reloadRepository: a watcher event that
+    // lands after the repo was removed must not rediscover it.
+    if (this._removedRoots.has(rootPath)) {
+      this._logger.info('debounced refresh skipped: repo was removed', { rootPath });
+      return;
+    }
     this.invalidateCache(rootPath);
     // Enroll the reload promise into `_reloading` via the shared
     // `_enrollReload` helper so every in-flight load registers uniformly.
@@ -1398,6 +1424,7 @@ export class GitService implements IGitService, IGitServiceCli {
       // `_reloading`) that resolves AFTER this teardown sees the change and
       // skips its cache-write/announce instead of resurrecting the root.
       this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
+      this._removedRoots.add(key);
     }
 
     // Fire `onDidRemoveRepository` for EVERY
@@ -1430,6 +1457,7 @@ export class GitService implements IGitService, IGitServiceCli {
       // Cover a cached root with no in-flight reload entry (not in
       // stateKeysToRemove): still bump so any later load can't resurrect it.
       this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
+      this._removedRoots.add(key);
     }
     if (!this._disposed) {
       for (const repo of reposToFire) {

@@ -46,6 +46,37 @@ interface GitServiceWorkspaceHelperSurface {
   getRepositories(): IRepository[];
   removeRepositoryWatcher?: (rootPath: string) => void;
   _drainPendingReloads?: () => Promise<void>;
+  /** ADR-008 watcher-family registry — enumerable teardown keys. */
+  _watcherMaps?: Array<Map<string, unknown>>;
+  _refreshTimers?: Map<string, unknown>;
+  _reloading?: Map<string, unknown>;
+}
+
+/**
+ * Every root the service is still ENTANGLED with — cached repos PLUS
+ * watcher/timer/in-flight keys. A repo caught mid-reload has no cache
+ * entry (`invalidateCache` deletes it until the reload's write), so a
+ * repos-only sweep misses it; its surviving watchers then resurrect the
+ * root when the fixture directory is deleted (FSEvents fire on the watched
+ * dir) and the next test inherits a phantom repo.
+ */
+function entangledRoots(gitService: GitServiceWorkspaceHelperSurface): Set<string> {
+  const roots = new Set<string>();
+  for (const repo of gitService.getRepositories()) {
+    roots.add(repo.rootUri.fsPath);
+  }
+  for (const map of gitService._watcherMaps ?? []) {
+    for (const key of map.keys()) {
+      roots.add(key);
+    }
+  }
+  for (const key of gitService._refreshTimers?.keys() ?? []) {
+    roots.add(key);
+  }
+  for (const key of gitService._reloading?.keys() ?? []) {
+    roots.add(key);
+  }
+  return roots;
 }
 
 /**
@@ -83,14 +114,45 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
   // Drain any pending async repository discovery before disposing watchers
   // so we don't race the cache cleanup against `loadRepository`'s tail.
   await gitService._drainPendingReloads?.();
-  for (const existing of gitService.getRepositories()) {
-    gitService.removeRepositoryWatcher?.(existing.rootUri.fsPath);
+  for (const root of entangledRoots(gitService)) {
+    gitService.removeRepositoryWatcher?.(root);
   }
 
   const folderUri = vscode.Uri.file(repoPath);
   const repo = await services.gitService.getRepository(folderUri);
   if (!repo) {
     throw new Error(`no repository discovered at ${repoPath}`);
+  }
+
+  // Enforce this helper's contract — the fixture is the SOLE repo. A prior
+  // suite's async reload tail can resurrect its (deleted) fixture into the
+  // cache AFTER the sweep above; the next repo-scoped command then sees a
+  // multi-repo workspace and shows a repository picker that stubPrompts
+  // auto-cancels — a silent no-op that reads as "command did nothing".
+  // Drain-and-sweep until only the fixture remains (bounded, loud on
+  // failure so the leak points at its polluter instead of a downstream
+  // assert).
+  for (let round = 0; round < 3; round++) {
+    const strays = gitService
+      .getRepositories()
+      .filter((r) => r.rootUri.fsPath !== repo.rootUri.fsPath);
+    if (strays.length === 0) {
+      break;
+    }
+    await gitService._drainPendingReloads?.();
+    for (const stray of strays) {
+      gitService.removeRepositoryWatcher?.(stray.rootUri.fsPath);
+    }
+  }
+  const leftover = gitService
+    .getRepositories()
+    .filter((r) => r.rootUri.fsPath !== repo.rootUri.fsPath);
+  if (leftover.length > 0) {
+    throw new Error(
+      `useFixtureWorkspace: stray repos survived the sweep: ${leftover
+        .map((r) => r.rootUri.fsPath)
+        .join(', ')}`
+    );
   }
   return repo;
 }
@@ -121,8 +183,8 @@ export async function clearWorkspace(): Promise<void> {
   }
   const gitService = services.gitService as unknown as GitServiceWorkspaceHelperSurface;
   await gitService._drainPendingReloads?.();
-  for (const existing of gitService.getRepositories()) {
-    gitService.removeRepositoryWatcher?.(existing.rootUri.fsPath);
+  for (const root of entangledRoots(gitService)) {
+    gitService.removeRepositoryWatcher?.(root);
   }
   // Second drain: disposing watchers can fire workspace events that
   // schedule fresh `discoverRepository` calls; settle those too before we

@@ -145,6 +145,19 @@ describe('e2e — commit changed-file double-click opens the diff directly (no r
     const provider = getGitToolWindowProvider();
     assert.ok(provider, 'git tool window provider must be activated');
 
+    // A real double-click only happens on a RENDERED row, and the provider
+    // (correctly) drops hashes it has never rendered (stale-hash guard). So
+    // wait until the refreshed all-roots log actually contains repoB's new
+    // HEAD before firing the click.
+    const internals = provider as unknown as {
+      refresh: () => void;
+      _extendedLogState: { commitNodes: Array<{ commit: { hash: string } }> };
+    };
+    internals.refresh();
+    await waitFor(() =>
+      internals._extendedLogState.commitNodes.some((n) => n.commit.hash === headB)
+    );
+
     const before = diffTabCount();
 
     // Drive the exact message a real changed-file double-click posts.

@@ -36,6 +36,33 @@ export async function execGit(
   args: string[],
   opts: { allowNonZero?: boolean; input?: string } = {}
 ): Promise<GitResult> {
+  // The live extension in the test host runs its own git against the same
+  // fixture (watcher-driven status refresh takes .git/index.lock briefly).
+  // A test-side mutation colliding with it fails 128 "index.lock: File
+  // exists" — an environmental race, not a defect in either party. Do what
+  // git's own error message tells a human to do: wait and retry, bounded.
+  const LOCK_RETRIES = 5;
+  for (let attempt = 0; ; attempt++) {
+    const result = await execGitOnce(cwd, args, { ...opts, allowNonZero: true });
+    const locked = result.exitCode === 128 && /index\.lock['"]?: File exists/.test(result.stderr);
+    if (locked && attempt < LOCK_RETRIES) {
+      await new Promise((r) => setTimeout(r, 120));
+      continue;
+    }
+    if (result.exitCode !== 0 && !opts.allowNonZero) {
+      throw new Error(
+        `git ${args.join(' ')} (cwd=${cwd}) exited ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+      );
+    }
+    return result;
+  }
+}
+
+async function execGitOnce(
+  cwd: string,
+  args: string[],
+  opts: { allowNonZero?: boolean; input?: string } = {}
+): Promise<GitResult> {
   return new Promise<GitResult>((resolve, reject) => {
     const child = spawn('git', args, {
       cwd,
