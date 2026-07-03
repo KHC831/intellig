@@ -422,6 +422,32 @@ describe('Log View', () => {
     });
   });
 
+  describe('_isUnsafeRef — parity with the ops-layer ref guard', () => {
+    type RefGuardSurface = { _isUnsafeRef(ref: string): boolean };
+
+    it('rejects a leading dash and a leading dot', () => {
+      const surface = provider as unknown as RefGuardSurface;
+      assert.strictEqual(surface._isUnsafeRef('-x'), true);
+      assert.strictEqual(surface._isUnsafeRef('.hidden'), true);
+    });
+
+    it('rejects a dash-leading path segment, like the ops guard it fronts', () => {
+      // StashTagHistoryOps' getLog guard also throws on refs like `foo/-x`;
+      // the webview-boundary check must not be weaker than the layer it
+      // fronts, or the rejection surfaces as a logged error instead of a
+      // clean filter no-op.
+      const surface = provider as unknown as RefGuardSurface;
+      assert.strictEqual(surface._isUnsafeRef('foo/-x'), true);
+    });
+
+    it('accepts ordinary branch names', () => {
+      const surface = provider as unknown as RefGuardSurface;
+      assert.strictEqual(surface._isUnsafeRef('main'), false);
+      assert.strictEqual(surface._isUnsafeRef('feature/log-filters'), false);
+      assert.strictEqual(surface._isUnsafeRef('origin/main'), false);
+    });
+  });
+
   describe('isLogContextAction — boundary allow-list', () => {
     it('accepts every known action, including destructive ones', () => {
       for (const a of [

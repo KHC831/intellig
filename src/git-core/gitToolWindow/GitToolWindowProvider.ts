@@ -1984,11 +1984,17 @@ export class GitToolWindowProvider
    */
   /**
    * Reject a ref that would be unsafe to thread into `git log <ref>`: a leading
-   * `-` (parsed as a CLI flag) or `.` (invalid per git-check-ref-format, which
-   * makes getLog throw). Defense-in-depth alongside the GitService.getLog guard.
+   * `-` (parsed as a CLI flag) or `.` (invalid per git-check-ref-format), on
+   * the whole ref or any `/`-segment — the SAME shape the ops-layer getLog
+   * guard throws on, so a bad ref becomes a clean filter no-op here instead of
+   * a logged InvalidArgumentError there. Defense-in-depth; the ops guard stays.
    */
   private _isUnsafeRef(ref: string): boolean {
-    return ref.startsWith('-') || ref.startsWith('.');
+    return (
+      ref.startsWith('-') ||
+      ref.startsWith('.') ||
+      ref.split('/').some((seg) => seg.startsWith('-'))
+    );
   }
 
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {

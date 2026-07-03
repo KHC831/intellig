@@ -433,29 +433,13 @@ export class StashTagHistoryOps {
     if (options?.skip) {
       args.push(`--skip=${options.skip}`);
     }
-    if (options?.author) {
-      args.push(`--author=${options.author}`);
-    }
     if (options?.since) {
       args.push(`--since=${options.since.toISOString()}`);
     }
     if (options?.until) {
       args.push(`--until=${options.until.toISOString()}`);
     }
-    if (options?.grep) {
-      args.push(`--grep=${options.grep}`);
-      // Case-insensitive is git's non-default; the UI's "Match case" toggle is
-      // OFF by default, so opt into --regexp-ignore-case unless explicitly
-      // case-sensitive. Mirrors IntelliJ TextFilterModel.matchesCase().
-      if (!options.caseSensitive) {
-        args.push('--regexp-ignore-case');
-      }
-      // Perl-extended regex enables full regex syntax in --grep (the "Use
-      // regex" toggle). Without it git treats --grep as a basic regex.
-      if (options.regex) {
-        args.push('-E');
-      }
-    }
+    pushPatternFilterArgs(args, options);
     if (options?.noMerges) {
       // Exclude merge commits — IntelliJ's VCS-log "No Merges" filter.
       args.push('--no-merges');
@@ -591,24 +575,13 @@ export class StashTagHistoryOps {
       return Number.isFinite(n) ? n : 0;
     }
 
-    if (options?.author) {
-      args.push(`--author=${options.author}`);
-    }
     if (options?.since) {
       args.push(`--since=${options.since.toISOString()}`);
     }
     if (options?.until) {
       args.push(`--until=${options.until.toISOString()}`);
     }
-    if (options?.grep) {
-      args.push(`--grep=${options.grep}`);
-      if (!options.caseSensitive) {
-        args.push('--regexp-ignore-case');
-      }
-      if (options.regex) {
-        args.push('-E');
-      }
-    }
+    pushPatternFilterArgs(args, options);
     if (options?.noMerges) {
       args.push('--no-merges');
     }
@@ -840,6 +813,45 @@ export class StashTagHistoryOps {
 }
 
 /** A hash arg for the `--no-walk` filter: hex only (cannot smuggle a flag). */
+/**
+ * Append the pattern filters (`--author`/`--grep`) together with the
+ * match-mode flags that govern how git interprets EVERY pattern filter in the
+ * invocation. IntelliJ's contract (GitLogProvider.kt,
+ * appendTextFilterParameters + the USER_FILTER branch): the "Use regex"
+ * toggle ON ⇒ `--extended-regexp` with the author regex-escaped (their
+ * UserNameRegex treatment); OFF — or no text search at all ⇒
+ * `--fixed-strings`, both values literal. Without an explicit mode git
+ * defaults to basic regex, so `foo.bar` matches `fooxbar` and an unbalanced
+ * bracket is a regex error instead of a searchable string.
+ * `--regexp-ignore-case` follows the "Match case" toggle (OFF by default).
+ */
+function pushPatternFilterArgs(
+  args: string[],
+  options: Pick<ILogOptions, 'author' | 'grep' | 'regex' | 'caseSensitive'> | undefined
+): void {
+  const grep = options?.grep;
+  const author = options?.author;
+  if (!grep && !author) {
+    return;
+  }
+  const regexMode = Boolean(grep) && options?.regex === true;
+  if (author) {
+    args.push(`--author=${regexMode ? escapeExtendedRegex(author) : author}`);
+  }
+  if (grep) {
+    args.push(`--grep=${grep}`);
+    if (!options?.caseSensitive) {
+      args.push('--regexp-ignore-case');
+    }
+  }
+  args.push(regexMode ? '--extended-regexp' : '--fixed-strings');
+}
+
+/** Escape POSIX-extended-regex metacharacters so the value matches literally. */
+function escapeExtendedRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const HASH_ARG = /^[0-9a-fA-F]{4,64}$/;
 
 /**

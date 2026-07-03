@@ -22,7 +22,15 @@ const HTML_ESCAPES: Record<string, string> = {
  * as text content or an attribute value.
  *
  * Escapes: `&` `<` `>` `"` `'`
+ *
+ * Tolerates non-string input at runtime (null/undefined → '', anything else
+ * coerced) even though the signature promises a string: a loosely-typed value
+ * off a webview message boundary must degrade in place, not throw and blank
+ * the whole render.
  */
 export function escapeHtml(text: string): string {
+  if (typeof text !== 'string') {
+    return text === null || text === undefined ? '' : escapeHtml(String(text));
+  }
   return text.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 }

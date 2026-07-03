@@ -38,4 +38,13 @@ describe('escapeHtml', () => {
     // '&amp;' must NOT become '&amp;amp;' — each char is visited once.
     assert.strictEqual(escapeHtml('&amp;'), '&amp;amp;');
   });
+
+  it('degrades non-string input instead of aborting a webview render', () => {
+    // The TS signature promises a string, but a loosely-typed runtime path
+    // (JSON off a message boundary) can slip through — a throw here blanks a
+    // whole webview, which is worse than rendering the coerced value.
+    assert.strictEqual(escapeHtml(undefined as unknown as string), '');
+    assert.strictEqual(escapeHtml(null as unknown as string), '');
+    assert.strictEqual(escapeHtml(42 as unknown as string), '42');
+  });
 });
