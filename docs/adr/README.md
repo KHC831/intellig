@@ -70,6 +70,13 @@ chain exists yet — every ADR below is in force.
 - [ADR-007](ADR-007-structural-guards-as-complementary-tool.md) —
   Accepted — Structural guards as a complementary tool
 
+### Build & packaging
+
+- [ADR-015](ADR-015-bundled-extension-host.md) — Accepted —
+  Bundled extension host (esbuild `dist/extension.js`, no
+  node_modules in the .vsix, Monaco as a copied media asset,
+  `check:vsix-clean` verifies the runtime manifest)
+
 ## Status legend
 
 - **Accepted** — in force; current code reflects the decision.

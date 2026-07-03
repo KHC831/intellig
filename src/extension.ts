@@ -650,6 +650,14 @@ export function getGitToolWindowProvider(): GitToolWindowProvider | undefined {
   return gitToolWindowProvider;
 }
 
+// Module-identity seam for the Electron test lanes: the host runs the
+// dist/extension.js bundle, so its module-level singletons (logger, output
+// channel) are reachable ONLY through the bundle's own exports — a require
+// of any other compiled copy yields separate, never-populated instances.
+// See test/e2e/support/activatedExtension.ts.
+export { getLogger } from './utils/logger';
+export { getOutputChannel } from './utils/outputChannel';
+
 /**
  * Lazily instantiate the Pull Dialog, reusing the singleton after the
  * first call. Returns `undefined` when extension services are unavailable

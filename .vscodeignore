@@ -1,15 +1,21 @@
 # ============================================================
-# ORDERING MATTERS. Do NOT add `!out/**/*.js` or any `!out/**`
-# re-include without auditing test-JS exclusion. The 365→108 file
-# regression on 2026-05-15 was caused by a `!out/**/*.js`
-# re-include silently overriding `out/test/**`. Result: 210 KB of
-# .agent/ coordination notes and the entire test JS tree shipped
-# in the .vsix.
+# The extension is BUNDLED: dist/extension.js carries the host
+# code and every runtime dependency (esbuild, see
+# `npm run build:extension`), and the webview assets live under
+# media/ (mergeWindow.js bundle, codicon.ttf, monaco/vs copied
+# from monaco-editor at compile time). NOTHING ships from
+# node_modules/ or out/ — both are excluded wholesale below, with
+# no re-includes.
 #
-# Structural guard: `npm run check:vsix-clean` runs `vsce ls` and
-# greps for forbidden patterns. Run it before any change to this
-# file. See scripts/check-vsix-clean.sh for the maintenance
-# contract.
+# ORDERING MATTERS. Do NOT add any `!` re-include without
+# auditing: the 365→108 file regression on 2026-05-15 was caused
+# by a `!out/**/*.js` re-include silently overriding
+# `out/test/**`.
+#
+# Structural guard: `npm run check:vsix-clean` runs `vsce ls`,
+# greps for forbidden patterns AND asserts the runtime manifest
+# (dist/extension.js + media assets) is present. Run it before
+# any change to this file.
 # ============================================================
 .vscode/**
 .vscode-test/**
@@ -20,18 +26,12 @@
 .claude/**
 .idea/**
 .DS_Store
+node_modules/**
+out/**
+out-test/**
 src/**
 test/**
 workspace-notes/**
-# Do NOT blanket-exclude node_modules: the extension is NOT bundled (tsc only),
-# so vsce must ship the production dependencies (e.g. `neverthrow`). vsce already
-# packages only prod deps and prunes devDependencies; excluding all of
-# node_modules drops the runtime deps and breaks activation
-# ("require('neverthrow')" fails → no view data provider). Verify with
-# `npx @vscode/vsce ls | grep neverthrow` after any change here.
-# @vscode/codicons is a prod dep but is NOT require()'d — the extension ships
-# the font as media/codicon.ttf, so its ~600-file icon set is pure package bloat.
-node_modules/@vscode/codicons/**
 # Icon source assets — only the shipped raster (images/icon.png) belongs in the
 # package; the editable SVG source and the high-res render are repo-only.
 images/*.svg
@@ -57,17 +57,11 @@ AGENT_WORKSPACE.md
 coverage/**
 **/*.map
 **/*.ts
-out/test/**
-out/**/*.test.js
-out-test/**
+# The monaco version marker is a build-cache detail, not a runtime asset.
+media/monaco/.version
 # Build artifacts — packaged .vsix files and any unpacked package dirs must not
 # get swept back into a new package (0.2.3 shipped them by accident). The second
 # glob is required: vsce matches per-file, so `intellig*` alone catches the root
 # .vsix but not the CONTENTS of an unpacked `intellig-*/` directory.
 intellig*
 intellig*/**
-# Monaco ships only its prebuilt AMD build (min/vs) for the merge window; the
-# ESM/dev builds and source maps are package bloat.
-node_modules/monaco-editor/esm/**
-node_modules/monaco-editor/dev/**
-node_modules/monaco-editor/min-maps/**

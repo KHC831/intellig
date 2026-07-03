@@ -17,7 +17,8 @@ npm install
 ## Build
 
 ```bash
-# Compile TypeScript to JavaScript (output in out/)
+# Typecheck + build the extension bundle (dist/extension.js), the webview
+# bundle (media/mergeWindow.js), and the Monaco assets (media/monaco/vs)
 npm run compile
 
 # Watch mode — recompiles on file changes
@@ -191,13 +192,11 @@ npx mocha
 # Unit tests — single file
 npx mocha --grep "GitService"
 
-# Property-based tests (compile first, run from out/)
-npm run compile
-npx mocha --no-config --require out/test/setup.js 'out/test/property/**/*.property.test.js' --timeout 60000 --exit
+# Property-based tests
+npm run test:property
 
 # Property-based tests — single file
-npm run compile
-npx mocha --no-config --require out/test/setup.js 'out/test/property/stashRoundTrip.property.test.js' --timeout 60000 --exit
+npx mocha --require ts-node/register --timeout 60000 test/property/stashRoundTrip.property.test.ts
 
 # All in-process tests together (lint + unit + property)
 npm test
@@ -534,8 +533,8 @@ shipping a release is one command. The script:
 
 1. Refuses to run if the working tree is dirty, the current branch
    isn't `main`, or local `main` is out of sync with `origin/main`.
-2. Cleans `out/` and rebuilds the `.vsix` from scratch (avoids the
-   stale-`out/` class of bug that ships duplicate compiled JS when
+2. Cleans `dist/` and rebuilds the `.vsix` from scratch (avoids the
+   stale-artifact class of bug that ships duplicate compiled JS when
    files have moved).
 3. Runs the same `check:publish-vsix` filename guard as the manual
    flow.

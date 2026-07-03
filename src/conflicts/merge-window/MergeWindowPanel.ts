@@ -183,8 +183,11 @@ export class MergeWindowPanel extends BaseWebviewPanel {
     const webview = this._panel.webview;
     const nonce = this._getNonce();
     const src = webview.cspSource;
+    // media/monaco/vs is the Monaco AMD build, copied from monaco-editor by
+    // scripts/copy-monaco-assets.mjs at compile time (node_modules does not
+    // ship in the .vsix).
     const vsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'node_modules', 'monaco-editor', 'min', 'vs')
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'monaco', 'vs')
     );
     const bundleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._context.extensionUri, 'media', 'mergeWindow.js')

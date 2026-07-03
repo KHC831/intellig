@@ -9,7 +9,7 @@ Read next: `docs/ARCHITECTURE.md` (what the code is), `docs/AGENT-HANDBOOK.md` (
 ## Commands
 
 - **The gate** (run before any merge): `npm test` = eslint `--max-warnings 0` → `compile` → `check:all` (structural guard scripts) → unit → property. Fully headless.
-- **Compile**: `npm run compile` (tsc + esbuild webview bundle). `npm run watch` is tsc-only — it does NOT rebuild `media/mergeWindow.js`; run `npm run watch:webview` alongside, or use F5.
+- **Compile**: `npm run compile` = tsc typecheck (`noEmit`) + esbuild extension bundle (`dist/extension.js`) + esbuild webview bundle (`media/mergeWindow.js`) + Monaco asset copy (`media/monaco/vs`). `npm run watch` is tsc-only — it rebuilds NEITHER bundle; use F5 (preLaunchTask compiles) or rerun compile.
 - **Single test file**: `npx mocha --require ts-node/register test/unit/path/to/file.test.ts` (add `--timeout 60000` for property tests). A mocha "Cannot find module" error usually masks a TypeScript error — run `npx tsc -p tsconfig.test.json --noEmit` to see the real one.
 - **Electron lanes** (real VS Code host, not part of `npm test`): `npm run test:ext-host` (activation/registration invariants), `npm run test:e2e` (real git fixtures). `npm run gate:full` runs everything.
 - **Lint only**: `npm run lint`. Husky pre-commit runs prettier + eslint `--fix --max-warnings 0` on staged files (it stashes — the "Backing up original state" lines are normal).
@@ -56,7 +56,7 @@ Follow these rules for all code changes in this repository:
 
 ## Known traps (short list — full list in the handbook, section 5)
 
-- The extension is tsc-only, NOT bundled: production `node_modules` must ship in the vsix. Never blanket-exclude `node_modules` in `.vscodeignore`; after any change run `npm run check:vsix-clean`.
+- The extension is BUNDLED: `dist/extension.js` carries every runtime dep; nothing ships from `node_modules/` or `out/`, and package.json has no production dependencies. After any packaging change run `npm run check:vsix-clean` (checks forbidden files AND the dist/media runtime manifest). The Electron test lanes load the bundle — singletons a test bridge needs must be re-exported from `src/extension.ts`.
 - A green mock-only unit test can hide a production bug (mocked `getRepository` masked a real "No repository found"). Command wiring needs real-git e2e; runtime lanes gate UI changes.
 - Rebase (and unstash/unshelve) reverse ours/theirs — route side selection through the existing reversal inference in `src/conflicts/`.
 - Read `.git/` marker files for in-progress state, never parse `git status` prose (localization).

@@ -35,9 +35,10 @@ The key facts that make merging possible:
    each writes its own `coverage-*.json`. `c8 report` over that directory unions
    them.
 3. **Source maps bridge compiled JS back to TS** — the unit lane runs TS via
-   `ts-node`; the e2e/ext-host lanes run the compiled `out-test/` + `out/` JS with
-   `.js.map` sidecars. `c8` reads the maps and attributes both back to
-   `src/**/*.ts`, so the merged report is in TS terms.
+   `ts-node`; the e2e/ext-host lanes run the compiled `out-test/` JS plus the
+   `dist/extension.js` bundle, both with `.js.map` sidecars. `c8` reads the
+   maps and attributes both back to `src/**/*.ts`, so the merged report is in
+   TS terms.
 
 ## Steps to make it airtight
 
@@ -91,9 +92,9 @@ Notes:
 
 - Use an **absolute path** for `NODE_V8_COVERAGE` — the host's working directory
   differs from the launcher's, and a relative path would scatter files.
-- The host records the **compiled `out/extension.js`**; `.js.map` must exist
-  (it does — `npm run compile` emits source maps). Confirm `out/**/*.js.map` is
-  present before merging.
+- The host records the **`dist/extension.js` bundle**; its `.js.map` must
+  exist (it does — `npm run build:extension` emits a source map). Confirm
+  `dist/extension.js.map` is present before merging.
 - `--disable-extensions` does not affect coverage of _our_ extension; it only
   prevents third-party extensions from loading.
 
@@ -147,7 +148,7 @@ fast unit-only gate as the **required** check and run `coverage:all` as a
   root.
 - **Source maps are mandatory.** No `.js.map` ⇒ coverage lands on `out/*.js`
   and the gate (which keys on `src/**/*.ts`) sees the file as having no entry.
-- **Exclude `out/`, `out-test/`, `test/`** from the report (`--include
+- **Exclude `dist/`, `out-test/`, `test/`** from the report (`--include
 'src/**/*.ts'`) so test code doesn't dilute the numbers.
 - **Inline webview scripts** (the big template literals in
   `provider/scriptBuilder.ts`, `html/*Html.ts`) are covered as _string literals_

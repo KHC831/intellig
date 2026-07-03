@@ -40,7 +40,7 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
@@ -2053,8 +2053,8 @@
   "scripts": {
     "vscode:prepublish": "npm run prepublish:guard && npm run check:config-coherence && npm run check:100-gate && npm run compile && npm run minify:js",
     "prepublish:guard": "node scripts/prepublish-guard.mjs",
-    "compile": "tsc -p ./ && npm run build:webview",
-    "minify:js": "node scripts/minify-js.mjs && npm run build:webview -- --minify",
+    "compile": "tsc -p ./ && npm run build:extension && npm run build:sequence-editor && npm run build:webview && node scripts/copy-monaco-assets.mjs",
+    "minify:js": "npm run build:extension -- --minify && npm run build:sequence-editor -- --minify && npm run build:webview -- --minify",
     "build:webview": "esbuild src/conflicts/merge-window/webview/main.ts --bundle --outfile=media/mergeWindow.js --format=iife --global-name=intelligMergeWindow --platform=browser --target=es2020 --log-level=warning",
     "watch": "tsc -watch -p ./",
     "watch:webview": "npm run build:webview -- --watch",
@@ -2098,7 +2098,9 @@
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node ./out-test/test/e2e/runTests.js",
     "prepare": "husky",
     "coverage": "c8 --reporter=json --reporter=text-summary --src src --include 'src/**/*.ts' --exclude 'src/**/*.d.ts' --report-dir=coverage mocha --require ts-node/register 'test/unit/**/*.test.ts'",
-    "check:patch-coverage": "node scripts/check-patch-coverage.mjs"
+    "check:patch-coverage": "node scripts/check-patch-coverage.mjs",
+    "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=cjs --target=node18 --sourcemap --log-level=warning",
+    "build:sequence-editor": "esbuild src/git-core/rebaseTodoEditor.ts --bundle --outfile=dist/rebaseTodoEditor.js --platform=node --format=cjs --target=node18 --sourcemap --log-level=warning"
   },
   "lint-staged": {
     "*.ts": [
@@ -2117,6 +2119,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/codicons": "^0.0.45",
     "@vscode/test-electron": "^2.3.8",
     "c8": "^10.1.3",
     "esbuild": "^0.25.5",
@@ -2129,6 +2132,8 @@
     "jsdom": "^22.1.0",
     "lint-staged": "15.5.2",
     "mocha": "^11.0.0",
+    "monaco-editor": "^0.52.2",
+    "neverthrow": "^8.2.0",
     "prettier": "^3.1.0",
     "ts-morph": "^28.0.0",
     "ts-node": "^10.9.2",
@@ -2138,10 +2143,5 @@
     "diff": "^8.0.3",
     "serialize-javascript": "^7.0.5",
     "minimatch": "^9.0.7"
-  },
-  "dependencies": {
-    "@vscode/codicons": "^0.0.45",
-    "monaco-editor": "^0.52.2",
-    "neverthrow": "^8.2.0"
   }
 }

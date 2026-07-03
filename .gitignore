@@ -49,3 +49,4 @@ out-test/
 # `.vsix` files themselves are already ignored above.
 intellig-*/
 media/mergeWindow.js
+media/monaco/

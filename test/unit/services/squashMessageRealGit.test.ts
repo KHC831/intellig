@@ -13,7 +13,7 @@
  *
  * Drives the real flow: the plan comes from the production
  * {@link buildSquashRebasePlan}; the todo is rewritten by the production
- * sequence editor (`out/git-core/rebaseTodoEditor.js`, exactly as
+ * sequence editor (`dist/rebaseTodoEditor.js`, exactly as
  * `RebaseService.executeRebase` invokes it). Reverting either the plan shape or
  * the editor's transform turns this test red.
  */
@@ -29,7 +29,7 @@ import { buildSquashRebasePlan } from '../../../src/commits/squashPlan';
 import type { IRebaseCommit } from '../../../src/git-core/interfaces/IRebaseService';
 
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
-const COMPILED_EDITOR = path.join(PROJECT_ROOT, 'out', 'git-core', 'rebaseTodoEditor.js');
+const COMPILED_EDITOR = path.join(PROJECT_ROOT, 'dist', 'rebaseTodoEditor.js');
 
 describe('Squash Commits combined message (real git)', () => {
   let repoPath: string;

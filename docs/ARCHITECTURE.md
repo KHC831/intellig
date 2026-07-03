@@ -410,27 +410,35 @@ folders arrive via the folder-change listener.
 
 ```mermaid
 flowchart LR
-    TS[src/**/*.ts] -->|tsc -p .| OUT[out/ CJS + d.ts + maps]
+    TS[src/**/*.ts] -->|tsc -p . typecheck only| CHECK[0 errors]
+    TS -->|esbuild CJS bundle| DIST[dist/extension.js gitignored]
     WV[webview/main.ts] -->|esbuild IIFE bundle| MEDIA[media/mergeWindow.js gitignored]
-    OUT --> VSIX
+    MONACO[monaco-editor min/vs] -->|copy-monaco-assets.mjs| MEDIAMON[media/monaco/vs gitignored]
+    DIST --> VSIX[.vsix]
     MEDIA --> VSIX
-    MONACO[node_modules/monaco-editor/min/vs] --> VSIX[.vsix]
+    MEDIAMON --> VSIX
     subgraph prepublish [vscode:prepublish]
-        GUARD[prepublish:guard] --> COH[check:config-coherence] --> GATE100[check:100-gate] --> COMPILE[compile] --> MIN[minify:js\nper-file esbuild, out/ in place\n+ webview --minify]
+        GUARD[prepublish:guard] --> COH[check:config-coherence] --> GATE100[check:100-gate] --> COMPILE[compile] --> MIN[minify:js\ndist + webview --minify]
     end
 ```
 
-- `compile` = `tsc -p ./ && npm run build:webview`. `watch` is tsc-only;
-  `watch:webview` runs the esbuild bundle in watch mode.
+- `compile` = `tsc -p ./` (typecheck, `noEmit`) + `build:extension`
+  (esbuild bundles src/extension.ts and every runtime dep into
+  `dist/extension.js`, `vscode` external) + `build:webview` +
+  `copy-monaco-assets.mjs` (Monaco AMD build → `media/monaco/vs`, cached
+  by version marker). `watch` is tsc-only; F5's preLaunchTask rebuilds
+  the bundle.
 - Minification happens ONLY at packaging (`minify:js`, last prepublish
-  step): comments/whitespace stripped, no bundling (the CJS module graph
-  vsce ships is untouched). A packaging run leaves `out/` minified until
-  the next compile.
-- The extension is NOT bundled — vsce ships production `node_modules`.
-  Never blanket-exclude `node_modules` in `.vscodeignore` (runtime deps
-  like `neverthrow` vanish and activation dies); Monaco ships only
-  `min/vs`. `.vscodeignore` ordering matters — read its header before
-  touching it, then run `check:vsix-clean`.
+  step): the same two esbuild bundles with `--minify`. A packaging run
+  leaves `dist/` + `media/mergeWindow.js` minified until the next
+  compile.
+- The extension is BUNDLED — nothing ships from `node_modules/` or
+  `out/`, and there are no production dependencies in package.json
+  (neverthrow is compiled into the bundle; monaco-editor and
+  @vscode/codicons are build-time asset sources). `check:vsix-clean`
+  asserts both directions: no forbidden files AND the runtime manifest
+  (dist bundle + media assets) present. `.vscodeignore` ordering still
+  matters — read its header before touching it.
 - The full gate = `npm test`: eslint `--max-warnings 0` (lint is a
   required lane), compile, `check:all` (the structural guard scripts in
   `scripts/check-*.sh|.mjs` — toast sanitization, pathspec

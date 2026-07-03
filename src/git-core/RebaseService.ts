@@ -448,6 +448,10 @@ export class RebaseService implements IRebaseService {
     // (`process.execPath` — under VS Code that's Electron, so
     // ELECTRON_RUN_AS_NODE=1 makes it behave as plain node). The editor reads
     // the plan from INTELLIG_REBASE_PLAN and rewrites the todo in place.
+    //
+    // The editor is its OWN esbuild bundle (`npm run build:sequence-editor`)
+    // emitted next to dist/extension.js, so the __dirname sibling resolves in
+    // the shipped layout; check:vsix-clean pins it in the runtime manifest.
     const todoScriptPath = path.join(cwd, '.git', 'rebase-todo-script.sh');
     const editorJsPath = path.join(__dirname, 'rebaseTodoEditor.js');
     const nodeBin = process.execPath;

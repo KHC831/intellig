@@ -54,25 +54,23 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 // Bridge to the ACTIVATED extension's module graph (same pattern as
-// test/e2e/support/activatedExtension.ts): the host activates
-// `out/extension.js`, while this suite compiles to `out-test/` — a direct
-// `../../../src/...` import resolves to a SEPARATE module copy whose
+// test/e2e/support/activatedExtension.ts): the host activates the
+// `dist/extension.js` bundle, while this suite compiles to `out-test/` — a
+// direct `../../../src/...` import resolves to a SEPARATE module copy whose
 // singletons activation never populates (the marker then never reaches the
-// real channel). Requiring the `out/` build returns the exact live modules;
+// real channel). The bundle inlines the logger/output-channel modules, so the
+// live singletons are reachable only through the bundle's entry re-exports;
 // types still come from source.
 import type { getLogger as GetLoggerFn } from '../../../src/utils/logger';
 import type { getOutputChannel as GetOutputChannelFn } from '../../../src/utils/outputChannel';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const activatedLogger = require('../../../../out/utils/logger') as {
+const activated = require('../../../../dist/extension') as {
   getLogger: typeof GetLoggerFn;
-};
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const activatedOutputChannel = require('../../../../out/utils/outputChannel') as {
   getOutputChannel: typeof GetOutputChannelFn;
 };
-const getLogger = activatedLogger.getLogger;
-const getOutputChannel = activatedOutputChannel.getOutputChannel;
+const getLogger = activated.getLogger;
+const getOutputChannel = activated.getOutputChannel;
 
 const EXT_ID = 'KaHoChan.intellig';
 

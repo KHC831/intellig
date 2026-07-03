@@ -104,7 +104,7 @@ describe('ext-host smoke — 1. activate', function () {
     // the host-side duplicate-registration rejection).
     //
     // Even stronger: count literal `registerCommand('X')` call sites in
-    // `out/extension.js` and assert every id has exactly ONE call site.
+    // `dist/extension.js` and assert every id has exactly ONE call site.
     // This is what would have caught C-1 (the bug was a duplicate call
     // site, not a duplicate manifest entry).
 
@@ -129,11 +129,12 @@ describe('ext-host smoke — 1. activate', function () {
     );
 
     // The stronger check — count literal registerCommand('…') call sites in
-    // the compiled extension bundle. C-1 was `registerCommand('intellig.…')`
-    // appearing twice in `src/extension.ts`; that duplicates into `out/
-    // extension.js` too. We scan for every quoted id passed to
-    // `registerCommand(` and assert every id has exactly one call site.
-    const bundlePath = path.join(extensionRoot(), 'out/extension.js');
+    // the extension bundle. C-1 was `registerCommand('intellig.…')` appearing
+    // twice in `src/extension.ts`. dist/extension.js inlines EVERY module, so
+    // the scan covers all registration modules, not just the entry file. We
+    // scan for every quoted id passed to `registerCommand(` and assert every
+    // id has exactly one call site.
+    const bundlePath = path.join(extensionRoot(), 'dist/extension.js');
     assert.ok(
       fs.existsSync(bundlePath),
       `compiled extension bundle not found at ${bundlePath} — run npm run compile`
@@ -151,7 +152,7 @@ describe('ext-host smoke — 1. activate', function () {
     assert.deepStrictEqual(
       dupCalls,
       [],
-      `registerCommand('id', …) call sites duplicated in out/extension.js — activation would crash in host. Offenders: ${dupCalls
+      `registerCommand('id', …) call sites duplicated in dist/extension.js — activation would crash in host. Offenders: ${dupCalls
         .map(([id, n]) => `${id} (${n}×)`)
         .join(', ')}`
     );

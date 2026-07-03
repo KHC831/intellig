@@ -114,21 +114,22 @@ vsix="intellig-$version.vsix"
 
 # ─── 3. Build ─────────────────────────────────────────────────
 
-echo "→ cleaning out/ and building intellig-$version.vsix"
+echo "→ cleaning dist/ and building intellig-$version.vsix"
 rm -f "$vsix"
-# `rm -rf out` occasionally fails with ENOTEMPTY on macOS even when
-# the directory has no content the user is touching — likely a TS
+# `rm -rf` occasionally fails with ENOTEMPTY on macOS even when the
+# directory has no content the user is touching — likely a TS
 # watcher / Spotlight indexer race. Retry once; if the second
 # attempt still fails, abort with a clear error.
-if ! rm -rf out 2>/dev/null; then
+if ! rm -rf dist 2>/dev/null; then
   sleep 1
-  rm -rf out
+  rm -rf dist
 fi
-if [ -d out ]; then
-  echo "✗ failed to remove out/ — close any process holding it open and retry." >&2
+if [ -d dist ]; then
+  echo "✗ failed to remove dist/ — close any process holding it open and retry." >&2
   exit 1
 fi
-npx --yes tsc -p ./
+# `vsce package` runs vscode:prepublish, which compiles (typecheck +
+# dist bundle + webview + monaco assets) and minifies.
 npx --yes @vscode/vsce@2.24.0 package --out "$vsix"
 
 # ─── 4. Refuse to upload a *-dogfood.vsix as a safety net ─────

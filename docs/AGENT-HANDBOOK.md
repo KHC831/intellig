@@ -155,19 +155,32 @@ flowchart LR
 
 Build & packaging:
 
-- **`.vscodeignore` is a minefield.** The extension is tsc-only, NOT
-  bundled: production `node_modules` must ship. A blanket
-  `node_modules/**` exclude killed activation in 0.2.3/0.2.4 (missing
-  `neverthrow` → "no data provider", no activation log). A `!out/**/*.js`
-  re-include once shipped the whole test tree + agent notes. Ordering
-  matters. After ANY change: `npm run check:vsix-clean` and
-  `npx @vscode/vsce ls | grep neverthrow`.
-- **`media/mergeWindow.js` is gitignored and built by `compile`.** Plain
-  `npm run watch` does NOT rebuild it — use `watch:webview` alongside, or
-  F5 (whose preLaunchTask runs compile).
-- **Packaging minifies `out/` in place** (prepublish `minify:js`). After
-  building a vsix, recompile before debugging or you'll step through
-  minified code.
+- **`.vscodeignore` is a minefield.** The extension is BUNDLED
+  (`dist/extension.js` carries every runtime dep; `media/monaco/vs` is
+  copied from monaco-editor at compile time), so `node_modules/**` and
+  `out/**` are excluded wholesale — no re-includes, ever (a `!out/**/*.js`
+  re-include once shipped the whole test tree + agent notes; a missing
+  runtime file killed activation in 0.2.3/0.2.4). After ANY change:
+  `npm run check:vsix-clean` — it checks both directions (no forbidden
+  files AND the dist/media runtime manifest present).
+- **`dist/extension.js`, `media/mergeWindow.js`, `media/monaco/` are
+  gitignored and built by `compile`.** Plain `npm run watch` type-checks
+  only — it rebuilds NEITHER bundle; use F5 (whose preLaunchTask runs
+  compile) or rerun `npm run compile`.
+- **Subprocess entry points need their own bundle.** Anything the
+  extension spawns as a separate process (the rebase sequence editor,
+  `dist/rebaseTodoEditor.js`) can't live inside the host bundle — give
+  it its own esbuild entry in `dist/` and add it to `check:vsix-clean`'s
+  runtime manifest.
+- **The Electron lanes load the bundle.** The host activates
+  `dist/extension.js` (package `main`); the e2e/ext-host bridges
+  `require()` that same file for live singletons (see
+  `test/e2e/support/activatedExtension.ts`). A singleton needed by a
+  bridge must be re-exported from `src/extension.ts` — requiring any
+  other compiled copy yields a separate, never-populated instance.
+- **Packaging minifies `dist/` + `media/mergeWindow.js` in place**
+  (prepublish `minify:js`). After building a vsix, recompile before
+  debugging or you'll step through minified code.
 - **Icons**: rasterize with `npx sharp-cli`; macOS `qlmanage` rounds
   corners and shrinks SVGs.
 - **README screenshots** are served from the PUBLIC `intellig-issues`
