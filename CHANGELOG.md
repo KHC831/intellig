@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Configure Remotes — add, rename, change the URL of, or remove a remote from the command palette.
+- Remove Worktree — delete a linked worktree (with a force option for dirty ones) and prune stale worktree records.
+- Un-Resolve File — send a mis-resolved conflict back to its conflicted state so you can redo the resolution.
+- A rejected push now offers Merge or Rebase and retries automatically instead of leaving you to pull by hand.
+- Before-commit warnings for CRLF line endings, files over 50 MB, and file names that break on Windows.
+- An opt-in three-pane merge window (`intellig.mergeWindow.enabled`) ported from IntelliJ's merge engine.
+
+### Fixed
+
+- Right-clicking a branch just as the tree refreshed could crash the command instead of running it.
+- Many command-surface fixes from a full user's-point-of-view review: multi-file selections are respected everywhere, palette commands no longer fail silently, and error messages are honest about what happened.
+
 Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.

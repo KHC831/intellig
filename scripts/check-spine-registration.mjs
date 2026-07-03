@@ -24,7 +24,7 @@
  *    (BranchContextMenuCommands, CommitContextMenuCommands) and view
  *    providers are OUT of scope: they have their own structured dispatch
  *    (tree-item / webview payload targeting) that the spine's scopes don't
- *    model; extending the spine there is tracked in docs/parity/BACKLOG.md.
+ *    model; extending the spine there is a known follow-up (AGENT-HANDBOOK section 8).
  *
  * 3. Known false-positive cases
  *    A registration whose id literal sits more than one line below the call

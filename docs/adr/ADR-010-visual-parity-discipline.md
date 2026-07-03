@@ -1,5 +1,12 @@
 # ADR-010: Visual parity discipline
 
+> **Status amendment (2026-07-03).** The project unpinned from IntelliJ:
+> git4idea is now a behavioral reference, not a parity target, and the
+> tracked `docs/parity/` reference docs (Layer 3) were retired with it.
+> The still-binding layers are the snapshot tests (Layer 1) and the
+> UX-review pass (Layer 2); IntelliJ TYPE semantics for colors remain a
+> locked product rule (AGENT-HANDBOOK section 2).
+
 Status: Accepted (2026-05-24)
 
 ## Context

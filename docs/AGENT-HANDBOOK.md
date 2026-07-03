@@ -30,10 +30,12 @@ WORK on it.
    (symlinked worktrees and gitignored coordination files leak in).
    Messages say what/why in plain language; never reference finding IDs,
    task IDs, or SHAs in code comments or commit messages.
-7. **Read IntelliJ source, don't guess.** Every parity question is
-   answered from `~/Documents/workspace/intellij-community` (usually
-   `plugins/git4idea` or `platform/diff-impl` / `platform/util/diff`).
-   Cite the path you read. Guessing has shipped silent-wrong behavior.
+7. **Read IntelliJ source, don't guess.** IntelliJ is a REFERENCE, not a
+   spec (unpinned 2026-07-03) — but when you DO lean on its behavior,
+   read the actual source in `~/Documents/workspace/intellij-community`
+   (usually `plugins/git4idea` or `platform/diff-impl` /
+   `platform/util/diff`) and cite the path. Guessing has shipped
+   silent-wrong behavior.
 8. **Dogfood before "done".** Tests passing ≠ working software. UI work
    is not done until the user F5s it; say explicitly when F5 is still
    owed. Watch idle behavior too — feedback loops don't show in tests.
@@ -82,6 +84,16 @@ Do not relitigate these; do not "helpfully" reintroduce them:
 - **Comments**: describe the CURRENT code only. No history lessons, no
   "fixed bug N", no what-it-used-to-do. When a comment goes stale, delete
   it. Reviewers flag bad new comments as findings.
+- **3-way merge default stays VS Code's native editor**; the ported merge
+  window remains opt-in behind `intellig.mergeWindow.enabled`. Don't
+  reintroduce a hand-rolled merge UI as the default.
+- **`package.json` `contributes` is additive-only** — no reordering; it's
+  the most widely shared file in the repo.
+- **Deliberately NOT doing** (don't re-propose): merged-branch cleanup
+  (git4idea marks it internal), unshallow, Open-Exclude-File,
+  Add-Commit-To-Remote-Branch, pixel-matching IntelliJ's Swing UI.
+  Accepted visual non-matches: single-decoration blame gutter, webview
+  flex-row log panel, QuickPick dialog paradigm.
 
 ## Section 3. Task lifecycle
 
@@ -124,8 +136,10 @@ flowchart LR
     end
 ```
 
-- `docs/parity/NORTHSTAR.md` + `BACKLOG.md` — product direction and gap
-  backlog (tracked; the user owns priorities there).
+- Product vision + accepted non-matches live in `docs/ARCHITECTURE.md`
+  section 1 (the tracked `docs/parity/` dir was retired when the project
+  unpinned from IntelliJ, 2026-07-03); the working backlog is gitignored
+  under `workspace-notes/`.
 - `docs/adr/` — 14 decision records. Check them before re-deciding
   anything structural (interface freeze, watcher families, webview state,
   logger, atomic writes, sanitizer ordering, graph invariants...).
@@ -271,16 +285,22 @@ asks for agents/teams:
 - Shut agents down as soon as their report is captured; sweep for
   stragglers before declaring a phase done.
 
-## Section 8. Current state (as of 2026-07-02)
+## Section 8. Current state (as of 2026-07-03)
 
-- Local `main` is ahead of origin (user owes review + push). The merge
-  window (behind `intellig.mergeWindow.enabled`) is fully landed with R6
-  audit fixes; the user still owes an F5 pass of it.
-- Gate baseline: lint 0 warnings, unit 5912, property 762, webview
-  harness 14 cases, e2e ~36/ext-host ~22 (see `docs/testing.md`).
+- The project is UNPINNED from IntelliJ: git4idea remains the behavioral
+  reference (rule 7), never a coverage target. All five release-gating
+  feature gaps landed (Configure Remotes, worktree teardown, Un-Resolve
+  File, rejected-push retry loop, before-commit checks); the polish
+  backlog is ON HOLD by user decision and lives in gitignored
+  workspace-notes.
+- Gate baseline: lint 0 warnings, unit 6091, property 762 (see
+  `docs/testing.md` for the lanes).
+- The user owes an F5 dogfood pass over the new command surfaces and the
+  merge window (behind `intellig.mergeWindow.enabled`).
 - Before the first marketplace release shipping ported IntelliJ code: add
   the Apache 2.0 provenance NOTICE entry (ported files carry per-file
   headers already).
-- Known accepted gaps live in `docs/parity/BACKLOG.md`; merge-window
-  INFO-level polish items are listed in
-  `workspace-notes/audit/r6/01-merge-window.md`.
+- Known structural follow-up: extend the command spine's scopes to the
+  class-based context-menu surfaces (BranchContextMenuCommands,
+  CommitContextMenuCommands), which keep their own tree-item/webview
+  dispatch today (out of check:spine-registration's scope by design).

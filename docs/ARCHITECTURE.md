@@ -4,7 +4,7 @@ The complete technical reference for the IntelliG VS Code extension: what
 every subsystem does, how the layers fit, and how data flows through the
 hot paths. Companion docs: `docs/AGENT-HANDBOOK.md` (working conventions and
 tribal knowledge), `docs/testing.md` (test layers), `docs/adr/` (decision
-records), `docs/parity/NORTHSTAR.md` (product direction).
+records).
 
 ## Section 1. What this extension is
 
@@ -14,10 +14,17 @@ popup, IntelliJ-style dialogs (commit, push, reset, merge, rebase editor),
 a conflict-resolution workflow, and an opt-in three-pane merge window
 powered by a TypeScript port of IntelliJ's actual diff/merge engine.
 
-The design north star is behavioral parity with
-`intellij-community/plugins/git4idea` (a local checkout is kept next to
-this repo for reference). When a behavior question comes up, the answer is
-read from that source, not guessed.
+The product vision: **the best native-feeling Git UI for VS Code users who
+miss IntelliJ's.** IntelliJ `git4idea` is the inspiration and the behavioral
+REFERENCE, not a spec — a local checkout of `intellij-community` is kept next
+to this repo, and when a behavior question comes up the answer is read from
+that source, not guessed. But native VS Code idioms are a feature (the 3-way
+merge defaults to VS Code's own editor, commit routes through the native SCM
+API, dialogs lean on QuickPick), reliability beats coverage, and visual
+fidelity is deliberately capped: accepted non-matches include the blame
+gutter (single inline decoration with a recency tint, not a Swing
+multi-column gutter), the log panel (webview flex rows, details on the
+right), and the QuickPick dialog paradigm.
 
 ## Section 2. Layer model
 
