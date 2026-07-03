@@ -325,6 +325,77 @@ export async function runPushRow(
   }
 }
 
+// ─── Rejected-push update loop (GitPushOperation parity) ─────────────────────
+
+/**
+ * Push-attempt ceiling per submit, matching IntelliJ
+ * `GitPushOperation.MAX_PUSH_ATTEMPTS`: a busy remote can keep advancing
+ * between updates, so the update→push cycle repeats — but never unbounded.
+ */
+export const MAX_PUSH_ATTEMPTS = 10;
+
+/** Seams for {@link updateAndRetryRejectedRows}. */
+export interface IUpdateRetryDeps {
+  /** Re-run the push for one row (same action/overflow as the submit). */
+  pushRow: (row: IPushRow) => Promise<IPushRowResult>;
+  /** Pull the row's repo with the chosen method; `message` on failure. */
+  pull: (row: IPushRow, method: 'merge' | 'rebase') => Promise<{ ok: boolean; message?: string }>;
+  /**
+   * IntelliJ's GitRejectedPushUpdateDialog: Merge / Rebase / Cancel
+   * (`undefined`). Asked ONCE per submit; the choice drives every
+   * subsequent update in the loop.
+   */
+  askUpdateMethod: (rejected: ReadonlyArray<IPushRow>) => Promise<'merge' | 'rebase' | undefined>;
+}
+
+/**
+ * IntelliJ `GitPushOperation`'s update-and-retry cycle for rows whose first
+ * push was rejected non-fast-forward: ask Merge/Rebase once, then per row
+ * pull → re-push, repeating while the remote keeps rejecting, capped at
+ * {@link MAX_PUSH_ATTEMPTS} total pushes. A failed update (e.g. conflicts —
+ * which the conflict watcher surfaces separately) parks the row with the
+ * update error; any non-non-ff push failure ends that row's loop.
+ */
+export async function updateAndRetryRejectedRows(
+  deps: IUpdateRetryDeps,
+  rejectedRows: ReadonlyArray<IPushRow>
+): Promise<Map<string, IPushRowResult>> {
+  const results = new Map<string, IPushRowResult>(
+    rejectedRows.map((r) => [r.id, { ok: false, error: r.error } as IPushRowResult])
+  );
+
+  const method = await deps.askUpdateMethod(rejectedRows);
+  if (!method) {
+    return results;
+  }
+
+  let remaining = [...rejectedRows];
+  // The submit's own push was attempt 1; the loop owns attempts 2..MAX.
+  for (let attempt = 2; attempt <= MAX_PUSH_ATTEMPTS && remaining.length > 0; attempt++) {
+    const stillRejected: IPushRow[] = [];
+    for (const row of remaining) {
+      const update = await deps.pull(row, method);
+      if (!update.ok) {
+        results.set(row.id, {
+          ok: false,
+          error: {
+            kind: 'other',
+            message: `Update before push failed: ${update.message ?? 'unknown error'}`,
+          },
+        });
+        continue;
+      }
+      const result = await deps.pushRow(row);
+      results.set(row.id, result);
+      if (!result.ok && result.error?.kind === 'rejected-non-ff') {
+        stillRejected.push(row);
+      }
+    }
+    remaining = stillRejected;
+  }
+  return results;
+}
+
 // ─── Dialog options + messages ───────────────────────────────────────────────
 
 /**
@@ -1068,6 +1139,53 @@ ${body}
       const results = await Promise.all(
         rows.map((r) => runPushRow(deps, r, action, this._overflow))
       );
+
+      // GitPushOperation parity: a plain push rejected non-fast-forward gets
+      // the Merge/Rebase update-and-retry loop instead of a dead-end banner.
+      // Force pushes never loop — the user already chose to overwrite.
+      if (action === 'push') {
+        const rejected = rows.filter(
+          (_row, i) => !results[i].ok && results[i].error?.kind === 'rejected-non-ff'
+        );
+        if (rejected.length > 0) {
+          const rejectedWithError = rejected.map((row) => ({
+            ...row,
+            error: results[rows.indexOf(row)].error,
+          }));
+          const finalById = await updateAndRetryRejectedRows(
+            {
+              pushRow: (row) => runPushRow(deps, row, action, this._overflow),
+              pull: async (row, method) =>
+                this._gitService
+                  .pull(row.repo, { rebase: method === 'rebase', autostash: true })
+                  .match(
+                    () => ({ ok: true }),
+                    (e) => ({ ok: false, message: sanitizeGitError(e.message) })
+                  ),
+              askUpdateMethod: async (stillRejected) => {
+                const branches = [...new Set(stillRejected.map((r) => `'${r.localBranch}'`))].join(
+                  ', '
+                );
+                const choice = await vscode.window.showWarningMessage(
+                  `Push of ${branches} was rejected: the remote has changes you do not have yet. Update the branch and push again?`,
+                  { modal: true },
+                  'Merge',
+                  'Rebase'
+                );
+                return choice === 'Merge' ? 'merge' : choice === 'Rebase' ? 'rebase' : undefined;
+              },
+            },
+            rejectedWithError
+          );
+          for (let i = 0; i < rows.length; i++) {
+            const final = finalById.get(rows[i].id);
+            if (final) {
+              results[i] = final;
+            }
+          }
+        }
+      }
+
       let anySuccess = false;
       let anyFailure = false;
       for (let i = 0; i < results.length; i++) {

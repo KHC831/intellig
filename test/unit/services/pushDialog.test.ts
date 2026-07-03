@@ -44,6 +44,9 @@ import {
   isValidPushRef,
   PushDialog,
   runPushRow,
+  updateAndRetryRejectedRows,
+  MAX_PUSH_ATTEMPTS,
+  IPushRowResult,
 } from '../../../src/sync/PushDialog';
 import {
   IGitService,
@@ -1193,5 +1196,144 @@ describe('PushDialog — rendered DOM (script-built)', () => {
     } finally {
       dialog.dispose();
     }
+  });
+});
+
+// ─── updateAndRetryRejectedRows (IntelliJ GitPushOperation update loop) ──────
+
+function rejectedRow(id: string): IPushRow {
+  return {
+    id,
+    selected: true,
+    repo: { rootUri: { fsPath: id } } as never,
+    repoLabel: id,
+    localBranch: 'main',
+    targetBranch: 'main',
+    ahead: 1,
+    behind: 1,
+    error: { kind: 'rejected-non-ff', message: 'rejected (non-fast-forward)' },
+  };
+}
+
+describe('updateAndRetryRejectedRows', () => {
+  it('leaves the rejection untouched and runs nothing when the user cancels', async () => {
+    const pulls: string[] = [];
+    const pushes: string[] = [];
+    const results = await updateAndRetryRejectedRows(
+      {
+        pushRow: async (r) => {
+          pushes.push(r.id);
+          return { ok: true };
+        },
+        pull: async (r) => {
+          pulls.push(r.id);
+          return { ok: true };
+        },
+        askUpdateMethod: async () => undefined,
+      },
+      [rejectedRow('/a')]
+    );
+    assert.deepStrictEqual(pulls, []);
+    assert.deepStrictEqual(pushes, []);
+    const res = results.get('/a');
+    assert.ok(res && !res.ok && res.error?.kind === 'rejected-non-ff');
+  });
+
+  it('pulls with the chosen method then re-pushes to success', async () => {
+    const pulls: Array<{ id: string; method: string }> = [];
+    const results = await updateAndRetryRejectedRows(
+      {
+        pushRow: async () => ({ ok: true }),
+        pull: async (r, method) => {
+          pulls.push({ id: r.id, method });
+          return { ok: true };
+        },
+        askUpdateMethod: async () => 'merge',
+      },
+      [rejectedRow('/a')]
+    );
+    assert.deepStrictEqual(pulls, [{ id: '/a', method: 'merge' }]);
+    assert.strictEqual(results.get('/a')?.ok, true);
+  });
+
+  it('asks the Merge/Rebase question exactly once for several rejected rows', async () => {
+    let asks = 0;
+    const results = await updateAndRetryRejectedRows(
+      {
+        pushRow: async () => ({ ok: true }),
+        pull: async () => ({ ok: true }),
+        askUpdateMethod: async () => {
+          asks += 1;
+          return 'rebase';
+        },
+      },
+      [rejectedRow('/a'), rejectedRow('/b')]
+    );
+    assert.strictEqual(asks, 1);
+    assert.strictEqual(results.get('/a')?.ok, true);
+    assert.strictEqual(results.get('/b')?.ok, true);
+  });
+
+  it('caps a persistent rejection at MAX_PUSH_ATTEMPTS total pushes', async () => {
+    let pushCount = 0;
+    const results = await updateAndRetryRejectedRows(
+      {
+        pushRow: async () => {
+          pushCount += 1;
+          return {
+            ok: false,
+            error: { kind: 'rejected-non-ff', message: 'still rejected' },
+          } as IPushRowResult;
+        },
+        pull: async () => ({ ok: true }),
+        askUpdateMethod: async () => 'merge',
+      },
+      [rejectedRow('/a')]
+    );
+    // The submit's first push was attempt 1; the loop owns the rest.
+    assert.strictEqual(pushCount, MAX_PUSH_ATTEMPTS - 1);
+    const res = results.get('/a');
+    assert.ok(res && !res.ok && res.error?.kind === 'rejected-non-ff');
+  });
+
+  it('stops a row on a failed update and reports it without re-pushing', async () => {
+    const pushes: string[] = [];
+    const results = await updateAndRetryRejectedRows(
+      {
+        pushRow: async (r) => {
+          pushes.push(r.id);
+          return { ok: true };
+        },
+        pull: async (r) =>
+          r.id === '/a' ? { ok: false, message: 'CONFLICT (content): a.txt' } : { ok: true },
+        askUpdateMethod: async () => 'merge',
+      },
+      [rejectedRow('/a'), rejectedRow('/b')]
+    );
+    const resA = results.get('/a');
+    assert.ok(resA && !resA.ok && resA.error?.kind === 'other');
+    assert.ok(resA.error.message.includes('CONFLICT'), resA.error.message);
+    assert.deepStrictEqual(pushes, ['/b'], 'only the updated row is re-pushed');
+    assert.strictEqual(results.get('/b')?.ok, true);
+  });
+
+  it('drops a row from the loop when a retry fails for a non-non-ff reason', async () => {
+    let pushCount = 0;
+    const results = await updateAndRetryRejectedRows(
+      {
+        pushRow: async () => {
+          pushCount += 1;
+          return {
+            ok: false,
+            error: { kind: 'auth', message: 'authentication failed' },
+          } as IPushRowResult;
+        },
+        pull: async () => ({ ok: true }),
+        askUpdateMethod: async () => 'merge',
+      },
+      [rejectedRow('/a')]
+    );
+    assert.strictEqual(pushCount, 1, 'a non-retriable failure ends the loop');
+    assert.strictEqual(results.get('/a')?.error?.kind, 'auth');
   });
 });
