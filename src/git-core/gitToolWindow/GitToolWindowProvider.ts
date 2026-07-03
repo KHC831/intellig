@@ -2210,6 +2210,23 @@ export class GitToolWindowProvider
   }
 
   /**
+   * Navigate the graph to a specific commit hash — the tag-row analog of
+   * {@link navigateToBranch} (tags aren't in the branch map, so the tree
+   * hands over the tag's peeled commit directly). Same partial-update
+   * contract as `_handleBranchClick`: selectCommit + scroll posts, never a
+   * full re-render, so the panel's scroll position survives. A hash beyond
+   * the loaded window is a silent no-op, matching branch clicks whose tip
+   * isn't loaded.
+   */
+  public navigateToCommit(commitHash: string): void {
+    if (!commitHash) {
+      return;
+    }
+    this.selectCommit(commitHash);
+    this._scrollWebviewToCommit(commitHash);
+  }
+
+  /**
    * Focus the graph on a branch.
    *
    * Resolves the branch's tip commit, scrolls the graph to it, computes

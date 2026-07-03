@@ -20,6 +20,7 @@ import {
   COMMIT_TOOL_WINDOW_VIEW_ID,
 } from '../services';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
+import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
 import { createCommandTitleProvider } from '../commits/CommandTitleProvider';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
@@ -1138,10 +1139,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     if (ctx.gitToolWindowProvider) {
       const branchSelectionListener = branchTreeView.onDidChangeSelection((e) => {
         if (e.selection.length > 0) {
-          const selectedItem = e.selection[0];
-          // Only navigate for actual branch items (not category headers)
-          if (selectedItem.branch) {
-            ctx.gitToolWindowProvider!.navigateToBranch(selectedItem.branch.name);
+          const target = graphTargetForTreeSelection(e.selection[0]);
+          if (target?.kind === 'branch') {
+            ctx.gitToolWindowProvider!.navigateToBranch(target.name);
+          } else if (target?.kind === 'commit') {
+            ctx.gitToolWindowProvider!.navigateToCommit(target.hash);
           }
         }
       });

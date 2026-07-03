@@ -112,6 +112,26 @@ class MementoFavoritesStore implements IFavoritesStore {
 /**
  * Branch tree item representing a branch, tag, or category in the tree view
  */
+/**
+ * Where should the git graph navigate when this tree row is selected?
+ * Branch rows jump by NAME (the graph resolves the tip from its branch
+ * map); tag rows jump by the tag's peeled COMMIT hash (tags aren't in the
+ * branch map, so name-based lookup can't find them — the class of bug that
+ * left tag clicks doing nothing); structural rows (categories, folders,
+ * repository headers) don't navigate.
+ */
+export function graphTargetForTreeSelection(
+  item: BranchTreeItem
+): { kind: 'branch'; name: string } | { kind: 'commit'; hash: string } | undefined {
+  if (item.branch) {
+    return { kind: 'branch', name: item.branch.name };
+  }
+  if (item.tag) {
+    return { kind: 'commit', hash: item.tag.commit };
+  }
+  return undefined;
+}
+
 export class BranchTreeItem extends vscode.TreeItem {
   public readonly itemType: BranchTreeItemType;
   public readonly branch?: IBranch;
