@@ -331,7 +331,15 @@ export class GitCli {
 
     const spawnOptions: SpawnOptions = {
       cwd,
-      env: { ...process.env, ...env },
+      // GIT_OPTIONAL_LOCKS=0: background reads (`status`, `ls-files`)
+      // otherwise opportunistically WRITE the refreshed index, holding
+      // `.git/index.lock` exactly when a user action (checkout, unstage,
+      // rebase) needs it. Mandatory index writes are unaffected, so the
+      // variable is safe on every spawn. Mirrors git4idea, which applies it
+      // to all commands (GitImplBase.doRun; registry
+      // `git.use.no.optional.locks`, default true). A per-call `env` can
+      // still override.
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     };
 

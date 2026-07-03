@@ -519,6 +519,79 @@ describe('GitCli — byte-stream decoding + spawn-retry narrowing', () => {
   });
 });
 
+describe('GitCli — optional index locks are suppressed (GIT_OPTIONAL_LOCKS=0)', () => {
+  // Background refreshes (`git status`, `ls-files`) opportunistically WRITE
+  // the refreshed index, holding `.git/index.lock` exactly when a user
+  // action (`checkout`, `restore --staged`, `rebase`) needs it — the
+  // "Unable to create index.lock: File exists" failure class. git4idea runs
+  // every command with GIT_OPTIONAL_LOCKS=0
+  // (GitImplBase.doRun, registry `git.use.no.optional.locks` default true);
+  // mandatory index writes are unaffected by the variable, so the env is
+  // safe on every spawn, not just read-only verbs.
+  class EnvCapturingChild extends EventEmitter {
+    readonly stdout = new EventEmitter();
+    readonly stderr = new EventEmitter();
+    readonly stdin = Object.assign(new EventEmitter(), {
+      write: (): boolean => true,
+      end: (): void => {},
+    });
+    kill(): boolean {
+      return true;
+    }
+  }
+
+  function execCapturingEnv(
+    args: string[],
+    options?: { env?: NodeJS.ProcessEnv }
+  ): Promise<NodeJS.ProcessEnv> {
+    const captured: NodeJS.ProcessEnv[] = [];
+    const cli = new GitCli('git', ((
+      _cmd: string,
+      _args: string[],
+      spawnOptions: { env?: NodeJS.ProcessEnv }
+    ) => {
+      captured.push(spawnOptions.env ?? {});
+      const child = new EnvCapturingChild();
+      setImmediate(() => child.emit('close', 0));
+      return child as unknown as ChildProcess;
+    }) as never);
+    return cli.exec(args, options).then(() => captured[0]);
+  }
+
+  it('every spawn carries GIT_OPTIONAL_LOCKS=0', async () => {
+    const env = await execCapturingEnv(['status', '--porcelain', '-z']);
+    assert.strictEqual(env.GIT_OPTIONAL_LOCKS, '0');
+  });
+
+  it('overrides an inherited GIT_OPTIONAL_LOCKS from the parent process', async () => {
+    const prev = process.env.GIT_OPTIONAL_LOCKS;
+    process.env.GIT_OPTIONAL_LOCKS = '1';
+    try {
+      const env = await execCapturingEnv(['status']);
+      assert.strictEqual(env.GIT_OPTIONAL_LOCKS, '0');
+    } finally {
+      if (prev === undefined) {
+        delete process.env.GIT_OPTIONAL_LOCKS;
+      } else {
+        process.env.GIT_OPTIONAL_LOCKS = prev;
+      }
+    }
+  });
+
+  it('an explicit per-call env still wins (caller opt-out seam)', async () => {
+    const env = await execCapturingEnv(['status'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+    assert.strictEqual(env.GIT_OPTIONAL_LOCKS, '1');
+  });
+
+  it('other caller env vars are preserved alongside the default', async () => {
+    const env = await execCapturingEnv(['commit', '-m', 'x'], {
+      env: { GIT_REFLOG_ACTION: 'intellig test' },
+    });
+    assert.strictEqual(env.GIT_OPTIONAL_LOCKS, '0');
+    assert.strictEqual(env.GIT_REFLOG_ACTION, 'intellig test');
+  });
+});
+
 describe('GitCli command timeout — kill machinery', () => {
   /** A controllable fake child: records kill signals and emits `close` only
    * when killed with a signal in `closeOn` (so a child can "ignore" SIGTERM). */
