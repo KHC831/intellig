@@ -128,7 +128,25 @@ export interface IFileCommandSpec extends ISpineSpecBase {
 }
 
 export interface IRepoCommandSpec extends ISpineSpecBase {
+  /**
+   * Cold-start fallback: when the resolver finds no cached repository,
+   * probe the first workspace folder before giving up — so invocations in
+   * a brand-new workspace (no repos discovered yet) still work. The
+   * resolver runs silent and this path owns the error toasts.
+   */
+  discoverFallback?: boolean;
+  /**
+   * When the first raw command argument is Uri-shaped, use its fsPath as
+   * the repo-resolution hint (context-menu invocations that carry the
+   * clicked file). The raw argument still reaches `run` untouched.
+   */
+  hintFromRawUri?: boolean;
   run: (args: ISpineRepoArgs, ...rawArgs: unknown[]) => Promise<void>;
+}
+
+/** Bare scope: services guard + failure backstop only (custom bodies). */
+export interface IBareCommandSpec extends ISpineSpecBase {
+  run: (args: ISpineBaseArgs, ...rawArgs: unknown[]) => Promise<void>;
 }
 
 function guardedServices(ctx: ICommandContext): ExtensionServices | undefined {
@@ -141,15 +159,31 @@ function guardedServices(ctx: ICommandContext): ExtensionServices | undefined {
 
 async function resolveScopedRepo(
   services: ExtensionServices,
-  spec: ISpineSpecBase,
+  spec: ISpineSpecBase & { discoverFallback?: boolean },
   hintRepoPath: string | undefined
 ): Promise<IRepository | undefined> {
-  return resolveRepo(services.gitService, {
+  const repo = await resolveRepo(services.gitService, {
     hintRepoPath,
     preferActive: true,
+    ...(spec.discoverFallback ? { silent: true } : {}),
     ...(spec.pickerTitle ? { pickerTitle: spec.pickerTitle } : {}),
     ...(spec.pickerPlaceholder ? { pickerPlaceholder: spec.pickerPlaceholder } : {}),
   });
+  if (repo || !spec.discoverFallback) {
+    return repo;
+  }
+  // Cold start: no cached repos yet — probe the first workspace folder.
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    void vscode.window.showErrorMessage('No workspace folder open');
+    return undefined;
+  }
+  const discovered = await services.gitService.getRepository(folders[0].uri);
+  if (!discovered) {
+    void vscode.window.showErrorMessage('No Git repository found in workspace');
+    return undefined;
+  }
+  return discovered;
 }
 
 async function runReported(
@@ -234,12 +268,40 @@ export function registerRepoCommand(
     if (!services) {
       return;
     }
-    const repo = await resolveScopedRepo(services, spec, undefined);
+    const first = rawArgs[0];
+    const hint =
+      spec.hintFromRawUri &&
+      first &&
+      typeof first === 'object' &&
+      typeof (first as { fsPath?: unknown }).fsPath === 'string'
+        ? (first as { fsPath: string }).fsPath
+        : undefined;
+    const repo = await resolveScopedRepo(services, spec, hint);
     if (!repo) {
       return;
     }
     await runReported(ctx, spec, () =>
       spec.run({ services, gitService: services.gitService, repo }, ...rawArgs)
+    );
+  });
+}
+
+/**
+ * Register a command whose body owns its own targeting (commit-pinned repo
+ * resolution, blame contexts, multi-shape arguments): the spine contributes
+ * the services guard and the failure-toast backstop.
+ */
+export function registerBareCommand(
+  ctx: ICommandContext,
+  spec: IBareCommandSpec
+): vscode.Disposable {
+  return registerLoggedCommand(spec.id, async (...rawArgs: unknown[]) => {
+    const services = guardedServices(ctx);
+    if (!services) {
+      return;
+    }
+    await runReported(ctx, spec, () =>
+      spec.run({ services, gitService: services.gitService }, ...rawArgs)
     );
   });
 }

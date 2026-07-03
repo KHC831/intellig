@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import { registerLoggedCommand } from '../../utils/logger';
-import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError } from '../../git-core/gitError';
 import { ChangelistService } from '../../services';
 import { commitChangelist, LAST_NO_VERIFY_STATE_KEY } from '../../commits/CommitDialog';
 import { runBeforeCommitChecks } from '../../commits/CheckinChecks';
 import type { ICommandContext } from './CommandContext';
+import { registerRepoCommand } from './commandSpine';
 
 /**
  * Changelist command handlers (`intellig.changelist.*`) extracted verbatim
@@ -80,80 +79,46 @@ async function pickFilesToMove(
 }
 
 export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposable[] {
-  const changelistNewCommand = registerLoggedCommand('intellig.changelist.new', async () => {
-    if (!ctx.services) {
-      return;
-    }
-    const repo = await resolveRepo(ctx.services.gitService, {
-      preferActive: true,
-      silent: true,
-    });
-    if (!repo) {
-      void vscode.window.showErrorMessage('No Git repository found');
-      return;
-    }
-    const name = await vscode.window.showInputBox({
-      prompt: 'Enter new changelist name',
-      validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
-    });
-    if (!name) {
-      return;
-    }
-    try {
-      ctx.services.changelistService.createChangelist(repo, name.trim());
-    } catch (err) {
-      const m = err instanceof Error ? err.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to create changelist: ${sanitizeGitError(m)}`);
-    }
+  /** Narrow the raw command argument to a changelist id, when present. */
+  const idArg = (raw: unknown): string | undefined => (typeof raw === 'string' ? raw : undefined);
+
+  const changelistNewCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.new',
+    failureTitle: 'Failed to create changelist',
+    run: async ({ services, repo }) => {
+      const name = await vscode.window.showInputBox({
+        prompt: 'Enter new changelist name',
+        validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
+      });
+      if (!name) {
+        return;
+      }
+      services.changelistService.createChangelist(repo, name.trim());
+    },
   });
 
-  const changelistSetActiveCommand = registerLoggedCommand(
-    'intellig.changelist.setActive',
-    async (changelistId?: string) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const service = ctx.services.changelistService;
+  const changelistSetActiveCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.setActive',
+    failureTitle: 'Failed to set active changelist',
+    run: async ({ services, repo }, rawId) => {
+      const service = services.changelistService;
       const targetId =
-        changelistId ??
+        idArg(rawId) ??
         (await pickChangelistId(service.getChangelists(repo), 'Set Active Changelist'));
       if (!targetId) {
         return;
       }
-      try {
-        await service.setActiveChangelist(repo, targetId);
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(
-          `Failed to set active changelist: ${sanitizeGitError(m)}`
-        );
-      }
-    }
-  );
+      await service.setActiveChangelist(repo, targetId);
+    },
+  });
 
-  const changelistRenameCommand = registerLoggedCommand(
-    'intellig.changelist.rename',
-    async (changelistId?: string) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const service = ctx.services.changelistService;
+  const changelistRenameCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.rename',
+    failureTitle: 'Failed to rename changelist',
+    run: async ({ services, repo }, rawId) => {
+      const service = services.changelistService;
       const targetId =
-        changelistId ?? (await pickChangelistId(service.getChangelists(repo), 'Rename Changelist'));
+        idArg(rawId) ?? (await pickChangelistId(service.getChangelists(repo), 'Rename Changelist'));
       if (!targetId) {
         return;
       }
@@ -169,31 +134,17 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       if (!newName || newName.trim() === current.name) {
         return;
       }
-      try {
-        ctx.services.changelistService.renameChangelist(repo, targetId, newName.trim());
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to rename changelist: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
+      service.renameChangelist(repo, targetId, newName.trim());
+    },
+  });
 
-  const changelistDeleteCommand = registerLoggedCommand(
-    'intellig.changelist.delete',
-    async (changelistId?: string) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const service = ctx.services.changelistService;
+  const changelistDeleteCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.delete',
+    failureTitle: 'Failed to delete changelist',
+    run: async ({ services, repo }, rawId) => {
+      const service = services.changelistService;
       const targetId =
-        changelistId ?? (await pickChangelistId(service.getChangelists(repo), 'Remove Changelist'));
+        idArg(rawId) ?? (await pickChangelistId(service.getChangelists(repo), 'Remove Changelist'));
       if (!targetId) {
         return;
       }
@@ -210,31 +161,17 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
           return;
         }
       }
-      try {
-        service.deleteChangelist(repo, targetId);
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to delete changelist: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
+      service.deleteChangelist(repo, targetId);
+    },
+  });
 
-  const changelistEditDescriptionCommand = registerLoggedCommand(
-    'intellig.changelist.editDescription',
-    async (changelistId?: string) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const service = ctx.services.changelistService;
+  const changelistEditDescriptionCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.editDescription',
+    failureTitle: 'Failed to update description',
+    run: async ({ services, repo }, rawId) => {
+      const service = services.changelistService;
       const targetId =
-        changelistId ??
+        idArg(rawId) ??
         (await pickChangelistId(service.getChangelists(repo), 'Edit Changelist Description'));
       if (!targetId) {
         return;
@@ -252,32 +189,19 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       }
       // setDescription is a ChangelistService-only addition.
       if (service instanceof ChangelistService) {
-        try {
-          service.setDescription(repo, targetId, newDescription);
-        } catch (err) {
-          const m = err instanceof Error ? err.message : 'Unknown error';
-          void vscode.window.showErrorMessage(
-            `Failed to update description: ${sanitizeGitError(m)}`
-          );
-        }
+        service.setDescription(repo, targetId, newDescription);
       }
-    }
-  );
+    },
+  });
 
-  const changelistMoveFilesToCommand = registerLoggedCommand(
-    'intellig.changelist.moveFilesTo',
-    async (files?: string[]) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const service = ctx.services.changelistService;
+  const changelistMoveFilesToCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.moveFilesTo',
+    failureTitle: 'Failed to move files',
+    run: async ({ services, repo }, rawFiles) => {
+      const service = services.changelistService;
+      const files = Array.isArray(rawFiles)
+        ? rawFiles.filter((f): f is string => typeof f === 'string')
+        : undefined;
       const toMove =
         files && files.length > 0 ? files : await pickFilesToMove(service.getChangelists(repo));
       if (!toMove || toMove.length === 0) {
@@ -291,14 +215,9 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       if (!picked) {
         return;
       }
-      try {
-        service.moveToChangelist(repo, toMove, picked.id);
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to move files: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
+      service.moveToChangelist(repo, toMove, picked.id);
+    },
+  });
 
   // "Commit Only This Changelist" stages exactly the target changelist's
   // files (unstaging anything staged that the changelist doesn't own) and
@@ -307,25 +226,14 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
   // gathered via an input box; before-commit checks run first so the same
   // safety net as the dialog applies. `--no-verify` is honored from the
   // persisted commit toggle so hook-bypass behaviour matches the dialog.
-  const changelistCommitOnlyCommand = registerLoggedCommand(
-    'intellig.changelist.commitOnly',
-    async (changelistId?: string) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        void vscode.window.showErrorMessage('No Git repository found');
-        return;
-      }
-
-      const service = ctx.services.changelistService;
+  const changelistCommitOnlyCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.commitOnly',
+    failureTitle: 'Commit failed',
+    run: async ({ services, gitService, repo }, rawId) => {
+      const service = services.changelistService;
       const changelists = service.getChangelists(repo);
       const targetId =
-        changelistId ?? (await pickChangelistId(changelists, 'Commit Only This Changelist'));
+        idArg(rawId) ?? (await pickChangelistId(changelists, 'Commit Only This Changelist'));
       if (!targetId) {
         return;
       }
@@ -359,7 +267,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         ctx.context.workspaceState.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
       if (!noVerify) {
         const proceed = await runBeforeCommitChecks(
-          ctx.services.gitService,
+          gitService,
           repo,
           target.files.map((f) => f.path)
         );
@@ -369,12 +277,14 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       }
 
       const result = await commitChangelist(
-        ctx.services.gitService,
+        gitService,
         repo,
         changelists,
         targetId,
         message.trim(),
-        { noVerify }
+        {
+          noVerify,
+        }
       );
 
       if (!result.success) {
@@ -387,25 +297,16 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       void vscode.window.showInformationMessage(
         `Committed ${(result.files ?? []).length} file(s) from '${target.name}'`
       );
-    }
-  );
+    },
+  });
 
-  const changelistShelveCommand = registerLoggedCommand(
-    'intellig.changelist.shelve',
-    async (changelistId?: string) => {
-      if (!ctx.services) {
-        return;
-      }
-      const repo = await resolveRepo(ctx.services.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const service = ctx.services.changelistService;
+  const changelistShelveCommand = registerRepoCommand(ctx, {
+    id: 'intellig.changelist.shelve',
+    failureTitle: 'Failed to shelve changelist',
+    run: async ({ services, repo }, rawId) => {
+      const service = services.changelistService;
       const targetId =
-        changelistId ?? (await pickChangelistId(service.getChangelists(repo), 'Shelve Changelist'));
+        idArg(rawId) ?? (await pickChangelistId(service.getChangelists(repo), 'Shelve Changelist'));
       if (!targetId) {
         return;
       }
@@ -413,27 +314,22 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       if (!changelist) {
         return;
       }
-      try {
-        const item = await ctx.services.shelfService.shelve(repo, changelist.name, {
-          files: changelist.files.map((f) => f.path),
-        });
-        if (item.partialCleanupFailures && item.partialCleanupFailures.length > 0) {
-          const count = item.partialCleanupFailures.length;
-          const paths = item.partialCleanupFailures.join(', ');
-          void vscode.window.showWarningMessage(
-            `Shelved ${changelist.files.length} file(s) from '${changelist.name}', but ${count} file(s) could not be removed from your working tree and are still present: ${paths}`
-          );
-        } else {
-          void vscode.window.showInformationMessage(
-            `Shelved ${changelist.files.length} file(s) from '${changelist.name}'`
-          );
-        }
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to shelve changelist: ${sanitizeGitError(m)}`);
+      const item = await services.shelfService.shelve(repo, changelist.name, {
+        files: changelist.files.map((f) => f.path),
+      });
+      if (item.partialCleanupFailures && item.partialCleanupFailures.length > 0) {
+        const count = item.partialCleanupFailures.length;
+        const paths = item.partialCleanupFailures.join(', ');
+        void vscode.window.showWarningMessage(
+          `Shelved ${changelist.files.length} file(s) from '${changelist.name}', but ${count} file(s) could not be removed from your working tree and are still present: ${paths}`
+        );
+      } else {
+        void vscode.window.showInformationMessage(
+          `Shelved ${changelist.files.length} file(s) from '${changelist.name}'`
+        );
       }
-    }
-  );
+    },
+  });
 
   return [
     changelistNewCommand,

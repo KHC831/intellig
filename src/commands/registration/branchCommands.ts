@@ -1,10 +1,9 @@
 import * as vscode from 'vscode';
-import { registerLoggedCommand } from '../../utils/logger';
-import { resolveRepo } from '../../utils/resolveRepo';
 import { BranchPopup, createBranchComparisonView } from '../../services';
 import { getIncomingOutgoingFetcher } from '../../branches/BranchPopup';
 import type { IBranch } from '../../git-core/interfaces/IGitService';
 import type { ICommandContext } from './CommandContext';
+import { registerRepoCommand } from './commandSpine';
 
 /** A merge-source quick-pick row carrying the branch to merge from. */
 export interface IMergeBranchPickItem extends vscode.QuickPickItem {
@@ -43,117 +42,76 @@ export function buildMergeBranchPickItems(branches: readonly IBranch[]): IMergeB
  */
 export function registerBranchCommands(ctx: ICommandContext): vscode.Disposable[] {
   // Branch popup command
-  const branchPopupCommand = registerLoggedCommand('intellig.showBranchPopup', async () => {
-    // Get the Git service
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-
-    // Create branch popup if not exists. Wire the incoming/outgoing fetcher
-    // when the concrete GitService exposes it so the popup shows ↓N/↑N
-    // badges next to each tracked branch (ADR-001: the method is not on the
-    // frozen IGitService interface, so we detect it via duck-typing).
-    if (!ctx.branchPopup) {
-      ctx.branchPopup = new BranchPopup(
-        gitService,
-        ctx.context.workspaceState,
-        getIncomingOutgoingFetcher(gitService)
-      );
-    }
-
-    // Seed the popup with the repo the user is most likely targeting.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Branches — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-    });
-    if (!repo) {
-      return;
-    }
-    await ctx.branchPopup.show(repo);
+  const branchPopupCommand = registerRepoCommand(ctx, {
+    id: 'intellig.showBranchPopup',
+    failureTitle: 'Failed to open branch popup',
+    pickerTitle: 'Branches — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ gitService, repo }) => {
+      // Create branch popup if not exists. Wire the incoming/outgoing fetcher
+      // when the concrete GitService exposes it so the popup shows ↓N/↑N
+      // badges next to each tracked branch (ADR-001: the method is not on the
+      // frozen IGitService interface, so we detect it via duck-typing).
+      if (!ctx.branchPopup) {
+        ctx.branchPopup = new BranchPopup(
+          gitService,
+          ctx.context.workspaceState,
+          getIncomingOutgoingFetcher(gitService)
+        );
+      }
+      await ctx.branchPopup.show(repo);
+    },
   });
 
   // Compare with branch command
-  const compareWithBranchCommand = registerLoggedCommand('intellig.compareWithBranch', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Create branch comparison view if not exists and show it
-    if (!ctx.branchComparisonView) {
-      ctx.branchComparisonView = createBranchComparisonView(gitService);
-    }
-    await ctx.branchComparisonView.show(repo);
+  const compareWithBranchCommand = registerRepoCommand(ctx, {
+    id: 'intellig.compareWithBranch',
+    failureTitle: 'Failed to compare with branch',
+    run: async ({ gitService, repo }) => {
+      if (!ctx.branchComparisonView) {
+        ctx.branchComparisonView = createBranchComparisonView(gitService);
+      }
+      await ctx.branchComparisonView.show(repo);
+    },
   });
 
   // Compare with remote command
-  const compareWithRemoteCommand = registerLoggedCommand('intellig.compareWithRemote', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Create branch comparison view if not exists and compare with remote
-    if (!ctx.branchComparisonView) {
-      ctx.branchComparisonView = createBranchComparisonView(gitService);
-    }
-    await ctx.branchComparisonView.compareWithRemote(repo);
+  const compareWithRemoteCommand = registerRepoCommand(ctx, {
+    id: 'intellig.compareWithRemote',
+    failureTitle: 'Failed to compare with remote',
+    run: async ({ gitService, repo }) => {
+      if (!ctx.branchComparisonView) {
+        ctx.branchComparisonView = createBranchComparisonView(gitService);
+      }
+      await ctx.branchComparisonView.compareWithRemote(repo);
+    },
   });
 
   // Top-level "Merge…" command (IntelliJ Git.Merge): pick a branch and merge
   // it into the current one via the shared Merge Dialog, which owns option
   // selection (ff-only / no-ff / squash / -m) and conflict handoff. The branch
   // name reaches git through GitService.mergeBranch's `buildGitArgs` splice.
-  const mergeFromCommand = registerLoggedCommand('intellig.mergeFrom', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
+  const mergeFromCommand = registerRepoCommand(ctx, {
+    id: 'intellig.mergeFrom',
+    failureTitle: 'Failed to merge',
+    run: async ({ gitService, repo }) => {
+      const branches = await gitService.getBranches(repo);
+      const items = buildMergeBranchPickItems(branches);
+      if (items.length === 0) {
+        void vscode.window.showInformationMessage('No other branches to merge from.');
+        return;
+      }
 
-    const gitService = ctx.services.gitService;
-    const repo = await resolveRepo(gitService, { preferActive: true });
-    if (!repo) {
-      return;
-    }
+      const selected = await vscode.window.showQuickPick(items, {
+        title: 'Merge',
+        placeHolder: 'Select a branch to merge into the current branch',
+      });
+      if (!selected) {
+        return;
+      }
 
-    const branches = await gitService.getBranches(repo);
-    const items = buildMergeBranchPickItems(branches);
-    if (items.length === 0) {
-      void vscode.window.showInformationMessage('No other branches to merge from.');
-      return;
-    }
-
-    const selected = await vscode.window.showQuickPick(items, {
-      title: 'Merge',
-      placeHolder: 'Select a branch to merge into the current branch',
-    });
-    if (!selected) {
-      return;
-    }
-
-    ctx.openMergeDialog({ repo, sourceBranch: selected.branchName });
+      ctx.openMergeDialog({ repo, sourceBranch: selected.branchName });
+    },
   });
 
   return [branchPopupCommand, compareWithBranchCommand, compareWithRemoteCommand, mergeFromCommand];

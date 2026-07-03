@@ -17,6 +17,7 @@ import {
   type PullDialogOutcome,
 } from '../../services';
 import type { ICommandContext } from './CommandContext';
+import { registerBareCommand, registerFileCommand, registerRepoCommand } from './commandSpine';
 import { fileStatusFor, revertPrecheck } from './explorerCommands';
 import { extractCommitHash, runNewTagFlowFromContext, presentFileHistory } from './commitHelpers';
 import {
@@ -228,12 +229,15 @@ export function commitAndPushFollowUp(
  */
 export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Disposable[] {
   // Open Git Tool Window command
+  // spine-exempt: pure focus route with no services dependency
   const openGitToolWindowCommand = registerLoggedCommand('intellig.openGitToolWindow', () => {
     // Focus the Git Tool Window view
     void vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
   });
 
   // Commit command
+  // spine-exempt: RETURNS ICommitDialogResult through executeCommand (commitAndPush
+  // gates its push on it); the spine's run contract is void
   const commitCommand = registerLoggedCommand('intellig.commit', async () => {
     // Get the Git service and find a repository
     if (!ctx.services) {
@@ -286,6 +290,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   });
 
   // Focus the Commit tool window (Alt+0).
+  // spine-exempt: view reveal with its own tool-window/fallback routing
   const showCommitToolWindowCommand = registerLoggedCommand(
     'intellig.showCommitToolWindow',
     async () => {
@@ -299,6 +304,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
 
   // Push command — Push dialog (webview table w/ per-row targets,
   // force-with-lease default, protected-branch guard, multi-repo submit).
+  // spine-exempt: PushDialog owns targeting and all outcome toasts
   const pushCommand = registerLoggedCommand('intellig.push', () => {
     ctx.openPushDialog();
   });
@@ -307,63 +313,56 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // `git push --tags` on the active repo. Lives alongside the main Push
   // dialog (which also surfaces the tag push radio) so IntelliJ users get
   // a one-click entry point.
-  const pushAllTagsCommand = registerLoggedCommand('intellig.pushAllTags', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-    const gitService = ctx.services.gitService;
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Push All Tags — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-    });
-    if (!repo) {
-      return;
-    }
-    // Pick the default remote to display in the toast. `getRemotes()` is
-    // async; fall back to `'origin'` if the user's config doesn't list
-    // any remote (edge case — the push will still fail informatively).
-    let remoteName = 'origin';
-    try {
-      const remotes = await gitService.getRemotes(repo).match(
-        (r) => r,
-        (e) => {
-          throw e;
+  const pushAllTagsCommand = registerRepoCommand(ctx, {
+    id: 'intellig.pushAllTags',
+    failureTitle: 'Failed to push tags',
+    pickerTitle: 'Push All Tags — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ gitService, repo }) => {
+      // Pick the default remote to display in the toast. `getRemotes()` is
+      // async; fall back to `'origin'` if the user's config doesn't list
+      // any remote (edge case — the push will still fail informatively).
+      let remoteName = 'origin';
+      try {
+        const remotes = await gitService.getRemotes(repo).match(
+          (r) => r,
+          (e) => {
+            throw e;
+          }
+        );
+        if (remotes.length > 0) {
+          remoteName = remotes[0].name;
         }
-      );
-      if (remotes.length > 0) {
-        remoteName = remotes[0].name;
+      } catch (error) {
+        // Non-fatal — the push below surfaces the real error; the toast just
+        // falls back to 'origin'. Log so the swallowed fault stays visible.
+        getLogger()
+          .child({ component: 'extension' })
+          .debug('pushAllTags: remote resolution failed', {
+            err: error instanceof Error ? error.message : String(error),
+          });
       }
-    } catch (error) {
-      // Non-fatal — the push below surfaces the real error; the toast just
-      // falls back to 'origin'. Log so the swallowed fault stays visible.
-      getLogger()
-        .child({ component: 'extension' })
-        .debug('pushAllTags: remote resolution failed', {
-          err: error instanceof Error ? error.message : String(error),
-        });
-    }
-    try {
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: `Pushing all tags to ${remoteName}…`,
-          cancellable: false,
-        },
-        () => gitService.push(repo, { tags: true })
-      );
-      void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
-      // Push --tags updated remote-tracking refs for tags; reload + refresh so
-      // the panel reflects fresh tag-on-remote state.
-      await gitService.reloadRepository(repo);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Pushing all tags to ${remoteName}…`,
+            cancellable: false,
+          },
+          () => gitService.push(repo, { tags: true })
+        );
+        void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
+        // Push --tags updated remote-tracking refs for tags; reload + refresh so
+        // the panel reflects fresh tag-on-remote state.
+        await gitService.reloadRepository(repo);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to push tags: ${sanitizeGitError(message)}`);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to push tags: ${sanitizeGitError(message)}`);
-    }
+    },
   });
 
   // Pull command — Pull dialog (2-step QuickPick: source then flags). Branch
@@ -371,6 +370,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // toasts internally (see `runPullDialog`); we only add a debug log on
   // cancellation so a dismissed dialog is observable in the IntelliG
   // OutputChannel (no toast — cancel is a normal user action).
+  // spine-exempt: PullDialog owns targeting and all outcome toasts
   const pullCommand = registerLoggedCommand('intellig.pull', async () => {
     const dialog = ctx.getPullDialog();
     if (!dialog) {
@@ -382,70 +382,59 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
 
   // Fetch command. Fetches all remotes for the selected repository,
   // with a QuickPick when there are multiple repositories in the workspace.
-  const fetchCommand = registerLoggedCommand('intellig.fetch', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
+  const fetchCommand = registerRepoCommand(ctx, {
+    id: 'intellig.fetch',
+    failureTitle: 'Fetch failed',
+    pickerTitle: 'Fetch — Choose Repository',
+    pickerPlaceholder: 'Select a repository to fetch',
+    run: async ({ services, gitService, repo }) => {
+      try {
+        const result = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Fetching from all remotes…',
+            cancellable: false,
+          },
+          () =>
+            gitService.fetch(repo, { all: true, prune: true }).match(
+              (r) => r,
+              (e) => {
+                throw e;
+              }
+            )
+        );
 
-    const gitService = ctx.services.gitService;
+        // Reset auto-fetch backoff so the next scheduled tick isn't right on top
+        // of this manual one.
+        if (services.hasService('autoFetchService')) {
+          services.autoFetchService.resetBackoff();
+        }
 
-    // Unified multi-root resolver; preferActive lets the resolver seed
-    // from the file the user is currently editing.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Fetch — Choose Repository',
-      pickerPlaceholder: 'Select a repository to fetch',
-    });
-    if (!repo) {
-      return;
-    }
+        // follow-up: fetch advances remote-tracking refs so the
+        // ahead/behind counts on the branch tree go stale until the watcher's
+        // 250ms debounce. Reload-then-refresh closes the visible window the
+        // same way the other mutation sites do.
+        await gitService.reloadRepository(repo);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.refresh();
+        }
 
-    try {
-      const result = await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: 'Fetching from all remotes…',
-          cancellable: false,
-        },
-        () =>
-          gitService.fetch(repo, { all: true, prune: true }).match(
-            (r) => r,
-            (e) => {
-              throw e;
-            }
-          )
-      );
-
-      // Reset auto-fetch backoff so the next scheduled tick isn't right on top
-      // of this manual one.
-      if (ctx.services.hasService('autoFetchService')) {
-        ctx.services.autoFetchService.resetBackoff();
+        const remoteCount = repo.remotes.length || 1;
+        const refCount = result.updatedRefs.length;
+        const message =
+          refCount > 0
+            ? `Fetched ${remoteCount} remote(s); ${refCount} ref(s) updated`
+            : `Fetched ${remoteCount} remote(s); already up to date`;
+        void vscode.window.showInformationMessage(message);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Fetch failed: ${sanitizeGitError(msg)}`);
       }
-
-      // follow-up: fetch advances remote-tracking refs so the
-      // ahead/behind counts on the branch tree go stale until the watcher's
-      // 250ms debounce. Reload-then-refresh closes the visible window the
-      // same way the other mutation sites do.
-      await gitService.reloadRepository(repo);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
-      }
-
-      const remoteCount = repo.remotes.length || 1;
-      const refCount = result.updatedRefs.length;
-      const message =
-        refCount > 0
-          ? `Fetched ${remoteCount} remote(s); ${refCount} ref(s) updated`
-          : `Fetched ${remoteCount} remote(s); already up to date`;
-      void vscode.window.showInformationMessage(message);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Fetch failed: ${sanitizeGitError(msg)}`);
-    }
+    },
   });
 
   // Refresh command - refreshes all Git views
+  // spine-exempt: provider-only view refresh; needs no repo resolution
   const refreshCommand = registerLoggedCommand('intellig.refresh', () => {
     if (!ctx.services) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -467,112 +456,112 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // (Merge / Rebase / Branch default), updates ALL repositories in the
   // workspace (multi-root), and produces an Update Info summary. Each repo:
   // preflight-guard → fetch --all --prune → pull with the resolved strategy.
-  const updateProjectCommand = registerLoggedCommand('intellig.updateProject', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-    const gitService = ctx.services.gitService;
+  const updateProjectCommand = registerBareCommand(ctx, {
+    id: 'intellig.updateProject',
+    failureTitle: 'Update failed',
+    run: async ({ gitService }) => {
+      const repos = gitService.getRepositories();
+      if (repos.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found in workspace');
+        return;
+      }
 
-    const repos = gitService.getRepositories();
-    if (repos.length === 0) {
-      void vscode.window.showErrorMessage('No Git repository found in workspace');
-      return;
-    }
-
-    // Step 1 — choose the update method (GitUpdateOptionsDialog).
-    interface IMethodItem extends vscode.QuickPickItem {
-      method: UpdateMethod;
-    }
-    const methodItems: IMethodItem[] = [
-      {
-        label: '$(git-merge) Merge',
-        description: 'git pull (merge fetched commits)',
-        method: 'merge',
-      },
-      {
-        label: '$(git-pull-request) Rebase',
-        description: 'git pull --rebase (replay local commits on top)',
-        method: 'rebase',
-      },
-      {
-        label: '$(settings-gear) Branch default',
-        description: "use the branch's configured pull strategy",
-        method: 'branch-default',
-      },
-    ];
-    const pickedMethod = await vscode.window.showQuickPick(methodItems, {
-      title:
-        repos.length > 1
-          ? `Update ${repos.length} Repositories — Choose Method`
-          : 'Update Project — Choose Method',
-      placeHolder: 'How should fetched commits be integrated?',
-      matchOnDescription: true,
-    });
-    if (!pickedMethod) {
-      return;
-    }
-
-    const pullRebaseDefault = vscode.workspace
-      .getConfiguration('intellig')
-      .get<boolean>('pullRebase', false);
-
-    // The 0a getIncomingOutgoing lives on the concrete GitService (ADR-001 —
-    // not the frozen IGitService composite). The runtime instance is always a
-    // GitService, so we narrow to the IUpdateGitService role interface.
-    const updateGit = gitService as unknown as IUpdateGitService;
-
-    let summary;
-    try {
-      summary = await vscode.window.withProgress(
+      // Step 1 — choose the update method (GitUpdateOptionsDialog).
+      interface IMethodItem extends vscode.QuickPickItem {
+        method: UpdateMethod;
+      }
+      const methodItems: IMethodItem[] = [
         {
-          location: vscode.ProgressLocation.Notification,
-          title: repos.length > 1 ? `Updating ${repos.length} repositories…` : 'Updating project…',
-          cancellable: false,
+          label: '$(git-merge) Merge',
+          description: 'git pull (merge fetched commits)',
+          method: 'merge',
         },
-        () =>
-          runUpdateProject({
-            repos,
-            gitService: updateGit,
-            method: pickedMethod.method,
-            pullRebaseDefault,
-          })
+        {
+          label: '$(git-pull-request) Rebase',
+          description: 'git pull --rebase (replay local commits on top)',
+          method: 'rebase',
+        },
+        {
+          label: '$(settings-gear) Branch default',
+          description: "use the branch's configured pull strategy",
+          method: 'branch-default',
+        },
+      ];
+      const pickedMethod = await vscode.window.showQuickPick(methodItems, {
+        title:
+          repos.length > 1
+            ? `Update ${repos.length} Repositories — Choose Method`
+            : 'Update Project — Choose Method',
+        placeHolder: 'How should fetched commits be integrated?',
+        matchOnDescription: true,
+      });
+      if (!pickedMethod) {
+        return;
+      }
+
+      const pullRebaseDefault = vscode.workspace
+        .getConfiguration('intellig')
+        .get<boolean>('pullRebase', false);
+
+      // The 0a getIncomingOutgoing lives on the concrete GitService (ADR-001 —
+      // not the frozen IGitService composite). The runtime instance is always a
+      // GitService, so we narrow to the IUpdateGitService role interface.
+      const updateGit = gitService as unknown as IUpdateGitService;
+
+      let summary;
+      try {
+        summary = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title:
+              repos.length > 1 ? `Updating ${repos.length} repositories…` : 'Updating project…',
+            cancellable: false,
+          },
+          () =>
+            runUpdateProject({
+              repos,
+              gitService: updateGit,
+              method: pickedMethod.method,
+              pullRebaseDefault,
+            })
+        );
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Update failed: ${sanitizeGitError(msg)}`);
+        return;
+      }
+
+      // Install the summary into the Update Info tab BEFORE the refresh + the
+      // deep-link, so the tab renders the results the moment the user opens it.
+      ctx.gitToolWindowProvider?.setUpdateSummary(summary);
+
+      if (ctx.gitToolWindowProvider) {
+        ctx.gitToolWindowProvider.refresh();
+      }
+
+      // Surface the structured outcome with a deep-link to the Update Info tab.
+      // The notification's deep-link focuses that tab via
+      // intellig.toolWindow.focusTab.
+      const notification = buildUpdateNotification(
+        summary.allClean,
+        sanitizeGitError(updateInfoHeadline(summary))
       );
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Update failed: ${sanitizeGitError(msg)}`);
-      return;
-    }
-
-    // Install the summary into the Update Info tab BEFORE the refresh + the
-    // deep-link, so the tab renders the results the moment the user opens it.
-    ctx.gitToolWindowProvider?.setUpdateSummary(summary);
-
-    if (ctx.gitToolWindowProvider) {
-      ctx.gitToolWindowProvider.refresh();
-    }
-
-    // Surface the structured outcome with a deep-link to the Update Info tab.
-    // The notification's deep-link focuses that tab via
-    // intellig.toolWindow.focusTab.
-    const notification = buildUpdateNotification(
-      summary.allClean,
-      sanitizeGitError(updateInfoHeadline(summary))
-    );
-    const labels = (notification.deepLinks ?? []).map((l) => l.label);
-    const choice =
-      notification.severity === 'warning'
-        ? await vscode.window.showWarningMessage(notification.message, ...labels)
-        : await vscode.window.showInformationMessage(notification.message, ...labels);
-    const link = (notification.deepLinks ?? []).find((l) => l.label === choice);
-    if (link) {
-      await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? []));
-    }
+      const labels = (notification.deepLinks ?? []).map((l) => l.label);
+      const choice =
+        notification.severity === 'warning'
+          ? await vscode.window.showWarningMessage(notification.message, ...labels)
+          : await vscode.window.showInformationMessage(notification.message, ...labels);
+      const link = (notification.deepLinks ?? []).find((l) => l.label === choice);
+      if (link) {
+        await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? []));
+      }
+    },
   });
 
   // Focus a specific tab in the Git tool window. Declared in package.json;
   // bound here so the StatusBarService incoming badge (and future callers)
   // can jump straight to a tab.
+  // spine-exempt: provider-only tab router with its own arg validation
   const focusTabCommand = registerLoggedCommand(
     'intellig.toolWindow.focusTab',
     async (tab: string) => {
@@ -596,75 +585,78 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // (pure helper, operates only on already-loaded commits per spec), then
   // delegates to `GitToolWindowProvider.scrollToCommit` which posts the
   // webview message + re-renders with the scroll target.
-  const jumpToHashCommand = registerLoggedCommand('intellig.toolWindow.jumpToHash', async () => {
-    if (!ctx.services || !ctx.gitToolWindowProvider) {
-      void vscode.window.showErrorMessage('Git tool window not ready');
-      return;
-    }
-
-    const query = await vscode.window.showInputBox({
-      title: 'Jump to Commit',
-      prompt: 'Enter a commit SHA, branch name, or tag name',
-      placeHolder: 'e.g., abc1234 or main or v1.0.0',
-    });
-    if (!query) {
-      return;
-    }
-
-    const state = ctx.gitToolWindowProvider.getExtendedLogState();
-    const loadedCommits = state.commitNodes.map((n) => n.commit);
-
-    // Branches and tags for name-based matching. We fall back to empty
-    // arrays on error so the command degrades to pure SHA matching rather
-    // than failing outright.
-    const gitService = ctx.services.gitService;
-    // prefer the tool-window's selected repo when set, otherwise
-    // fall back to the active-editor's repo in multi-root workspaces.
-    const repo =
-      ctx.gitToolWindowProvider.getSelectedRepository() ??
-      (await resolveRepo(gitService, { preferActive: true, silent: true }));
-    let branches: IBranch[] = [];
-    let tags: ITag[] = [];
-    if (repo) {
-      try {
-        branches = await gitService.getBranches(repo);
-      } catch (error) {
-        // Fall through to SHA-only matching; log so the swallowed fault stays visible.
-        getLogger()
-          .child({ component: 'extension' })
-          .debug('findCommit: getBranches failed', {
-            err: error instanceof Error ? error.message : String(error),
-          });
+  const jumpToHashCommand = registerBareCommand(ctx, {
+    id: 'intellig.toolWindow.jumpToHash',
+    failureTitle: 'Failed to jump to commit',
+    run: async ({ gitService }) => {
+      if (!ctx.gitToolWindowProvider) {
+        void vscode.window.showErrorMessage('Git tool window not ready');
+        return;
       }
-      try {
-        tags = await gitService.getTags(repo);
-      } catch (error) {
-        // Fall through to SHA-only matching; log so the swallowed fault stays visible.
-        getLogger()
-          .child({ component: 'extension' })
-          .debug('findCommit: getTags failed', {
-            err: error instanceof Error ? error.message : String(error),
-          });
+
+      const query = await vscode.window.showInputBox({
+        title: 'Jump to Commit',
+        prompt: 'Enter a commit SHA, branch name, or tag name',
+        placeHolder: 'e.g., abc1234 or main or v1.0.0',
+      });
+      if (!query) {
+        return;
       }
-    }
 
-    const match = findCommitByQuery(query, loadedCommits, branches, tags);
-    if (!match) {
-      // sanitize-exempt: user-input: query.trim() is the user-typed search string echoed back, not git stderr
-      void vscode.window.showWarningMessage(`No commit found matching '${query.trim()}'`);
-      return;
-    }
+      const state = ctx.gitToolWindowProvider.getExtendedLogState();
+      const loadedCommits = state.commitNodes.map((n) => n.commit);
 
-    await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
-    const scrolled = ctx.gitToolWindowProvider.scrollToCommit(match);
-    if (!scrolled) {
-      // Shouldn't happen given findCommitByQuery matched against the same
-      // loaded set, but surface a warning just in case (e.g. state drifted
-      // between the two calls).
-      void vscode.window.showWarningMessage(
-        `Commit ${match.substring(0, 7)} is not currently loaded in the graph`
-      );
-    }
+      // Branches and tags for name-based matching. We fall back to empty
+      // arrays on error so the command degrades to pure SHA matching rather
+      // than failing outright.
+      // prefer the tool-window's selected repo when set, otherwise
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo =
+        ctx.gitToolWindowProvider.getSelectedRepository() ??
+        (await resolveRepo(gitService, { preferActive: true, silent: true }));
+      let branches: IBranch[] = [];
+      let tags: ITag[] = [];
+      if (repo) {
+        try {
+          branches = await gitService.getBranches(repo);
+        } catch (error) {
+          // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+          getLogger()
+            .child({ component: 'extension' })
+            .debug('findCommit: getBranches failed', {
+              err: error instanceof Error ? error.message : String(error),
+            });
+        }
+        try {
+          tags = await gitService.getTags(repo);
+        } catch (error) {
+          // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+          getLogger()
+            .child({ component: 'extension' })
+            .debug('findCommit: getTags failed', {
+              err: error instanceof Error ? error.message : String(error),
+            });
+        }
+      }
+
+      const match = findCommitByQuery(query, loadedCommits, branches, tags);
+      if (!match) {
+        // sanitize-exempt: user-input: query.trim() is the user-typed search string echoed back, not git stderr
+        void vscode.window.showWarningMessage(`No commit found matching '${query.trim()}'`);
+        return;
+      }
+
+      await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+      const scrolled = ctx.gitToolWindowProvider.scrollToCommit(match);
+      if (!scrolled) {
+        // Shouldn't happen given findCommitByQuery matched against the same
+        // loaded set, but surface a warning just in case (e.g. state drifted
+        // between the two calls).
+        void vscode.window.showWarningMessage(
+          `Commit ${match.substring(0, 7)} is not currently loaded in the graph`
+        );
+      }
+    },
   });
 
   // Reveal a specific commit (by hash) in the Git tool window: focus the graph
@@ -672,6 +664,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // commit links (the hash travels with the click) so clicking a blame commit
   // navigates the graph below instead of opening a quick-pick. Programmatic-only
   // (no package.json contribution), mirroring jumpToHash's reveal path.
+  // spine-exempt: provider-only reveal, programmatic hash argument
   const revealCommitCommand = registerLoggedCommand(
     'intellig.editor.revealCommitInGraph',
     async (commitHashArg?: unknown) => {
@@ -694,145 +687,74 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   );
 
   // Stage selected files command
-  const stageSelectedCommand = registerLoggedCommand('intellig.stageSelected', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo (that's the file being
-    // staged) in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Stage the ACTIVE EDITOR file (the palette title says "Active File";
-    // explorer selections go through intellig.explorer.stage instead).
-    const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor) {
-      // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
-      // relative path. `asRelativePath` is workspace-folder-relative and breaks
-      // for nested/multi-root repos (see repoRelativePath).
-      const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
-      try {
-        await gitService.stage(repo, [filePath]).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-        void vscode.window.showInformationMessage(`Staged: ${filePath}`);
-        // Refresh views
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.refresh();
+  // Stage the ACTIVE EDITOR file (the palette title says "Active File";
+  // explorer selections go through intellig.explorer.stage instead).
+  const stageSelectedCommand = registerFileCommand(ctx, {
+    id: 'intellig.stageSelected',
+    noTargetMessage: 'No file selected to stage',
+    failureTitle: 'Failed to stage file',
+    refreshOnSuccess: true,
+    run: async ({ gitService, repo, path: filePath }) => {
+      await gitService.stage(repo, [filePath]).match(
+        () => undefined,
+        (e) => {
+          throw e;
         }
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to stage file', error)
-        );
-      }
-    } else {
-      void vscode.window.showInformationMessage('No file selected to stage');
-    }
+      );
+      void vscode.window.showInformationMessage(`Staged: ${filePath}`);
+    },
   });
 
   // Unstage selected files command
-  const unstageSelectedCommand = registerLoggedCommand('intellig.unstageSelected', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo (that's the file being
-    // unstaged) in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Unstage the ACTIVE EDITOR file (the palette title says "Active File";
-    // explorer selections go through intellig.explorer.unstage instead).
-    const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor) {
-      // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
-      // relative path. `asRelativePath` is workspace-folder-relative and breaks
-      // for nested/multi-root repos (see repoRelativePath).
-      const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
-      try {
-        await gitService.unstage(repo, [filePath]).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-        void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
-        // Refresh views
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.refresh();
+  // Unstage the ACTIVE EDITOR file (the palette title says "Active File";
+  // explorer selections go through intellig.explorer.unstage instead).
+  const unstageSelectedCommand = registerFileCommand(ctx, {
+    id: 'intellig.unstageSelected',
+    noTargetMessage: 'No file selected to unstage',
+    failureTitle: 'Failed to unstage file',
+    refreshOnSuccess: true,
+    run: async ({ gitService, repo, path: filePath }) => {
+      await gitService.unstage(repo, [filePath]).match(
+        () => undefined,
+        (e) => {
+          throw e;
         }
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to unstage file', error)
-        );
-      }
-    } else {
-      void vscode.window.showInformationMessage('No file selected to unstage');
-    }
+      );
+      void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
+    },
   });
 
-  const applyPatchCommand = registerLoggedCommand(
-    'intellig.patch.apply',
-    async (initialUri?: vscode.Uri) => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-      const gitService = ctx.services.gitService;
-      // Resolve with active-editor preference.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-        pickerTitle: 'Apply Patch — Choose Repository',
-        pickerPlaceholder: 'Select a repository',
-      });
-      if (!repo) {
-        return;
-      }
+  const applyPatchCommand = registerRepoCommand(ctx, {
+    id: 'intellig.patch.apply',
+    failureTitle: 'Failed to open Apply Patch',
+    pickerTitle: 'Apply Patch — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    hintFromRawUri: true,
+    run: ({ services, repo }, rawUri) => {
+      const initialUri =
+        rawUri &&
+        typeof rawUri === 'object' &&
+        typeof (rawUri as { fsPath?: unknown }).fsPath === 'string'
+          ? (rawUri as vscode.Uri)
+          : undefined;
       showApplyPatchDialog(ctx.context, {
         repo,
-        patchService: ctx.services.patchService,
-        conflictResolutionService: ctx.services.conflictResolutionService,
+        patchService: services.patchService,
+        conflictResolutionService: services.conflictResolutionService,
         initialPatchPath: initialUri?.fsPath,
       });
-    }
-  );
+      return Promise.resolve();
+    },
+  });
 
   // Create Patch from Local Changes… — prompts for target (file /
   // clipboard) and writes the current diff.
-  const createPatchFromLocalCommand = registerLoggedCommand(
-    'intellig.patch.createFromLocal',
-    async () => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-      const gitService = ctx.services.gitService;
-      // Resolve with active-editor preference.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-        pickerTitle: 'Create Patch — Choose Repository',
-        pickerPlaceholder: 'Select a repository',
-      });
-      if (!repo) {
-        return;
-      }
-
+  const createPatchFromLocalCommand = registerRepoCommand(ctx, {
+    id: 'intellig.patch.createFromLocal',
+    failureTitle: 'Failed to create patch',
+    pickerTitle: 'Create Patch — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ services, repo }) => {
       const target = await vscode.window.showQuickPick(
         [
           { label: '$(file) Save to file…', id: 'file' as const },
@@ -846,7 +768,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
 
       try {
         if (target.id === 'clipboard') {
-          const patch = await ctx.services.patchService.createPatchFromLocalChanges(repo, {
+          const patch = await services.patchService.createPatchFromLocalChanges(repo, {
             toClipboard: true,
           });
           if (!patch || patch.trim().length === 0) {
@@ -866,7 +788,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         if (!uri) {
           return;
         }
-        const patch = await ctx.services.patchService.createPatchFromLocalChanges(repo, {
+        const patch = await services.patchService.createPatchFromLocalChanges(repo, {
           outputPath: uri.fsPath,
         });
         if (!patch || patch.trim().length === 0) {
@@ -884,149 +806,114 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         const errMsg = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`Failed to create patch: ${sanitizeGitError(errMsg)}`);
       }
-    }
-  );
+    },
+  });
 
   // Show History command (command palette / keybinding)
-  const showHistoryCommand = registerLoggedCommand('intellig.showHistory', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
+  const showHistoryCommand = registerRepoCommand(ctx, {
+    id: 'intellig.showHistory',
+    failureTitle: 'Failed to get history',
+    pickerTitle: 'Show History — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ gitService, repo }) => {
+      const activeEditor = vscode.window.activeTextEditor;
 
-    const gitService = ctx.services.gitService;
-
-    // Resolve via the active editor's file path when available so multi-root
-    // invocations don't silently pick the wrong repo.
-    const activeEditor = vscode.window.activeTextEditor;
-    const hintRepoPath =
-      activeEditor && activeEditor.document.uri.scheme === 'file'
-        ? activeEditor.document.uri.fsPath
+      // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
+      // relative path. `asRelativePath` is workspace-folder-relative and breaks
+      // for nested/multi-root repos (see repoRelativePath).
+      const filePath = activeEditor
+        ? repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath)
         : undefined;
-    const repo = await resolveRepo(gitService, {
-      hintRepoPath,
-      preferActive: true,
-      pickerTitle: 'Show History — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-    });
-    if (!repo) {
-      return;
-    }
 
-    // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
-    // relative path. `asRelativePath` is workspace-folder-relative and breaks
-    // for nested/multi-root repos (see repoRelativePath).
-    const filePath = activeEditor
-      ? repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath)
-      : undefined;
-
-    // For a file, present its history via the shared helper — identical to the
-    // explorer right-click entry point (tab when the tabbed window is on, else a
-    // QuickPick). Repo-level history (no active file) stays a QuickPick here
-    // because the History tab is per-file.
-    if (filePath) {
-      await presentFileHistory(ctx, repo, filePath);
-      return;
-    }
-
-    try {
-      const history = await gitService.getLog(repo, { maxCount: 50 });
-
-      if (history.length === 0) {
-        void vscode.window.showInformationMessage('No commit history found');
+      // For a file, present its history via the shared helper — identical to the
+      // explorer right-click entry point (tab when the tabbed window is on, else a
+      // QuickPick). Repo-level history (no active file) stays a QuickPick here
+      // because the History tab is per-file.
+      if (filePath) {
+        await presentFileHistory(ctx, repo, filePath);
         return;
       }
 
-      const items = history.map((commit) => ({
-        label: commit.shortHash,
-        description: commit.message.substring(0, 60),
-        detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
-        commit,
-      }));
+      try {
+        const history = await gitService.getLog(repo, { maxCount: 50 });
 
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Repository History',
-        title: 'Show History',
-      });
+        if (history.length === 0) {
+          void vscode.window.showInformationMessage('No commit history found');
+          return;
+        }
 
-      if (selected) {
-        // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr; cannot embed credentials git emits in error paths
-        void vscode.window.showInformationMessage(
-          `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+        const items = history.map((commit) => ({
+          label: commit.shortHash,
+          description: commit.message.substring(0, 60),
+          detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
+          commit,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: 'Repository History',
+          title: 'Show History',
+        });
+
+        if (selected) {
+          // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr; cannot embed credentials git emits in error paths
+          void vscode.window.showInformationMessage(
+            `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+          );
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          formatActionFailureToast('Failed to get history', error)
         );
       }
-    } catch (error) {
-      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to get history', error));
-    }
+    },
   });
 
   // Revert File command (command palette / keybinding)
-  const revertFileCommand = registerLoggedCommand('intellig.revertFile', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-
-    const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor) {
-      void vscode.window.showErrorMessage('No file selected to revert');
-      return;
-    }
-
-    // The revert must land in the repo that owns the active file.
-    const hintRepoPath =
-      activeEditor.document.uri.scheme === 'file' ? activeEditor.document.uri.fsPath : undefined;
-    const repo = await resolveRepo(gitService, {
-      hintRepoPath,
-      pickerTitle: 'Revert File — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-    });
-    if (!repo) {
-      return;
-    }
-
-    // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
-    // relative path. `asRelativePath` is workspace-folder-relative and breaks
-    // for nested/multi-root repos (see repoRelativePath).
-    const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
-
-    // Nothing-to-revert pre-check (untracked / clean file): inform instead of
-    // confirming a no-op that would then toast "Reverted".
-    const precheckMsg = revertPrecheck(
-      fileStatusFor(await gitService.getStatus(repo), filePath),
-      filePath
-    );
-    if (precheckMsg) {
-      void vscode.window.showInformationMessage(precheckMsg);
-      return;
-    }
-
-    const confirm = await vscode.window.showWarningMessage(
-      `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,
-      { modal: true },
-      'Revert'
-    );
-
-    if (confirm !== 'Revert') {
-      return;
-    }
-
-    try {
-      await gitService.revertFile(repo, filePath).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
+  const revertFileCommand = registerFileCommand(ctx, {
+    id: 'intellig.revertFile',
+    noTargetMessage: 'No file selected to revert',
+    failureTitle: 'Failed to revert file',
+    pickerTitle: 'Revert File — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ gitService, repo, path: filePath }) => {
+      // Nothing-to-revert pre-check (untracked / clean file): inform instead of
+      // confirming a no-op that would then toast "Reverted".
+      const precheckMsg = revertPrecheck(
+        fileStatusFor(await gitService.getStatus(repo), filePath),
+        filePath
       );
-      void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
+      if (precheckMsg) {
+        void vscode.window.showInformationMessage(precheckMsg);
+        return;
       }
-    } catch (error) {
-      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to revert file', error));
-    }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,
+        { modal: true },
+        'Revert'
+      );
+
+      if (confirm !== 'Revert') {
+        return;
+      }
+
+      try {
+        await gitService.revertFile(repo, filePath).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+        void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          formatActionFailureToast('Failed to revert file', error)
+        );
+      }
+    },
   });
 
   // Rollback / Revert Local Changes — IntelliJ's "Rollback" (Ctrl+Alt+Z).
@@ -1034,23 +921,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // confirmation that lists every affected file (data loss). When invoked
   // without an explicit selection it reads `git status` and lets the user pick
   // which files to roll back, mirroring RollbackChangesDialog's file list.
-  const rollbackChangesCommand = registerLoggedCommand(
-    'intellig.rollbackChanges',
-    async (arg?: unknown) => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-      const gitService = ctx.services.gitService;
-
-      const repo = await resolveRepo(gitService, {
-        pickerTitle: 'Rollback — Choose Repository',
-        pickerPlaceholder: 'Select a repository',
-      });
-      if (!repo) {
-        return;
-      }
-
+  const rollbackChangesCommand = registerRepoCommand(ctx, {
+    id: 'intellig.rollbackChanges',
+    failureTitle: 'Failed to roll back changes',
+    pickerTitle: 'Rollback — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ gitService, repo }, arg) => {
       // The caller (webview / context menu) may hand us the exact changes to
       // roll back. Otherwise gather the working-tree changes and let the user
       // choose.
@@ -1121,24 +997,26 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
           formatActionFailureToast('Failed to roll back changes', error)
         );
       }
-    }
-  );
+    },
+  });
 
   // New Tag — command-palette entry, defaults to HEAD.
+  // spine-exempt: delegates to runNewTagFlowFromContext which owns targeting + toasts
   const newTagCommand = registerLoggedCommand('intellig.tag.new', async () => {
     await runNewTagFlowFromContext(ctx, undefined);
   });
 
   // New Tag — invoked from the log commit context menu with a commit arg.
-  const commitNewTagCommand = registerLoggedCommand(
-    'intellig.commit.newTag',
-    async (commitArg?: unknown, repoRootArg?: unknown) => {
+  const commitNewTagCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.newTag',
+    failureTitle: 'Failed to create tag',
+    run: async (_args, commitArg, repoRootArg) => {
       const ref = extractCommitHash(commitArg);
       // `repoRootArg` (merged "all roots" log) pins the tag to the clicked
       // commit's OWN repo; absent, the usual repository picker runs.
       await runNewTagFlowFromContext(ctx, ref, repoRootArg);
-    }
-  );
+    },
+  });
 
   // Commit and Push — IntelliJ's "Commit and Push…" (Ctrl+Alt+K). IntelliJ's
   // GitCommitAndPushExecutor pushes as a post-commit step gated on the commit
@@ -1147,6 +1025,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // two via the canonical `intellig.commit` / `intellig.push` entry points —
   // reusing both rather than re-implementing either — and only push when the
   // commit reported `committed: true`.
+  // spine-exempt: executeCommand chain over intellig.commit/intellig.push, which own feedback
   const commitAndPushCommand = registerLoggedCommand('intellig.commitAndPush', async () => {
     const toolWindowPathTaken = isCommitToolWindowEnabled() && !!ctx.commitToolWindow;
     const { pushed } = await commitThenPush(
@@ -1167,18 +1046,15 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // so the remote moves to that exact commit. Single-only; invoked
   // programmatically from the log commit context menu (not shown in menus).
   const PUSH_HASH_RE = /^[0-9a-f]{4,64}$/i;
-  const pushUpToCommitCommand = registerLoggedCommand(
-    'intellig.pushUpToCommit',
-    async (hash: string, repoRootArg?: unknown) => {
+  const pushUpToCommitCommand = registerBareCommand(ctx, {
+    id: 'intellig.pushUpToCommit',
+    failureTitle: 'Push failed',
+    run: async ({ gitService }, rawHash, repoRootArg) => {
+      const hash = typeof rawHash === 'string' ? rawHash : '';
       if (!hash || !PUSH_HASH_RE.test(hash)) {
         void vscode.window.showErrorMessage('Cannot push: invalid commit hash.');
         return;
       }
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-      const gitService = ctx.services.gitService;
       // Prefer the clicked commit's OWN repo root when threaded through from
       // the merged "all roots" log — pushing a foreign hash against the
       // active-editor repo would move the WRONG remote branch. Falls back to
@@ -1251,13 +1127,14 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         const msg = err instanceof Error ? err.message : 'Push failed.';
         void vscode.window.showErrorMessage(sanitizeGitError(msg));
       }
-    }
-  );
+    },
+  });
 
   // VCS Operations Popup — IntelliJ's Alt+` quick-list of common VCS actions.
   // Distinct from the branch popup (Ctrl+Shift+`): this is a flat menu of the
   // most-used Git operations, each dispatching to its existing command. New
   // entries are additive; the popup is intentionally a thin command router.
+  // spine-exempt: pure QuickPick router dispatching to commands that own feedback
   const vcsOperationsPopupCommand = registerLoggedCommand(
     'intellig.vcsOperationsPopup',
     async () => {

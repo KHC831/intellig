@@ -256,3 +256,140 @@ describe('command spine', () => {
     assert.deepStrictEqual(raw, ['abc123', { flag: true }]);
   });
 });
+
+describe('command spine — bare scope and repo-scope options', () => {
+  const handlers = new Map<string, Handler>();
+  const originalRegister = vscode.commands.registerCommand;
+  const win = vscode.window as unknown as Record<string, unknown>;
+  const winSnapshot: Record<string, unknown> = {};
+  let errors: string[];
+
+  beforeEach(() => {
+    errors = [];
+    handlers.clear();
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = (
+      id: string,
+      cb: Handler
+    ): { dispose: () => void } => {
+      handlers.set(id, cb);
+      return { dispose: () => {} };
+    };
+    for (const k of ['showErrorMessage', 'showInformationMessage']) {
+      winSnapshot[k] = win[k];
+    }
+    win.showErrorMessage = async (m: string): Promise<undefined> => {
+      errors.push(m);
+      return undefined;
+    };
+    win.showInformationMessage = async (): Promise<undefined> => undefined;
+  });
+
+  afterEach(() => {
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = originalRegister;
+    for (const k of Object.keys(winSnapshot)) {
+      win[k] = winSnapshot[k];
+    }
+  });
+
+  it('bare scope: services guard, raw args pass-through, failure backstop', async () => {
+    const { registerBareCommand } = await import('../../../src/commands/registration/commandSpine');
+    let raw: unknown[] = [];
+    const ctx = {
+      services: { gitService: {} },
+      gitToolWindowProvider: undefined,
+      context: { subscriptions: [] },
+    } as unknown as ICommandContext;
+    registerBareCommand(ctx, {
+      id: 'spine.bare',
+      failureTitle: 'Failed to frob',
+      run: async (_args, ...rest) => {
+        raw = rest;
+        if (rest[0] === 'explode') {
+          throw new Error('kapow');
+        }
+      },
+    });
+
+    await handlers.get('spine.bare')!('abc', 42);
+    assert.deepStrictEqual(raw, ['abc', 42]);
+    assert.strictEqual(errors.length, 0);
+
+    await handlers.get('spine.bare')!('explode');
+    assert.strictEqual(errors.length, 1);
+    assert.ok(errors[0].startsWith('Failed to frob:'), errors[0]);
+
+    registerBareCommand(
+      { services: undefined, context: { subscriptions: [] } } as unknown as ICommandContext,
+      { id: 'spine.bare2', failureTitle: 'Failed', run: async () => {} }
+    );
+    await handlers.get('spine.bare2')!();
+    assert.ok(errors.some((m) => /services not initialized/i.test(m)));
+  });
+
+  it('repo scope discoverFallback: cold-start discovery via the first workspace folder', async () => {
+    const ws = vscode.workspace as unknown as { workspaceFolders?: unknown };
+    const originalFolders = ws.workspaceFolders;
+    ws.workspaceFolders = [{ uri: Uri.file('/r'), name: 'r', index: 0 }];
+    let seenRepo: IRepository | undefined;
+    const ctx = {
+      services: {
+        gitService: {
+          getRepositories: () => [], // nothing cached yet (cold start)
+          getRepository: async () => repo, // discovery succeeds
+        },
+      },
+      gitToolWindowProvider: undefined,
+      context: { subscriptions: [] },
+    } as unknown as ICommandContext;
+    registerRepoCommand(ctx, {
+      id: 'spine.discover',
+      failureTitle: 'Failed',
+      discoverFallback: true,
+      run: async (args) => {
+        seenRepo = args.repo;
+      },
+    });
+
+    try {
+      await handlers.get('spine.discover')!();
+    } finally {
+      ws.workspaceFolders = originalFolders;
+    }
+
+    assert.strictEqual(seenRepo, repo, 'discovery fallback must supply the repo');
+    assert.strictEqual(errors.length, 0, 'no error toast when discovery succeeds');
+  });
+
+  it('repo scope hintFromRawUri: a Uri first argument pins the repo hint', async () => {
+    const hints: Array<string | undefined> = [];
+    const ctx = {
+      services: {
+        gitService: {
+          getRepositories: () => [repo],
+          getRepository: async (u: { fsPath: string }) => {
+            hints.push(u.fsPath);
+            return repo;
+          },
+        },
+      },
+      gitToolWindowProvider: undefined,
+      context: { subscriptions: [] },
+    } as unknown as ICommandContext;
+    let seen: unknown[] = [];
+    registerRepoCommand(ctx, {
+      id: 'spine.hint',
+      failureTitle: 'Failed',
+      hintFromRawUri: true,
+      run: async (_args, ...rest) => {
+        seen = rest;
+      },
+    });
+
+    const clicked = Uri.file('/r/deep/file.ts');
+    await handlers.get('spine.hint')!(clicked);
+
+    // The raw uri still reaches run (the body may need it), and the repo
+    // resolution consulted the uri's path as its hint.
+    assert.strictEqual(seen[0], clicked);
+  });
+});

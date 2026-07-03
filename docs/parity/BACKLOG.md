@@ -60,10 +60,11 @@ well in real use.
 ## Command spine adoption (structural hardening, not parity)
 
 `src/commands/registration/commandSpine.ts` centralizes the services guard,
-the (clickedUri, selectedUris[]) selection contract, resolveRepo, path
-derivation, failure toasts, and refresh-on-success. explorerCommands is fully
-migrated. Remaining registration modules to migrate as follow-up slices
-(each is mechanical; existing unit tests pin behavior):
-commitRepoCoreCommands, commitMenuCommands, rebaseConflictCommands,
-stashShelfCommands, changelistCommands, blameEditorCommands, branchCommands.
-New argument-taking commands MUST register through the spine.
+the (clickedUri, selectedUris[]) selection contract, resolveRepo (with
+cold-start discovery and raw-uri hints), path derivation, failure toasts, and
+refresh-on-success. ALL EIGHT registration modules are migrated; the remaining
+hand-rolled registrations carry justified `spine-exempt:` comments, enforced
+by check:spine-registration. Possible follow-up: extend the spine's scopes to
+the class-based context-menu surfaces (BranchContextMenuCommands,
+CommitContextMenuCommands), which keep their own tree-item/webview-payload
+dispatch today.

@@ -111,7 +111,6 @@ const DELEGATOR_ALLOWLIST: Record<string, string> = {
   // own success/error toasts.
   'intellig.push': '_openPushDialog() opens PushDialog which renders + toasts',
   'intellig.pull': 'pull flow opens a dialog / progress + toasts on result',
-  'intellig.rebase.interactive': '_openRebaseDialog() opens RebaseDialog which renders + toasts',
   'intellig.tag.new': '_runNewTagFlow() prompts via showInputBox + toasts',
   // Conflict-navigation delegators: mergeView.nextConflict/previousConflict
   // move the editor selection (observable) and are covered by MergeView
@@ -127,19 +126,14 @@ const DELEGATOR_ALLOWLIST: Record<string, string> = {
   'intellig.merge.acceptAllCurrent': 'mergeView.acceptAllCurrent() re-renders the merge editor',
   'intellig.merge.acceptAllIncoming': 'mergeView.acceptAllIncoming() re-renders the merge editor',
   'intellig.merge.markResolved': 'mergeView.markResolved() updates state + closes the editor',
-  // Stash delegators: _pickStashForAction shows a QuickPick (observable),
-  // then delegates to the stash view which toasts on result.
-  'intellig.stash.rename': '_pickStashForAction QuickPick → view.renameStash() toasts',
-  'intellig.stash.branchFromStash': '_pickStashForAction QuickPick → view.branchFromStash() toasts',
-  // Shelf delegator: _getShelfContext + ctx.view.importPatches() shows a
-  // file picker + toasts on result (ShelfView-owned feedback).
-  'intellig.shelve.importPatches': '_getShelfContext → view.importPatches() picker + toasts',
+  // (Stash/shelf and interactive-rebase delegators moved onto the command
+  // spine, whose spec bodies carry the failure-toast backstop — they no
+  // longer register through the raw wrapper this audit scans.)
   // Commit-context delegators: each routes to a named flow/dialog helper
   // that prompts (showInputBox / dialog) and toasts on result.
-  'intellig.commit.newTag': '_runNewTagFlow() prompts via showInputBox + toasts',
-  'intellig.commit.newBranch': '_openNewBranchDialog() opens NewBranchDialog (renders + toasts)',
-  'intellig.commit.cherryPickWithoutCommit': '_runCherryPickVariant() toasts on result',
-  'intellig.commit.applyFilesToBranch': '_runApplyFilesToBranchFlow() prompts + toasts',
+  // (Log-commit menu delegators moved onto the command spine, whose spec
+  // bodies carry the failure-toast backstop — they no longer register
+  // through the raw wrapper this audit scans.)
 };
 
 interface ExtractedHandler {
@@ -203,8 +197,12 @@ describe('Command-handler transparency audit (spec 8 L3 + L13)', () => {
     // Negative-control: if the extractor finds ~0 handlers, every per-handler
     // assertion below would vacuously pass. extension.ts registers dozens.
     assert.ok(
-      handlers.length >= 30,
-      `expected >= 30 registerLoggedCommand handlers across ${EXT_FILE} + ${REGISTRATION_DIR}/*.ts; ` +
+      // The raw-wrapper population shrank by design: most handlers migrated
+      // onto the command spine (commandSpine.ts), whose runReported backstop
+      // makes them transparent by construction — this audit covers only the
+      // spine-exempt remainder.
+      handlers.length >= 15,
+      `expected >= 15 registerLoggedCommand handlers across ${EXT_FILE} + ${REGISTRATION_DIR}/*.ts; ` +
         `found ${handlers.length}. The extractor may have broken, or the files moved.`
     );
   });

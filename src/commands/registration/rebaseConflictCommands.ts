@@ -2,42 +2,49 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
-import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
+import { sanitizeGitError } from '../../git-core/gitError';
 import { createMergeView } from '../../services';
 import { inferReopenOperation } from '../../conflicts/conflictReversal';
 import { acceptLabels } from '../../conflicts/conflictSideNames';
 import type { ICommandContext } from './CommandContext';
+import { registerBareCommand, registerRepoCommand } from './commandSpine';
 
 /**
  * Merge-editor, conflict-resolution, and rebase-recovery command handlers
  * (`intellig.merge.*`, `intellig.conflict.*`, `intellig.rebase.*`,
- * `intellig.showResolveConflictsDialog`) extracted verbatim from
- * extension.ts's registerCommands.
+ * `intellig.showResolveConflictsDialog`).
  *
- * Reaches shared state through {@link ICommandContext}. The `ctx.mergeView`
- * singleton (openMergeView) is lazily written back here through the
- * read/WRITE ctx accessor so the single owner in extension.ts is mutated
- * (RULE E1). Interactive rebase now opens the unified Rebase dialog via
- * `ctx.openRebaseDialog` (the dialog owns the rebase-editor lifecycle).
- * Returns its disposables; extension.ts owns the single push (RULE E4).
+ * Registered through the command spine where the spine's semantics fit
+ * (repo-scoped conflict/rebase flows); the merge-view octet stays on
+ * registerLoggedCommand because it must work WITHOUT services (it acts only
+ * on the MergeView singleton). Reaches shared state through
+ * {@link ICommandContext}. The `ctx.mergeView` singleton (openMergeView) is
+ * lazily written back here through the read/WRITE ctx accessor so the single
+ * owner in extension.ts is mutated (RULE E1). Interactive rebase opens the
+ * unified Rebase dialog via `ctx.openRebaseDialog` (the dialog owns the
+ * rebase-editor lifecycle). Returns its disposables; extension.ts owns the
+ * single push (RULE E4).
  */
 export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Disposable[] {
-  // Merge View commands
-  const openMergeViewCommand = registerLoggedCommand(
-    'intellig.merge.openMergeView',
-    async (fileUri?: vscode.Uri) => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
+  // Merge View commands. Bare scope: with a Uri argument the repo is never
+  // needed; without one the body runs its own conflicted-file picker.
+  const openMergeViewCommand = registerBareCommand(ctx, {
+    id: 'intellig.merge.openMergeView',
+    failureTitle: 'Failed to open merge view',
+    run: async ({ gitService }, rawUri) => {
+      const fileUri =
+        rawUri &&
+        typeof rawUri === 'object' &&
+        typeof (rawUri as { fsPath?: unknown }).fsPath === 'string'
+          ? (rawUri as vscode.Uri)
+          : undefined;
 
       // Get the file to open in merge view
       let filePath: string;
       if (fileUri) {
         filePath = fileUri.fsPath;
       } else {
-        // If no file provided, show a picker for conflicted files
-        const gitService = ctx.services.gitService;
+        // If no file provided, show a picker for conflicted files.
         // prefer the active-editor's repo in multi-root workspaces.
         const repo = await resolveRepo(gitService, {
           preferActive: true,
@@ -71,18 +78,12 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
 
       // Create merge view if not exists
       if (!ctx.mergeView) {
-        ctx.mergeView = createMergeView(ctx.context.extensionUri, ctx.services.gitService);
+        ctx.mergeView = createMergeView(ctx.context.extensionUri, gitService);
       }
 
-      try {
-        await ctx.mergeView.show(filePath);
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to open merge view', error)
-        );
-      }
-    }
-  );
+      await ctx.mergeView.show(filePath);
+    },
+  });
 
   // The merge.* commands act on the lazily-created MergeView singleton; when
   // it has never been opened, say so instead of silently doing nothing (all
@@ -93,6 +94,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     );
   }
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const acceptCurrentCommand = registerLoggedCommand('intellig.merge.acceptCurrent', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptCurrent();
@@ -101,6 +103,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const acceptIncomingCommand = registerLoggedCommand('intellig.merge.acceptIncoming', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptIncoming();
@@ -109,6 +112,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const acceptBothCommand = registerLoggedCommand('intellig.merge.acceptBoth', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptBoth();
@@ -117,6 +121,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const acceptAllCurrentCommand = registerLoggedCommand('intellig.merge.acceptAllCurrent', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptAllCurrent();
@@ -125,6 +130,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const acceptAllIncomingCommand = registerLoggedCommand('intellig.merge.acceptAllIncoming', () => {
     if (ctx.mergeView) {
       ctx.mergeView.acceptAllIncoming();
@@ -133,6 +139,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const nextConflictCommand = registerLoggedCommand('intellig.merge.nextConflict', () => {
     if (ctx.mergeView) {
       ctx.mergeView.nextConflict();
@@ -141,6 +148,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const previousConflictCommand = registerLoggedCommand('intellig.merge.previousConflict', () => {
     if (ctx.mergeView) {
       ctx.mergeView.previousConflict();
@@ -149,6 +157,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const markResolvedCommand = registerLoggedCommand('intellig.merge.markResolved', async () => {
     if (ctx.mergeView) {
       await ctx.mergeView.markResolved();
@@ -161,22 +170,11 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
   // Manual entry point for re-opening the Resolve Conflicts dialog. Used by
   // the status-bar "Unresolved conflicts — click to resolve" prompt and by
   // the VCS menu `Resolve Conflicts…` item (contributed elsewhere).
-  const showResolveConflictsDialogCommand = registerLoggedCommand(
-    'intellig.showResolveConflictsDialog',
-    async () => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-      const conflictService = ctx.services.conflictResolutionService;
-      const gitService = ctx.services.gitService;
-      // prefer the active-editor's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
+  const showResolveConflictsDialogCommand = registerRepoCommand(ctx, {
+    id: 'intellig.showResolveConflictsDialog',
+    failureTitle: 'Failed to open the Resolve Conflicts dialog',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
       const conflicts = await conflictService.getConflictedFiles(repo);
       const state = conflictService.getRepositoryState(repo);
       if (conflicts.length === 0 && state === 'idle') {
@@ -201,46 +199,35 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       await conflictService.openResolveConflictsDialog(repo, conflicts, opContext, {
         explicit: true,
       });
-    }
-  );
+    },
+  });
 
   // Palette entry point — Skip This Commit during an in-progress rebase.
   // Gated by the same `intellig.conflicts.active` context key the status-bar
   // prompt uses, so it only appears while a rebase is paused on conflicts.
   // Destructive; single confirm matches the dialog button.
-  const rebaseSkipCommand = registerLoggedCommand('intellig.rebase.skip', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-    const gitService = ctx.services.gitService;
-    const conflictService = ctx.services.conflictResolutionService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
+  const rebaseSkipCommand = registerRepoCommand(ctx, {
+    id: 'intellig.rebase.skip',
+    failureTitle: 'Failed to skip commit',
+    run: async ({ services, gitService, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const state = conflictService.getRepositoryState(repo);
+      if (state !== 'rebasing') {
+        void vscode.window.showInformationMessage(
+          'Rebase --skip is only available while a rebase is in progress.'
+        );
+        return;
+      }
 
-    const state = conflictService.getRepositoryState(repo);
-    if (state !== 'rebasing') {
-      void vscode.window.showInformationMessage(
-        'Rebase --skip is only available while a rebase is in progress.'
+      const choice = await vscode.window.showWarningMessage(
+        'Skip this commit? The changes will NOT be applied.',
+        { modal: true },
+        'Skip'
       );
-      return;
-    }
+      if (choice !== 'Skip') {
+        return;
+      }
 
-    const choice = await vscode.window.showWarningMessage(
-      'Skip this commit? The changes will NOT be applied.',
-      { modal: true },
-      'Skip'
-    );
-    if (choice !== 'Skip') {
-      return;
-    }
-
-    try {
       const res = await gitService.rebaseSkip(repo);
       if (!res.success && res.conflicts && res.conflicts.length > 0) {
         // More conflicts after the skip — reopen the Resolve Conflicts
@@ -254,22 +241,15 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         // conflicts persist on the next commit; reload + refresh so
         // the panel reflects the new in-progress rebase position.
         await gitService.reloadRepository(repo);
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.refresh();
-        }
+        ctx.gitToolWindowProvider?.refresh();
         return;
       }
       void vscode.window.showInformationMessage('Commit skipped.');
       // rebaseSkip moved HEAD; reload + refresh so the log graph reflects
       // the new rebase position rather than the pre-skip one.
       await gitService.reloadRepository(repo);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
-    }
+      ctx.gitToolWindowProvider?.refresh();
+    },
   });
 
   // Palette + activation-warning entry points for `git rebase --continue`
@@ -278,27 +258,19 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
   // activation-time rebase-paused warning toast can route the user to.
   // If any of the three is unregistered, the warning toast falls back to
   // a button-less generic message.
-  const rebaseContinueCommand = registerLoggedCommand('intellig.rebase.continue', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-    const gitService = ctx.services.gitService;
-    const conflictService = ctx.services.conflictResolutionService;
-    const repo = await resolveRepo(gitService, { preferActive: true });
-    if (!repo) {
-      return;
-    }
+  const rebaseContinueCommand = registerRepoCommand(ctx, {
+    id: 'intellig.rebase.continue',
+    failureTitle: 'Failed to continue rebase',
+    run: async ({ services, gitService, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const state = conflictService.getRepositoryState(repo);
+      if (state !== 'rebasing') {
+        void vscode.window.showInformationMessage(
+          'Rebase --continue is only available while a rebase is in progress.'
+        );
+        return;
+      }
 
-    const state = conflictService.getRepositoryState(repo);
-    if (state !== 'rebasing') {
-      void vscode.window.showInformationMessage(
-        'Rebase --continue is only available while a rebase is in progress.'
-      );
-      return;
-    }
-
-    try {
       const res = await gitService.rebaseContinue(repo);
       if (res.success) {
         void vscode.window.showInformationMessage('Rebase continued successfully.');
@@ -321,49 +293,36 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         );
       }
       await gitService.reloadRepository(repo);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Failed to continue rebase: ${sanitizeGitError(errMsg)}`);
-    }
+      ctx.gitToolWindowProvider?.refresh();
+    },
   });
 
-  const rebaseAbortCommand = registerLoggedCommand('intellig.rebase.abort', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-    const gitService = ctx.services.gitService;
-    const conflictService = ctx.services.conflictResolutionService;
-    const repo = await resolveRepo(gitService, { preferActive: true });
-    if (!repo) {
-      return;
-    }
+  const rebaseAbortCommand = registerRepoCommand(ctx, {
+    id: 'intellig.rebase.abort',
+    failureTitle: 'Failed to abort rebase',
+    run: async ({ services, gitService, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const state = conflictService.getRepositoryState(repo);
+      if (state !== 'rebasing') {
+        void vscode.window.showInformationMessage(
+          'Rebase --abort is only available while a rebase is in progress.'
+        );
+        return;
+      }
 
-    const state = conflictService.getRepositoryState(repo);
-    if (state !== 'rebasing') {
-      void vscode.window.showInformationMessage(
-        'Rebase --abort is only available while a rebase is in progress.'
+      // `rebase --abort` rewrites HEAD back to the pre-rebase state and is
+      // therefore destructive of the in-flight rebase work (NOT of any
+      // committed history). Single-confirm modal matches the rest of the
+      // rebase recovery commands.
+      const choice = await vscode.window.showWarningMessage(
+        'Abort the rebase? Your working tree will be restored to its pre-rebase state.',
+        { modal: true },
+        'Abort'
       );
-      return;
-    }
+      if (choice !== 'Abort') {
+        return;
+      }
 
-    // `rebase --abort` rewrites HEAD back to the pre-rebase state and is
-    // therefore destructive of the in-flight rebase work (NOT of any
-    // committed history). Single-confirm modal matches the rest of the
-    // rebase recovery commands.
-    const choice = await vscode.window.showWarningMessage(
-      'Abort the rebase? Your working tree will be restored to its pre-rebase state.',
-      { modal: true },
-      'Abort'
-    );
-    if (choice !== 'Abort') {
-      return;
-    }
-
-    try {
       await gitService.rebaseAbort(repo).match(
         () => undefined,
         (e) => {
@@ -372,35 +331,24 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       );
       void vscode.window.showInformationMessage('Rebase aborted.');
       await gitService.reloadRepository(repo);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Failed to abort rebase: ${sanitizeGitError(errMsg)}`);
-    }
+      ctx.gitToolWindowProvider?.refresh();
+    },
   });
 
-  const markFileResolvedCommand = registerLoggedCommand(
-    'intellig.conflict.markResolved',
-    async (fileUri?: vscode.Uri) => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const conflictService = ctx.services.conflictResolutionService;
-      const gitService = ctx.services.gitService;
-      // prefer the fileUri's repo (when invoked from a context
-      // menu), falling back to the active-editor's repo in multi-root
-      // workspaces.
-      const repo = await resolveRepo(gitService, {
-        hintRepoPath: fileUri?.fsPath,
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
+  const markFileResolvedCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.markResolved',
+    failureTitle: 'Failed to mark file as resolved',
+    // prefer the fileUri's repo (context-menu invocations), falling back to
+    // the active-editor's repo in multi-root workspaces.
+    hintFromRawUri: true,
+    run: async ({ services, repo }, rawUri) => {
+      const conflictService = services.conflictResolutionService;
+      const fileUri =
+        rawUri &&
+        typeof rawUri === 'object' &&
+        typeof (rawUri as { fsPath?: unknown }).fsPath === 'string'
+          ? (rawUri as vscode.Uri)
+          : undefined;
 
       // Get file path
       let filePath: string;
@@ -434,26 +382,14 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       } else {
         void vscode.window.showErrorMessage(result.error || 'Failed to mark file as resolved');
       }
-    }
-  );
+    },
+  });
 
-  const acceptAllCurrentFilesCommand = registerLoggedCommand(
-    'intellig.conflict.acceptAllCurrent',
-    async () => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const conflictService = ctx.services.conflictResolutionService;
-      const gitService = ctx.services.gitService;
-      // prefer the active-editor's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
+  const acceptAllCurrentFilesCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.acceptAllCurrent',
+    failureTitle: 'Failed to accept all current',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
       const conflicts = await conflictService.getConflictedFiles(repo);
 
       if (conflicts.length === 0) {
@@ -479,26 +415,14 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       } else if (!result.skipped) {
         void vscode.window.showErrorMessage(result.error || `Failed to accept ${subject}`);
       }
-    }
-  );
+    },
+  });
 
-  const acceptAllIncomingFilesCommand = registerLoggedCommand(
-    'intellig.conflict.acceptAllIncoming',
-    async () => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const conflictService = ctx.services.conflictResolutionService;
-      const gitService = ctx.services.gitService;
-      // prefer the active-editor's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
+  const acceptAllIncomingFilesCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.acceptAllIncoming',
+    failureTitle: 'Failed to accept all incoming',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
       const conflicts = await conflictService.getConflictedFiles(repo);
 
       if (conflicts.length === 0) {
@@ -524,27 +448,14 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       } else if (!result.skipped) {
         void vscode.window.showErrorMessage(result.error || `Failed to accept ${subject}`);
       }
-    }
-  );
+    },
+  });
 
-  const completeMergeCommand = registerLoggedCommand(
-    'intellig.conflict.completeMerge',
-    async () => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const conflictService = ctx.services.conflictResolutionService;
-      const gitService = ctx.services.gitService;
-      // prefer the active-editor's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
-
+  const completeMergeCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.completeMerge',
+    failureTitle: 'Failed to complete merge',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
       // Check if we can complete
       const canComplete = await conflictService.canCompleteOperation(repo);
       if (!canComplete) {
@@ -565,27 +476,14 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
           result.error ? sanitizeGitError(result.error) : 'Failed to complete merge'
         );
       }
-    }
-  );
+    },
+  });
 
-  const completeRebaseCommand = registerLoggedCommand(
-    'intellig.conflict.completeRebase',
-    async () => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const conflictService = ctx.services.conflictResolutionService;
-      const gitService = ctx.services.gitService;
-      // prefer the active-editor's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
-
+  const completeRebaseCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.completeRebase',
+    failureTitle: 'Failed to continue rebase',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
       // Check if we can complete
       const canComplete = await conflictService.canCompleteOperation(repo);
       if (!canComplete) {
@@ -610,79 +508,59 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
           result.error ? sanitizeGitError(result.error) : 'Failed to continue rebase'
         );
       }
-    }
-  );
-
-  const abortMergeCommand = registerLoggedCommand('intellig.conflict.abortMerge', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const conflictService = ctx.services.conflictResolutionService;
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    const confirm = await vscode.window.showWarningMessage(
-      'Abort the merge? The merge in progress is discarded and your working tree is restored to its pre-merge state.',
-      { modal: true },
-      'Abort Merge'
-    );
-
-    if (confirm !== 'Abort Merge') {
-      return;
-    }
-
-    const result = await conflictService.abortMerge(repo);
-    if (result.success) {
-      void vscode.window.showInformationMessage('Merge aborted');
-    } else {
-      void vscode.window.showErrorMessage(
-        result.error ? sanitizeGitError(result.error) : 'Failed to abort merge'
-      );
-    }
+    },
   });
 
-  const abortRebaseCommand = registerLoggedCommand('intellig.conflict.abortRebase', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const conflictService = ctx.services.conflictResolutionService;
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    const confirm = await vscode.window.showWarningMessage(
-      'Abort the rebase? The rebase in progress is discarded and your working tree is restored to its pre-rebase state.',
-      { modal: true },
-      'Abort Rebase'
-    );
-
-    if (confirm !== 'Abort Rebase') {
-      return;
-    }
-
-    const result = await conflictService.abortRebase(repo);
-    if (result.success) {
-      void vscode.window.showInformationMessage('Rebase aborted');
-    } else {
-      void vscode.window.showErrorMessage(
-        result.error ? sanitizeGitError(result.error) : 'Failed to abort rebase'
+  const abortMergeCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.abortMerge',
+    failureTitle: 'Failed to abort merge',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const confirm = await vscode.window.showWarningMessage(
+        'Abort the merge? The merge in progress is discarded and your working tree is restored to its pre-merge state.',
+        { modal: true },
+        'Abort Merge'
       );
-    }
+
+      if (confirm !== 'Abort Merge') {
+        return;
+      }
+
+      const result = await conflictService.abortMerge(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage('Merge aborted');
+      } else {
+        void vscode.window.showErrorMessage(
+          result.error ? sanitizeGitError(result.error) : 'Failed to abort merge'
+        );
+      }
+    },
+  });
+
+  const abortRebaseCommand = registerRepoCommand(ctx, {
+    id: 'intellig.conflict.abortRebase',
+    failureTitle: 'Failed to abort rebase',
+    run: async ({ services, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const confirm = await vscode.window.showWarningMessage(
+        'Abort the rebase? The rebase in progress is discarded and your working tree is restored to its pre-rebase state.',
+        { modal: true },
+        'Abort Rebase'
+      );
+
+      if (confirm !== 'Abort Rebase') {
+        return;
+      }
+
+      const result = await conflictService.abortRebase(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage('Rebase aborted');
+      } else {
+        void vscode.window.showErrorMessage(
+          result.error ? sanitizeGitError(result.error) : 'Failed to abort rebase'
+        );
+      }
+    },
   });
 
   // Interactive Rebase command — opens the unified Rebase dialog with the
@@ -691,42 +569,24 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
   // bare-palette invocation leaves it unset and the dialog defaults to the
   // first available branch. Branch selection lives in the dialog's Onto
   // dropdown, so this handler doesn't run its own QuickPick.
-  const interactiveRebaseCommand = registerLoggedCommand(
-    'intellig.rebase.interactive',
-    async (arg?: { onto?: string }) => {
-      if (!ctx.services) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const gitService = ctx.services.gitService;
-
-      // Unified multi-root resolver.
-      let repo = await resolveRepo(gitService, {
-        preferActive: true,
-        pickerTitle: 'Interactive Rebase — Choose Repository',
-        pickerPlaceholder: 'Select a repository',
-        silent: true,
-      });
-
-      if (!repo) {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-          repo = await gitService.getRepository(workspaceFolders[0].uri);
-        }
-        if (!repo) {
-          void vscode.window.showErrorMessage('No Git repository found in workspace');
-          return;
-        }
-      }
-
+  const interactiveRebaseCommand = registerRepoCommand(ctx, {
+    id: 'intellig.rebase.interactive',
+    failureTitle: 'Failed to open the rebase dialog',
+    pickerTitle: 'Interactive Rebase — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    discoverFallback: true,
+    run: async ({ repo }, arg) => {
+      const onto =
+        arg && typeof arg === 'object' && typeof (arg as { onto?: unknown }).onto === 'string'
+          ? (arg as { onto: string }).onto
+          : undefined;
       await ctx.openRebaseDialog({
         repo,
-        onto: arg?.onto,
+        onto,
         interactiveDefault: true,
       });
-    }
-  );
+    },
+  });
 
   return [
     openMergeViewCommand,

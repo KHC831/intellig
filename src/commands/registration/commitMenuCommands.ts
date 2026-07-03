@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getLogger, registerLoggedCommand } from '../../utils/logger';
+import { getLogger } from '../../utils/logger';
 import { sanitizeGitError, worktreeConflictMessage } from '../../git-core/gitError';
 import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { parseRemoteUrl } from '../../utils/remoteUrl';
@@ -7,6 +7,7 @@ import { commitUrl } from '../../utils/hostingLinks';
 import type { IGitService, IRepository } from '../../services';
 import type { LogContextAction } from '../../ui-shell/GitToolWindowProvider';
 import type { ICommandContext } from './CommandContext';
+import { registerBareCommand } from './commandSpine';
 import {
   extractCommitHash,
   resolveRepoContainingCommit,
@@ -87,43 +88,50 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     await ctx.commitContextMenuCommands._handleAction(action, [hash]);
   }
 
-  const commitCopyHashCommand = registerLoggedCommand(
-    'intellig.commit.copyHash',
-    (commitArg?: unknown) => _delegateLogAction('copyHash', commitArg)
-  );
+  const commitCopyHashCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.copyHash',
+    failureTitle: 'Failed to copy commit hash',
+    run: (_args, commitArg) => _delegateLogAction('copyHash', commitArg),
+  });
 
-  const commitCheckoutRevisionCommand = registerLoggedCommand(
-    'intellig.commit.checkoutRevision',
-    (commitArg?: unknown) => _delegateLogAction('checkoutRevision', commitArg)
-  );
+  const commitCheckoutRevisionCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.checkoutRevision',
+    failureTitle: 'Failed to checkout revision',
+    run: (_args, commitArg) => _delegateLogAction('checkoutRevision', commitArg),
+  });
 
-  const commitRevertCommand = registerLoggedCommand(
-    'intellig.commit.revert',
-    (commitArg?: unknown) => _delegateLogAction('revert', commitArg)
-  );
+  const commitRevertCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.revert',
+    failureTitle: 'Failed to revert commit',
+    run: (_args, commitArg) => _delegateLogAction('revert', commitArg),
+  });
 
-  const commitCherryPickCommand = registerLoggedCommand(
-    'intellig.commit.cherryPick',
-    (commitArg?: unknown) => _delegateLogAction('cherryPick', commitArg)
-  );
+  const commitCherryPickCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.cherryPick',
+    failureTitle: 'Cherry-pick failed',
+    run: (_args, commitArg) => _delegateLogAction('cherryPick', commitArg),
+  });
 
-  const commitCreatePatchCommand = registerLoggedCommand(
-    'intellig.commit.createPatch',
-    (commitArg?: unknown) => _delegateLogAction('createPatch', commitArg)
-  );
+  const commitCreatePatchCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.createPatch',
+    failureTitle: 'Failed to create patch',
+    run: (_args, commitArg) => _delegateLogAction('createPatch', commitArg),
+  });
 
-  const commitResetToHereCommand = registerLoggedCommand(
-    'intellig.commit.resetToHere',
-    (commitArg?: unknown) => _delegateLogAction('resetToHere', commitArg)
-  );
+  const commitResetToHereCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.resetToHere',
+    failureTitle: 'Failed to reset',
+    run: (_args, commitArg) => _delegateLogAction('resetToHere', commitArg),
+  });
 
   // Drop Selected Changes — rewrites the HEAD commit to remove user-selected
   // files. Refuses on pushed or non-HEAD commits. Single destructive-op
   // confirm modal. Invoked via the palette or the log-commit context menu
   // entry declared in package.json.
-  const commitDropSelectedChangesCommand = registerLoggedCommand(
-    'intellig.commit.dropSelectedChanges',
-    async (commitArg?: unknown) => {
+  const commitDropSelectedChangesCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.dropSelectedChanges',
+    failureTitle: 'Failed to drop selected changes',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage(
@@ -136,17 +144,18 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       await ctx.commitContextMenuCommands.dropSelectedChangesFromCommit(hash);
-    }
-  );
+    },
+  });
 
   // ─── New-from-commit commands ───────────────────────────────────────────
 
   // New Branch from this commit.
   // Route through the New Branch Dialog webview so the user gets the
   // tracking / overwrite / checkout fields rather than a bare input box.
-  const commitNewBranchCommand = registerLoggedCommand(
-    'intellig.commit.newBranch',
-    async (commitArg?: unknown, repoRootArg?: unknown) => {
+  const commitNewBranchCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.newBranch',
+    failureTitle: 'Failed to create branch',
+    run: async (_args, commitArg, repoRootArg) => {
       const hash = extractCommitHash(commitArg);
       // `repoRootArg` (when present) pins the new branch to the clicked
       // commit's OWN repo in the merged "all roots" log; absent, the usual
@@ -156,13 +165,14 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       ctx.openNewBranchDialog({ repo, startPoint: hash });
-    }
-  );
+    },
+  });
 
   // Show diff of this commit vs a parent (merge commits prompt for which parent).
-  const commitShowDiffCommand = registerLoggedCommand(
-    'intellig.commit.showDiff',
-    async (commitArg?: unknown) => {
+  const commitShowDiffCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.showDiff',
+    failureTitle: 'Failed to show diff',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
@@ -186,13 +196,14 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         const msg = error instanceof Error ? error.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Failed to show diff: ${sanitizeGitError(msg)}`);
       }
-    }
-  );
+    },
+  });
 
   // Compare this commit with HEAD (whole-commit diff).
-  const commitCompareWithHeadCommand = registerLoggedCommand(
-    'intellig.commit.compareWithHead',
-    async (commitArg?: unknown) => {
+  const commitCompareWithHeadCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.compareWithHead',
+    failureTitle: 'Failed to compare',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
@@ -203,13 +214,14 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       await _openRefPairDiffPicker(repo, hash, 'HEAD', ctx.services.gitService);
-    }
-  );
+    },
+  });
 
   // Compare this commit with a user-chosen ref (branch/tag/recent commit).
-  const commitCompareWithCommand = registerLoggedCommand(
-    'intellig.commit.compareWith',
-    async (commitArg?: unknown) => {
+  const commitCompareWithCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.compareWith',
+    failureTitle: 'Failed to compare',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
@@ -225,13 +237,14 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       await _openRefPairDiffPicker(repo, hash, target, gitService);
-    }
-  );
+    },
+  });
 
   // Show a file from this commit in a read-only editor.
-  const commitShowFileInRevisionCommand = registerLoggedCommand(
-    'intellig.commit.showFileInRevision',
-    async (commitArg?: unknown) => {
+  const commitShowFileInRevisionCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.showFileInRevision',
+    failureTitle: 'Failed to open file at revision',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
@@ -266,40 +279,43 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
           `Failed to open file at revision: ${sanitizeGitError(msg)}`
         );
       }
-    }
-  );
+    },
+  });
 
   // File history starting at this commit — delegates to `intellig.showHistory`
   // with the commit hash as the starting ref arg.
-  const commitFileHistoryFromHereCommand = registerLoggedCommand(
-    'intellig.commit.fileHistoryFromHere',
-    async (commitArg?: unknown) => {
+  const commitFileHistoryFromHereCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.fileHistoryFromHere',
+    failureTitle: 'Failed to open file history',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       await vscode.commands.executeCommand(
         'intellig.showHistory',
         hash ? { startRef: hash } : undefined
       );
-    }
-  );
+    },
+  });
 
   // Interactively rebase starting at this commit — delegates to the existing
   // interactive-rebase command, pre-selecting the commit as the onto target.
-  const rebaseInteractiveFromHereCommand = registerLoggedCommand(
-    'intellig.rebase.interactiveFromHere',
-    async (commitArg?: unknown) => {
+  const rebaseInteractiveFromHereCommand = registerBareCommand(ctx, {
+    id: 'intellig.rebase.interactiveFromHere',
+    failureTitle: 'Failed to open the rebase dialog',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       await vscode.commands.executeCommand(
         'intellig.rebase.interactive',
         hash ? { onto: hash } : undefined
       );
-    }
-  );
+    },
+  });
 
   // Open this commit on the configured hosting provider (GitHub / GitLab /
   // Bitbucket, auto-detected from the repo's origin remote URL).
-  const commitOpenOnHostCommand = registerLoggedCommand(
-    'intellig.commit.openOnHost',
-    async (commitArg?: unknown) => {
+  const commitOpenOnHostCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.openOnHost',
+    failureTitle: 'Open on Host failed',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage(
@@ -308,27 +324,29 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       await _openCommitOnHost(hash);
-    }
-  );
+    },
+  });
 
   // ─── Cherry-Pick variants ──────────────────────────────────────────────
 
   // Cherry-Pick Without Commit: applies the commit to the index + worktree
   // with `--no-commit` so the user can inspect / amend before committing.
-  const commitCherryPickWithoutCommitCommand = registerLoggedCommand(
-    'intellig.commit.cherryPickWithoutCommit',
-    async (commitArg?: unknown) => {
+  const commitCherryPickWithoutCommitCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.cherryPickWithoutCommit',
+    failureTitle: 'Cherry-pick failed',
+    run: async (_args, commitArg) => {
       await _runCherryPickVariant(commitArg, { noCommit: true });
-    }
-  );
+    },
+  });
 
   // Apply Selected Changes…: QuickPick commit's files, apply only the
   // selected subset to the index + worktree (cherry-pick-n + revert of
   // non-selected files). Unicode ellipsis on the palette label because
   // the dialog prompts.
-  const commitApplySelectedChangesCommand = registerLoggedCommand(
-    'intellig.commit.applySelectedChanges',
-    async (commitArg?: unknown) => {
+  const commitApplySelectedChangesCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.applySelectedChanges',
+    failureTitle: 'Cherry-pick failed',
+    run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
@@ -344,19 +362,20 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       await _runCherryPickVariant(commitArg, { noCommit: true, files });
-    }
-  );
+    },
+  });
 
   // Apply Files to Branch…: QuickPick commit's files, QuickPick a target
   // branch, stash if dirty, switch, cherry-pick-n with file subset onto the
   // target branch, then switch back. User can then commit on the target
   // branch or discard via reset.
-  const commitApplyFilesToBranchCommand = registerLoggedCommand(
-    'intellig.commit.applyFilesToBranch',
-    async (commitArg?: unknown) => {
+  const commitApplyFilesToBranchCommand = registerBareCommand(ctx, {
+    id: 'intellig.commit.applyFilesToBranch',
+    failureTitle: 'Apply Files to Branch failed',
+    run: async (_args, commitArg) => {
       await _runApplyFilesToBranchFlow(commitArg);
-    }
-  );
+    },
+  });
 
   // ─── Module-local helpers (moved verbatim from extension.ts) ────────────
 

@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
-import { sanitizeGitError } from '../../git-core/gitError';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { createStashView, createShelfView, type IRepository, type ShelfView } from '../../services';
 import { ShelveDialog } from '../../shelf/ShelveDialog';
 import type { ICommandContext } from './CommandContext';
+import { registerBareCommand, registerRepoCommand } from './commandSpine';
 
 /**
  * Normalize the `intellig.shelve` command argument into the set of
@@ -78,90 +78,63 @@ export function normalizeShelvePreselect(arg: unknown, repoRoot: string): string
  */
 export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposable[] {
   // Stash changes command
-  const stashCommand = registerLoggedCommand('intellig.stash', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-
-    // Resolve repo with active-editor preference.
-    let repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Stash — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-      silent: true,
-    });
-
-    if (!repo) {
-      // Discovery fallback when no cached repos exist yet.
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        repo = await gitService.getRepository(workspaceFolders[0].uri);
+  const stashCommand = registerRepoCommand(ctx, {
+    id: 'intellig.stash',
+    failureTitle: 'Failed to stash changes',
+    pickerTitle: 'Stash — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    discoverFallback: true,
+    run: async ({ gitService, repo }) => {
+      // Create stash view if not exists and show create dialog
+      if (!ctx.stashView) {
+        ctx.stashView = createStashView(gitService);
       }
-      if (!repo) {
-        void vscode.window.showErrorMessage('No Git repository found in workspace');
-        return;
-      }
-    }
-
-    // Create stash view if not exists and show create dialog
-    if (!ctx.stashView) {
-      ctx.stashView = createStashView(gitService);
-    }
-    await ctx.stashView.showCreateDialog(repo);
+      await ctx.stashView.showCreateDialog(repo);
+    },
   });
 
   // Show stash list command
-  const showStashListCommand = registerLoggedCommand('intellig.showStashList', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-
-    // Resolve repo with active-editor preference.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Stashes — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Create stash view if not exists and show it
-    if (!ctx.stashView) {
-      ctx.stashView = createStashView(gitService);
-    }
-    await ctx.stashView.show(repo);
+  const showStashListCommand = registerRepoCommand(ctx, {
+    id: 'intellig.showStashList',
+    failureTitle: 'Failed to show stashes',
+    pickerTitle: 'Stashes — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ gitService, repo }) => {
+      if (!ctx.stashView) {
+        ctx.stashView = createStashView(gitService);
+      }
+      await ctx.stashView.show(repo);
+    },
   });
 
   // Create Branch from Stash — palette entry. Prompts the user to
   // pick a stash (QuickPick) and delegates into `StashView.branchFromStash`
   // which in turn prompts for the branch name.
-  const stashBranchFromStashCommand = registerLoggedCommand(
-    'intellig.stash.branchFromStash',
-    async () => {
+  const stashBranchFromStashCommand = registerBareCommand(ctx, {
+    id: 'intellig.stash.branchFromStash',
+    failureTitle: 'Failed to create branch from stash',
+    run: async () => {
       const picked = await _pickStashForAction('Create branch from stash');
       if (!picked) {
         return;
       }
       await picked.view.branchFromStash(picked.stash.index);
-    }
-  );
+    },
+  });
 
   // Rename Stash — palette entry. Prompts the user to pick a stash,
   // then delegates into `StashView.renameStash` which prompts for the new
   // message.
-  const stashRenameCommand = registerLoggedCommand('intellig.stash.rename', async () => {
-    const picked = await _pickStashForAction('Rename stash');
-    if (!picked) {
-      return;
-    }
-    await picked.view.renameStash(picked.stash.index);
+  const stashRenameCommand = registerBareCommand(ctx, {
+    id: 'intellig.stash.rename',
+    failureTitle: 'Failed to rename stash',
+    run: async () => {
+      const picked = await _pickStashForAction('Rename stash');
+      if (!picked) {
+        return;
+      }
+      await picked.view.renameStash(picked.stash.index);
+    },
   });
 
   // Shelve changes command — the single source of truth behind both shelve
@@ -170,6 +143,11 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
   // + name field + Shelve button). `arg`/`selected` carry the optional
   // pre-check target: the palette passes nothing (check all), a file row passes
   // its path, and the explorer/editor context passes a Uri (+ selection array).
+  //
+  // spine-exempt: multi-shape argument protocol (repo-relative string path from
+  // the commit tool window, Uri + Uri[] from the explorer) with clicked-uri
+  // repo precedence — the targeting is the command's own logic, not the
+  // spine's selection contract.
   const shelveCommand = registerLoggedCommand(
     'intellig.shelve',
     async (arg?: unknown, selected?: unknown) => {
@@ -279,53 +257,32 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
 
   // Silent Shelve (Ctrl+Shift+H). Shelves the active changelist with no
   // dialog. Fallback name: "WIP <ISO timestamp>".
-  const shelveSilentCommand = registerLoggedCommand('intellig.shelve.silent', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    let repo = await resolveRepo(gitService, {
-      preferActive: true,
-      silent: true,
-    });
-    if (!repo) {
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        void vscode.window.showErrorMessage('No workspace folder open');
+  const shelveSilentCommand = registerRepoCommand(ctx, {
+    id: 'intellig.shelve.silent',
+    failureTitle: 'Silent shelve failed',
+    discoverFallback: true,
+    run: async ({ services, repo }) => {
+      const changelistService = services.changelistService;
+      // Ensure the changelist store is in sync with git status before picking
+      // the active changelist — otherwise a just-edited file may still live
+      // under "default" when the user expects to capture it.
+      // E2E spec src/test/e2e/suite/07.shelf.test.ts relies on this inline reconcile
+      // to avoid awaiting the watcher+reconcile debounce chain. Do not remove without
+      // updating the spec.
+      await changelistService.reconcileWithGitStatus(repo);
+      const active = await changelistService.getActiveChangelist(repo);
+
+      if (active.files.length === 0) {
+        void vscode.window.showInformationMessage(
+          `No files in active changelist '${active.name}' to shelve.`
+        );
         return;
       }
-      const discovered = await gitService.getRepository(workspaceFolders[0].uri);
-      if (!discovered) {
-        void vscode.window.showErrorMessage('No Git repository found in workspace');
-        return;
-      }
-      repo = discovered;
-    }
 
-    const changelistService = ctx.services.changelistService;
-    // Ensure the changelist store is in sync with git status before picking
-    // the active changelist — otherwise a just-edited file may still live
-    // under "default" when the user expects to capture it.
-    // E2E spec src/test/e2e/suite/07.shelf.test.ts relies on this inline reconcile
-    // to avoid awaiting the watcher+reconcile debounce chain. Do not remove without
-    // updating the spec.
-    await changelistService.reconcileWithGitStatus(repo);
-    const active = await changelistService.getActiveChangelist(repo);
+      const fallbackName = `WIP ${new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)}`;
+      const name = active.isDefault ? fallbackName : active.name;
 
-    if (active.files.length === 0) {
-      void vscode.window.showInformationMessage(
-        `No files in active changelist '${active.name}' to shelve.`
-      );
-      return;
-    }
-
-    const fallbackName = `WIP ${new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)}`;
-    const name = active.isDefault ? fallbackName : active.name;
-
-    try {
-      const item = await ctx.services.shelfService.shelve(repo, name, {
+      const item = await services.shelfService.shelve(repo, name, {
         files: active.files.map((f) => f.path),
       });
       if (item.partialCleanupFailures && item.partialCleanupFailures.length > 0) {
@@ -339,96 +296,84 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
           `Shelved ${item.files.length} file(s) to '${item.name}'.`
         );
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Silent shelve failed: ${sanitizeGitError(errorMessage)}`
-      );
-    }
+    },
   });
 
   // Silent Unshelve (Ctrl+Alt+U). Applies the most-recent entry without
   // prompting. If multiple entries exist (all non-unshelved), shows a
   // QuickPick.
-  const unshelveSilentCommand = registerLoggedCommand('intellig.unshelve.silent', async () => {
-    const shelfCtx = await _getShelfContext();
-    if (!shelfCtx) {
-      return;
-    }
-    const active = ctx
-      .services!.shelfService.getShelfItems(shelfCtx.repo)
-      .filter((i) => i.unshelvedAt === undefined);
-    if (active.length === 0) {
-      void vscode.window.showInformationMessage('No shelf entries to unshelve.');
-      return;
-    }
-
-    let targetId: string;
-    if (active.length === 1) {
-      targetId = active[0].id;
-    } else {
-      // Order newest-first for the QuickPick.
-      const sorted = active.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-      const picked = await vscode.window.showQuickPick(
-        sorted.map((i) => ({
-          label: i.name,
-          description: `${i.files.length} file${i.files.length === 1 ? '' : 's'} · ${i.timestamp.toLocaleString()}`,
-          id: i.id,
-        })),
-        { title: 'Unshelve Silently', placeHolder: 'Select a shelf entry to apply' }
-      );
-      if (!picked) {
+  const unshelveSilentCommand = registerBareCommand(ctx, {
+    id: 'intellig.unshelve.silent',
+    failureTitle: 'Silent unshelve failed',
+    run: async ({ services }) => {
+      const shelfCtx = await _getShelfContext();
+      if (!shelfCtx) {
         return;
       }
-      targetId = picked.id;
-    }
+      const active = services.shelfService
+        .getShelfItems(shelfCtx.repo)
+        .filter((i) => i.unshelvedAt === undefined);
+      if (active.length === 0) {
+        void vscode.window.showInformationMessage('No shelf entries to unshelve.');
+        return;
+      }
 
-    const result = await shelfCtx.view.unshelveSilent(targetId);
-    if (!result.success && !result.conflicts) {
-      // Non-conflict errors are already surfaced by unshelve(); no-op here.
-    }
+      let targetId: string;
+      if (active.length === 1) {
+        targetId = active[0].id;
+      } else {
+        // Order newest-first for the QuickPick.
+        const sorted = active.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        const picked = await vscode.window.showQuickPick(
+          sorted.map((i) => ({
+            label: i.name,
+            description: `${i.files.length} file${i.files.length === 1 ? '' : 's'} · ${i.timestamp.toLocaleString()}`,
+            id: i.id,
+          })),
+          { title: 'Unshelve Silently', placeHolder: 'Select a shelf entry to apply' }
+        );
+        if (!picked) {
+          return;
+        }
+        targetId = picked.id;
+      }
+
+      const result = await shelfCtx.view.unshelveSilent(targetId);
+      if (!result.success && !result.conflicts) {
+        // Non-conflict errors are already surfaced by unshelve(); no-op here.
+      }
+    },
   });
 
   // Import patches into the shelf. Reachable via command palette and the
   // shelf list root action.
-  const shelveImportPatchesCommand = registerLoggedCommand(
-    'intellig.shelve.importPatches',
-    async () => {
+  const shelveImportPatchesCommand = registerBareCommand(ctx, {
+    id: 'intellig.shelve.importPatches',
+    failureTitle: 'Failed to import patches',
+    run: async () => {
       const shelfCtx = await _getShelfContext();
       if (!shelfCtx) {
         return;
       }
       await shelfCtx.view.importPatches();
-    }
-  );
+    },
+  });
 
   // Show shelf list command
-  const showShelfListCommand = registerLoggedCommand('intellig.showShelfList', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      // resolveRepo already surfaced the "No Git repository found" toast.
-      return;
-    }
-
-    // Create shelf view if not exists and show it
-    if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(
-        ctx.services.shelfService,
-        (r) => gitService.getStatus(r),
-        undefined,
-        ctx.services.changelistService
-      );
-    }
-    await ctx.shelfView.show(repo);
+  const showShelfListCommand = registerRepoCommand(ctx, {
+    id: 'intellig.showShelfList',
+    failureTitle: 'Failed to show shelf',
+    run: async ({ services, gitService, repo }) => {
+      if (!ctx.shelfView) {
+        ctx.shelfView = createShelfView(
+          services.shelfService,
+          (r) => gitService.getStatus(r),
+          undefined,
+          services.changelistService
+        );
+      }
+      await ctx.shelfView.show(repo);
+    },
   });
 
   /**
