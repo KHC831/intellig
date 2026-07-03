@@ -17,6 +17,7 @@
     "intellig.changelist.shelve",
     "intellig.commit",
     "intellig.commitAndPush",
+    "intellig.configureRemotes",
     "intellig.conflict.acceptAllCurrent",
     "intellig.conflict.acceptAllIncoming",
     "intellig.editor.copyCommitHash",

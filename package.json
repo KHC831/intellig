@@ -190,6 +190,12 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "intellig.configureRemotes",
+        "title": "Configure Remotes…",
+        "category": "IntelliG",
+        "icon": "$(cloud)"
+      },
+      {
         "command": "intellig.updateProject",
         "title": "Update Project",
         "category": "IntelliG",

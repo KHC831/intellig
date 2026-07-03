@@ -8,6 +8,10 @@
     "intellig.push": { "category": "dialog", "note": "PushDialog webview" },
     "intellig.pushUpToCommit": { "category": "dialog", "note": "push dialog" },
     "intellig.pull": { "category": "dialog", "note": "PullDialog webview" },
+    "intellig.configureRemotes": {
+      "category": "dialog",
+      "note": "QuickPick wizard \u2014 flow unit-tested in test/unit/sync/configureRemotes.test.ts"
+    },
     "intellig.mergeFrom": { "category": "dialog", "note": "Merge dialog" },
     "intellig.branch.new": { "category": "dialog", "note": "NewBranchDialog" },
     "intellig.branch.newBranchFrom": { "category": "dialog", "note": "NewBranchDialog" },

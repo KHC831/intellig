@@ -25,6 +25,7 @@ import {
   type IUpdateGitService,
   type UpdateMethod,
 } from '../../sync/updateProject';
+import { runConfigureRemotesFlow } from '../../sync/configureRemotes';
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
 import { buildUpdateNotification } from '../../ui-shell/NotificationService';
 import { statusCodeToFileStatus } from '../../git-core/gitParser';
@@ -430,6 +431,49 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         const msg = error instanceof Error ? error.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Fetch failed: ${sanitizeGitError(msg)}`);
       }
+    },
+  });
+
+  // Configure Remotes — IntelliJ's GitConfigureRemotesDialog as a QuickPick
+  // wizard (add / rename / change-URL / remove; see sync/configureRemotes.ts).
+  const configureRemotesCommand = registerRepoCommand(ctx, {
+    id: 'intellig.configureRemotes',
+    failureTitle: 'Failed to configure remotes',
+    pickerTitle: 'Configure Remotes — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+    run: async ({ services, gitService, repo }) => {
+      await runConfigureRemotesFlow({
+        repo,
+        gitService,
+        showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
+        showInputBox: (options) => vscode.window.showInputBox(options),
+        showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
+        showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
+        showWarningMessage: (msg, options, ...items) =>
+          vscode.window.showWarningMessage(msg, options, ...items),
+        fetchRemote: async (remoteName) => {
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `Fetching '${remoteName}'…`,
+              cancellable: false,
+            },
+            () =>
+              gitService.fetch(repo, { remote: remoteName }).match(
+                () => undefined,
+                (e) => {
+                  throw e;
+                }
+              )
+          );
+        },
+        onRemotesChanged: async () => {
+          // Remote changes alter remote-tracking refs and the branch tree;
+          // reload-then-refresh like the other mutation sites.
+          await services.gitService.reloadRepository(repo);
+          ctx.gitToolWindowProvider?.refresh();
+        },
+      });
     },
   });
 
@@ -1171,6 +1215,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     pushAllTagsCommand,
     pullCommand,
     fetchCommand,
+    configureRemotesCommand,
     updateProjectCommand,
     refreshCommand,
     focusTabCommand,
