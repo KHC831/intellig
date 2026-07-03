@@ -8,36 +8,48 @@ status block.
 
 ## Index
 
+Grouped topically (the index passed ~12 entries). Supersession edges
+render inline as `ADR-NNN → ADR-MMM` next to the superseded entry; no
+chain exists yet — every ADR below is in force.
+
+### Core architecture & lifecycle
+
 - [ADR-001](ADR-001-igitservice-composite-freeze.md) — Accepted —
   IGitService composite interface freeze
 - [ADR-002](ADR-002-module-level-singletons-in-utils.md) — Accepted —
   Module-level singletons in `src/utils/`
+- [ADR-008](ADR-008-watcher-families.md) — Accepted —
+  Watcher families and the cleanup-registry pattern
+- [ADR-012](ADR-012-topical-source-tree.md) — Accepted —
+  Topical `/src` source tree restructure (move `src/services/**`
+  into topic folders). The decision remains in force; the one-time
+  migration is complete and its Migration_Resources are retired.
+
+### Data safety
+
 - [ADR-003](ADR-003-storage-forward-compat-round-trip.md) — Accepted —
   Storage forward-compat round-trip
 - [ADR-004](ADR-004-atomic-write-routing.md) — Accepted —
   Atomic-write routing policy
+
+### Errors & logging
+
 - [ADR-005](ADR-005-sanitizer-pass-ordering.md) — Accepted —
   Sanitizer pass ordering
 - [ADR-006](ADR-006-error-state-binding-by-view-type.md) — Accepted —
   Error-state binding by view type
-- [ADR-007](ADR-007-structural-guards-as-complementary-tool.md) —
-  Accepted — Structural guards as a complementary tool
-- [ADR-008](ADR-008-watcher-families.md) — Accepted —
-  Watcher families and the cleanup-registry pattern
-- [ADR-009](ADR-009-webview-state-ownership.md) — Accepted —
-  Webview state ownership: host leads, JS follows
-- [ADR-010](ADR-010-visual-parity-discipline.md) — Accepted —
-  Visual parity discipline (snapshot tests, parity reference doc,
-  UX-review checkpoint)
 - [ADR-011](ADR-011-structured-logger.md) — Accepted —
   Structured logging facade (Logger, sinks, correlation IDs,
   sanitization) conforming to ADR-002
-- [ADR-012](ADR-012-topical-source-tree.md) — Accepted —
-  Topical `/src` source tree restructure (move `src/services/**`
-  into topic folders). The decision remains in force; the one-time
-  migration is complete and its Migration_Resources (Restructure_Plan,
-  Migration_Script, Migration_Property_Tests, and Migration_Unit_Tests)
-  are retired.
+
+### UI & graph
+
+- [ADR-009](ADR-009-webview-state-ownership.md) — Accepted —
+  Webview state ownership: host leads, JS follows
+- [ADR-010](ADR-010-visual-parity-discipline.md) — Accepted, amended
+  2026-07-03 (parity reference docs retired with the IntelliJ unpin;
+  snapshot tests + UX review remain binding) — Visual parity
+  discipline
 - [ADR-013](ADR-013-graph-data-model-invariants.md) — Accepted —
   Commit graph data model (`IGraphLine` / `ICommitNode`) and
   lane-algorithm invariants (spec 8 L1 lane stability + HEAD-ancestry
@@ -52,6 +64,11 @@ status block.
   primitives (QuickPick, TreeView + context menus, SCM API, native
   modals) for menus, popups, dialogs, and commit/staging. The
   commit-row context menu is the one inherent hand-rolled exception.
+
+### Enforcement & process
+
+- [ADR-007](ADR-007-structural-guards-as-complementary-tool.md) —
+  Accepted — Structural guards as a complementary tool
 
 ## Status legend
 
@@ -73,7 +90,7 @@ status block.
 5. Land the ADR alongside the code change that implements (or
    pins) the decision so reviewers see them together.
 
-Once the index exceeds ~12 entries, switch to topical grouping
-(Storage / Lifecycle / UI / …) and render supersession edges inline
-in the index (e.g. `ADR-003 → ADR-019`) so superseded chains stay
+Keep the index grouped topically (add a group only when an ADR fits
+none of the existing ones), and render supersession edges inline next
+to the superseded entry (e.g. `ADR-003 → ADR-019`) so chains stay
 visible without clicking through.
