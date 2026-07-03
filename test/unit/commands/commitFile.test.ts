@@ -124,6 +124,7 @@ describe('Commit File — package.json contract', () => {
       'intellig.explorer.addToGitignore',
       'intellig.explorer.revert',
       'intellig.shelve',
+      'intellig.conflict.unresolve',
       'intellig.toggleBlame',
       'intellig.explorer.compareWithRepoVersion',
       'intellig.explorer.showDiff',

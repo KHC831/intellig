@@ -44,6 +44,7 @@ describe('ConflictResolutionService composes sanitized error strings', () => {
       // Index writer that reports the side needs staging → stage() runs → fails.
       readStages: async () => new Map(),
       takeSide: async () => true,
+      restoreConflict: async () => undefined,
     });
     try {
       const result = await service.acceptCurrent(makeRepo(), 'a.ts');

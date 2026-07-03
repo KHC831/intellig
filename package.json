@@ -424,6 +424,11 @@
         "icon": "$(warning)"
       },
       {
+        "command": "intellig.conflict.unresolve",
+        "title": "Un-Resolve File (Restore Conflict)",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.conflict.acceptAllCurrent",
         "title": "Accept My Changes for All Conflicts",
         "category": "IntelliG"
@@ -1309,6 +1314,10 @@
         {
           "command": "intellig.explorer.revert",
           "group": "3_modify@1"
+        },
+        {
+          "command": "intellig.conflict.unresolve",
+          "group": "3_modify@3"
         },
         {
           "command": "intellig.shelve",

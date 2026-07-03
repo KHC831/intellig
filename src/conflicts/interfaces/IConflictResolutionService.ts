@@ -130,6 +130,14 @@ export interface IConflictResolutionService {
   ): Promise<IConflictResolutionResult>;
 
   /**
+   * Send a RESOLVED file back to conflicted state (`git checkout --merge`)
+   * so a mis-resolution can be redone — the inverse of the accepts. Git
+   * refuses when the file has no resolve-undo data or no operation is in
+   * progress.
+   */
+  unresolveFile(repo: IRepository, filePath: string): Promise<IConflictResolutionResult>;
+
+  /**
    * Accept the incoming ("Theirs") version for a file and mark as resolved.
    * See {@link acceptCurrent} for the `reversed` semantics.
    *

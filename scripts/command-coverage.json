@@ -8,6 +8,10 @@
     "intellig.push": { "category": "dialog", "note": "PushDialog webview" },
     "intellig.pushUpToCommit": { "category": "dialog", "note": "push dialog" },
     "intellig.pull": { "category": "dialog", "note": "PullDialog webview" },
+    "intellig.conflict.unresolve": {
+      "category": "view",
+      "note": "acts on in-progress conflict state \u2014 flow unit-tested in unresolveFlow.test.ts"
+    },
     "intellig.configureRemotes": {
       "category": "dialog",
       "note": "QuickPick wizard \u2014 flow unit-tested in test/unit/sync/configureRemotes.test.ts"

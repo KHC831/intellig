@@ -19,6 +19,7 @@
     "intellig.commitAndPush",
     "intellig.configureRemotes",
     "intellig.conflict.acceptAllCurrent",
+    "intellig.conflict.unresolve",
     "intellig.conflict.acceptAllIncoming",
     "intellig.editor.copyCommitHash",
     "intellig.editor.showCommit",

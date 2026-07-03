@@ -30,6 +30,16 @@ export interface IConflictIndexWriter {
     flag: '--ours' | '--theirs',
     entry: IUnmergedEntry | undefined
   ): Promise<boolean>;
+
+  /**
+   * Send a RESOLVED file back to conflicted state (`git checkout --merge --
+   * <path>`). Git recreates the conflict from the resolve-undo (REUC) index
+   * data it records when a conflict is resolved, so this only works while
+   * the merge/rebase/cherry-pick is still in progress; afterwards git
+   * refuses with its own error. (git4idea has no per-file equivalent — this
+   * rides on git's native behavior.)
+   */
+  restoreConflict(repoRoot: string, filePath: string): Promise<void>;
 }
 
 /** Production {@link IConflictIndexWriter} over a real {@link GitCli}. */
@@ -57,5 +67,12 @@ export class ConflictIndexWriter implements IConflictIndexWriter {
     }
     await this._gitCli.exec(['checkout', flag, '--', filePath], options);
     return true;
+  }
+
+  async restoreConflict(repoRoot: string, filePath: string): Promise<void> {
+    await this._gitCli.exec(['checkout', '--merge', '--', filePath], {
+      cwd: repoRoot,
+      throwOnError: true,
+    });
   }
 }

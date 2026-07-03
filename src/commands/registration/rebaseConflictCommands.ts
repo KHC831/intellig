@@ -6,8 +6,9 @@ import { sanitizeGitError } from '../../git-core/gitError';
 import { createMergeView } from '../../services';
 import { inferReopenOperation } from '../../conflicts/conflictReversal';
 import { acceptLabels } from '../../conflicts/conflictSideNames';
+import { runUnresolveFlow } from '../../conflicts/unresolveFlow';
 import type { ICommandContext } from './CommandContext';
-import { registerBareCommand, registerRepoCommand } from './commandSpine';
+import { registerBareCommand, registerRepoCommand, registerSelectionCommand } from './commandSpine';
 
 /**
  * Merge-editor, conflict-resolution, and rebase-recovery command handlers
@@ -385,6 +386,27 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     },
   });
 
+  // Un-Resolve File — the inverse of markResolved: send a mis-resolved file
+  // back to conflicted state (`git checkout --merge`) so the resolution can
+  // be redone. No git4idea equivalent; rides on git's resolve-undo data.
+  const unresolveCommand = registerSelectionCommand(ctx, {
+    id: 'intellig.conflict.unresolve',
+    failureTitle: 'Failed to un-resolve file',
+    noTargetMessage: 'No file selected — open or select the file to un-resolve',
+    refreshOnSuccess: true,
+    run: async ({ services, repo, paths }) => {
+      await runUnresolveFlow(
+        {
+          repo,
+          conflictService: services.conflictResolutionService,
+          showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
+          showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
+        },
+        paths
+      );
+    },
+  });
+
   const acceptAllCurrentFilesCommand = registerRepoCommand(ctx, {
     id: 'intellig.conflict.acceptAllCurrent',
     failureTitle: 'Failed to accept all current',
@@ -603,6 +625,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     rebaseContinueCommand,
     rebaseAbortCommand,
     markFileResolvedCommand,
+    unresolveCommand,
     acceptAllCurrentFilesCommand,
     acceptAllIncomingFilesCommand,
     completeMergeCommand,

@@ -402,6 +402,30 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
+   * Send a RESOLVED file back to conflicted state (`git checkout --merge`) so
+   * a mis-resolution can be redone — the inverse of the accept operations.
+   * Serialized against other index writes; git itself refuses when the file
+   * has no recorded resolve-undo data or no operation is in progress.
+   */
+  async unresolveFile(repo: IRepository, filePath: string): Promise<IConflictResolutionResult> {
+    try {
+      const root = repo.rootUri.fsPath;
+      await this._withIndexLock(root, () => this._indexWriter.restoreConflict(root, filePath));
+
+      const conflicts = await this.getConflictedFiles(repo);
+      this._onDidChangeConflicts.fire({ repo, conflicts });
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Failed to un-resolve '${filePath}': ${sanitizeGitError(errorMessage)}`,
+      };
+    }
+  }
+
+  /**
    * Accept the user's own ("Yours") version for a file and mark as resolved.
    *
    * @param repo - The repository

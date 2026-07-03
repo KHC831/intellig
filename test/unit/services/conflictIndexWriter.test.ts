@@ -62,6 +62,7 @@ describe('ConflictResolutionService — injected index writer (fault injection)'
       takeSide: async () => {
         throw new Error('index locked');
       },
+      restoreConflict: async () => undefined,
     };
     const gitService = {
       getStatus: async () => [],
@@ -76,6 +77,61 @@ describe('ConflictResolutionService — injected index writer (fault injection)'
     const res = await service.acceptCurrent(repo, 'f.txt', false);
     assert.strictEqual(res.success, false);
     assert.ok(res.error && res.error.includes('index locked'), res.error);
+    service.dispose();
+  });
+});
+
+describe('ConflictIndexWriter.restoreConflict', () => {
+  it('recreates the conflict with `checkout --merge -- <path>`', async () => {
+    const calls: string[][] = [];
+    const writer = new ConflictIndexWriter(fakeGitCli(calls));
+    await writer.restoreConflict('/r', 'f.txt');
+    assert.deepStrictEqual(calls[0], ['checkout', '--merge', '--', 'f.txt']);
+  });
+});
+
+describe('ConflictResolutionService.unresolveFile', () => {
+  function makeGitServiceStub(): IGitService {
+    return {
+      getStatus: async () => [],
+      stage: () => okAsync(undefined),
+      getRepositories: () => [],
+      onDidChangeRepository: () => ({ dispose: () => undefined }),
+    } as unknown as IGitService;
+  }
+
+  it('restores the conflict through the writer and reports success', async () => {
+    const restored: string[] = [];
+    const writer: IConflictIndexWriter = {
+      readStages: async () => new Map(),
+      takeSide: async () => true,
+      restoreConflict: async (_root: string, filePath: string) => {
+        restored.push(filePath);
+      },
+    };
+    const service = new ConflictResolutionService(makeGitServiceStub(), writer);
+    const repo = { rootUri: { fsPath: '/r' }, state: 'merging' } as unknown as IRepository;
+
+    const res = await service.unresolveFile(repo, 'f.txt');
+    assert.strictEqual(res.success, true);
+    assert.deepStrictEqual(restored, ['f.txt']);
+    service.dispose();
+  });
+
+  it('surfaces a writer failure as a sanitized error result', async () => {
+    const writer: IConflictIndexWriter = {
+      readStages: async () => new Map(),
+      takeSide: async () => true,
+      restoreConflict: async () => {
+        throw new Error("error: path 'f.txt' does not have merge information");
+      },
+    };
+    const service = new ConflictResolutionService(makeGitServiceStub(), writer);
+    const repo = { rootUri: { fsPath: '/r' }, state: 'merging' } as unknown as IRepository;
+
+    const res = await service.unresolveFile(repo, 'f.txt');
+    assert.strictEqual(res.success, false);
+    assert.ok(res.error && res.error.includes('merge information'), res.error);
     service.dispose();
   });
 });
