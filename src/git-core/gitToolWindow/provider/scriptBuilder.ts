@@ -264,6 +264,16 @@ export function buildInlineScript(): string {
             return d.getFullYear() + '-' + m + '-' + day;
           }
 
+          // A click OUTSIDE the webview never reaches this document — the
+          // iframe only loses focus. Treat focus loss exactly like an outside
+          // click so open popups and the context menu dismiss when the user
+          // clicks anywhere else in the workbench.
+          window.addEventListener('blur', function() {
+            closeAllPopups();
+            const menu = document.getElementById('commit-context-menu');
+            if (menu) menu.hidden = true;
+          });
+
           document.addEventListener('click', function(e) {
             if (!(e.target instanceof Element)) return;
             // A click outside any popup wrapper dismisses open popups.

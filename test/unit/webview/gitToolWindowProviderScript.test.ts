@@ -337,6 +337,37 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     );
   });
 
+  it('closes open popups and the context menu when the webview loses focus', () => {
+    const { script, bodyHtml } = extractWebviewScript(
+      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
+    );
+    h = runWebviewScript(script, { bodyHtml });
+
+    const btn = h.document.querySelector<HTMLElement>(
+      '[data-action="toggleFilterPopup"][data-popup="repo"]'
+    );
+    assert.ok(btn, 'Repository popup button present');
+    btn.dispatchEvent(new h.window.Event('click', { bubbles: true }));
+    const popup = h.document.getElementById('filter-popup-repo');
+    assert.ok(popup, 'repo popup present');
+    assert.strictEqual(popup.hidden, false, 'popup open before focus loss');
+
+    const menu = h.document.getElementById('commit-context-menu');
+    assert.ok(menu, 'context menu element present');
+    menu.hidden = false;
+
+    // A click OUTSIDE the webview never reaches this document — the iframe
+    // only sees focus loss. Blur must dismiss like an outside click.
+    h.window.dispatchEvent(new h.window.Event('blur'));
+
+    assert.strictEqual(popup.hidden, true, 'popup must close on webview blur');
+    assert.strictEqual(menu.hidden, true, 'context menu must close on webview blur');
+    assert.ok(
+      (h.readState() as { openFilterPopup?: string | null }).openFilterPopup !== 'repo',
+      'the remembered-open key must clear so a re-render does not resurrect the popup'
+    );
+  });
+
   it('tolerates representative and garbage extension→webview messages', () => {
     const { script, bodyHtml } = extractWebviewScript(fullHtml());
     h = runWebviewScript(script, { bodyHtml });

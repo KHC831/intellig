@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { ICommitNode } from '../../commitGraph';
+import { GRAPH_BRANCH_COLORS } from '../../graph/branchColors';
 import { DEFAULT_GRAPH_CONFIG } from '../../../utils/graphRenderer';
 import { IRowPrintModel } from '../../graph/printModel';
 import { paintRow } from '../../graph/graphPainter';
@@ -30,11 +31,28 @@ export interface ICommitRowData {
    */
   showGpgColumn?: boolean;
   /**
-   * When true, render the repository "Root" column showing the basename of
-   * each commit's repo root directory (G8 multi-root log parity).
-   * Driven by the `intellig.log.showAllRoots` setting (default false).
+   * When true, render the repository "Root" column: a narrow stripe in a
+   * stable per-root color (IntelliJ vcs-log parity), the basename in the
+   * tooltip. Driven by `intellig.log.showAllRoots`; the provider only sets it
+   * for multi-repository workspaces.
    */
   showRootColumn?: boolean;
+  /**
+   * When true (and {@link showRootColumn} is on), the root column widens and
+   * paints the repo basename on the root color — IntelliJ's "Show Root
+   * Names". Driven by `intellig.log.showRootNames` (default false).
+   */
+  showRootNames?: boolean;
+}
+
+/** Stable per-root stripe color: a name-stable hash over the shared graph
+ * palette, so a repo keeps its color across sessions, filters, and reloads. */
+function rootColor(rootPath: string): string {
+  let h = 0;
+  for (let i = 0; i < rootPath.length; i++) {
+    h = (Math.imul(31, h) + rootPath.charCodeAt(i)) | 0;
+  }
+  return GRAPH_BRANCH_COLORS[Math.abs(h) % GRAPH_BRANCH_COLORS.length];
 }
 
 /**
@@ -88,6 +106,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     branchLabelsFor,
     showGpgColumn,
     showRootColumn,
+    showRootNames,
   } = rowData;
 
   return commitNodes
@@ -157,16 +176,37 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
           : `<span class="log-gpg-status"></span>`;
       }
 
-      // Root column cell — shown when showAllRoots is enabled (G8).
-      // Displays the basename of the repo root so users can identify
-      // which repository each commit belongs to in the merged view.
+      // Root column cell (G8, merged multi-root log) — IntelliJ-style
+      // (vcs-log RootCellRenderer): a narrow stripe in a stable per-root
+      // color, fused across consecutive same-root rows; the repo name lives
+      // in the tooltip. `showRootNames` widens the cell and paints the
+      // basename on the color instead. The provider enables the column only
+      // when the workspace has more than one repository.
       let rootCellHtml = '';
       if (showRootColumn) {
-        const repoRootPath = (commit as { repoRoot?: string }).repoRoot;
+        const rootOf = (i: number): string | undefined =>
+          (commitNodes[i]?.commit as { repoRoot?: string } | undefined)?.repoRoot;
+        const repoRootPath = rootOf(index);
         if (repoRootPath) {
+          const samePrev = rootOf(index - 1) === repoRootPath;
+          const sameNext = rootOf(index + 1) === repoRootPath;
+          const run =
+            samePrev && sameNext
+              ? ''
+              : samePrev
+                ? ' run-end'
+                : sameNext
+                  ? ' run-start'
+                  : ' run-single';
+          const color = rootColor(repoRootPath);
           const basename = escapeHtml(path.basename(repoRootPath));
           const fullPath = escapeHtml(repoRootPath);
-          rootCellHtml = `<span class="log-root-label" title="${fullPath}">${basename}</span>`;
+          rootCellHtml = showRootNames
+            ? `<span class="log-root-name log-root-cell${run}" style="background-color: ${color}" title="${fullPath}">${basename}</span>`
+            : `<span class="log-root-cell"><span class="log-root-stripe${run}" style="background-color: ${color}" title="${basename} — ${fullPath}"></span></span>`;
+        } else {
+          // Keep the cell so rows stay aligned when a commit carries no root.
+          rootCellHtml = `<span class="log-root-cell"></span>`;
         }
       }
 
@@ -185,11 +225,11 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
              role="option"
              tabindex="0"
              aria-selected="${isSelected}">
+          ${rootCellHtml}
           <div class="commit-graph">
             ${graphSvg}${cherryBadgeHtml}
           </div>
           <div class="commit-info">
-            ${rootCellHtml}
             <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
             <div class="commit-branches">${branchLabelsHtml}</div>
             <span class="commit-author" title="${authorEmail}">${authorName}</span>

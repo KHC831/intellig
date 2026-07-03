@@ -392,6 +392,7 @@ Enable the IntelliJ preset in settings:
 | `intellig.log.highlightCherryPicked` | `true`      | Dim commits already cherry-picked into the current branch                                                                                            |
 | `intellig.log.showGpgColumn`         | `false`     | Show a GPG/SSH signature status column in the commit log                                                                                             |
 | `intellig.log.showAllRoots`          | `true`      | Show commits from all workspace repositories merged into one log, matching the branch view; disable to scope a multi-repo log to one repository (G8) |
+| `intellig.log.showRootNames`         | `false`     | Widen the multi-repo log's Root column to show each repository's name on its color, instead of the narrow stripe                                     |
 | `intellig.modifiedFileColor`         | `"#6897BB"` | Color for modified files (IntelliJ blue)                                                                                                             |
 | `intellig.addedFileColor`            | `"#629755"` | Color for added files (IntelliJ green)                                                                                                               |
 | `intellig.deletedFileColor`          | `"#6C6C6C"` | Color for deleted files (IntelliJ gray)                                                                                                              |

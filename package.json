@@ -1545,7 +1545,12 @@
         "intellig.log.showAllRoots": {
           "type": "boolean",
           "default": true,
-          "description": "Show commits from all workspace repositories merged into one log (matches the branch view, which shows all repositories by default). A Root column shows the repo basename for each commit. Disable to scope a multi-repo workspace's log to a single repository (G8)."
+          "description": "Show commits from all workspace repositories merged into one log (matches the branch view, which shows all repositories by default). A Root column marks each commit's repository with a colored stripe; hover for the name. Disable to scope a multi-repo workspace's log to a single repository (G8)."
+        },
+        "intellig.log.showRootNames": {
+          "type": "boolean",
+          "default": false,
+          "description": "In the merged multi-repository log, widen the Root column to show each repository's name on its color instead of the narrow stripe (IntelliJ's Show Root Names)."
         },
         "intellig.blameAnnotationStyle": {
           "type": "string",

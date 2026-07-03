@@ -1011,17 +1011,41 @@ export function buildInlineStyles(): string {
         display: none;
       }
 
-      /* Root column (G8) — repo basename shown when intellig.log.showAllRoots is true */
-      .log-root-label {
+      /* Root column (G8) — IntelliJ-style per-repo stripe (intellig.log.showAllRoots);
+         consecutive same-repo rows fuse into one rounded band via the run-* classes.
+         intellig.log.showRootNames widens the cell and paints the basename on the color. */
+      .log-root-cell {
+        width: 12px;
+        align-self: stretch;
+        flex-shrink: 0;
+        display: flex;
+        justify-content: center;
+      }
+      .log-root-stripe {
+        width: 5px;
+        align-self: stretch;
+      }
+      .log-root-stripe.run-start { border-radius: 4px 4px 0 0; margin-top: 2px; }
+      .log-root-stripe.run-end { border-radius: 0 0 4px 4px; margin-bottom: 2px; }
+      .log-root-stripe.run-single { border-radius: 4px; margin-top: 2px; margin-bottom: 2px; }
+      .log-root-name {
+        width: 86px;
+        align-self: stretch;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        padding: 0 6px;
+        box-sizing: border-box;
         font-size: 10px;
-        opacity: 0.7;
-        width: 80px;
-        margin-right: 10px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.85);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        flex-shrink: 0;
       }
+      .log-root-name.run-start { border-radius: 4px 4px 0 0; margin-top: 2px; }
+      .log-root-name.run-end { border-radius: 0 0 4px 4px; margin-bottom: 2px; }
+      .log-root-name.run-single { border-radius: 4px; margin-top: 2px; margin-bottom: 2px; }
 
       /* GPG/SSH signature column (G5) — shown when intellig.log.showGpgColumn is true */
       .log-gpg-status {

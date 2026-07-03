@@ -3630,7 +3630,11 @@ ${bodyMarkup}
       printModels,
       branchLabelsFor: (node) => this._getBranchLabelsHtml(node, branchColors),
       showGpgColumn: this._isShowGpgColumnEnabled(),
-      showRootColumn: this._isShowAllRootsEnabled(),
+      // The root column needs the merged scope AND an actually-multi-repo
+      // workspace — a single-repo user never sees it (IntelliJ:
+      // VcsLogColorManager.hasMultiplePaths).
+      showRootColumn: this._isShowAllRootsEnabled() && this._availableRepositories.length > 1,
+      showRootNames: this._isShowRootNamesEnabled(),
     });
 
     // Determine if more commits are available for incremental loading
@@ -4394,6 +4398,21 @@ ${bodyMarkup}
     try {
       const config = vscode.workspace.getConfiguration('intellig');
       return config.get<boolean>('log.showGpgColumn', false);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check whether `intellig.log.showRootNames` is enabled — IntelliJ's "Show
+   * Root Names": the root column widens from the default color stripe to the
+   * repo basename painted on that color. Off by default; meaningful only when
+   * the root column itself is shown.
+   */
+  private _isShowRootNamesEnabled(): boolean {
+    try {
+      const config = vscode.workspace.getConfiguration('intellig');
+      return config.get<boolean>('log.showRootNames', false);
     } catch {
       return false;
     }
