@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Changes between releases land here. At release time, this section is
+renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
+fresh empty `[Unreleased]` block is added on top.
+
+## [0.2.11] - 2026-07-03
+
 ### Added
 
 - Configure Remotes — add, rename, change the URL of, or remove a remote from the command palette.
@@ -20,10 +26,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The packaged extension no longer includes 35 MB of internal test-coverage data that shipped in 0.2.10.
 - Right-clicking a branch just as the tree refreshed could crash the command instead of running it.
 - Many command-surface fixes from a full user's-point-of-view review: multi-file selections are respected everywhere, palette commands no longer fail silently, and error messages are honest about what happened.
-
-Changes between releases land here. At release time, this section is
-renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
-fresh empty `[Unreleased]` block is added on top.
 
 ## [0.2.10] - 2026-06-29
 
