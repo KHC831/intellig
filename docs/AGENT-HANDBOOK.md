@@ -301,7 +301,9 @@ asks for agents/teams:
 - Before the first marketplace release shipping ported IntelliJ code: add
   the Apache 2.0 provenance NOTICE entry (ported files carry per-file
   headers already).
-- Known structural follow-up: extend the command spine's scopes to the
-  class-based context-menu surfaces (BranchContextMenuCommands,
-  CommitContextMenuCommands), which keep their own tree-item/webview
-  dispatch today (out of check:spine-registration's scope by design).
+- BranchContextMenuCommands is fully on the tree-item spine scope
+  (registerTreeItemCommand; check:spine-registration now scans the file).
+  CommitContextMenuCommands needs no registration-scope work: it registers
+  nothing itself — its commands enter through the already-spined
+  commitMenuCommands delegators, and its webview payloads are structured
+  messages, not VS Code-delivered tree arguments.

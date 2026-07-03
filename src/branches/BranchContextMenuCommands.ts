@@ -27,6 +27,12 @@ import {
 } from '../git-core/gitError';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
+import {
+  registerTreeItemCommand,
+  ITreeItemCommandDeps,
+  ITreeItemRunArgs,
+  TreeItemTarget,
+} from '../commands/registration/commandSpine';
 import type { IWorktreeCapableService, IWorktreeEntry } from '../git-core/ops/WorktreeOps';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
@@ -629,183 +635,336 @@ export class BranchContextMenuCommands {
   register(context: vscode.ExtensionContext): void {
     // Local branch commands
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.checkout', (item?: BranchTreeItem) =>
-        this._handleCheckout(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.checkout',
+        failureTitle: 'Failed to check out',
+        accepts: ['branch', 'detached'],
+        run: (args) => this._handleCheckout(args),
+      })
     );
 
     this._disposables.push(
+      // spine-exempt: itemless dialog opener (New Branch works from any context)
       registerLoggedCommand('intellig.branch.new', () => this._handleNewBranch())
     );
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.newBranchFrom', (item?: BranchTreeItem) =>
-        this._handleNewBranchFrom(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.newBranchFrom',
+        failureTitle: 'Failed to create branch',
+        accepts: ['branch', 'tag', 'detached'],
+        run: (args) => this._handleNewBranchFrom(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.mergeIntoCurrent', (item?: BranchTreeItem) =>
-        this._handleMergeIntoCurrent(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.mergeIntoCurrent',
+        failureTitle: 'Failed to merge',
+        accepts: ['branch'],
+        run: (args) => this._handleMergeIntoCurrent(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.rebaseCurrentOnto', (item?: BranchTreeItem) =>
-        this._handleRebaseCurrentOnto(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.rebaseCurrentOnto',
+        failureTitle: 'Failed to rebase',
+        accepts: ['branch'],
+        run: (args) => this._handleRebaseCurrentOnto(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.compareWithCurrent', (item?: BranchTreeItem) =>
-        this._handleCompareWithCurrent(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.compareWithCurrent',
+        failureTitle: 'Failed to compare branches',
+        accepts: ['branch'],
+        run: async ({ repo, target }) => {
+          const currentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
+          const comparison = await this._gitService.compareBranches(
+            repo,
+            currentBranch,
+            target.branch.name
+          );
+
+          // Single line — VS Code notifications collapse newlines.
+          void vscode.window.showInformationMessage(
+            `Comparing ${currentBranch} with ${target.branch.name}: ` +
+              `${comparison.aheadCount} commit(s) ahead · ` +
+              `${comparison.behindCount} commit(s) behind · ` +
+              `${comparison.changedFiles.length} file(s) changed`
+          );
+        },
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.rename', (item?: BranchTreeItem) =>
-        this._handleRename(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.rename',
+        failureTitle: 'Failed to rename branch',
+        accepts: ['branch'],
+        refreshOnSuccess: true,
+        run: async ({ repo, target }) => {
+          const oldName = target.branch.name;
+          const newName = await vscode.window.showInputBox({
+            prompt: `Rename branch '${oldName}' to:`,
+            value: oldName,
+            validateInput: (value) => {
+              if (!value || !value.trim()) {
+                return 'Branch name cannot be empty';
+              }
+              if (value === oldName) {
+                return 'New name must be different';
+              }
+              // Reject leading `-` (git interprets as a CLI flag) and leading
+              // `.` (git-check-ref-format) at the validator level, not just at
+              // the service boundary.
+              if (!/^(?![-.])[\w\-./]+$/.test(value)) {
+                return 'Branch name contains invalid characters';
+              }
+              return undefined;
+            },
+          });
+          if (!newName) {
+            return;
+          }
+          await this._gitService.renameBranch(repo, oldName, newName).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          // Rename may have updated `repo.head.name` (if renaming the current
+          // branch); reload before the spine's refresh.
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(`Renamed branch to '${newName}'`);
+        },
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.delete', (item?: BranchTreeItem) =>
-        this._handleDelete(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.delete',
+        failureTitle: 'Failed to delete branch',
+        accepts: ['branch'],
+        run: (args) => this._handleDelete(args),
+      })
     );
 
     // Remote branch commands
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.checkoutAsLocal', (item?: BranchTreeItem) =>
-        this._handleCheckoutAsLocal(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.checkoutAsLocal',
+        failureTitle: 'Failed to checkout branch',
+        accepts: ['branch'],
+        run: (args) => this._handleCheckoutAsLocal(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.cherryPickCommits', (item?: BranchTreeItem) =>
-        this._handleCherryPickCommits(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.cherryPickCommits',
+        failureTitle: 'Failed to cherry-pick',
+        accepts: ['branch'],
+        run: (args) => this._handleCherryPickCommits(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.pullIntoCurrent', (item?: BranchTreeItem) =>
-        this._handlePullIntoCurrent(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.pullIntoCurrent',
+        failureTitle: 'Failed to pull',
+        accepts: ['branch'],
+        run: (args) => this._runPullFromBranchMenu(args, 'merge'),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.deleteRemote', (item?: BranchTreeItem) =>
-        this._handleDeleteRemote(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.deleteRemote',
+        failureTitle: 'Failed to delete remote branch',
+        accepts: ['branch'],
+        run: (args) => this._handleDeleteRemote(args),
+      })
     );
 
     // Track Remote Branch single-entry smart-detect.
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.trackBranch', (item?: BranchTreeItem) =>
-        this._handleTrackRemote(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.trackBranch',
+        failureTitle: 'Failed to track branch',
+        accepts: ['branch'],
+        run: (args) => this._handleTrackRemote(args),
+      })
     );
 
     // New command handlers
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.update', (item?: BranchTreeItem) =>
-        this._handleUpdate(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.update',
+        failureTitle: 'Failed to update branch',
+        accepts: ['branch'],
+        run: (args) => this._handleUpdate(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.updateSelected', (item?: BranchTreeItem) =>
-        this._handleUpdateSelected(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.updateSelected',
+        failureTitle: 'Failed to update branch',
+        accepts: ['branch'],
+        run: (args) => this._handleUpdateSelected(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.push', (item?: BranchTreeItem) =>
-        this._handlePush(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.push',
+        failureTitle: 'Failed to push',
+        accepts: ['branch'],
+        run: (args) => this._handlePush(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.showDiffWithWorkingTree', (item?: BranchTreeItem) =>
-        this._handleShowDiffWithWorkingTree(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.showDiffWithWorkingTree',
+        failureTitle: 'Failed to show diff',
+        accepts: ['branch'],
+        run: (args) => this._handleShowDiffWithWorkingTree(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.branch.checkoutAndRebase', (item?: BranchTreeItem) =>
-        this._handleCheckoutAndRebase(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.branch.checkoutAndRebase',
+        failureTitle: 'Failed to checkout and rebase',
+        accepts: ['branch'],
+        run: (args) => this._handleCheckoutAndRebase(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.pullUsingRebase', (item?: BranchTreeItem) =>
-        this._handlePullUsingRebase(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.pullUsingRebase',
+        failureTitle: 'Failed to pull',
+        accepts: ['branch'],
+        run: (args) => this._runPullFromBranchMenu(args, 'rebase'),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.remoteBranch.pullUsingMerge', (item?: BranchTreeItem) =>
-        this._handlePullUsingMerge(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.remoteBranch.pullUsingMerge',
+        failureTitle: 'Failed to pull',
+        accepts: ['branch'],
+        run: (args) => this._runPullFromBranchMenu(args, 'merge'),
+      })
     );
 
     // Tag commands
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.checkoutDetached', (item?: BranchTreeItem) =>
-        this._handleTagCheckoutDetached(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.checkoutDetached',
+        failureTitle: 'Failed to check out tag',
+        accepts: ['tag'],
+        run: (args) => this._handleTagCheckoutDetached(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.newBranchFrom', (item?: BranchTreeItem) =>
-        this._handleTagNewBranchFrom(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.newBranchFrom',
+        failureTitle: 'Failed to create branch',
+        accepts: ['tag'],
+        run: (args) => this._handleNewBranchFrom(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.cherryPick', (item?: BranchTreeItem) =>
-        this._handleTagCherryPick(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.cherryPick',
+        failureTitle: 'Failed to cherry-pick tag',
+        accepts: ['tag'],
+        run: (args) => this._handleTagCherryPick(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.mergeIntoCurrent', (item?: BranchTreeItem) =>
-        this._handleTagMergeIntoCurrent(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.mergeIntoCurrent',
+        failureTitle: 'Failed to merge tag',
+        accepts: ['tag'],
+        run: (args) => this._handleTagMergeIntoCurrent(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.delete', (item?: BranchTreeItem) =>
-        this._handleTagDelete(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.delete',
+        failureTitle: 'Failed to delete tag',
+        accepts: ['tag'],
+        refreshOnSuccess: true,
+        run: async ({ repo, target }) => {
+          const confirm = await vscode.window.showWarningMessage(
+            `Are you sure you want to delete the tag '${target.tag.name}'?`,
+            { modal: true },
+            'Delete'
+          );
+          if (confirm !== 'Delete') {
+            return;
+          }
+          await this._gitService.deleteTag(repo, target.tag.name).match(
+            () => undefined,
+            (e) => {
+              throw e;
+            }
+          );
+          // Tag list changed; reload so the tree's tags section reflects the
+          // post-deletion ref set before the spine's refresh.
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(`Deleted tag '${target.tag.name}'`);
+        },
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.push', (item?: BranchTreeItem) =>
-        this._handleTagPush(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.push',
+        failureTitle: 'Failed to push tag',
+        accepts: ['tag'],
+        run: (args) => this._handleTagPush(args),
+      })
     );
 
     this._disposables.push(
-      registerLoggedCommand('intellig.tag.deleteRemote', (item?: BranchTreeItem) =>
-        this._handleTagDeleteRemote(item)
-      )
+      registerTreeItemCommand(this._treeItemDeps(), {
+        id: 'intellig.tag.deleteRemote',
+        failureTitle: 'Failed to delete tag on remote',
+        accepts: ['tag'],
+        run: (args) => this._handleTagDeleteRemote(args),
+      })
     );
 
     // Worktree commands
     this._disposables.push(
+      // spine-exempt: deliberately usable without a tree target (worktree ref falls back to HEAD)
       registerLoggedCommand('intellig.branch.newWorktree', (item?: BranchTreeItem) =>
         this._handleNewWorktree(item)
       )
     );
     this._disposables.push(
+      // spine-exempt: itemless repo-scope picker (lists worktrees, no tree target)
       registerLoggedCommand('intellig.branch.openWorktree', () => this._handleOpenWorktree())
     );
     this._disposables.push(
+      // spine-exempt: itemless repo-scope picker (lists worktrees, no tree target)
       registerLoggedCommand('intellig.branch.removeWorktree', () => this._handleRemoveWorktree())
     );
 
     // Refresh command
     this._disposables.push(
+      // spine-exempt: provider-only view refresh; needs no target or repo
       registerLoggedCommand('intellig.branches.refresh', () => this._branchTreeProvider.refresh())
     );
 
@@ -816,6 +975,18 @@ export class BranchContextMenuCommands {
   /**
    * Get the current repository.
    */
+  /**
+   * Tree-item spine deps (see {@link registerTreeItemCommand}): the tree's
+   * current repo as the fallback for items that don't carry one, and the
+   * tree refresh for `refreshOnSuccess` specs.
+   */
+  private _treeItemDeps(): ITreeItemCommandDeps {
+    return {
+      getRepository: () => this._getRepository(),
+      refresh: () => this._branchTreeProvider.refresh(),
+    };
+  }
+
   private _getRepository(): IRepository | undefined {
     return this._branchTreeProvider.getRepository();
   }
@@ -968,45 +1139,43 @@ export class BranchContextMenuCommands {
   /**
    * Handle checkout command for local branches.
    */
-  private async _handleCheckout(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item) {
-      return;
-    }
-
-    // Accept the detached row as a checkout target. `item.branch`
-    // is undefined for the synthetic detached-head row; the SHA lives on
-    // `getDetachedHeadSha()`. The git command runs uniformly (no
-    // early-return on "already at that commit" — IntelliJ does the same;
-    // the dirty-working-tree fallback flow handles errors). The toast
-    // branches: branch name vs detached re-checkout.
-    const ref = item.branch?.name ?? item.getDetachedHeadSha();
+  private async _handleCheckout({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch' | 'detached'>): Promise<void> {
+    // Accept the detached row as a checkout target (the SHA rides on the
+    // target). The git command runs uniformly (no early-return on "already
+    // at that commit" — IntelliJ does the same; the dirty-working-tree
+    // fallback flow handles errors). The toast branches: branch name vs
+    // detached re-checkout.
+    const branch = target.kind === 'branch' ? target.branch : undefined;
+    const ref = branch?.name ?? (target.kind === 'detached' ? target.sha : undefined);
     if (!ref) {
       return;
     }
     const successToast = (): string =>
-      item.branch
-        ? `Switched to branch '${item.branch.name}'`
+      branch
+        ? `Switched to branch '${branch.name}'`
         : `Re-checked out detached HEAD at ${ref.substring(0, 7)}`;
     const dirtyHeader = (): string =>
-      item.branch
-        ? `Cannot switch to '${item.branch.name}': local changes would be overwritten.`
+      branch
+        ? `Cannot switch to '${branch.name}': local changes would be overwritten.`
         : `Cannot re-checkout detached HEAD at ${ref.substring(0, 7)}: local changes would be overwritten.`;
     const stashLabel = (): string =>
-      item.branch
-        ? `Auto-stash before checkout ${item.branch.name}`
+      branch
+        ? `Auto-stash before checkout ${branch.name}`
         : `Auto-stash before checkout ${ref.substring(0, 7)}`;
     const stashSuccessToast = (restored: boolean): string => {
-      const target = item.branch
-        ? `switched to '${item.branch.name}'`
+      const target = branch
+        ? `switched to '${branch.name}'`
         : `re-checked out detached HEAD at ${ref.substring(0, 7)}`;
       return restored
         ? `Stashed changes, ${target}, and restored them`
         : `Stashed changes and ${target}`;
     };
     const forceSuccessToast = (): string =>
-      item.branch
-        ? `Force switched to '${item.branch.name}'`
+      branch
+        ? `Force switched to '${branch.name}'`
         : `Force re-checked out detached HEAD at ${ref.substring(0, 7)}`;
 
     try {
@@ -1105,18 +1274,21 @@ export class BranchContextMenuCommands {
   /**
    * Handle new branch from here command.
    */
-  private async _handleNewBranchFrom(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item) {
-      return;
-    }
-
-    // `??` chain (was `||`) so empty-string ref names don't
-    // accidentally fall through to the next operand. Falls through to
-    // `getDetachedHeadSha()` for the synthetic detached-head row, which
-    // returns the 40-char SHA — never the parenthesized label, so this
-    // can't resurrect the bug class.
-    const startPoint = item.branch?.name ?? item.tag?.name ?? item.getDetachedHeadSha();
+  private async _handleNewBranchFrom({
+    repo,
+    target,
+  }: {
+    repo: IRepository;
+    target: TreeItemTarget;
+  }): Promise<void> {
+    // The start point is whatever was clicked: a branch name, a tag name,
+    // or the detached row's 40-char SHA (never the parenthesized label).
+    const startPoint =
+      target.kind === 'branch'
+        ? target.branch.name
+        : target.kind === 'tag'
+          ? target.tag.name
+          : target.sha;
     if (!startPoint) {
       return;
     }
@@ -1185,33 +1357,31 @@ export class BranchContextMenuCommands {
   /**
    * Handle merge into current command.
    */
-  private async _handleMergeIntoCurrent(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleMergeIntoCurrent({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Route through the Merge Dialog when the opener is wired; the
     // dialog handles options (ff-only / no-ff / squash / no-commit / -m)
     // and conflict handoff itself. Fallback path (no opener) preserves the
     // legacy direct-merge behaviour for tests.
     if (this._mergeDialogOpener) {
-      this._mergeDialogOpener({ repo, sourceBranch: item.branch.name });
+      this._mergeDialogOpener({ repo, sourceBranch: target.branch.name });
       return;
     }
 
     try {
-      const result = await this._gitService.mergeBranch(repo, item.branch.name);
+      const result = await this._gitService.mergeBranch(repo, target.branch.name);
 
       if (result.success) {
-        void vscode.window.showInformationMessage(`Merged '${item.branch.name}' successfully`);
+        void vscode.window.showInformationMessage(`Merged '${target.branch.name}' successfully`);
       } else if (result.conflicts && result.conflicts.length > 0) {
         // Auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise (legacy callers without the service).
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'merge',
-            target: item.branch.name,
+            target: target.branch.name,
           });
         } else {
           void vscode.window.showWarningMessage(
@@ -1225,7 +1395,7 @@ export class BranchContextMenuCommands {
         // boundary; safe to drop straight into a toast.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
-          `Failed to merge '${item.branch.name}': ${sanitizeGitError(reason)}`
+          `Failed to merge '${target.branch.name}': ${sanitizeGitError(reason)}`
         );
       }
       // Merge moved HEAD; reload before refresh.
@@ -1262,12 +1432,10 @@ export class BranchContextMenuCommands {
    * `inProgress.kind` ensures we never touch a rebase the user already had
    * in progress before they clicked.
    */
-  private async _handleRebaseCurrentOnto(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleRebaseCurrentOnto({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Canonical surface: route through the unified Rebase dialog (onto =
     // the clicked branch, Interactive unchecked by default). The dialog owns
     // the same conflict + orphan-recovery handling ported from the inline
@@ -1276,7 +1444,7 @@ export class BranchContextMenuCommands {
     if (this._rebaseDialogOpener) {
       await this._rebaseDialogOpener({
         repo,
-        onto: item.branch.name,
+        onto: target.branch.name,
         interactiveDefault: false,
       });
       return;
@@ -1297,7 +1465,7 @@ export class BranchContextMenuCommands {
       // (see gitInProgress.ts); `kind` is the `IInProgressOperation` field.
       const beforeKind = repo.inProgress?.kind;
 
-      const result = await this._gitService.rebaseBranch(repo, item.branch.name);
+      const result = await this._gitService.rebaseBranch(repo, target.branch.name);
 
       // Track whether the Resolve Conflicts dialog was opened so we suppress
       // the redundant "rebase paused" warning for that same state —
@@ -1309,7 +1477,7 @@ export class BranchContextMenuCommands {
 
       if (result.success) {
         void vscode.window.showInformationMessage(
-          `Rebased onto '${item.branch.name}' successfully`
+          `Rebased onto '${target.branch.name}' successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
         // Auto-open Resolve Conflicts dialog when wired; fall back to a
@@ -1319,7 +1487,7 @@ export class BranchContextMenuCommands {
         await this._surfaceRebaseConflicts(
           repo,
           result.conflicts,
-          item.branch.name,
+          target.branch.name,
           result.rebaseInProgress
         );
       } else {
@@ -1333,7 +1501,7 @@ export class BranchContextMenuCommands {
         nonConflictFailure = true;
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
-          `Failed to rebase onto '${item.branch.name}': ${sanitizeGitError(reason)}`
+          `Failed to rebase onto '${target.branch.name}': ${sanitizeGitError(reason)}`
         );
       }
 
@@ -1384,96 +1552,6 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Handle compare with current command.
-   */
-  private async _handleCompareWithCurrent(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
-    try {
-      const currentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
-      const comparison = await this._gitService.compareBranches(
-        repo,
-        currentBranch,
-        item.branch.name
-      );
-
-      // Single line — VS Code notifications collapse newlines.
-      const message =
-        `Comparing ${currentBranch} with ${item.branch.name}: ` +
-        `${comparison.aheadCount} commit(s) ahead · ` +
-        `${comparison.behindCount} commit(s) behind · ` +
-        `${comparison.changedFiles.length} file(s) changed`;
-
-      void vscode.window.showInformationMessage(message);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to compare branches: ${sanitizeGitError(errorMessage)}`
-      );
-    }
-  }
-
-  /**
-   * Handle rename command.
-   */
-  private async _handleRename(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
-    const newName = await vscode.window.showInputBox({
-      prompt: `Rename branch '${item.branch.name}' to:`,
-      value: item.branch.name,
-      validateInput: (value) => {
-        if (!value || !value.trim()) {
-          return 'Branch name cannot be empty';
-        }
-        if (value === item.branch?.name) {
-          return 'New name must be different';
-        }
-        // Reject leading `-` (git interprets as a CLI flag)
-        // and leading `.` (git rejects refs starting with `.` per
-        // git-check-ref-format) at the validator level. The
-        // regex `^[\w\-./]+$` accepted `-foo` and `.hidden` because the
-        // character class allowed `-` and `.` anywhere including the
-        // first position; the service-boundary guard in
-        // `GitService.createBranch` was the only line of defense.
-        if (!/^(?![-.])[\w\-./]+$/.test(value)) {
-          return 'Branch name contains invalid characters';
-        }
-        return undefined;
-      },
-    });
-
-    if (!newName) {
-      return;
-    }
-
-    try {
-      await this._gitService.renameBranch(repo, item.branch.name, newName).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-      // Rename may have updated `repo.head.name` (if renaming
-      // current branch); reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Renamed branch to '${newName}'`);
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to rename branch: ${sanitizeGitError(errorMessage)}`
-      );
-    }
-  }
-
-  /**
    * Handle delete command.
    *
    * Two-tier UX matching IntelliJ: the first attempt uses safe delete
@@ -1482,13 +1560,8 @@ export class BranchContextMenuCommands {
    * failure, prompt the user with a "Force delete?" modal and, on
    * confirm, retry with `git branch -D` (force).
    */
-  private async _handleDelete(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
-    const branchName = item.branch.name;
+  private async _handleDelete({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
+    const branchName = target.branch.name;
 
     const confirm = await vscode.window.showWarningMessage(
       `Are you sure you want to delete the branch '${branchName}'?`,
@@ -1563,22 +1636,17 @@ export class BranchContextMenuCommands {
    * "Fetched … N commit(s) behind" — rather than claiming the branch itself
    * was updated.
    */
-  private async _handleUpdate(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
-    const upstream = item.branch.upstream;
+  private async _handleUpdate({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
+    const upstream = target.branch.upstream;
     if (!upstream) {
       void vscode.window.showInformationMessage(
-        `Branch '${item.branch.name}' has no upstream configured.`
+        `Branch '${target.branch.name}' has no upstream configured.`
       );
       return;
     }
 
-    if (!item.branch.isHead) {
-      await this._alignLocalBranch(repo, item.branch);
+    if (!target.branch.isHead) {
+      await this._alignLocalBranch(repo, target.branch);
       return;
     }
 
@@ -1598,7 +1666,7 @@ export class BranchContextMenuCommands {
       const fetcher = getIncomingOutgoingFetcher(this._gitService);
       if (fetcher) {
         try {
-          incoming = (await fetcher(repo, item.branch.name)).incoming;
+          incoming = (await fetcher(repo, target.branch.name)).incoming;
         } catch {
           incoming = undefined;
         }
@@ -1607,10 +1675,10 @@ export class BranchContextMenuCommands {
       if (incoming === undefined) {
         void vscode.window.showInformationMessage(base);
       } else if (incoming === 0) {
-        void vscode.window.showInformationMessage(`${base} '${item.branch.name}' is up to date.`);
+        void vscode.window.showInformationMessage(`${base} '${target.branch.name}' is up to date.`);
       } else {
         void vscode.window.showInformationMessage(
-          `${base} '${item.branch.name}' is ${incoming} commit(s) behind — ` +
+          `${base} '${target.branch.name}' is ${incoming} commit(s) behind — ` +
             `use Update Project or Pull to integrate.`
         );
       }
@@ -1635,12 +1703,8 @@ export class BranchContextMenuCommands {
    * and tell the user to use Update/Pull, since fetching into a checked-out ref
    * is refused. Surfaced from BranchesDashboardActions.UpdateSelectedBranchAction.
    */
-  private async _handleUpdateSelected(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-    await this._alignLocalBranch(repo, item.branch);
+  private async _handleUpdateSelected({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
+    await this._alignLocalBranch(repo, target.branch);
   }
 
   /**
@@ -1820,12 +1884,7 @@ export class BranchContextMenuCommands {
    * Handle push command for local branches.
    * Pushes the branch to its upstream remote, or sets upstream if none configured.
    */
-  private async _handlePush(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handlePush({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Route through the Push Dialog when available so the user gets
     // the per-row target edit, force-with-lease dropdown, and protected-
     // branch guard. Falls back to a direct push (original behaviour) when
@@ -1836,18 +1895,18 @@ export class BranchContextMenuCommands {
       // to --set-upstream against the fallback remote.
       this._pushDialogOpener({
         repo,
-        branch: item.branch.name,
-        upstream: item.branch.upstream,
+        branch: target.branch.name,
+        upstream: target.branch.upstream,
         // Thread the clicked branch's OWN divergence so a non-HEAD row shows
         // its real ahead/behind and the force-with-lease flip fires.
-        ahead: item.branch.ahead,
-        behind: item.branch.behind,
+        ahead: target.branch.ahead,
+        behind: target.branch.behind,
       });
       return;
     }
 
     try {
-      const upstream = item.branch.upstream;
+      const upstream = target.branch.upstream;
       // When several remotes exist, let the user pick the target (default =
       // tracked remote / origin); a single remote skips the prompt. Cancelling
       // the picker aborts the push.
@@ -1863,7 +1922,7 @@ export class BranchContextMenuCommands {
       await this._gitService
         .push(repo, {
           remote: targetRemote,
-          branch: item.branch.name,
+          branch: target.branch.name,
           ...(setUpstream ? { setUpstream: true } : {}),
         })
         .match(
@@ -1873,7 +1932,7 @@ export class BranchContextMenuCommands {
           }
         );
       void vscode.window.showInformationMessage(
-        `Pushed branch '${item.branch.name}' to '${targetRemote}'`
+        `Pushed branch '${target.branch.name}' to '${targetRemote}'`
       );
       // Fallback push path lacked any
       // reload/refresh; add both so ahead/behind counts on the
@@ -1903,13 +1962,11 @@ export class BranchContextMenuCommands {
    *      title  = `<basename> (<branchRef> ↔ Working Tree)`
    *   5. User cancels the QuickPick → no-op, no toast, no error.
    */
-  private async _handleShowDiffWithWorkingTree(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
-    const branchRef = item.branch.name;
+  private async _handleShowDiffWithWorkingTree({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch'>): Promise<void> {
+    const branchRef = target.branch.name;
 
     let files: IRefDiffFile[];
     try {
@@ -1982,12 +2039,10 @@ export class BranchContextMenuCommands {
    * `checkout -B <local> --track <remote>` when the right-clicked item is
    * a remote branch, mirroring `_handleCheckoutAsLocal`'s pattern.
    */
-  private async _handleCheckoutAndRebase(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleCheckoutAndRebase({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Store the revision to rebase onto BEFORE checkout. When HEAD is attached
     // that's the branch name; when DETACHED there's no branch name, so capture
     // the prior COMMIT sha — rebasing onto the literal 'HEAD' would target the
@@ -2003,11 +2058,11 @@ export class BranchContextMenuCommands {
     //   - Remote branch → create-or-fast-forward a local tracking branch
     //     of the same leaf name (`git checkout -B main --track origin/main`).
     //     This keeps HEAD attached. IntelliJ parity.
-    const isRemote = item.branch.type === 'remote';
-    const remoteFullName = item.branch.name; // e.g. 'origin/main'
+    const isRemote = target.branch.type === 'remote';
+    const remoteFullName = target.branch.name; // e.g. 'origin/main'
     const localLeafName = isRemote
       ? remoteFullName.split('/').slice(1).join('/') // 'origin/main' → 'main'
-      : item.branch.name;
+      : target.branch.name;
     // The branch label rendered in toasts always uses the LOCAL leaf name —
     // reads as "Checked out main" rather than "Checked out origin/main".
     const displayName = localLeafName;
@@ -2145,26 +2200,6 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Handle pull using rebase command for remote branches.
-   * Pulls directly with the `rebase` preset (rebase=true) and the
-   * remote/branch parsed from the menu item. The second "Pull: Options"
-   * QuickPick is intentionally bypassed — the menu entry already chose the
-   * strategy.
-   */
-  private async _handlePullUsingRebase(item: BranchTreeItem | undefined): Promise<void> {
-    await this._runPullFromBranchMenu(item, 'rebase');
-  }
-
-  /**
-   * Handle pull using merge command for remote branches.
-   * Pulls directly with the `merge` preset (rebase=false). The
-   * second "Pull: Options" QuickPick is intentionally bypassed.
-   */
-  private async _handlePullUsingMerge(item: BranchTreeItem | undefined): Promise<void> {
-    await this._runPullFromBranchMenu(item, 'merge');
-  }
-
-  /**
    * Shared implementation for the pullUsing* handlers.
    *
    * The right-click menu entry already chose the strategy
@@ -2182,21 +2217,16 @@ export class BranchContextMenuCommands {
    * entry point is where strategy IS the question.
    */
   private async _runPullFromBranchMenu(
-    item: BranchTreeItem | undefined,
+    { repo, target }: ITreeItemRunArgs<'branch'>,
     preset: 'rebase' | 'merge'
   ): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
-    // Parse remote name and branch name from item.branch.name
+    // Parse remote name and branch name from target.branch.name
     // (e.g., "origin/main" -> "origin", "main")
-    const slashIndex = item.branch.name.indexOf('/');
+    const slashIndex = target.branch.name.indexOf('/');
     const remoteName =
-      slashIndex >= 0 ? item.branch.name.substring(0, slashIndex) : item.branch.name;
+      slashIndex >= 0 ? target.branch.name.substring(0, slashIndex) : target.branch.name;
     const branchName =
-      slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
+      slashIndex >= 0 ? target.branch.name.substring(slashIndex + 1) : target.branch.name;
 
     // The right-click pullUsing* entries intentionally bypass the
     // PullDialog — the menu entry already chose the strategy, so the second
@@ -2232,7 +2262,7 @@ export class BranchContextMenuCommands {
         );
       const strategy = preset === 'rebase' ? 'rebase' : 'merge';
       void vscode.window.showInformationMessage(
-        `Pulled '${item.branch.name}' into current branch using ${strategy}`
+        `Pulled '${target.branch.name}' into current branch using ${strategy}`
       );
       // Pull moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -2261,7 +2291,7 @@ export class BranchContextMenuCommands {
             await this._openResolveConflictsDialog(
               repo,
               conflicts.map((c) => c.path),
-              { operation: preset === 'rebase' ? 'rebase' : 'merge', target: item.branch.name }
+              { operation: preset === 'rebase' ? 'rebase' : 'merge', target: target.branch.name }
             );
             // Pull may have partially advanced HEAD before the
             // conflict; reload so the tree reflects the post-conflict state.
@@ -2305,14 +2335,12 @@ export class BranchContextMenuCommands {
    * not on the remote (which would become unreachable), show a modal
    * confirmation before resetting.
    */
-  private async _handleCheckoutAsLocal(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleCheckoutAsLocal({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Parse remote name from branch name (e.g., "origin/main" -> "origin", "main")
-    const parts = item.branch.name.split('/');
+    const parts = target.branch.name.split('/');
     const remoteName = parts[0];
     const branchName = parts.slice(1).join('/');
     const track = `${remoteName}/${branchName}`;
@@ -2445,19 +2473,17 @@ export class BranchContextMenuCommands {
   /**
    * Handle cherry-pick commits command.
    */
-  private async _handleCherryPickCommits(item?: BranchTreeItem): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleCherryPickCommits({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'branch'>): Promise<void> {
     try {
       // Scope the log to the SELECTED branch (e.g. `origin/feature`), not the
       // repo's global HEAD history — otherwise the picker lists HEAD's recent
       // commits and the user cherry-picks the wrong commits.
       const commits = await this._gitService.getLog(repo, {
         maxCount: 50,
-        ref: item.branch.name,
+        ref: target.branch.name,
       });
 
       const commitItems = commits.map((commit) => ({
@@ -2468,7 +2494,7 @@ export class BranchContextMenuCommands {
       }));
 
       const selected = await vscode.window.showQuickPick(commitItems, {
-        title: `Cherry-pick commits from ${item.branch.name}`,
+        title: `Cherry-pick commits from ${target.branch.name}`,
         placeHolder: 'Select commits to cherry-pick',
         canPickMany: true,
       });
@@ -2494,7 +2520,7 @@ export class BranchContextMenuCommands {
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'cherryPick',
-            target: item.branch.name,
+            target: target.branch.name,
           });
         } else {
           void vscode.window.showWarningMessage(
@@ -2518,30 +2544,11 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Handle pull into current command.
-   *
-   * Delegates to `_runPullFromBranchMenu` with the default ("merge")
-   * preset so the user gets the same direct-pull + conflict-handoff
-   * pipeline as the pullUsingMerge/Rebase entries. This path does
-   * not open the second "Pull: Options" QuickPick — the right-click
-   * entry already chose the strategy. The conflict-handoff
-   * still fires on a conflicted pull.
-   */
-  private async _handlePullIntoCurrent(item?: BranchTreeItem): Promise<void> {
-    await this._runPullFromBranchMenu(item, 'merge');
-  }
-
-  /**
    * Handle delete remote branch command.
    */
-  private async _handleDeleteRemote(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleDeleteRemote({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
     const confirm = await vscode.window.showWarningMessage(
-      `Are you sure you want to delete the remote branch '${item.branch.name}'? This cannot be undone.`,
+      `Are you sure you want to delete the remote branch '${target.branch.name}'? This cannot be undone.`,
       { modal: true },
       'Delete'
     );
@@ -2551,7 +2558,7 @@ export class BranchContextMenuCommands {
     }
 
     // Parse remote name from branch name
-    const parts = item.branch.name.split('/');
+    const parts = target.branch.name.split('/');
     const remoteName = parts[0];
     const branchName = parts.slice(1).join('/');
 
@@ -2572,7 +2579,7 @@ export class BranchContextMenuCommands {
       // Push:branch removed remote ref; reload so the tree's
       // remote-branches list reflects the deletion.
       await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Deleted remote branch '${item.branch.name}'`);
+      void vscode.window.showInformationMessage(`Deleted remote branch '${target.branch.name}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2615,27 +2622,22 @@ export class BranchContextMenuCommands {
    * cross-tracking case had no menu surface at all. Closes that
    * IntelliJ-parity gap.
    */
-  private async _handleTrackRemote(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.branch) {
-      return;
-    }
-
+  private async _handleTrackRemote({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Parse remote name from branch name (e.g. "origin/main" -> remote
     // "origin", branch "main"). The "simple name" extraction matches
     // the existing checkoutAsLocal path; nested branch names like
     // `origin/feature/foo` produce simple-name `feature/foo`.
-    const parts = item.branch.name.split('/');
+    const parts = target.branch.name.split('/');
     if (parts.length < 2) {
       // Defensive — `IBranch.type === 'remote'` should guarantee a
       // remote-prefixed name, but if somehow we got a malformed input
       // surface a clear error rather than crashing on the slice below.
       void vscode.window.showErrorMessage(
-        `Cannot parse remote branch '${item.branch.name}' — expected format <remote>/<branch>.`
+        `Cannot parse remote branch '${target.branch.name}' — expected format <remote>/<branch>.`
       );
       return;
     }
-    const upstreamRef = item.branch.name; // e.g. "origin/main"
+    const upstreamRef = target.branch.name; // e.g. "origin/main"
     const simpleName = parts.slice(1).join('/');
 
     // SK-2 — defense-in-depth: sweep relied on
@@ -2731,14 +2733,12 @@ export class BranchContextMenuCommands {
   /**
    * Handle tag checkout (detached) command.
    */
-  private async _handleTagCheckoutDetached(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.tag) {
-      return;
-    }
-
+  private async _handleTagCheckoutDetached({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'tag'>): Promise<void> {
     const confirm = await vscode.window.showWarningMessage(
-      `Checking out tag '${item.tag.name}' will put you in detached HEAD state. Continue?`,
+      `Checking out tag '${target.tag.name}' will put you in detached HEAD state. Continue?`,
       { modal: true },
       'Checkout'
     );
@@ -2748,7 +2748,7 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.checkout(repo, item.tag.name).match(
+      await this._gitService.checkout(repo, target.tag.name).match(
         () => undefined,
         (e) => {
           throw e;
@@ -2759,7 +2759,7 @@ export class BranchContextMenuCommands {
       // (HEAD chip on the log graph drives the user-visible cue).
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
-        `Checked out tag '${item.tag.name}' (detached HEAD)`
+        `Checked out tag '${target.tag.name}' (detached HEAD)`
       );
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -2771,24 +2771,11 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Handle new branch from tag command.
-   */
-  private async _handleTagNewBranchFrom(item: BranchTreeItem | undefined): Promise<void> {
-    // Reuse the same logic as branch new branch from
-    await this._handleNewBranchFrom(item);
-  }
-
-  /**
    * Handle tag cherry-pick command.
    */
-  private async _handleTagCherryPick(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.tag) {
-      return;
-    }
-
+  private async _handleTagCherryPick({ repo, target }: ITreeItemRunArgs<'tag'>): Promise<void> {
     try {
-      const result = await this._gitService.cherryPick(repo, [item.tag.commit]).match(
+      const result = await this._gitService.cherryPick(repo, [target.tag.commit]).match(
         (r) => r,
         (e) => {
           throw e;
@@ -2797,7 +2784,7 @@ export class BranchContextMenuCommands {
 
       if (result.success) {
         void vscode.window.showInformationMessage(
-          `Cherry-picked tag '${item.tag.name}' successfully`
+          `Cherry-picked tag '${target.tag.name}' successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
         void vscode.window.showWarningMessage(
@@ -2831,13 +2818,11 @@ export class BranchContextMenuCommands {
    * handoff), falling back to a direct `mergeBranch` with the same conflict /
    * non-conflict-failure routing as `_handleMergeIntoCurrent`.
    */
-  private async _handleTagMergeIntoCurrent(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.tag) {
-      return;
-    }
-
-    const tagRef = item.tag.name;
+  private async _handleTagMergeIntoCurrent({
+    repo,
+    target,
+  }: ITreeItemRunArgs<'tag'>): Promise<void> {
+    const tagRef = target.tag.name;
 
     if (this._mergeDialogOpener) {
       this._mergeDialogOpener({ repo, sourceBranch: tagRef });
@@ -2876,53 +2861,9 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Handle delete tag command.
-   */
-  private async _handleTagDelete(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.tag) {
-      return;
-    }
-
-    const confirm = await vscode.window.showWarningMessage(
-      `Are you sure you want to delete the tag '${item.tag.name}'?`,
-      { modal: true },
-      'Delete'
-    );
-
-    if (confirm !== 'Delete') {
-      return;
-    }
-
-    try {
-      await this._gitService.deleteTag(repo, item.tag.name).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-      // Tag list changed; reload so the tree's tags section
-      // reflects the post-deletion ref set.
-      await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Deleted tag '${item.tag.name}'`);
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to delete tag: ${sanitizeGitError(errorMessage)}`
-      );
-    }
-  }
-
-  /**
    * Handle push tag command.
    */
-  private async _handleTagPush(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.tag) {
-      return;
-    }
-
+  private async _handleTagPush({ repo, target }: ITreeItemRunArgs<'tag'>): Promise<void> {
     try {
       // Choose the target remote when several exist (default = origin / first);
       // a single remote pushes without prompting. Cancel aborts.
@@ -2930,14 +2871,14 @@ export class BranchContextMenuCommands {
       if (!targetRemote) {
         return;
       }
-      await this._gitService.pushTag(repo, item.tag.name, targetRemote).match(
+      await this._gitService.pushTag(repo, target.tag.name, targetRemote).match(
         () => undefined,
         (e) => {
           throw e;
         }
       );
       void vscode.window.showInformationMessage(
-        `Pushed tag '${item.tag.name}' to '${targetRemote}'`
+        `Pushed tag '${target.tag.name}' to '${targetRemote}'`
       );
       // pushTag updates remote-tracking refs;
       // reload + refresh so the tag tree's "pushed to remote" cue
@@ -2960,12 +2901,7 @@ export class BranchContextMenuCommands {
    * {@link StashTagHistoryOps.deleteRemoteTag} op. Errors route through
    * {@link sanitizeGitError} so credentials in remote URLs are stripped.
    */
-  private async _handleTagDeleteRemote(item: BranchTreeItem | undefined): Promise<void> {
-    const repo = this._resolveRepository(item);
-    if (!repo || !item?.tag) {
-      return;
-    }
-
+  private async _handleTagDeleteRemote({ repo, target }: ITreeItemRunArgs<'tag'>): Promise<void> {
     // Choose the target remote (default = origin / first; prompt when several
     // exist), mirroring `_handleTagPush` — don't silently hardcode origin in a
     // multi-remote repo. Cancel aborts.
@@ -2975,7 +2911,7 @@ export class BranchContextMenuCommands {
     }
 
     const confirm = await vscode.window.showWarningMessage(
-      `Delete remote tag '${item.tag.name}' from ${targetRemote}?`,
+      `Delete remote tag '${target.tag.name}' from ${targetRemote}?`,
       { modal: true },
       'Delete from Remote'
     );
@@ -2985,14 +2921,14 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteRemoteTag(repo, item.tag.name, targetRemote).match(
+      await this._gitService.deleteRemoteTag(repo, target.tag.name, targetRemote).match(
         () => undefined,
         (e) => {
           throw e;
         }
       );
       void vscode.window.showInformationMessage(
-        `Deleted remote tag '${item.tag.name}' from ${targetRemote}`
+        `Deleted remote tag '${target.tag.name}' from ${targetRemote}`
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

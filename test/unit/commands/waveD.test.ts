@@ -21,6 +21,7 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -136,10 +137,6 @@ function makeMinimalBranchTreeProvider(): BranchTreeProvider {
     onDidChangeTreeData: { event: () => ({ dispose: () => {} }) },
   } as unknown as BranchTreeProvider;
 }
-
-type CmdsInternal = {
-  _handleTagDeleteRemote(item: { tag?: ITag }): Promise<void>;
-};
 
 // ─── Item 1a: incoming/outgoing display via buildSectionedItems ───────────────
 
@@ -362,7 +359,7 @@ describe('BranchContextMenuCommands._handleTagDeleteRemote', () => {
     w.showWarningMessage = async () => 'Delete from Remote' as unknown as undefined;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-    await (cmds as unknown as CmdsInternal)._handleTagDeleteRemote({ tag: mockTag });
+    await driveBranchMenuCommand(cmds, 'intellig.tag.deleteRemote', { tag: mockTag });
 
     w.showWarningMessage = originalShowWarning;
 
@@ -383,7 +380,7 @@ describe('BranchContextMenuCommands._handleTagDeleteRemote', () => {
     w.showWarningMessage = async () => undefined;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-    await (cmds as unknown as CmdsInternal)._handleTagDeleteRemote({ tag: mockTag });
+    await driveBranchMenuCommand(cmds, 'intellig.tag.deleteRemote', { tag: mockTag });
 
     w.showWarningMessage = originalShowWarning;
 
@@ -413,7 +410,7 @@ describe('BranchContextMenuCommands._handleTagDeleteRemote', () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-    await (cmds as unknown as CmdsInternal)._handleTagDeleteRemote({ tag: mockTag });
+    await driveBranchMenuCommand(cmds, 'intellig.tag.deleteRemote', { tag: mockTag });
 
     w.showWarningMessage = originalShowWarning;
     w.showErrorMessage = originalShowError;

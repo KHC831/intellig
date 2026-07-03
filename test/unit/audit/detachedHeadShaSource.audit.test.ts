@@ -62,31 +62,19 @@ describe('L11 audit — detached-HEAD SHA read via getDetachedHeadSha(), never l
     );
   });
 
-  it('both _handleCheckout and _handleNewBranchFrom fall back to getDetachedHeadSha()', () => {
-    // Each handler computes its ref as `item.branch?.name ?? ...
-    // getDetachedHeadSha()`. Assert both handler BODIES reference the
-    // accessor so neither regresses independently. Match the method
-    // DEFINITION (`private async _handleX(`), not the bare name — the
-    // bare name's first occurrence is the registerLoggedCommand call
-    // site, whose body is a one-line delegation that doesn't contain
-    // the accessor.
-    const checkoutIdx = source.indexOf('private async _handleCheckout(');
-    const newBranchIdx = source.indexOf('private async _handleNewBranchFrom(');
-    assert.ok(checkoutIdx >= 0, '_handleCheckout definition must exist');
-    assert.ok(newBranchIdx >= 0, '_handleNewBranchFrom definition must exist');
-
-    // Slice a generous window after each definition and confirm the
-    // accessor appears within it (the ref-resolution line is near the
-    // top of each handler body).
-    const checkoutWindow = source.slice(checkoutIdx, checkoutIdx + 1500);
-    const newBranchWindow = source.slice(newBranchIdx, newBranchIdx + 1500);
-    assert.ok(
-      checkoutWindow.includes('getDetachedHeadSha()'),
-      '_handleCheckout must resolve the detached-HEAD start point via getDetachedHeadSha()'
+  it('the tree-item spine resolves the detached target via getDetachedHeadSha()', () => {
+    // The handlers no longer read the accessor themselves — the tree-item
+    // spine scope extracts the detached target ONCE (targetFromItem in
+    // commandSpine.ts) and hands handlers a typed `{ kind: 'detached', sha }`.
+    // Assert the single extraction point uses the accessor, keeping the
+    // label-parse ban meaningful.
+    const spineSource = fs.readFileSync(
+      path.join(__dirname, '../../../src/commands/registration/commandSpine.ts'),
+      'utf8'
     );
     assert.ok(
-      newBranchWindow.includes('getDetachedHeadSha()'),
-      '_handleNewBranchFrom must resolve the detached-HEAD start point via getDetachedHeadSha()'
+      spineSource.includes('getDetachedHeadSha?.()'),
+      'commandSpine targetFromItem must resolve the detached SHA via getDetachedHeadSha()'
     );
   });
 });

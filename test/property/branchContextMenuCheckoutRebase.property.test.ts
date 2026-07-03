@@ -10,6 +10,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
@@ -17,7 +18,6 @@ import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuC
 import { BranchTreeItem, BranchTreeProvider } from '../../src/branches/BranchTreeProvider';
 import { IGitService, IRepository, IBranch } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -231,7 +231,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
             const item = createBranchTreeItem(rightClickedBranch);
 
             // Act: Call the _handleCheckoutAndRebase handler
-            await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
             // Assert: Exactly 2 operations were called
             assert.strictEqual(
@@ -302,7 +302,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
           const item = createBranchTreeItem(rightClickedBranch);
 
           // Act
-          await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+          await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
           // Assert: checkout then rebase.
           assert.strictEqual(gitService.operationCalls.length, 2);
@@ -337,7 +337,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
             const item = createBranchTreeItem(rightClickedBranch);
 
             // Act
-            await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
             // Assert: Both operations were called
             assert.strictEqual(gitService.operationCalls.length, 2);

@@ -15,6 +15,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import {
@@ -35,7 +36,6 @@ import {
   installWarningMessageTracker,
   restoreMessageFunctions,
 } from '../typed/windowStub';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 describe('Align-local Update Selected — planAlignLocal', () => {
   it('builds an FF fetch refspec for a behind-but-fast-forwardable branch', () => {
@@ -257,7 +257,11 @@ describe('Align-local Update Selected — handler', () => {
     const info = installInfoMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
-    await invokePrivateHandler(cmds, '_handleUpdateSelected', localBranchItem('feature', false));
+    await driveBranchMenuCommand(
+      cmds,
+      'intellig.branch.updateSelected',
+      localBranchItem('feature', false)
+    );
 
     assert.strictEqual(fetchCalls.length, 1);
     assert.strictEqual(fetchCalls[0].remote, 'origin');
@@ -270,7 +274,11 @@ describe('Align-local Update Selected — handler', () => {
     const warn = installWarningMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
-    await invokePrivateHandler(cmds, '_handleUpdateSelected', localBranchItem('feature', false));
+    await driveBranchMenuCommand(
+      cmds,
+      'intellig.branch.updateSelected',
+      localBranchItem('feature', false)
+    );
 
     assert.strictEqual(fetchCalls.length, 0, 'no fetch for a diverged branch');
     assert.strictEqual(warn.calls.length, 1);
@@ -284,7 +292,11 @@ describe('Align-local Update Selected — handler', () => {
     const warn = installWarningMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
-    await invokePrivateHandler(cmds, '_handleUpdateSelected', localBranchItem('feature', false));
+    await driveBranchMenuCommand(
+      cmds,
+      'intellig.branch.updateSelected',
+      localBranchItem('feature', false)
+    );
 
     assert.strictEqual(fetchCalls.length, 1, 'the FF fetch was attempted');
     assert.strictEqual(warn.calls.length, 1);
@@ -304,7 +316,11 @@ describe('Update / Update Selected — honesty contract', () => {
     const warn = installWarningMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
-    await invokePrivateHandler(cmds, '_handleUpdateSelected', localBranchItem('feature', false));
+    await driveBranchMenuCommand(
+      cmds,
+      'intellig.branch.updateSelected',
+      localBranchItem('feature', false)
+    );
 
     assert.strictEqual(fetchCalls.length, 1, 'the FF fetch is attempted (git enforces FF-only)');
     assert.strictEqual(fetchCalls[0].refspec, 'feature:feature');
@@ -317,7 +333,7 @@ describe('Update / Update Selected — honesty contract', () => {
     const info = installInfoMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
-    await invokePrivateHandler(cmds, '_handleUpdate', localBranchItem('feature', false));
+    await driveBranchMenuCommand(cmds, 'intellig.branch.update', localBranchItem('feature', false));
 
     assert.strictEqual(fetchCalls.length, 1);
     assert.strictEqual(fetchCalls[0].refspec, 'feature:feature', 'must FF the local ref');
@@ -332,7 +348,7 @@ describe('Update / Update Selected — honesty contract', () => {
     const info = installInfoMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
-    await invokePrivateHandler(cmds, '_handleUpdate', localBranchItem('feature', true));
+    await driveBranchMenuCommand(cmds, 'intellig.branch.update', localBranchItem('feature', true));
 
     assert.strictEqual(fetchCalls.length, 1);
     assert.strictEqual(fetchCalls[0].prune, true, 'current branch keeps the prune fetch');

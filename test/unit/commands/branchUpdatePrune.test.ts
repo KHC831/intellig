@@ -14,6 +14,7 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
@@ -26,7 +27,6 @@ import {
   IUpstream,
 } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
-import { invokePrivateHandler } from '../../typed/privateHandler';
 
 interface RecordingGitService extends IGitService {
   _fetchCalls: Array<{ repo: IRepository; arg: IFetchOptions | string | undefined }>;
@@ -87,7 +87,7 @@ describe('BranchContextMenuCommands._handleUpdate — fetch --prune', () => {
     const upstream: IUpstream = { remote: 'origin', name: 'feature' };
     const item = createLocalBranchItem('feature', upstream, true);
 
-    await invokePrivateHandler(commands, '_handleUpdate', item);
+    await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
     assert.strictEqual(
       gitService._fetchCalls.length,

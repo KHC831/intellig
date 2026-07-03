@@ -16,6 +16,8 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
+import * as vscode from 'vscode';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
@@ -134,15 +136,44 @@ function tagLeaf(name: string, repository?: IRepository): BranchTreeItem {
 
 interface Handlers {
   _handleDelete(item: BranchTreeItem): Promise<void>;
-  _handleRename(item: BranchTreeItem): Promise<void>;
   _handleCheckout(item: BranchTreeItem): Promise<void>;
-  _handleTagDelete(item: BranchTreeItem): Promise<void>;
   _handleTagPush(item: BranchTreeItem): Promise<void>;
 }
 
 function makeCommands(gitService: IGitService, contextRepo: IRepository | undefined): Handlers {
   const provider = createMockBranchTreeProvider(contextRepo);
   return new BranchContextMenuCommands(gitService, provider) as unknown as Handlers;
+}
+
+/**
+ * Spine-migrated commands no longer have per-item private handlers — drive
+ * them the way VS Code does, through the REGISTERED callback (captured by
+ * overriding registerCommand around `register()`).
+ */
+function captureRegisteredCommand(
+  gitService: IGitService,
+  contextRepo: IRepository | undefined,
+  commandId: string
+): (item: BranchTreeItem) => Promise<void> {
+  const captured = new Map<string, (...args: unknown[]) => unknown>();
+  const commandsApi = vscode.commands as unknown as { registerCommand: unknown };
+  const original = commandsApi.registerCommand;
+  commandsApi.registerCommand = (id: string, cb: (...args: unknown[]) => unknown) => {
+    captured.set(id, cb);
+    return { dispose: () => {} };
+  };
+  try {
+    const provider = createMockBranchTreeProvider(contextRepo);
+    const instance = new BranchContextMenuCommands(gitService, provider);
+    instance.register({ subscriptions: [] } as unknown as vscode.ExtensionContext);
+  } finally {
+    commandsApi.registerCommand = original;
+  }
+  const handler = captured.get(commandId);
+  if (!handler) {
+    throw new Error(`command ${commandId} was not registered`);
+  }
+  return (item) => Promise.resolve(handler(item)).then(() => undefined);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -165,7 +196,7 @@ describe('BranchContextMenuCommands — action targets the clicked leaf reposito
     const gitService = createMockGitService();
     const commands = makeCommands(gitService, repoA);
 
-    await commands._handleDelete(localLeaf('main', repoB));
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', localLeaf('main', repoB));
 
     assert.strictEqual(gitService._calls.deleteBranch.length, 1);
     assert.strictEqual(
@@ -178,9 +209,9 @@ describe('BranchContextMenuCommands — action targets the clicked leaf reposito
   it('renames the branch in repoB when the clicked leaf belongs to repoB', async () => {
     writableWindow().showInputBox = async (): Promise<string | undefined> => 'renamed';
     const gitService = createMockGitService();
-    const commands = makeCommands(gitService, repoA);
+    const rename = captureRegisteredCommand(gitService, repoA, 'intellig.branch.rename');
 
-    await commands._handleRename(localLeaf('main', repoB));
+    await rename(localLeaf('main', repoB));
 
     assert.strictEqual(gitService._calls.renameBranch.length, 1);
     assert.strictEqual(
@@ -194,7 +225,7 @@ describe('BranchContextMenuCommands — action targets the clicked leaf reposito
     const gitService = createMockGitService();
     const commands = makeCommands(gitService, repoA);
 
-    await commands._handleCheckout(localLeaf('main', repoB));
+    await driveBranchMenuCommand(commands, 'intellig.branch.checkout', localLeaf('main', repoB));
 
     assert.strictEqual(gitService._calls.checkout.length, 1);
     assert.strictEqual(
@@ -212,7 +243,7 @@ describe('BranchContextMenuCommands — action targets the clicked leaf reposito
     const gitService = createMockGitService();
     const commands = makeCommands(gitService, repoA);
 
-    await commands._handleDelete(localLeaf('main')); // no repository on the leaf
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', localLeaf('main')); // no repository on the leaf
 
     assert.strictEqual(gitService._calls.deleteBranch.length, 1);
     assert.strictEqual(
@@ -239,9 +270,9 @@ describe('BranchContextMenuCommands — tag action targets the clicked leaf repo
   it('deletes the tag in repoB when the clicked tag leaf belongs to repoB, not the context repoA', async () => {
     installWarningMessageTracker('Delete'); // confirm the modal
     const gitService = createMockGitService();
-    const commands = makeCommands(gitService, repoA);
+    const tagDelete = captureRegisteredCommand(gitService, repoA, 'intellig.tag.delete');
 
-    await commands._handleTagDelete(tagLeaf('v1.0', repoB));
+    await tagDelete(tagLeaf('v1.0', repoB));
 
     assert.strictEqual(gitService._calls.deleteTag.length, 1);
     assert.strictEqual(
@@ -255,7 +286,7 @@ describe('BranchContextMenuCommands — tag action targets the clicked leaf repo
     const gitService = createMockGitService();
     const commands = makeCommands(gitService, repoA);
 
-    await commands._handleTagPush(tagLeaf('v1.0', repoB));
+    await driveBranchMenuCommand(commands, 'intellig.tag.push', tagLeaf('v1.0', repoB));
 
     assert.strictEqual(gitService._calls.pushTag.length, 1);
     assert.strictEqual(
@@ -268,9 +299,9 @@ describe('BranchContextMenuCommands — tag action targets the clicked leaf repo
   it('falls back to the context repo when the tag leaf carries no repository', async () => {
     installWarningMessageTracker('Delete');
     const gitService = createMockGitService();
-    const commands = makeCommands(gitService, repoA);
+    const tagDelete = captureRegisteredCommand(gitService, repoA, 'intellig.tag.delete');
 
-    await commands._handleTagDelete(tagLeaf('v1.0')); // no repository on the leaf
+    await tagDelete(tagLeaf('v1.0')); // no repository on the leaf
 
     assert.strictEqual(gitService._calls.deleteTag.length, 1);
     assert.strictEqual(

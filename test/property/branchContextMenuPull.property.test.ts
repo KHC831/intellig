@@ -10,6 +10,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
@@ -22,7 +23,6 @@ import {
   IPullOptions,
 } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
           const item = createRemoteBranchTreeItem(fullRef);
 
           // Act: Call the _handlePullUsingRebase handler
-          await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
+          await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
           // Assert: pull was called exactly once
           assert.strictEqual(
@@ -287,7 +287,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
           const item = createRemoteBranchTreeItem(fullRef);
 
           // Act: Call the _handlePullUsingMerge handler
-          await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
+          await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
           // Assert: pull was called exactly once
           assert.strictEqual(
@@ -339,7 +339,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
             const item = createRemoteBranchTreeItem(fullRef);
 
             // Act: Test with rebase
-            await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
+            await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
             // Assert: pull was called once
             assert.strictEqual(gitService.pullCalls.length, 1);
@@ -376,7 +376,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
           const item = createRemoteBranchTreeItem(fullRef);
 
           // Act
-          await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
+          await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
           // Assert: pull was called with a valid repository
           assert.strictEqual(gitService.pullCalls.length, 1);

@@ -30,6 +30,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
@@ -346,11 +347,11 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (per-file flow
               const commands = new BranchContextMenuCommands(gitService, provider);
               const item = createBranchTreeItem(branchName, 'local');
 
-              await (
-                commands as unknown as {
-                  _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-                }
-              )._handleShowDiffWithWorkingTree(item);
+              await driveBranchMenuCommand(
+                commands,
+                'intellig.branch.showDiffWithWorkingTree',
+                item
+              );
 
               assert.strictEqual(
                 diffCalls.length,
@@ -412,11 +413,11 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (per-file flow
               const commands = new BranchContextMenuCommands(gitService, provider);
               const item = createBranchTreeItem(branchRef, 'remote');
 
-              await (
-                commands as unknown as {
-                  _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-                }
-              )._handleShowDiffWithWorkingTree(item);
+              await driveBranchMenuCommand(
+                commands,
+                'intellig.branch.showDiffWithWorkingTree',
+                item
+              );
 
               assert.strictEqual(
                 diffCalls.length,
@@ -469,11 +470,11 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (per-file flow
               const commands = new BranchContextMenuCommands(gitService, provider);
               const item = createBranchTreeItem(branchName, 'local');
 
-              await (
-                commands as unknown as {
-                  _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-                }
-              )._handleShowDiffWithWorkingTree(item);
+              await driveBranchMenuCommand(
+                commands,
+                'intellig.branch.showDiffWithWorkingTree',
+                item
+              );
 
               assert.strictEqual(
                 diffCalls.length,
@@ -548,11 +549,11 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (per-file flow
               const provider = createMockBranchTreeProvider(gitService);
               const commands = new BranchContextMenuCommands(gitService, provider);
               const item = createBranchTreeItem(branchName, 'local');
-              await (
-                commands as unknown as {
-                  _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-                }
-              )._handleShowDiffWithWorkingTree(item);
+              await driveBranchMenuCommand(
+                commands,
+                'intellig.branch.showDiffWithWorkingTree',
+                item
+              );
               assert.strictEqual(diffCalls.length, changedFiles.length);
               const expectedPaths = new Set(changedFiles.map((f) => f.path));
               const actualPaths = new Set<string>();
@@ -593,11 +594,11 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (per-file flow
               const commands = new BranchContextMenuCommands(gitService, provider);
               const item = createBranchTreeItem(branchName, 'local');
 
-              await (
-                commands as unknown as {
-                  _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-                }
-              )._handleShowDiffWithWorkingTree(item);
+              await driveBranchMenuCommand(
+                commands,
+                'intellig.branch.showDiffWithWorkingTree',
+                item
+              );
 
               assert.strictEqual(diffCalls.length, 1);
 

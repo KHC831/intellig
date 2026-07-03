@@ -13,6 +13,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { SpawnFailedError, CommandFailedError, GitError } from '../../src/git-core/errors';
 import * as assert from 'assert';
 import { okAsync, errAsync, ResultAsync } from 'neverthrow';
@@ -31,7 +32,6 @@ import {
 } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
@@ -310,7 +310,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         remote: 'origin',
         name: 'feature/test',
       });
-      await invokePrivateHandler(commands, '_handleUpdate', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
       assert.strictEqual(fetchCalled, false, 'fetch should not be called when repo is undefined');
     });
@@ -330,7 +330,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         remote: 'origin',
         name: 'feature/test',
       });
-      await invokePrivateHandler(commands, '_handlePush', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
       assert.strictEqual(pushCalled, false, 'push should not be called when repo is undefined');
     });
@@ -347,7 +347,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(
         checkoutCalled,
@@ -368,7 +368,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
       assert.strictEqual(pullCalled, false, 'pull should not be called when repo is undefined');
     });
@@ -385,7 +385,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
       assert.strictEqual(pullCalled, false, 'pull should not be called when repo is undefined');
     });
@@ -411,7 +411,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.ok(warningTracker.calls.length > 0, 'showWarningMessage should have been called');
       const call = warningTracker.calls[0];
@@ -441,7 +441,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -480,9 +480,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         createMockBranchTreeProvider(gitService)
       );
 
-      await invokePrivateHandler(
+      await driveBranchMenuCommand(
         commands,
-        '_handleCheckout',
+        'intellig.branch.checkout',
         createLocalBranchTreeItem('feature/x')
       );
 
@@ -543,9 +543,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         createMockBranchTreeProvider(gitService)
       );
 
-      await invokePrivateHandler(
+      await driveBranchMenuCommand(
         commands,
-        '_handleCheckout',
+        'intellig.branch.checkout',
         createLocalBranchTreeItem('feature/x')
       );
 
@@ -591,9 +591,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         conflictService
       );
 
-      await invokePrivateHandler(
+      await driveBranchMenuCommand(
         commands,
-        '_handleCheckout',
+        'intellig.branch.checkout',
         createLocalBranchTreeItem('feature/x')
       );
 
@@ -634,7 +634,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.ok(stashCalls.length > 0, 'stash should have been called');
       assert.ok(
@@ -671,7 +671,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.ok(forceUsed, 'Force checkout should have been used');
     });
@@ -699,9 +699,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       provider.getRepository = (): IRepository => detachedRepo;
       const commands = new BranchContextMenuCommands(gitService, provider);
 
-      await invokePrivateHandler(
+      await driveBranchMenuCommand(
         commands,
-        '_handleCheckoutAndRebase',
+        'intellig.branch.checkoutAndRebase',
         createLocalBranchTreeItem('feature/x')
       );
 
@@ -762,7 +762,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(
         tracker.calls.length,
@@ -805,7 +805,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/feature/auth/login');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(tracker.calls.length, 1);
       const call = tracker.calls[0];
@@ -831,7 +831,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('main');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(tracker.calls.length, 1);
       const call = tracker.calls[0];
@@ -873,7 +873,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(
         calls.length,
@@ -911,7 +911,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(calls.length, 1, `expected one force-checkout call; got ${calls.length}`);
       const call = calls[0];
@@ -941,7 +941,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -968,7 +968,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/merge-test');
-      await invokePrivateHandler(commands, '_handleMergeIntoCurrent', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.mergeIntoCurrent', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -994,7 +994,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createTagTreeItem('v1.2.0');
-      await invokePrivateHandler(commands, '_handleTagMergeIntoCurrent', item);
+      await driveBranchMenuCommand(commands, 'intellig.tag.mergeIntoCurrent', item);
 
       assert.strictEqual(mergedRef, 'v1.2.0', 'merge source should be the tag ref');
       assert.ok(
@@ -1016,7 +1016,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createTagTreeItem('v2.0.0');
-      await invokePrivateHandler(commands, '_handleTagMergeIntoCurrent', item);
+      await driveBranchMenuCommand(commands, 'intellig.tag.mergeIntoCurrent', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -1040,7 +1040,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-test');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -1080,7 +1080,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
 
       const item = createLocalBranchTreeItem('feature/rebase-test');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       assert.strictEqual(openerCalls.length, 1, 'rebase dialog opener invoked exactly once');
       assert.strictEqual(
@@ -1122,7 +1122,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-target');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       assert.strictEqual(
         rebaseCalls,
@@ -1160,7 +1160,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-target');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       // No commit-or-stash wall; the conflict is surfaced instead.
       const stashWall = warningTracker.calls.find((c) =>
@@ -1199,7 +1199,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/merge-test');
-      await invokePrivateHandler(commands, '_handleMergeIntoCurrent', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.mergeIntoCurrent', item);
 
       assert.ok(
         errorTracker.calls.length > 0,
@@ -1249,7 +1249,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
         const item = createRemoteBranchTreeItem('origin/feature/x');
-        await invokePrivateHandler(commands, '_handleCherryPickCommits', item);
+        await driveBranchMenuCommand(commands, 'intellig.remoteBranch.cherryPickCommits', item);
 
         assert.ok(
           errorTracker.calls.length > 0,
@@ -1317,7 +1317,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckout', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkout', item);
 
       // git refuses worktree conflicts atomically — Force won't help, so
       // we must NOT offer the Stash & Switch / Force Checkout warning.
@@ -1341,7 +1341,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.strictEqual(
         warningTracker.calls.length,
@@ -1371,7 +1371,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleCheckoutAsLocal', item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.strictEqual(
         warningTracker.calls.length,
@@ -1398,7 +1398,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('nonexistent-branch');
-      await invokePrivateHandler(commands, '_handleCheckout', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkout', item);
 
       assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
       assert.ok(
@@ -1444,7 +1444,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const provider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, provider);
 
-      await invokePrivateHandler(commands, '_handleCheckout', createLocalBranchTreeItem('feat/x'));
+      await driveBranchMenuCommand(
+        commands,
+        'intellig.branch.checkout',
+        createLocalBranchTreeItem('feat/x')
+      );
 
       assert.strictEqual(stashCalls.length, 1, 'stash must be called once');
       assert.ok(stashCalls[0].includes('feat/x'), 'stash label references the branch');
@@ -1479,7 +1483,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const provider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, provider);
 
-      await invokePrivateHandler(commands, '_handleCheckout', createLocalBranchTreeItem('feat/x'));
+      await driveBranchMenuCommand(
+        commands,
+        'intellig.branch.checkout',
+        createLocalBranchTreeItem('feat/x')
+      );
 
       assert.ok(forceUsed, 'second checkout must use force option');
       assert.strictEqual(infoTracker.calls.length, 1, 'success toast shown');
@@ -1516,9 +1524,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const provider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, provider);
 
-      await invokePrivateHandler(
+      await driveBranchMenuCommand(
         commands,
-        '_handleCheckoutAsLocal',
+        'intellig.remoteBranch.checkoutAsLocal',
         createRemoteBranchTreeItem('origin/feat-y')
       );
 
@@ -1556,9 +1564,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const provider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, provider);
 
-      await invokePrivateHandler(
+      await driveBranchMenuCommand(
         commands,
-        '_handleCheckoutAsLocal',
+        'intellig.remoteBranch.checkoutAsLocal',
         createRemoteBranchTreeItem('origin/feat-y')
       );
 
@@ -1587,7 +1595,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       // a failed FF fetch is reported as a skip warning (covered in
       // branchAlignLocal.test.ts).
       const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' }, true);
-      await invokePrivateHandler(commands, '_handleUpdate', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
       assert.ok(
@@ -1608,7 +1616,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' });
-      await invokePrivateHandler(commands, '_handlePush', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
       assert.ok(
@@ -1628,7 +1636,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('nonexistent-branch');
-      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
       assert.ok(
@@ -1650,7 +1658,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       // Create branch without upstream
       const item = createLocalBranchTreeItem('feature/no-upstream');
-      await invokePrivateHandler(commands, '_handleUpdate', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
       assert.ok(
         infoTracker.calls.length > 0,
@@ -1677,7 +1685,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       // Create branch without upstream
       const item = createLocalBranchTreeItem('feature/no-upstream');
-      await invokePrivateHandler(commands, '_handlePush', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
       assert.ok(pushOptions !== undefined, 'push should have been called');
       assert.strictEqual(
@@ -1711,7 +1719,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' });
-      await invokePrivateHandler(commands, '_handlePush', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
       assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
       assert.strictEqual(errorTracker.calls[0].message, `Failed to push branch: ${EXPECTED}`);
@@ -1789,7 +1797,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errTracker = installErrorMessageTracker();
 
       const item = createLocalBranchTreeItem('test-branch');
-      await invokePrivateHandler(commands, '_handleDelete', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.delete', item);
 
       assert.strictEqual(deleteCalls.length, 2, 'expected one safe + one force attempt');
       assert.strictEqual(deleteCalls[0].force, undefined, 'first attempt is unforced');
@@ -1838,7 +1846,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const infoTracker = installInfoMessageTracker();
 
       const item = createLocalBranchTreeItem('test-branch');
-      await invokePrivateHandler(commands, '_handleDelete', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.delete', item);
 
       assert.strictEqual(deleteCalls.length, 1, 'no retry attempted on cancel');
       assert.strictEqual(infoTracker.calls.length, 0, 'no success toast on cancel');
@@ -1863,7 +1871,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const errTracker = installErrorMessageTracker();
 
       const item = createLocalBranchTreeItem('test-branch');
-      await invokePrivateHandler(commands, '_handleDelete', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.delete', item);
 
       assert.strictEqual(warnTracker.calls.length, 1, 'only the initial confirm is shown');
       assert.strictEqual(errTracker.calls.length, 1, 'expected one error toast');
@@ -1934,7 +1942,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-target');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -1965,7 +1973,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-target');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       const pausedWarnings = warningTracker.calls.filter((c) =>
         c.message.toLowerCase().includes('rebase paused')
@@ -2007,7 +2015,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-target');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       assert.ok(abortCalled, 'rebaseAbort MUST be invoked to clean up the orphaned rebase');
 
@@ -2047,7 +2055,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-target');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      await driveBranchMenuCommand(commands, 'intellig.branch.rebaseCurrentOnto', item);
 
       assert.strictEqual(
         abortCalled,

@@ -14,17 +14,17 @@
  *    the next command on the spine.
  *
  * 2. Heuristic + how it scales
- *    Scope: src/commands/registration/*.ts + src/extension.ts (the spine's
- *    domain — thin command modules over ICommandContext). Any literal-id
- *    registerLoggedCommand / commands.registerCommand call there must carry
- *    a `spine-exempt: <reason>` comment within the four lines above the
+ *    Scope: src/commands/registration/*.ts + src/extension.ts +
+ *    src/branches/BranchContextMenuCommands.ts (the tree-item spine's
+ *    surface). Any literal-id registerLoggedCommand /
+ *    commands.registerCommand call there must carry a
+ *    `spine-exempt: <reason>` comment within the four lines above the
  *    call. Exemptions are legitimate and documented in place (return-value
- *    contracts, dialog owners, pure routers, singleton togglers usable
- *    without services). Class-based context-menu surfaces
- *    (BranchContextMenuCommands, CommitContextMenuCommands) and view
- *    providers are OUT of scope: they have their own structured dispatch
- *    (tree-item / webview payload targeting) that the spine's scopes don't
- *    model; extending the spine there is a known follow-up (AGENT-HANDBOOK section 8).
+ *    contracts, dialog owners, pure routers, itemless pickers, singleton
+ *    togglers usable without services). CommitContextMenuCommands
+ *    (webview-payload dispatch) and view providers remain out of scope —
+ *    extending the spine there is a known follow-up (AGENT-HANDBOOK
+ *    section 8).
  *
  * 3. Known false-positive cases
  *    A registration whose id literal sits more than one line below the call
@@ -41,6 +41,10 @@ const files = readdirSync(dir)
   .filter((f) => f.endsWith('.ts'))
   .map((f) => join(dir, f));
 files.push(join(root, 'src', 'extension.ts'));
+// The branches context-menu surface is on the tree-item spine scope
+// (registerTreeItemCommand); its remaining literal-id registrations carry
+// justified spine-exempt comments like the registration modules.
+files.push(join(root, 'src', 'branches', 'BranchContextMenuCommands.ts'));
 
 const CALL = /(?:registerLoggedCommand|commands\.registerCommand)\(/;
 const violations = [];

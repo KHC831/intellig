@@ -11,6 +11,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { SpawnFailedError } from '../../src/git-core/errors';
 import { okAsync, errAsync } from 'neverthrow';
 import * as fc from 'fast-check';
@@ -25,7 +26,6 @@ import {
 } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -361,7 +361,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
               name: branchName,
             });
 
-            await invokePrivateHandler(commands, '_handleUpdate', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
             // A non-current branch routes through the align-local FF, where a
             // failed fetch surfaces as a skip WARNING; the current branch's
@@ -402,7 +402,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
               name: branchName,
             });
 
-            await invokePrivateHandler(commands, '_handlePush', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -436,7 +436,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             const fullRef = `${remoteName}/${branchName}`;
             const item = createRemoteBranchTreeItem(fullRef);
 
-            await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
+            await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -470,7 +470,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             const fullRef = `${remoteName}/${branchName}`;
             const item = createRemoteBranchTreeItem(fullRef);
 
-            await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
+            await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -518,7 +518,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             const item = createLocalBranchTreeItem(targetBranch);
 
-            await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
             assert.ok(
               warningTracker.calls.length > 0,

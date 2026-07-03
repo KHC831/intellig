@@ -32,7 +32,7 @@ import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { formatActionFailureToast } from '../../git-core/gitError';
-import type { IRepository } from '../../git-core/interfaces/IGitService';
+import type { IBranch, IRepository, ITag } from '../../git-core/interfaces/IGitService';
 import type { ExtensionServices } from '../../services';
 import type { ICommandContext } from './CommandContext';
 
@@ -283,6 +283,111 @@ export function registerRepoCommand(
     await runReported(ctx, spec, () =>
       spec.run({ services, gitService: services.gitService, repo }, ...rawArgs)
     );
+  });
+}
+
+/**
+ * The clicked argument of a branches-tree context command, structurally
+ * (BranchTreeItem satisfies this without an import — keeping the spine free
+ * of a `branches/` dependency). The branch-popup shim (`{branch, tag}`)
+ * satisfies it too.
+ */
+export interface IClickedTreeItem {
+  branch?: IBranch;
+  tag?: ITag;
+  repository?: IRepository;
+  getDetachedHeadSha?(): string | undefined;
+}
+
+/** What a tree-item command was clicked ON, extracted and typed. */
+export type TreeItemTarget =
+  | { kind: 'branch'; branch: IBranch }
+  | { kind: 'tag'; tag: ITag }
+  | { kind: 'detached'; sha: string };
+
+/**
+ * The tree surface a tree-item command needs: the fallback repository (the
+ * tree's current repo, for items that don't carry one) and the tree refresh.
+ */
+export interface ITreeItemCommandDeps {
+  getRepository(): IRepository | undefined;
+  refresh(): void;
+}
+
+/**
+ * Run arguments for a tree-item command body. `target` is narrowed to the
+ * kinds the spec accepts, so a branch-only command reads `target.branch`
+ * without a runtime re-check.
+ */
+export interface ITreeItemRunArgs<K extends TreeItemTarget['kind'] = TreeItemTarget['kind']> {
+  repo: IRepository;
+  target: Extract<TreeItemTarget, { kind: K }>;
+  item: IClickedTreeItem;
+}
+
+export interface ITreeItemCommandSpec<K extends TreeItemTarget['kind'] = TreeItemTarget['kind']> {
+  id: string;
+  /** Toast prefix for an unexpected failure, e.g. `Failed to rename branch`. */
+  failureTitle: string;
+  /** Target kinds this command acts on; anything else is a silent no-op. */
+  accepts: ReadonlyArray<K>;
+  /** Refresh the branches tree after a successful run. */
+  refreshOnSuccess?: boolean;
+  run(args: ITreeItemRunArgs<K>): Promise<void>;
+}
+
+function targetFromItem(item: IClickedTreeItem | undefined): TreeItemTarget | undefined {
+  if (!item) {
+    return undefined;
+  }
+  if (item.branch) {
+    return { kind: 'branch', branch: item.branch };
+  }
+  if (item.tag) {
+    return { kind: 'tag', tag: item.tag };
+  }
+  const sha = item.getDetachedHeadSha?.();
+  if (sha) {
+    return { kind: 'detached', sha };
+  }
+  return undefined;
+}
+
+/**
+ * Register a branches-tree context-menu command. The wrapper owns what every
+ * handler used to hand-roll: tolerance of an UNDEFINED item (VS Code delivers
+ * none when the tree refreshes under the click), target extraction with
+ * accepts-filtering, repo resolution (item's own repo in a multi-repo tree,
+ * else the tree's current repo), the sanitized failure-toast backstop, and
+ * opt-in tree refresh. A mismatched or missing target is a silent no-op —
+ * the tree-race case where the user just clicks again.
+ */
+export function registerTreeItemCommand<K extends TreeItemTarget['kind']>(
+  deps: ITreeItemCommandDeps,
+  spec: ITreeItemCommandSpec<K>
+): vscode.Disposable {
+  return registerLoggedCommand(spec.id, async (item?: IClickedTreeItem) => {
+    const target = targetFromItem(item);
+    if (!target || !(spec.accepts as ReadonlyArray<TreeItemTarget['kind']>).includes(target.kind)) {
+      return;
+    }
+    const repo = item?.repository ?? deps.getRepository();
+    if (!repo) {
+      return;
+    }
+    try {
+      await spec.run({
+        repo,
+        target: target as Extract<TreeItemTarget, { kind: K }>,
+        item: item as IClickedTreeItem,
+      });
+    } catch (error) {
+      void vscode.window.showErrorMessage(formatActionFailureToast(spec.failureTitle, error));
+      return;
+    }
+    if (spec.refreshOnSuccess) {
+      deps.refresh();
+    }
   });
 }
 

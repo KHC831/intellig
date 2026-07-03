@@ -14,6 +14,7 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
@@ -94,11 +95,6 @@ function tagItem(name: string): BranchTreeItem {
   return new BranchTreeItem(name, 0, 'tag', undefined, tag, false);
 }
 
-type WithPrivate = {
-  _handlePush(item: BranchTreeItem): Promise<void>;
-  _handleTagPush(item: BranchTreeItem): Promise<void>;
-};
-
 describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
   afterEach(() => {
     restoreMessageFunctions();
@@ -123,7 +119,7 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
         gitService as unknown as IGitService,
         createMockProvider(repo)
       );
-      await (commands as unknown as WithPrivate)._handlePush(localBranchItem('feature/x'));
+      await driveBranchMenuCommand(commands, 'intellig.branch.push', localBranchItem('feature/x'));
 
       assert.strictEqual(quickPickShown, 1, 'QuickPick must be shown with >1 remote');
       assert.deepStrictEqual(offered, ['origin', 'backup'], 'both remotes offered, default first');
@@ -155,7 +151,9 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
       createMockProvider(repo)
     );
     // Tracked remote = "backup" → it must be offered first (the default).
-    await (commands as unknown as WithPrivate)._handlePush(
+    await driveBranchMenuCommand(
+      commands,
+      'intellig.branch.push',
       localBranchItem('feature/x', { remote: 'backup', name: 'feature/x' })
     );
     assert.deepStrictEqual(offered, ['backup', 'origin'], 'tracked remote is the default (first)');
@@ -174,7 +172,9 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
       gitService as unknown as IGitService,
       createMockProvider(repo)
     );
-    await (commands as unknown as WithPrivate)._handlePush(
+    await driveBranchMenuCommand(
+      commands,
+      'intellig.branch.push',
       localBranchItem('feature/x', { remote: 'origin', name: 'feature/x' })
     );
     assert.strictEqual(quickPickShown, 0, 'single remote → no prompt');
@@ -191,7 +191,7 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
       gitService as unknown as IGitService,
       createMockProvider(repo)
     );
-    await (commands as unknown as WithPrivate)._handlePush(localBranchItem('feature/x'));
+    await driveBranchMenuCommand(commands, 'intellig.branch.push', localBranchItem('feature/x'));
     assert.strictEqual(gitService._push.length, 0, 'cancel → no push');
   });
 
@@ -209,7 +209,7 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
         gitService as unknown as IGitService,
         createMockProvider(repo)
       );
-      await (commands as unknown as WithPrivate)._handleTagPush(tagItem('v1.0.0'));
+      await driveBranchMenuCommand(commands, 'intellig.tag.push', tagItem('v1.0.0'));
       assert.strictEqual(quickPickShown, 1);
       assert.strictEqual(gitService._pushTag.length, 1);
       assert.strictEqual(gitService._pushTag[0].name, 'v1.0.0');
@@ -234,7 +234,7 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
       gitService as unknown as IGitService,
       createMockProvider(repo)
     );
-    await (commands as unknown as WithPrivate)._handleTagPush(tagItem('v1.0.0'));
+    await driveBranchMenuCommand(commands, 'intellig.tag.push', tagItem('v1.0.0'));
     assert.strictEqual(quickPickShown, 0, 'single remote → no prompt');
     assert.strictEqual(gitService._pushTag.length, 1);
     assert.strictEqual(gitService._pushTag[0].remote, 'origin');
@@ -260,9 +260,7 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
         gitService as unknown as IGitService,
         createMockProvider(repo)
       );
-      await (
-        commands as unknown as { _handleTagDeleteRemote(item: BranchTreeItem): Promise<void> }
-      )._handleTagDeleteRemote(tagItem('v1.0.0'));
+      await driveBranchMenuCommand(commands, 'intellig.tag.deleteRemote', tagItem('v1.0.0'));
 
       assert.deepStrictEqual(
         deleted,

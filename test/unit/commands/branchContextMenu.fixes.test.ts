@@ -23,6 +23,7 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import { SpawnFailedError, GitError } from '../../../src/git-core/errors';
 import { errAsync, okAsync, ResultAsync } from 'neverthrow';
 import * as assert from 'assert';
@@ -241,11 +242,7 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createLocalBranchTreeItem('feature/x');
-    await (
-      commands as unknown as {
-        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleCheckoutAndRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
     assert.strictEqual(gitService._calls.checkout.length, 1);
     assert.strictEqual(gitService._calls.checkout[0].args[1], 'feature/x');
@@ -274,11 +271,7 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
     );
 
     const item = createLocalBranchTreeItem('feature/x');
-    await (
-      commands as unknown as {
-        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleCheckoutAndRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
     assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 1);
     const [repoArg, filesArg, ctxArg] = crs._calls.openResolveConflictsDialog[0].args;
@@ -312,11 +305,7 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
     );
 
     const item = createLocalBranchTreeItem('feature/x');
-    await (
-      commands as unknown as {
-        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleCheckoutAndRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
     assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 1);
     const [, filesArg, ctxArg] = crs._calls.openResolveConflictsDialog[0].args;
@@ -335,11 +324,7 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
     const provider = createMockBranchTreeProvider(undefined);
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
     const item = createLocalBranchTreeItem('feature/x');
-    await (
-      commands as unknown as {
-        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleCheckoutAndRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
 
     assert.strictEqual(gitService._calls.checkout.length, 0);
     assert.strictEqual(gitService._calls.rebaseBranch.length, 0);
@@ -368,11 +353,7 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
       );
 
       const item = createRemoteBranchTreeItem('origin/feature/x');
-      await (
-        commands as unknown as {
-          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-        }
-      )._handlePullUsingRebase(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
       // Dialog is bypassed entirely.
       assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
@@ -412,11 +393,7 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
       );
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-        }
-      )._handlePullUsingMerge(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
       // Dialog is bypassed entirely.
       assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
@@ -452,11 +429,7 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
     );
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (
-      commands as unknown as {
-        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
     assert.strictEqual(gitService._calls.pull.length, 1);
     const pullOptions = gitService._calls.pull[0].args[1] as {
@@ -480,11 +453,7 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
     );
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (
-      commands as unknown as {
-        _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingMerge(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
     assert.strictEqual(gitService._calls.pull.length, 1);
     const pullOptions = gitService._calls.pull[0].args[1] as { rebase: boolean };
@@ -503,11 +472,7 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
     );
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (
-      commands as unknown as {
-        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
     assert.strictEqual(pullDialog._calls.length, 0);
     assert.strictEqual(gitService._calls.pull.length, 0);
@@ -530,11 +495,7 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
     );
 
     const item = createRemoteBranchTreeItem('origin-only');
-    await (
-      commands as unknown as {
-        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
     assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
     assert.strictEqual(gitService._calls.pull.length, 1);
@@ -723,11 +684,7 @@ describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict serv
     );
 
     const item = createRemoteBranchTreeItem('origin/feature');
-    await (
-      commands as unknown as {
-        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingRebase(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
     assert.strictEqual(gitService._calls.pull.length, 1);
     assert.strictEqual(crs._calls.getConflictedFiles.length, 1);
@@ -766,11 +723,7 @@ describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict serv
       );
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-        }
-      )._handlePullUsingMerge(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
       assert.strictEqual(gitService._calls.pull.length, 1);
       assert.strictEqual(crs._calls.getConflictedFiles.length, 1);
@@ -813,11 +766,7 @@ describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict serv
       );
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-        }
-      )._handlePullUsingRebase(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
       assert.strictEqual(gitService._calls.pull.length, 1);
       assert.ok(errorCalls.length > 0, 'generic error message should be shown');
@@ -919,11 +868,7 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       );
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-        }
-      )._handlePullUsingMerge(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
       // Pull attempted; probe attempted (and rejected).
       assert.strictEqual(gitService._calls.pull.length, 1);
@@ -1013,11 +958,7 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       );
 
       const item = createRemoteBranchTreeItem('origin/feature');
-      await (
-        commands as unknown as {
-          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-        }
-      )._handlePullUsingRebase(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
       assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 0);
       assert.strictEqual(errorCalls.length, 1);
@@ -1090,11 +1031,7 @@ describe('detached row dispatcher safety (Wave F regression class)', () => {
       const detachedRow = items.find((i) => i.itemType === 'detached-head');
       assert.ok(detachedRow, 'detached row must be present in fixture');
 
-      await (
-        commands as unknown as {
-          _handleNewBranchFrom(item: BranchTreeItem): Promise<void>;
-        }
-      )._handleNewBranchFrom(detachedRow);
+      await driveBranchMenuCommand(commands, 'intellig.branch.newBranchFrom', detachedRow);
 
       assert.strictEqual(createdStartPoint, FULL_SHA, 'createBranch must receive the 40-char SHA');
       assert.ok(
@@ -1126,11 +1063,7 @@ describe('detached row dispatcher safety (Wave F regression class)', () => {
     const detachedRow = items.find((i) => i.itemType === 'detached-head');
     assert.ok(detachedRow, 'detached row must be present in fixture');
 
-    await (
-      commands as unknown as {
-        _handleCheckout(item: BranchTreeItem): Promise<void>;
-      }
-    )._handleCheckout(detachedRow);
+    await driveBranchMenuCommand(commands, 'intellig.branch.checkout', detachedRow);
 
     assert.strictEqual(checkedOutRef, FULL_SHA, 'checkout must receive the 40-char SHA');
     assert.ok(
@@ -1196,11 +1129,7 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createRemoteBranchTreeItem('origin/feature');
-    await (
-      commands as unknown as {
-        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleTrackRemote(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.trackBranch', item);
 
     assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must be called once');
     assert.strictEqual(gitService._calls.checkout[0].args[1], 'feature');
@@ -1224,11 +1153,7 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createRemoteBranchTreeItem('origin/feature');
-    await (
-      commands as unknown as {
-        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleTrackRemote(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.trackBranch', item);
 
     // No checkout — local already exists.
     assert.strictEqual(gitService._calls.checkout.length, 0);
@@ -1262,11 +1187,7 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
     };
 
     const item = createRemoteBranchTreeItem('origin/feature');
-    await (
-      commands as unknown as {
-        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleTrackRemote(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.trackBranch', item);
 
     // Confirm dialog fired with both upstream refs visible.
     assert.ok(
@@ -1291,11 +1212,7 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createRemoteBranchTreeItem('origin/feature/foo');
-    await (
-      commands as unknown as {
-        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleTrackRemote(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.trackBranch', item);
 
     assert.strictEqual(gitService._calls.checkout.length, 1);
     // Simple name = everything AFTER the first slash → 'feature/foo'.
@@ -1329,11 +1246,7 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
       );
 
       const item = createRemoteBranchTreeItem('origin/-evil');
-      await (
-        commands as unknown as {
-          _handleTrackRemote(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleTrackRemote(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.trackBranch', item);
 
       // Service must not be called — reject at the handler boundary.
       assert.strictEqual(
@@ -1380,11 +1293,7 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
       );
 
       const item = createRemoteBranchTreeItem('origin/.hidden');
-      await (
-        commands as unknown as {
-          _handleTrackRemote(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleTrackRemote(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.trackBranch', item);
 
       assert.strictEqual(
         gitService._calls.checkout.length,
@@ -1471,11 +1380,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (
-      commands as unknown as {
-        _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
-      }
-    )._handleCheckoutAsLocal(item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
     // Exactly one checkout call, with the forceCreate + track options.
     assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must be called once');
@@ -1513,11 +1418,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
         provider
       );
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleCheckoutAsLocal(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.ok(
         warningMsg.includes('3 commits not on remote'),
@@ -1551,11 +1452,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
         provider
       );
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleCheckoutAsLocal(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.strictEqual(gitService._calls.stash.length, 0, 'Reset anyway must NOT stash');
       assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must run after confirm');
@@ -1598,11 +1495,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
         provider
       );
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleCheckoutAsLocal(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.strictEqual(gitService._calls.stash.length, 1, 'stash must run');
       assert.strictEqual(gitService._calls.checkout.length, 1, 'forceCreate must run');
@@ -1638,11 +1531,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
         provider
       );
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleCheckoutAsLocal(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.strictEqual(warningCalled, false, 'no prompt when local is not ahead');
       assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout runs immediately');
@@ -1676,11 +1565,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
         provider
       );
       const item = createRemoteBranchTreeItem('origin/main');
-      await (
-        commands as unknown as {
-          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
-        }
-      )._handleCheckoutAsLocal(item);
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.strictEqual(warningCalled, false, 'no prompt when local does not exist');
       assert.strictEqual(gitService._calls.checkout.length, 1);

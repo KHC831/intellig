@@ -17,6 +17,7 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
@@ -200,11 +201,11 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
         branchName: 'feature/x',
       });
       try {
-        await (
-          harness.commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(harness.item);
+        await driveBranchMenuCommand(
+          harness.commands,
+          'intellig.branch.showDiffWithWorkingTree',
+          harness.item
+        );
 
         assert.strictEqual(
           harness.diffCalls.length,
@@ -238,11 +239,11 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
         branchName: 'main',
       });
       try {
-        await (
-          harness.commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(harness.item);
+        await driveBranchMenuCommand(
+          harness.commands,
+          'intellig.branch.showDiffWithWorkingTree',
+          harness.item
+        );
 
         assert.strictEqual(harness.quickPickInvocations, 1, 'QuickPick shown exactly once');
         assert.strictEqual(harness.diffCalls.length, 1, 'vscode.diff called exactly once');
@@ -312,11 +313,11 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
         branchName: 'develop',
       });
       try {
-        await (
-          harness.commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(harness.item);
+        await driveBranchMenuCommand(
+          harness.commands,
+          'intellig.branch.showDiffWithWorkingTree',
+          harness.item
+        );
 
         assert.strictEqual(harness.diffCalls.length, 2, 'one vscode.diff call per selected file');
 
@@ -358,11 +359,11 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
         quickPickResponder: () => undefined,
       });
       try {
-        await (
-          harness.commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(harness.item);
+        await driveBranchMenuCommand(
+          harness.commands,
+          'intellig.branch.showDiffWithWorkingTree',
+          harness.item
+        );
 
         assert.strictEqual(harness.quickPickInvocations, 1, 'QuickPick must still have been shown');
         assert.strictEqual(harness.diffCalls.length, 0, 'no diff tabs on cancel');
@@ -383,11 +384,11 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
         quickPickResponder: () => [],
       });
       try {
-        await (
-          harness.commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(harness.item);
+        await driveBranchMenuCommand(
+          harness.commands,
+          'intellig.branch.showDiffWithWorkingTree',
+          harness.item
+        );
 
         assert.strictEqual(harness.diffCalls.length, 0);
         assert.strictEqual(harness.infoMessages.length, 0);
@@ -408,11 +409,11 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
         branchType: 'remote',
       });
       try {
-        await (
-          harness.commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(harness.item);
+        await driveBranchMenuCommand(
+          harness.commands,
+          'intellig.branch.showDiffWithWorkingTree',
+          harness.item
+        );
 
         assert.strictEqual(harness.diffCalls.length, 1);
         const call = harness.diffCalls[0];
@@ -477,11 +478,7 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
       };
 
       try {
-        await (
-          commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(item);
+        await driveBranchMenuCommand(commands, 'intellig.branch.showDiffWithWorkingTree', item);
 
         assert.strictEqual(diffCalls.length, 0, 'no diff tabs on failure');
         assert.strictEqual(errorMessages.length, 1, 'one error toast');
@@ -530,11 +527,7 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', ()
       };
 
       try {
-        await (
-          commands as unknown as {
-            _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
-          }
-        )._handleShowDiffWithWorkingTree(item);
+        await driveBranchMenuCommand(commands, 'intellig.branch.showDiffWithWorkingTree', item);
 
         assert.strictEqual(errorMessages.length, 1);
         assert.ok(

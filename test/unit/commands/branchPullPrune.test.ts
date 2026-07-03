@@ -13,6 +13,7 @@
  */
 
 import '../../setup';
+import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
@@ -24,7 +25,6 @@ import {
   IRepository,
 } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
-import { invokePrivateHandler } from '../../typed/privateHandler';
 
 interface RecordingGitService extends IGitService {
   _pullCalls: Array<{ repo: IRepository; options: IPullOptions | undefined }>;
@@ -78,7 +78,7 @@ describe('BranchContextMenuCommands._runPullFromBranchMenu — pull --prune', ()
     const commands = new BranchContextMenuCommands(gitService, provider);
 
     const item = createRemoteBranchItem('origin/main');
-    await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
     assert.strictEqual(gitService._pullCalls.length, 1);
     const options = gitService._pullCalls[0].options;
@@ -94,7 +94,7 @@ describe('BranchContextMenuCommands._runPullFromBranchMenu — pull --prune', ()
     const commands = new BranchContextMenuCommands(gitService, provider);
 
     const item = createRemoteBranchItem('origin/main');
-    await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
+    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
     assert.strictEqual(gitService._pullCalls.length, 1);
     const options = gitService._pullCalls[0].options;

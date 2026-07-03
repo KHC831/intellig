@@ -11,6 +11,7 @@
  */
 
 import '../setup';
+import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
@@ -25,7 +26,6 @@ import {
   IUpstream,
 } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -248,7 +248,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act: Call the _handleUpdate handler via bracket notation
-            await invokePrivateHandler(commands, '_handleUpdate', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
             // Assert: fetch was called exactly once
             assert.strictEqual(
@@ -282,7 +282,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
           const item = createBranchTreeItem(branchName, undefined);
 
           // Act: Call the _handleUpdate handler
-          await invokePrivateHandler(commands, '_handleUpdate', item);
+          await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
           // Assert: fetch was NOT called (no upstream configured)
           assert.strictEqual(
@@ -309,7 +309,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act
-            await invokePrivateHandler(commands, '_handleUpdate', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.update', item);
 
             // Assert: fetch was called with a valid repository object
             assert.strictEqual(gitService.fetchCalls.length, 1);
@@ -346,7 +346,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act: Call the _handlePush handler via bracket notation
-            await invokePrivateHandler(commands, '_handlePush', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
             // Assert: push was called exactly once
             assert.strictEqual(
@@ -388,7 +388,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
           const item = createBranchTreeItem(branchName, undefined);
 
           // Act: Call the _handlePush handler
-          await invokePrivateHandler(commands, '_handlePush', item);
+          await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
           // Assert: push was called exactly once
           assert.strictEqual(
@@ -429,7 +429,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act
-            await invokePrivateHandler(commands, '_handlePush', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
             // Assert: push was called without setUpstream
             assert.strictEqual(gitService.pushCalls.length, 1);
@@ -457,7 +457,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act
-            await invokePrivateHandler(commands, '_handlePush', item);
+            await driveBranchMenuCommand(commands, 'intellig.branch.push', item);
 
             // Assert: push was called with a valid repository object
             assert.strictEqual(gitService.pushCalls.length, 1);

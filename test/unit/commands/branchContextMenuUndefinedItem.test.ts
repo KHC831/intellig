@@ -51,36 +51,13 @@ function makeTrappedGitService(reached: string[]): IGitService {
   ) as IGitService;
 }
 
-/** Handlers that take the clicked tree item as their only argument. */
-const ITEM_HANDLERS = [
-  '_handleNewWorktree',
-  '_handleCheckout',
-  '_handleNewBranchFrom',
-  '_handleMergeIntoCurrent',
-  '_handleRebaseCurrentOnto',
-  '_handleCompareWithCurrent',
-  '_handleRename',
-  '_handleDelete',
-  '_handleUpdate',
-  '_handleUpdateSelected',
-  '_handlePush',
-  '_handleShowDiffWithWorkingTree',
-  '_handleCheckoutAndRebase',
-  '_handlePullUsingRebase',
-  '_handlePullUsingMerge',
-  '_handleCheckoutAsLocal',
-  '_handleCherryPickCommits',
-  '_handlePullIntoCurrent',
-  '_handleDeleteRemote',
-  '_handleTrackRemote',
-  '_handleTagCheckoutDetached',
-  '_handleTagNewBranchFrom',
-  '_handleTagCherryPick',
-  '_handleTagMergeIntoCurrent',
-  '_handleTagDelete',
-  '_handleTagPush',
-  '_handleTagDeleteRemote',
-] as const;
+/**
+ * Handlers that take the clicked tree item as their only argument. Handlers
+ * migrated onto the tree-item spine scope leave this list — the scope's own
+ * contract suite (treeItemCommandSpine.test.ts) pins undefined-tolerance
+ * once for every command registered through it.
+ */
+const ITEM_HANDLERS = ['_handleNewWorktree'] as const;
 
 type ItemHandlerSurface = Record<
   (typeof ITEM_HANDLERS)[number],
