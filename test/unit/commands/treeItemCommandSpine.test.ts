@@ -42,6 +42,7 @@ describe('tree-item command spine', () => {
   let errors: string[];
   let refreshes: number;
   let runs: Array<{ repo: IRepository; target: TreeItemTarget }>;
+  let batches: Array<ReadonlyArray<{ repo: IRepository; target: TreeItemTarget }>>;
 
   const deps: ITreeItemCommandDeps = {
     getRepository: () => REPO_A,
@@ -54,6 +55,7 @@ describe('tree-item command spine', () => {
     errors = [];
     refreshes = 0;
     runs = [];
+    batches = [];
     handlers.clear();
     (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = (
       id: string,
@@ -86,6 +88,7 @@ describe('tree-item command spine', () => {
       refreshOnSuccess: over?.refreshOnSuccess,
       run: async (args) => {
         runs.push({ repo: args.repo, target: args.target });
+        batches.push(args.batch.map((e) => ({ repo: e.repo, target: e.target })));
         if (over?.throwing) {
           throw new Error("fatal: unable to access 'https://x:ghp_LEAKED123@github.com/o/r.git/'");
         }
@@ -168,5 +171,69 @@ describe('tree-item command spine', () => {
     const bad = register({ refreshOnSuccess: true, throwing: true });
     await bad(item({ branch: BRANCH }));
     assert.strictEqual(refreshes, 1, 'no refresh after a failed run');
+  });
+
+  // ── Multi-select batches (canSelectMany trees pass the selection as arg 2) ──
+
+  it('a single click without a selection yields a batch of exactly the clicked target', async () => {
+    const handler = register();
+    await handler(item({ branch: BRANCH }));
+    assert.strictEqual(batches.length, 1);
+    assert.deepStrictEqual(batches[0], [
+      { repo: REPO_A, target: { kind: 'branch', branch: BRANCH } },
+    ]);
+  });
+
+  it('a selection containing the clicked item yields one run with the whole batch, clicked first', async () => {
+    const other: IBranch = { name: 'feature/y', type: 'local' } as IBranch;
+    const third: IBranch = { name: 'feature/z', type: 'local' } as IBranch;
+    const clicked = item({ branch: other, repository: REPO_B });
+    const handler = register();
+    await handler(clicked, [item({ branch: BRANCH }), clicked, item({ branch: third })]);
+    assert.strictEqual(runs.length, 1, 'the run fires ONCE for the whole selection');
+    assert.strictEqual(batches[0].length, 3);
+    assert.deepStrictEqual(batches[0][0], {
+      repo: REPO_B,
+      target: { kind: 'branch', branch: other },
+    });
+    assert.deepStrictEqual(
+      batches[0].slice(1).map((e) => (e.target as { branch: IBranch }).branch.name),
+      ['feature/x', 'feature/z']
+    );
+  });
+
+  it('batch entries resolve their OWN repos (multi-repo selection)', async () => {
+    const other: IBranch = { name: 'feature/y', type: 'local' } as IBranch;
+    const clicked = item({ branch: BRANCH });
+    const handler = register();
+    await handler(clicked, [clicked, item({ branch: other, repository: REPO_B })]);
+    assert.deepStrictEqual(
+      batches[0].map((e) => e.repo),
+      [REPO_A, REPO_B]
+    );
+  });
+
+  it('drops selection entries whose target kind the command does not accept', async () => {
+    const clicked = item({ branch: BRANCH });
+    const handler = register({ accepts: ['branch'] });
+    await handler(clicked, [clicked, item({ tag: TAG }), item({})]);
+    assert.strictEqual(batches[0].length, 1);
+  });
+
+  it('a stale selection NOT containing the clicked item collapses to the clicked target', async () => {
+    const other: IBranch = { name: 'feature/y', type: 'local' } as IBranch;
+    const handler = register();
+    await handler(item({ branch: BRANCH }), [item({ branch: other })]);
+    assert.deepStrictEqual(batches[0], [
+      { repo: REPO_A, target: { kind: 'branch', branch: BRANCH } },
+    ]);
+  });
+
+  it('duplicate selection entries dedupe by target identity within a repo', async () => {
+    const clicked = item({ branch: BRANCH });
+    const dupe = item({ branch: { name: 'feature/x', type: 'local' } as IBranch });
+    const handler = register();
+    await handler(clicked, [clicked, dupe]);
+    assert.strictEqual(batches[0].length, 1);
   });
 });

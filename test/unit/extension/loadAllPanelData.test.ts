@@ -146,3 +146,46 @@ describe('loadAllPanelData wiring — bounded loading guarantee (Req 3.4)', () =
     assert.strictEqual(loadLogCommitsCalls, 1);
   });
 });
+
+describe('loadAllPanelData wiring — active log filter survives refreshes', () => {
+  it('forwards the provider-held active filter into loadLogCommits', async () => {
+    const provider = new RecordingProvider();
+    const repo = createMockRepository('/workspace/repo');
+    const activeFilter = { author: 'Alice', searchText: 'fix' };
+    const received: unknown[] = [];
+
+    const deps: ILoadAllPanelDataDeps = {
+      discoverAllRepositories: async () => [repo],
+      provider,
+      activeLogFilter: () => activeFilter,
+      loadLogCommits: async (filter) => {
+        received.push(filter);
+      },
+    };
+
+    await loadAllPanelDataCore(deps);
+
+    assert.deepStrictEqual(
+      received,
+      [activeFilter],
+      'a refresh must reload the log WITH the active filter — not silently widen to all commits'
+    );
+  });
+
+  it('loads unfiltered when no filter is active or the seam is absent', async () => {
+    const provider = new RecordingProvider();
+    const repo = createMockRepository('/workspace/repo');
+    const received: unknown[] = [];
+
+    const deps: ILoadAllPanelDataDeps = {
+      discoverAllRepositories: async () => [repo],
+      provider,
+      loadLogCommits: async (filter) => {
+        received.push(filter);
+      },
+    };
+
+    await loadAllPanelDataCore(deps);
+    assert.deepStrictEqual(received, [undefined]);
+  });
+});

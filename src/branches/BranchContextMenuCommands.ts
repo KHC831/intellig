@@ -30,6 +30,7 @@ import { getLogger, registerLoggedCommand } from '../utils/logger';
 import {
   registerTreeItemCommand,
   ITreeItemCommandDeps,
+  ITreeItemBatchEntry,
   ITreeItemRunArgs,
   TreeItemTarget,
 } from '../commands/registration/commandSpine';
@@ -905,7 +906,10 @@ export class BranchContextMenuCommands {
         failureTitle: 'Failed to delete tag',
         accepts: ['tag'],
         refreshOnSuccess: true,
-        run: async ({ repo, target }) => {
+        run: async ({ repo, target, batch }) => {
+          if (batch.length > 1) {
+            return this._handleTagDeleteBatch(batch);
+          }
           const confirm = await vscode.window.showWarningMessage(
             `Are you sure you want to delete the tag '${target.tag.name}'?`,
             { modal: true },
@@ -1560,7 +1564,11 @@ export class BranchContextMenuCommands {
    * failure, prompt the user with a "Force delete?" modal and, on
    * confirm, retry with `git branch -D` (force).
    */
-  private async _handleDelete({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
+  private async _handleDelete(args: ITreeItemRunArgs<'branch'>): Promise<void> {
+    if (args.batch.length > 1) {
+      return this._handleDeleteBatch(args.batch);
+    }
+    const { repo, target } = args;
     const branchName = target.branch.name;
 
     const confirm = await vscode.window.showWarningMessage(
@@ -1619,6 +1627,143 @@ export class BranchContextMenuCommands {
       void vscode.window.showErrorMessage(
         `Failed to delete branch: ${sanitizeGitError(errorMessage)}`
       );
+    }
+  }
+
+  /**
+   * Delete every branch in a multi-select batch: ONE confirm naming them
+   * all, per-branch deletion with per-item repos, then ONE follow-up force
+   * prompt covering every not-fully-merged branch (instead of a modal per
+   * branch mid-batch). Other failures are collected into a single error
+   * toast; the batch never stops early, so one refused branch doesn't strand
+   * the rest of a cleanup.
+   */
+  private async _handleDeleteBatch(
+    batch: ReadonlyArray<ITreeItemBatchEntry<'branch'>>
+  ): Promise<void> {
+    const names = batch.map((e) => e.target.branch.name);
+    const confirm = await vscode.window.showWarningMessage(
+      `Are you sure you want to delete ${batch.length} branches?\n\n${names.join(', ')}`,
+      { modal: true },
+      'Delete'
+    );
+    if (confirm !== 'Delete') {
+      return;
+    }
+
+    const notMerged: Array<ITreeItemBatchEntry<'branch'>> = [];
+    const failures: string[] = [];
+    const touchedRepos = new Map<string, IRepository>();
+    let deleted = 0;
+
+    const tryDelete = async (
+      entry: ITreeItemBatchEntry<'branch'>,
+      force: boolean
+    ): Promise<void> => {
+      const name = entry.target.branch.name;
+      try {
+        await this._gitService.deleteBranch(entry.repo, name, force || undefined).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+        deleted += 1;
+        touchedRepos.set(entry.repo.rootUri.fsPath, entry.repo);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (!force && isNotFullyMergedError(message)) {
+          notMerged.push(entry);
+        } else {
+          failures.push(`${name}: ${sanitizeGitError(message)}`);
+        }
+      }
+    };
+
+    for (const entry of batch) {
+      await tryDelete(entry, false);
+    }
+
+    if (notMerged.length > 0) {
+      const unmergedNames = notMerged.map((e) => e.target.branch.name).join(', ');
+      const forceConfirm = await vscode.window.showWarningMessage(
+        `${notMerged.length} branch(es) are not fully merged: ${unmergedNames}. ` +
+          `Force delete? Unmerged commits will be lost.`,
+        { modal: true },
+        'Force Delete'
+      );
+      if (forceConfirm === 'Force Delete') {
+        for (const entry of notMerged) {
+          await tryDelete(entry, true);
+        }
+      }
+    }
+
+    for (const repo of touchedRepos.values()) {
+      await this._gitService.reloadRepository(repo);
+    }
+    if (deleted > 0) {
+      void vscode.window.showInformationMessage(
+        deleted === batch.length
+          ? `Deleted ${deleted} branches`
+          : `Deleted ${deleted} of ${batch.length} branches`
+      );
+    }
+    if (failures.length > 0) {
+      void vscode.window.showErrorMessage(`Failed to delete: ${failures.join('; ')}`);
+    }
+    this._branchTreeProvider.refresh();
+  }
+
+  /**
+   * Delete every tag in a multi-select batch: ONE confirm naming them all,
+   * per-tag deletion with per-item repos, failures collected into a single
+   * error toast. The spine's refreshOnSuccess covers the tree refresh.
+   */
+  private async _handleTagDeleteBatch(
+    batch: ReadonlyArray<ITreeItemBatchEntry<'tag'>>
+  ): Promise<void> {
+    const names = batch.map((e) => e.target.tag.name);
+    const confirm = await vscode.window.showWarningMessage(
+      `Are you sure you want to delete ${batch.length} tags?\n\n${names.join(', ')}`,
+      { modal: true },
+      'Delete'
+    );
+    if (confirm !== 'Delete') {
+      return;
+    }
+
+    const failures: string[] = [];
+    const touchedRepos = new Map<string, IRepository>();
+    let deleted = 0;
+    for (const entry of batch) {
+      const name = entry.target.tag.name;
+      try {
+        await this._gitService.deleteTag(entry.repo, name).match(
+          () => undefined,
+          (e) => {
+            throw e;
+          }
+        );
+        deleted += 1;
+        touchedRepos.set(entry.repo.rootUri.fsPath, entry.repo);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        failures.push(`${name}: ${sanitizeGitError(message)}`);
+      }
+    }
+    for (const repo of touchedRepos.values()) {
+      await this._gitService.reloadRepository(repo);
+    }
+    if (deleted > 0) {
+      void vscode.window.showInformationMessage(
+        deleted === batch.length
+          ? `Deleted ${deleted} tags`
+          : `Deleted ${deleted} of ${batch.length} tags`
+      );
+    }
+    if (failures.length > 0) {
+      void vscode.window.showErrorMessage(`Failed to delete: ${failures.join('; ')}`);
     }
   }
 

@@ -314,15 +314,31 @@ export interface ITreeItemCommandDeps {
   refresh(): void;
 }
 
+/** One resolved entry of a multi-select batch. */
+export interface ITreeItemBatchEntry<K extends TreeItemTarget['kind'] = TreeItemTarget['kind']> {
+  repo: IRepository;
+  target: Extract<TreeItemTarget, { kind: K }>;
+  item: IClickedTreeItem;
+}
+
 /**
  * Run arguments for a tree-item command body. `target` is narrowed to the
  * kinds the spec accepts, so a branch-only command reads `target.branch`
  * without a runtime re-check.
+ *
+ * `batch` carries the tree's multi-selection (`canSelectMany` passes it as
+ * the command's second argument): every selected item whose target the spec
+ * accepts and whose repo resolves, deduped, clicked-first. Never empty — a
+ * plain single click yields `[{repo, target, item}]` — so single-target
+ * bodies ignore it and batch-aware bodies (delete) need no separate path.
+ * A stale selection that does not contain the clicked target collapses to
+ * the clicked target alone.
  */
 export interface ITreeItemRunArgs<K extends TreeItemTarget['kind'] = TreeItemTarget['kind']> {
   repo: IRepository;
   target: Extract<TreeItemTarget, { kind: K }>;
   item: IClickedTreeItem;
+  batch: ReadonlyArray<ITreeItemBatchEntry<K>>;
 }
 
 export interface ITreeItemCommandSpec<K extends TreeItemTarget['kind'] = TreeItemTarget['kind']> {
@@ -366,29 +382,100 @@ export function registerTreeItemCommand<K extends TreeItemTarget['kind']>(
   deps: ITreeItemCommandDeps,
   spec: ITreeItemCommandSpec<K>
 ): vscode.Disposable {
-  return registerLoggedCommand(spec.id, async (item?: IClickedTreeItem) => {
-    const target = targetFromItem(item);
-    if (!target || !(spec.accepts as ReadonlyArray<TreeItemTarget['kind']>).includes(target.kind)) {
-      return;
-    }
-    const repo = item?.repository ?? deps.getRepository();
-    if (!repo) {
-      return;
-    }
-    try {
-      await spec.run({
+  return registerLoggedCommand(
+    spec.id,
+    async (item?: IClickedTreeItem, selection?: IClickedTreeItem[]) => {
+      const target = targetFromItem(item);
+      if (
+        !target ||
+        !(spec.accepts as ReadonlyArray<TreeItemTarget['kind']>).includes(target.kind)
+      ) {
+        return;
+      }
+      const repo = item?.repository ?? deps.getRepository();
+      if (!repo) {
+        return;
+      }
+      const clicked: ITreeItemBatchEntry<K> = {
         repo,
         target: target as Extract<TreeItemTarget, { kind: K }>,
         item: item as IClickedTreeItem,
-      });
-    } catch (error) {
-      void vscode.window.showErrorMessage(formatActionFailureToast(spec.failureTitle, error));
-      return;
+      };
+      try {
+        await spec.run({
+          ...clicked,
+          batch: buildBatch(clicked, selection, spec.accepts, deps),
+        });
+      } catch (error) {
+        void vscode.window.showErrorMessage(formatActionFailureToast(spec.failureTitle, error));
+        return;
+      }
+      if (spec.refreshOnSuccess) {
+        deps.refresh();
+      }
     }
-    if (spec.refreshOnSuccess) {
-      deps.refresh();
+  );
+}
+
+/**
+ * A target's identity within its repo, for batch dedupe: two selection rows
+ * naming the same branch/tag/SHA in the same repo are one operation.
+ */
+function batchIdentity(repo: IRepository, target: TreeItemTarget): string {
+  const name =
+    target.kind === 'branch'
+      ? target.branch.name
+      : target.kind === 'tag'
+        ? target.tag.name
+        : target.sha;
+  return `${repo.rootUri.fsPath}\u0000${target.kind}\u0000${name}`;
+}
+
+/**
+ * Resolve the tree's multi-selection into the run batch: accepted-kind
+ * targets with per-item repo resolution, deduped by identity, clicked entry
+ * first. A selection that does not contain the clicked target is stale
+ * (the tree re-rendered under the click) and collapses to the clicked
+ * target alone.
+ */
+function buildBatch<K extends TreeItemTarget['kind']>(
+  clicked: ITreeItemBatchEntry<K>,
+  selection: IClickedTreeItem[] | undefined,
+  accepts: ReadonlyArray<K>,
+  deps: ITreeItemCommandDeps
+): ReadonlyArray<ITreeItemBatchEntry<K>> {
+  if (!Array.isArray(selection) || selection.length === 0) {
+    return [clicked];
+  }
+  const clickedId = batchIdentity(clicked.repo, clicked.target);
+  const seen = new Set<string>([clickedId]);
+  const rest: Array<ITreeItemBatchEntry<K>> = [];
+  let containsClicked = false;
+  for (const selectedItem of selection) {
+    const target = targetFromItem(selectedItem);
+    if (!target || !(accepts as ReadonlyArray<TreeItemTarget['kind']>).includes(target.kind)) {
+      continue;
     }
-  });
+    const repo = selectedItem.repository ?? deps.getRepository();
+    if (!repo) {
+      continue;
+    }
+    const id = batchIdentity(repo, target);
+    if (id === clickedId) {
+      containsClicked = true;
+      continue;
+    }
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    rest.push({
+      repo,
+      target: target as Extract<TreeItemTarget, { kind: K }>,
+      item: selectedItem,
+    });
+  }
+  return containsClicked ? [clicked, ...rest] : [clicked];
 }
 
 /**

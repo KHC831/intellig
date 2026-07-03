@@ -2065,3 +2065,264 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 });
+
+describe('Branch Context Menu - multi-select delete batches', () => {
+  const repo: IRepository = {
+    rootUri: Uri.file('/test/repo'),
+    state: 'idle',
+    head: undefined,
+    remotes: [],
+    submodules: [],
+  } as unknown as IRepository;
+
+  function installSequencedWarningTracker(responses: Array<string | undefined>): {
+    calls: MessageCall[];
+  } {
+    const calls: MessageCall[] = [];
+    let i = 0;
+    writableWindow().showWarningMessage = (
+      message: string,
+      ...items: unknown[]
+    ): Promise<string | undefined> => {
+      const stringItems = items.filter((it): it is string => typeof it === 'string');
+      calls.push({ message, items: stringItems });
+      const reply = responses[i] ?? undefined;
+      i += 1;
+      return Promise.resolve(reply);
+    };
+    return { calls };
+  }
+
+  it('deletes every selected branch after ONE batch confirm naming them all', async () => {
+    const deleted: string[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteBranch: (_repo, name) => {
+        deleted.push(name);
+        return okAsync(undefined);
+      },
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    const warnTracker = installSequencedWarningTracker(['Delete']);
+    const infoTracker = installInfoMessageTracker();
+    const errTracker = installErrorMessageTracker();
+
+    const a = createLocalBranchTreeItem('feature/a');
+    const b = createLocalBranchTreeItem('feature/b');
+    const c = createLocalBranchTreeItem('feature/c');
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', a, [a, b, c]);
+
+    assert.deepStrictEqual(deleted, ['feature/a', 'feature/b', 'feature/c']);
+    assert.strictEqual(warnTracker.calls.length, 1, 'exactly one batch confirm');
+    assert.ok(
+      warnTracker.calls[0].message.includes('3 branches'),
+      `confirm must state the count; got "${warnTracker.calls[0].message}"`
+    );
+    for (const name of ['feature/a', 'feature/b', 'feature/c']) {
+      assert.ok(
+        warnTracker.calls[0].message.includes(name),
+        `confirm must name ${name}; got "${warnTracker.calls[0].message}"`
+      );
+    }
+    assert.strictEqual(infoTracker.calls.length, 1, 'one summary toast');
+    assert.ok(
+      infoTracker.calls[0].message.includes('3'),
+      `summary states the count; got "${infoTracker.calls[0].message}"`
+    );
+    assert.strictEqual(errTracker.calls.length, 0);
+  });
+
+  it('a cancelled batch confirm deletes nothing', async () => {
+    const deleted: string[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteBranch: (_repo, name) => {
+        deleted.push(name);
+        return okAsync(undefined);
+      },
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    installSequencedWarningTracker([undefined]);
+    const a = createLocalBranchTreeItem('feature/a');
+    const b = createLocalBranchTreeItem('feature/b');
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', a, [a, b]);
+
+    assert.deepStrictEqual(deleted, []);
+  });
+
+  it('collects not-fully-merged branches into ONE force prompt after the batch', async () => {
+    const deleteCalls: Array<{ name: string; force?: boolean }> = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteBranch: (_repo, name, force) => {
+        deleteCalls.push({ name, force });
+        if (name === 'feature/unmerged' && force !== true) {
+          return errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              "error: the branch 'feature/unmerged' is not fully merged."
+            )
+          );
+        }
+        return okAsync(undefined);
+      },
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    const warnTracker = installSequencedWarningTracker(['Delete', 'Force Delete']);
+    const infoTracker = installInfoMessageTracker();
+    const errTracker = installErrorMessageTracker();
+
+    const a = createLocalBranchTreeItem('feature/a');
+    const u = createLocalBranchTreeItem('feature/unmerged');
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', a, [a, u]);
+
+    assert.deepStrictEqual(deleteCalls, [
+      { name: 'feature/a', force: undefined },
+      { name: 'feature/unmerged', force: undefined },
+      { name: 'feature/unmerged', force: true },
+    ]);
+    assert.strictEqual(warnTracker.calls.length, 2, 'batch confirm + one force prompt');
+    assert.ok(
+      warnTracker.calls[1].message.includes('feature/unmerged'),
+      `force prompt names the unmerged branch; got "${warnTracker.calls[1].message}"`
+    );
+    assert.ok(warnTracker.calls[1].items.includes('Force Delete'));
+    assert.strictEqual(errTracker.calls.length, 0);
+    assert.ok(infoTracker.calls.length >= 1, 'summary toast after the batch');
+  });
+
+  it('declining the batch force prompt keeps the merged deletions and skips the rest quietly', async () => {
+    const deleteCalls: Array<{ name: string; force?: boolean }> = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteBranch: (_repo, name, force) => {
+        deleteCalls.push({ name, force });
+        if (name === 'feature/unmerged' && force !== true) {
+          return errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              "error: the branch 'feature/unmerged' is not fully merged."
+            )
+          );
+        }
+        return okAsync(undefined);
+      },
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    installSequencedWarningTracker(['Delete', undefined]);
+    const errTracker = installErrorMessageTracker();
+
+    const a = createLocalBranchTreeItem('feature/a');
+    const u = createLocalBranchTreeItem('feature/unmerged');
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', a, [a, u]);
+
+    assert.deepStrictEqual(deleteCalls, [
+      { name: 'feature/a', force: undefined },
+      { name: 'feature/unmerged', force: undefined },
+    ]);
+    assert.strictEqual(errTracker.calls.length, 0, 'declining force is a quiet skip');
+  });
+
+  it('a non-merge failure mid-batch is collected into one error toast; the rest still delete', async () => {
+    const deleted: string[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteBranch: (_repo, name) => {
+        if (name === 'feature/current') {
+          return errAsync(
+            new CommandFailedError(
+              1,
+              '',
+              "error: Cannot delete branch 'feature/current' checked out at '/test/repo'"
+            )
+          );
+        }
+        deleted.push(name);
+        return okAsync(undefined);
+      },
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    installSequencedWarningTracker(['Delete']);
+    const errTracker = installErrorMessageTracker();
+
+    const a = createLocalBranchTreeItem('feature/a');
+    const cur = createLocalBranchTreeItem('feature/current');
+    const b = createLocalBranchTreeItem('feature/b');
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', a, [a, cur, b]);
+
+    assert.deepStrictEqual(deleted, ['feature/a', 'feature/b'], 'others still delete');
+    assert.strictEqual(errTracker.calls.length, 1, 'one collected error toast');
+    assert.ok(
+      errTracker.calls[0].message.includes('feature/current'),
+      `error toast names the failed branch; got "${errTracker.calls[0].message}"`
+    );
+  });
+
+  it('single-branch click keeps the existing single-delete wording', async () => {
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteBranch: () => okAsync(undefined),
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    const warnTracker = installSequencedWarningTracker(['Delete']);
+    const infoTracker = installInfoMessageTracker();
+
+    const a = createLocalBranchTreeItem('feature/solo');
+    await driveBranchMenuCommand(commands, 'intellig.branch.delete', a, [a]);
+
+    assert.ok(
+      warnTracker.calls[0].message.includes("the branch 'feature/solo'"),
+      `single wording preserved; got "${warnTracker.calls[0].message}"`
+    );
+    assert.ok(infoTracker.calls[0].message.includes("Deleted branch 'feature/solo'"));
+  });
+
+  it('deletes every selected tag after ONE batch confirm', async () => {
+    const deleted: string[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repo],
+      getRepository: async () => repo,
+      deleteTag: (_repo, name) => {
+        deleted.push(name);
+        return okAsync(undefined);
+      },
+    });
+    const branchTreeProvider = createMockBranchTreeProvider(gitService);
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+    const warnTracker = installSequencedWarningTracker(['Delete']);
+    const infoTracker = installInfoMessageTracker();
+
+    const t1 = createTagTreeItem('v1.0.0');
+    const t2 = createTagTreeItem('v1.1.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.delete', t1, [t1, t2]);
+
+    assert.deepStrictEqual(deleted, ['v1.0.0', 'v1.1.0']);
+    assert.strictEqual(warnTracker.calls.length, 1);
+    assert.ok(
+      warnTracker.calls[0].message.includes('2 tags'),
+      `tag confirm states the count; got "${warnTracker.calls[0].message}"`
+    );
+    assert.strictEqual(infoTracker.calls.length, 1, 'one summary toast');
+  });
+});

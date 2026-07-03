@@ -22,6 +22,7 @@ import {
   colorNodesFrom,
 } from '../graph/printModel';
 import { computeBranchColors } from '../graph/branchColors';
+import { loadLogFilter, saveLogFilter } from '../../utils/logFilterStorage';
 import {
   savePanelWidths,
   loadPanelWidths,
@@ -678,6 +679,11 @@ export class GitToolWindowProvider
 
     // Store workspace state for panel width persistence
     this._workspaceState = workspaceState;
+    // Restore the persisted log filter so a window reload resumes the same
+    // scoped log (the initial load reapplies it via getActiveLogFilter).
+    if (workspaceState) {
+      this._extendedLogState.filter = loadLogFilter(workspaceState);
+    }
 
     // Load persisted panel widths or use defaults
     this._panelWidths = workspaceState
@@ -1259,7 +1265,19 @@ export class GitToolWindowProvider
    */
   public setLogFilter(filter: ILogFilter | undefined): void {
     this._extendedLogState.filter = filter;
+    if (this._workspaceState) {
+      saveLogFilter(this._workspaceState, filter);
+    }
     this._onDidChangeState.fire();
+  }
+
+  /**
+   * The ACTIVE log filter, for the load path: the initial load and every
+   * refresh-triggered reload reapply it so a background refresh never
+   * silently widens a filtered log back to all commits.
+   */
+  public getActiveLogFilter(): ILogFilter | undefined {
+    return this._extendedLogState.filter;
   }
 
   /**

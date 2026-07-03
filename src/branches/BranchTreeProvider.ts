@@ -490,6 +490,13 @@ export class BranchTreeProvider
    */
   private readonly _favorites: Set<string>;
 
+  /**
+   * Active search query (IntelliJ speed-search analogue). When set, every
+   * section renders only refs whose FULL name contains it
+   * (case-insensitive); folder grouping is built from the survivors.
+   */
+  private _searchQuery: string | undefined;
+
   constructor(
     gitService: IGitService,
     incomingOutgoingFetcher?: IncomingOutgoingFetcher,
@@ -637,6 +644,32 @@ export class BranchTreeProvider
     }
     this._favoritesStore.write([...this._favorites]);
     this.refresh();
+  }
+
+  /**
+   * Set or clear the tree's search filter. Empty / whitespace-only input
+   * clears. A no-op change does not refire the tree.
+   */
+  setSearchQuery(query: string | undefined): void {
+    const normalized = query?.trim() ? query.trim() : undefined;
+    if (normalized === this._searchQuery) {
+      return;
+    }
+    this._searchQuery = normalized;
+    this._onDidChangeTreeData.fire();
+  }
+
+  /** The active search query, for command prefill and the view description. */
+  getSearchQuery(): string | undefined {
+    return this._searchQuery;
+  }
+
+  /** Case-insensitive substring match against the active query (no query → all pass). */
+  private _matchesSearch(name: string): boolean {
+    if (!this._searchQuery) {
+      return true;
+    }
+    return name.toLowerCase().includes(this._searchQuery.toLowerCase());
   }
 
   getTreeItem(element: BranchTreeItem): vscode.TreeItem {
@@ -861,7 +894,9 @@ export class BranchTreeProvider
    */
   private async _getFavoriteBranches(repo: IRepository): Promise<BranchTreeItem[]> {
     const branches = await this._gitService.getBranches(repo);
-    let favorites = branches.filter((b) => b.type === 'local' && this._favorites.has(b.name));
+    let favorites = branches.filter(
+      (b) => b.type === 'local' && this._favorites.has(b.name) && this._matchesSearch(b.name)
+    );
     if (this._incomingOutgoingFetcher) {
       favorites = await enrichBranchesWithIncomingOutgoing(
         repo,
@@ -908,7 +943,15 @@ export class BranchTreeProvider
     // row. Mid-rebase keeps `head.name` set, so no detached row there
     // either. Pinned by branchTree-detached-1..6.
     const head = repo.head;
-    if (head && head.name === undefined && head.commit && head.commit.length > 0) {
+    // The detached row is positional info, not a ref — a search narrows the
+    // tree to matching refs, so the synthetic row steps aside.
+    if (
+      !this._searchQuery &&
+      head &&
+      head.name === undefined &&
+      head.commit &&
+      head.commit.length > 0
+    ) {
       const shortSha = head.commit.substring(0, 7);
       items.push(
         new BranchTreeItem(
@@ -929,7 +972,7 @@ export class BranchTreeProvider
     }
 
     const branches = await this._gitService.getBranches(repo);
-    let localBranches = branches.filter((b) => b.type === 'local');
+    let localBranches = branches.filter((b) => b.type === 'local' && this._matchesSearch(b.name));
     // Enrich tracked branches with ahead/behind counts so the tree renders
     // ↑N/↓N — matching the branch popup. No fetcher → branches pass through
     // untouched (no badges).
@@ -962,7 +1005,9 @@ export class BranchTreeProvider
 
   private async _getRemoteBranches(repo: IRepository): Promise<BranchTreeItem[]> {
     const branches = await this._gitService.getBranches(repo);
-    const remoteBranches = branches.filter((b) => b.type === 'remote');
+    const remoteBranches = branches.filter(
+      (b) => b.type === 'remote' && this._matchesSearch(b.name)
+    );
 
     // First level under "Remote": one folder per remote name (origin,
     // upstream, …). The remote name is segment 0 of the branch's full
@@ -1040,7 +1085,9 @@ export class BranchTreeProvider
       return [];
     }
     const branches = await this._gitService.getBranches(repo);
-    const filtered = branches.filter((b) => b.type === folder.folderScope);
+    const filtered = branches.filter(
+      (b) => b.type === folder.folderScope && this._matchesSearch(b.name)
+    );
 
     const head = repo.head;
     const currentBranchName = head?.name?.replace('refs/heads/', '');
@@ -1202,7 +1249,7 @@ export class BranchTreeProvider
   }
 
   private async _getTags(repo: IRepository): Promise<BranchTreeItem[]> {
-    const tags = await this._gitService.getTags(repo);
+    const tags = (await this._gitService.getTags(repo)).filter((t) => this._matchesSearch(t.name));
 
     return tags.map((tag) => {
       return new BranchTreeItem(

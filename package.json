@@ -348,6 +348,18 @@
         "icon": "$(star-full)"
       },
       {
+        "command": "intellig.branch.search",
+        "title": "Search Branches",
+        "category": "IntelliG",
+        "icon": "$(search)"
+      },
+      {
+        "command": "intellig.branch.clearSearch",
+        "title": "Clear Branch Search",
+        "category": "IntelliG",
+        "icon": "$(close)"
+      },
+      {
         "command": "intellig.remoteBranch.checkoutAsLocal",
         "title": "Checkout",
         "category": "IntelliG"
@@ -1242,6 +1254,16 @@
         }
       ],
       "view/title": [
+        {
+          "command": "intellig.branch.search",
+          "when": "view == intellig.branchTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "intellig.branch.clearSearch",
+          "when": "view == intellig.branchTree && intellig.branchSearchActive",
+          "group": "navigation@2"
+        },
         {
           "command": "intellig.showBranchPopup",
           "when": "view == intellig.toolWindow",

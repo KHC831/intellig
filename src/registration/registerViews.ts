@@ -888,7 +888,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       loadAllPanelDataCore({
         discoverAllRepositories,
         provider: ctx.gitToolWindowProvider,
-        loadLogCommits: () => loadAllRootsLog(),
+        // Reapply the tool window's active filter (persisted across reloads)
+        // on the initial load and every refresh-triggered reload.
+        activeLogFilter: () => ctx.gitToolWindowProvider?.getActiveLogFilter(),
+        loadLogCommits: (filter) => loadAllRootsLog(filter),
       })
     );
 
@@ -1088,10 +1091,43 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     const branchTreeView = vscode.window.createTreeView('intellig.branchTree', {
       treeDataProvider: branchTreeProvider,
       showCollapseAll: true,
+      // Multi-select: context commands receive (clicked, selection[]) and the
+      // tree-item spine folds the selection into `batch` (delete acts on all).
+      canSelectMany: true,
     });
     // Register the provider too so its EventEmitter
     // onDidChangeRepository subscription are torn down on deactivation.
     ctx.context.subscriptions.push(branchTreeView, branchTreeProvider);
+
+    // Branches-tree search (IntelliJ speed-search analogue): an InputBox
+    // narrows every section to substring matches; the view description and
+    // the `intellig.branchSearchActive` context (which reveals the clear
+    // button) mirror the active query.
+    const applyBranchSearch = (query: string | undefined): void => {
+      branchTreeProvider.setSearchQuery(query);
+      const active = branchTreeProvider.getSearchQuery();
+      branchTreeView.description = active ? `Search: ${active}` : undefined;
+      void vscode.commands.executeCommand('setContext', 'intellig.branchSearchActive', !!active);
+    };
+    const branchSearchCommand = vscode.commands.registerCommand(
+      'intellig.branch.search',
+      async () => {
+        const query = await vscode.window.showInputBox({
+          prompt: 'Search branches and tags (substring match)',
+          value: branchTreeProvider.getSearchQuery() ?? '',
+          placeHolder: 'e.g. feature/auth',
+        });
+        if (query === undefined) {
+          return; // cancelled — keep the current filter
+        }
+        applyBranchSearch(query);
+      }
+    );
+    const branchClearSearchCommand = vscode.commands.registerCommand(
+      'intellig.branch.clearSearch',
+      () => applyBranchSearch(undefined)
+    );
+    ctx.context.subscriptions.push(branchSearchCommand, branchClearSearchCommand);
 
     // `intellig.branch.toggleFavorite` — star/unstar the selected local
     // branch. Mirrors git4idea's toggle_favorite action; the provider

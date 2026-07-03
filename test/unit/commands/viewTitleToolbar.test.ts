@@ -52,12 +52,16 @@ describe('Workstream C Item 3 — Git tool-window header toolbar (view/title)', 
     assert.ok(toolbar.length > 0, 'view/title must have header buttons');
   });
 
-  it('every toolbar entry targets the Git tool window view', () => {
+  it('every toolbar entry is gated to a specific intellig view', () => {
+    // Two views own header toolbars: the Git tool window and the branches
+    // tree (search/clear). An ungated entry would appear on EVERY view in
+    // the container — the original audit defect this suite pins.
+    const knownViews = [GIT_TOOL_WINDOW_VIEW_ID, 'intellig.branchTree'];
     const toolbar = readPackageJson().contributes.menus['view/title'] ?? [];
     for (const entry of toolbar) {
       assert.ok(
-        (entry.when ?? '').includes(`view == ${GIT_TOOL_WINDOW_VIEW_ID}`),
-        `toolbar entry ${entry.command} must be gated to view == ${GIT_TOOL_WINDOW_VIEW_ID} (when: ${entry.when})`
+        knownViews.some((v) => (entry.when ?? '').includes(`view == ${v}`)),
+        `toolbar entry ${entry.command} must be gated to one intellig view (when: ${entry.when})`
       );
     }
   });
@@ -96,6 +100,7 @@ describe('Workstream C Item 3 — Git tool-window header toolbar (view/title)', 
   it('showBranchPopup is the first navigation entry (branch widget leads the toolbar)', () => {
     const toolbar = readPackageJson().contributes.menus['view/title'] ?? [];
     const navEntries = toolbar
+      .filter((e) => (e.when ?? '').includes(`view == ${GIT_TOOL_WINDOW_VIEW_ID}`))
       .filter((e) => (e.group ?? '').startsWith('navigation@'))
       .sort((a, b) => navOrder(a.group) - navOrder(b.group));
     assert.ok(navEntries.length > 0, 'no navigation entries found in view/title');

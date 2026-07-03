@@ -22,7 +22,8 @@ interface IRegisterable {
 export async function driveBranchMenuCommand(
   instance: unknown,
   commandId: string,
-  item?: unknown
+  item?: unknown,
+  selection?: unknown[]
 ): Promise<void> {
   const captured = new Map<string, (...args: unknown[]) => unknown>();
   const commandsApi = vscode.commands as unknown as { registerCommand: unknown };
@@ -42,5 +43,6 @@ export async function driveBranchMenuCommand(
   if (!handler) {
     throw new Error(`driveBranchMenuCommand: '${commandId}' was not registered`);
   }
-  await handler(item);
+  // canSelectMany trees pass the full selection as the second argument.
+  await handler(item, selection);
 }

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
+import type { ILogFilter } from '../git-core/interfaces/IGitToolWindowProvider';
 import { buildGitArgs } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
 import { resolveRepo } from '../utils/resolveRepo';
@@ -35,7 +36,14 @@ export interface ILoadAllPanelDataProvider {
 export interface ILoadAllPanelDataDeps {
   discoverAllRepositories: () => Promise<IRepository[]>;
   provider: ILoadAllPanelDataProvider | undefined;
-  loadLogCommits: () => Promise<void>;
+  loadLogCommits: (filter?: ILogFilter) => Promise<void>;
+  /**
+   * The tool window's ACTIVE log filter. Every load through this path — the
+   * initial load and each watcher/refresh-triggered reload — reapplies it,
+   * so a background refresh can never silently widen a filtered log back to
+   * all commits while the filter row still shows the old values.
+   */
+  activeLogFilter?: () => ILogFilter | undefined;
 }
 
 /**
@@ -67,7 +75,7 @@ export async function loadAllPanelDataCore(deps: ILoadAllPanelDataDeps): Promise
     deps.provider.setHasRepository(repositories.length > 0);
   }
 
-  await deps.loadLogCommits();
+  await deps.loadLogCommits(deps.activeLogFilter?.());
 }
 
 /**
