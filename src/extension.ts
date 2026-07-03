@@ -246,6 +246,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Register views and providers
     registerViews(viewCtx);
 
+    // Wire "Interactively Rebase from Here" to the plan editor. The
+    // RebaseEditor singleton lives in this module (created lazily, disposed
+    // on deactivate), so hand the commands a thunk that opens it — same
+    // reuse discipline as the rebase dialog's createRebaseEditor wiring.
+    commitContextMenuCommands?.setRebaseEditorOpener(async (repo, onto) => {
+      if (!rebaseEditor) {
+        rebaseEditor = createRebaseEditor(
+          context.extensionUri,
+          extensionServices!.rebaseService,
+          () => rebaseProgressView
+        );
+      }
+      return rebaseEditor.show(repo, { onto });
+    });
+
     // Register git content provider for showing file content at specific revisions
     registerGitContentProvider(viewCtx);
 

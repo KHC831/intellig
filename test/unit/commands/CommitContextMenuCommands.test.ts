@@ -20,6 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
+import type { GitCli } from '../../../src/git-core/gitCli';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import {
   IRebaseAction,
@@ -2201,35 +2202,117 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // ─── interactiveRebase ────────────────────────────────────────────────────
 
   describe('_handleInteractiveRebase', () => {
-    it('calls rebaseService.startInteractiveRebase with the hash', async () => {
+    const parentHash = 'f'.repeat(40);
+    const clickedRow = { hash: testHash, parentCount: 1, parents: [parentHash] };
+
+    it("opens the rebase EDITOR onto the clicked commit's parent (commit included in the plan)", async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      const opened: Array<{ repo: unknown; onto: string }> = [];
+      commands.setRebaseEditorOpener(async (openRepo, onto) => {
+        opened.push({ repo: openRepo, onto });
+        return { executed: true };
+      });
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.strictEqual(opened.length, 1, 'the editor must open');
+      assert.strictEqual(
+        opened[0].onto,
+        parentHash,
+        "the plan rebases onto the clicked commit's FIRST PARENT so the commit itself is in the todo"
+      );
+      assert.ok(
+        !rebaseService.calls.some((c) => c.method === 'startInteractiveRebase'),
+        'the handler must not start a headless planning session of its own'
+      );
+      assert.ok(
+        !messages.info.some((m) => m.message.includes('Interactive rebase started')),
+        'the editor IS the feedback — no dead-end toast'
+      );
+      assert.strictEqual(provider.refreshCallCount, 1, 'refresh after an executed rebase');
+    });
+
+    it('does not refresh when the editor is cancelled without executing', async () => {
       createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      commands.setRebaseEditorOpener(async () => ({ executed: false }));
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.strictEqual(provider.refreshCallCount, 0);
+    });
+
+    it('refuses a root commit (nothing to rebase onto)', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      const opened: string[] = [];
+      commands.setRebaseEditorOpener(async (_r, onto) => {
+        opened.push(onto);
+        return { executed: true };
+      });
+
+      await commands._handleAction(
+        'interactiveRebase',
+        [testHash],
+        [{ hash: testHash, parentCount: 0, parents: [] }]
+      );
+
+      assert.strictEqual(opened.length, 0, 'no editor for a parentless commit');
+      assert.strictEqual(messages.warning.length, 1);
+      assert.ok(messages.warning[0].message.includes('root commit'));
+    });
+
+    it('resolves the parent via git when the dispatch carries no row data', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = {
+        exec: async (args: string[]) => {
+          if (args[0] === 'rev-parse') {
+            return { exitCode: 0, stdout: `${parentHash}\n`, stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      } as unknown as GitCli;
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const opened: string[] = [];
+      commands.setRebaseEditorOpener(async (_r, onto) => {
+        opened.push(onto);
+        return { executed: true };
+      });
 
       await commands._handleAction('interactiveRebase', [testHash]);
 
-      const call = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
-      assert.ok(call, 'startInteractiveRebase should have been called');
-      assert.strictEqual(call.args[1], testHash);
-      assert.strictEqual(provider.refreshCallCount, 1);
+      assert.deepStrictEqual(opened, [parentHash]);
     });
 
     it('shows error on failure', async () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
-      const rebaseService = createMockRebaseService({
-        startInteractiveRebase: async () => {
-          throw new Error('rebase failed');
-        },
-      });
+      const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      commands.setRebaseEditorOpener(async () => {
+        throw new Error('rebase failed');
+      });
 
-      await commands._handleAction('interactiveRebase', [testHash]);
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('rebase failed'));

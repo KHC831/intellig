@@ -293,14 +293,23 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
               provider,
               gitCli
             );
+            // interactiveRebase opens the plan editor and refreshes only
+            // after an EXECUTED plan; stub an opener that executes so the
+            // success-path property covers its refresh branch.
+            commands.setRebaseEditorOpener(async () => ({ executed: true }));
 
             provider.refreshCallCount = 0;
 
             // multi-commit handlers (drop N>=2, squash) gate on
             // an in-order guard against the dispatched commitNodes. Pass
-            // a synthesised list (parentCount=1 for every hash) so the
-            // refresh-path property exercises the success branch.
-            const commitNodes = commitHashes.map((h) => ({ hash: h, parentCount: 1 }));
+            // a synthesised list (parentCount=1, plus a parent hash for the
+            // rebase-base resolution) so the refresh-path property
+            // exercises the success branch.
+            const commitNodes = commitHashes.map((h) => ({
+              hash: h,
+              parentCount: 1,
+              parents: ['f'.repeat(40)],
+            }));
             await commands._handleAction(action, commitHashes, commitNodes);
 
             assert.ok(

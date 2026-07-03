@@ -12,7 +12,7 @@ import { IBranch, IGitService, IRepository } from '../git-core/interfaces/IGitSe
 import { IRebaseService } from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
-import { GitCli } from '../git-core/gitCli';
+import { GitCli, buildGitArgs } from '../git-core/gitCli';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
@@ -88,6 +88,10 @@ export class CommitContextMenuCommands {
   private _gitCli: GitCli;
   private _conflictResolutionService: IConflictResolutionService | undefined;
   private _commitComposer?: { prefillComposerMessage(message: string): void };
+  // late-bound by extension.ts via {@link setRebaseEditorOpener}; opens the
+  // interactive-rebase plan editor (RebaseEditor singleton) for a repo onto
+  // a base commit.
+  private _openRebaseEditor?: (repo: IRepository, onto: string) => Promise<{ executed: boolean }>;
   // late-bound by extension.ts via {@link setBranchComparisonView}
   // because BranchComparisonView is constructed AFTER this commands class
   // in the activate() order. The compareWithBranch handler guards on
@@ -138,6 +142,19 @@ export class CommitContextMenuCommands {
    */
   setCommitComposer(composer: { prefillComposerMessage(message: string): void }): void {
     this._commitComposer = composer;
+  }
+
+  /**
+   * Late-bind the interactive-rebase editor opener. The RebaseEditor
+   * singleton lives in extension.ts (created lazily, disposed on
+   * deactivate), so the wiring hands us a thunk that opens it for a repo
+   * onto a base and resolves with whether the plan was executed. Without it
+   * "Interactively Rebase from Here" has no UI to show and refuses.
+   */
+  setRebaseEditorOpener(
+    opener: (repo: IRepository, onto: string) => Promise<{ executed: boolean }>
+  ): void {
+    this._openRebaseEditor = opener;
   }
 
   /**
@@ -3337,7 +3354,13 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Start an interactive rebase session from the selected commit.
+   * "Interactively Rebase from Here" — open the rebase plan editor with the
+   * clicked commit INCLUDED: the plan rebases onto the commit's FIRST PARENT
+   * (IntelliJ GitInteractiveRebaseAction / getRebaseUpstreamFor). The editor
+   * owns all further UX (plan, execute, pause, abort); this handler only
+   * resolves the base and refreshes after an executed plan. Calling the
+   * rebase SERVICE directly here produced a headless planning session — a
+   * toast and no UI.
    */
   private async _handleInteractiveRebase(commitHashes: string[]): Promise<void> {
     const repo = await this._getRepositoryForCommit(commitHashes[0]);
@@ -3348,19 +3371,58 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
 
     try {
-      await this._rebaseService.startInteractiveRebase(repo, hash);
-      void vscode.window.showInformationMessage(
-        `Interactive rebase started from ${hash.substring(0, 8)}`
-      );
-      // Interactive rebase may have moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
+      const onto = await this._resolveFirstParent(repo, hash);
+      if (onto === undefined) {
+        void vscode.window.showWarningMessage(
+          'Cannot interactively rebase from the root commit — it has no parent to rebase onto.'
+        );
+        return;
+      }
+      if (!this._openRebaseEditor) {
+        void vscode.window.showErrorMessage(
+          'Interactive rebase editor is not available — reload the window and try again.'
+        );
+        return;
+      }
+      const result = await this._openRebaseEditor(repo, onto);
+      if (result.executed) {
+        // The rebase moved HEAD; reload before refresh.
+        await this._gitService.reloadRepository(repo);
+        this._gitToolWindowProvider.refresh();
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to start interactive rebase: ${sanitizeGitError(errorMessage)}`
       );
     }
+  }
+
+  /**
+   * First parent of `hash`, from the clicked row when the dispatch carries
+   * it (no subprocess), else via `git rev-parse <hash>^`. `undefined` for a
+   * root commit.
+   */
+  private async _resolveFirstParent(repo: IRepository, hash: string): Promise<string | undefined> {
+    const row = this._dispatchNodes.find((n) => n.hash === hash);
+    if (row) {
+      if (row.parents && row.parents.length > 0) {
+        return row.parents[0];
+      }
+      if (row.parentCount === 0) {
+        return undefined;
+      }
+      // parentCount > 0 but hashes not threaded — fall through to git.
+    }
+    const result = await this._gitCli.exec(buildGitArgs('rev-parse', [], [`${hash}^`]), {
+      cwd: repo.rootUri.fsPath,
+    });
+    if (result.exitCode !== 0) {
+      // `hash^` fails exactly when there is no parent (root commit).
+      return undefined;
+    }
+    const parent = result.stdout.trim();
+    return parent.length > 0 ? parent : undefined;
   }
 
   /**
