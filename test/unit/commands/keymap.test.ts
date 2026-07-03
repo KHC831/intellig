@@ -77,28 +77,33 @@ describe('activation cannot register the same command id twice', () => {
     const pj = readPackageJson();
     const allSrc = readAllProductionSources();
 
-    // Collect every string-literal argument passed to a command
-    // registration call. Two registration mechanisms exist in production:
+    // Collect every string-literal command id passed to a registration
+    // mechanism. Three exist in production:
     //   - `registerLoggedCommand(<id>, …)` — the structured-logging wrapper
     // (src/utils/logger) adopted across the codebase in the.1 sweep;
     //     this is now the dominant form (extension.ts, the context-menu
     //     command classes, …).
     //   - `(vscode.|)commands.registerCommand(<id>, …)` — the direct VS Code
     //     API, still used in a few call sites (e.g. StatusBarService).
-    // Both forms ultimately register a command id with VS Code, so a
-    // duplicate across EITHER form would crash activation and must be caught.
+    //   - the command spine's spec objects (`registerSelectionCommand` /
+    //     `registerFileCommand` / `registerRepoCommand`, commandSpine.ts),
+    //     which carry the id as an `id: '<command>'` field and register it
+    //     through registerLoggedCommand internally (with a VARIABLE id, so
+    //     the wrapper call itself never double-counts).
+    // All forms ultimately register a command id with VS Code, so a
+    // duplicate across ANY form would crash activation and must be caught.
     // Matches both single and double-quoted literals. Intentionally does NOT
     // match template-literal ids; the convention in the codebase is literal
-    // ids. The wrapper's own internal `commands.registerCommand(id, …)` (in
-    // logger/correlation.ts) passes the `id` variable — not a literal — so it
-    // is never miscounted here.
+    // ids. The spine `id:` alternative anchors on the `intellig.` prefix so
+    // unrelated object fields named `id` (webview messages, quick-pick items)
+    // are never miscounted.
     const registerCallRegex =
-      /(?:commands\.registerCommand|registerLoggedCommand)\(\s*['"]([^'"]+)['"]/g;
+      /(?:commands\.registerCommand|registerLoggedCommand)\(\s*['"]([^'"]+)['"]|\bid:\s*['"](intellig\.[^'"]+)['"]/g;
 
     const counts = new Map<string, number>();
     let match: RegExpExecArray | null;
     while ((match = registerCallRegex.exec(allSrc)) !== null) {
-      const id = match[1];
+      const id = match[1] ?? match[2];
       counts.set(id, (counts.get(id) ?? 0) + 1);
     }
 

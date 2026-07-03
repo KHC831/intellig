@@ -56,3 +56,14 @@ backlog to burn down:
 
 The F5 dogfood sweep (NORTHSTAR priority 1) is the open item that confirms all of the above behave
 well in real use.
+
+## Command spine adoption (structural hardening, not parity)
+
+`src/commands/registration/commandSpine.ts` centralizes the services guard,
+the (clickedUri, selectedUris[]) selection contract, resolveRepo, path
+derivation, failure toasts, and refresh-on-success. explorerCommands is fully
+migrated. Remaining registration modules to migrate as follow-up slices
+(each is mechanical; existing unit tests pin behavior):
+commitRepoCoreCommands, commitMenuCommands, rebaseConflictCommands,
+stashShelfCommands, changelistCommands, blameEditorCommands, branchCommands.
+New argument-taking commands MUST register through the spine.

@@ -40,6 +40,16 @@ WORK on it.
 9. **Tests-passing traps**: a green suite can coexist with a broken
    product when a mock hides the runtime (see section 5). Runtime lanes
    (ext-host, e2e, webview-harness) must gate UI changes.
+10. **A class fix is not done until the class is FENCED.** Fixing the
+    found instances of a bug pattern is an instance fix; audits have
+    re-found "closed" classes twice (unpinned stash pops, unanchored
+    path strips) because nothing stopped new code from rejoining the
+    pattern. Definition of done for any class-level fix: (a) the site
+    fixes, (b) a reproducing test that failed first, AND (c) a guard in
+    `check:all` (grep fence or eslint no-restricted-syntax rule, with
+    the ADR-007 maintenance-contract header and a justification-comment
+    escape hatch). When a later audit verifies a class as fixed, it
+    runs the fence — it does not re-read the sites.
 
 ## Section 2. Product rules that are LOCKED (user decisions)
 
