@@ -58,7 +58,11 @@ const PROVIDER_REGISTER_RE =
 function repoRoot(): string {
   // Test runs from the compiled bundle at `out/test/ext-host/suite/…`, so
   // the repo root is 4 levels up.
-  return path.resolve(__dirname, '../../..');
+  const ext = vscode.extensions.getExtension('KaHoChan.intellig');
+  if (!ext) {
+    throw new Error('extension not installed in host');
+  }
+  return ext.extensionPath;
 }
 
 function walk(root: string, out: string[]): void {

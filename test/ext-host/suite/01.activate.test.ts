@@ -30,6 +30,17 @@ import * as vscode from 'vscode';
 
 const EXT_ID = 'KaHoChan.intellig';
 
+/**
+ * The extension's dev root, from the live host (never from __dirname —
+ * compiled suites sit at out-test/test/ext-host/suite, and hand-counted
+ * `../..` depths rot when the compiled layout changes; they did).
+ */
+function extensionRoot(): string {
+  const ext = vscode.extensions.getExtension(EXT_ID);
+  assert.ok(ext, `Extension ${EXT_ID} not installed in host`);
+  return ext.extensionPath;
+}
+
 describe('ext-host smoke — 1. activate', function () {
   this.timeout(30_000);
 
@@ -49,7 +60,7 @@ describe('ext-host smoke — 1. activate', function () {
     assert.ok(ext);
     await ext.activate();
 
-    const manifestPath = path.resolve(__dirname, '../../../package.json');
+    const manifestPath = path.join(extensionRoot(), 'package.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
       contributes?: { commands?: Array<{ command: string }> };
     };
@@ -97,7 +108,7 @@ describe('ext-host smoke — 1. activate', function () {
     // This is what would have caught C-1 (the bug was a duplicate call
     // site, not a duplicate manifest entry).
 
-    const manifestPath = path.resolve(__dirname, '../../../package.json');
+    const manifestPath = path.join(extensionRoot(), 'package.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
       contributes?: { commands?: Array<{ command: string }> };
     };
@@ -122,7 +133,7 @@ describe('ext-host smoke — 1. activate', function () {
     // appearing twice in `src/extension.ts`; that duplicates into `out/
     // extension.js` too. We scan for every quoted id passed to
     // `registerCommand(` and assert every id has exactly one call site.
-    const bundlePath = path.resolve(__dirname, '../../../out/extension.js');
+    const bundlePath = path.join(extensionRoot(), 'out/extension.js');
     assert.ok(
       fs.existsSync(bundlePath),
       `compiled extension bundle not found at ${bundlePath} — run npm run compile`
