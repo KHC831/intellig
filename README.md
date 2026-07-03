@@ -256,65 +256,12 @@ through VS Code's git extension API. The practical implications:
 
 ## Keyboard Shortcuts
 
-| Action                       | Default                    | IntelliJ Preset                                |
-| ---------------------------- | -------------------------- | ---------------------------------------------- |
-| Commit                       | Ctrl/Cmd+K                 | Ctrl/Cmd+K                                     |
-| Push                         | Ctrl+Shift+K               | Ctrl+Shift+K                                   |
-| Pull                         | Ctrl/Cmd+T                 | Ctrl/Cmd+T                                     |
-| Branch Popup                 | Ctrl+Shift+`               | Alt+`                                          |
-| Git Tool Window              | Alt+9 / Cmd+9              | Alt+9 / Cmd+9                                  |
-| Commit Tool Window           | Alt+0                      | Alt+0                                          |
-| Refresh Status               | Ctrl+Shift+R               | Ctrl+Shift+R                                   |
-| Stage Selected               | Ctrl/Cmd+Alt+A             | Ctrl/Cmd+Alt+A                                 |
-| Unstage Selected             | Ctrl/Cmd+Alt+Z             | — (chord taken by Revert File; see note below) |
-| Revert File                  | —                          | Ctrl/Cmd+Alt+Z                                 |
-| Shelve Silently              | Ctrl+Shift+H / Cmd+Shift+H | Ctrl+Shift+H / Cmd+Shift+H                     |
-| Unshelve Silently            | Ctrl/Cmd+Alt+U             | Ctrl/Cmd+Alt+U                                 |
-| Jump to Commit (Log)         | Ctrl/Cmd+F                 | Ctrl/Cmd+F                                     |
-| Show Blame                   | —                          | Ctrl/Cmd+Alt+Shift+A                           |
-| Show File History            | —                          | Ctrl/Cmd+H                                     |
-| Show Shelf List              | —                          | Ctrl/Cmd+Shift+U                               |
-| Compare with Current         | —                          | Ctrl/Cmd+D                                     |
-| Move Files To Changelist     | —                          | F6                                             |
-| Open File from Local Changes | —                          | F4                                             |
-
-> **Heads up — `Ctrl/Cmd+Alt+Z` collision under IntelliJ preset.**
-> Both `intellig.unstageSelected` (default keymap) and
-> `intellig.revertFile` (IntelliJ preset) bind to `Ctrl/Cmd+Alt+Z`,
-> and the IntelliJ-preset binding is more specific so it wins. If
-> the IntelliJ preset is enabled, this chord performs a **revert
-> on disk** (a destructive operation) — not unstage. To unstage
-> while the preset is on, right-click the file in Local Changes →
-> "Unstage" or run `IntelliG: Unstage Selected Files` from the
-> command palette.
-
-### Merge view (active when the IntelliG merge tab is focused)
-
-These bindings are scoped to `activeWebviewPanelId == 'intellig.mergeView'`,
-so they don't collide with anything outside the merge view.
-
-| Action            | Binding  |
-| ----------------- | -------- |
-| Next Conflict     | Alt+Down |
-| Previous Conflict | Alt+Up   |
-| Accept Current    | Alt+1    |
-| Accept Both       | Alt+2    |
-| Accept Incoming   | Alt+3    |
-
-### How to read this table
-
-The **Default** column lists the binding active out of the box (no
-preset). The **IntelliJ Preset** column lists the binding active
-when the preset is on. When the same chord appears in both columns,
-it's the same command under either mode. An em-dash (—) means the
-action has no chord under that mode; use the command palette
-(`Ctrl/Cmd+Shift+P` → `IntelliG: <action>`) to invoke it.
-
-Enable the IntelliJ preset in settings:
-
-```jsonc
-"intellig.keymapPreset": "intellij"
-```
+All keybindings are declared by the extension and listed under **Feature
+Contributions** on the extension's page, and in the Keyboard Shortcuts editor
+(search for `intellig`) where every chord can be inspected or rebound. An
+optional IntelliJ IDEA-style preset is available via the
+`intellig.keymapPreset` setting — see that setting's description for the one
+chord that behaves differently under the preset.
 
 ## Configuration reference
 

@@ -45,12 +45,17 @@ describe('git tool window — tabbed layout default-on (C-5)', () => {
     const pkgPath = path.resolve(__dirname, '../../../../package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
       contributes: {
-        configuration: {
-          properties: Record<string, { default?: unknown }>;
-        };
+        configuration: Array<{
+          properties?: Record<string, { default?: unknown }>;
+        }>;
       };
     };
-    const prop = pkg.contributes.configuration.properties[TABBED_CONFIG_FULL_KEY];
+    // configuration is an array of titled sections; flatten to look up a key.
+    const properties = Object.assign(
+      {},
+      ...pkg.contributes.configuration.map((s) => s.properties ?? {})
+    ) as Record<string, { default?: unknown }>;
+    const prop = properties[TABBED_CONFIG_FULL_KEY];
     assert.ok(prop, `schema must declare ${TABBED_CONFIG_FULL_KEY}`);
     assert.strictEqual(prop.default, true, 'tabbed layout must default on');
   });

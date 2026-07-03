@@ -1447,308 +1447,421 @@
         }
       ]
     },
-    "configuration": {
-      "title": "IntelliG",
-      "properties": {
-        "intellig.defaultCommitSignOff": {
-          "type": "boolean",
-          "default": false,
-          "description": "Add Signed-off-by line to commit messages by default"
-        },
-        "intellig.mergeWindow.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Experimental: resolve conflicts in the IntelliG merge window (IntelliJ-style three-pane editor with an editable result). When off, conflicts open in VS Code's built-in merge editor."
-        },
-        "intellig.lineStatus.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show live changed-line markers (added/modified/deleted vs HEAD) in the editor gutter, updated as you type. Mirrors IntelliJ's change markers."
-        },
-        "intellig.branches.showTags": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the Tags section in the branches popup. Toggle from the popup's settings gear."
-        },
-        "intellig.branches.showRecentBranches": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the Recent section in the branches popup. Toggle from the popup's settings gear."
-        },
-        "intellig.branches.groupByDirectory": {
-          "type": "boolean",
-          "default": true,
-          "description": "Group branches that share a '/'-prefix (e.g. feature/*) with indentation in the branches popup. Toggle from the popup's settings gear."
-        },
-        "intellig.commitMessageIssueLinks": {
-          "type": "boolean",
-          "default": true,
-          "description": "Detect issue/PR references (e.g. #42, GH-101, PROJ-7) in commit messages and render them as clickable links to the configured hosting provider."
-        },
-        "intellig.commitMessageTemplate": {
-          "type": "string",
-          "default": "",
-          "description": "Default commit message template"
-        },
-        "intellig.commitAuthor": {
-          "type": "string",
-          "default": "",
-          "description": "Default author override in 'Name <email>' format. Leave empty to use git config.",
-          "pattern": "^(?:|[^<>]+ <[^<>@\\s]+@[^<>\\s]+>)$",
-          "patternErrorMessage": "Expected 'Name <email@example.com>' or empty."
-        },
-        "intellig.pullRebase": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use rebase instead of merge when pulling"
-        },
-        "intellig.autoFetchEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable automatic fetching from remotes"
-        },
-        "intellig.autoFetchInterval": {
-          "type": "number",
-          "default": 180,
-          "description": "Auto-fetch interval in seconds"
-        },
-        "intellig.autoOpenResolveConflictsDialog": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically open the Resolve Conflicts dialog when a merge/rebase/cherry-pick/revert/unshelve/unstash produces conflicts."
-        },
-        "intellig.useTabbedGitToolWindow": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a tabbed Git tool window (Log / Console / Incoming / Update Info / History), matching IntelliJ's Git tool window. Enabled by default; disable to restore the single Log panel."
-        },
-        "intellig.useCommitToolWindow": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the IntelliJ-style Commit tool window (Local Changes + Shelf tabs, directory grouping, Unversioned Files node, diff preview, before-commit checks) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog instead."
-        },
-        "intellig.defaultRepo": {
-          "type": "string",
-          "default": "",
-          "description": "Repository basename or absolute path to use by default in multi-root workspaces. When empty, IntelliG uses the repo containing the active editor when unambiguous, otherwise prompts."
-        },
-        "intellig.log.highlightCherryPicked": {
-          "type": "boolean",
-          "default": true,
-          "description": "Dim commits that are already cherry-picked to the current branch's upstream and show a ✓ badge (T3-07). Uses `git log --cherry-mark`. Turn off if you find the visual cue too busy."
-        },
-        "intellig.log.showGpgColumn": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show a GPG/SSH signature status column in the commit log (G5). Displays a glyph per commit: ✓ valid, ✗ bad/revoked, ⚠ expired/unknown, — missing key, empty for unsigned commits."
-        },
-        "intellig.log.showAllRoots": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show commits from all workspace repositories merged into one log (matches the branch view, which shows all repositories by default). A Root column marks each commit's repository with a colored stripe; hover for the name. Disable to scope a multi-repo workspace's log to a single repository (G8)."
-        },
-        "intellig.log.showRootNames": {
-          "type": "boolean",
-          "default": false,
-          "description": "In the merged multi-repository log, widen the Root column to show each repository's name on its color instead of the narrow stripe (IntelliJ's Show Root Names)."
-        },
-        "intellig.blameAnnotationStyle": {
-          "type": "string",
-          "enum": [
-            "inline",
-            "gutter",
-            "both",
-            "off"
-          ],
-          "default": "inline",
-          "description": "Style for blame annotations. 'inline' shows blame at end of the current line; 'gutter' shows blame in the gutter with background heat gradient; 'both' enables both; 'off' disables all blame annotations."
-        },
-        "intellig.blame.ignoreWhitespace": {
-          "type": "boolean",
-          "default": false,
-          "description": "Ignore whitespace changes when computing Git blame (git blame -w). Matches IntelliJ's blame gutter Options menu."
-        },
-        "intellig.blame.detectMovementsWithinFile": {
-          "type": "boolean",
-          "default": false,
-          "description": "Detect moved lines within the same file when computing Git blame (git blame -M). Matches IntelliJ's blame gutter Options menu."
-        },
-        "intellig.blame.detectMovementsAcrossFiles": {
-          "type": "boolean",
-          "default": false,
-          "description": "Detect lines moved or copied across files when computing Git blame (git blame -C -C). Matches IntelliJ's blame gutter Options menu."
-        },
-        "intellig.blame.colorMode": {
-          "type": "string",
-          "enum": [
-            "order",
-            "author"
-          ],
-          "enumDescriptions": [
-            "Tint blame lines by commit age — a heat gradient from oldest to newest.",
-            "Tint blame lines by a stable per-author color."
-          ],
-          "default": "order",
-          "description": "Background color mode for blame annotations. 'order' shades lines by commit age (heat gradient); 'author' assigns each author a stable color. Matches IntelliJ's annotation color mode (Annotations Color menu)."
-        },
-        "intellig.blame.showAuthor": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the author column in blame annotations. Matches IntelliJ's per-aspect show/hide for the Author annotation field."
-        },
-        "intellig.blame.showDate": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the date column in blame annotations. Matches IntelliJ's per-aspect show/hide for the Date annotation field."
-        },
-        "intellig.blame.showRevision": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the revision (commit hash) column in blame annotations. Matches IntelliJ's per-aspect show/hide for the Revision annotation field."
-        },
-        "intellig.blame.authorNameFormat": {
-          "type": "string",
-          "enum": [
-            "full",
-            "firstname",
-            "lastname",
-            "initials",
-            "email"
-          ],
-          "enumDescriptions": [
-            "Show the author's full name.",
-            "Show only the author's first name.",
-            "Show only the author's last name.",
-            "Show the author's initials.",
-            "Show the author's email address."
-          ],
-          "default": "full",
-          "description": "How the author is displayed in blame annotations. Matches IntelliJ's annotation 'Names' submenu (ShortNameType)."
-        },
-        "intellig.diff.ignorePolicy": {
-          "type": "string",
-          "enum": [
-            "default",
-            "trim-whitespaces",
-            "ignore-whitespaces",
-            "ignore-whitespaces-empty-lines"
-          ],
-          "enumDescriptions": [
-            "Do not ignore whitespace (git default).",
-            "Ignore trailing whitespace (git --ignore-space-at-eol).",
-            "Ignore all whitespace (git -w / --ignore-all-space).",
-            "Ignore all whitespace and whitespace-only lines (git --ignore-all-space --ignore-blank-lines)."
-          ],
-          "default": "default",
-          "description": "Whitespace ignore policy applied when generating diffs. Mirrors IntelliJ's diff-viewer 'Ignore whitespace' dropdown (IgnorePolicy): DEFAULT / TRIM_WHITESPACES / IGNORE_WHITESPACES / IGNORE_WHITESPACES_CHUNKS."
-        },
-        "intellig.showStatusBarBranch": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show current branch in status bar"
-        },
-        "intellig.keymapPreset": {
-          "type": "string",
-          "enum": [
-            "default",
-            "intellij"
-          ],
-          "enumDescriptions": [
-            "Default VS Code-style keybindings",
-            "IntelliJ IDEA-style keybindings (Alt+` for VCS popup, Ctrl+H for history, etc.)"
-          ],
-          "default": "default",
-          "description": "Keyboard shortcut preset to use. IntelliJ preset uses IntelliJ IDEA's default Git keybindings."
-        },
-        "intellig.modifiedFileColor": {
-          "type": "string",
-          "default": "#6897BB",
-          "description": "Color for modified files (IntelliJ blue)"
-        },
-        "intellig.addedFileColor": {
-          "type": "string",
-          "default": "#629755",
-          "description": "Color for added files (IntelliJ green)"
-        },
-        "intellig.deletedFileColor": {
-          "type": "string",
-          "default": "#6C6C6C",
-          "description": "Color for deleted files (IntelliJ gray)"
-        },
-        "intellig.ignoredFileColor": {
-          "type": "string",
-          "default": "#848504",
-          "description": "Color for ignored files"
-        },
-        "intellig.conflictFileColor": {
-          "type": "string",
-          "default": "#FF0000",
-          "description": "Color for conflicted files (red)"
-        },
-        "intellig.protectedBranches": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "title": "General",
+        "order": 1,
+        "properties": {
+          "intellig.defaultRepo": {
+            "type": "string",
+            "default": "",
+            "description": "Repository basename or absolute path to use by default in multi-root workspaces. When empty, IntelliG uses the repo containing the active editor when unambiguous, otherwise prompts.",
+            "order": 1
           },
-          "default": [
-            "main",
-            "master"
-          ],
-          "description": "Branches for which destructive operations are guarded: Reset modes Hard/Keep are disabled, and the Push dialog disables 'Force Push (Anyway)' (bare --force) when the target matches. '--force-with-lease' remains available. Remove a branch from this list to enable the guarded operations."
-        },
-        "intellig.repositoryScanMaxDepth": {
-          "type": "number",
-          "default": 1,
-          "description": "Maximum depth to scan workspace folders for nested git repositories. Set to -1 for unlimited (uses realpath cycle guard). Mirrors VS Code's git.repositoryScanMaxDepth setting."
-        },
-        "intellig.repositoryScanIgnoredFolders": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "intellig.showStatusBarBranch": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show current branch in status bar",
+            "order": 2
           },
-          "default": [],
-          "description": "Additional folder names (basename) to skip when scanning for nested git repositories. The following are always excluded and cannot be overridden: .git, node_modules, .vscode, out, dist, .next, target, build, vendor."
-        },
-        "intellig.shelve.removeAppliedFiles": {
-          "type": "boolean",
-          "default": false,
-          "description": "When unshelving silently, remove successfully-applied files from the shelf entry. If all files apply cleanly, the entry is deleted. Matches IntelliJ's 'Remove successfully applied files from shelf' option."
-        },
-        "intellig.fetchTags": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "all",
-            "never"
-          ],
-          "enumDescriptions": [
-            "Follow git's default tag-fetching behavior (no --tags / --no-tags flag added).",
-            "Always pass --tags, fetching every tag regardless of reachability.",
-            "Always pass --no-tags, skipping tag fetch entirely."
-          ],
-          "default": "auto",
-          "description": "Tag-fetching policy applied to every fetch (manual + auto-fetch). Explicit user-passed --tags / --no-tags options in programmatic callers override this setting."
-        },
-        "intellig.log.level": {
-          "type": "string",
-          "enum": [
-            "trace",
-            "debug",
-            "info",
-            "warn",
-            "error",
-            "off"
-          ],
-          "default": "info",
-          "description": "Minimum severity admitted to the IntelliG logger. Records at lower levels are dropped before allocation."
-        },
-        "intellig.log.console": {
-          "type": "boolean",
-          "default": false,
-          "description": "When enabled, mirror IntelliG log records to the developer console (visible only in the Extension Development Host)."
+          "intellig.keymapPreset": {
+            "type": "string",
+            "enum": [
+              "default",
+              "intellij"
+            ],
+            "enumDescriptions": [
+              "Default VS Code-style keybindings",
+              "IntelliJ IDEA-style keybindings (Alt+` for VCS popup, Ctrl+H for history, etc.)"
+            ],
+            "default": "default",
+            "markdownDescription": "Keyboard shortcut preset. `intellij` applies IntelliJ IDEA-style Git keybindings — the full table is on the extension's Feature Contributions page and in the Keyboard Shortcuts editor (search `intellig`).\n\n**Note:** with the `intellij` preset on, `Ctrl/Cmd+Alt+Z` performs **Revert File** — a destructive on-disk revert — overriding the default keymap's Unstage Selected on the same chord. To unstage while the preset is on, use the Local Changes context menu or run `IntelliG: Unstage Selected Files` from the command palette.",
+            "order": 3
+          },
+          "intellig.protectedBranches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "main",
+              "master"
+            ],
+            "description": "Branches for which destructive operations are guarded: Reset modes Hard/Keep are disabled, and the Push dialog disables 'Force Push (Anyway)' (bare --force) when the target matches. '--force-with-lease' remains available. Remove a branch from this list to enable the guarded operations.",
+            "order": 4
+          }
+        }
+      },
+      {
+        "title": "Commit",
+        "order": 2,
+        "properties": {
+          "intellig.useCommitToolWindow": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the Commit tool window (Local Changes + Shelf tabs, directory grouping, Unversioned Files node, diff preview, before-commit checks) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog instead.",
+            "order": 1
+          },
+          "intellig.defaultCommitSignOff": {
+            "type": "boolean",
+            "default": false,
+            "description": "Add Signed-off-by line to commit messages by default",
+            "order": 2
+          },
+          "intellig.commitMessageTemplate": {
+            "type": "string",
+            "default": "",
+            "description": "Default commit message template",
+            "order": 3
+          },
+          "intellig.commitAuthor": {
+            "type": "string",
+            "default": "",
+            "description": "Default author override in 'Name <email>' format. Leave empty to use git config.",
+            "pattern": "^(?:|[^<>]+ <[^<>@\\s]+@[^<>\\s]+>)$",
+            "patternErrorMessage": "Expected 'Name <email@example.com>' or empty.",
+            "order": 4
+          },
+          "intellig.commitMessageIssueLinks": {
+            "type": "boolean",
+            "default": true,
+            "description": "Detect issue/PR references (e.g. #42, GH-101, PROJ-7) in commit messages and render them as clickable links to the configured hosting provider.",
+            "order": 5
+          }
+        }
+      },
+      {
+        "title": "Log & Graph",
+        "order": 3,
+        "properties": {
+          "intellig.useTabbedGitToolWindow": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show a tabbed Git tool window (Log / Console / Incoming / Update Info / History). Enabled by default; disable to restore the single Log panel.",
+            "order": 1
+          },
+          "intellig.log.showAllRoots": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show commits from all workspace repositories merged into one log (matches the branch view, which shows all repositories by default). A Root column marks each commit's repository with a colored stripe; hover for the name. Disable to scope a multi-repo workspace's log to a single repository.",
+            "order": 2
+          },
+          "intellig.log.showRootNames": {
+            "type": "boolean",
+            "default": false,
+            "description": "In the merged multi-repository log, widen the Root column to show each repository's name on its color instead of the narrow stripe.",
+            "order": 3
+          },
+          "intellig.log.highlightCherryPicked": {
+            "type": "boolean",
+            "default": true,
+            "description": "Dim commits that are already cherry-picked to the current branch's upstream and show a ✓ badge. Uses `git log --cherry-mark`. Turn off if you find the visual cue too busy.",
+            "order": 4
+          },
+          "intellig.log.showGpgColumn": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show a GPG/SSH signature status column in the commit log. Displays a glyph per commit: ✓ valid, ✗ bad/revoked, ⚠ expired/unknown, — missing key, empty for unsigned commits.",
+            "order": 5
+          }
+        }
+      },
+      {
+        "title": "Fetch & Pull",
+        "order": 4,
+        "properties": {
+          "intellig.autoFetchEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable automatic fetching from remotes",
+            "order": 1
+          },
+          "intellig.autoFetchInterval": {
+            "type": "number",
+            "default": 180,
+            "description": "Auto-fetch interval in seconds",
+            "order": 2
+          },
+          "intellig.fetchTags": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "all",
+              "never"
+            ],
+            "enumDescriptions": [
+              "Follow git's default tag-fetching behavior (no --tags / --no-tags flag added).",
+              "Always pass --tags, fetching every tag regardless of reachability.",
+              "Always pass --no-tags, skipping tag fetch entirely."
+            ],
+            "default": "auto",
+            "description": "Tag-fetching policy applied to every fetch (manual + auto-fetch). Explicit user-passed --tags / --no-tags options in programmatic callers override this setting.",
+            "order": 3
+          },
+          "intellig.pullRebase": {
+            "type": "boolean",
+            "default": false,
+            "description": "Use rebase instead of merge when pulling",
+            "order": 4
+          }
+        }
+      },
+      {
+        "title": "Branches Popup",
+        "order": 5,
+        "properties": {
+          "intellig.branches.showTags": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the Tags section in the branches popup. Toggle from the popup's settings gear.",
+            "order": 1
+          },
+          "intellig.branches.showRecentBranches": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the Recent section in the branches popup. Toggle from the popup's settings gear.",
+            "order": 2
+          },
+          "intellig.branches.groupByDirectory": {
+            "type": "boolean",
+            "default": true,
+            "description": "Group branches that share a '/'-prefix (e.g. feature/*) with indentation in the branches popup. Toggle from the popup's settings gear.",
+            "order": 3
+          }
+        }
+      },
+      {
+        "title": "Blame",
+        "order": 6,
+        "properties": {
+          "intellig.blameAnnotationStyle": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "gutter",
+              "both",
+              "off"
+            ],
+            "default": "inline",
+            "description": "Style for blame annotations. 'inline' shows blame at end of the current line; 'gutter' shows blame in the gutter with background heat gradient; 'both' enables both; 'off' disables all blame annotations.",
+            "order": 1
+          },
+          "intellig.blame.colorMode": {
+            "type": "string",
+            "enum": [
+              "order",
+              "author"
+            ],
+            "enumDescriptions": [
+              "Tint blame lines by commit age — a heat gradient from oldest to newest.",
+              "Tint blame lines by a stable per-author color."
+            ],
+            "default": "order",
+            "description": "Background color mode for blame annotations. 'order' shades lines by commit age (heat gradient); 'author' assigns each author a stable color.",
+            "order": 2
+          },
+          "intellig.blame.showAuthor": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the author column in blame annotations.",
+            "order": 3
+          },
+          "intellig.blame.showDate": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the date column in blame annotations.",
+            "order": 4
+          },
+          "intellig.blame.showRevision": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the revision (commit hash) column in blame annotations.",
+            "order": 5
+          },
+          "intellig.blame.authorNameFormat": {
+            "type": "string",
+            "enum": [
+              "full",
+              "firstname",
+              "lastname",
+              "initials",
+              "email"
+            ],
+            "enumDescriptions": [
+              "Show the author's full name.",
+              "Show only the author's first name.",
+              "Show only the author's last name.",
+              "Show the author's initials.",
+              "Show the author's email address."
+            ],
+            "default": "full",
+            "description": "How the author is displayed in blame annotations.",
+            "order": 6
+          },
+          "intellig.blame.ignoreWhitespace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Ignore whitespace changes when computing Git blame (git blame -w).",
+            "order": 7
+          },
+          "intellig.blame.detectMovementsWithinFile": {
+            "type": "boolean",
+            "default": false,
+            "description": "Detect moved lines within the same file when computing Git blame (git blame -M).",
+            "order": 8
+          },
+          "intellig.blame.detectMovementsAcrossFiles": {
+            "type": "boolean",
+            "default": false,
+            "description": "Detect lines moved or copied across files when computing Git blame (git blame -C -C).",
+            "order": 9
+          }
+        }
+      },
+      {
+        "title": "Diff & Editor",
+        "order": 7,
+        "properties": {
+          "intellig.diff.ignorePolicy": {
+            "type": "string",
+            "enum": [
+              "default",
+              "trim-whitespaces",
+              "ignore-whitespaces",
+              "ignore-whitespaces-empty-lines"
+            ],
+            "enumDescriptions": [
+              "Do not ignore whitespace (git default).",
+              "Ignore trailing whitespace (git --ignore-space-at-eol).",
+              "Ignore all whitespace (git -w / --ignore-all-space).",
+              "Ignore all whitespace and whitespace-only lines (git --ignore-all-space --ignore-blank-lines)."
+            ],
+            "default": "default",
+            "description": "Whitespace ignore policy applied when generating diffs.",
+            "order": 1
+          },
+          "intellig.lineStatus.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show live changed-line markers (added/modified/deleted vs HEAD) in the editor gutter, updated as you type.",
+            "order": 2
+          }
+        }
+      },
+      {
+        "title": "Conflicts & Merge",
+        "order": 8,
+        "properties": {
+          "intellig.autoOpenResolveConflictsDialog": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically open the Resolve Conflicts dialog when a merge/rebase/cherry-pick/revert/unshelve/unstash produces conflicts.",
+            "order": 1
+          },
+          "intellig.mergeWindow.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Experimental: resolve conflicts in the IntelliG merge window — a three-pane editor (yours, result, theirs) with per-change apply/ignore controls and an editable result. When off, conflicts open in VS Code's built-in merge editor.",
+            "order": 2
+          }
+        }
+      },
+      {
+        "title": "Shelf",
+        "order": 9,
+        "properties": {
+          "intellig.shelve.removeAppliedFiles": {
+            "type": "boolean",
+            "default": false,
+            "description": "When unshelving silently, remove successfully-applied files from the shelf entry. If all files apply cleanly, the entry is deleted.",
+            "order": 1
+          }
+        }
+      },
+      {
+        "title": "File Colors",
+        "order": 10,
+        "properties": {
+          "intellig.modifiedFileColor": {
+            "type": "string",
+            "default": "#6897BB",
+            "description": "Color for modified files in IntelliG views",
+            "order": 1
+          },
+          "intellig.addedFileColor": {
+            "type": "string",
+            "default": "#629755",
+            "description": "Color for added files in IntelliG views",
+            "order": 2
+          },
+          "intellig.deletedFileColor": {
+            "type": "string",
+            "default": "#6C6C6C",
+            "description": "Color for deleted files in IntelliG views",
+            "order": 3
+          },
+          "intellig.ignoredFileColor": {
+            "type": "string",
+            "default": "#848504",
+            "description": "Color for ignored files",
+            "order": 4
+          },
+          "intellig.conflictFileColor": {
+            "type": "string",
+            "default": "#FF0000",
+            "description": "Color for conflicted files in IntelliG views",
+            "order": 5
+          }
+        }
+      },
+      {
+        "title": "Repository Discovery",
+        "order": 11,
+        "properties": {
+          "intellig.repositoryScanMaxDepth": {
+            "type": "number",
+            "default": 1,
+            "description": "Maximum depth to scan workspace folders for nested git repositories. Set to -1 for unlimited (uses realpath cycle guard). Mirrors VS Code's git.repositoryScanMaxDepth setting.",
+            "order": 1
+          },
+          "intellig.repositoryScanIgnoredFolders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Additional folder names (basename) to skip when scanning for nested git repositories. The following are always excluded and cannot be overridden: .git, node_modules, .vscode, out, dist, .next, target, build, vendor.",
+            "order": 2
+          }
+        }
+      },
+      {
+        "title": "Logging",
+        "order": 12,
+        "properties": {
+          "intellig.log.level": {
+            "type": "string",
+            "enum": [
+              "trace",
+              "debug",
+              "info",
+              "warn",
+              "error",
+              "off"
+            ],
+            "default": "info",
+            "description": "Minimum severity admitted to the IntelliG logger. Records at lower levels are dropped before allocation.",
+            "order": 1
+          },
+          "intellig.log.console": {
+            "type": "boolean",
+            "default": false,
+            "description": "When enabled, mirror IntelliG log records to the developer console (visible only in the Extension Development Host).",
+            "order": 2
+          }
         }
       }
-    },
+    ],
     "keybindings": [
       {
         "command": "intellig.commit",

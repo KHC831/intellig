@@ -34,10 +34,10 @@ interface ConfigurationProperty {
 
 interface PackageJson {
   contributes?: {
-    configuration?: {
+    configuration?: Array<{
       title?: string;
       properties?: Record<string, ConfigurationProperty>;
-    };
+    }>;
   };
 }
 
@@ -45,6 +45,14 @@ function loadPackageJson(): PackageJson {
   const pkgPath = path.resolve(process.cwd(), 'package.json');
   const raw = fs.readFileSync(pkgPath, 'utf-8');
   return JSON.parse(raw) as PackageJson;
+}
+
+/** configuration is an array of titled sections; flatten to look up keys. */
+function flattenProperties(pkg: PackageJson): Record<string, ConfigurationProperty> {
+  return Object.assign(
+    {},
+    ...(pkg.contributes?.configuration ?? []).map((s) => s.properties ?? {})
+  ) as Record<string, ConfigurationProperty>;
 }
 
 // The exact enum the Logger admits as a configured threshold.
@@ -59,8 +67,7 @@ describe('package.json — intellig.log.* configuration schema', () => {
   let properties: Record<string, ConfigurationProperty>;
 
   before(() => {
-    const pkg = loadPackageJson();
-    properties = pkg.contributes?.configuration?.properties ?? {};
+    properties = flattenProperties(loadPackageJson());
   });
 
   // -------------------------------------------------------------------------

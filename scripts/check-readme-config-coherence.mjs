@@ -64,7 +64,13 @@ import { readFileSync } from 'node:fs';
 const UNDOCUMENTED_FAIL_THRESHOLD = 5;
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-const props = pkg.contributes?.configuration?.properties ?? {};
+// `contributes.configuration` is an array of titled sections (the Settings-UI
+// grouping); flatten every section's properties. A single-object shape is
+// tolerated so the guard keeps working if the sections are ever collapsed.
+const cfg = pkg.contributes?.configuration ?? {};
+const props = Array.isArray(cfg)
+  ? Object.assign({}, ...cfg.map((section) => section.properties ?? {}))
+  : (cfg.properties ?? {});
 const readme = readFileSync('README.md', 'utf8');
 
 // Match Markdown table rows shaped:

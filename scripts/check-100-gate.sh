@@ -205,9 +205,12 @@ FLAG_CHECK_OUTPUT="$(
     const fs = require("fs");
     const path = process.env.INTELLIG_100_GATE_PACKAGE_JSON || "package.json";
     const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
-    const props =
-      (pkg.contributes && pkg.contributes.configuration &&
-        pkg.contributes.configuration.properties) || {};
+    // configuration is an array of titled sections; flatten them (tolerate
+    // the legacy single-object shape too).
+    const cfg = (pkg.contributes && pkg.contributes.configuration) || {};
+    const props = Array.isArray(cfg)
+      ? Object.assign({}, ...cfg.map((s) => s.properties || {}))
+      : (cfg.properties || {});
     const flags = ["intellig.useCommitToolWindow", "intellig.useTabbedGitToolWindow"];
     const violations = [];
     for (const f of flags) {
