@@ -84,9 +84,10 @@ Do not relitigate these; do not "helpfully" reintroduce them:
 - **Comments**: describe the CURRENT code only. No history lessons, no
   "fixed bug N", no what-it-used-to-do. When a comment goes stale, delete
   it. Reviewers flag bad new comments as findings.
-- **3-way merge default stays VS Code's native editor**; the ported merge
-  window remains opt-in behind `intellig.mergeWindow.enabled`. Don't
-  reintroduce a hand-rolled merge UI as the default.
+- **3-way merge**: the IntelliG merge window is the DEFAULT
+  (`intellig.mergeWindow.enabled`, default on, user-flipped 2026-07-03);
+  VS Code's native merge editor is the fallback (setting off or deps
+  unavailable).
 - **`package.json` `contributes` is additive-only** — no reordering; it's
   the most widely shared file in the repo.
 - **Deliberately NOT doing** (don't re-propose): merged-branch cleanup
@@ -296,7 +297,7 @@ asks for agents/teams:
 - Gate baseline: lint 0 warnings, unit 6091, property 762 (see
   `docs/testing.md` for the lanes).
 - The user owes an F5 dogfood pass over the new command surfaces and the
-  merge window (behind `intellig.mergeWindow.enabled`).
+  merge window (now the default conflict surface).
 - Before the first marketplace release shipping ported IntelliJ code: add
   the Apache 2.0 provenance NOTICE entry (ported files carry per-file
   headers already).

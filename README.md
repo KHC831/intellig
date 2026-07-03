@@ -283,15 +283,16 @@ chord that behaves differently under the preset.
 
 ### Commit & Push behavior
 
-| Setting                                   | Default              | Description                                                  |
-| ----------------------------------------- | -------------------- | ------------------------------------------------------------ |
-| `intellig.defaultCommitSignOff`           | `false`              | Add `Signed-off-by` line to commit messages                  |
-| `intellig.commitAuthor`                   | `""`                 | Optional commit-author override in `Name <email>` format     |
-| `intellig.commitMessageTemplate`          | `""`                 | Default commit message template                              |
-| `intellig.commitMessageIssueLinks`        | `true`               | Detect issue/PR references and render as clickable links     |
-| `intellig.protectedBranches`              | `["main", "master"]` | Branches that require a confirm before destructive ops       |
-| `intellig.pullRebase`                     | `false`              | Use `--rebase` by default in the Pull dialog                 |
-| `intellig.autoOpenResolveConflictsDialog` | `true`               | Open the Resolve Conflicts dialog automatically on conflicts |
+| Setting                                   | Default              | Description                                                                                      |
+| ----------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
+| `intellig.defaultCommitSignOff`           | `false`              | Add `Signed-off-by` line to commit messages                                                      |
+| `intellig.commitAuthor`                   | `""`                 | Optional commit-author override in `Name <email>` format                                         |
+| `intellig.commitMessageTemplate`          | `""`                 | Default commit message template                                                                  |
+| `intellig.commitMessageIssueLinks`        | `true`               | Detect issue/PR references and render as clickable links                                         |
+| `intellig.protectedBranches`              | `["main", "master"]` | Branches that require a confirm before destructive ops                                           |
+| `intellig.pullRebase`                     | `false`              | Use `--rebase` by default in the Pull dialog                                                     |
+| `intellig.autoOpenResolveConflictsDialog` | `true`               | Open the Resolve Conflicts dialog automatically on conflicts                                     |
+| `intellig.mergeWindow.enabled`            | `true`               | Resolve conflicts in the IntelliG three-pane merge window; off = VS Code's built-in merge editor |
 
 ### Fetch & shelf
 

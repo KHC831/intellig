@@ -214,8 +214,9 @@ Key invariants (violating any of these is a bug):
 
 ## Section 7. The merge window (opt-in three-pane resolver)
 
-Gated behind `intellig.mergeWindow.enabled` (default off); the native VS
-Code merge editor is the default path. The entire merge model runs INSIDE
+The default conflict-resolution surface (`intellig.mergeWindow.enabled`,
+default on); the native VS Code merge editor is the fallback — used when
+the setting is turned off or the window's dependencies are unavailable. The entire merge model runs INSIDE
 the webview; the host only loads stages and finalizes.
 
 ```mermaid

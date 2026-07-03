@@ -1797,8 +1797,8 @@
           },
           "intellig.mergeWindow.enabled": {
             "type": "boolean",
-            "default": false,
-            "description": "Experimental: resolve conflicts in the IntelliG merge window — a three-pane editor (yours, result, theirs) with per-change apply/ignore controls and an editable result. When off, conflicts open in VS Code's built-in merge editor.",
+            "default": true,
+            "description": "Resolve conflicts in the IntelliG merge window — a three-pane editor (yours, result, theirs) with per-change apply/ignore controls and an editable result. Turn off to use VS Code's built-in merge editor instead.",
             "order": 2
           }
         }

@@ -13,7 +13,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Un-Resolve File — send a mis-resolved conflict back to its conflicted state so you can redo the resolution.
 - A rejected push now offers Merge or Rebase and retries automatically instead of leaving you to pull by hand.
 - Before-commit warnings for CRLF line endings, files over 50 MB, and file names that break on Windows.
-- An opt-in three-pane merge window (`intellig.mergeWindow.enabled`) ported from IntelliJ's merge engine.
+- A three-pane merge window ported from IntelliJ's merge engine is now the default way to resolve conflicts; turn off `intellig.mergeWindow.enabled` to keep using VS Code's built-in merge editor.
 
 ### Fixed
 

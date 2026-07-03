@@ -51,18 +51,7 @@ describe('MergeView merge-window routing', () => {
     });
   }
 
-  it('routes to the native merge editor by default, injecting a synthetic base', async () => {
-    const view = build();
-    await view.show('/repo/a.txt');
-    assert.strictEqual(view.openedNative, 1);
-    assert.strictEqual(view.openedWindow, 0);
-    // The native editor reads stages from the index, so add/add needs the
-    // synthetic stage-1 written there.
-    assert.strictEqual(view.injected, 1);
-  });
-
-  it('routes to the merge window when intellig.mergeWindow.enabled is on', async () => {
-    setMockConfigValue('intellig', 'mergeWindow.enabled', true);
+  it('routes to the merge window by default, without touching the index', async () => {
     const view = build();
     await view.show('/repo/a.txt');
     assert.strictEqual(view.openedWindow, 1);
@@ -72,8 +61,18 @@ describe('MergeView merge-window routing', () => {
     assert.strictEqual(view.injected, 0);
   });
 
-  it('falls back to the native editor when the flag is on but deps are missing', async () => {
-    setMockConfigValue('intellig', 'mergeWindow.enabled', true);
+  it('routes to the native merge editor when the window is disabled, injecting a synthetic base', async () => {
+    setMockConfigValue('intellig', 'mergeWindow.enabled', false);
+    const view = build();
+    await view.show('/repo/a.txt');
+    assert.strictEqual(view.openedNative, 1);
+    assert.strictEqual(view.openedWindow, 0);
+    // The native editor reads stages from the index, so add/add needs the
+    // synthetic stage-1 written there.
+    assert.strictEqual(view.injected, 1);
+  });
+
+  it('falls back to the native editor when deps are missing', async () => {
     const repo = fakeRepo('/repo');
     const view = new (class extends MergeView {
       openedNative = 0;

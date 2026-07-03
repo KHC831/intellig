@@ -187,7 +187,7 @@ export class MergeView implements IMergeView {
 
   private _isMergeWindowEnabled(): boolean {
     return (
-      vscode.workspace.getConfiguration('intellig').get<boolean>('mergeWindow.enabled', false) ===
+      vscode.workspace.getConfiguration('intellig').get<boolean>('mergeWindow.enabled', true) ===
       true
     );
   }
