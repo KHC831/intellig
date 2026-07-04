@@ -36,6 +36,13 @@
  * (none currently) — the structural test
  * "every data-action has a matching case in _handleAction" pins both ends.
  */
+/**
+ * Disabled-tooltip text for a history-rewriting action whose target isn't
+ * contained in the current branch. Mirrors IntelliJ's
+ * `rebase.log.commit.editing.action.commit.not.in.head.error.text`.
+ */
+const NOT_IN_CURRENT_BRANCH_REASON = 'Commit is not in the current branch.';
+
 export type MultiSelectMenuAction =
   | 'copyHash'
   | 'createPatch'
@@ -82,9 +89,12 @@ export interface IMultiSelectMenuInputs {
   /** `true` when at least one selected commit has ≥ 2 parents (a merge). */
   hasMergeCommitInSelection: boolean;
   /**
-   * `true` when the single selected commit is contained in the current branch
-   * (an ancestor of HEAD, inclusive). Gates Fixup / Squash Into — IntelliJ
-   * `GitCommitEditingActionBase.checkCommitsCanBeEdited` greys them for commits
+   * `true` when EVERY selected commit is contained in the current branch (each
+   * an ancestor of HEAD, inclusive). Gates the history-rewriting actions —
+   * Fixup / Squash Into / squashCommits / dropCommit / editCommitMessage /
+   * interactiveRebase — because each rebases `oldest^..HEAD` and silently moves
+   * the checked-out branch when the target lives elsewhere. Mirrors IntelliJ
+   * `GitCommitEditingActionBase.checkCommitsCanBeEdited`, which greys commits
    * not in HEAD. Defaults `true` when HEAD can't be resolved (merged scope /
    * HEAD off the loaded window) so we never falsely grey an editable commit.
    */
@@ -301,18 +311,23 @@ export function computeMenuEnableState(
     // loses one parent's reachable history without warning) is a
     // footgun. Gate at the UI surface and again at the handler entry
     // (defence in depth).
-    dropCommit: isAtLeastOne && !hasMergeCommitInSelection,
+    dropCommit: isAtLeastOne && !hasMergeCommitInSelection && isSelectedInCurrentBranch,
     // N=1 actions (resetToHere added here)
-    editCommitMessage: isSingle,
+    editCommitMessage: isSingle && isSelectedInCurrentBranch,
     checkoutRevision: isSingle,
     showRepoAtRevision: isSingle,
     compareWithLocal: isSingle,
-    interactiveRebase: isSingle,
+    interactiveRebase: isSingle && isSelectedInCurrentBranch,
     resetToHere: isSingle,
     // N=1 + HEAD
     undoCommit: isSingle && isHeadInSelection,
-    // N≥2 + contiguous + single first-parent chain + no merges
-    squashCommits: isAtLeastTwo && isContiguous && isFirstParentChain && !hasMergeCommitInSelection,
+    // N≥2 + contiguous + single first-parent chain + no merges, all in HEAD
+    squashCommits:
+      isAtLeastTwo &&
+      isContiguous &&
+      isFirstParentChain &&
+      !hasMergeCommitInSelection &&
+      isSelectedInCurrentBranch,
     // N=2
     compareVersions: selectedCount === 2,
     // single-only IntelliJ-parity entries (Git.Fixup.To.Commit /
@@ -398,15 +413,15 @@ export function computeMenuState(
     }
   }
 
-  // "Contained in the current branch" for the single selected commit: is it an
-  // ancestor of HEAD (inclusive)? Walk HEAD's ancestors over the loaded window
-  // following parent hashes. The log window is a topo-ordered prefix, so every
-  // descendant of an in-window commit is also in-window — making this walk EXACT
-  // for any right-clickable (in-window) commit. Defaults `true` when HEAD is
-  // unknown or off the loaded window (merged scope / far-detached) so we never
-  // falsely grey an editable commit.
+  // "Contained in the current branch": is EVERY selected commit an ancestor of
+  // HEAD (inclusive)? Walk HEAD's ancestors over the loaded window following
+  // parent hashes. The log window is a topo-ordered prefix, so every descendant
+  // of an in-window commit is also in-window — making this walk EXACT for any
+  // right-clickable (in-window) commit. Defaults `true` when HEAD is unknown or
+  // off the loaded window (merged scope / far-detached) so we never falsely grey
+  // an editable commit.
   let isSelectedInCurrentBranch = true;
-  if (selectedCount === 1 && headHash !== '' && indexByHash.has(headHash)) {
+  if (selectedCount >= 1 && headHash !== '' && indexByHash.has(headHash)) {
     const reachable = new Set<string>();
     const stack = [headHash];
     while (stack.length > 0) {
@@ -428,7 +443,7 @@ export function computeMenuState(
         }
       }
     }
-    isSelectedInCurrentBranch = reachable.has(knownSelected[0]);
+    isSelectedInCurrentBranch = knownSelected.every((h) => reachable.has(h));
   }
 
   const visibility = computeMenuVisibility(selectedCount);
@@ -464,16 +479,25 @@ export function computeMenuState(
     if (!isFirstParentChain) {
       return 'Squash needs commits on a single branch (one first-parent chain) — the selection spans branches.';
     }
+    if (!isSelectedInCurrentBranch) {
+      return NOT_IN_CURRENT_BRANCH_REASON;
+    }
     return undefined;
   })();
 
-  // Explain why drop is disabled when the selection contains
-  // a merge commit. Only populated when visible+disabled (narrowing
-  // in the apply loop below); other dropCommit disables (N=0) hide the
-  // row entirely so no reason is needed.
-  const dropReason = hasMergeCommitInSelection
-    ? 'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.'
-    : undefined;
+  // Explain why drop is disabled: a merge commit in the selection, or a commit
+  // that isn't in the current branch. Only populated when visible+disabled
+  // (narrowing in the apply loop below); other dropCommit disables (N=0) hide
+  // the row entirely so no reason is needed.
+  const dropReason = ((): string | undefined => {
+    if (hasMergeCommitInSelection) {
+      return 'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.';
+    }
+    if (!isSelectedInCurrentBranch) {
+      return NOT_IN_CURRENT_BRANCH_REASON;
+    }
+    return undefined;
+  })();
 
   // Explain why Fixup / Squash Into are disabled (IntelliJ greys them for a
   // merge commit or a commit that isn't in the current branch).
@@ -482,10 +506,14 @@ export function computeMenuState(
       return 'Cannot fixup/squash a merge commit.';
     }
     if (!isSelectedInCurrentBranch) {
-      return 'Commit is not in the current branch.';
+      return NOT_IN_CURRENT_BRANCH_REASON;
     }
     return undefined;
   })();
+
+  // editCommitMessage / interactiveRebase are single-only; their only
+  // non-trivial visible-disabled cause is a target outside the current branch.
+  const rewriteReason = !isSelectedInCurrentBranch ? NOT_IN_CURRENT_BRANCH_REASON : undefined;
 
   // Walk all action keys via the visibility record so the result is
   // statically guaranteed to cover every MultiSelectMenuAction.
@@ -504,10 +532,13 @@ export function computeMenuState(
       if (action === 'squashCommits') {
         reason = squashReason;
       } else if (action === 'dropCommit') {
-        // merge-commit gate.
+        // merge-commit + current-branch gate.
         reason = dropReason;
       } else if (action === 'fixup' || action === 'squashInto') {
         reason = commitEditReason;
+      } else if (action === 'editCommitMessage' || action === 'interactiveRebase') {
+        // Current-branch gate (their only non-trivial visible-disabled cause).
+        reason = rewriteReason;
       }
       // compareVersions has no visible+disabled state by
       // construction, so no branch here. Other actions have trivial

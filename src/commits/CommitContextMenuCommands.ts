@@ -2253,6 +2253,38 @@ export class CommitContextMenuCommands {
    * merge-commit gate (UI disables it via `computeMenuEnableState`;
    * the handler re-checks here as belt-and-suspenders).
    */
+  /**
+   * Perform-time containment gate shared by every history-rewriting handler
+   * that rebases `oldest^..HEAD` (squash / drop / edit message / interactive
+   * rebase). Such a rebase silently rewrites — and MOVES — the checked-out
+   * branch when the target commit lives on a different branch, so refuse unless
+   * the oldest selected commit is reachable from HEAD (inclusive). Mirrors
+   * IntelliJ GitCommitEditingActionBase.checkCommitsCanBeEdited, which blocks
+   * an edit whose commit HEAD does not contain.
+   *
+   * `getMergeBase(oldest, HEAD) === oldest` iff `oldest` is an ancestor of
+   * HEAD. When the service can't compute it (narrow test doubles that omit the
+   * optional method) the check is permissive — production always provides it,
+   * and the menu enable-state is the first line of defence.
+   *
+   * Returns `true` when contained; otherwise toasts and returns `false`.
+   * Callers MUST gate BEFORE any stash / rebase so a blocked action has no
+   * side effects.
+   */
+  private async _isOldestInCurrentBranch(repo: IRepository, oldestHash: string): Promise<boolean> {
+    if (!this._gitService.getMergeBase) {
+      return true;
+    }
+    const mergeBase = await this._gitService.getMergeBase(repo, oldestHash, 'HEAD');
+    if (mergeBase === oldestHash) {
+      return true;
+    }
+    void vscode.window.showErrorMessage(
+      'Selected commits are not in the current branch — check out that branch first.'
+    );
+    return false;
+  }
+
   private async _handleDropCommit(
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
@@ -2316,6 +2348,12 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage(
         'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.'
       );
+      return;
+    }
+
+    // HEAD-containment gate (before any confirm / stash / rebase): dropping a
+    // commit HEAD doesn't contain would rebase and move the checked-out branch.
+    if (!(await this._isOldestInCurrentBranch(repo, hash))) {
       return;
     }
 
@@ -2516,6 +2554,13 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage(
         'Cannot drop the initial commit — use `git update-ref -d HEAD` to reset the branch instead.'
       );
+      return;
+    }
+
+    // 4b. HEAD-containment gate (before any confirm / stash / rebase): if the
+    // oldest selected commit isn't reachable from HEAD, the `oldest^..HEAD`
+    // rebase would rewrite and move the checked-out branch instead.
+    if (!(await this._isOldestInCurrentBranch(repo, oldestHash))) {
       return;
     }
 
@@ -2819,6 +2864,13 @@ export class CommitContextMenuCommands {
       .sort((a, b) => a - b);
     const oldestIdx = indices[indices.length - 1];
     const oldestHash = commitNodes[oldestIdx].hash;
+
+    // 2b. HEAD-containment gate (before the message dialog / stash / rebase):
+    // squashing commits HEAD doesn't contain would rebase `oldest^..HEAD` and
+    // move the checked-out branch instead of the target's branch.
+    if (!(await this._isOldestInCurrentBranch(repo, oldestHash))) {
+      return;
+    }
 
     // 3. Fetch each selected commit's full message and join in oldest-
     // first order (chronological: oldest commit's message comes first
@@ -3135,6 +3187,14 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
     const cwd = repo.rootUri.fsPath;
 
+    // HEAD-containment gate (before the message dialog / stash / rebase). The
+    // non-HEAD path rewords via `hash~1..HEAD` rebase, which would move the
+    // checked-out branch for a commit HEAD doesn't contain; the HEAD-amend path
+    // targets HEAD itself, which is trivially contained (guard passes).
+    if (!(await this._isOldestInCurrentBranch(repo, hash))) {
+      return;
+    }
+
     try {
       // Fetch the full commit message
       let fullMessage = '';
@@ -3369,6 +3429,13 @@ export class CommitContextMenuCommands {
     }
 
     const hash = commitHashes[0];
+
+    // HEAD-containment gate (before opening the editor): rebasing onto the
+    // clicked commit's parent rewrites `clicked^..HEAD` — for a commit HEAD
+    // doesn't contain that would transplant / move the checked-out branch.
+    if (!(await this._isOldestInCurrentBranch(repo, hash))) {
+      return;
+    }
 
     try {
       const onto = await this._resolveFirstParent(repo, hash);

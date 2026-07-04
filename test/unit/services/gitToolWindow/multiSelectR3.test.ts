@@ -423,12 +423,15 @@ describe('Wave A R3 — consolidated review fixes', () => {
 
   // ─── IMenuItemState.reason ──────────────────────────────────────────────
   describe('IMenuItemState.reason populated for disabled actions', () => {
-    function nodes(merged = false): { hash: string; parentCount: number }[] {
+    // Newest-first linear branch aaa→bbb→ccc→ddd, parents threaded so the
+    // HEAD-ancestor gate resolves every row as in the current branch (headHash
+    // 'aaa'). Matches production, which always threads parent hashes.
+    function nodes(merged = false): { hash: string; parentCount: number; parents: string[] }[] {
       return [
-        { hash: 'aaa', parentCount: 1 },
-        { hash: 'bbb', parentCount: 1 },
-        { hash: 'ccc', parentCount: merged ? 2 : 1 },
-        { hash: 'ddd', parentCount: 1 },
+        { hash: 'aaa', parentCount: 1, parents: ['bbb'] },
+        { hash: 'bbb', parentCount: 1, parents: ['ccc'] },
+        { hash: 'ccc', parentCount: merged ? 2 : 1, parents: merged ? ['ddd', 'zzz'] : ['ddd'] },
+        { hash: 'ddd', parentCount: 0, parents: [] },
       ];
     }
 

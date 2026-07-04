@@ -405,11 +405,25 @@ describe('multiSelect — pure helpers', () => {
 
   // ───: computeMenuState — composite wire payload ───────────────────────
   describe('computeMenuState (R1 — host-precomputed visibility+enable map)', () => {
-    function mkNode(hash: string, parentCount = 1): { hash: string; parentCount: number } {
-      return { hash, parentCount };
+    function mkNode(
+      hash: string,
+      parentCount = 1,
+      parents?: string[]
+    ): { hash: string; parentCount: number; parents?: string[] } {
+      return { hash, parentCount, parents };
     }
 
-    const nodes = [mkNode('aaa'), mkNode('bbb'), mkNode('ccc'), mkNode('ddd'), mkNode('eee')];
+    // Newest-first linear branch aaa→bbb→ccc→ddd→eee. Parents are threaded so
+    // the HEAD-ancestor walk (the "in current branch" gate) resolves every row
+    // as reachable from headHash 'aaa' — matching production, which always
+    // threads parent hashes into the menu-state payload.
+    const nodes = [
+      mkNode('aaa', 1, ['bbb']),
+      mkNode('bbb', 1, ['ccc']),
+      mkNode('ccc', 1, ['ddd']),
+      mkNode('ddd', 1, ['eee']),
+      mkNode('eee', 0, []),
+    ];
 
     it('returns one entry per MultiSelectMenuAction with both visible and enabled flags', () => {
       const inputs: IMenuStateInputs = {
@@ -552,10 +566,10 @@ describe('multiSelect — pure helpers', () => {
 
     it('squashCommits disabled when any selected commit is a merge (parents>=2)', () => {
       const withMerge = [
-        mkNode('aaa'),
-        mkNode('bbb'),
-        { hash: 'ccc', parentCount: 2 }, // merge
-        mkNode('ddd'),
+        mkNode('aaa', 1, ['bbb']),
+        mkNode('bbb', 1, ['ccc']),
+        { hash: 'ccc', parentCount: 2, parents: ['ddd', 'zzz'] }, // merge
+        mkNode('ddd', 0, []),
       ];
       const state = computeMenuState({
         selectedHashes: new Set(['bbb', 'ccc', 'ddd']),
@@ -598,10 +612,10 @@ describe('multiSelect — pure helpers', () => {
     // undefined (the apply-loop never reads reason for them).
     it('Wave C D3 — populates dropCommit reason when a merge commit is in selection', () => {
       const withMerge = [
-        mkNode('aaa'),
-        mkNode('bbb'),
-        { hash: 'ccc', parentCount: 2 }, // merge
-        mkNode('ddd'),
+        mkNode('aaa', 1, ['bbb']),
+        mkNode('bbb', 1, ['ccc']),
+        { hash: 'ccc', parentCount: 2, parents: ['ddd', 'zzz'] }, // merge
+        mkNode('ddd', 0, []),
       ];
       const state = computeMenuState({
         selectedHashes: new Set(['ccc']),
