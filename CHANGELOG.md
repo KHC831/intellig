@@ -10,6 +10,18 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.3.0] - 2026-07-04
+
+### Added
+
+- Search box in the branches tree to filter branches and tags by name.
+- Multi-select in the branches tree — delete several branches or tags at once, with a single confirm for the batch.
+
+### Fixed
+
+- Log filters now persist across window reloads, and a background refresh no longer quietly drops the filter you had applied.
+- Squash, Drop, Edit Message, and Interactive Rebase on a commit from another branch no longer silently move your current branch — they are disabled for commits that aren't on the checked-out branch.
+
 ## [0.2.12] - 2026-07-03
 
 ### Fixed
