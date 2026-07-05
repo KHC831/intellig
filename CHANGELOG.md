@@ -10,6 +10,17 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.3.1] - 2026-07-05
+
+### Changed
+
+- The interactive rebase editor keeps its scroll position when you change a commit's action, and now spells out that commits run oldest-to-newest (top to bottom) and that squash and fixup meld into the commit above.
+- The commit details panel gives the changed-files list and message a bit more room, and the changed-files heading now shows the project name, file count, and path.
+
+### Fixed
+
+- Squashing commits no longer flashes a "rebase is paused" warning while it runs.
+
 ## [0.3.0] - 2026-07-04
 
 ### Added
