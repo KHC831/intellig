@@ -93,6 +93,16 @@ export class RebaseEditor {
   private _executed = false;
 
   /**
+   * False until the editor has painted once for the current rebase. Every
+   * action change / reorder re-templates the whole webview; without this the
+   * commit list would snap back to the top on each interaction. The first
+   * render of a fresh rebase starts at the top (and drops any stale saved
+   * scroll); every later render preserves the user's scroll position. Reset in
+   * `show()` so a new rebase begins at the top again.
+   */
+  private _hasRendered = false;
+
+  /**
    * Resolver for the Rebase Progress panel. A thunk (not a stored reference)
    * so a panel recreated after a deactivate/reactivate cycle is always the
    * live one at paused-time. Optional — when absent the editor degrades to a
@@ -122,6 +132,9 @@ export class RebaseEditor {
    */
   async show(repository: IRepository, options: IRebaseEditorOptions): Promise<IRebaseEditorResult> {
     this._repository = repository;
+    // A fresh rebase must open at the top, not wherever the previous rebase's
+    // list was left scrolled.
+    this._hasRendered = false;
 
     try {
       // Start the interactive rebase session
@@ -458,13 +471,18 @@ export class RebaseEditor {
       return;
     }
 
-    this._panel.webview.html = this._getHtmlContent(this._panel.webview);
+    // Preserve scroll on every render but the first of this rebase (see
+    // `_hasRendered`): action changes and reorders re-template the DOM and must
+    // not yank the list back to the top.
+    const preserveScroll = this._hasRendered;
+    this._hasRendered = true;
+    this._panel.webview.html = this._getHtmlContent(this._panel.webview, preserveScroll);
   }
 
   /**
    * Get the HTML content for the webview.
    */
-  private _getHtmlContent(webview: vscode.Webview): string {
+  private _getHtmlContent(webview: vscode.Webview, preserveScroll = false): string {
     const nonce = this._getNonce();
 
     return `<!DOCTYPE html>
@@ -481,7 +499,7 @@ export class RebaseEditor {
 <body>
   <div class="rebase-editor" id="rebase-root"></div>
   <script nonce="${nonce}">
-    ${this._getScript()}
+    ${this._getScript(preserveScroll)}
   </script>
 </body>
 </html>`;
@@ -492,7 +510,7 @@ export class RebaseEditor {
    * inline script reads to build the DOM. Every dynamic value reaches the DOM
    * via .value / .textContent / element props (injection-proof) — never markup.
    */
-  private _getInitJson(): string {
+  private _getInitJson(preserveScroll = false): string {
     const ACTIONS: { value: RebaseAction; label: string; description: string }[] = [
       { value: 'pick', label: 'pick', description: 'use commit' },
       { value: 'reword', label: 'reword', description: 'use commit, but edit the commit message' },
@@ -500,12 +518,12 @@ export class RebaseEditor {
       {
         value: 'squash',
         label: 'squash',
-        description: 'use commit, but meld into previous commit',
+        description: 'meld into the commit above (keeps both messages)',
       },
       {
         value: 'fixup',
         label: 'fixup',
-        description: "like squash, but discard this commit's message",
+        description: "meld into the commit above, discard this commit's message",
       },
       { value: 'drop', label: 'drop', description: 'remove commit' },
     ];
@@ -534,6 +552,7 @@ export class RebaseEditor {
       originalBranch: this._session?.originalBranch || '',
       onto: this._session?.onto || '',
       commitCount: this._session?.commits.length || 0,
+      preserveScroll,
       actions: ACTIONS,
       commits,
     }).replace(/</g, '\\u003c');
@@ -862,10 +881,10 @@ export class RebaseEditor {
   /**
    * Get the JavaScript for the webview.
    */
-  private _getScript(): string {
+  private _getScript(preserveScroll = false): string {
     return `
       const vscode = acquireVsCodeApi();
-      const INIT = ${this._getInitJson()};
+      const INIT = ${this._getInitJson(preserveScroll)};
       const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
 
       // ── Build the body via createElement (no HTML-string injection) ────────
@@ -894,7 +913,16 @@ export class RebaseEditor {
         const instructions = el('div', { className: 'instructions' });
         instructions.append(
           el('p', { textContent: 'Drag commits to reorder. Select an action for each commit.' }),
-          el('p', { className: 'hint', textContent: 'Commits will be applied from top to bottom.' })
+          el('p', {
+            className: 'hint',
+            textContent:
+              'Order: oldest at the top, newest at the bottom — commits are applied top to bottom.',
+          }),
+          el('p', {
+            className: 'hint',
+            textContent:
+              'squash and fixup meld a commit into the one directly above it (the previous, older commit).',
+          })
         );
         header.append(instructions);
         root.append(header);
@@ -938,6 +966,7 @@ export class RebaseEditor {
             list.append(item);
           });
           root.append(list);
+          wireScroll(list);
         }
 
         // Footer
@@ -947,8 +976,8 @@ export class RebaseEditor {
           ['pick', 'pick - use commit'],
           ['reword', 'reword - edit message'],
           ['edit', 'edit - stop for amending'],
-          ['squash', 'squash - meld into previous'],
-          ['fixup', 'fixup - meld, discard message'],
+          ['squash', 'squash - meld into commit above'],
+          ['fixup', 'fixup - meld into above, drop message'],
           ['drop', 'drop - remove commit'],
         ];
         for (const [cls, text] of LEGEND) {
@@ -964,6 +993,44 @@ export class RebaseEditor {
         footer.append(buttonRow);
         root.append(footer);
       })();
+
+      // Persist the commit-list scroll position and restore it across the full
+      // re-renders the host does on every action change / reorder — otherwise a
+      // selection near the bottom snaps the list back to the top. Scroll is
+      // preserved by DEFAULT; the host clears INIT.preserveScroll only on the
+      // first render of a fresh rebase, which starts at the top and drops any
+      // stale saved position. Mirrors the Git tool window graph restore.
+      function wireScroll(list) {
+        if (!list || !vscode || typeof vscode.getState !== 'function') return;
+
+        list.addEventListener('scroll', function () {
+          const prev = vscode.getState() || {};
+          prev.rebaseScrollTop = list.scrollTop;
+          vscode.setState(prev);
+        });
+
+        if (!INIT.preserveScroll) {
+          const prev = vscode.getState() || {};
+          if (prev.rebaseScrollTop) {
+            prev.rebaseScrollTop = 0;
+            vscode.setState(prev);
+          }
+          return;
+        }
+
+        const saved = (vscode.getState() || {}).rebaseScrollTop;
+        if (typeof saved !== 'number' || saved <= 0) return;
+        // Apply now AND once on the next frame: the Electron webview can clamp a
+        // synchronous scrollTop set before its first layout pass. Exactly one
+        // retry (see the graph restore) — more would widen the window in which a
+        // user's in-frame scroll gets clobbered back to the saved value.
+        list.scrollTop = saved;
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function () {
+            list.scrollTop = saved;
+          });
+        }
+      }
 
       let draggedElement = null;
       let draggedIndex = -1;
