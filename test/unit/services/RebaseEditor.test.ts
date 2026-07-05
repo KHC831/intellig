@@ -52,6 +52,10 @@ class MockRebaseService implements IRebaseService {
     return this._session;
   }
 
+  isManagingRebase(_repo: IRepository): boolean {
+    return this._session !== undefined;
+  }
+
   updateRebasePlan(_repo: IRepository, plan: IRebaseAction[]): void {
     this.lastPlan = plan;
     if (this._session) {

@@ -111,6 +111,16 @@ export interface IRebaseService {
   getRebaseSession(repo: IRepository): IRebaseSession | undefined;
 
   /**
+   * True when this service holds a live IN-MEMORY session for the repo — i.e.
+   * the extension itself is driving a rebase episode (squash / interactive
+   * rebase / a paused extension-run rebase). Reads the raw session map WITHOUT
+   * the disk-reconstruction {@link getRebaseSession} does, so an inherited/CLI
+   * rebase (no in-memory session) reads false. Lets callers tell an
+   * extension-managed rebase apart from an inherited one.
+   */
+  isManagingRebase(repo: IRepository): boolean;
+
+  /**
    * Update the rebase plan with new actions
    */
   updateRebasePlan(repo: IRepository, plan: IRebaseAction[]): void;

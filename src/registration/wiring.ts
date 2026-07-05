@@ -392,6 +392,15 @@ export function wireRebasePausedWarning(deps: {
   gitService: IRebaseWarningGitService;
   window: IRebaseWarningToastSurface;
   commands: IRebaseWarningCommandRunner;
+  /**
+   * True when the extension itself is driving this rebase (a squash /
+   * interactive-rebase episode owns a live RebaseService session). Such a
+   * rebase transiently reports `rebasing` while it runs to completion, and owns
+   * its OWN progress/conflict/pause messaging — so this generic
+   * inherited-rebase toast must not fire for it. Absent → treat nothing as
+   * managed (every rebasing repo warns, the pre-existing behavior).
+   */
+  isManagedRebase?: (repo: IRepository) => boolean;
 }): vscode.Disposable[] {
   const warned = new Set<string>();
 
@@ -404,6 +413,13 @@ export function wireRebasePausedWarning(deps: {
     // continue/abort/skip, or when an external tool ends the rebase.
     if (inProgressKind !== 'rebasing') {
       warned.delete(rootPath);
+      return;
+    }
+
+    // A rebase the extension is actively driving (squash / interactive rebase)
+    // transiently reports `rebasing` mid-run and owns its own messaging; don't
+    // fire the generic inherited-rebase toast for it.
+    if (deps.isManagedRebase?.(repo)) {
       return;
     }
 

@@ -161,6 +161,16 @@ export class RebaseService implements IRebaseService {
   }
 
   /**
+   * True when a live in-memory session exists for the repo — the extension is
+   * driving this rebase (squash / interactive rebase / a paused extension-run
+   * rebase). Reads the RAW map only: unlike {@link getRebaseSession} it never
+   * reconstructs a session from disk, so an inherited/CLI rebase reads false.
+   */
+  isManagingRebase(repo: IRepository): boolean {
+    return this._sessions.has(this.getRepoKey(repo));
+  }
+
+  /**
    * Check if a partial session has all required fields.
    *
    * @param session - The partial session to check

@@ -261,6 +261,49 @@ describe('wireRebasePausedWarning — activation + onDidChangeRepository surfaci
     assert.deepStrictEqual(commands.calls, [], 'no command executed on dismissal');
   });
 
+  it('does NOT warn for a rebasing repo the extension is actively managing (e.g. a squash)', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    // A squash drives an interactive rebase that transiently reports `rebasing`
+    // while it runs to completion. isManagedRebase() is true for it.
+    gitService.repos = [createMockRepository('/workspace/foo', true)];
+
+    wireRebasePausedWarning({
+      gitService,
+      window: win,
+      commands,
+      isManagedRebase: () => true,
+    });
+    await flushMicrotasks();
+
+    // And a mid-run refresh event must also stay silent.
+    gitService.fireChange(gitService.repos[0]);
+    await flushMicrotasks();
+
+    assert.strictEqual(win.calls.length, 0, 'no toast for an extension-driven rebase');
+  });
+
+  it('still warns for an inherited paused rebase the extension is NOT managing', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    // Reloaded mid-rebase / CLI rebase: no live session, so isManagedRebase() is false.
+    gitService.repos = [createMockRepository('/workspace/foo', true)];
+
+    wireRebasePausedWarning({
+      gitService,
+      window: win,
+      commands,
+      isManagedRebase: () => false,
+    });
+    await flushMicrotasks();
+
+    assert.strictEqual(win.calls.length, 1, 'inherited paused rebase still warns');
+  });
+
   it('returns a disposable that tears down the onDidChangeRepository subscription', () => {
     const gitService = new StubGitService();
     const win = new StubWindow();

@@ -1395,6 +1395,10 @@ export function setupEventListeners(ctx: IViewRegistrationContext): void {
       gitService: ctx.services.gitService,
       window: vscode.window,
       commands: vscode.commands,
+      // Suppress the generic toast for a rebase the extension is driving itself
+      // (squash / interactive rebase); those own their progress/conflict/pause
+      // messaging and only transiently look `rebasing` while they run.
+      isManagedRebase: (repo) => ctx.services!.rebaseService.isManagingRebase(repo),
     });
     ctx.context.subscriptions.push(...rebaseWarningDisposables);
 

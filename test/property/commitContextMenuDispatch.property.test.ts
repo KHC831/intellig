@@ -208,6 +208,7 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
       status: 'planning' as const,
     }),
     getRebaseSession: () => undefined,
+    isManagingRebase: () => false,
     clearSession: () => {},
     updateRebasePlan: () => {},
     executeRebase: async () => ({ success: true, status: 'completed' as const }),

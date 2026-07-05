@@ -50,6 +50,10 @@ class MockRebaseService implements IRebaseService {
     return this._session;
   }
 
+  isManagingRebase(_repo: IRepository): boolean {
+    return this._session !== undefined;
+  }
+
   clearSession(_repo: IRepository): void {
     this._session = undefined;
     this._onDidChangeRebaseSession.fire(undefined);
