@@ -112,4 +112,11 @@ export interface IGtwControllerContext {
    * the details-panel builder uses it to resolve issue/PR link targets.
    */
   getSelectedRepoRemote(): IRemoteUrl | undefined;
+  /**
+   * Display identity of the currently-selected repository — its root basename
+   * (`name`) and home-abbreviated root path (`path`) — or undefined when there
+   * is no selected repo. The details-panel builder uses it for the changed-files
+   * heading ("<name> (<n> files) <path>").
+   */
+  getSelectedRepoProject(): { name: string; path: string } | undefined;
 }

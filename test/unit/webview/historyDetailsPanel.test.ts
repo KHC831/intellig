@@ -15,6 +15,7 @@ import type { IHistoryTabState } from '../../../src/git-core/gitToolWindow/tabs/
 const ctx = {
   isIssueLinkingEnabled: () => false,
   getSelectedRepoRemote: () => undefined,
+  getSelectedRepoProject: () => undefined,
 } as never;
 
 function commitDetails(over: Partial<ICommitDetails> = {}): ICommitDetails {

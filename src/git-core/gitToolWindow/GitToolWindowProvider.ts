@@ -5,6 +5,8 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { abbreviateHomePath } from '../../utils/displayPath';
 import {
   IGitToolWindowProvider,
   ILogState,
@@ -4372,7 +4374,11 @@ ${bodyMarkup}
     commitDetailsList: ICommitDetails[],
     combinedChangedFiles?: IChangedFile[]
   ): DetailsPanelModel {
-    return buildMultiCommitDetailsPanelModel(commitDetailsList, combinedChangedFiles);
+    return buildMultiCommitDetailsPanelModel(
+      commitDetailsList,
+      combinedChangedFiles,
+      this.getSelectedRepoProject()
+    );
   }
 
   /**
@@ -4546,6 +4552,20 @@ ${bodyMarkup}
    */
   public getSelectedRepoRemote(): IRemoteUrl | undefined {
     return this._getSelectedRepoRemote();
+  }
+
+  /**
+   * Controller-context view over the selected repository's display identity —
+   * its root basename and home-abbreviated root path — for the changed-files
+   * heading. Undefined when no repository is selected.
+   */
+  public getSelectedRepoProject(): { name: string; path: string } | undefined {
+    const repo = this.getSelectedRepository();
+    if (!repo) {
+      return undefined;
+    }
+    const fsPath = repo.rootUri.fsPath;
+    return { name: path.basename(fsPath) || fsPath, path: abbreviateHomePath(fsPath) };
   }
 }
 

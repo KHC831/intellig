@@ -552,7 +552,24 @@ export function buildInlineScript(): string {
           const buildChangedFiles = function (count, tree, error) {
             const wrap = make('div', 'details-changed-files');
             const h4 = make('h4');
-            h4.textContent = 'Changed Files (' + count + ')';
+            // Heading: "<project> (<n> files) <path>". Falls back to the plain
+            // "Changed Files (N)" when the owning project isn't known.
+            if (model.projectName) {
+              const filesText = count === 1 ? '1 file' : count + ' files';
+              const nameEl = make('span', 'details-project-name');
+              nameEl.textContent = model.projectName;
+              h4.appendChild(nameEl);
+              h4.appendChild(document.createTextNode(' (' + filesText + ')'));
+              if (model.projectPath) {
+                const pathEl = make('span', 'details-project-path');
+                pathEl.textContent = model.projectPath;
+                pathEl.setAttribute('title', model.projectPath);
+                h4.appendChild(document.createTextNode(' '));
+                h4.appendChild(pathEl);
+              }
+            } else {
+              h4.textContent = 'Changed Files (' + count + ')';
+            }
             wrap.appendChild(h4);
             const list = make('div', 'changed-files-list');
             list.setAttribute('role', 'tree');

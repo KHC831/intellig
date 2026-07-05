@@ -940,7 +940,9 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-textBlockQuote-background);
         padding: 8px;
         border-radius: 3px;
-        max-height: 180px;
+        /* Cap the box: it hugs a short message and scrolls once the message is
+           taller than this. */
+        max-height: 225px;
         overflow-y: auto;
       }
 
@@ -957,7 +959,8 @@ export function buildInlineStyles(): string {
 
       /* Changed Files Section */
       .changed-files-list {
-        max-height: 200px;
+        /* Cap the list: it hugs a short file set and scrolls past this. */
+        max-height: 250px;
         overflow-y: auto;
       }
 
@@ -1112,6 +1115,18 @@ export function buildInlineStyles(): string {
         margin: 0 0 8px 0;
         font-size: var(--vscode-font-size);
         font-weight: 600;
+        /* The heading is "<project> (<n> files) <path>"; let a long path
+           truncate instead of wrapping or widening the panel. */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* Repository path segment of the changed-files heading — dimmed and
+         normal-weight so the project name stays the emphasis. */
+      .details-changed-files h4 .details-project-path {
+        font-weight: 400;
+        color: var(--vscode-descriptionForeground);
       }
 
       .file-name {

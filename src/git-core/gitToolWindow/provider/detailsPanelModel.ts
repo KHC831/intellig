@@ -58,6 +58,10 @@ export type DetailsPanelModel =
       changedFilesError?: string;
       changedFilesCount: number;
       fileTree: DetailsTreeNode[];
+      /** Owning repository display name (root basename) for the files heading. */
+      projectName?: string;
+      /** Owning repository path (home abbreviated to `~`) for the files heading. */
+      projectPath?: string;
       /**
        * Branches containing this commit: `null` while still loading, `[]` when
        * the commit is in no branch, else the alphabetically-sorted names.
@@ -72,7 +76,17 @@ export type DetailsPanelModel =
       commits: Array<{ shortHash: string; summary: string }>;
       changedFilesCount: number;
       fileTree: DetailsTreeNode[];
+      /** Owning repository display name (root basename) for the files heading. */
+      projectName?: string;
+      /** Owning repository path (home abbreviated to `~`) for the files heading. */
+      projectPath?: string;
     };
+
+/** Repository identity shown in the changed-files heading. */
+export interface IDetailsProject {
+  name: string;
+  path: string;
+}
 
 /**
  * Collapse threshold for the "Contained in branches" list. Past this many
@@ -203,6 +217,7 @@ export function buildDetailsPanelModel(
 ): DetailsPanelModel {
   const issueLinksEnabled = ctx.isIssueLinkingEnabled();
   const remote = issueLinksEnabled ? ctx.getSelectedRepoRemote() : undefined;
+  const project = ctx.getSelectedRepoProject();
   return {
     kind: 'single',
     messageTokens: buildMessageTokens(commitDetails.message, remote),
@@ -215,6 +230,8 @@ export function buildDetailsPanelModel(
     changedFilesError: commitDetails.changedFilesError,
     changedFilesCount: commitDetails.changedFiles.length,
     fileTree: commitDetails.changedFilesError ? [] : buildAnnotatedTree(commitDetails.changedFiles),
+    projectName: project?.name,
+    projectPath: project?.path,
     containingBranches: commitDetails.containingBranches ?? null,
     branchCollapseThreshold: BRANCH_COLLAPSE_THRESHOLD,
   };
@@ -223,7 +240,8 @@ export function buildDetailsPanelModel(
 /** Multi-commit Details Panel model. */
 export function buildMultiCommitDetailsPanelModel(
   commitDetailsList: ICommitDetails[],
-  combinedChangedFiles?: IChangedFile[]
+  combinedChangedFiles?: IChangedFile[],
+  project?: IDetailsProject
 ): DetailsPanelModel {
   const mergedFiles = combinedChangedFiles ?? mergeChangedFiles(commitDetailsList);
   return {
@@ -235,5 +253,7 @@ export function buildMultiCommitDetailsPanelModel(
     })),
     changedFilesCount: mergedFiles.length,
     fileTree: buildAnnotatedTree(mergedFiles),
+    projectName: project?.name,
+    projectPath: project?.path,
   };
 }
