@@ -376,7 +376,10 @@ export class RebaseEditor {
       if (action !== 'reword' && action !== 'squash') {
         commit.newMessage = undefined;
       }
-      this._updateWebview();
+      // No re-render: the webview updates the affected row in place (color
+      // class + reword/squash message box). Rebuilding the whole document here
+      // would reset the list scroll and tear down drag wiring for a one-row
+      // change.
     }
   }
 
@@ -531,7 +534,13 @@ export class RebaseEditor {
     // never punt to an external editor). The rebase runs with GIT_EDITOR
     // suppressed, so a blank value does NOT open an editor: a blank reword
     // keeps the commit's original message; a blank squash takes git's
-    // auto-combined message. The placeholders state that explicitly.
+    // auto-combined message. The placeholders state that explicitly. Keyed by
+    // action so both the initial build and the in-place action switch read the
+    // same string (no drift).
+    const placeholders: Partial<Record<RebaseAction, string>> = {
+      reword: 'New commit message (leave blank to keep the original)',
+      squash: 'Combined commit message (leave blank to auto-combine the messages)',
+    };
     const commits = (this._session?.commits ?? []).map((commit) => {
       const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
       return {
@@ -541,10 +550,6 @@ export class RebaseEditor {
         action: commit.action,
         actionClass: `action-${commit.action}`,
         showMessageEditor,
-        messagePlaceholder:
-          commit.action === 'squash'
-            ? 'Combined commit message (leave blank to auto-combine the messages)'
-            : 'New commit message (leave blank to keep the original)',
         rewordValue: commit.newMessage ?? commit.message,
       };
     });
@@ -553,6 +558,7 @@ export class RebaseEditor {
       onto: this._session?.onto || '',
       commitCount: this._session?.commits.length || 0,
       preserveScroll,
+      placeholders,
       actions: ACTIONS,
       commits,
     }).replace(/</g, '\\u003c');
@@ -956,12 +962,7 @@ export class RebaseEditor {
             item.append(hashEl, msgEl);
 
             if (commit.showMessageEditor) {
-              const editor = el('div', { className: 'reword-message-editor' });
-              const ta = el('textarea', { className: 'reword-message-input', rows: 3, placeholder: commit.messagePlaceholder });
-              ta.setAttribute('data-hash', commit.hash);
-              ta.value = commit.rewordValue;
-              editor.append(ta);
-              item.append(editor);
+              item.append(buildMessageEditor(commit.hash, commit.action, commit.rewordValue));
             }
             list.append(item);
           });
@@ -1029,6 +1030,52 @@ export class RebaseEditor {
           requestAnimationFrame(function () {
             list.scrollTop = saved;
           });
+        }
+      }
+
+      // Build a reword/squash message box wired to post edits to the host. Used
+      // by the initial render AND the in-place action switch so both produce an
+      // identically-wired textarea (single wiring site — do NOT also wire these
+      // in initControls, or newly-switched rows would double-post).
+      function buildMessageEditor(hash, action, value) {
+        const editor = el('div', { className: 'reword-message-editor' });
+        const ta = el('textarea', {
+          className: 'reword-message-input',
+          rows: 3,
+          placeholder: (INIT.placeholders && INIT.placeholders[action]) || '',
+        });
+        ta.setAttribute('data-hash', hash);
+        ta.value = value;
+        ta.addEventListener('input', function () { updateMessage(hash, ta.value); });
+        editor.append(ta);
+        return editor;
+      }
+
+      // Apply an action change to a single row in place: swap its color class
+      // and show/hide the reword/squash message box. The host is notified
+      // separately (updateAction) and does NOT re-render, so this is the only
+      // thing that reflects the change visually.
+      function applyActionToItem(item, hash, action) {
+        if (!item) return;
+        Array.from(item.classList).forEach(function (cls) {
+          if (cls.indexOf('action-') === 0) item.classList.remove(cls);
+        });
+        item.classList.add('action-' + action);
+
+        const showEditor = action === 'reword' || action === 'squash';
+        const editor = item.querySelector('.reword-message-editor');
+        if (showEditor && !editor) {
+          // Fresh box: seed with the commit's original message — the host clears
+          // any prior override when the action leaves reword/squash, so the
+          // default here matches the host's (message, not the old edit).
+          const orig = INIT.commits.find(function (c) { return c.hash === hash; });
+          item.append(buildMessageEditor(hash, action, orig ? orig.message : ''));
+        } else if (showEditor && editor) {
+          // reword ⇄ squash: keep the typed text, just correct the placeholder.
+          const ta = editor.querySelector('.reword-message-input');
+          if (ta) ta.placeholder = (INIT.placeholders && INIT.placeholders[action]) || '';
+        } else if (editor) {
+          editor.remove();
         }
       }
 
@@ -1133,18 +1180,18 @@ export class RebaseEditor {
         vscode.postMessage({ type: 'cancel' });
       }
 
-      // Wire the action dropdowns, reword textareas, and footer buttons via
-      // addEventListener / delegation. They were inline onchange/oninput/onclick
-      // attributes, which the nonce-only CSP (no 'unsafe-inline') blocks —
-      // leaving the action selector, message editor, and Cancel / Start Rebase
-      // buttons dead. Reading the hash from data-hash (DOM property channel)
-      // also removes the attribute quote-breakout footgun.
+      // Wire the action dropdowns and footer buttons via addEventListener /
+      // delegation. They were inline onchange/onclick attributes, which the
+      // nonce-only CSP (no 'unsafe-inline') blocks — leaving the action selector
+      // and Cancel / Start Rebase buttons dead. Reading the hash from data-hash
+      // (DOM property channel) also removes the attribute quote-breakout footgun.
+      // (Reword textareas wire their own input handler in buildMessageEditor.)
       function initControls() {
         document.querySelectorAll('.action-dropdown').forEach((sel) => {
-          sel.addEventListener('change', () => updateAction(sel.dataset.hash, sel.value));
-        });
-        document.querySelectorAll('.reword-message-input').forEach((ta) => {
-          ta.addEventListener('input', () => updateMessage(ta.dataset.hash, ta.value));
+          sel.addEventListener('change', () => {
+            updateAction(sel.dataset.hash, sel.value);
+            applyActionToItem(sel.closest('.commit-item'), sel.dataset.hash, sel.value);
+          });
         });
         document.addEventListener('click', (e) => {
           const target = e.target.closest('[data-action]');
