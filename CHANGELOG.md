@@ -10,6 +10,20 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.3.2] - 2026-07-06
+
+### Changed
+
+- The commit graph stays narrow on a deep merge history — long branch lines collapse to small arrows near their ends and the freed lanes are reused. Turn on `intellig.log.showLongEdges` for full-length lines.
+- "Interactively Rebase from Here" now warns when the range replays many commits and flattens merges, and hints to pick a mainline commit when you clicked one off the mainline.
+
+### Fixed
+
+- Blame's previous-revision annotation and multi-commit diffs no longer resolve the wrong revision on Git 2.50 and newer.
+- Interactive rebase and squash now work from a linked git worktree.
+- Creating a patch or shelving changes now fails safely instead of acting on truncated Git output.
+- Acting on a multi-repository selection groups the changes by repository instead of failing the whole batch.
+
 ## [0.3.1] - 2026-07-05
 
 ### Changed
