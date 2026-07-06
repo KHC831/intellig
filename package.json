@@ -1622,6 +1622,12 @@
             "default": false,
             "description": "Show a GPG/SSH signature status column in the commit log. Displays a glyph per commit: ✓ valid, ✗ bad/revoked, ⚠ expired/unknown, — missing key, empty for unsigned commits.",
             "order": 5
+          },
+          "intellig.log.showLongEdges": {
+            "type": "boolean",
+            "default": false,
+            "description": "Draw every graph edge at its full length. When off (the default), an edge spanning more than 30 rows is hidden through its middle and capped with a small arrow near each end, so a merge-heavy history doesn't grow the graph column to fill the panel. Turn on to always draw the whole line.",
+            "order": 6
           }
         }
       },

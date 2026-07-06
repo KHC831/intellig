@@ -134,7 +134,13 @@ function findDefects(commits: ICommit[]): string[] {
   const incoming = computeIncomingBendsMap(nodes);
 
   // Render via the production Layer 3 (print model) + Layer 4 (painter) path.
-  const svgs = buildGraphPrintModel(nodes).map((m) => paintRow(m, DEFAULT_GRAPH_CONFIG));
+  // Long-edge hiding is disabled here: it DELIBERATELY breaks lane continuity
+  // mid-span (the whole point), so it would trip this gap/phantom guard by
+  // design. This guard validates the full-span projection invariant; the cuts
+  // have their own coverage in test/unit/graph/longEdges.test.ts.
+  const svgs = buildGraphPrintModel(nodes, { hideLongEdges: false }).map((m) =>
+    paintRow(m, DEFAULT_GRAPH_CONFIG)
+  );
 
   const maxLane = Math.max(
     ...nodes.map((nd) => nd.graphColumn),

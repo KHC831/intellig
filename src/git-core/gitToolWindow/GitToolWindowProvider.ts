@@ -23,6 +23,7 @@ import {
   computeGraphWidthFromModels,
   colorNodesFrom,
 } from '../graph/printModel';
+import { compactPrintModelLanes } from '../graph/laneCompaction';
 import { computeBranchColors } from '../graph/branchColors';
 import { loadLogFilter, saveLogFilter } from '../../utils/logFilterStorage';
 import {
@@ -3654,19 +3655,30 @@ ${bodyMarkup}
     const printModels = buildGraphPrintModel(commitNodes, {
       branchColors,
       headHash: this._extendedLogState.headHash,
+      // IntelliJ default: hide the middle of long edges unless the user opts
+      // into full-length edges via `intellig.log.showLongEdges`.
+      hideLongEdges: !this._isShowLongEdgesEnabled(),
     });
+
+    // Compact the lanes: with the long edges' middles hidden, their reserved
+    // columns are free to reuse, so relabel columns down to the ~handful of
+    // lanes actually drawn per row (IntelliJ visible-graph parity). Without this
+    // the column is sized to the highest raw lane index (~46 on a deep bitcoin
+    // window) though only ~10 lanes ever show at once, leaving a wide empty gap
+    // before the message text. No-op when full edges are shown (nothing hidden).
+    if (!this._isShowLongEdgesEnabled()) {
+      compactPrintModelLanes(printModels);
+    }
 
     // Pre-resolve the cherry-picked set once per render to keep the
     // per-row check O(1).
     const cherryPickedHashes = this._extendedLogState.cherryPickedHashes;
     const cherryPickBaseRef = this._extendedLogState.cherryPickBaseRef;
 
-    // Size the graph column to the WIDEST row across the whole window so the
-    // `.commit-graph` cell (`width: var(--graph-width)`, `overflow: hidden`) is
-    // wide enough to show every lane — without this the default ~80px clipped
-    // outer lanes (the "older branches pushed out of the tree" bug). Derived
-    // from the print model's per-row inked lanes (incl. far-parent bend sources
-    // the old width pass missed).
+    // Size the graph column to the widest row across the (compacted) window so
+    // every drawn lane shows and the message column stays LEFT-ALIGNED (one
+    // width for all rows). Compaction keeps this small and roughly constant even
+    // on a deep merge history. Derived from the print model's per-row inked lanes.
     const graphColumnWidthPx = Math.max(
       80,
       computeGraphWidthFromModels(
@@ -4456,6 +4468,21 @@ ${bodyMarkup}
     try {
       const config = vscode.workspace.getConfiguration('intellig');
       return config.get<boolean>('log.showGpgColumn', false);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Whether `intellig.log.showLongEdges` is on — IntelliJ's "Show Long Edges".
+   * Off by default: the graph hides the middle of edges longer than 30 rows and
+   * caps them with arrows, so a merge-heavy history keeps the graph column
+   * narrow. On restores full-length edges.
+   */
+  private _isShowLongEdgesEnabled(): boolean {
+    try {
+      const config = vscode.workspace.getConfiguration('intellig');
+      return config.get<boolean>('log.showLongEdges', false);
     } catch {
       return false;
     }

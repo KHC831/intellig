@@ -49,6 +49,17 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
       elements.push(
         `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
       );
+      if (el.arrow !== undefined) {
+        // Long-edge cut: an arrowhead at the row center pointing INTO the hidden
+        // gap ('down' near the child endpoint, 'up' near the parent).
+        const aw = nodeRadius * 0.9;
+        const ah = nodeRadius * 1.1;
+        const tipY = el.arrow === 'down' ? centerY + ah : centerY - ah;
+        const baseY = centerY;
+        elements.push(
+          `<path d="M ${x - aw},${baseY} L ${x},${tipY} L ${x + aw},${baseY}" fill="${color}" stroke="none"${opacityAttr}/>`
+        );
+      }
     } else {
       const fromX = getColumnX(el.fromLane, config);
       const toX = getColumnX(el.targetLane, config);

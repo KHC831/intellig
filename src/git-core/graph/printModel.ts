@@ -27,6 +27,7 @@ import {
   parentNodeKey,
 } from '../commitGraph';
 import { computeBranchColors, type IColorNode } from './branchColors';
+import { computeLongEdgeCuts, applyLongEdgeHiding } from './longEdges';
 import {
   computeActiveLanes,
   computeLaneContinuesFromAbove,
@@ -88,6 +89,13 @@ export interface IRowEdgeElement {
    * painter falls back to {@link getColumnColor} on the lane.
    */
   color?: string;
+  /**
+   * Long-edge cut marker (see {@link applyLongEdgeHiding}). When set, this is a
+   * half-height stub terminating in an arrowhead at the row center: `'down'`
+   * near the child endpoint (the hidden edge continues downward), `'up'` near
+   * the parent. Absent on ordinary segments.
+   */
+  arrow?: 'up' | 'down';
 }
 
 /** The commit dot for the row. */
@@ -602,6 +610,12 @@ export interface IBuildPrintModelOptions {
    * match) so it's computed once; otherwise it's derived from `headBranchName`.
    */
   branchColors?: ReadonlyMap<string, string>;
+  /**
+   * Hide the middle of edges longer than the IntelliJ threshold (default true —
+   * IntelliJ's "Show Long Edges" OFF). Set false to draw every edge full-span
+   * (the `intellig.log.showLongEdges` toggle). See {@link applyLongEdgeHiding}.
+   */
+  hideLongEdges?: boolean;
 }
 
 /** Map graph nodes to the minimal shape {@link computeBranchColors} needs. */
@@ -648,7 +662,7 @@ export function buildGraphPrintModel(
   // branch tip.
   const currentHeadHash = options.headHash;
 
-  return nodes.map((node, rowIndex) =>
+  const models = nodes.map((node, rowIndex) =>
     projectRow(node, rowIndex, {
       activeLanes: activeLaneMap.get(rowIndex) ?? new Set<number>(),
       continuesFromAbove: continuesFromAboveMap.get(rowIndex) ?? new Set<number>(),
@@ -667,6 +681,14 @@ export function buildGraphPrintModel(
       branchColors,
     })
   );
+
+  // Long-edge hiding (IntelliJ default): cut edges longer than the threshold to
+  // endpoint stubs + arrows so a merge-heavy history doesn't hold dozens of
+  // full-span lanes at once. Reuses the merged intervals computed above.
+  if (options.hideLongEdges !== false) {
+    applyLongEdgeHiding(models, computeLongEdgeCuts(nodes, mergedIntervals));
+  }
+  return models;
 }
 
 /** Build the `commitHash → rowIndex` lookup for a window (O(N), once). */
