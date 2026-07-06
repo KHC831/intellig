@@ -7,7 +7,7 @@ import {
   IRefDiffFile,
   CherryMark,
 } from '../interfaces/IGitService';
-import { buildGitArgs } from '../gitCli';
+import { buildGitArgs, revParseVerified } from '../gitCli';
 import { GitError, classifyGitCommandError } from '../errors';
 import { parseDiff, parseBlame } from '../gitParser';
 import { sortCommitsStable } from '../commitSort';
@@ -219,21 +219,13 @@ export class DiffOps {
     const oldestCommit = sortedInfos[0].hash;
     const newestCommit = sortedInfos[sortedInfos.length - 1].hash;
 
-    // Get the parent of the oldest commit to use as the base
-    // If the oldest commit has no parent (initial commit), use the empty tree
-    // `oldestCommit` is user-controlled; splice via buildGitArgs.
-    const parentResult = await this.ctx.gitCli.exec(
-      buildGitArgs('rev-parse', [], [`${oldestCommit}^`]),
-      { cwd }
-    );
-
-    let baseRef: string;
-    if (parentResult.exitCode === 0 && parentResult.stdout.trim()) {
-      baseRef = parentResult.stdout.trim();
-    } else {
-      // No parent - use empty tree SHA (Git's magic empty tree)
-      baseRef = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-    }
+    // Get the parent of the oldest commit to use as the base, via
+    // revParseVerified (a flagless rev-parse echoes a literal
+    // `--end-of-options` line into stdout, corrupting the base ref).
+    // If the oldest commit has no parent (initial commit), use the empty tree.
+    const parent = await revParseVerified(this.ctx.gitCli, cwd, `${oldestCommit}^`);
+    // Git's magic empty-tree SHA when there is no parent.
+    const baseRef = parent ?? '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
     // Restrict the range diff to only the paths the SELECTED commits actually
     // touched. Without this scoping a non-contiguous selection (pick A and C,

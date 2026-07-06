@@ -484,7 +484,7 @@ describe('BlameService', () => {
     describe('Navigate to previous revision', () => {
       it('should get parent commit and blame at that revision', async () => {
         // Mock rev-parse to get parent commit
-        mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options abc123^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
@@ -516,7 +516,7 @@ describe('BlameService', () => {
 
       it('should return empty blame when no parent commit exists', async () => {
         // Mock rev-parse to fail (no parent)
-        mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options abc123^', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: ambiguous argument',
@@ -534,7 +534,7 @@ describe('BlameService', () => {
 
       it('should return empty blame when file did not exist at parent', async () => {
         // Mock rev-parse to get parent commit
-        mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options abc123^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
@@ -764,7 +764,7 @@ describe('BlameService', () => {
     });
 
     it('annotate-previous: getPreviousRevisionBlame uses <sha>^ via rev-parse + passes options', async () => {
-      mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
+      mockGitCli.setMockResult('rev-parse --verify --end-of-options abc123^', {
         exitCode: 0,
         stdout: 'def456\n',
         stderr: '',

@@ -629,6 +629,33 @@ export function createGitCli(gitPath?: string): GitCli {
 }
 
 /**
+ * Resolve ONE rev to ONE full sha, or `undefined` when it doesn't resolve
+ * (e.g. `<root>^`).
+ *
+ * `--verify` is load-bearing beyond its single-rev discipline: a FLAGLESS
+ * `git rev-parse --end-of-options <rev>` ECHOES the literal
+ * `--end-of-options` as its first stdout line (observed on git 2.50), so the
+ * `stdout.trim()` idiom silently returned `"--end-of-options\n<sha>"` — a
+ * two-line token that corrupts any downstream argument built from it. With
+ * `--verify` rev-parse consumes the terminator and emits exactly the sha.
+ * Every single-rev resolve goes through here (fenced by
+ * `check:rev-parse-verified`); the rev is still spliced via
+ * {@link buildGitArgs} so a hostile name can never act as a flag.
+ */
+export async function revParseVerified(
+  gitCli: GitCli,
+  cwd: string,
+  rev: string
+): Promise<string | undefined> {
+  const result = await gitCli.exec(buildGitArgs('rev-parse', ['--verify'], [rev]), { cwd });
+  if (result.exitCode !== 0) {
+    return undefined;
+  }
+  const sha = result.stdout.trim();
+  return sha.length > 0 && !sha.includes('\n') ? sha : undefined;
+}
+
+/**
  * argv-injection-safe ref splice.
  *
  * Composes git argv from `subcommand`, `flags`, and user-controlled

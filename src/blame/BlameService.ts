@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { IBlameService, IBlameInfo, IBlameOptions } from './interfaces/IBlameService';
 import { IBlameLine, IGitService, IRepository } from '../git-core/interfaces/IGitService';
-import { GitCli, buildGitArgs } from '../git-core/gitCli';
+import { GitCli, buildGitArgs, revParseVerified } from '../git-core/gitCli';
 import { parseBlame } from '../git-core/gitParser';
 import { getLogger, type Logger } from '../utils/logger';
 import { repoRelativePath } from '../utils/repoRelativePath';
@@ -374,18 +374,14 @@ export class BlameService implements IBlameService {
   ): Promise<IBlameInfo> {
     const repoRoot = repo.rootUri.fsPath;
 
-    // Get the parent commit of the specified commit.
-    // `commit` is user-controlled; splice via buildGitArgs.
-    const parentResult = await this._gitCli.exec(buildGitArgs('rev-parse', [], [`${commit}^`]), {
-      cwd: repoRoot,
-    });
-
-    if (parentResult.exitCode !== 0 || !parentResult.stdout.trim()) {
+    // Get the parent commit of the specified commit, via revParseVerified
+    // (a flagless rev-parse echoes a literal `--end-of-options` line into
+    // stdout, corrupting the rev every downstream blame call is built from).
+    const parentCommit = await revParseVerified(this._gitCli, repoRoot, `${commit}^`);
+    if (parentCommit === undefined) {
       // No parent commit (initial commit) - return empty blame
       return { path, lines: [] };
     }
-
-    const parentCommit = parentResult.stdout.trim();
 
     // Check if the file existed at the parent commit.
     // `parentCommit` is computed, but `path` is user-controlled

@@ -6312,7 +6312,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
         });
 
         // Mock parent lookup
-        mockGitCli.setMockResult('rev-parse --end-of-options commit1^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options commit1^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
@@ -6349,7 +6349,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
         });
 
         // Mock parent lookup for oldest commit (commit2)
-        mockGitCli.setMockResult('rev-parse --end-of-options commit2^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options commit2^', {
           exitCode: 0,
           stdout: 'parent_of_commit2\n',
           stderr: '',
@@ -6405,7 +6405,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
         });
 
         // Mock parent lookup for oldest commit (commit2)
-        mockGitCli.setMockResult('rev-parse --end-of-options commit2^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options commit2^', {
           exitCode: 0,
           stdout: 'parent_of_commit2\n',
           stderr: '',
@@ -6443,7 +6443,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
         });
 
         // Mock parent lookup - initial commit has no parent
-        mockGitCli.setMockResult('rev-parse --end-of-options initial_commit^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options initial_commit^', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: ambiguous argument 'initial_commit^': unknown revision",
@@ -6482,7 +6482,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
         });
 
         // Mock parent lookup
-        mockGitCli.setMockResult('rev-parse --end-of-options commit1^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options commit1^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
@@ -6532,7 +6532,7 @@ diff --git a/file2.ts b/file2.ts
         });
 
         // Mock parent lookup
-        mockGitCli.setMockResult('rev-parse --end-of-options commit1^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options commit1^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
@@ -6576,7 +6576,7 @@ diff --git a/file2.ts b/file2.ts
         });
 
         // Mock parent lookup for oldest
-        mockGitCli.setMockResult('rev-parse --end-of-options oldest^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options oldest^', {
           exitCode: 0,
           stdout: 'parent_of_oldest\n',
           stderr: '',
@@ -6641,7 +6641,7 @@ diff --git a/file2.ts b/file2.ts
           stdout: '2024-05-01T12:00:00Z\tparent\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('rev-parse --end-of-options parent^', {
+        mockGitCli.setMockResult('rev-parse --verify --end-of-options parent^', {
           exitCode: 0,
           stdout: 'grandparent\n',
           stderr: '',

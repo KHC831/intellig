@@ -12,7 +12,8 @@ import { IBranch, IGitService, IRepository } from '../git-core/interfaces/IGitSe
 import { IRebaseService } from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
-import { GitCli, buildGitArgs } from '../git-core/gitCli';
+import { GitCli, revParseVerified } from '../git-core/gitCli';
+import { analyzeRebaseRange } from '../git-core/rebaseRange';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
@@ -3470,6 +3471,15 @@ export class CommitContextMenuCommands {
         );
         return;
       }
+      // Pre-flight: a base on a merged side branch renders visually adjacent
+      // to HEAD, but `<onto>..HEAD` spans everything the mainline gained since
+      // that branch forked, and a plain interactive rebase FLATTENS every
+      // merge in the range. Warn with the real numbers before opening the
+      // editor; a merge-free range (the common linear case) stays silent, and
+      // a failed analysis degrades to no warning rather than blocking.
+      if (!(await this._confirmMergeFlattening(repo, hash, onto))) {
+        return;
+      }
       const result = await this._openRebaseEditor(repo, onto);
       if (result.executed) {
         // The rebase moved HEAD; reload before refresh.
@@ -3482,6 +3492,41 @@ export class CommitContextMenuCommands {
         `Failed to start interactive rebase: ${sanitizeGitError(errorMessage)}`
       );
     }
+  }
+
+  /**
+   * Warn when the rebase from `hash` (onto its parent) would flatten merge
+   * commits, and let the user back out. Returns `true` to proceed: the range
+   * carries no merges, the user confirmed, or the analysis itself failed
+   * (advisory only — a probe failure must not block a rebase the user could
+   * run before this warning existed).
+   */
+  private async _confirmMergeFlattening(
+    repo: IRepository,
+    hash: string,
+    onto: string
+  ): Promise<boolean> {
+    const analysis = await analyzeRebaseRange(this._gitCli, repo.rootUri.fsPath, onto);
+    if (!analysis || analysis.mergeCommits === 0) {
+      return true;
+    }
+    const merges = `${analysis.mergeCommits} merge${analysis.mergeCommits === 1 ? '' : 's'}`;
+    const sideBranchHint = analysis.firstParentBase
+      ? ''
+      : `\n\n'${hash.substring(0, 8)}' is on a merged branch, not the main line — its visual ` +
+        `distance from HEAD is much smaller than this range. To edit recent commits, pick a ` +
+        `commit on the main line instead.`;
+    const choice = await vscode.window.showWarningMessage(
+      `Rebasing from here replays ${analysis.todoCommits} commits and flattens ${merges}.`,
+      {
+        modal: true,
+        detail:
+          `Every replayed commit gets a new hash, and the ${merges} in the range ` +
+          `disappear from history (their branch topology is lost).${sideBranchHint}`,
+      },
+      'Rebase Anyway'
+    );
+    return choice === 'Rebase Anyway';
   }
 
   /**
@@ -3500,15 +3545,10 @@ export class CommitContextMenuCommands {
       }
       // parentCount > 0 but hashes not threaded — fall through to git.
     }
-    const result = await this._gitCli.exec(buildGitArgs('rev-parse', [], [`${hash}^`]), {
-      cwd: repo.rootUri.fsPath,
-    });
-    if (result.exitCode !== 0) {
-      // `hash^` fails exactly when there is no parent (root commit).
-      return undefined;
-    }
-    const parent = result.stdout.trim();
-    return parent.length > 0 ? parent : undefined;
+    // revParseVerified, not a flagless rev-parse: the flagless form echoes a
+    // literal `--end-of-options` line into stdout, corrupting the returned rev.
+    // `hash^` fails to resolve exactly when there is no parent (root commit).
+    return revParseVerified(this._gitCli, repo.rootUri.fsPath, `${hash}^`);
   }
 
   /**

@@ -2317,6 +2317,187 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('rebase failed'));
     });
+
+    // ─── merge-flattening pre-flight warning ────────────────────────────────
+    //
+    // A commit graph draws a merged branch's commits right beneath the merge,
+    // so a base that LOOKS a few rows below HEAD can span weeks of mainline.
+    // When `<onto>..HEAD` contains merges, the handler must warn with the real
+    // numbers before opening the editor; a merge-free range stays silent.
+
+    /** GitCli whose exec serves the range-analysis probes from a fixture. */
+    function createAnalysisGitCli(fixture: {
+      total: number;
+      nonMerges: number;
+      firstParentSteps: number;
+      firstParentLandsOnOnto: boolean;
+    }): GitCli {
+      return {
+        exec: async (args: string[]) => {
+          const ok = (stdout: string): Record<string, unknown> => ({
+            exitCode: 0,
+            stdout,
+            stderr: '',
+            combined: stdout,
+          });
+          if (args[0] === 'rev-list' && args.includes('--no-merges')) {
+            return ok(`${fixture.nonMerges}\n`);
+          }
+          if (args[0] === 'rev-list' && args.includes('--first-parent')) {
+            return ok(`${fixture.firstParentSteps}\n`);
+          }
+          if (args[0] === 'rev-list') {
+            return ok(`${fixture.total}\n`);
+          }
+          if (args[0] === 'rev-parse' && args.some((a) => a.startsWith('HEAD~'))) {
+            // Two refs resolved in one call: HEAD~N, then onto.
+            return ok(
+              fixture.firstParentLandsOnOnto
+                ? `${parentHash}\n${parentHash}\n`
+                : `${'9'.repeat(40)}\n${parentHash}\n`
+            );
+          }
+          return ok('');
+        },
+      } as unknown as GitCli;
+    }
+
+    it('warns before a merge-flattening rebase and blocks when dismissed', async () => {
+      const messages = createMessageTrackers(); // showWarningMessage → undefined (dismiss)
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createAnalysisGitCli({
+        total: 280,
+        nonMerges: 200,
+        firstParentSteps: 3,
+        firstParentLandsOnOnto: false,
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const opened: string[] = [];
+      commands.setRebaseEditorOpener(async (_r, onto) => {
+        opened.push(onto);
+        return { executed: true };
+      });
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.strictEqual(opened.length, 0, 'dismissing the warning must not open the editor');
+      assert.strictEqual(messages.warning.length, 1, 'exactly one pre-flight warning');
+      assert.ok(messages.warning[0].message.includes('200'), 'names the replay count');
+      assert.ok(messages.warning[0].message.includes('80'), 'names the flattened-merge count');
+      assert.ok(messages.warning[0].items.includes('Rebase Anyway'));
+    });
+
+    it('mentions the merged-branch hint when the base is off the mainline', async () => {
+      createMessageTrackers();
+      // Capture the raw showWarningMessage args: the hint lives in the modal
+      // OPTIONS `detail`, which the shared tracker's string-only filter drops.
+      const rawWarningArgs: unknown[][] = [];
+      writableWindow().showWarningMessage = (
+        message: string,
+        ...items: unknown[]
+      ): Promise<string | undefined> => {
+        rawWarningArgs.push([message, ...items]);
+        return Promise.resolve(undefined);
+      };
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createAnalysisGitCli({
+        total: 280,
+        nonMerges: 200,
+        firstParentSteps: 3,
+        firstParentLandsOnOnto: false,
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      commands.setRebaseEditorOpener(async () => ({ executed: true }));
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.strictEqual(rawWarningArgs.length, 1);
+      assert.ok(
+        /merged branch/i.test(JSON.stringify(rawWarningArgs[0])),
+        'off-mainline base gets the merged-branch hint in the modal detail'
+      );
+    });
+
+    it('proceeds to the editor on Rebase Anyway', async () => {
+      createMessageTrackers();
+      writableWindow().showWarningMessage = (): Promise<string | undefined> =>
+        Promise.resolve('Rebase Anyway');
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createAnalysisGitCli({
+        total: 280,
+        nonMerges: 200,
+        firstParentSteps: 3,
+        firstParentLandsOnOnto: false,
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const opened: string[] = [];
+      commands.setRebaseEditorOpener(async (_r, onto) => {
+        opened.push(onto);
+        return { executed: true };
+      });
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.deepStrictEqual(opened, [parentHash], 'confirming opens the editor as before');
+    });
+
+    it('stays silent for a merge-free range', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createAnalysisGitCli({
+        total: 4,
+        nonMerges: 4,
+        firstParentSteps: 4,
+        firstParentLandsOnOnto: true,
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const opened: string[] = [];
+      commands.setRebaseEditorOpener(async (_r, onto) => {
+        opened.push(onto);
+        return { executed: true };
+      });
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.strictEqual(messages.warning.length, 0, 'no warning on linear history');
+      assert.deepStrictEqual(opened, [parentHash]);
+    });
+
+    it('proceeds without a warning when the analysis probes fail', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = {
+        exec: async () => {
+          throw new Error('spawn failure');
+        },
+      } as unknown as GitCli;
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const opened: string[] = [];
+      commands.setRebaseEditorOpener(async (_r, onto) => {
+        opened.push(onto);
+        return { executed: true };
+      });
+
+      await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+      assert.strictEqual(messages.warning.length, 0, 'analysis failure degrades to no warning');
+      assert.deepStrictEqual(opened, [parentHash], 'the rebase itself is not blocked');
+    });
   });
 
   // ─── newBranch / newTag (IntelliJ Git.CreateNewBranch.FromCommit /
