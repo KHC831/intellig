@@ -20,12 +20,27 @@ export interface IRebaseRangeAnalysis {
   todoCommits: number;
   /** Merge commits in the range — flattened away by a plain `rebase -i`. */
   mergeCommits: number;
-  /**
-   * Whether `onto` sits on HEAD's first-parent chain (the mainline). False
-   * means the user picked a commit on a merged side branch, where the range
-   * is far larger than the commit's visual distance from HEAD suggests.
-   */
-  firstParentBase: boolean;
+}
+
+/** `git rev-list --count <flags> <rev>..HEAD`, throwing on any probe failure. */
+async function countRange(
+  gitCli: GitCli,
+  cwd: string,
+  rev: string,
+  flags: string[]
+): Promise<number> {
+  const result = await gitCli.exec(
+    buildGitArgs('rev-list', ['--count', ...flags], [`${rev}..HEAD`]),
+    { cwd }
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || `rev-list --count exited ${result.exitCode}`);
+  }
+  const n = parseInt(result.stdout.trim(), 10);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`unparseable rev-list count: ${result.stdout.trim()}`);
+  }
+  return n;
 }
 
 /**
@@ -39,44 +54,49 @@ export async function analyzeRebaseRange(
   cwd: string,
   onto: string
 ): Promise<IRebaseRangeAnalysis | undefined> {
-  const range = `${onto}..HEAD`;
   try {
-    const count = async (flags: string[]): Promise<number> => {
-      const result = await gitCli.exec(buildGitArgs('rev-list', ['--count', ...flags], [range]), {
-        cwd,
-      });
-      if (result.exitCode !== 0) {
-        throw new Error(result.stderr || `rev-list --count exited ${result.exitCode}`);
-      }
-      const n = parseInt(result.stdout.trim(), 10);
-      if (!Number.isFinite(n) || n < 0) {
-        throw new Error(`unparseable rev-list count: ${result.stdout.trim()}`);
-      }
-      return n;
-    };
-
-    const total = await count([]);
-    const todoCommits = await count(['--no-merges']);
-
-    // `onto` is a first-parent ancestor exactly when walking first parents
-    // from HEAD lands ON it. `rev-list --first-parent <onto>..HEAD` counts the
-    // steps that walk takes before reaching something reachable from `onto`
-    // (the fork point for a side-branch base, `onto` itself for a mainline
-    // one), so resolve HEAD~<steps> and compare it to `onto` — equal means
-    // mainline. HEAD~<steps> always exists here because the walk stopped at a
-    // reachable boundary commit; a failed resolve is treated as off-mainline.
-    const firstParentSteps = await count(['--first-parent']);
-    const boundary = await revParseVerified(gitCli, cwd, `HEAD~${firstParentSteps}`);
-    const ontoFull = await revParseVerified(gitCli, cwd, onto);
-    const firstParentBase =
-      boundary !== undefined && ontoFull !== undefined && boundary === ontoFull;
-
-    return { todoCommits, mergeCommits: total - todoCommits, firstParentBase };
+    const total = await countRange(gitCli, cwd, onto, []);
+    const todoCommits = await countRange(gitCli, cwd, onto, ['--no-merges']);
+    return { todoCommits, mergeCommits: total - todoCommits };
   } catch (error) {
     getLogger().debug('rebase range analysis failed; skipping the flattening warning', {
       onto,
       err: error instanceof Error ? error.message : String(error),
     });
     return undefined;
+  }
+}
+
+/**
+ * Whether `rev` sits on HEAD's first-parent chain (the mainline). False
+ * means it lives on a merged side branch — the shape where a commit's
+ * visual distance from HEAD wildly understates `<rev>..HEAD`, because its
+ * ancestry stops at the branch's fork point. Keyed to the CLICKED commit
+ * by the merged-branch hint: the single-commit-branch case (parent = the
+ * mainline fork point) must still read as off-mainline.
+ *
+ * `rev` is a first-parent ancestor exactly when walking first parents from
+ * HEAD lands ON it: `rev-list --first-parent <rev>..HEAD` counts the steps
+ * that walk takes before reaching something reachable from `rev` (the fork
+ * point for a side-branch commit, `rev` itself for a mainline one), so
+ * resolve HEAD~<steps> and compare. Degrades to `true` (no hint) when a
+ * probe fails — the hint is advisory and must never block.
+ */
+export async function isFirstParentAncestor(
+  gitCli: GitCli,
+  cwd: string,
+  rev: string
+): Promise<boolean> {
+  try {
+    const steps = await countRange(gitCli, cwd, rev, ['--first-parent']);
+    const boundary = await revParseVerified(gitCli, cwd, `HEAD~${steps}`);
+    const revFull = await revParseVerified(gitCli, cwd, rev);
+    return boundary !== undefined && revFull !== undefined && boundary === revFull;
+  } catch (error) {
+    getLogger().debug('first-parent membership probe failed; treating as mainline', {
+      rev,
+      err: error instanceof Error ? error.message : String(error),
+    });
+    return true;
   }
 }

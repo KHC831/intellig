@@ -13,7 +13,7 @@ import { IRebaseService } from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
 import { GitCli, revParseVerified } from '../git-core/gitCli';
-import { analyzeRebaseRange } from '../git-core/rebaseRange';
+import { analyzeRebaseRange, isFirstParentAncestor } from '../git-core/rebaseRange';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
@@ -3511,7 +3511,12 @@ export class CommitContextMenuCommands {
       return true;
     }
     const merges = `${analysis.mergeCommits} merge${analysis.mergeCommits === 1 ? '' : 's'}`;
-    const sideBranchHint = analysis.firstParentBase
+    // The hint keys off the CLICKED commit, not the rebase base (its parent):
+    // for the first commit of a merged branch — the whole branch, in the
+    // common single-commit case — the parent is the mainline fork point, so a
+    // base-side check would stay silent exactly where the hint matters most.
+    const clickedOnMainline = await isFirstParentAncestor(this._gitCli, repo.rootUri.fsPath, hash);
+    const sideBranchHint = clickedOnMainline
       ? ''
       : `\n\n'${hash.substring(0, 8)}' is on a merged branch, not the main line — its visual ` +
         `distance from HEAD is much smaller than this range. To edit recent commits, pick a ` +

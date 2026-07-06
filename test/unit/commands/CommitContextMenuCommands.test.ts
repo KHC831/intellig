@@ -2330,7 +2330,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       total: number;
       nonMerges: number;
       firstParentSteps: number;
-      firstParentLandsOnOnto: boolean;
+      /** Whether the CLICKED commit sits on HEAD's first-parent chain. */
+      clickedOnMainline: boolean;
     }): GitCli {
       return {
         exec: async (args: string[]) => {
@@ -2350,12 +2351,13 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
             return ok(`${fixture.total}\n`);
           }
           if (args[0] === 'rev-parse' && args.some((a) => a.startsWith('HEAD~'))) {
-            // Two refs resolved in one call: HEAD~N, then onto.
-            return ok(
-              fixture.firstParentLandsOnOnto
-                ? `${parentHash}\n${parentHash}\n`
-                : `${'9'.repeat(40)}\n${parentHash}\n`
-            );
+            // Where the first-parent walk from HEAD lands: the clicked commit
+            // itself when it is on the mainline, an unrelated sha otherwise.
+            return ok(fixture.clickedOnMainline ? `${testHash}\n` : `${'9'.repeat(40)}\n`);
+          }
+          if (args[0] === 'rev-parse') {
+            // Resolving the clicked commit to its full sha.
+            return ok(`${testHash}\n`);
           }
           return ok('');
         },
@@ -2372,7 +2374,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         total: 280,
         nonMerges: 200,
         firstParentSteps: 3,
-        firstParentLandsOnOnto: false,
+        clickedOnMainline: false,
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
       const opened: string[] = [];
@@ -2410,7 +2412,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         total: 280,
         nonMerges: 200,
         firstParentSteps: 3,
-        firstParentLandsOnOnto: false,
+        clickedOnMainline: false,
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
       commands.setRebaseEditorOpener(async () => ({ executed: true }));
@@ -2436,7 +2438,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         total: 280,
         nonMerges: 200,
         firstParentSteps: 3,
-        firstParentLandsOnOnto: false,
+        clickedOnMainline: false,
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
       const opened: string[] = [];
@@ -2460,7 +2462,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         total: 4,
         nonMerges: 4,
         firstParentSteps: 4,
-        firstParentLandsOnOnto: true,
+        clickedOnMainline: true,
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
       const opened: string[] = [];
