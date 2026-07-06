@@ -112,12 +112,22 @@ function looksLikeSecretUserinfo(userinfo: string): boolean {
  *   - `/var/folders/…` (macOS tmpdir) — no PII; mkdtemp-path leakage is
  *     covered by the atomic-write helper's explicit `.tmp-` naming.
  *
+ * ### Trailing boundary
+ *
+ * The trailing separator is OPTIONAL: group [3] captures a literal `/`
+ * (consumed + re-emitted via `$3` so the rest of the path survives), or is
+ * empty via a zero-width lookahead when the path ends AT the username — a
+ * boundary being a quote, whitespace, close paren/bracket, or end-of-string.
+ * Without this, `open '/Users/alice'` (path ends at the username) leaked the
+ * name; it now redacts to `open '~'`.
+ *
  * Groups:
  *   [1] leading delimiter — preserved via `$1` in the replacement
  *   [2] username segment (captured so we could use it if we ever want to
  *       emit `~<name>` — currently unused, kept for symmetry)
+ *   [3] trailing `/` (re-emitted via `$3`), or empty at a non-slash boundary
  */
-const POSIX_HOME_PATH_REGEX = /(^|[\s'"([])\/(?:Users|home)\/([^/\s'"]+)\//g;
+const POSIX_HOME_PATH_REGEX = /(^|[\s'"([])\/(?:Users|home)\/([^/\s'"]+)(\/|(?=[\s'")\]]|$))/g;
 
 /**
  * Match Windows home-dir prefixes with **backslash** separators
@@ -140,8 +150,12 @@ const POSIX_HOME_PATH_REGEX = /(^|[\s'"([])\/(?:Users|home)\/([^/\s'"]+)\//g;
  *       `~\` is the target; kept in the regex for future extensibility
  *       if we ever want to preserve the drive)
  *   [3] username segment
+ *   [4] trailing `\` (re-emitted via `$4`), or empty at a non-slash boundary
+ *       (quote / whitespace / close paren-bracket / EOL — the trailing
+ *       separator is optional so a path ending at the username still redacts)
  */
-const WINDOWS_BACKSLASH_HOME_PATH_REGEX = /(^|[\s'"([])([A-Za-z]):\\Users\\([^\\/\s'"]+)\\/gi;
+const WINDOWS_BACKSLASH_HOME_PATH_REGEX =
+  /(^|[\s'"([])([A-Za-z]):\\Users\\([^\\/\s'"]+)(\\|(?=[\s'")\]]|$))/gi;
 
 /**
  * Match Windows home-dir prefixes with **forward-slash** separators
@@ -164,8 +178,12 @@ const WINDOWS_BACKSLASH_HOME_PATH_REGEX = /(^|[\s'"([])([A-Za-z]):\\Users\\([^\\
  *   [1] leading delimiter — preserved via `$1` in the replacement
  *   [2] drive letter — captured but unused (see backslash variant)
  *   [3] username segment
+ *   [4] trailing `/` (re-emitted via `$4`), or empty at a non-slash boundary
+ *       (quote / whitespace / close paren-bracket / EOL — the trailing
+ *       separator is optional so a path ending at the username still redacts)
  */
-const WINDOWS_FORWARDSLASH_HOME_PATH_REGEX = /(^|[\s'"([])([A-Za-z]):\/Users\/([^/\s'"]+)\//gi;
+const WINDOWS_FORWARDSLASH_HOME_PATH_REGEX =
+  /(^|[\s'"([])([A-Za-z]):\/Users\/([^/\s'"]+)(\/|(?=[\s'")\]]|$))/gi;
 
 /**
  * Scrub credentials and home-dir paths from a git stderr/error string.
@@ -200,9 +218,9 @@ export function sanitizeGitError(message: string): string {
     .replace(CREDENTIAL_URL_NO_COLON_REGEX, (match: string, scheme: string, userinfo: string) =>
       looksLikeSecretUserinfo(userinfo) ? `${scheme}://<redacted>@` : match
     )
-    .replace(WINDOWS_BACKSLASH_HOME_PATH_REGEX, '$1~\\')
-    .replace(WINDOWS_FORWARDSLASH_HOME_PATH_REGEX, '$1~/')
-    .replace(POSIX_HOME_PATH_REGEX, '$1~/');
+    .replace(WINDOWS_BACKSLASH_HOME_PATH_REGEX, '$1~$4')
+    .replace(WINDOWS_FORWARDSLASH_HOME_PATH_REGEX, '$1~$4')
+    .replace(POSIX_HOME_PATH_REGEX, '$1~$3');
 }
 
 /**

@@ -1,95 +1,91 @@
 #!/usr/bin/env bash
 # ============================================================
-# check-vsix-clean.sh — asserts `vsce ls` would not include any
-# forbidden file in the published .vsix.
+# check-vsix-clean.sh — asserts `vsce ls` would package NOTHING
+# outside the allow-list and NOTHING matching a forbidden pattern,
+# and that the runtime manifest is complete.
+#
+# The three rule sets (deny / allow / require) live in
+# scripts/lib/vsix-rules.sh, shared verbatim with publish.sh's
+# post-build artifact scan so the pre-package guard and the
+# post-build gate can never drift.
 #
 # Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    `.vscodeignore` regression silently shipping internal files
-#    (.agent/ coordination notes, AGENT_WORKSPACE.md, IDE configs,
-#    test JS, source `.ts`, .map files, dev scripts) into the
-#    Marketplace .vsix. A prior .vscodeignore had a
+#    (.agent/ coordination notes, .husky/ hooks, AGENT_WORKSPACE.md,
+#    IDE configs, test JS, source `.ts`, .map files, dev scripts)
+#    into the Marketplace .vsix. A prior .vscodeignore had a
 #    `!out/**/*.js` re-include that overrode `out/test/**`, leaking
-#    365 files / 1.54 MB before being noticed. Drift class is real
-#    and recurring.
+#    365 files / 1.54 MB; `.husky/**` (18 files) shipped in 0.3.1
+#    because the deny-list had no husky pattern. Drift class is real
+#    and recurring — a deny-list alone can only catch classes it
+#    already knows.
 #
 # 2. Heuristic + how it scales
 #    Run `vsce ls` (the same listing logic vsce uses for `vsce
-#    package`) and check BOTH directions:
-#      - FORBIDDEN: grep for a hand-curated list of POSIX
-#        extended-regex patterns covering: test JS, .map files,
-#        source `.ts`, `node_modules/` and `out/` (the extension is
-#        BUNDLED — dist/extension.js carries every runtime dep, so
-#        nothing from either tree may ship), `.agent/`,
-#        `AGENT_WORKSPACE`, `CLAUDE.md`, `coverage/` (35 MB shipped
-#        unnoticed in 0.2.10), `tsconfig.test.json`, IDE configs,
-#        `docs/`, `scripts/`, `src/`, lint/format configs,
-#        `package-lock.json`, `CONTRIBUTING.md`, `.DS_Store`.
-#      - REQUIRED: the runtime manifest — dist/extension.js (the
-#        bundle), dist/rebaseTodoEditor.js (the GIT_SEQUENCE_EDITOR
-#        entry RebaseService spawns as a __dirname sibling),
-#        media/mergeWindow.js (webview bundle),
-#        media/codicon.ttf (webview font), media/monaco/vs/loader.js
-#        (merge-window Monaco AMD build, copied from monaco-editor
-#        at compile time). A missing entry is the 0.2.3 class
-#        (activation-dead package) caught at the gate instead of on
-#        install.
-#    Each pattern targets a known bug class. Adding one is one line
-#    plus a one-sentence rationale.
+#    package`), FILTER the captured stdout down to real listing lines
+#    (npm/script echoes from the vscode:prepublish chain are dropped —
+#    every genuine listing entry is a repo-relative file that exists
+#    on disk), then check THREE directions via vsix-rules.sh:
+#      - ALLOW (primary): every listed entry MUST fall under an
+#        allowed prefix (dist/ media/ resources/) or be an exact root
+#        file (images/icon.png, README/CHANGELOG/SECURITY .md,
+#        LICENSE, package.json). Anything else fails — this closes the
+#        leak class the deny-list alone cannot (an unknown internal
+#        file matches nothing allowed).
+#      - FORBIDDEN (second net): a hand-curated pattern list covering
+#        test JS, .map, source `.ts`, node_modules/ out/ out-test/
+#        (the extension is BUNDLED — dist/extension.js carries every
+#        runtime dep), .husky/, .agent/, AGENT_WORKSPACE, CLAUDE.md,
+#        coverage/, IDE configs, docs/, scripts/, src/, configs.
+#      - REQUIRED: the runtime manifest — dist/extension.js (bundle),
+#        dist/rebaseTodoEditor.js (the GIT_SEQUENCE_EDITOR entry
+#        RebaseService spawns as a __dirname sibling),
+#        media/mergeWindow.js (webview bundle), media/codicon.ttf
+#        (webview font), media/monaco/vs/loader.js (Monaco AMD build),
+#        resources/git-icon-branch.svg (panel icon) and
+#        images/icon.png (gallery icon). A missing entry is the 0.2.3
+#        class (activation-dead / visually-broken package) caught at
+#        the gate instead of on install.
+#    Adding a rule is one line in vsix-rules.sh plus a rationale.
 #
 # 3. Known false-positive cases
-#    None today. Patterns are anchored or distinctive enough that
-#    legitimate bundle contents never match. If a future legitimate
-#    file collides (e.g. ships a `docs/` markdown intentionally),
-#    suppress by anchoring the pattern more tightly (e.g. `^docs/`
-#    is safe; `docs/` would catch anything containing the word).
+#    A new legitimate top-level file or directory that vsce packages
+#    (e.g. a deliberately-shipped `NOTICE`) fails the allow-list until
+#    added to VSIX_ALLOWED_EXACT / VSIX_ALLOWED_PREFIXES. That is the
+#    intended fail-closed behaviour: a human decides each new class of
+#    shipped file.
 #
 # 4. Known false-negative cases
 #    - vsce version drift: the @vscode/vsce package's `vsce ls`
 #      output format could change between versions and silently
 #      mask regressions. Mitigated by pinning to a specific vsce
 #      version below; update + re-test when bumping.
-#    - New "forbidden" file class not in FORBIDDEN_PATTERNS:
-#      e.g. `.idea/sonar.config` ships fine if `.idea/` was missed
-#      from .vscodeignore (it isn't — but the bug class would
-#      bypass this guard until added).
-#    - REQUIRED_FILES verifies presence in the listing, not that the
-#      file's CONTENT is a working build — a zero-byte
-#      dist/extension.js still passes. The ext-host activation lane
-#      owns that deeper contract.
+#    - REQUIRED verifies presence in the listing, not that the file's
+#      CONTENT is a working build — a zero-byte dist/extension.js
+#      still passes. The ext-host activation lane owns that contract.
 #
 # 5. Retirement criteria
 #    The original criteria fired: the extension is now bundled, and
-#    this guard became the bundler's manifest verification (the
-#    REQUIRED side) plus the ignore-regression net (the FORBIDDEN
-#    side). Retire only if vsce gains a deny-by-default packaging
-#    mode that can also assert required entries.
+#    this guard became the bundler's manifest verification (REQUIRED)
+#    plus the ignore-regression net (ALLOW + FORBIDDEN). Retire only
+#    if vsce gains a deny-by-default packaging mode that can also
+#    assert required entries.
 # ============================================================
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Shared rule sets (FORBIDDEN / ALLOW / REQUIRE), also sourced by
+# publish.sh so the two content checks can never drift.
+# shellcheck source=scripts/lib/vsix-rules.sh
+source scripts/lib/vsix-rules.sh
+
 # Pin vsce version for reproducible `vsce ls` output. Bump when
 # adopting a new vsce minor; re-run the RED inversion test after.
 VSCE_VERSION="2.24.0"
-
-# Patterns that MUST NOT appear in `vsce ls` output. POSIX-extended
-# regex; pipe-separated alternatives.
-FORBIDDEN_PATTERNS='(\.test\.js$|^node_modules/|^out/|^test/|^workspace-notes/|^coverage/|^CLAUDE\.md$|tsconfig\.test\.json|/\.agent/|^\.agent/|AGENT_WORKSPACE|^\.idea/|^\.kiro/|^\.vscode-test/|^docs/|^scripts/|^src/|tsconfig\.json|^\.eslintrc|^\.prettierrc|^\.prettierignore|^\.mocharc|^package-lock\.json$|^CONTRIBUTING\.md$|\.DS_Store|\.map$|\.ts$)'
-
-# Runtime manifest — every entry MUST appear in `vsce ls`, or the
-# package is activation-dead / feature-dead on install (the 0.2.3
-# missing-dependency class, now expressed as a missing bundle or a
-# missing build-copied asset).
-REQUIRED_FILES=(
-  'dist/extension.js'
-  'dist/rebaseTodoEditor.js'
-  'media/mergeWindow.js'
-  'media/codicon.ttf'
-  'media/monaco/vs/loader.js'
-)
 
 # Capture stderr to a temp file so we can surface vsce errors on FAIL
 # rather than swallowing them behind a generic message.
@@ -148,7 +144,41 @@ if [ "$VSCE_EXIT" -ne 0 ] || [ -z "$LISTING" ]; then
   exit 1
 fi
 
-VIOLATIONS="$(echo "$LISTING" | grep -E "$FORBIDDEN_PATTERNS" || true)"
+# The captured stdout mixes the real `vsce ls` listing with npm/script
+# echoes from the vscode:prepublish chain (`> intellig@… prepublish`,
+# `[check:…] OK`, esbuild/tsc command echoes). Filter to REAL listing
+# lines: every genuine vsce entry is a repo-relative path that exists
+# on disk (dist/ + media/ are built by the compile step this guard
+# runs after); build-log lines are not files. This is what makes an
+# allow-list assertion possible — grepping raw log text would both
+# miscount and false-positive on any log line ending `.ts` etc.
+# Worktree-only scaffolding to normalise out — never present in a
+# real (non-worktree) package, produced purely by HOW this guard runs
+# in a git worktree: `.git` is a gitdir POINTER FILE in a linked
+# worktree (a directory, hence unlisted, in a normal checkout), and
+# `node_modules.real.*` / `node_modules.link.*` / `node_modules.swap.lock`
+# are the swap clone/backup/lock with-real-node-modules.sh creates
+# while vsce reconciles the install. Both anchors are exact enough that
+# a genuine `.git/config` leak (`^\.git/`, still caught) or a real
+# `node_modules/` leak (`^node_modules/`, still caught) is unaffected.
+FILTERED=""
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  case "$line" in
+    .git | node_modules.real.* | node_modules.link.* | node_modules.swap.lock*) continue ;;
+  esac
+  if [ -f "$line" ]; then
+    FILTERED="${FILTERED}${line}"$'\n'
+  fi
+done <<< "$LISTING"
+FILTERED="${FILTERED%$'\n'}"
+
+if [ -z "$FILTERED" ]; then
+  echo "[check:vsix-clean] FAIL: no real listing lines survived filtering."
+  echo "[check:vsix-clean] raw vsce stdout was:"
+  echo "$LISTING" | sed 's/^/  /'
+  exit 1
+fi
 
 # Note: the captured stderr always contains
 # `[prepublish-guard] BYPASSED for INTERNAL DRYRUN` because we set
@@ -158,9 +188,23 @@ VIOLATIONS="$(echo "$LISTING" | grep -E "$FORBIDDEN_PATTERNS" || true)"
 # bypass mechanism has changed and may need a revisit. We do NOT
 # suppress the warning even on success.
 
+NOT_ALLOWED="$(printf '%s\n' "$FILTERED" | vsix_allowlist_violations)"
+if [ -n "$NOT_ALLOWED" ]; then
+  echo "[check:vsix-clean] FAIL — files outside the allow-list would ship in .vsix:"
+  printf '%s\n' "$NOT_ALLOWED" | sed 's/^/  - /'
+  echo ""
+  echo "[check:vsix-clean] Every packaged entry must fall under dist/, media/,"
+  echo "  resources/, or the exact root set (images/icon.png, README.md,"
+  echo "  CHANGELOG.md, LICENSE, SECURITY.md, package.json). Audit .vscodeignore;"
+  echo "  if the file legitimately ships, add it to VSIX_ALLOWED_* in"
+  echo "  scripts/lib/vsix-rules.sh."
+  exit 1
+fi
+
+VIOLATIONS="$(printf '%s\n' "$FILTERED" | vsix_forbidden_violations)"
 if [ -n "$VIOLATIONS" ]; then
   echo "[check:vsix-clean] FAIL — forbidden files would ship in .vsix:"
-  echo "$VIOLATIONS" | sed 's/^/  - /'
+  printf '%s\n' "$VIOLATIONS" | sed 's/^/  - /'
   echo ""
   echo "[check:vsix-clean] Audit the .vscodeignore. The 365→108 regression"
   echo "  on 2026-05-15 was caused by an '!out/**/*.js' re-include silently"
@@ -169,15 +213,10 @@ if [ -n "$VIOLATIONS" ]; then
   exit 1
 fi
 
-MISSING=""
-for required in "${REQUIRED_FILES[@]}"; do
-  if ! echo "$LISTING" | grep -qx "$required"; then
-    MISSING="${MISSING}  - ${required}\n"
-  fi
-done
+MISSING="$(printf '%s\n' "$FILTERED" | vsix_missing_required)"
 if [ -n "$MISSING" ]; then
   echo "[check:vsix-clean] FAIL — runtime manifest entries missing from the .vsix:"
-  printf '%b' "$MISSING"
+  printf '%s\n' "$MISSING" | sed 's/^/  - /'
   echo ""
   echo "[check:vsix-clean] The package would be activation-dead or feature-dead"
   echo "  on install. Run \`npm run compile\` (builds dist/ + media assets) and"
@@ -185,5 +224,5 @@ if [ -n "$MISSING" ]; then
   exit 1
 fi
 
-FILE_COUNT="$(echo "$LISTING" | wc -l | tr -d ' ')"
-echo "[check:vsix-clean] OK — vsce@${VSCE_VERSION} ls scanned $FILE_COUNT file(s); no forbidden patterns; runtime manifest complete."
+FILE_COUNT="$(printf '%s\n' "$FILTERED" | wc -l | tr -d ' ')"
+echo "[check:vsix-clean] OK — vsce@${VSCE_VERSION} ls scanned $FILE_COUNT file(s); allow-list + deny-list clean; runtime manifest complete."

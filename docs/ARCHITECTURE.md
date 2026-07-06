@@ -424,14 +424,17 @@ flowchart LR
 
 - `compile` = `tsc -p ./` (typecheck, `noEmit`) + `build:extension`
   (esbuild bundles src/extension.ts and every runtime dep into
-  `dist/extension.js`, `vscode` external) + `build:webview` +
-  `copy-monaco-assets.mjs` (Monaco AMD build → `media/monaco/vs`, cached
-  by version marker). `watch` is tsc-only; F5's preLaunchTask rebuilds
-  the bundle.
+  `dist/extension.js`, `vscode` external) + `build:sequence-editor`
+  (`dist/rebaseTodoEditor.js`) + `build:webview` (`media/mergeWindow.js`)
+  - `copy-monaco-assets.mjs` (Monaco AMD build → `media/monaco/vs`,
+    cached by version marker). `watch` is tsc-only; F5's preLaunchTask
+    rebuilds the bundles.
 - Minification happens ONLY at packaging (`minify:js`, last prepublish
-  step): the same two esbuild bundles with `--minify`. A packaging run
-  leaves `dist/` + `media/mergeWindow.js` minified until the next
-  compile.
+  step): the same three esbuild bundles with `--minify`. It is a no-op
+  under `INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1` (the structural-guard
+  bypass), so `vsce ls` runs during `check:all` don't minify. A real
+  packaging run leaves `dist/` + `media/mergeWindow.js` minified until
+  the next compile.
 - The extension is BUNDLED — nothing ships from `node_modules/` or
   `out/`, and there are no production dependencies in package.json
   (neverthrow is compiled into the bundle; monaco-editor and

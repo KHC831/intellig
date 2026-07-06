@@ -241,6 +241,84 @@ describe('command spine', () => {
     );
   });
 
+  // C4: a multi-repo explorer selection must run once per OWNING repo. The
+  // old spine resolved a single repo from targets[0] and derived every path
+  // against it, so a second repo's files became absolute pathspecs and git
+  // failed the whole batch "outside repository".
+  const repoA = { rootUri: Uri.file('/a'), state: 'idle', remotes: [] } as unknown as IRepository;
+  const repoB = { rootUri: Uri.file('/b'), state: 'idle', remotes: [] } as unknown as IRepository;
+
+  function makeMultiCtx(owner: (p: string) => IRepository | undefined): ICommandContext {
+    return {
+      services: {
+        gitService: {
+          getRepositories: () => [repoA, repoB],
+          getRepository: async (u: { fsPath: string }) => owner(u.fsPath),
+        },
+      },
+      gitToolWindowProvider: {
+        refresh: (): void => {
+          refreshes += 1;
+        },
+      },
+      context: { subscriptions: [] },
+    } as unknown as ICommandContext;
+  }
+
+  it('multi-repo selection: runs once per owning repo with correctly-scoped paths', async () => {
+    const runs: Array<{ root: string; paths: string[] }> = [];
+    const ctx = makeMultiCtx((p) =>
+      p.startsWith('/a') ? repoA : p.startsWith('/b') ? repoB : undefined
+    );
+    registerSelectionCommand(ctx, {
+      id: 'spine.multisel',
+      failureTitle: 'Failed',
+      refreshOnSuccess: true,
+      run: async ({ repo, paths }) => {
+        runs.push({ root: repo.rootUri.fsPath, paths });
+      },
+    });
+
+    const uris = [Uri.file('/a/x.ts'), Uri.file('/b/y.ts'), Uri.file('/a/sub/z.ts')];
+    await handlers.get('spine.multisel')!(uris[0], uris);
+
+    assert.strictEqual(runs.length, 2, `expected one run per repo; got ${runs.length}`);
+    const a = runs.find((r) => r.root === '/a')!;
+    const b = runs.find((r) => r.root === '/b')!;
+    assert.deepStrictEqual(a.paths, ['x.ts', 'sub/z.ts']);
+    assert.deepStrictEqual(b.paths, ['y.ts']);
+    assert.ok(
+      !runs.some((r) => r.paths.some((p) => p.startsWith('/') || p.startsWith('..'))),
+      'no absolute / escaping pathspecs handed to git'
+    );
+    assert.strictEqual(refreshes, 1, 'refreshOnSuccess fires once after all groups');
+  });
+
+  it('multi-repo selection: toasts unresolvable targets and still runs resolved groups', async () => {
+    const runs: Array<{ root: string; paths: string[] }> = [];
+    const ctx = makeMultiCtx((p) => (p.startsWith('/a') ? repoA : undefined));
+    registerSelectionCommand(ctx, {
+      id: 'spine.orphan',
+      failureTitle: 'Failed',
+      run: async ({ repo, paths }) => {
+        runs.push({ root: repo.rootUri.fsPath, paths });
+      },
+    });
+
+    const uris = [Uri.file('/a/x.ts'), Uri.file('/c/orphan.ts')];
+    await handlers.get('spine.orphan')!(uris[0], uris);
+
+    assert.deepStrictEqual(runs, [{ root: '/a', paths: ['x.ts'] }]);
+    assert.ok(
+      errors.some((m) => /orphan\.ts/.test(m)),
+      `expected a toast naming the unresolvable target; got: ${errors.join(' | ')}`
+    );
+    assert.ok(
+      !runs.some((r) => r.paths.some((p) => p.startsWith('/'))),
+      'a foreign target must never reach git as an absolute pathspec'
+    );
+  });
+
   it('extra raw arguments are passed through to run untouched', async () => {
     let raw: unknown[] = [];
     registerRepoCommand(makeCtx(), {

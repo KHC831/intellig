@@ -159,7 +159,7 @@ export class PatchService implements IPatchService {
 
       // Dry-run mode: no conflict extraction — just report the stderr.
       // Sanitize before returning: git stderr may embed `user:token@host`
-      // credentials if the patch references a remote URL (LOW finding).
+      // credentials if the patch references a remote URL.
       if (options.check) {
         return {
           success: false,
@@ -230,6 +230,15 @@ export class PatchService implements IPatchService {
         cwd: repo.rootUri.fsPath,
         throwOnError: false,
       });
+      // Fail closed on a capped diff: the captured stdout is a prefix of the
+      // real diff, so the patch would be silently corrupt (apply/am would fail
+      // downstream). Refuse to deliver rather than write junk.
+      if (result.truncated) {
+        const msg = 'diff exceeds the capture limit; patch not written';
+        // sanitize-exempt: non-error-data: fixed literal, carries no git output
+        void vscode.window.showErrorMessage(`Failed to create patch: ${msg}`);
+        throw new PatchWriteFailed(msg);
+      }
       if (result.exitCode === 0 && result.stdout) {
         sections.push(result.stdout);
       }

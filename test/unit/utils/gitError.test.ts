@@ -305,6 +305,53 @@ describe('sanitizeGitError', () => {
       });
     });
 
+    // The path ends AT the username — no trailing separator, just a
+    // closing quote / EOL. VS Code prints `open '/Users/alice'` exactly this
+    // way when the missing path IS the home dir. The trailing-separator
+    // requirement in the regexes let the username leak here.
+    describe('path ends at the username (no trailing separator)', () => {
+      it('redacts /Users/<name> at end-of-string', () => {
+        const raw = 'ENOENT: no such file or directory, open /Users/alice';
+        const scrubbed = sanitizeGitError(raw);
+        assert.ok(!scrubbed.includes('alice'), `username leaked: "${scrubbed}"`);
+        assert.ok(!scrubbed.includes('/Users/'), `home prefix leaked: "${scrubbed}"`);
+      });
+
+      it('redacts /Users/<name> before a closing quote', () => {
+        const raw = "ENOENT: no such file or directory, open '/Users/alice'";
+        const scrubbed = sanitizeGitError(raw);
+        assert.ok(!scrubbed.includes('alice'), `username leaked: "${scrubbed}"`);
+        assert.ok(scrubbed.includes("'~'"), `expected '~' quoted home, got: "${scrubbed}"`);
+      });
+
+      it('redacts /home/<name> at end-of-string', () => {
+        const raw = 'EACCES: permission denied, open /home/bob';
+        const scrubbed = sanitizeGitError(raw);
+        assert.ok(!scrubbed.includes('bob'), `username leaked: "${scrubbed}"`);
+      });
+
+      it('redacts C:\\Users\\<name> before a closing quote', () => {
+        const raw = "ENOENT: no such file or directory, open 'C:\\Users\\carol'";
+        const scrubbed = sanitizeGitError(raw);
+        assert.ok(!scrubbed.includes('carol'), `username leaked: "${scrubbed}"`);
+      });
+
+      it('redacts C:/Users/<name> at end-of-string', () => {
+        const raw = "ENOENT: open 'C:/Users/carol'";
+        const scrubbed = sanitizeGitError(raw);
+        assert.ok(!scrubbed.includes('carol'), `username leaked: "${scrubbed}"`);
+      });
+
+      it('still leaves a mid-path /repo/Users/<name> at EOL alone (left-anchor preserved)', () => {
+        const raw = "ENOENT: open '/tmp/repo/Users/alice'";
+        const scrubbed = sanitizeGitError(raw);
+        assert.ok(
+          scrubbed.includes('/tmp/repo/Users/alice'),
+          `mid-path must not be redacted: "${scrubbed}"`
+        );
+      });
+    });
+
     // VS Code frequently normalises Windows
     // paths to forward slashes (URI-derived strings, stderr from git
     // compiled with forward-slash support, etc.). The backslash-only

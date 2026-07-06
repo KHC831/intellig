@@ -89,17 +89,17 @@ describe('rebase-todo validation', () => {
 
     it('throws on an injected action even when the hash matches a real todo line', () => {
       const plan = [{ hash: 'aaaaaaa', action: 'exec rm -rf ~' }] as unknown as IRebaseAction[];
-      assert.throws(() => transformRebaseTodo(todo, plan));
+      assert.throws(() => transformRebaseTodo(todo, plan, '/tmp/gitdir'));
     });
 
     it('throws on a non-hex (traversal) plan hash', () => {
       const plan = [{ hash: 'x/../../../tmp/pwned', action: 'pick' }] as unknown as IRebaseAction[];
-      assert.throws(() => transformRebaseTodo(todo, plan));
+      assert.throws(() => transformRebaseTodo(todo, plan, '/tmp/gitdir'));
     });
 
     it('still transforms a legitimate plan', () => {
       const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'drop' }];
-      const out = transformRebaseTodo(todo, plan);
+      const out = transformRebaseTodo(todo, plan, '/tmp/gitdir');
       assert.ok(out.includes('drop aaaaaaa'), `expected drop line, got: ${out}`);
     });
   });

@@ -519,6 +519,62 @@ describe('GitCli — byte-stream decoding + spawn-retry narrowing', () => {
   });
 });
 
+describe('GitCli — output truncation flag (silent-corruption guard)', () => {
+  class ScriptedChild extends EventEmitter {
+    readonly stdout = new EventEmitter();
+    readonly stderr = new EventEmitter();
+    readonly stdin = Object.assign(new EventEmitter(), {
+      write: (): boolean => true,
+      end: (): void => {},
+    });
+    kill(): boolean {
+      return true;
+    }
+  }
+
+  it('sets truncated=true when stdout exceeds the cap (patch would be corrupt)', async () => {
+    const child = new ScriptedChild();
+    // Tiny cap so we exercise the truncation path without a 64 MiB stream.
+    const cli = new GitCli('git', (() => child as unknown as ChildProcess) as never, 8);
+    const pending = cli.exec(['diff']);
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from('this output is way past eight chars'));
+      child.emit('close', 0);
+    });
+    const result = await pending;
+    assert.strictEqual(result.truncated, true, 'a >cap stdout must flag truncated');
+    assert.strictEqual(result.stdout.length, 8, 'stdout is capped to the limit');
+  });
+
+  it('leaves truncated unset for output within the cap', async () => {
+    const child = new ScriptedChild();
+    const cli = new GitCli('git', (() => child as unknown as ChildProcess) as never, 1024);
+    const pending = cli.exec(['diff']);
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from('small diff'));
+      child.emit('close', 0);
+    });
+    const result = await pending;
+    assert.ok(!result.truncated, 'within-cap output must not flag truncated');
+    assert.strictEqual(result.stdout, 'small diff');
+  });
+
+  it('flags truncation that only happens in the decoder flush', async () => {
+    const child = new ScriptedChild();
+    const cli = new GitCli('git', (() => child as unknown as ChildProcess) as never, 4);
+    const pending = cli.exec(['diff']);
+    setImmediate(() => {
+      // Fill to the cap, then leave a dangling multi-byte sequence that only
+      // materialises on decoder end() — the flush append must count too.
+      child.stdout.emit('data', Buffer.from('abcd'));
+      child.stdout.emit('data', Buffer.from('€').subarray(0, 1)); // partial, flushed at close
+      child.emit('close', 0);
+    });
+    const result = await pending;
+    assert.strictEqual(result.truncated, true, 'a capped flush append must flag truncated');
+  });
+});
+
 describe('GitCli — optional index locks are suppressed (GIT_OPTIONAL_LOCKS=0)', () => {
   // Background refreshes (`git status`, `ls-files`) opportunistically WRITE
   // the refreshed index, holding `.git/index.lock` exactly when a user

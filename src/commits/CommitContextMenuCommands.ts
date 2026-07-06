@@ -1781,6 +1781,14 @@ export class CommitContextMenuCommands {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       });
+      // Fail closed on a capped stream: the captured stdout is a prefix of the
+      // real patch, so writing it would produce a corrupt `.patch`.
+      if (result.truncated) {
+        void vscode.window.showErrorMessage(
+          'Failed to create patch: diff exceeds the capture limit; patch not written'
+        );
+        return;
+      }
       stdout = result.stdout;
     } catch (error) {
       // git exec failure — keep the historical "Failed to create patch"
@@ -1925,6 +1933,17 @@ export class CommitContextMenuCommands {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       });
+      // Here git writes each `.patch` to outDir directly; stdout is only the
+      // manifest of written paths. A capped stdout can't corrupt the on-disk
+      // patches, but it does mean the manifest (and any count derived from it)
+      // is incomplete — so surface that instead of a confident "wrote N".
+      if (result.truncated) {
+        void vscode.window.showWarningMessage(
+          `Patches written to ${outDir}, but the output list exceeded the capture limit — ` +
+            `verify all ${commitHashes.length} patch files are present.`
+        );
+        return;
+      }
       // git format-patch prints the path of each emitted file on stdout,
       // one per line. Count non-empty lines to surface "wrote N patches".
       const written = result.stdout

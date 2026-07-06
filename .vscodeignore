@@ -25,6 +25,7 @@
 .agent/**
 .claude/**
 .idea/**
+.husky/**
 .DS_Store
 node_modules/**
 out/**

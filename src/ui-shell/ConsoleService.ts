@@ -202,10 +202,13 @@ export class ConsoleService implements IConsoleService {
    * Returns a handler that can be used to send output data in real-time.
    */
   public startStreaming(command: string): IStreamingOutputHandler {
-    // Create a placeholder entry that will be updated as output streams in
+    // Create a placeholder entry that will be updated as output streams in.
+    // Scrub the command line at entry — same sink-side guarantee as
+    // logCommand: _addEntry mirrors it to the OutputChannel + tool window and
+    // stores it, so a credential-bearing remote URL must never land raw.
     const entry: IConsoleEntry = {
       timestamp: new Date(),
-      command,
+      command: sanitizeGitError(command),
       output: '',
       isError: false,
     };

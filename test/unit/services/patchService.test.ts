@@ -63,6 +63,7 @@ interface MockGitResult {
   stdout: string;
   stderr: string;
   combined?: string;
+  truncated?: boolean;
 }
 
 /**
@@ -91,6 +92,7 @@ function makeMockGitService(
             stdout: r.stdout,
             stderr: r.stderr,
             combined: r.combined ?? r.stdout + r.stderr,
+            ...(r.truncated ? { truncated: true } : {}),
           };
         }
         return { exitCode: 0, stdout: '', stderr: '', combined: '' };
@@ -123,6 +125,32 @@ function makeContext(): vscode.ExtensionContext {
     extensionUri: vscode.Uri.file('/tmp/ext'),
   } as unknown as vscode.ExtensionContext;
 }
+
+describe('PatchService.createPatchFromLocalChanges — truncation fail-closed', () => {
+  const TMP = path.join(path.resolve(__dirname, '../../..'), 'workspace-notes', 'tmp');
+
+  it('throws PatchWriteFailed and writes no file when the diff is truncated', async () => {
+    fs.mkdirSync(TMP, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(TMP, 'patch-trunc-'));
+    const outPath = path.join(dir, 'x.patch');
+    try {
+      // The single `git diff --cached` returns a truncated (capped) diff — a
+      // corrupt patch if written.
+      const git = makeMockGitService([
+        { exitCode: 0, stdout: 'partial diff head', stderr: '', truncated: true },
+      ]);
+      const svc = new PatchService(git);
+      const repo = makeRepo();
+      await assert.rejects(
+        () => svc.createPatchFromLocalChanges(repo, { stagedOnly: true, outputPath: outPath }),
+        (e: unknown) => e instanceof PatchWriteFailed
+      );
+      assert.ok(!fs.existsSync(outPath), 'a truncated diff must not be written as a patch');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('PatchService.applyPatch', () => {
   it('builds correct argv for patchPath with strip + baseDir', async () => {

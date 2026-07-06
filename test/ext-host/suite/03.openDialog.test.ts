@@ -178,6 +178,6 @@ function buildMinimalContext(ext: vscode.Extension<unknown>): vscode.ExtensionCo
       setKeysForSync(keys: readonly string[]): void;
     },
     secrets: undefined as unknown as vscode.SecretStorage,
-    languageModelAccessInformation: undefined as unknown as vscode.LanguageModelAccessInformation,
+    languageModelAccessInformation: undefined,
   } as unknown as vscode.ExtensionContext;
 }

@@ -14,7 +14,7 @@ import {
 } from './interfaces/IShelfService';
 import { IRepository, IDiff, IHunk, IGitService } from '../git-core/interfaces/IGitService';
 import { IChangelistService } from '../changelists/interfaces/IChangelistService';
-import { GitCli, createGitCli } from '../git-core/gitCli';
+import { GitCli, createGitCli, IGitCommandResult } from '../git-core/gitCli';
 import { getLogger, type Logger } from '../utils/logger';
 
 // Typeguard for GitService's @internal cli escape hatch.
@@ -523,6 +523,21 @@ export class ShelfService implements IShelfService {
    * @param changes - Selection of changes to shelve (files, changelists, or hunks)
    * @returns The created shelf item
    */
+  /**
+   * Abort the shelve if a diff capture hit the output cap. The captured stdout
+   * is persisted as the shelf entry's patch and the working tree is reverted
+   * right after — a truncated prefix would store a corrupt patch AND destroy
+   * the original content, unrecoverable on unshelve. Throwing here, before any
+   * store or revert, leaves the working tree genuinely untouched.
+   */
+  private _assertDiffNotTruncated(diffResult: IGitCommandResult, filePath: string): void {
+    if (diffResult.truncated) {
+      throw new Error(
+        `${filePath}'s diff exceeds the capture limit; shelve aborted, working tree untouched`
+      );
+    }
+  }
+
   async shelve(repo: IRepository, name: string, changes: IShelveSelection): Promise<IShelfItem> {
     const cwd = repo.rootUri.fsPath;
 
@@ -572,6 +587,7 @@ export class ShelfService implements IShelfService {
         // hunks the UI presented to the user); index-aware whole-change capture
         // applies only to full-file shelves.
         const diffResult = await this._gitCli.exec(['diff', '--', filePath], { cwd });
+        this._assertDiffNotTruncated(diffResult, filePath);
         if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
           diffContent = this.generateHunksDiff(filePath, selectedHunks);
         }
@@ -582,6 +598,7 @@ export class ShelfService implements IShelfService {
         // unstaged change (IntelliJ parity). A staged-new file (in the index,
         // absent from HEAD) shows here as a creation diff and round-trips too.
         const diffResult = await this._gitCli.exec(['diff', 'HEAD', '--', filePath], { cwd });
+        this._assertDiffNotTruncated(diffResult, filePath);
         if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
           // A binary change emits only "Binary files a/… and b/… differ" with no
           // recoverable hunk. captureBinaryShelfFile (HEAD-based) should have

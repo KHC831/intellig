@@ -48,7 +48,7 @@ export function applyPlanToTodoFile(todoPath: string, plan: IRebaseAction[]): vo
     }
   }
   const original = fs.readFileSync(todoPath, 'utf8');
-  const transformed = transformRebaseTodo(original, plan);
+  const transformed = transformRebaseTodo(original, plan, gitDir);
   fs.writeFileSync(todoPath, transformed, 'utf8');
 }
 

@@ -139,6 +139,32 @@ describe('ConsoleService credential redaction', () => {
     assert.ok(!service.getEntries()[0].output.includes(TOKEN), 'stored entry output leaks token');
   });
 
+  it('redacts a token in the command line passed to startStreaming', () => {
+    const channel = new StubOutputChannel();
+    const provider = new MockGitToolWindowProvider();
+    const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+    service.connectToToolWindow(provider as unknown as IGitToolWindowProvider);
+
+    // startStreaming mirrors the command line to the OutputChannel + tool
+    // window and stores it — it must scrub like logCommand does.
+    service.startStreaming(`git clone ${TOKEN_URL}`);
+
+    assert.ok(
+      !channel.text().includes(TOKEN),
+      `token leaked via startStreaming command: ${channel.text()}`
+    );
+    assert.ok(channel.text().includes('<redacted>'), 'channel should show <redacted>');
+    assert.ok(
+      !provider.text().includes(TOKEN),
+      `token leaked into tool-window command: ${provider.text()}`
+    );
+    const cmdText = service
+      .getEntries()
+      .map((e) => e.command)
+      .join('\n');
+    assert.ok(!cmdText.includes(TOKEN), `token leaked into stored entry command: ${cmdText}`);
+  });
+
   it('redacts a token in streamed output chunks', () => {
     const channel = new StubOutputChannel();
     const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);

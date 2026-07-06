@@ -319,7 +319,7 @@ export async function runPushRow(
   } catch (err) {
     const raw = err instanceof Error ? err.message : 'Unknown error';
     // Scrub any `user:token@host` credentials leaked by git stderr before the
-    // error lands in a row banner / toast (senior-review LOW finding).
+    // error lands in a row banner / toast.
     const message = sanitizeGitError(raw);
     return { ok: false, error: { kind: classifyPushError(raw), message } };
   }

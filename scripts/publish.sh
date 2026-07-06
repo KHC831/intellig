@@ -24,9 +24,14 @@
 #                      `vsce` reads its credentials from the cached
 #                      login (~/.vsce/), so no env var needed for it.
 #
-# Pre-flight:
-#   - Working tree must be clean (committed + pushed).
-#   - npm test:unit and npm run lint must pass.
+# Pre-flight (this script enforces):
+#   - Working tree must be clean, on main, in sync with origin.
+#   - `npm run check:all` (structural guards, incl. the shared vsix
+#     content rules) must pass before a byte is built.
+#   - Guard-bypass env vars are unset, so a stale shell export cannot
+#     silently disable the placeholder guard during a real release.
+#   - The built artifact's actual contents are scanned (unzip -Z1)
+#     against the same allow/deny/require rules as check-vsix-clean.
 #   - The version being published must not already exist in either
 #     gallery.
 # ============================================================
@@ -35,6 +40,24 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# Shared vsix content rules (allow/deny/require + zip normaliser),
+# identical to the set check-vsix-clean.sh asserts pre-package, so the
+# post-build artifact scan below cannot drift from the guard.
+# shellcheck source=scripts/lib/vsix-rules.sh
+source scripts/lib/vsix-rules.sh
+
+# Sanitise guard-bypass env vars up front. A stale exported
+# INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1 (or the dogfood triple) would
+# silently disable the prepublish placeholder guard during a REAL
+# release; the artifact carries no -dogfood suffix, so nothing
+# downstream would catch it. Unset all four before any vsce runs.
+# (check-vsix-clean re-sets the dryrun var in its own scoped
+# subprocess, so the pre-flight guard below is unaffected.)
+unset INTELLIG_INTERNAL_PREPUBLISH_DRYRUN
+unset INTELLIG_ALLOW_PLACEHOLDERS
+unset INTELLIG_DOGFOOD_BUILD
+unset INTELLIG_DOGFOOD_INVOCATION
 
 skip_vsce=0
 skip_ovsx=0
@@ -112,6 +135,15 @@ fi
 version="$(node -p 'require("./package.json").version')"
 vsix="intellig-$version.vsix"
 
+# ─── 2b. Structural gate pre-flight ───────────────────────────
+# Run the headless structural guards before building. This is the
+# same check:all the merge gate runs; the vsix content rules it
+# includes are the pre-package half of the belt-and-braces with the
+# post-build artifact scan in step 5.
+
+echo "→ running check:all pre-flight"
+npm run check:all
+
 # ─── 3. Build ─────────────────────────────────────────────────
 
 echo "→ cleaning dist/ and building intellig-$version.vsix"
@@ -136,7 +168,41 @@ npx --yes @vscode/vsce@2.24.0 package --out "$vsix"
 
 bash scripts/check-publish-vsix.sh "$vsix"
 
-# ─── 5. Inspect the manifest before pushing bytes ─────────────
+# ─── 5. Scan the ACTUAL artifact contents ─────────────────────
+# The uploaded zip is the one artifact never content-checked before —
+# the .husky leak rode through a green pre-package gate into the
+# published 0.3.1. Scan the real bytes (unzip -Z1) against the SAME
+# allow/deny/require rules check-vsix-clean uses, so a divergence
+# between "what vsce ls said" and "what was actually packed" fails
+# here before a byte is uploaded.
+
+echo
+echo "→ scanning built artifact contents"
+zip_listing="$(unzip -Z1 "$vsix" | vsix_normalize_zip_entries)"
+
+not_allowed="$(printf '%s\n' "$zip_listing" | vsix_allowlist_violations)"
+forbidden="$(printf '%s\n' "$zip_listing" | vsix_forbidden_violations)"
+missing="$(printf '%s\n' "$zip_listing" | vsix_missing_required)"
+
+if [[ -n "$not_allowed" || -n "$forbidden" || -n "$missing" ]]; then
+  echo "✗ built artifact failed the content scan — refusing to publish." >&2
+  if [[ -n "$not_allowed" ]]; then
+    echo "  files outside the allow-list:" >&2
+    printf '%s\n' "$not_allowed" | sed 's/^/    - /' >&2
+  fi
+  if [[ -n "$forbidden" ]]; then
+    echo "  forbidden files present:" >&2
+    printf '%s\n' "$forbidden" | sed 's/^/    - /' >&2
+  fi
+  if [[ -n "$missing" ]]; then
+    echo "  required runtime-manifest entries missing:" >&2
+    printf '%s\n' "$missing" | sed 's/^/    - /' >&2
+  fi
+  exit 1
+fi
+echo "  ✓ artifact contents clean (allow-list + deny-list + manifest)."
+
+# ─── 6. Inspect the manifest before pushing bytes ─────────────
 
 echo
 echo "→ artifact:"
@@ -153,7 +219,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   exit 0
 fi
 
-# ─── 6. Publish ───────────────────────────────────────────────
+# ─── 7. Publish ───────────────────────────────────────────────
 
 published_vsce=0
 published_ovsx=0

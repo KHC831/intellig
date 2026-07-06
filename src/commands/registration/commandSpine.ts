@@ -28,9 +28,11 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
+import { isPathInsideOrEqual } from '../../git-core/repo/RepositoryDiscovery';
 import { formatActionFailureToast } from '../../git-core/gitError';
 import type { IBranch, IRepository, ITag } from '../../git-core/interfaces/IGitService';
 import type { ExtensionServices } from '../../services';
@@ -190,16 +192,17 @@ async function runReported(
   ctx: ICommandContext,
   spec: ISpineSpecBase,
   body: () => Promise<void>
-): Promise<void> {
+): Promise<boolean> {
   try {
     await body();
   } catch (error) {
     void vscode.window.showErrorMessage(formatActionFailureToast(spec.failureTitle, error));
-    return;
+    return false;
   }
   if (spec.refreshOnSuccess) {
     ctx.gitToolWindowProvider?.refresh();
   }
+  return true;
 }
 
 /** Register a mutating multi-target command (whole explorer selection). */
@@ -221,14 +224,67 @@ export function registerSelectionCommand(
       void vscode.window.showErrorMessage(spec.noTargetMessage ?? 'No file selected');
       return;
     }
+    // Resolve the PRIMARY repo through the full resolver (hint → config →
+    // active → single → picker), preserving the single-repo/palette behavior.
     const repo = await resolveScopedRepo(services, spec, targets[0].fsPath);
     if (!repo) {
       return;
     }
-    const paths = targets.map((u) => repoRelativePath(repo.rootUri.fsPath, u.fsPath));
-    await runReported(ctx, spec, () =>
-      spec.run({ services, gitService: services.gitService, repo, targets, paths })
-    );
+    // Group every target by its OWNING repo so a multi-repo explorer selection
+    // isn't handed to one repo — a foreign file would become an absolute
+    // pathspec and git would fail the whole batch. Targets inside the primary
+    // repo skip the extra lookup (byte-identical single-repo path); the rest
+    // resolve via getRepository (ancestor match). Unresolvable targets are
+    // toasted, never passed to git.
+    const groups = new Map<string, { repo: IRepository; targets: vscode.Uri[] }>();
+    groups.set(repo.rootUri.fsPath, { repo, targets: [] });
+    const unresolved: vscode.Uri[] = [];
+    for (const uri of targets) {
+      let owner: IRepository | undefined;
+      if (isPathInsideOrEqual(repo.rootUri.fsPath, uri.fsPath)) {
+        owner = repo;
+      } else {
+        owner = await services.gitService.getRepository(uri);
+      }
+      if (!owner) {
+        unresolved.push(uri);
+        continue;
+      }
+      const group = groups.get(owner.rootUri.fsPath);
+      if (group) {
+        group.targets.push(uri);
+      } else {
+        groups.set(owner.rootUri.fsPath, { repo: owner, targets: [uri] });
+      }
+    }
+
+    if (unresolved.length > 0) {
+      const names = unresolved.map((u) => path.basename(u.fsPath)).join(', ');
+      void vscode.window.showErrorMessage(`No Git repository found for: ${names}`);
+    }
+
+    // One run per repo group, each independently reported so one group's
+    // failure doesn't skip the rest; refresh once after all groups.
+    let anySuccess = false;
+    for (const group of groups.values()) {
+      if (group.targets.length === 0) {
+        continue;
+      }
+      const paths = group.targets.map((u) => repoRelativePath(group.repo.rootUri.fsPath, u.fsPath));
+      const ok = await runReported(ctx, { ...spec, refreshOnSuccess: false }, () =>
+        spec.run({
+          services,
+          gitService: services.gitService,
+          repo: group.repo,
+          targets: group.targets,
+          paths,
+        })
+      );
+      anySuccess = anySuccess || ok;
+    }
+    if (spec.refreshOnSuccess && anySuccess) {
+      ctx.gitToolWindowProvider?.refresh();
+    }
   });
 }
 

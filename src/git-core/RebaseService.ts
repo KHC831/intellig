@@ -17,6 +17,7 @@ import { parseStatus, isConflictedStatus } from './gitParser';
 import { IGitService } from './interfaces/IGitService';
 import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
 import { NON_INTERACTIVE_GIT_ENV } from './gitEnv';
+import { resolveWorktreeGitDir } from './repo/RepositoryDiscovery';
 
 /**
  * Rebase Service implementation.
@@ -462,7 +463,7 @@ export class RebaseService implements IRebaseService {
     // The editor is its OWN esbuild bundle (`npm run build:sequence-editor`)
     // emitted next to dist/extension.js, so the __dirname sibling resolves in
     // the shipped layout; check:vsix-clean pins it in the runtime manifest.
-    const todoScriptPath = path.join(cwd, '.git', 'rebase-todo-script.sh');
+    const todoScriptPath = path.join(this.gitDir(repo), 'rebase-todo-script.sh');
     const editorJsPath = path.join(__dirname, 'rebaseTodoEditor.js');
     const nodeBin = process.execPath;
     const todoScript = `#!/bin/sh
@@ -619,7 +620,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * @returns True if paused for edit
    */
   private async isPausedForEdit(repo: IRepository): Promise<boolean> {
-    const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
+    const rebaseMergePath = path.join(this.gitDir(repo), 'rebase-merge');
 
     if (!fs.existsSync(rebaseMergePath)) {
       return false;
@@ -655,14 +656,15 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * @returns True if paused for reword
    */
   private isPausedForReword(repo: IRepository): boolean {
-    const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
+    const gitDir = this.gitDir(repo);
+    const rebaseMergePath = path.join(gitDir, 'rebase-merge');
 
     if (!fs.existsSync(rebaseMergePath)) {
       return false;
     }
 
     // Check for COMMIT_EDITMSG which indicates Git is waiting for a commit message
-    const commitEditMsgPath = path.join(repo.rootUri.fsPath, '.git', 'COMMIT_EDITMSG');
+    const commitEditMsgPath = path.join(gitDir, 'COMMIT_EDITMSG');
     if (fs.existsSync(commitEditMsgPath)) {
       // Verify we're in a rebase and not just a regular commit
       const todoPath = path.join(rebaseMergePath, 'git-rebase-todo');
@@ -681,7 +683,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * @returns The current step number (0-indexed)
    */
   private getCurrentRebaseStep(repo: IRepository): number {
-    const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
+    const rebaseMergePath = path.join(this.gitDir(repo), 'rebase-merge');
     const donePath = path.join(rebaseMergePath, 'done');
 
     if (!fs.existsSync(donePath)) {
@@ -873,7 +875,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * ignored.
    */
   private _cleanupRewordFiles(repo: IRepository): void {
-    const gitDir = path.join(repo.rootUri.fsPath, '.git');
+    const gitDir = this.gitDir(repo);
     let names: string[];
     try {
       names = fs.readdirSync(gitDir);
@@ -899,8 +901,9 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * @returns True if a rebase is in progress
    */
   private isRebaseInProgress(repo: IRepository): boolean {
-    const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
-    const rebaseApplyPath = path.join(repo.rootUri.fsPath, '.git', 'rebase-apply');
+    const gitDir = this.gitDir(repo);
+    const rebaseMergePath = path.join(gitDir, 'rebase-merge');
+    const rebaseApplyPath = path.join(gitDir, 'rebase-apply');
 
     return fs.existsSync(rebaseMergePath) || fs.existsSync(rebaseApplyPath);
   }
@@ -912,7 +915,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * @returns Partial session info if rebase is active, undefined otherwise
    */
   private detectActiveRebase(repo: IRepository): Partial<IRebaseSession> | undefined {
-    const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
+    const rebaseMergePath = path.join(this.gitDir(repo), 'rebase-merge');
 
     if (!fs.existsSync(rebaseMergePath)) {
       return undefined;
@@ -1074,7 +1077,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
   private getConflictedFilesSync(repo: IRepository): string[] {
     // This is a simplified sync version - in practice, we'd use the async version
     // For detection purposes, we check for MERGE_HEAD or conflict markers
-    const mergeMsgPath = path.join(repo.rootUri.fsPath, '.git', 'MERGE_MSG');
+    const mergeMsgPath = path.join(this.gitDir(repo), 'MERGE_MSG');
     return fs.existsSync(mergeMsgPath) ? ['conflict-detected'] : [];
   }
 
@@ -1086,6 +1089,17 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    */
   private getRepoKey(repo: IRepository): string {
     return repo.rootUri.fsPath;
+  }
+
+  /**
+   * The repo's real git directory. In a normal checkout this is
+   * `<root>/.git`; in a LINKED WORKTREE `<root>/.git` is a pointer FILE, so
+   * every marker read/write (rebase-merge, COMMIT_EDITMSG, the sequence-editor
+   * script, reword override files) must follow the pointer. All `.git`-relative
+   * fs access in this service routes through here so it stays worktree-correct.
+   */
+  private gitDir(repo: IRepository): string {
+    return resolveWorktreeGitDir(repo.rootUri.fsPath);
   }
 
   /**

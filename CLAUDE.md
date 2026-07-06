@@ -9,7 +9,7 @@ Read next: `docs/ARCHITECTURE.md` (what the code is), `docs/AGENT-HANDBOOK.md` (
 ## Commands
 
 - **The gate** (run before any merge): `npm test` = eslint `--max-warnings 0` → `compile` → `check:all` (structural guard scripts) → unit → property. Fully headless.
-- **Compile**: `npm run compile` = tsc typecheck (`noEmit`) + esbuild extension bundle (`dist/extension.js`) + esbuild webview bundle (`media/mergeWindow.js`) + Monaco asset copy (`media/monaco/vs`). `npm run watch` is tsc-only — it rebuilds NEITHER bundle; use F5 (preLaunchTask compiles) or rerun compile.
+- **Compile**: `npm run compile` = tsc typecheck + three esbuild bundles — extension host (`dist/extension.js`), GIT_SEQUENCE_EDITOR entry (`dist/rebaseTodoEditor.js`), merge-window webview (`media/mergeWindow.js`) — + Monaco asset copy (`media/monaco/vs`). `npm run watch` is tsc-only — it rebuilds none of the bundles; use F5 (preLaunchTask compiles) or rerun compile.
 - **Single test file**: `npx mocha --require ts-node/register test/unit/path/to/file.test.ts` (add `--timeout 60000` for property tests). A mocha "Cannot find module" error usually masks a TypeScript error — run `npx tsc -p tsconfig.test.json --noEmit` to see the real one.
 - **Electron lanes** (real VS Code host, not part of `npm test`): `npm run test:ext-host` (activation/registration invariants), `npm run test:e2e` (real git fixtures). `npm run gate:full` runs everything.
 - **Lint only**: `npm run lint`. Husky pre-commit runs prettier + eslint `--fix --max-warnings 0` on staged files (it stashes — the "Backing up original state" lines are normal).

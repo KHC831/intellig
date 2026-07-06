@@ -163,10 +163,11 @@ Build & packaging:
   runtime file killed activation in 0.2.3/0.2.4). After ANY change:
   `npm run check:vsix-clean` — it checks both directions (no forbidden
   files AND the dist/media runtime manifest present).
-- **`dist/extension.js`, `media/mergeWindow.js`, `media/monaco/` are
-  gitignored and built by `compile`.** Plain `npm run watch` type-checks
-  only — it rebuilds NEITHER bundle; use F5 (whose preLaunchTask runs
-  compile) or rerun `npm run compile`.
+- **`dist/extension.js`, `dist/rebaseTodoEditor.js`,
+  `media/mergeWindow.js`, `media/monaco/` are gitignored and built by
+  `compile`.** Plain `npm run watch` type-checks only — it rebuilds
+  none of the bundles; use F5 (whose preLaunchTask runs compile) or
+  rerun `npm run compile`.
 - **Subprocess entry points need their own bundle.** Anything the
   extension spawns as a separate process (the rebase sequence editor,
   `dist/rebaseTodoEditor.js`) can't live inside the host bundle — give

@@ -12,6 +12,9 @@ import * as assert from 'assert';
 import { transformRebaseTodo } from '../../../src/git-core/rebaseTodo';
 import type { IRebaseAction } from '../../../src/git-core/interfaces/IRebaseService';
 
+// Resolved git dir the inline reword/squash exec -F lines resolve against.
+const GIT_DIR = '/tmp/gitdir';
+
 describe('transformRebaseTodo — reword + newMessage (H1)', () => {
   const SINGLE_LINE_TODO = 'pick aaaaaaa first commit\npick bbbbbbb second commit\n';
 
@@ -20,7 +23,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'reword' },
       { hash: 'bbbbbbb', action: 'pick' },
     ];
-    const result = transformRebaseTodo(SINGLE_LINE_TODO, plan);
+    const result = transformRebaseTodo(SINGLE_LINE_TODO, plan, GIT_DIR);
     assert.match(result, /^reword aaaaaaa first commit\n/);
     assert.match(result, /pick bbbbbbb second commit\n$/);
   });
@@ -30,12 +33,12 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'reword', newMessage: 'Updated message' },
       { hash: 'bbbbbbb', action: 'pick' },
     ];
-    const result = transformRebaseTodo(SINGLE_LINE_TODO, plan);
+    const result = transformRebaseTodo(SINGLE_LINE_TODO, plan, GIT_DIR);
     const lines = result.trimEnd().split('\n');
     assert.strictEqual(lines[0], 'pick aaaaaaa first commit');
     assert.match(
       lines[1],
-      /^exec git commit --amend -F .*intellig-reword-aaaaaaa.*\.txt --no-edit$/
+      /^exec git commit --amend -F '.*intellig-reword-aaaaaaa.*\.txt' --no-edit$/
     );
     assert.strictEqual(lines[2], 'pick bbbbbbb second commit');
   });
@@ -45,7 +48,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
     const plan: IRebaseAction[] = [
       { hash: 'abc12345def', action: 'reword', newMessage: 'new msg' },
     ];
-    const result = transformRebaseTodo(todo, plan);
+    const result = transformRebaseTodo(todo, plan, GIT_DIR);
     assert.match(result, /intellig-reword-abc12345def\.txt/);
   });
 
@@ -57,7 +60,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
       { hash: 'abc12345aaa', action: 'reword', newMessage: 'msg A' },
       { hash: 'abc12345bbb', action: 'reword', newMessage: 'msg B' },
     ];
-    const result = transformRebaseTodo(todo, plan);
+    const result = transformRebaseTodo(todo, plan, GIT_DIR);
     assert.match(result, /intellig-reword-abc12345aaa\.txt/);
     assert.match(result, /intellig-reword-abc12345bbb\.txt/);
   });
@@ -68,7 +71,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'reword', newMessage: 'new subject' },
       { hash: 'bbbbbbb', action: 'pick' },
     ];
-    const result = transformRebaseTodo(todo, plan);
+    const result = transformRebaseTodo(todo, plan, GIT_DIR);
     const lines = result.trimEnd().split('\n');
     assert.strictEqual(lines[0], 'pick aaaaaaa feat');
     assert.match(lines[1], /exec git commit --amend/);
@@ -82,7 +85,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'reword', newMessage: 'msg A' },
       { hash: 'bbbbbbb', action: 'reword', newMessage: 'msg B' },
     ];
-    const result = transformRebaseTodo(todo, plan);
+    const result = transformRebaseTodo(todo, plan, GIT_DIR);
     assert.match(result, /intellig-reword-aaaaaaa/);
     assert.match(result, /intellig-reword-bbbbbbb/);
   });
@@ -94,7 +97,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
   // own "leave blank to edit interactively" placeholder.
   it('emits classic reword when newMessage is an empty string', () => {
     const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: '' }];
-    const result = transformRebaseTodo('pick aaaaaaa first commit\n', plan);
+    const result = transformRebaseTodo('pick aaaaaaa first commit\n', plan, GIT_DIR);
     assert.match(result, /^reword aaaaaaa first commit\n/);
     assert.doesNotMatch(result, /exec git commit --amend/);
     assert.doesNotMatch(result, /intellig-reword/);
@@ -102,7 +105,7 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
 
   it('emits classic reword when newMessage is whitespace only', () => {
     const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: '   \n\t ' }];
-    const result = transformRebaseTodo('pick aaaaaaa first commit\n', plan);
+    const result = transformRebaseTodo('pick aaaaaaa first commit\n', plan, GIT_DIR);
     assert.match(result, /^reword aaaaaaa first commit\n/);
     assert.doesNotMatch(result, /exec git commit --amend/);
     assert.doesNotMatch(result, /intellig-reword/);
@@ -124,7 +127,7 @@ describe('transformRebaseTodo — squash + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'pick' },
       { hash: 'bbbbbbb', action: 'squash' },
     ];
-    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    const result = transformRebaseTodo(SQUASH_TODO, plan, GIT_DIR);
     assert.match(result, /^pick aaaaaaa base commit\n/);
     assert.match(result, /squash bbbbbbb to squash\n$/);
     assert.doesNotMatch(result, /exec git commit --amend/);
@@ -135,13 +138,13 @@ describe('transformRebaseTodo — squash + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'pick' },
       { hash: 'bbbbbbb', action: 'squash', newMessage: 'Combined message' },
     ];
-    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    const result = transformRebaseTodo(SQUASH_TODO, plan, GIT_DIR);
     const lines = result.trimEnd().split('\n');
     assert.strictEqual(lines[0], 'pick aaaaaaa base commit');
     assert.strictEqual(lines[1], 'fixup bbbbbbb to squash');
     assert.match(
       lines[2],
-      /^exec git commit --amend -F .*intellig-reword-bbbbbbb.*\.txt --no-edit$/
+      /^exec git commit --amend -F '.*intellig-reword-bbbbbbb.*\.txt' --no-edit$/
     );
   });
 
@@ -153,7 +156,7 @@ describe('transformRebaseTodo — squash + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'pick' },
       { hash: 'bbbbbbb', action: 'squash', newMessage: '' },
     ];
-    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    const result = transformRebaseTodo(SQUASH_TODO, plan, GIT_DIR);
     assert.match(result, /squash bbbbbbb to squash\n$/);
     assert.doesNotMatch(result, /exec git commit --amend/);
     assert.doesNotMatch(result, /fixup bbbbbbb/);
@@ -164,7 +167,7 @@ describe('transformRebaseTodo — squash + newMessage (H1)', () => {
       { hash: 'aaaaaaa', action: 'pick' },
       { hash: 'bbbbbbb', action: 'squash', newMessage: '   \n\t ' },
     ];
-    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    const result = transformRebaseTodo(SQUASH_TODO, plan, GIT_DIR);
     assert.match(result, /squash bbbbbbb to squash\n$/);
     assert.doesNotMatch(result, /exec git commit --amend/);
     assert.doesNotMatch(result, /fixup bbbbbbb/);

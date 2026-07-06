@@ -834,7 +834,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       this._close('aborted');
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      // Scrub credentials from git stderr before surfacing (LOW finding).
+      // Scrub credentials from git stderr before surfacing.
       void vscode.window.showErrorMessage(
         `Failed to abort ${OP_LABELS[op].toLowerCase()}: ${sanitizeGitError(errMsg)}`
       );
@@ -939,7 +939,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       this._close('completed');
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      // Scrub credentials from git stderr before surfacing (LOW finding).
+      // Scrub credentials from git stderr before surfacing.
       void vscode.window.showErrorMessage(
         `Failed to continue ${OP_LABELS[op].toLowerCase()}: ${sanitizeGitError(errMsg)}`
       );

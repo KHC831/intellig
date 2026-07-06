@@ -66,9 +66,11 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
 
     const todoContent = fs.readFileSync(todoPath, 'utf8');
     assert.match(todoContent, /^pick aaaaaaa only commit\n/);
+    // The `-F` path is the ABSOLUTE, shell-quoted override file under the
+    // resolved git dir (a relative `.git/…` would break in a linked worktree).
     assert.match(
       todoContent,
-      /exec git commit --amend -F .git\/.intellig-reword-aaaaaaa\.txt --no-edit\n$/
+      /exec git commit --amend -F '\/[^']*\.intellig-reword-aaaaaaa\.txt' --no-edit\n$/
     );
 
     // Message file must exist with the new message content.
@@ -113,7 +115,7 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
     assert.match(todoContent, /fixup bbbbbbb to squash/);
     assert.match(
       todoContent,
-      /exec git commit --amend -F .git\/.intellig-reword-bbbbbbb\.txt --no-edit/
+      /exec git commit --amend -F '\/[^']*\.intellig-reword-bbbbbbb\.txt' --no-edit/
     );
 
     const msgFile = path.join(gitDir, '.intellig-reword-bbbbbbb.txt');

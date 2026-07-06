@@ -19,6 +19,10 @@ import * as assert from 'assert';
 import { transformRebaseTodo } from '../../../src/git-core/rebaseTodo';
 import type { IRebaseAction } from '../../../src/git-core/interfaces/IRebaseService';
 
+// Resolved git dir the inline reword/squash `exec … -F <file>` lines resolve
+// against (absolute, so they work from a linked worktree).
+const GIT_DIR = '/tmp/gitdir';
+
 describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
   it('remaps actions in place and drops git’s comment/help block', () => {
     const original = [
@@ -35,13 +39,13 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'bbbbbbb', action: 'reword', newMessage: 'reworded second' },
     ];
 
-    const out = transformRebaseTodo(original, plan);
+    const out = transformRebaseTodo(original, plan, GIT_DIR);
     assert.strictEqual(
       out,
       [
         'pick aaaaaaa first commit',
         'pick bbbbbbb second commit',
-        'exec git commit --amend -F .git/.intellig-reword-bbbbbbb.txt --no-edit',
+        `exec git commit --amend -F '${GIT_DIR}/.intellig-reword-bbbbbbb.txt' --no-edit`,
       ].join('\n') + '\n'
     );
   });
@@ -58,7 +62,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'bbbbbbb', action: 'pick' },
     ];
 
-    const out = transformRebaseTodo(original, plan);
+    const out = transformRebaseTodo(original, plan, GIT_DIR);
     assert.strictEqual(
       out,
       [
@@ -82,7 +86,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'aaaaaaa', action: 'pick' },
     ];
 
-    const out = transformRebaseTodo(original, plan);
+    const out = transformRebaseTodo(original, plan, GIT_DIR);
     assert.strictEqual(
       out,
       [
@@ -109,7 +113,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'bbbbbbb', action: 'edit' },
     ];
 
-    const out = transformRebaseTodo(original, plan);
+    const out = transformRebaseTodo(original, plan, GIT_DIR);
     assert.strictEqual(
       out,
       [
@@ -136,7 +140,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'bbbbbbb', action: 'drop' },
     ];
 
-    const out = transformRebaseTodo(original, plan);
+    const out = transformRebaseTodo(original, plan, GIT_DIR);
     assert.strictEqual(
       out,
       ['pick aaaaaaa keep this', 'drop bbbbbbb remove this', 'update-ref refs/heads/topic'].join(
@@ -154,7 +158,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
     ];
 
     assert.strictEqual(
-      transformRebaseTodo(original, plan),
+      transformRebaseTodo(original, plan, GIT_DIR),
       ['pick aaaaaaa first', 'exec make test', 'pick bbbbbbb second'].join('\n') + '\n'
     );
   });
@@ -165,10 +169,10 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
     const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: 'x' }];
 
     assert.strictEqual(
-      transformRebaseTodo(original, plan),
+      transformRebaseTodo(original, plan, GIT_DIR),
       [
         'pick aaaaaaa1234 first commit',
-        'exec git commit --amend -F .git/.intellig-reword-aaaaaaa.txt --no-edit',
+        `exec git commit --amend -F '${GIT_DIR}/.intellig-reword-aaaaaaa.txt' --no-edit`,
       ].join('\n') + '\n'
     );
   });
@@ -176,7 +180,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
   it('throws if the plan references a hash absent from git’s todo', () => {
     const original = 'pick aaaaaaa only commit';
     const plan: IRebaseAction[] = [{ hash: 'deadbee', action: 'pick' }];
-    assert.throws(() => transformRebaseTodo(original, plan), /deadbee/);
+    assert.throws(() => transformRebaseTodo(original, plan, GIT_DIR), /deadbee/);
   });
 
   it('throws a clear error when the first plan entry is a squash', () => {
@@ -186,7 +190,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'bbbbbbb', action: 'pick' },
     ];
     assert.throws(
-      () => transformRebaseTodo(original, plan),
+      () => transformRebaseTodo(original, plan, GIT_DIR),
       /Cannot squash the first commit in the plan/
     );
   });
@@ -198,16 +202,38 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'bbbbbbb', action: 'pick' },
     ];
     assert.throws(
-      () => transformRebaseTodo(original, plan),
+      () => transformRebaseTodo(original, plan, GIT_DIR),
       /Cannot fixup the first commit in the plan/
     );
+  });
+
+  // Bijection: git's todo and the plan must cover the SAME commit set.
+  it('throws (fail closed) when a todo commit is absent from the plan', () => {
+    // Reachable race: the user commits while the planning editor is open, so
+    // git's real todo has an extra commit the plan never mentions. Emitting
+    // only the plan would silently drop that commit from the branch.
+    const original = ['pick aaaaaaa first', 'pick bbbbbbb second', 'pick ccccccc third'].join('\n');
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'pick' },
+    ];
+    assert.throws(() => transformRebaseTodo(original, plan, GIT_DIR), /ccccccc/);
+  });
+
+  it('throws when a plan entry matches an already-consumed todo commit (double-pick)', () => {
+    const original = 'pick aaaaaaa only commit';
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'aaaaaaa', action: 'pick' },
+    ];
+    assert.throws(() => transformRebaseTodo(original, plan, GIT_DIR), /more than once/i);
   });
 
   it('preserves a leading structural line before the first commit', () => {
     const original = ['label base', 'pick aaaaaaa only'].join('\n');
     const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'pick' }];
     assert.strictEqual(
-      transformRebaseTodo(original, plan),
+      transformRebaseTodo(original, plan, GIT_DIR),
       ['label base', 'pick aaaaaaa only'].join('\n') + '\n'
     );
   });
@@ -244,7 +270,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
       { hash: 'ef6f5f3', action: 'reword', newMessage: 'fourth, reworded' },
     ];
 
-    const out = transformRebaseTodo(original, plan);
+    const out = transformRebaseTodo(original, plan, GIT_DIR);
     assert.strictEqual(
       out,
       [
@@ -258,7 +284,7 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
         'pick 3638bc5 # third',
         // newMessage provided: emit pick then exec amend (no git pause).
         'pick ef6f5f3 # fourth',
-        'exec git commit --amend -F .git/.intellig-reword-ef6f5f3.txt --no-edit',
+        `exec git commit --amend -F '${GIT_DIR}/.intellig-reword-ef6f5f3.txt' --no-edit`,
       ].join('\n') + '\n'
     );
   });

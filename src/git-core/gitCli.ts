@@ -116,6 +116,16 @@ export interface IGitCommandResult {
   stderr: string;
   /** Combined output (stdout + stderr in order received) */
   combined: string;
+  /**
+   * `true` when any captured stream (stdout / stderr / combined) hit the
+   * output cap and further bytes were dropped, so the captured text is a
+   * PREFIX of git's real output. Absent (undefined) on a complete capture, so
+   * existing result fixtures stay valid. Read/display consumers may ignore it
+   * (truncated-but-usable is fine for a log/status view); consumers that WRITE
+   * the captured output as an artifact (patch creation) must fail closed on it,
+   * since a truncated diff is a corrupt patch.
+   */
+  truncated?: boolean;
 }
 
 /**
@@ -237,6 +247,9 @@ export class GitCli {
   /** Injectable spawn (defaults to child_process.spawn) — a test seam for
    * driving timeout / kill behavior with a controllable child. */
   private readonly _spawn: typeof spawn;
+  /** Per-stream output cap (chars). Overridable so a test can drive the
+   * truncation path with a tiny cap instead of a 64 MiB stream. */
+  private readonly _maxOutputBytes: number;
   private _onCommandExecuted: vscode.EventEmitter<{
     command: string;
     args: string[];
@@ -253,7 +266,11 @@ export class GitCli {
     result: IGitCommandResult;
   }>;
 
-  constructor(gitPath: string = 'git', spawnFn: typeof spawn = spawn) {
+  constructor(
+    gitPath: string = 'git',
+    spawnFn: typeof spawn = spawn,
+    maxOutputBytes: number = MAX_GIT_OUTPUT_BYTES
+  ) {
     // Pre-resolve the bare `'git'` token to an absolute path so
     // `child_process.spawn` skips libuv's PATH lookup entirely. This
     // eliminates the `spawn git ENOENT` flake that surfaces under
@@ -262,6 +279,7 @@ export class GitCli {
     // and falls back to the bare name when resolution itself fails.
     this._gitPath = resolveGitExecutable(gitPath);
     this._spawn = spawnFn;
+    this._maxOutputBytes = maxOutputBytes;
     this._onCommandExecuted = new vscode.EventEmitter();
     this.onCommandExecuted = this._onCommandExecuted.event;
   }
@@ -350,6 +368,17 @@ export class GitCli {
       let stderr = '';
       let combined = '';
       let killed = false;
+      // Set once any buffer overflows the cap: appendCapped drops the excess
+      // whenever `existing + chunk` would exceed the limit, so the captured
+      // text becomes a prefix. Surfaced as IGitCommandResult.truncated so a
+      // patch-writing consumer can fail closed rather than emit a corrupt diff.
+      let truncated = false;
+      const append = (existing: string, chunk: string): string => {
+        if (existing.length + chunk.length > this._maxOutputBytes) {
+          truncated = true;
+        }
+        return appendCapped(existing, chunk, this._maxOutputBytes);
+      };
 
       // Bound the command: on timeout send SIGTERM, then escalate to SIGKILL if
       // the child ignores it (a hung credential helper can trap SIGTERM). Both
@@ -392,8 +421,8 @@ export class GitCli {
       process.stdout?.on('data', (data: Buffer) => {
         try {
           const str = stdoutDecoder.write(data);
-          stdout = appendCapped(stdout, str, MAX_GIT_OUTPUT_BYTES);
-          combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
+          stdout = append(stdout, str);
+          combined = append(combined, str);
           // eslint-disable-next-line no-restricted-syntax -- defensive belt-and-braces; a capture error in this high-frequency data handler must never escape as an uncaught async exception that crashes the host (see the block comment above).
         } catch {
           // Defensive: never let a capture error crash the host.
@@ -403,8 +432,8 @@ export class GitCli {
       process.stderr?.on('data', (data: Buffer) => {
         try {
           const str = stderrDecoder.write(data);
-          stderr = appendCapped(stderr, str, MAX_GIT_OUTPUT_BYTES);
-          combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
+          stderr = append(stderr, str);
+          combined = append(combined, str);
           // eslint-disable-next-line no-restricted-syntax -- defensive belt-and-braces; a capture error in this high-frequency data handler must never escape as an uncaught async exception that crashes the host (see the block comment above).
         } catch {
           // Defensive: never let a capture error crash the host.
@@ -416,13 +445,13 @@ export class GitCli {
       const flushDecoders = (): void => {
         const stdoutTail = stdoutDecoder.end();
         if (stdoutTail.length > 0) {
-          stdout = appendCapped(stdout, stdoutTail, MAX_GIT_OUTPUT_BYTES);
-          combined = appendCapped(combined, stdoutTail, MAX_GIT_OUTPUT_BYTES);
+          stdout = append(stdout, stdoutTail);
+          combined = append(combined, stdoutTail);
         }
         const stderrTail = stderrDecoder.end();
         if (stderrTail.length > 0) {
-          stderr = appendCapped(stderr, stderrTail, MAX_GIT_OUTPUT_BYTES);
-          combined = appendCapped(combined, stderrTail, MAX_GIT_OUTPUT_BYTES);
+          stderr = append(stderr, stderrTail);
+          combined = append(combined, stderrTail);
         }
       };
 
@@ -437,6 +466,9 @@ export class GitCli {
           stderr,
           combined,
         };
+        if (truncated) {
+          result.truncated = true;
+        }
 
         // Fire the command executed event
         this._onCommandExecuted.fire({ command: this._gitPath, args, result });
@@ -461,6 +493,9 @@ export class GitCli {
           stderr: error.message,
           combined: combined + error.message,
         };
+        if (truncated) {
+          result.truncated = true;
+        }
 
         // Spawn failures are exactly the confusing ones — surface them in the
         // console view like every other executed command.

@@ -86,12 +86,16 @@ Two constraints shaped the design:
 ## Consequences
 
 - The packaging bug class ("runtime file missing from the .vsix" /
-  "internal file leaked into it") is structurally gone: the shipped set
-  is closed (dist + media + manifest/docs), and the guard verifies the
-  runtime manifest positively.
-- .vsix drops from shipping a `node_modules` tree to 133 files
-  (~3.4 MB), most of which are Monaco AMD assets; activation loads one
-  JS file.
+  "internal file leaked into it") is structurally closed in BOTH
+  directions: the guard verifies the runtime manifest positively, and
+  an allow-list assertion in `check-vsix-clean.sh` (backed by the
+  shared `scripts/lib/vsix-rules.sh`) fails any packaged entry that is
+  not under `dist/`, `media/`, `resources/`, or the exact root set —
+  so an internal file with no matching deny pattern can no longer
+  leak. (The deny-list-only fence let `.husky/**` ship in 0.3.1; the
+  allow-list is the mechanism that closes the leak direction.)
+- .vsix ships ~114 files (~3.4 MB), most of which are Monaco AMD
+  assets; activation loads one JS file. No `node_modules` tree ships.
 - `out/` no longer exists; anything that needs compiled host JS must use
   the bundle. New singletons needed by Electron-lane tests must be
   re-exported from `src/extension.ts` (the bridges' comments say so).

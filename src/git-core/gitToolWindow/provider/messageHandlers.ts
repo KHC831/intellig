@@ -83,7 +83,7 @@ export function selectCommits(
     ctx.extendedLogState.expandedCommit = filtered[0];
   }
 
-  // (HIGH) — render BEFORE posting so the precomputed enable map
+  // Render BEFORE posting so the precomputed enable map
   // anchor sync land on the live document, not the pre-reload one.
   ctx.updateWebview();
   // Fire BEFORE the post sequence (matches
@@ -255,7 +255,7 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
   // commit, matching IntelliJ's selection model.
   ctx.extendedLogState.anchorHash = hash;
 
-  // (HIGH) — order: render FIRST so the new document exists,
+  // Order: render FIRST so the new document exists,
   // THEN post so postMessage lands on the live page rather than the
   // pre-reload one (ADR-009 section 3 sub-rule). _postSyncSelection mirrors
   // the host's anchor + selection onto the JS-side mirror so the

@@ -18,7 +18,17 @@
  * structural line through unchanged.
  */
 
+import * as path from 'path';
 import type { IRebaseAction, RebaseAction } from './interfaces/IRebaseService';
+
+/**
+ * Single-quote a path for the `exec` line git runs via `sh`. The `'\''` idiom
+ * closes the quote, escapes a literal quote, and reopens — so install paths
+ * with spaces or shell metacharacters survive intact.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 /**
  * The six commit commands a rebase plan entry may carry. Any other token is a
@@ -97,9 +107,10 @@ export function hasInlineMessageOverride(entry: IRebaseAction): boolean {
 /**
  * Basename of the temp file holding an inline message override (reword or
  * squash), keyed by the full plan hash so two commits sharing a short prefix in
- * one plan never collide onto the same file. Lives in the git dir; the
- * `exec git commit --amend -F` line references it as `.git/<name>` relative to
- * the repo root.
+ * one plan never collide onto the same file. Lives in the resolved git dir; the
+ * `exec git commit --amend -F` line references it by ABSOLUTE path (a relative
+ * `.git/<name>` would break in a linked worktree, where `<root>/.git` is a
+ * pointer file rather than the real git dir).
  */
 export function messageOverrideFileName(hash: string): string {
   // Fail closed at the path sink: this name is joined onto `.git/`, so a hash
@@ -169,11 +180,20 @@ interface ICommitGroup {
  * @param plan - The user's ordered actions. Each entry must match exactly one
  *   commit line in the todo (by hash prefix); the plan defines both the new
  *   action for each commit and the new commit order.
+ * @param gitDir - The repo's RESOLVED git dir (per-worktree, following the
+ *   `.git` pointer). Inline reword/squash `exec … --amend -F <file>` lines
+ *   reference the override file by absolute path under this dir, so they work
+ *   from a linked worktree where `<root>/.git` is a file.
  * @returns The rewritten todo (newline-terminated), ready to write back.
- * @throws If a plan entry references a hash absent from git's todo — a
- *   mismatch that would otherwise silently corrupt the rebase.
+ * @throws If a plan entry references a hash absent from git's todo, or a commit
+ *   group in git's todo is never consumed by the plan — mismatches that would
+ *   otherwise silently corrupt the rebase.
  */
-export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[]): string {
+export function transformRebaseTodo(
+  originalTodo: string,
+  plan: IRebaseAction[],
+  gitDir: string
+): string {
   // Validate every plan entry before any of it reaches the todo or a file
   // path. The plan originates from the webview; a forged `action` would inject
   // an arbitrary todo command (`exec …`) and a non-hex `hash` would traverse
@@ -240,15 +260,28 @@ export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[])
 
   const out: string[] = [...preamble];
 
+  // Consume each todo commit group exactly once. Tracking consumption per group
+  // INSTANCE (not by hash) lets the post-loop bijection check catch a todo
+  // commit the plan never mentions — a commit made while the planning editor
+  // was open — instead of silently dropping it, and rejects a plan entry that
+  // matches an already-consumed group (a duplicate double-pick).
+  const consumed = new Set<ICommitGroup>();
+
   for (const entry of plan) {
-    const group = groups.find((g) => hashMatches(g.hash, entry.hash));
-    if (!group) {
+    const matching = groups.filter((g) => hashMatches(g.hash, entry.hash));
+    if (matching.length === 0) {
       throw new Error(
         `Rebase plan references commit ${entry.hash}, which is not in git's rebase todo`
       );
     }
+    const group = matching.find((g) => !consumed.has(g));
+    if (!group) {
+      throw new Error(`Rebase plan references commit ${entry.hash} more than once`);
+    }
+    consumed.add(group);
     const subjectSuffix = group.subject ? ` ${group.subject}` : '';
-    const amendExec = `exec git commit --amend -F .git/${messageOverrideFileName(entry.hash)} --no-edit`;
+    const overridePath = shellQuote(path.join(gitDir, messageOverrideFileName(entry.hash)));
+    const amendExec = `exec git commit --amend -F ${overridePath} --no-edit`;
     if (hasRewordOverride(entry)) {
       // User pre-typed a message in the planning UI (H1 parity). Emit 'pick'
       // so git never pauses, then amend the message via exec. The message file
@@ -271,6 +304,17 @@ export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[])
       out.push(`${entry.action} ${group.hash}${subjectSuffix}`);
     }
     out.push(...group.trailing);
+  }
+
+  // Fail closed if any todo commit was never consumed: git's todo carries a
+  // commit the plan does not, so the branch changed since planning began.
+  // Emitting the plan as-is would silently drop that commit.
+  const dropped = groups.find((g) => !consumed.has(g));
+  if (dropped) {
+    throw new Error(
+      `Commit ${dropped.hash} is in git's rebase todo but not in the plan — ` +
+        `the branch changed since planning started. Restart the rebase.`
+    );
   }
 
   return out.join('\n') + '\n';
