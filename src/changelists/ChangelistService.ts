@@ -11,6 +11,7 @@ import {
   FileStatus,
   IFileStatus,
 } from '../git-core/interfaces/IGitService';
+import { statusCodeToFileStatus } from '../git-core/gitParser';
 import { resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
 
 /**
@@ -73,6 +74,15 @@ interface IChangelistStorage {
    * @internal
    */
   _unknownTopLevel?: Record<string, unknown>;
+}
+
+/**
+ * Runtime git-status overlay for a single dirty path. Derived from the
+ * `IFileStatus` reconcile already reads; never persisted.
+ */
+interface IFileChangeMeta {
+  status: FileStatus;
+  staged: boolean;
 }
 
 /**
@@ -233,6 +243,19 @@ export function serializeStorageForDisk(storage: IChangelistStorage): Record<str
 }
 
 /**
+ * Derive a file's changelist metadata from its git-status entry. A path is
+ * staged when the index side carries a real change (anything other than a
+ * clean or untracked marker); the status is the combined index/work-tree
+ * classification.
+ */
+function fileMetaFromStatus(entry: IFileStatus): IFileChangeMeta {
+  return {
+    status: statusCodeToFileStatus(entry.indexStatus, entry.workTreeStatus),
+    staged: entry.indexStatus !== ' ' && entry.indexStatus !== '?',
+  };
+}
+
+/**
  * Changelist Service implementation.
  * Manages changelists for organizing uncommitted changes.
  * Changelists are an IDE-level feature (not Git) that helps organize work before committing.
@@ -254,6 +277,16 @@ export class ChangelistService implements IChangelistService {
    * `onDidChangeRepository` fires; cleared when the timer runs.
    */
   private _reconcileTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  /**
+   * Per-repo overlay of the real git-status metadata for each dirty path,
+   * keyed by repo-key then path. Populated by {@link doReconcile} from the
+   * status it already fetches, consulted by {@link createFileChange} so the
+   * synchronous, cached {@link getChangelists} render path can report each
+   * file's true `status` / `staged` without spawning git. Runtime-only —
+   * never persisted (on-disk storage stays path-only).
+   */
+  private _statusByPath: Map<string, Map<string, IFileChangeMeta>> = new Map();
 
   /**
    * Reference to GitService for status lookups and repository-change
@@ -327,8 +360,9 @@ export class ChangelistService implements IChangelistService {
     const activeId = this.resolveActiveChangelistId(storage);
 
     // Convert to IChangelist format
+    const statusMeta = this._statusByPath.get(repoKey);
     const changelists = storage.changelists.map((item) =>
-      this.storageItemToChangelist(item, activeId)
+      this.storageItemToChangelist(item, activeId, statusMeta)
     );
 
     // Update cache
@@ -385,7 +419,8 @@ export class ChangelistService implements IChangelistService {
     // the active one, so resolve against the unchanged stored active id.
     const changelist = this.storageItemToChangelist(
       storageItem,
-      this.resolveActiveChangelistId(storage)
+      this.resolveActiveChangelistId(storage),
+      this._statusByPath.get(this.getRepoKey(repo))
     );
 
     // Fire change event
@@ -714,8 +749,12 @@ export class ChangelistService implements IChangelistService {
     // its user-assigned changelist instead of being pruned (old path gone) and
     // re-added to the default (new path unseen).
     const renamedFrom = new Map<string, string>();
+    // Overlay the real status metadata for each dirty path so the
+    // synchronous getChangelists render path can report it without git.
+    const statusMeta = new Map<string, IFileChangeMeta>();
     for (const entry of statuses) {
       dirtyPaths.add(entry.path);
+      statusMeta.set(entry.path, fileMetaFromStatus(entry));
       if (entry.renamed) {
         renamedFrom.set(entry.renamed, entry.path);
       }
@@ -766,6 +805,7 @@ export class ChangelistService implements IChangelistService {
     this.saveChangelistStorage(repo, storage);
 
     const repoKey = this.getRepoKey(repo);
+    this._statusByPath.set(repoKey, statusMeta);
     this._changelistCache.delete(repoKey);
 
     if (changed) {
@@ -851,7 +891,8 @@ export class ChangelistService implements IChangelistService {
    */
   private storageItemToChangelist(
     storageItem: IChangelistStorageItem,
-    activeChangelistId: string
+    activeChangelistId: string,
+    statusMeta?: ReadonlyMap<string, IFileChangeMeta>
   ): IChangelist {
     return {
       id: storageItem.id,
@@ -859,25 +900,29 @@ export class ChangelistService implements IChangelistService {
       isDefault: storageItem.isDefault,
       isActive: storageItem.id === activeChangelistId,
       description: storageItem.description ?? '',
-      files: storageItem.files.map((filePath) => this.createFileChange(filePath)),
+      files: storageItem.files.map((filePath) => this.createFileChange(filePath, statusMeta)),
     };
   }
 
   /**
-   * Create a file change object from a file path.
-   * When a GitService is wired, the real status code is resolved from
-   * the cached status lookup the caller already performed; otherwise we
-   * fall back to `modified` as a placeholder that downstream UI can
-   * refresh later.
+   * Create a file change object from a file path, overlaying the real
+   * `status` / `staged` captured by the last reconcile when available.
+   * Before any reconcile has run for a repo the overlay is absent, so the
+   * file degrades to a `modified` / unstaged placeholder.
    *
    * @param filePath - The file path
+   * @param statusMeta - Per-path git-status overlay from the last reconcile
    * @returns The file change object
    */
-  private createFileChange(filePath: string): IFileChange {
+  private createFileChange(
+    filePath: string,
+    statusMeta?: ReadonlyMap<string, IFileChangeMeta>
+  ): IFileChange {
+    const meta = statusMeta?.get(filePath);
     return {
       path: filePath,
-      status: 'modified' as FileStatus, // Default status, should be updated by caller
-      staged: false,
+      status: meta?.status ?? 'modified',
+      staged: meta?.staged ?? false,
     };
   }
 
@@ -1033,6 +1078,7 @@ export class ChangelistService implements IChangelistService {
     this._logger.info('ChangelistService disposing');
     this._onDidChangeChangelists.dispose();
     this._changelistCache.clear();
+    this._statusByPath.clear();
 
     for (const timer of this._reconcileTimers.values()) {
       clearTimeout(timer);

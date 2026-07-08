@@ -6,7 +6,11 @@ import {
   ChangelistService,
   createChangelistService,
 } from '../../../src/changelists/ChangelistService';
-import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
+import {
+  IFileStatus,
+  IGitService,
+  IRepository,
+} from '../../../src/git-core/interfaces/IGitService';
 import { IChangelist } from '../../../src/changelists/interfaces/IChangelistService';
 import { GitCli } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
@@ -1183,6 +1187,81 @@ describe('ChangelistService', () => {
       } finally {
         fake.uninstall();
       }
+    });
+  });
+
+  describe('file metadata reflects git status after reconcile', () => {
+    /**
+     * Build an IGitService stub whose `getStatus` returns the given
+     * IFileStatus rows verbatim, so specs can drive real index/work-tree
+     * codes through reconcile and assert the overlaid metadata.
+     */
+    function makeStatusStub(rows: IFileStatus[]): IGitService {
+      return {
+        getStatus: async () => rows,
+        onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+      } as unknown as IGitService;
+    }
+
+    async function reconcileAndGet(rows: IFileStatus[]): Promise<IChangelist[]> {
+      const svc = createChangelistService(makeStatusStub(rows));
+      try {
+        await svc.reconcileWithGitStatus(mockRepo);
+        return svc.getChangelists(mockRepo);
+      } finally {
+        svc.dispose();
+      }
+    }
+
+    function fileMeta(lists: IChangelist[], filePath: string) {
+      for (const cl of lists) {
+        const f = cl.files.find((x) => x.path === filePath);
+        if (f) {
+          return f;
+        }
+      }
+      throw new Error(`file ${filePath} not found in any changelist`);
+    }
+
+    it('a file staged in the index is reported staged', async () => {
+      const lists = await reconcileAndGet([
+        { path: 'staged.ts', indexStatus: 'M', workTreeStatus: ' ' },
+      ]);
+      assert.strictEqual(fileMeta(lists, 'staged.ts').staged, true);
+    });
+
+    it('an unstaged working-tree change is reported unstaged', async () => {
+      const lists = await reconcileAndGet([
+        { path: 'dirty.ts', indexStatus: ' ', workTreeStatus: 'M' },
+      ]);
+      assert.strictEqual(fileMeta(lists, 'dirty.ts').staged, false);
+    });
+
+    it('an untracked file carries status "untracked"', async () => {
+      const lists = await reconcileAndGet([
+        { path: 'new.ts', indexStatus: '?', workTreeStatus: '?' },
+      ]);
+      const f = fileMeta(lists, 'new.ts');
+      assert.strictEqual(f.status, 'untracked');
+      assert.strictEqual(f.staged, false, 'an untracked file is never staged');
+    });
+
+    it('an added (staged-new) file carries status "added" and staged true', async () => {
+      const lists = await reconcileAndGet([
+        { path: 'added.ts', indexStatus: 'A', workTreeStatus: ' ' },
+      ]);
+      const f = fileMeta(lists, 'added.ts');
+      assert.strictEqual(f.status, 'added');
+      assert.strictEqual(f.staged, true);
+    });
+
+    it('a deleted file carries status "deleted"', async () => {
+      const lists = await reconcileAndGet([
+        { path: 'gone.ts', indexStatus: 'D', workTreeStatus: ' ' },
+      ]);
+      assert.strictEqual(fileMeta(lists, 'gone.ts').status, 'deleted');
     });
   });
 
