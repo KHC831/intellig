@@ -363,8 +363,22 @@ export class GitService implements IGitService, IGitServiceCli {
     // Set up workspace folder change listener
     this._disposables.push(
       vscode.workspace.onDidChangeWorkspaceFolders((event) => {
-        // Remove watchers for removed folders
+        // Remove watchers for removed folders, but only when the folder is
+        // GENUINELY gone. `workspace.workspaceFolders` is the source of truth,
+        // not the event delta: a tool that adds a folder by replacing the
+        // folder list can fire a spurious `removed` for folders it also re-adds
+        // (or that never left). Acting on that delta tombstones a still-present
+        // repo — `removeRepositoryWatcher` adds it to `_removedRoots`, so later
+        // watcher-driven reloads skip it — and it silently vanishes from every
+        // repository picker until window reload. Reconciling against the live
+        // folder set makes the removal authoritative.
+        const presentFolders = new Set(
+          (vscode.workspace.workspaceFolders ?? []).map((f) => path.normalize(f.uri.fsPath))
+        );
         for (const folder of event.removed) {
+          if (presentFolders.has(path.normalize(folder.uri.fsPath))) {
+            continue;
+          }
           this.removeRepositoryWatcher(folder.uri.fsPath);
         }
         // Discover repositories in added folders. Bucket C:

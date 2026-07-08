@@ -2730,6 +2730,7 @@ export class GitToolWindowProvider
     const previousSelectedPath = previousSelected
       ? normalizeRepoPath(previousSelected.rootUri)
       : undefined;
+    const previousRepoCount = this._availableRepositories.length;
 
     this._availableRepositories = repos;
 
@@ -2748,32 +2749,60 @@ export class GitToolWindowProvider
     this._resolveRepositoryScope(repos);
 
     // Prune a visible-roots subset to the roots that still exist (identity by
-    // normalized path, mirroring the index re-resolution above). Drop it when it
-    // would shrink below two roots or grow to cover every root — either case is
-    // no longer a "some but not all" subset and collapses to "show all". An
-    // EXPLICIT empty set (the "show none" state) is left untouched — it isn't a
-    // shrunken subset, it's a deliberate selection the user must undo themselves.
+    // normalized path, mirroring the index re-resolution above). An EXPLICIT
+    // empty set (the "show none" state) is left untouched — it isn't a shrunken
+    // subset, it's a deliberate selection the user must undo themselves.
     if (this._visibleRepoRoots && this._visibleRepoRoots.length > 0) {
       const present = new Set(repos.map((r) => normalizeRepoPath(r.rootUri)));
       const kept = this._visibleRepoRoots.filter((p) => present.has(normalizeRepoPathString(p)));
-      this._visibleRepoRoots = kept.length < 2 || kept.length === repos.length ? null : kept;
+      if (kept.length === 1) {
+        // A subset that shrank to a single surviving root becomes the single-repo
+        // scope — mirroring the checkbox rule "exactly one checked → that repo".
+        // Collapsing it to "show all" instead would resurrect roots the user
+        // explicitly excluded (the other survivors) into the view.
+        const survivor = normalizeRepoPathString(kept[0]);
+        const idx = repos.findIndex((r) => normalizeRepoPath(r.rootUri) === survivor);
+        if (idx >= 0) {
+          this._selectedRepositoryIndex = idx;
+          this._repositoryScope = idx;
+        }
+        this._visibleRepoRoots = null;
+      } else {
+        // 0 survivors, or a subset that now covers every root, is no longer a
+        // "some but not all" subset → show all. A real 2..n-1 subset is kept.
+        this._visibleRepoRoots = kept.length === 0 || kept.length === repos.length ? null : kept;
+      }
     }
 
     this._updateWebview();
     this._onDidChangeState.fire();
 
-    // When the workspace shrinks from multiple repos to one, a merged 'all'
-    // scope collapses to the surviving single repo. The effective scope has
-    // genuinely changed (merged → single), so emit the scope event — mirroring
-    // the specific-repo case in `_handleRepositorySelection` — to re-route the
-    // log and branch wiring eagerly instead of waiting for the next
-    // repo-change/refresh. Guarded so it only fires when the collapse actually
-    // changed the scope value (not when 'all' is preserved, not when the scope
-    // was already a specific repo) and only when a surviving repo exists.
-    if (previousScope === 'all' && this._repositoryScope !== 'all') {
-      const collapsedRepo = this._availableRepositories[this._selectedRepositoryIndex];
-      if (collapsedRepo) {
-        this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: collapsedRepo });
+    // Announce an effective-scope change so the log + branch wiring (which
+    // follow this event) re-route eagerly instead of waiting for the next
+    // repo-change/refresh. The effective scope is either merged 'all' or a
+    // specific repo (by identity), and it can change in BOTH directions when the
+    // repo set changes:
+    //   - shrink to one repo   → merged 'all' collapses to that single repo.
+    //   - grow past one repo    → the single scope restores to merged 'all'.
+    //   - the scoped repo drops → scope re-resolves to another single repo.
+    // Compare the resolved scope by identity against the pre-update scope so
+    // every real transition fires and an unchanged scope (merged→merged, or the
+    // same repo whose index merely shifted) stays silent. Skip the initial cold
+    // population (no prior repos): the branch tree already defaults to 'all'.
+    if (previousRepoCount > 0) {
+      const newScopeIsAll = this._repositoryScope === 'all';
+      const newRepo = newScopeIsAll
+        ? undefined
+        : this._availableRepositories[this._selectedRepositoryIndex];
+      const newRepoPath = newRepo ? normalizeRepoPath(newRepo.rootUri) : undefined;
+      const prevScopeIsAll = previousScope === 'all';
+      const prevRepoPath = prevScopeIsAll ? undefined : previousSelectedPath;
+      if (prevScopeIsAll !== newScopeIsAll || prevRepoPath !== newRepoPath) {
+        if (newScopeIsAll) {
+          this._onDidChangeRepositoryScope.fire({ kind: 'all' });
+        } else if (newRepo) {
+          this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: newRepo });
+        }
       }
     }
   }
@@ -2796,7 +2825,11 @@ export class GitToolWindowProvider
    */
   private _resolveRepositoryScope(repos: IRepository[]): void {
     if (repos.length === 0) {
-      this._repositoryScope = 0;
+      // No repos to show — PRESERVE the current scope rather than clobbering it
+      // to a single-repo index, so a merged 'all' scope survives the workspace
+      // emptying and refilling (close then reopen all folders). Nothing indexes
+      // the scope while the list is empty; the next non-empty population
+      // re-derives it correctly.
       return;
     }
 
