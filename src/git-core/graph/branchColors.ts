@@ -81,19 +81,29 @@ function stableColorIndex(name: string): number {
  * position-independent (see {@link stableColorIndex}). Exposed so callers and
  * tests can resolve a branch's colour without re-deriving the hash.
  *
- * The trunk (`master`/`main`, in local or any `<remote>/` form) is PINNED to
- * the blue slot rather than hashed: the mainline is the spine users read the
- * graph against, and blue is the conventional calm mainline hue (IntelliJ,
- * GitKraken, Fork all lead with blue/purple there — a hashed `main` landed on
- * orange). Pinning also keeps `main` and `origin/main` the same color. Blue is
- * not reserved: a non-trunk branch can still hash to it, the same accepted
- * collision class as any two branches sharing a slot.
+ * The trunk is PINNED to the blue slot rather than hashed: the mainline is the
+ * spine users read the graph against, and blue is the conventional calm mainline
+ * hue (IntelliJ, GitKraken, Fork all lead with blue/purple there — a hashed
+ * `main` landed on orange). Pinning keeps the local trunk and its `<remote>/`
+ * form the same color. Blue is not reserved: a non-trunk branch can still hash
+ * to it, the same accepted collision class as any two branches sharing a slot.
+ *
+ * `trunkBranchNames` is the repo's actual default branch(es) — e.g. the
+ * `origin/HEAD` target — as SHORT names; when supplied it defines the trunk, so
+ * a repo that follows `develop` (or any non-standard default) colors that branch
+ * (and `origin/develop`) as the mainline. When omitted or empty, the trunk falls
+ * back to the conventional `main`/`master`/`mainline`.
  */
-export function branchColorFor(name: string, type?: 'local' | 'remote'): string {
+export function branchColorFor(
+  name: string,
+  type?: 'local' | 'remote',
+  trunkBranchNames?: readonly string[]
+): string {
+  const trunk = resolveTrunkNames(trunkBranchNames);
   // The remote-tail strip applies only to remote refs: a LOCAL branch whose
-  // last segment happens to be main/master (`dev/main`) is just a branch.
+  // last segment happens to be a trunk name (`dev/main`) is just a branch.
   // An unknown type keeps the tail heuristic (name-only callers/tests).
-  if (isTrunkName(name) || (type !== 'local' && isTrunkName(remoteTail(name)))) {
+  if (isTrunkName(name, trunk) || (type !== 'local' && isTrunkName(remoteTail(name), trunk))) {
     return GRAPH_BRANCH_COLORS[0];
   }
   return GRAPH_BRANCH_COLORS[stableColorIndex(name)];
@@ -119,6 +129,32 @@ export interface IColorNode {
 export interface IBranchColorOptions {
   /** Name of the currently checked-out branch, if known (a same-row tiebreak). */
   headBranchName?: string;
+  /**
+   * The repo's default branch(es) as SHORT names (e.g. the `origin/HEAD`
+   * target). Defines the trunk — the branch pinned to blue and given the
+   * mainline-owning layout tier. Empty/omitted falls back to `main`/`master`.
+   * In a merged multi-root view this is the union of the in-scope repos'
+   * defaults.
+   */
+  trunkBranchNames?: readonly string[];
+}
+
+/**
+ * The conventional trunk names used when a repo default isn't supplied. Covers
+ * `master`/`main` plus `mainline`, so a repo that names its trunk `mainline`
+ * gets the consistent blue trunk color for BOTH `mainline` and its remote form
+ * (`<remote>/mainline`) without relying on `origin/HEAD` being set.
+ */
+const DEFAULT_TRUNK_NAMES: readonly string[] = ['master', 'main', 'mainline'];
+
+/**
+ * The effective trunk name set: the supplied repo default(s) when non-empty,
+ * otherwise the conventional `master`/`main`/`mainline` fallback.
+ */
+function resolveTrunkNames(trunkBranchNames?: readonly string[]): ReadonlySet<string> {
+  return new Set(
+    trunkBranchNames && trunkBranchNames.length > 0 ? trunkBranchNames : DEFAULT_TRUNK_NAMES
+  );
 }
 
 /**
@@ -147,16 +183,16 @@ export interface IBranchColorOptions {
  * trunk's color (regressing the "trunk owns its whole spine" invariant). Keeping
  * trunk strong regardless of checkout matches the existing locked behavior.
  */
-function layoutPriority(ref: IColorRef): number {
+function layoutPriority(ref: IColorRef, trunk: ReadonlySet<string>): number {
   if (ref.type === 'remote') {
-    return isTrunkName(remoteTail(ref.name)) ? 0 : 1;
+    return isTrunkName(remoteTail(ref.name), trunk) ? 0 : 1;
   }
-  return isTrunkName(ref.name) ? 2 : 3;
+  return isTrunkName(ref.name, trunk) ? 2 : 3;
 }
 
-/** `master`/`main` (the trunk branch names IntelliJ special-cases). */
-function isTrunkName(name: string): boolean {
-  return name === 'master' || name === 'main';
+/** Whether `name` is one of the effective trunk branch names. */
+function isTrunkName(name: string, trunk: ReadonlySet<string>): boolean {
+  return trunk.has(name);
 }
 
 /** Strip a single remote prefix: `origin/main` → `main`, `upstream/x` → `x`. */
@@ -221,6 +257,7 @@ export function computeBranchColors(
   options: IBranchColorOptions = {}
 ): Map<string, string> {
   const { headBranchName } = options;
+  const trunk = resolveTrunkNames(options.trunkBranchNames);
   const indexOf = new Map<string, number>();
   for (let i = 0; i < nodes.length; i++) {
     indexOf.set(nodes[i].hash, i);
@@ -244,7 +281,7 @@ export function computeBranchColors(
     // refs — a trunk carrying both `main` and `origin/main` ranks as remote trunk
     // (tier 0), so a sibling remote feature can't outrank it and steal the spine.
     // `pickRef` still chooses only the display name / palette representative.
-    const priority = Math.min(...nodes[i].refs.map(layoutPriority));
+    const priority = Math.min(...nodes[i].refs.map((r) => layoutPriority(r, trunk)));
     tips.push({ index: i, refName: ref.name, refType: ref.type, priority });
   }
 
@@ -257,7 +294,7 @@ export function computeBranchColors(
   // so adjacent branches are no longer guaranteed to differ.
   const tipColor = new Map<number, string>();
   for (const tip of tips) {
-    tipColor.set(tip.index, branchColorFor(tip.refName, tip.refType));
+    tipColor.set(tip.index, branchColorFor(tip.refName, tip.refType, options.trunkBranchNames));
   }
 
   // Build the FIRST-PARENT-ONLY linear graph: each node's lone down-edge is its

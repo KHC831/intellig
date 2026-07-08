@@ -2894,6 +2894,26 @@ export class GitToolWindowProvider
   }
 
   /**
+   * The default-branch short names of the in-scope repositories — the trunk set
+   * the graph coloring pins to blue and gives the mainline-owning tier. In a
+   * single-repo scope that's the one selected repo's default; in the merged view
+   * it's the union across the visible repos. Empty when no in-scope repo reports
+   * a default (the coloring then falls back to `main`/`master`).
+   */
+  private _trunkBranchNamesForScope(): string[] {
+    const inScope = this.isAllReposSelected()
+      ? this.getVisibleRepositories()
+      : [this.getSelectedRepository()];
+    const names = new Set<string>();
+    for (const repo of inScope) {
+      if (repo?.defaultBranch) {
+        names.add(repo.defaultBranch);
+      }
+    }
+    return [...names];
+  }
+
+  /**
    * Source repository root for a commit in the merged "all roots" log, or
    * `undefined` when the commit isn't from the merged view (single-repo /
    * specific-scope log), isn't in the current snapshot, or — fail closed —
@@ -3684,6 +3704,7 @@ ${bodyMarkup}
     // chip render the same color.
     const branchColors = computeBranchColors(colorNodesFrom(commitNodes), {
       headBranchName: this._extendedLogState.headBranchName,
+      trunkBranchNames: this._trunkBranchNamesForScope(),
     });
     const printModels = buildGraphPrintModel(commitNodes, {
       branchColors,

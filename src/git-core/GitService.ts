@@ -137,6 +137,15 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   private _removedRoots: Set<string> = new Set();
   /**
+   * Resolved default-branch short name per repo root (the `origin/HEAD` target),
+   * or `undefined` when it can't be resolved. Populated once on first load and
+   * reused across refreshes so the resolving `symbolic-ref` stays off the hot
+   * refresh path; the default branch is effectively static per clone. Cleared
+   * when the repo is removed. A cache HIT (even of `undefined`) is authoritative,
+   * so `has(root)` — not the value — gates re-resolution.
+   */
+  private _defaultBranchCache: Map<string, string | undefined> = new Map();
+  /**
    * In-flight `getStatus` promises, keyed by rootPath. On activation several
    * subscribers (SCM provider, changelist + shelf views) request the same
    * repo's status at once; each `git status --porcelain` walks the whole work
@@ -972,12 +981,25 @@ export class GitService implements IGitService, IGitServiceCli {
       });
     }
 
+    // Default branch (origin/HEAD target). Resolved once per root and cached —
+    // `has(root)` gates the re-read so a cached `undefined` (local-only repo, or
+    // a remote without `<remote>/HEAD` set) doesn't re-spawn `symbolic-ref` on
+    // every refresh. A repo with no remotes never spawns git at all.
+    let defaultBranch: string | undefined;
+    if (this._defaultBranchCache.has(rootPath)) {
+      defaultBranch = this._defaultBranchCache.get(rootPath);
+    } else {
+      defaultBranch = await this._resolveDefaultBranch(remotes, options);
+      this._defaultBranchCache.set(rootPath, defaultBranch);
+    }
+
     const repository: IRepository = {
       rootUri: vscode.Uri.file(rootPath),
       state,
       head,
       remotes,
       ...(inProgress ? { inProgress } : {}),
+      ...(defaultBranch ? { defaultBranch } : {}),
     };
 
     // First-insertion funnel: a root reached for the FIRST time — by EITHER the
@@ -1017,6 +1039,45 @@ export class GitService implements IGitService, IGitServiceCli {
     }
 
     return repository;
+  }
+
+  /**
+   * Resolve the repository's default branch — the `<remote>/HEAD` target — as a
+   * SHORT name (`origin/main` → `main`). Prefers the `origin` remote, else the
+   * first remote. Returns `undefined` when there is no remote or `<remote>/HEAD`
+   * is unset (`symbolic-ref` exits non-zero), so the caller falls back to the
+   * conventional `main`/`master` trunk. A read failure degrades to `undefined`
+   * rather than throwing — this only drives graph trunk coloring.
+   */
+  private async _resolveDefaultBranch(
+    remotes: IRemote[],
+    options: IGitCommandOptions
+  ): Promise<string | undefined> {
+    if (remotes.length === 0) {
+      return undefined;
+    }
+    const remote = remotes.find((r) => r.name === 'origin') ?? remotes[0];
+    try {
+      const result = await this._gitCli.exec(
+        buildGitArgs('symbolic-ref', ['--short'], [`refs/remotes/${remote.name}/HEAD`]),
+        options
+      );
+      if (result.exitCode !== 0) {
+        return undefined;
+      }
+      // `--short` yields `<remote>/<branch>`; strip the remote prefix to the
+      // branch short name the coloring compares against.
+      const shortRef = result.stdout.trim();
+      const slash = shortRef.indexOf('/');
+      const branch = slash >= 0 ? shortRef.slice(slash + 1) : shortRef;
+      return branch.length > 0 ? branch : undefined;
+    } catch (error) {
+      this._logger.debug('loadRepository: default-branch read failed', {
+        remote: remote.name,
+        err: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -1473,6 +1534,16 @@ export class GitService implements IGitService, IGitServiceCli {
       this._removalGeneration.set(key, (this._removalGeneration.get(key) ?? 0) + 1);
       this._removedRoots.add(key);
     }
+
+    // Drop cached default-branch entries for the removed root(s) so a later
+    // re-add re-resolves rather than reusing a stale value. Walk the cache by
+    // the same path-child rule (a removed parent folder clears its nested repos).
+    for (const key of [...this._defaultBranchCache.keys()]) {
+      if (isInsideOrEqual(key)) {
+        this._defaultBranchCache.delete(key);
+      }
+    }
+
     if (!this._disposed) {
       for (const repo of reposToFire) {
         this._onDidRemoveRepository.fire(repo);

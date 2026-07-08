@@ -35,10 +35,19 @@ describe('branchColors — palette', () => {
 });
 
 describe('branchColors — trunk pinned to blue', () => {
-  it('main / master (and their remote forms) always get the blue slot, not a hashed hue', () => {
+  it('main / master / mainline (and their remote forms) always get the blue slot, not a hashed hue', () => {
     // The trunk is the line users stare at all day; a name hash would hand
-    // `main` orange (hashCode % 10 === 1). Pin every trunk spelling to blue.
-    for (const name of ['main', 'master', 'origin/main', 'origin/master', 'upstream/main']) {
+    // `main` orange (hashCode % 10 === 1). Pin every trunk spelling to blue —
+    // including `mainline`, a conventional trunk name some repos use.
+    for (const name of [
+      'main',
+      'master',
+      'mainline',
+      'origin/main',
+      'origin/master',
+      'origin/mainline',
+      'upstream/main',
+    ]) {
       assert.strictEqual(branchColorFor(name), P[0], `${name} is blue`);
     }
   });
@@ -46,14 +55,21 @@ describe('branchColors — trunk pinned to blue', () => {
   it('local trunk and its remote-tracking form share one color', () => {
     assert.strictEqual(branchColorFor('main'), branchColorFor('origin/main'));
     assert.strictEqual(branchColorFor('master'), branchColorFor('upstream/master'));
+    // The reported case: local `mainline` and remote `mainline` must match, even
+    // though the full names (`mainline` vs `origin/mainline`) hash differently.
+    assert.strictEqual(
+      branchColorFor('mainline', 'local'),
+      branchColorFor('origin/mainline', 'remote'),
+      'mainline and origin/mainline share the trunk color'
+    );
   });
 
   it('non-trunk names still hash across the palette (not everything is blue)', () => {
     assert.notStrictEqual(branchColorFor('feature/login'), P[0]);
     assert.notStrictEqual(
-      branchColorFor('origin/mainline'),
+      branchColorFor('origin/maintenance'),
       P[0],
-      'prefix-only match is not trunk'
+      'a name that merely starts with a trunk name is not trunk'
     );
   });
 
@@ -373,5 +389,55 @@ describe('branchColors — ownership', () => {
     assert.notStrictEqual(colors.get('f1tip'), colors.get('m0'));
     // … and the remote branch (higher tier) owns the off-window-rooted base m3.
     assert.strictEqual(colors.get('m3'), colors.get('f1tip'));
+  });
+});
+
+describe('branchColors — detected default branch as trunk', () => {
+  it('pins the repo default (and its remote form) to blue when it is not main/master', () => {
+    const trunk = ['develop'];
+    assert.strictEqual(branchColorFor('develop', 'local', trunk), P[0], 'local default → blue');
+    assert.strictEqual(
+      branchColorFor('origin/develop', 'remote', trunk),
+      P[0],
+      'remote default → blue'
+    );
+  });
+
+  it('local default and its remote-tracking form share one color', () => {
+    const trunk = ['develop'];
+    assert.strictEqual(
+      branchColorFor('develop', 'local', trunk),
+      branchColorFor('origin/develop', 'remote', trunk)
+    );
+  });
+
+  it('main is NOT trunk-pinned when a different default is detected', () => {
+    const trunk = ['develop'];
+    assert.strictEqual(
+      branchColorFor('main', 'local', trunk),
+      branchColorFor('main', 'local', ['some-other']),
+      'main hashes like any branch when it is not the default'
+    );
+    assert.notStrictEqual(branchColorFor('main', 'local', trunk), P[0], 'main not blue here');
+  });
+
+  it('falls back to main/master when no default is provided (backward compatible)', () => {
+    assert.strictEqual(branchColorFor('main'), P[0]);
+    assert.strictEqual(branchColorFor('main', 'local', []), P[0], 'empty list = fall back');
+    assert.strictEqual(branchColorFor('master', 'local', undefined), P[0]);
+  });
+
+  it('the graph pins a detected-default trunk and owns the shared spine', () => {
+    // origin/develop (remote trunk, tier 0) and a local feature fork off a shared
+    // base. The trunk owns the base; the feature keeps its own hue.
+    const nodes = [
+      node('feat', ['base'], [{ name: 'feature', type: 'local' }]),
+      node('dev', ['base'], [{ name: 'origin/develop', type: 'remote' }]),
+      node('base', []),
+    ];
+    const colors = computeBranchColors(nodes, { trunkBranchNames: ['develop'] });
+    assert.strictEqual(colors.get('dev'), P[0], 'default tip is blue');
+    assert.strictEqual(colors.get('base'), P[0], 'trunk owns the shared base');
+    assert.notStrictEqual(colors.get('feat'), P[0], 'feature keeps its own hue');
   });
 });

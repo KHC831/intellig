@@ -164,6 +164,13 @@ export interface IRepository {
    * when `state === 'idle'`. Drives the StatusBar verb-form prefix.
    */
   inProgress?: IInProgressOperation;
+  /**
+   * The repository's default branch as a SHORT name (e.g. `main`, `develop`) —
+   * the `origin/HEAD` target, i.e. the branch the repo follows. Undefined when
+   * it can't be resolved (no remote, or `<remote>/HEAD` unset). Used to color
+   * the graph's trunk consistently for repos whose default isn't `main`/`master`.
+   */
+  defaultBranch?: string;
 }
 
 /**
