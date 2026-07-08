@@ -10,6 +10,16 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.3.3] - 2026-07-08
+
+### Changed
+
+- The commit graph colors your repository's default branch as the blue mainline — whatever it's named (main, master, mainline, or a custom default it follows), and it stays the same color as its remote-tracking copy.
+
+### Fixed
+
+- Adding or removing a folder in a multi-root workspace no longer drops the other repositories from the selector or collapses the view to a single repo.
+
 ## [0.3.2] - 2026-07-06
 
 ### Changed
