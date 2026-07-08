@@ -44,11 +44,13 @@ import {
   buildTagActionMenu,
   detectIndentablePrefixes,
   formatBranchLabel,
-  getFavorites,
+  readLegacyFavorites,
   readBranchPopupSettings,
   updateFavoritesList,
   updateRecentLru,
 } from '../../../src/branches/BranchPopup';
+import { BranchTreeProvider, type IFavoritesStore } from '../../../src/branches/BranchTreeProvider';
+import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -902,7 +904,7 @@ describe('BranchPopup — updateFavoritesList', () => {
   });
 });
 
-describe('BranchPopup — getFavorites', () => {
+describe('BranchPopup — readLegacyFavorites', () => {
   function mkMemento(initial?: unknown): vscode.Memento {
     const store = new Map<string, unknown>();
     if (initial !== undefined) {
@@ -924,24 +926,24 @@ describe('BranchPopup — getFavorites', () => {
   }
 
   it('returns an empty array when no favorites are stored', () => {
-    assert.deepStrictEqual(getFavorites(mkMemento()), []);
+    assert.deepStrictEqual(readLegacyFavorites(mkMemento()), []);
   });
 
   it('returns a copy (not the stored reference)', () => {
     const mem = mkMemento(['main']);
-    const first = getFavorites(mem);
+    const first = readLegacyFavorites(mem);
     first.push('tampered');
-    const second = getFavorites(mem);
+    const second = readLegacyFavorites(mem);
     assert.deepStrictEqual(second, ['main']);
   });
 
   it('returns [] when the stored value is not an array (defensive)', () => {
     const mem = mkMemento({ not: 'an array' });
-    assert.deepStrictEqual(getFavorites(mem), []);
+    assert.deepStrictEqual(readLegacyFavorites(mem), []);
   });
 
   it('returns [] when no workspaceState is provided', () => {
-    assert.deepStrictEqual(getFavorites(undefined), []);
+    assert.deepStrictEqual(readLegacyFavorites(undefined), []);
   });
 });
 
@@ -1526,5 +1528,136 @@ describe('BranchPopup — buildSectionedItems settings toggles', () => {
     const featureItem = items.find((i) => i.branch?.name === 'feature/auth');
     assert.ok(featureItem);
     assert.strictEqual(label(featureItem), '  feature/auth');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified favorites store — the popup and the Branches tree must share ONE
+// favorites set (git4idea parity: a single GitRepositoryModel.favoriteRefs).
+// Before unification the popup persisted to workspaceState under
+// `intellig.favoriteBranches` while the tree used globalState under
+// `intellig.branchTree.favorites`, so a branch starred on one surface never
+// appeared on the other.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class InMemoryFavoritesStore implements IFavoritesStore {
+  private _data: string[];
+  private readonly _onDidChangeFavorites = new EventEmitter<void>();
+  readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
+  constructor(initial: string[] = []) {
+    this._data = [...initial];
+  }
+  read(): string[] {
+    return [...this._data];
+  }
+  write(favorites: string[]): void {
+    this._data = [...favorites];
+    this._onDidChangeFavorites.fire();
+  }
+  dispose(): void {
+    this._onDidChangeFavorites.dispose();
+  }
+}
+
+function mkFavoritesGitService(): IGitService {
+  return createMockGitService(attachedRepo('main', 'b'.repeat(40)));
+}
+
+describe('BranchPopup — favorites share the injected store with the branch tree', () => {
+  it('reads favorites the branch tree wrote through the shared store', () => {
+    const store = new InMemoryFavoritesStore();
+    const tree = new BranchTreeProvider(mkFavoritesGitService(), undefined, store);
+    const popup = new BranchPopup(mkFavoritesGitService(), undefined, undefined, store);
+
+    tree.toggleFavorite('feature/auth');
+
+    assert.deepStrictEqual(popup.getFavorites(), ['feature/auth']);
+    popup.dispose();
+    tree.dispose();
+  });
+
+  it('writes favorites the branch tree can read through the shared store', async () => {
+    const store = new InMemoryFavoritesStore();
+    const popup = new BranchPopup(mkFavoritesGitService(), undefined, undefined, store);
+
+    await popup.updateFavorites('release', true);
+
+    // A tree over the same store loads the popup's star at construction.
+    const tree = new BranchTreeProvider(mkFavoritesGitService(), undefined, store);
+    assert.strictEqual(tree.isFavorite('release'), true);
+    assert.deepStrictEqual(store.read(), ['release']);
+    popup.dispose();
+    tree.dispose();
+  });
+
+  it('reflects a popup star in an ALREADY-OPEN tree without reconstructing it', async () => {
+    const store = new InMemoryFavoritesStore();
+    const tree = new BranchTreeProvider(mkFavoritesGitService(), undefined, store);
+    const popup = new BranchPopup(mkFavoritesGitService(), undefined, undefined, store);
+
+    let treeChanges = 0;
+    const sub = tree.onDidChangeTreeData(() => {
+      treeChanges += 1;
+    });
+
+    await popup.updateFavorites('release', true);
+
+    assert.strictEqual(
+      tree.isFavorite('release'),
+      true,
+      'the existing tree instance must see a star added via the popup'
+    );
+    assert.ok(treeChanges > 0, 'the tree must fire a data-change so the view repaints');
+
+    sub.dispose();
+    popup.dispose();
+    tree.dispose();
+  });
+});
+
+describe('BranchPopup — legacy favorites migration', () => {
+  function mkWorkspaceState(initial?: Record<string, unknown>): vscode.Memento {
+    const store = new Map<string, unknown>(Object.entries(initial ?? {}));
+    return {
+      get<T>(key: string, def?: T): T | undefined {
+        return store.has(key) ? (store.get(key) as T) : def;
+      },
+      update: async (k: string, v: unknown): Promise<void> => {
+        if (v === undefined) {
+          store.delete(k);
+        } else {
+          store.set(k, v);
+        }
+      },
+      keys: () => Array.from(store.keys()),
+    } as unknown as vscode.Memento;
+  }
+
+  it('unions pre-existing workspace favorites into the shared store on construction', () => {
+    const ws = mkWorkspaceState({ [FAVORITE_BRANCHES_STATE_KEY]: ['main', 'develop'] });
+    const store = new InMemoryFavoritesStore(['main', 'release']);
+    const popup = new BranchPopup(mkFavoritesGitService(), ws, undefined, store);
+
+    assert.deepStrictEqual(store.read(), ['main', 'release', 'develop']);
+    popup.dispose();
+  });
+
+  it('clears the legacy workspace favorites key after migration', () => {
+    const ws = mkWorkspaceState({ [FAVORITE_BRANCHES_STATE_KEY]: ['main'] });
+    const store = new InMemoryFavoritesStore();
+    const popup = new BranchPopup(mkFavoritesGitService(), ws, undefined, store);
+
+    assert.strictEqual(ws.get(FAVORITE_BRANCHES_STATE_KEY), undefined);
+    assert.deepStrictEqual(store.read(), ['main']);
+    popup.dispose();
+  });
+
+  it('is a no-op when there are no legacy favorites to migrate', () => {
+    const ws = mkWorkspaceState();
+    const store = new InMemoryFavoritesStore(['kept']);
+    const popup = new BranchPopup(mkFavoritesGitService(), ws, undefined, store);
+
+    assert.deepStrictEqual(store.read(), ['kept']);
+    popup.dispose();
   });
 });

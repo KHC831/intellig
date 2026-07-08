@@ -20,6 +20,7 @@ import type {
   IRebaseDialogPreselect,
   NewBranchDialog,
   IRepository,
+  IFavoritesStore,
 } from '../../services';
 import type { CommitContextMenuCommands } from '../../commits';
 
@@ -46,6 +47,12 @@ export interface ICommandContext {
 
   /** = `commitToolWindow` (read-only; set in registerViews, deferred). */
   readonly commitToolWindow: CommitToolWindow | undefined;
+
+  /**
+   * = `branchFavoritesStore` — the shared favorites store the Branches tree
+   * and branch popup both read/write (single `GitRepositoryModel.favoriteRefs`).
+   */
+  readonly branchFavoritesStore: IFavoritesStore | undefined;
 
   // read/WRITE accessors for every lazily-initialized singleton a handler
   // assigns inside registerCommands. Setter writes THROUGH to the module let.

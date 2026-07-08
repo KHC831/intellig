@@ -20,6 +20,7 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
+import type { IFavoritesStore } from './BranchTreeProvider';
 import type { IIncomingOutgoing } from '../git-core/ops/IncomingOutgoingOps';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -292,13 +293,15 @@ export function updateFavoritesList(
 }
 
 /**
- * Read the favorites list from workspaceState.
+ * Read the legacy per-workspace favorites list (key
+ * {@link FAVORITE_BRANCHES_STATE_KEY}). Retained only so the popup can
+ * migrate pre-existing favorites into the shared store on first init;
+ * favorites are now persisted through {@link IFavoritesStore}, not here.
  *
  * Returns a defensive copy so callers can't mutate the stored array by
- * reference. Exported for unit tests and for callers outside this module
- * that want to know the current state.
+ * reference. Exported for unit tests.
  */
-export function getFavorites(workspaceState: vscode.Memento | undefined): string[] {
+export function readLegacyFavorites(workspaceState: vscode.Memento | undefined): string[] {
   if (!workspaceState) {
     return [];
   }
@@ -884,15 +887,26 @@ export class BranchPopup {
    *   `(repo, branch) => gitService.getIncomingOutgoingForBranch(repo, branch)`
    */
   private _incomingOutgoingFetcher: IncomingOutgoingFetcher | undefined;
+  /**
+   * Shared favorites store — the single source of truth for starred branches
+   * across the popup and the Branches tree (git4idea parity: one
+   * `GitRepositoryModel.favoriteRefs`). Injected so both surfaces read and
+   * write the same set; when absent (unit doubles that don't exercise stars)
+   * favorites are unavailable.
+   */
+  private _favoritesStore: IFavoritesStore | undefined;
 
   constructor(
     gitService: IGitService,
     workspaceState?: vscode.Memento,
-    incomingOutgoingFetcher?: IncomingOutgoingFetcher
+    incomingOutgoingFetcher?: IncomingOutgoingFetcher,
+    favoritesStore?: IFavoritesStore
   ) {
     this._gitService = gitService;
     this._workspaceState = workspaceState;
     this._incomingOutgoingFetcher = incomingOutgoingFetcher;
+    this._favoritesStore = favoritesStore;
+    this._migrateLegacyFavorites();
 
     // Create status bar item for current branch display
     this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -1096,7 +1110,7 @@ export class BranchPopup {
         remoteBranches,
         tags,
         recentBranchNames,
-        favoriteBranchNames: getFavorites(this._workspaceState),
+        favoriteBranchNames: this.getFavorites(),
         currentBranchName,
         showTags: settings.showTags,
         showRecentBranches: settings.showRecentBranches,
@@ -1159,7 +1173,7 @@ export class BranchPopup {
         if (!branch) {
           return;
         }
-        const currentFavs = getFavorites(this._workspaceState);
+        const currentFavs = this.getFavorites();
         const isFav = currentFavs.includes(branch.name);
         await this.updateFavorites(branch.name, !isFav);
         refreshItems();
@@ -1175,26 +1189,53 @@ export class BranchPopup {
   }
 
   /**
-   * Toggle a branch's favorite status, persisted in workspaceState.
+   * Toggle a branch's favorite status through the shared favorites store, so
+   * the star is reflected on the Branches tree too (single
+   * `GitRepositoryModel.favoriteRefs`).
    *
    * Public so extension-level commands / tests can flip favorites without
    * going through the QuickPick UI.
    */
-  public async updateFavorites(branchName: string, favorite: boolean): Promise<void> {
-    if (!this._workspaceState) {
-      return;
+  public updateFavorites(branchName: string, favorite: boolean): Promise<void> {
+    if (!this._favoritesStore) {
+      return Promise.resolve();
     }
-    const existing = getFavorites(this._workspaceState);
-    const updated = updateFavoritesList(existing, branchName, favorite);
-    await this._workspaceState.update(FAVORITE_BRANCHES_STATE_KEY, updated);
+    const updated = updateFavoritesList(this._favoritesStore.read(), branchName, favorite);
+    this._favoritesStore.write(updated);
+    return Promise.resolve();
   }
 
   /**
-   * Read the current favorites list. Thin wrapper around {@link getFavorites}
-   * so callers with only a `BranchPopup` handle can inspect the state.
+   * Read the current favorites list from the shared store. Returns a
+   * defensive copy so callers can't mutate the stored array by reference.
    */
   public getFavorites(): string[] {
-    return getFavorites(this._workspaceState);
+    return this._favoritesStore ? [...this._favoritesStore.read()] : [];
+  }
+
+  /**
+   * One-time migration of favorites persisted under the old per-workspace
+   * key ({@link FAVORITE_BRANCHES_STATE_KEY}) into the shared store, so no
+   * pre-existing star is lost when the two surfaces unify. The union is
+   * idempotent; clearing the old key prevents re-migration and stops the
+   * workspace copy from drifting from the shared set.
+   */
+  private _migrateLegacyFavorites(): void {
+    if (!this._workspaceState || !this._favoritesStore) {
+      return;
+    }
+    const legacy = readLegacyFavorites(this._workspaceState);
+    if (legacy.length === 0) {
+      return;
+    }
+    const merged = this._favoritesStore.read();
+    for (const name of legacy) {
+      if (!merged.includes(name)) {
+        merged.push(name);
+      }
+    }
+    this._favoritesStore.write(merged);
+    void this._workspaceState.update(FAVORITE_BRANCHES_STATE_KEY, undefined);
   }
 
   /** Show the secondary action menu for the picked branch. */
@@ -1472,12 +1513,15 @@ export class BranchPopup {
  * @param workspaceState - Optional Memento for persisting the Recent LRU
  * @param incomingOutgoingFetcher - Optional fetcher for per-branch ahead/behind
  *   counts (IntelliJ GitBranchIncomingOutgoingManager parity).
+ * @param favoritesStore - Shared favorites store (the same instance the
+ *   Branches tree uses) so stars are consistent across both surfaces.
  * @returns A new BranchPopup instance
  */
 export function createBranchPopup(
   gitService: IGitService,
   workspaceState?: vscode.Memento,
-  incomingOutgoingFetcher?: IncomingOutgoingFetcher
+  incomingOutgoingFetcher?: IncomingOutgoingFetcher,
+  favoritesStore?: IFavoritesStore
 ): BranchPopup {
-  return new BranchPopup(gitService, workspaceState, incomingOutgoingFetcher);
+  return new BranchPopup(gitService, workspaceState, incomingOutgoingFetcher, favoritesStore);
 }

@@ -20,6 +20,7 @@ import type {
   IRebaseDialogPreselect,
   NewBranchDialog,
   IRepository,
+  IFavoritesStore,
 } from '../services';
 import type { CommitContextMenuCommands } from '../commits';
 
@@ -40,6 +41,12 @@ export interface IViewRegistrationContext {
 
   /** = `extensionServices` (read; set only in activate). */
   readonly services: ExtensionServices | undefined;
+
+  /**
+   * = `branchFavoritesStore` — the shared favorites store the Branches tree
+   * and branch popup both read/write (single `GitRepositoryModel.favoriteRefs`).
+   */
+  readonly branchFavoritesStore: IFavoritesStore | undefined;
 
   // read/WRITE accessors for every singleton the view registration
   // constructs. Setter writes THROUGH to the module let so the single owner

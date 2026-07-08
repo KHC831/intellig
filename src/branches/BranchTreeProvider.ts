@@ -72,10 +72,19 @@ const FAVORITES_MEMENTO_KEY = 'intellig.branchTree.favorites';
  * keyed by local-branch name. Constructor-injected so favorite state
  * survives across sessions in production (Memento-backed) while unit
  * tests drive an in-memory double.
+ *
+ * Observable: {@link onDidChangeFavorites} fires whenever {@link write}
+ * mutates the set, so every surface sharing the store (Branches tree,
+ * branch popup) stays live-consistent within a session — a star added on
+ * one surface repaints the other without a window reload. `dispose` tears
+ * down the change emitter; the store's owner (the extension) calls it, not
+ * the injected consumers.
  */
 export interface IFavoritesStore {
   read(): string[];
   write(favorites: string[]): void;
+  readonly onDidChangeFavorites: vscode.Event<void>;
+  dispose(): void;
 }
 
 /**
@@ -85,11 +94,17 @@ export interface IFavoritesStore {
  */
 class InMemoryFavoritesStore implements IFavoritesStore {
   private _data: string[] = [];
+  private readonly _onDidChangeFavorites = new vscode.EventEmitter<void>();
+  readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
   read(): string[] {
     return this._data;
   }
   write(favorites: string[]): void {
     this._data = favorites;
+    this._onDidChangeFavorites.fire();
+  }
+  dispose(): void {
+    this._onDidChangeFavorites.dispose();
   }
 }
 
@@ -100,13 +115,29 @@ class InMemoryFavoritesStore implements IFavoritesStore {
  * the repository model.
  */
 class MementoFavoritesStore implements IFavoritesStore {
+  private readonly _onDidChangeFavorites = new vscode.EventEmitter<void>();
+  readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
   constructor(private readonly _memento: vscode.Memento) {}
   read(): string[] {
     return this._memento.get<string[]>(FAVORITES_MEMENTO_KEY, []);
   }
   write(favorites: string[]): void {
     void this._memento.update(FAVORITES_MEMENTO_KEY, favorites);
+    this._onDidChangeFavorites.fire();
   }
+  dispose(): void {
+    this._onDidChangeFavorites.dispose();
+  }
+}
+
+/**
+ * Build the shared, Memento-backed favorites store — the single source of
+ * truth for starred branches across the Branches tree and the branch popup
+ * (git4idea parity: one `GitRepositoryModel.favoriteRefs`). Production wires
+ * this over the extension's globalState so favorites persist across sessions.
+ */
+export function createFavoritesStore(memento: vscode.Memento): IFavoritesStore {
+  return new MementoFavoritesStore(memento);
 }
 
 /**
@@ -484,11 +515,19 @@ export class BranchTreeProvider
   private readonly _favoritesStore: IFavoritesStore;
 
   /**
-   * In-memory mirror of the favorite local-branch names, loaded from
-   * {@link _favoritesStore} at construction and written through on every
-   * {@link toggleFavorite}.
+   * True when this provider created its own fallback store (no shared store
+   * was injected), so dispose() tears the store's change emitter down. An
+   * injected store is owned by the extension, never disposed here.
    */
-  private readonly _favorites: Set<string>;
+  private readonly _ownsFavoritesStore: boolean;
+
+  /**
+   * In-memory mirror of the favorite local-branch names, re-synced from
+   * {@link _favoritesStore} whenever it fires {@link
+   * IFavoritesStore.onDidChangeFavorites} (including this provider's own
+   * writes), so the tree stays live-consistent with the branch popup.
+   */
+  private _favorites: Set<string>;
 
   /**
    * Active search query (IntelliJ speed-search analogue). When set, every
@@ -504,11 +543,25 @@ export class BranchTreeProvider
   ) {
     this._gitService = gitService;
     this._incomingOutgoingFetcher = incomingOutgoingFetcher;
+    this._ownsFavoritesStore = favoritesStore === undefined;
     this._favoritesStore = favoritesStore ?? new InMemoryFavoritesStore();
     this._favorites = new Set(this._favoritesStore.read());
     this._onDidChangeTreeData = new vscode.EventEmitter<BranchTreeItem | undefined | null | void>();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this._logger = getLogger().child({ component: 'BranchTreeProvider' });
+
+    // Re-sync the favorite set whenever the shared store changes — including
+    // stars added from the branch popup, so an already-open tree repaints
+    // without a window reload. Captured so dispose() tears it down.
+    this._disposables.push(
+      this._favoritesStore.onDidChangeFavorites(() => {
+        if (this._disposed) {
+          return;
+        }
+        this._favorites = new Set(this._favoritesStore.read());
+        this.refresh();
+      })
+    );
 
     // Listen for repository changes. Capture the subscription
     // so dispose() tears it down. Guard the callback against post-dispose
@@ -555,6 +608,9 @@ export class BranchTreeProvider
     }
     this._disposables.length = 0;
     this._onDidChangeTreeData.dispose();
+    if (this._ownsFavoritesStore) {
+      this._favoritesStore.dispose();
+    }
   }
 
   /**
@@ -631,19 +687,20 @@ export class BranchTreeProvider
   }
 
   /**
-   * Toggle the favorite (star) state of a local branch, persist the new
-   * set through {@link _favoritesStore}, and refresh the tree so the
-   * Favorites section and star icons update. Mirrors git4idea's
+   * Toggle the favorite (star) state of a local branch by writing the new
+   * set through {@link _favoritesStore}. The store's change event re-syncs
+   * {@link _favorites} and refreshes the tree (a single source of truth, so
+   * the branch popup sees the same toggle). Mirrors git4idea's
    * `toggle_favorite` action (SPACE / star click).
    */
   toggleFavorite(branchName: string): void {
-    if (this._favorites.has(branchName)) {
-      this._favorites.delete(branchName);
+    const next = new Set(this._favoritesStore.read());
+    if (next.has(branchName)) {
+      next.delete(branchName);
     } else {
-      this._favorites.add(branchName);
+      next.add(branchName);
     }
-    this._favoritesStore.write([...this._favorites]);
-    this.refresh();
+    this._favoritesStore.write([...next]);
   }
 
   /**
@@ -1274,18 +1331,18 @@ export class BranchTreeProvider
  * Create a new BranchTreeProvider instance.
  *
  * @param gitService - The Git service to use
- * @param memento - Optional Memento (e.g. the extension's globalState)
- *   used to persist favorite branches across sessions. When omitted,
- *   favorites live only for the provider's lifetime.
+ * @param favoritesStore - Shared favorites store (e.g. globalState-backed via
+ *   {@link createFavoritesStore}), the same instance the branch popup uses so
+ *   stars stay consistent across both surfaces. When omitted, favorites live
+ *   only for the provider's lifetime.
  * @returns A new BranchTreeProvider instance
  */
 export function createBranchTreeProvider(
   gitService: IGitService,
-  memento?: vscode.Memento
+  favoritesStore?: IFavoritesStore
 ): BranchTreeProvider {
   // Wire the incoming/outgoing fetcher when the concrete GitService exposes
   // it so tracked branches in the tree show ↑N/↓N badges (ADR-001: the method
   // is off the frozen IGitService interface, detected via duck-typing).
-  const favoritesStore = memento ? new MementoFavoritesStore(memento) : undefined;
   return new BranchTreeProvider(gitService, getIncomingOutgoingFetcher(gitService), favoritesStore);
 }

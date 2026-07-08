@@ -1085,9 +1085,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Create BranchTreeProvider and tree view for context menu support
     // The tree view is used by CommandTitleProvider to listen for selection changes
     // and dynamically update command titles with branch names.
-    // Pass globalState so favorite branches persist across sessions
-    // (git4idea parity: GitRepositoryModel.favoriteRefs).
-    const branchTreeProvider = createBranchTreeProvider(gitService, ctx.context.globalState);
+    // Inject the shared favorites store so the tree and the branch popup star
+    // the same set (git4idea parity: one GitRepositoryModel.favoriteRefs;
+    // globalState-backed, so favorites persist across sessions).
+    const branchTreeProvider = createBranchTreeProvider(gitService, ctx.branchFavoritesStore);
     const branchTreeView = vscode.window.createTreeView('intellig.branchTree', {
       treeDataProvider: branchTreeProvider,
       showCollapseAll: true,

@@ -29,8 +29,14 @@ import {
   NewBranchDialog,
   showNewBranchDialog,
   CommitToolWindow,
+  createFavoritesStore,
 } from './services';
-import type { IRepository, IPushPreselect, IRebaseDialogPreselect } from './services';
+import type {
+  IRepository,
+  IPushPreselect,
+  IRebaseDialogPreselect,
+  IFavoritesStore,
+} from './services';
 import { CommitContextMenuCommands } from './commits';
 import { isValidRefNameFormat } from './branches/branchNameValidator';
 import { initOutputChannel } from './utils/outputChannel';
@@ -124,6 +130,15 @@ let commitToolWindow: CommitToolWindow | undefined;
  * Global reference to the Branch Popup.
  */
 let branchPopup: BranchPopup | undefined;
+
+/**
+ * Shared favorites store (globalState-backed) — the single source of truth
+ * for starred branches across the Branches tree and the branch popup
+ * (git4idea parity: one `GitRepositoryModel.favoriteRefs`). Created once in
+ * activate and injected into both surfaces so a star on either appears on the
+ * other.
+ */
+let branchFavoritesStore: IFavoritesStore | undefined;
 
 /**
  * Global reference to the Merge View.
@@ -233,6 +248,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Initialize all services
     await extensionServices.initialize(context);
+
+    // Build the shared favorites store before the command + view registration
+    // wire it into the branch popup and the Branches tree (single source of
+    // truth for starred branches). This module owns it, so register it for
+    // disposal of its change emitter on deactivate.
+    branchFavoritesStore = createFavoritesStore(context.globalState);
+    context.subscriptions.push(branchFavoritesStore);
 
     // Register commands
     registerCommands(context);
@@ -444,6 +466,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
     get commitToolWindow() {
       return commitToolWindow;
     },
+    get branchFavoritesStore() {
+      return branchFavoritesStore;
+    },
     get commitDialog() {
       return commitDialog;
     },
@@ -548,6 +573,9 @@ function createViewRegistrationContext(context: vscode.ExtensionContext): IViewR
     context,
     get services() {
       return extensionServices;
+    },
+    get branchFavoritesStore() {
+      return branchFavoritesStore;
     },
     get gitToolWindowProvider() {
       return gitToolWindowProvider;

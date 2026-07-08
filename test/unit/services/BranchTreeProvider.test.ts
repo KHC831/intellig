@@ -44,6 +44,7 @@ import type { IBranch, IRepository } from '../../../src/git-core/interfaces/IGit
 import type { IncomingOutgoingFetcher } from '../../../src/branches/BranchPopup';
 import type { IIncomingOutgoing } from '../../../src/git-core/ops/IncomingOutgoingOps';
 import { repoDisplayName } from '../../../src/sync/updateProject';
+import { EventEmitter } from '../../mocks/vscode';
 
 const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
 const SHORT_SHA = 'abc1234';
@@ -560,6 +561,8 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
   class InMemoryStore implements IFavoritesStore {
     private _data: string[];
     public writes = 0;
+    private readonly _onDidChangeFavorites = new EventEmitter<void>();
+    readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
     constructor(initial: string[] = []) {
       this._data = [...initial];
     }
@@ -569,6 +572,10 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     write(favorites: string[]): void {
       this.writes += 1;
       this._data = [...favorites];
+      this._onDidChangeFavorites.fire();
+    }
+    dispose(): void {
+      this._onDidChangeFavorites.dispose();
     }
   }
 
@@ -1025,7 +1032,12 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
   it('tags a favorite leaf with its owning repository', async () => {
     const repoA = repoAt('alpha', 'main');
     const repoB = repoAt('beta', 'dev');
-    const favStore: IFavoritesStore = { read: () => ['main'], write: () => {} };
+    const favStore: IFavoritesStore = {
+      read: () => ['main'],
+      write: () => {},
+      onDidChangeFavorites: new EventEmitter<void>().event,
+      dispose: () => {},
+    };
     const provider = multiRepoProvider(
       [repoA, repoB],
       new Map([

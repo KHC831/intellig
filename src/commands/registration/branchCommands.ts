@@ -56,7 +56,8 @@ export function registerBranchCommands(ctx: ICommandContext): vscode.Disposable[
         ctx.branchPopup = new BranchPopup(
           gitService,
           ctx.context.workspaceState,
-          getIncomingOutgoingFetcher(gitService)
+          getIncomingOutgoingFetcher(gitService),
+          ctx.branchFavoritesStore
         );
       }
       await ctx.branchPopup.show(repo);
