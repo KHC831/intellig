@@ -294,9 +294,9 @@ export function updateFavoritesList(
 
 /**
  * Read the legacy per-workspace favorites list (key
- * {@link FAVORITE_BRANCHES_STATE_KEY}). Retained only so the popup can
- * migrate pre-existing favorites into the shared store on first init;
- * favorites are now persisted through {@link IFavoritesStore}, not here.
+ * {@link FAVORITE_BRANCHES_STATE_KEY}). Retained only so the popup can migrate
+ * pre-existing favorites into the shared store; persistence lives in
+ * {@link IFavoritesStore}.
  *
  * Returns a defensive copy so callers can't mutate the stored array by
  * reference. Exported for unit tests.
@@ -1228,12 +1228,7 @@ export class BranchPopup {
     if (legacy.length === 0) {
       return;
     }
-    const merged = this._favoritesStore.read();
-    for (const name of legacy) {
-      if (!merged.includes(name)) {
-        merged.push(name);
-      }
-    }
+    const merged = [...new Set([...this._favoritesStore.read(), ...legacy])];
     this._favoritesStore.write(merged);
     void this._workspaceState.update(FAVORITE_BRANCHES_STATE_KEY, undefined);
   }

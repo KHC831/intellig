@@ -256,6 +256,34 @@ function fileMetaFromStatus(entry: IFileStatus): IFileChangeMeta {
 }
 
 /**
+ * Whether two status overlays describe the same set of paths with the same
+ * `status` / `staged` for each. Used by {@link ChangelistService.doReconcile}
+ * to fire the change event on a pure staged/status flip (no changelist
+ * membership change), so a Commit tool window that only listens for
+ * `onDidChangeChangelists` repaints when a file is `git add`-ed externally. A
+ * missing previous overlay counts as equal only to an empty new overlay, so
+ * the very first empty reconcile stays silent.
+ */
+function statusMetaEqual(
+  previous: ReadonlyMap<string, IFileChangeMeta> | undefined,
+  next: ReadonlyMap<string, IFileChangeMeta>
+): boolean {
+  if (!previous) {
+    return next.size === 0;
+  }
+  if (previous.size !== next.size) {
+    return false;
+  }
+  for (const [path, meta] of next) {
+    const prev = previous.get(path);
+    if (!prev || prev.status !== meta.status || prev.staged !== meta.staged) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Changelist Service implementation.
  * Manages changelists for organizing uncommitted changes.
  * Changelists are an IDE-level feature (not Git) that helps organize work before committing.
@@ -805,10 +833,15 @@ export class ChangelistService implements IChangelistService {
     this.saveChangelistStorage(repo, storage);
 
     const repoKey = this.getRepoKey(repo);
+    // A pure staged/status flip (e.g. an external `git add`) changes the
+    // overlay without touching changelist membership, so `changed` stays
+    // false. Compare against the previous overlay so the event still fires
+    // and the Commit tool window repaints. An unchanged overlay stays silent.
+    const statusChanged = !statusMetaEqual(this._statusByPath.get(repoKey), statusMeta);
     this._statusByPath.set(repoKey, statusMeta);
     this._changelistCache.delete(repoKey);
 
-    if (changed) {
+    if (changed || statusChanged) {
       const changelists = this.getChangelists(repo);
       this._onDidChangeChangelists.fire(changelists);
     }

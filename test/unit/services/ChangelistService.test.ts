@@ -1188,6 +1188,69 @@ describe('ChangelistService', () => {
         fake.uninstall();
       }
     });
+
+    it('a status-only flip (unstaged→staged) with no membership change fires onDidChangeChangelists', async () => {
+      // A file already tracked in a changelist is `git add`-ed externally: its
+      // changelist MEMBERSHIP does not change, only its index status flips
+      // ' ' → 'M'. The Commit tool window's sole external-change refresh is
+      // this event, so reconcile must fire it when the status overlay changes.
+      let rows: IFileStatus[] = [
+        { path: 'src/foo.ts', indexStatus: ' ' as const, workTreeStatus: 'M' as const },
+      ];
+      const gitService = {
+        getStatus: async () => rows,
+        onDidChangeRepository: (_l: (repo: IRepository) => void) => ({ dispose: (): void => {} }),
+      } as unknown as IGitService;
+
+      const svc = createChangelistService(gitService);
+      try {
+        // Settle: the file lands in Default (membership change on first pass).
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        let fireCount = 0;
+        const sub = svc.onDidChangeChangelists(() => {
+          fireCount++;
+        });
+
+        // Same file, now staged — membership is unchanged, only the overlay flips.
+        rows = [{ path: 'src/foo.ts', indexStatus: 'M' as const, workTreeStatus: ' ' as const }];
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        assert.strictEqual(fireCount, 1, 'status-only flip must fire onDidChangeChangelists');
+        sub.dispose();
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('a no-op reconcile (identical status, no membership change) does not fire onDidChangeChangelists', async () => {
+      const rows: IFileStatus[] = [
+        { path: 'src/foo.ts', indexStatus: 'M' as const, workTreeStatus: ' ' as const },
+      ];
+      const gitService = {
+        getStatus: async () => rows,
+        onDidChangeRepository: (_l: (repo: IRepository) => void) => ({ dispose: (): void => {} }),
+      } as unknown as IGitService;
+
+      const svc = createChangelistService(gitService);
+      try {
+        // Settle the file into Default with a known status overlay.
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        let fireCount = 0;
+        const sub = svc.onDidChangeChangelists(() => {
+          fireCount++;
+        });
+
+        // Nothing changed — same membership, same status. Must stay silent.
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        assert.strictEqual(fireCount, 0, 'an unchanged reconcile must not fire');
+        sub.dispose();
+      } finally {
+        svc.dispose();
+      }
+    });
   });
 
   describe('file metadata reflects git status after reconcile', () => {

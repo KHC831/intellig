@@ -88,23 +88,39 @@ export interface IFavoritesStore {
 }
 
 /**
- * In-memory {@link IFavoritesStore} used when no persistent store is
- * supplied (tests, and as a safe default that keeps favorites for the
- * lifetime of the provider). Production wires {@link MementoFavoritesStore}.
+ * Shared base for the {@link IFavoritesStore} implementations. Owns the
+ * change-emitter plumbing (the observable {@link onDidChangeFavorites} and its
+ * teardown) so each backing store only supplies {@link read} / {@link write}
+ * and fires {@link _fireChange} after a mutation.
  */
-class InMemoryFavoritesStore implements IFavoritesStore {
-  private _data: string[] = [];
+abstract class FavoritesStoreBase implements IFavoritesStore {
   private readonly _onDidChangeFavorites = new vscode.EventEmitter<void>();
   readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
-  read(): string[] {
-    return this._data;
-  }
-  write(favorites: string[]): void {
-    this._data = favorites;
+  abstract read(): string[];
+  abstract write(favorites: string[]): void;
+  protected _fireChange(): void {
     this._onDidChangeFavorites.fire();
   }
   dispose(): void {
     this._onDidChangeFavorites.dispose();
+  }
+}
+
+/**
+ * In-memory {@link IFavoritesStore} used when no persistent store is
+ * supplied (tests, and as a safe default that keeps favorites for the
+ * lifetime of the provider). Production wires {@link MementoFavoritesStore}.
+ */
+class InMemoryFavoritesStore extends FavoritesStoreBase {
+  private _data: string[] = [];
+  read(): string[] {
+    // Defensive copy — the caller must not mutate the backing array by
+    // reference (the Memento-backed store also hands back a fresh array).
+    return [...this._data];
+  }
+  write(favorites: string[]): void {
+    this._data = favorites;
+    this._fireChange();
   }
 }
 
@@ -114,19 +130,16 @@ class InMemoryFavoritesStore implements IFavoritesStore {
  * the cross-session analogue of git4idea persisting `favoriteRefs` in
  * the repository model.
  */
-class MementoFavoritesStore implements IFavoritesStore {
-  private readonly _onDidChangeFavorites = new vscode.EventEmitter<void>();
-  readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
-  constructor(private readonly _memento: vscode.Memento) {}
+class MementoFavoritesStore extends FavoritesStoreBase {
+  constructor(private readonly _memento: vscode.Memento) {
+    super();
+  }
   read(): string[] {
     return this._memento.get<string[]>(FAVORITES_MEMENTO_KEY, []);
   }
   write(favorites: string[]): void {
     void this._memento.update(FAVORITES_MEMENTO_KEY, favorites);
-    this._onDidChangeFavorites.fire();
-  }
-  dispose(): void {
-    this._onDidChangeFavorites.dispose();
+    this._fireChange();
   }
 }
 
