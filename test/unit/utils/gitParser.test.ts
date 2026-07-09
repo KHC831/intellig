@@ -236,6 +236,12 @@ describe('Git Parser Utilities', () => {
       assert.strictEqual(statusCodeToFileStatus(' ', 'U'), 'conflicted');
     });
 
+    it('should return conflicted for AA (both-added) and DD (both-deleted)', () => {
+      // Unmerged states that show no `U` column — agrees with isConflictedStatus.
+      assert.strictEqual(statusCodeToFileStatus('A', 'A'), 'conflicted');
+      assert.strictEqual(statusCodeToFileStatus('D', 'D'), 'conflicted');
+    });
+
     it('should return added for A status', () => {
       assert.strictEqual(statusCodeToFileStatus('A', ' '), 'added');
     });
@@ -615,6 +621,53 @@ Binary files a/image.png and b/image.png differ
       assert.strictEqual(result.length, 1);
       assert.strictEqual(result[0].path, 'image.png');
       assert.strictEqual(result[0].binary, true);
+    });
+
+    it('does not flag a TEXT diff whose content contains "Binary files ... differ"', () => {
+      // git prints the binary sentinel at column 0; a content line carries a
+      // +/-/space prefix, so a doc that literally writes the sentence must not
+      // read as binary.
+      const output = `diff --git a/doc.md b/doc.md
+--- a/doc.md
++++ b/doc.md
+@@ -1,2 +1,3 @@
+ intro
++Binary files a/x and b/y differ
+`;
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'doc.md');
+      assert.strictEqual(result[0].binary, false, 'a +prefixed content line is not the sentinel');
+    });
+
+    it('detects a genuine binary combined (diff --cc) block', () => {
+      const output = `diff --cc image.png
+index 1111111,2222222..3333333
+Binary files a/image.png and b/image.png differ
+`;
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'image.png');
+      assert.strictEqual(result[0].binary, true);
+    });
+
+    it('does not flag a combined (diff --cc) block whose content contains the sentinel', () => {
+      const output = `diff --cc merged.md
+@@@ -1,1 -1,1 +1,2 @@@
+  intro
+ +Binary files a/x and b/y differ
+`;
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'merged.md');
+      assert.strictEqual(
+        result[0].binary,
+        false,
+        'a prefixed combined content line is not the sentinel'
+      );
     });
 
     it('C-unquotes a git-quoted (non-ASCII) header path', () => {

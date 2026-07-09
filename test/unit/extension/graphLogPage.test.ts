@@ -100,9 +100,10 @@ describe('buildLogScope — UI filter → git scope mapping', () => {
     assert.strictEqual(s.hashes, undefined, 'a message search is not a hash filter');
   });
 
-  it('treats a 7-40 hex searchText as a hash filter (not a message grep)', () => {
+  it('treats a hex searchText as a hash filter (not a message grep)', () => {
     // The "Message or hash" box: a hash query becomes a HASH_FILTER, matching
-    // IntelliJ TextFilterModel (VcsLogUtil.HASH_REGEX = [a-fA-F0-9]{7,40}).
+    // IntelliJ TextFilterModel (HASH_REGEX 7-char floor; upper bound widened
+    // from 40 to 64 for SHA-256 object ids).
     const s = buildLogScope({ searchText: '1142593' });
     assert.deepStrictEqual(s.hashes, ['1142593'], 'hex query → hashes');
     assert.strictEqual(s.grep, undefined, 'hash query must NOT also grep the message');
@@ -122,18 +123,24 @@ describe('buildLogScope — UI filter → git scope mapping', () => {
   });
 });
 
-describe('parseHashQuery — IntelliJ VcsLogUtil.HASH_REGEX parity', () => {
-  it('accepts a single 7-40 hex word', () => {
+describe('parseHashQuery — IntelliJ HASH_REGEX 7-char floor, widened for SHA-256', () => {
+  it('accepts a single 7-64 hex word', () => {
     assert.deepStrictEqual(parseHashQuery('1142593'), ['1142593']);
     assert.deepStrictEqual(parseHashQuery('ABCDEF0'), ['ABCDEF0']); // case-insensitive
-    assert.deepStrictEqual(parseHashQuery('a'.repeat(40)), ['a'.repeat(40)]);
+    assert.deepStrictEqual(parseHashQuery('a'.repeat(40)), ['a'.repeat(40)]); // SHA-1
+  });
+  it('accepts a full SHA-256 (64-hex) object id', () => {
+    assert.deepStrictEqual(parseHashQuery('a'.repeat(64)), ['a'.repeat(64)]);
+  });
+  it('accepts a 41-hex word (any length 7-64, above the old 40 cap)', () => {
+    assert.deepStrictEqual(parseHashQuery('a'.repeat(41)), ['a'.repeat(41)]);
   });
   it('accepts multiple hex words separated by whitespace', () => {
     assert.deepStrictEqual(parseHashQuery('  deadbee\t0badf00d '), ['deadbee', '0badf00d']);
   });
-  it('rejects < 7 hex, > 40 hex, non-hex, empty, and mixed', () => {
+  it('rejects < 7 hex, > 64 hex, non-hex, empty, and mixed', () => {
     assert.strictEqual(parseHashQuery('abc123'), undefined); // 6
-    assert.strictEqual(parseHashQuery('a'.repeat(41)), undefined); // 41
+    assert.strictEqual(parseHashQuery('a'.repeat(65)), undefined); // 65 (beyond SHA-256)
     assert.strictEqual(parseHashQuery('feature'), undefined); // non-hex
     assert.strictEqual(parseHashQuery(''), undefined);
     assert.strictEqual(parseHashQuery('   '), undefined);

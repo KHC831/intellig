@@ -119,13 +119,25 @@ export interface IRepoScanFs {
        * and not a symlink). Most importantly used to recognize the `.git`
        * file shape used by linked worktrees + submodule worktrees, but the
        * current scan algorithm only requires it to be present on the type —
-       * the runtime decision logic uses `isDirectory()` exclusively for
-       * recursion and the basename match for filtering.
+       * the runtime recursion decision uses `isDirectory()` / `isSymbolicLink()`
+       * (plus {@link IRepoScanFs.stat} for a symlink's target) and the basename
+       * match for filtering.
        */
       isFile(): boolean;
     }[]
   >;
   realpath(path: string): Promise<string>;
+  /**
+   * Follows symlinks (unlike `lstat`) and reports the TARGET's type. Used at
+   * `maxDepth === -1` to confirm a symlinked child resolves to a DIRECTORY
+   * before following it: a `Dirent` reports the link itself
+   * (`isDirectory() === false` for every symlink) and `realpath` yields the
+   * target path but not its type, so a symlink to a FILE can only be
+   * distinguished here. Optional so existing finite-depth fs stubs (which
+   * never reach the symlink-follow branch) need not implement it; the default
+   * adapter always provides it.
+   */
+  stat?(path: string): Promise<{ isDirectory(): boolean }>;
 }
 
 /**
@@ -152,6 +164,9 @@ export const defaultRepoScanFs: IRepoScanFs = {
   },
   async realpath(p: string): Promise<string> {
     return fs.realpath(p);
+  },
+  async stat(p: string): Promise<{ isDirectory(): boolean }> {
+    return fs.stat(p);
   },
 };
 
@@ -205,10 +220,11 @@ export interface IScanRepoOptions {
  *      separate repos, so we don't recurse.
  *   2. Otherwise, if `maxDepth === 0`, return `[]`.
  *   3. Otherwise, `readdir(root)` and filter:
- *      - directories only,
+ *      - directories, plus symlinks whose target is a directory (only at
+ *        `maxDepth === -1`; a symlink to a file is skipped),
  *      - basename NOT in `ignoredFolders ∪ INTERNAL_IGNORED_FOLDERS`,
- *      - NOT a symlink (unless `maxDepth === -1` AND realpath hasn't been
- *        visited — cycle guard).
+ *      - a symlink is followed only when `maxDepth === -1` AND its target
+ *        realpath hasn't been visited — the cycle guard.
  *   4. For each surviving child: call `resolveRepoRoot(childPath)`. If that
  *      returns a non-empty string, add to results AND skip recursion into
  *      that child. Otherwise, recurse with `maxDepth - 1` (or stay at `-1`).
@@ -220,7 +236,8 @@ export interface IScanRepoOptions {
  * @remarks
  * **Performance note:** `maxDepth: -1` (unlimited) incurs `O(N)`
  * `fs.realpath` syscalls — one per directory entered AND one per symlinked
- * child evaluated — to power the cycle guard. On large trees with many
+ * child evaluated — plus one `fs.stat` per symlinked child (to confirm its
+ * target is a directory) — to power the cycle guard. On large trees with many
  * subdirectories this can add measurable I/O latency. Stay on the default
  * `maxDepth: 1` (or any small finite depth) unless you genuinely need to
  * follow symlinks; finite-depth scans skip symlinks unconditionally and
@@ -309,7 +326,10 @@ export async function scanFolderForGitRepos(
       if (caseInsensitiveIgnored.has(lowerName) || caseSensitiveIgnored.has(entry.name)) {
         continue;
       }
-      if (!entry.isDirectory()) {
+      // Keep directories AND symlinks: a Dirent for a symlink-to-directory
+      // reports isDirectory() === false, so filtering on isDirectory() alone
+      // would drop every symlink before the follow branch below could run.
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) {
         continue;
       }
 
@@ -320,7 +340,25 @@ export async function scanFolderForGitRepos(
         if (opts.maxDepth !== -1) {
           continue;
         }
-        // Unlimited depth → follow only if realpath unseen.
+        // Follow only a symlink that resolves to a DIRECTORY. A symlink to a
+        // file must be skipped; realpath gives the target path but not its
+        // type, so stat the target. Without a stat capability we can't tell,
+        // so fall through (a symlinked file then fails harmlessly at readdir).
+        if (fsImpl.stat) {
+          let targetIsDir: boolean;
+          try {
+            targetIsDir = (await fsImpl.stat(childPath)).isDirectory();
+          } catch {
+            continue;
+          }
+          if (!targetIsDir) {
+            continue;
+          }
+        }
+        // Unlimited depth → follow only if realpath unseen. The recursion's own
+        // top-of-scan reservation records the target, so we do NOT pre-reserve
+        // here — doing so would make the child scan see its realpath as already
+        // visited and return without scanning.
         let realChild: string;
         try {
           realChild = await fsImpl.realpath(childPath);
@@ -330,9 +368,6 @@ export async function scanFolderForGitRepos(
         if (visitedRealpaths.has(realChild)) {
           continue;
         }
-        // Reserve the realpath BEFORE the resolveRepoRoot/recurse so a
-        // cycle inside the child can't re-enter.
-        visitedRealpaths.add(realChild);
       }
 
       const childRepo = await opts.resolveRepoRoot(childPath);

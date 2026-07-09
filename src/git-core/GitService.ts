@@ -1157,12 +1157,23 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Invalidate the cache for a repository.
+   * Invalidate the cache for a repository by marking its entry STALE (past-TTL).
+   *
+   * The entry is kept, not deleted: the TTL consumers ({@link getCachedRepository},
+   * {@link findOwningRepository}) treat a past-TTL entry as a miss and reload, so
+   * freshness is preserved, while {@link getRepositories} keeps returning the
+   * repo's identity. Membership is removed ONLY by {@link removeRepositoryWatcher}
+   * (workspace-folder removal / `.git` deletion) and {@link dispose} — so a
+   * consumer reading the list during an invalidation window (e.g.
+   * `wireAvailableRepositorySync`) never sees a repo momentarily vanish.
    *
    * @param rootPath - The repository root path
    */
   private invalidateCache(rootPath: string): void {
-    this._repositories.delete(rootPath);
+    const cached = this._repositories.get(rootPath);
+    if (cached) {
+      cached.lastUpdated = 0;
+    }
   }
 
   /**

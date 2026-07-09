@@ -1,4 +1,5 @@
 import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import { isHexObjectId } from '../git-core/gitDirMarkers';
 
 /**
  * The Git tool window's log-filter shape (a subset of the UI filter bar). Kept
@@ -74,19 +75,23 @@ export interface ILogScope {
  * to dropping `--regexp-ignore-case` (see StashTagHistoryOps.getLog).
  */
 /**
- * A single hash word: 7–40 hex chars. Mirrors IntelliJ's
- * `VcsLogUtil.HASH_REGEX = [a-fA-F0-9]{7,40}` so the "Message or hash" box treats
- * the same inputs as hashes that IntelliJ does.
+ * A single hash word: 7 hex chars up to a full object id. Mirrors IntelliJ's
+ * `VcsLogUtil.HASH_REGEX` 7-char floor and every-word-must-match semantics, but
+ * the upper bound is widened from IntelliJ's 40 to a full SHA-256 object id (64
+ * hex) — the repo's SHA-256 readiness supersedes that parity detail. The
+ * definition of "hex object id" is delegated to {@link isHexObjectId} so it
+ * stays SHA-256-ready in one place.
  */
-const HASH_WORD = /^[0-9a-fA-F]{7,40}$/;
+const HASH_WORD_MIN_LEN = 7;
 
 /**
  * Decide whether a search query is a HASH filter rather than a message search.
- * Returns the list of hash words when EVERY whitespace-separated word is a
- * 7–40-hex hash (IntelliJ TextFilterModel: a text whose words are all hashes
- * becomes a HASH_FILTER), otherwise `undefined` (treat as a `--grep` message
- * search). A 6-char or shorter token, anything with a non-hex char, or a mix of
- * a hash and a word all fall through to message search — matching IntelliJ.
+ * Returns the list of hash words when EVERY whitespace-separated word is a hex
+ * object id of at least 7 chars (IntelliJ TextFilterModel: a text whose words
+ * are all hashes becomes a HASH_FILTER), otherwise `undefined` (treat as a
+ * `--grep` message search). A 6-char or shorter token, anything with a non-hex
+ * char, or a mix of a hash and a word all fall through to message search —
+ * matching IntelliJ.
  */
 export function parseHashQuery(text: string | undefined): string[] | undefined {
   if (!text) {
@@ -97,7 +102,7 @@ export function parseHashQuery(text: string | undefined): string[] | undefined {
     return undefined;
   }
   for (const w of words) {
-    if (!HASH_WORD.test(w)) {
+    if (w.length < HASH_WORD_MIN_LEN || !isHexObjectId(w, { allowPrefix: true })) {
       return undefined;
     }
   }

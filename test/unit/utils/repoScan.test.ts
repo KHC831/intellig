@@ -36,6 +36,12 @@ interface IFsState {
   symlinks: Set<string>;
   /** Realpath overrides for cycle simulation. */
   realpaths: Map<string, string>;
+  /**
+   * Symlink paths whose TARGET is a file, not a directory. `stat()` reports
+   * `isDirectory() === false` for these so the scanner skips them. Any symlink
+   * not listed here resolves to a directory.
+   */
+  symlinkFileTargets?: Set<string>;
 }
 
 function makeFs(state: IFsState): IRepoScanFs {
@@ -61,18 +67,19 @@ function makeFs(state: IFsState): IRepoScanFs {
         return {
           name,
           isDirectory(): boolean {
-            // Treat anything we registered as a child path as a directory
-            // unless its presence is purely as a symlink target. For test
-            // simplicity, every registered child IS a directory in our model.
-            return true;
+            // Match Node's real Dirent: it reflects the ENTRY itself (via
+            // lstat), so a symlink — even one pointing at a directory —
+            // reports isDirectory() === false. Non-symlink registered
+            // children are directories in this model.
+            return !isSymlink;
           },
           isSymbolicLink(): boolean {
             return isSymlink;
           },
           isFile(): boolean {
-            // (#212): IRepoScanFs.Dirent now requires isFile(); none
-            // of the entries in this suite are files (everything is a dir),
-            // so the helper just returns false uniformly.
+            // (#212): IRepoScanFs.Dirent requires isFile(); none of the
+            // registered children are regular files (they are dirs or
+            // symlinks), so this is uniformly false.
             return false;
           },
         };
@@ -80,6 +87,12 @@ function makeFs(state: IFsState): IRepoScanFs {
     },
     async realpath(p: string): Promise<string> {
       return state.realpaths.get(p) ?? p;
+    },
+    async stat(p: string): Promise<{ isDirectory(): boolean }> {
+      // Follows the symlink (unlike lstat): a symlink registered as a
+      // file-target reports a non-directory; every other target is a dir.
+      const isFileTarget = state.symlinkFileTargets?.has(p) ?? false;
+      return { isDirectory: (): boolean => !isFileTarget };
     },
   };
 }
@@ -309,6 +322,76 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
       // No repos found, scan terminated. The pure assertion is "no crash, no
       // infinite recursion" — the empty-result is the proxy.
       assert.deepStrictEqual(result, []);
+    });
+
+    it('discovers a repo behind a symlinked directory at maxDepth=-1', async () => {
+      // The dead-code case: a Dirent for a symlink-to-dir reports
+      // isDirectory() === false, so the scan must still let it through and
+      // follow it (target is a directory) to reach the nested repo.
+      const fs = makeFs({
+        dirs: new Map([
+          ['/work', ['linked']],
+          ['/work/linked', ['inner']],
+          ['/work/linked/inner', []],
+        ]),
+        symlinks: new Set(['/work/linked']),
+        realpaths: new Map([['/work/linked', '/mnt/target']]),
+      });
+      const result = await scanFolderForGitRepos('/work', {
+        maxDepth: -1,
+        ignoredFolders: [],
+        fs,
+        resolveRepoRoot: async (p: string): Promise<string | undefined> =>
+          p === '/work/linked/inner' ? '/work/linked/inner' : undefined,
+      });
+      assert.deepStrictEqual(result, ['/work/linked/inner']);
+    });
+
+    it('terminates and does not duplicate results on a symlink cycle at maxDepth=-1', async () => {
+      // A real directory holds a repo child AND a symlink back to the root.
+      // The cycle guard must stop the loop while still reporting the repo once.
+      const fs = makeFs({
+        dirs: new Map([
+          ['/work', ['repo', 'link']],
+          ['/work/repo', []],
+        ]),
+        symlinks: new Set(['/work/link']),
+        realpaths: new Map([['/work/link', '/work']]), // link -> root
+      });
+      const result = await scanFolderForGitRepos('/work', {
+        maxDepth: -1,
+        ignoredFolders: [],
+        fs,
+        resolveRepoRoot: async (p: string): Promise<string | undefined> =>
+          p === '/work/repo' ? '/work/repo' : undefined,
+      });
+      assert.deepStrictEqual(result, ['/work/repo']);
+    });
+
+    it('skips a symlink to a FILE at maxDepth=-1', async () => {
+      // realpath alone can't tell a file target from a dir target; the stat
+      // check must skip a symlink whose target is a file.
+      const fs = makeFs({
+        dirs: new Map([['/work', ['filelink']]]),
+        symlinks: new Set(['/work/filelink']),
+        realpaths: new Map([['/work/filelink', '/some/file']]),
+        symlinkFileTargets: new Set(['/work/filelink']),
+      });
+      const seen: string[] = [];
+      const result = await scanFolderForGitRepos('/work', {
+        maxDepth: -1,
+        ignoredFolders: [],
+        fs,
+        resolveRepoRoot: async (p: string): Promise<string | undefined> => {
+          seen.push(p);
+          return undefined;
+        },
+      });
+      assert.deepStrictEqual(result, []);
+      assert.ok(
+        !seen.includes('/work/filelink'),
+        `a symlink to a file must be skipped before resolveRepoRoot, got ${JSON.stringify(seen)}`
+      );
     });
   });
 

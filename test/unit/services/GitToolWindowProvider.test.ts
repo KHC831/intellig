@@ -1031,9 +1031,38 @@ describe('Log View', () => {
       const disposable = provider.onDidRequestLogFilter((filter) => {
         disposable.dispose();
         assert.ok(filter?.since instanceof Date, 'since is a Date');
+        assert.strictEqual(filter?.since?.getTime(), new Date('2026-01-01').getTime());
         done();
       });
       applyFilter(provider, { since: '2026-01-01' });
+    });
+
+    it('maps an until date through to the requested ILogFilter', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.ok(filter?.until instanceof Date, 'until is a Date');
+        assert.strictEqual(filter?.until?.getTime(), new Date('2026-12-31').getTime());
+        done();
+      });
+      applyFilter(provider, { until: '2026-12-31' });
+    });
+
+    it('drops a garbage since string (Invalid Date) so the filter collapses', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter, undefined, 'an invalid since alone collapses to no filter');
+        done();
+      });
+      applyFilter(provider, { since: 'not-a-date' });
+    });
+
+    it('drops a garbage until string (Invalid Date) so the filter collapses', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter, undefined, 'an invalid until alone collapses to no filter');
+        done();
+      });
+      applyFilter(provider, { until: 'garbage' });
     });
   });
 });

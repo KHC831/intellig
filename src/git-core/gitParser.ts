@@ -143,11 +143,20 @@ function parseStatusNewline(output: string): IFileStatus[] {
  * @returns True if the entry is an unmerged (conflicted) path
  */
 export function isConflictedStatus(file: IFileStatus): boolean {
+  return isConflictedStatusCode(file.indexStatus, file.workTreeStatus);
+}
+
+/**
+ * The single conflict definition, expressed over the two raw status codes so
+ * {@link isConflictedStatus} and {@link statusCodeToFileStatus} share it and
+ * cannot drift. See {@link isConflictedStatus} for why AA/DD count as unmerged.
+ */
+function isConflictedStatusCode(indexStatus: StatusCode, workTreeStatus: StatusCode): boolean {
   return (
-    file.indexStatus === 'U' ||
-    file.workTreeStatus === 'U' ||
-    (file.indexStatus === 'A' && file.workTreeStatus === 'A') ||
-    (file.indexStatus === 'D' && file.workTreeStatus === 'D')
+    indexStatus === 'U' ||
+    workTreeStatus === 'U' ||
+    (indexStatus === 'A' && workTreeStatus === 'A') ||
+    (indexStatus === 'D' && workTreeStatus === 'D')
   );
 }
 
@@ -162,8 +171,9 @@ export function statusCodeToFileStatus(
   indexStatus: StatusCode,
   workTreeStatus: StatusCode
 ): FileStatus {
-  // Check for conflicts first
-  if (indexStatus === 'U' || workTreeStatus === 'U') {
+  // Check for conflicts first — one shared definition with isConflictedStatus,
+  // so AA (both-added) and DD (both-deleted) also read as conflicted.
+  if (isConflictedStatusCode(indexStatus, workTreeStatus)) {
     return 'conflicted';
   }
 
@@ -870,7 +880,7 @@ export function parseDiff(output: string): IDiff[] {
         status = 'renamed';
       } else if (line.startsWith('copy from')) {
         status = 'copied';
-      } else if (line.includes('Binary files')) {
+      } else if (line.startsWith('Binary files')) {
         binary = true;
       }
     }
@@ -914,8 +924,10 @@ function parseCombinedDiffHeader(header: string, lines: string[]): IDiff | undef
   }
 
   // Detect a binary combined diff defensively — git can still print the
-  // "Binary files … differ" sentinel for binary content in a merge.
-  const binary = lines.some((line) => line.includes('Binary files'));
+  // "Binary files … differ" sentinel for binary content in a merge. The
+  // sentinel starts at column 0; a content line carries a prefix, so match
+  // from the start to avoid flagging a diff whose text contains the phrase.
+  const binary = lines.some((line) => line.startsWith('Binary files'));
 
   return {
     path,

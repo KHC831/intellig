@@ -2031,6 +2031,20 @@ export class GitToolWindowProvider
     );
   }
 
+  /**
+   * Parse a webview-supplied filter date, returning `undefined` for an empty
+   * value or one that yields an Invalid Date. An Invalid Date is truthy, so
+   * without this it survives {@link _isLogFilterEmpty} and throws in
+   * `toISOString()` in the ops layer.
+   */
+  private _parseFilterDate(value: string | null | undefined): Date | undefined {
+    if (!value) {
+      return undefined;
+    }
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {
     let filter: ILogFilter | undefined;
 
@@ -2102,11 +2116,18 @@ export class GitToolWindowProvider
           filter.paths = paths;
         }
       }
-      if (webviewFilter.since) {
-        filter.since = new Date(webviewFilter.since);
+      // Drop a value that parses to an Invalid Date: a garbage string from a
+      // desynced/compromised webview is truthy, so it would survive
+      // `_isLogFilterEmpty` and later throw in `since.toISOString()` downstream
+      // (surfacing as a silently empty graph). Same drop-silently convention as
+      // the unsafe-ref guard above.
+      const since = this._parseFilterDate(webviewFilter.since);
+      if (since) {
+        filter.since = since;
       }
-      if (webviewFilter.until) {
-        filter.until = new Date(webviewFilter.until);
+      const until = this._parseFilterDate(webviewFilter.until);
+      if (until) {
+        filter.until = until;
       }
 
       // Check if filter is empty
