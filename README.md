@@ -1,10 +1,8 @@
 # IntelliG for VS Code
 
-The native-feeling Git UI for VS Code users who miss IntelliJ's. It borrows the ideas that made Git pleasant in IntelliJ IDEA — changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log — and rebuilds them as first-class VS Code, so you feel at home instead of like you're running a transplanted IDE.
+IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, and a three-pane merge window. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the Source Control view and the diff editor. And it puts being safe to trust with your repo ahead of matching every IntelliJ menu item.
 
 ![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
-
-**The idea:** IntelliJ's `git4idea` is the inspiration, not a spec to clone. IntelliG keeps its best daily workflows, embraces native VS Code idioms (the built-in 3-way merge editor, the native SCM commit surface) rather than transplanting Swing, and puts trusting-it-with-your-repo ahead of matching every menu item.
 
 ## Marketplace
 
@@ -20,7 +18,7 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 ### Commits & Changelists
 
 - **Commit Dialog** — structured commit workflow with sign-off, custom author, recent-message history, and issue-link shortcuts
-- **Commit Tool Window** _(opt-in)_ — dedicated SCM view with Local Changes + combined Shelf/Stash tab
+- **Commit Tool Window** _(on by default)_ — dedicated SCM view with Local Changes + combined Shelf/Stash tab; disable `intellig.useCommitToolWindow` to use the classic modal Commit dialog
 - **Changelists** — organize pending changes into named lists with descriptions and an active-list indicator
 - **Revert & Drop Selected Changes** — deselect individual files before reverting or dropping
 - **Commit File** — commit a single file straight from its Explorer right-click menu (top of the IntelliG submenu)
@@ -62,7 +60,7 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 
 ### Integrations
 
-- **Git Tool Window (tabbed)** _(opt-in)_ — Log, History, Update Info, Incoming, Console tabs
+- **Git Tool Window (tabbed)** _(on by default)_ — Log, History, Update Info, Incoming, Console tabs; disable `intellig.useTabbedGitToolWindow` to restore the single Log panel
 - **Explorer & Editor Context Menus** — stage, unstage, revert, diff, show history, open on remote
 - **External Hosting Links** — open commit / compare / branch pages on GitHub, GitLab, or Bitbucket
 - **Status Bar** — current branch + incoming/outgoing commit badge
