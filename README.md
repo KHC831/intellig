@@ -1,6 +1,6 @@
 # IntelliG for VS Code
 
-IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, and a three-pane merge window. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the Source Control view and the diff editor. And it puts being safe to trust with your repo ahead of matching every IntelliJ menu item.
+IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, and a three-pane merge window. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the Source Control view and the diff editor.
 
 ![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
 
