@@ -10,6 +10,24 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.3.4] - 2026-07-09
+
+### Added
+
+- `intellig.autorefresh` (on by default) controls whether the Git views refresh live as the working tree changes.
+
+### Changed
+
+- The push dialog's "Push tags" option is now a dropdown (All tags / Follow tags) with a short explanation of what each choice pushes.
+
+### Fixed
+
+- The Commit tool window now tracks each file's real staged state, so committing a partial selection no longer sweeps in files you left unchecked, and the view refreshes when you stage or unstage from outside the extension.
+- Branch favorites stay in sync between the branches tree and the branch popup. Star a branch in one and it shows in the other.
+- "Push tags" in the push dialog now sends every tag by default. It previously used `--follow-tags`, which silently skipped lightweight tags and tags not reachable from the pushed branch.
+- The Local Changes view now refreshes as soon as you save a file in the working tree, instead of only after a Git operation or switching tabs.
+- Deleting a tag now offers to delete it on the remote too, so a deleted tag no longer reappears after the next fetch.
+
 ## [0.3.3] - 2026-07-08
 
 ### Changed
