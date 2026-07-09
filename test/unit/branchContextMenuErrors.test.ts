@@ -2451,3 +2451,131 @@ describe('Tag delete — remote-delete affordance (IntelliJ GitDeleteTagOperatio
     assert.strictEqual(remoteDeleteCalled, false);
   });
 });
+
+describe('Tag "Delete on Remote" — offer to delete the still-present local tag', () => {
+  const repoWithRemote: IRepository = {
+    rootUri: Uri.file('/test/repo'),
+    state: 'idle',
+    head: undefined,
+    remotes: [{ name: 'origin' }],
+    submodules: [],
+  };
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  function installInfoTracker(choice?: string): { calls: { message: string; items: string[] }[] } {
+    const calls: { message: string; items: string[] }[] = [];
+    writableWindow().showInformationMessage = (
+      message: string,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      calls.push({ message, items });
+      return Promise.resolve(choice);
+    };
+    return { calls };
+  }
+
+  afterEach(() => {
+    restoreMessageFunctions();
+  });
+
+  it('refreshes and offers "Delete Locally" after a successful remote delete', async () => {
+    const localDeletes: string[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repoWithRemote],
+      getRepository: async () => repoWithRemote,
+      getRemotes: () => okAsync([{ name: 'origin' }]),
+      deleteRemoteTag: () => okAsync(undefined),
+      deleteTag: (_repo, name) => {
+        localDeletes.push(name);
+        return okAsync(undefined);
+      },
+    });
+    const btp = createMockBranchTreeProvider(gitService);
+    btp.getRepository = () => repoWithRemote;
+    let refreshed = 0;
+    btp.refresh = () => {
+      refreshed += 1;
+    };
+    const commands = new BranchContextMenuCommands(gitService, btp);
+    installWarningMessageTracker('Delete from Remote'); // confirm the remote delete
+    const info = installInfoTracker(undefined); // dismiss the local-delete offer
+
+    const t = createTagTreeItem('v1.0.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.deleteRemote', t, [t]);
+    await flush();
+
+    assert.ok(refreshed >= 1, 'the tree is refreshed after a remote tag delete');
+    assert.strictEqual(info.calls.length, 1, 'one success toast');
+    assert.ok(
+      info.calls[0].items.includes('Delete Locally'),
+      `toast offers "Delete Locally"; got items ${JSON.stringify(info.calls[0].items)}`
+    );
+    assert.strictEqual(localDeletes.length, 0, 'local tag not deleted unless the offer is clicked');
+  });
+
+  it('deletes the local tag when the user clicks "Delete Locally"', async () => {
+    const localDeletes: string[] = [];
+    let reloaded = 0;
+    const gitService = createMockGitService({
+      getRepositories: () => [repoWithRemote],
+      getRepository: async () => repoWithRemote,
+      getRemotes: () => okAsync([{ name: 'origin' }]),
+      deleteRemoteTag: () => okAsync(undefined),
+      deleteTag: (_repo, name) => {
+        localDeletes.push(name);
+        return okAsync(undefined);
+      },
+      reloadRepository: async (repo) => {
+        reloaded += 1;
+        return repo;
+      },
+    });
+    const btp = createMockBranchTreeProvider(gitService);
+    btp.getRepository = () => repoWithRemote;
+    btp.refresh = () => {};
+    const commands = new BranchContextMenuCommands(gitService, btp);
+    installWarningMessageTracker('Delete from Remote');
+    installInfoTracker('Delete Locally'); // user clicks the offer
+
+    const t = createTagTreeItem('v1.0.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.deleteRemote', t, [t]);
+    await flush();
+
+    assert.deepStrictEqual(localDeletes, ['v1.0.0'], 'clicking the offer deletes the local tag');
+    assert.ok(reloaded >= 1, 'reloads the repo so the tree drops the tag');
+  });
+
+  it('does not offer a local delete when the remote delete fails', async () => {
+    let localDeleteCalled = false;
+    const gitService = createMockGitService({
+      getRepositories: () => [repoWithRemote],
+      getRepository: async () => repoWithRemote,
+      getRemotes: () => okAsync([{ name: 'origin' }]),
+      deleteRemoteTag: () => errAsync(new CommandFailedError(1, '', 'remote rejected')),
+      deleteTag: () => {
+        localDeleteCalled = true;
+        return okAsync(undefined);
+      },
+    });
+    const btp = createMockBranchTreeProvider(gitService);
+    btp.getRepository = () => repoWithRemote;
+    btp.refresh = () => {};
+    const commands = new BranchContextMenuCommands(gitService, btp);
+    installWarningMessageTracker('Delete from Remote');
+    const info = installInfoTracker(undefined);
+    const err = installErrorMessageTracker();
+
+    const t = createTagTreeItem('v1.0.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.deleteRemote', t, [t]);
+    await flush();
+
+    assert.strictEqual(info.calls.length, 0, 'no local-delete offer when the remote delete failed');
+    assert.ok(err.calls.length >= 1, 'the remote failure is toasted');
+    assert.strictEqual(localDeleteCalled, false);
+  });
+});

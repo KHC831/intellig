@@ -3063,11 +3063,51 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    if (await this._deleteRemoteTag(repo, target.tag.name, targetRemote)) {
-      void vscode.window.showInformationMessage(
-        `Deleted remote tag '${target.tag.name}' from ${targetRemote}`
-      );
+    if (!(await this._deleteRemoteTag(repo, target.tag.name, targetRemote))) {
+      return;
     }
+    // Re-sync the tree with reality (this command previously never refreshed).
+    this._branchTreeProvider.refresh();
+    // Fire-and-forget the success toast + local-delete offer so it never holds
+    // the command pending on the toast.
+    void this._offerLocalDeleteAfterRemote(repo, target.tag.name, targetRemote);
+  }
+
+  /**
+   * Report a remote tag deletion and offer to delete the still-present local
+   * tag too. The branch window lists LOCAL tags (`git tag -l`); deleting the
+   * remote ref leaves the local one, so the tag keeps showing unchanged and the
+   * user thinks the delete failed. Mirror of {@link _offerRemoteDeleteForLocalTags}
+   * in the other direction so a tag can be fully removed from either entry point.
+   */
+  private async _offerLocalDeleteAfterRemote(
+    repo: IRepository,
+    name: string,
+    remote: string
+  ): Promise<void> {
+    const choice = await vscode.window.showInformationMessage(
+      `Deleted remote tag '${name}' from ${remote}. It still exists locally.`,
+      'Delete Locally'
+    );
+    if (choice !== 'Delete Locally') {
+      return;
+    }
+    const deleted = await this._gitService.deleteTag(repo, name).match(
+      () => true,
+      (error) => {
+        void vscode.window.showErrorMessage(
+          formatActionFailureToast('Failed to delete tag', error)
+        );
+        return false;
+      }
+    );
+    if (!deleted) {
+      return;
+    }
+    // Tag list changed; reload so the tree drops the tag before the repaint.
+    await this._gitService.reloadRepository(repo);
+    this._branchTreeProvider.refresh();
+    void vscode.window.showInformationMessage(`Deleted tag '${name}' locally`);
   }
 
   /**
