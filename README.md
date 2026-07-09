@@ -62,7 +62,7 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 
 - **Git Tool Window (tabbed)** _(on by default)_ — Log, History, Update Info, Incoming, Console tabs; disable `intellig.useTabbedGitToolWindow` to restore the single Log panel
 - **Explorer & Editor Context Menus** — stage, unstage, revert, diff, show history, open on remote
-- **External Hosting Links** — open commit / compare / branch pages on GitHub, GitLab, or Bitbucket
+- **External Hosting Links** — open a commit on GitHub, GitLab, or Bitbucket from the inline blame hover, and turn issue references in commit messages into links to the host
 - **Status Bar** — current branch + incoming/outgoing commit badge
 - **IntelliJ Keymap Preset** — optional set of IntelliJ IDEA-style keyboard shortcuts
 
