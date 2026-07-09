@@ -110,34 +110,6 @@
       "category": "dialog",
       "note": "commit-selection dialog"
     },
-    "intellig.merge.acceptCurrent": {
-      "category": "view",
-      "note": "mergeView state"
-    },
-    "intellig.merge.acceptIncoming": {
-      "category": "view",
-      "note": "mergeView state"
-    },
-    "intellig.merge.acceptBoth": {
-      "category": "view",
-      "note": "mergeView state"
-    },
-    "intellig.merge.acceptAllCurrent": {
-      "category": "view",
-      "note": "mergeView state"
-    },
-    "intellig.merge.acceptAllIncoming": {
-      "category": "view",
-      "note": "mergeView state"
-    },
-    "intellig.merge.nextConflict": {
-      "category": "view",
-      "note": "mergeView navigation"
-    },
-    "intellig.merge.previousConflict": {
-      "category": "view",
-      "note": "mergeView navigation"
-    },
     "intellig.merge.markResolved": {
       "category": "view",
       "note": "mergeView state"

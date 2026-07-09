@@ -86,84 +86,16 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     },
   });
 
-  // The merge.* commands act on the lazily-created MergeView singleton; when
-  // it has never been opened, say so instead of silently doing nothing (all
-  // eight are palette-visible).
-  function noMergeViewToast(): void {
-    void vscode.window.showInformationMessage(
-      'No merge view is open — run "IntelliG: Open Merge View" on a conflicted file first.'
-    );
-  }
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const acceptCurrentCommand = registerLoggedCommand('intellig.merge.acceptCurrent', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.acceptCurrent();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const acceptIncomingCommand = registerLoggedCommand('intellig.merge.acceptIncoming', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.acceptIncoming();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const acceptBothCommand = registerLoggedCommand('intellig.merge.acceptBoth', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.acceptBoth();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const acceptAllCurrentCommand = registerLoggedCommand('intellig.merge.acceptAllCurrent', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.acceptAllCurrent();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const acceptAllIncomingCommand = registerLoggedCommand('intellig.merge.acceptAllIncoming', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.acceptAllIncoming();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const nextConflictCommand = registerLoggedCommand('intellig.merge.nextConflict', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.nextConflict();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
-  // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
-  const previousConflictCommand = registerLoggedCommand('intellig.merge.previousConflict', () => {
-    if (ctx.mergeView) {
-      ctx.mergeView.previousConflict();
-    } else {
-      noMergeViewToast();
-    }
-  });
-
   // spine-exempt: acts only on the MergeView singleton, deliberately usable without services
   const markResolvedCommand = registerLoggedCommand('intellig.merge.markResolved', async () => {
     if (ctx.mergeView) {
       await ctx.mergeView.markResolved();
     } else {
-      noMergeViewToast();
+      // The MergeView singleton is created lazily on the first Open Merge
+      // View; say so instead of silently doing nothing.
+      void vscode.window.showInformationMessage(
+        'No merge view is open — run "IntelliG: Open Merge View" on a conflicted file first.'
+      );
     }
   });
 
@@ -625,13 +557,6 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
 
   return [
     openMergeViewCommand,
-    acceptCurrentCommand,
-    acceptIncomingCommand,
-    acceptBothCommand,
-    acceptAllCurrentCommand,
-    acceptAllIncomingCommand,
-    nextConflictCommand,
-    previousConflictCommand,
     markResolvedCommand,
     showResolveConflictsDialogCommand,
     rebaseSkipCommand,

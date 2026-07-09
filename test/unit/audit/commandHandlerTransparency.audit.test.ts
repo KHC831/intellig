@@ -112,19 +112,9 @@ const DELEGATOR_ALLOWLIST: Record<string, string> = {
   'intellig.push': '_openPushDialog() opens PushDialog which renders + toasts',
   'intellig.pull': 'pull flow opens a dialog / progress + toasts on result',
   'intellig.tag.new': '_runNewTagFlow() prompts via showInputBox + toasts',
-  // Conflict-navigation delegators: mergeView.nextConflict/previousConflict
-  // move the editor selection (observable) and are covered by MergeView
-  // tests. The handler body is a guarded one-line delegation.
-  'intellig.merge.nextConflict': 'mergeView.nextConflict() moves editor selection',
-  'intellig.merge.previousConflict': 'mergeView.previousConflict() moves editor selection',
-  // Merge accept-* delegators: each is a guarded one-line
-  // `mergeView.acceptX()` call. MergeView re-renders the diff (observable)
-  // and is covered by MergeView.test.ts / mergeView.nonConflicting.test.ts.
-  'intellig.merge.acceptCurrent': 'mergeView.acceptCurrent() re-renders the merge editor',
-  'intellig.merge.acceptIncoming': 'mergeView.acceptIncoming() re-renders the merge editor',
-  'intellig.merge.acceptBoth': 'mergeView.acceptBoth() re-renders the merge editor',
-  'intellig.merge.acceptAllCurrent': 'mergeView.acceptAllCurrent() re-renders the merge editor',
-  'intellig.merge.acceptAllIncoming': 'mergeView.acceptAllIncoming() re-renders the merge editor',
+  // Merge markResolved delegator: a guarded one-line `mergeView.markResolved()`
+  // call. MergeView stages the file + closes the editor (observable) and is
+  // covered by MergeView.test.ts.
   'intellig.merge.markResolved': 'mergeView.markResolved() updates state + closes the editor',
   // (Stash/shelf and interactive-rebase delegators moved onto the command
   // spine, whose spec bodies carry the failure-toast backstop — they no
@@ -200,9 +190,10 @@ describe('Command-handler transparency audit (spec 8 L3 + L13)', () => {
       // The raw-wrapper population shrank by design: most handlers migrated
       // onto the command spine (commandSpine.ts), whose runReported backstop
       // makes them transparent by construction — this audit covers only the
-      // spine-exempt remainder.
-      handlers.length >= 15,
-      `expected >= 15 registerLoggedCommand handlers across ${EXT_FILE} + ${REGISTRATION_DIR}/*.ts; ` +
+      // spine-exempt remainder. The floor is a negative-control against a
+      // broken extractor finding ~0, not a census of the exact count.
+      handlers.length >= 10,
+      `expected >= 10 registerLoggedCommand handlers across ${EXT_FILE} + ${REGISTRATION_DIR}/*.ts; ` +
         `found ${handlers.length}. The extractor may have broken, or the files moved.`
     );
   });

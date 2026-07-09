@@ -66,58 +66,6 @@ export interface IMergeView {
   hide(): void;
 
   /**
-   * Accept the current (local) version for a conflict
-   * @param conflictId - The conflict ID, or undefined to accept for current conflict
-   */
-  acceptCurrent(conflictId?: number): void;
-
-  /**
-   * Accept the incoming (remote) version for a conflict
-   * @param conflictId - The conflict ID, or undefined to accept for current conflict
-   */
-  acceptIncoming(conflictId?: number): void;
-
-  /**
-   * Accept both versions (current then incoming) for a conflict
-   * @param conflictId - The conflict ID, or undefined to accept for current conflict
-   */
-  acceptBoth(conflictId?: number): void;
-
-  /**
-   * Accept current version for all conflicts in the file
-   */
-  acceptAllCurrent(): void;
-
-  /**
-   * Accept incoming version for all conflicts in the file
-   */
-  acceptAllIncoming(): void;
-
-  /**
-   * Auto-resolve every conflict where the *right* (incoming) side
-   * made no meaningful change relative to base by taking the *left*
-   * (current) side. True both-sided conflicts stay unresolved.
-   */
-  applyAllNonConflictingFromLeft(): number;
-
-  /**
-   * Symmetric to {@link applyAllNonConflictingFromLeft}: auto-
-   * resolve every conflict where the *left* side made no meaningful
-   * change by taking the *right* side.
-   */
-  applyAllNonConflictingFromRight(): number;
-
-  /**
-   * Navigate to the next conflict
-   */
-  nextConflict(): void;
-
-  /**
-   * Navigate to the previous conflict
-   */
-  previousConflict(): void;
-
-  /**
    * Mark the file as resolved
    */
   markResolved(): Promise<void>;

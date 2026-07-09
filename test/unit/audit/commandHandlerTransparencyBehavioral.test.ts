@@ -63,16 +63,9 @@ import {
 // behavior when it doesn't. Each entry cites the collaborator it guards on.
 // ---------------------------------------------------------------------------
 const SILENT_WHEN_ABSENT_ALLOWLIST: Record<string, string> = {
-  // Merge-editor commands: no-op when no MergeView is open (no active
-  // merge conflict). `if (mergeView) { mergeView.x() }`.
-  'intellig.merge.acceptCurrent': 'mergeView absent → no merge in progress',
-  'intellig.merge.acceptIncoming': 'mergeView absent → no merge in progress',
-  'intellig.merge.acceptBoth': 'mergeView absent → no merge in progress',
-  'intellig.merge.acceptAllCurrent': 'mergeView absent → no merge in progress',
-  'intellig.merge.acceptAllIncoming': 'mergeView absent → no merge in progress',
+  // Merge markResolved command: no-op when no MergeView is open (no active
+  // merge conflict). `if (mergeView) { mergeView.markResolved() }`.
   'intellig.merge.markResolved': 'mergeView absent → no merge in progress',
-  'intellig.merge.nextConflict': 'mergeView absent → no merge in progress',
-  'intellig.merge.previousConflict': 'mergeView absent → no merge in progress',
   // openGitToolWindow just forwards to executeCommand(view.focus); in
   // degraded mode the focus call is still issued (observable) and never
   // touches services — but it emits no toast/log, so it's allowlisted as a

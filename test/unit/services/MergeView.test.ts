@@ -95,60 +95,6 @@ describe('MergeView', () => {
     });
   });
 
-  describe('acceptCurrent()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.acceptCurrent());
-    });
-
-    it('should accept conflict ID parameter', () => {
-      assert.doesNotThrow(() => mergeView.acceptCurrent(0));
-    });
-  });
-
-  describe('acceptIncoming()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.acceptIncoming());
-    });
-
-    it('should accept conflict ID parameter', () => {
-      assert.doesNotThrow(() => mergeView.acceptIncoming(0));
-    });
-  });
-
-  describe('acceptBoth()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.acceptBoth());
-    });
-
-    it('should accept conflict ID parameter', () => {
-      assert.doesNotThrow(() => mergeView.acceptBoth(0));
-    });
-  });
-
-  describe('acceptAllCurrent()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.acceptAllCurrent());
-    });
-  });
-
-  describe('acceptAllIncoming()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.acceptAllIncoming());
-    });
-  });
-
-  describe('nextConflict()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.nextConflict());
-    });
-  });
-
-  describe('previousConflict()', () => {
-    it('should not throw when no merge is active', () => {
-      assert.doesNotThrow(() => mergeView.previousConflict());
-    });
-  });
-
   describe('markResolved()', () => {
     it('should not throw when no merge is active', async () => {
       await mergeView.markResolved();
@@ -269,40 +215,6 @@ describe('MergeView', () => {
     it('should be safe to call multiple times', () => {
       mergeView.dispose();
       assert.doesNotThrow(() => mergeView.dispose());
-    });
-  });
-
-  describe('Conflict Resolution Actions', () => {
-    it('should support Accept Current action', () => {
-      assert.strictEqual(typeof mergeView.acceptCurrent, 'function');
-    });
-
-    it('should support Accept Incoming action', () => {
-      assert.strictEqual(typeof mergeView.acceptIncoming, 'function');
-    });
-
-    it('should support Accept Both action', () => {
-      assert.strictEqual(typeof mergeView.acceptBoth, 'function');
-    });
-  });
-
-  describe('Accept All Actions', () => {
-    it('should support Accept All Current action', () => {
-      assert.strictEqual(typeof mergeView.acceptAllCurrent, 'function');
-    });
-
-    it('should support Accept All Incoming action', () => {
-      assert.strictEqual(typeof mergeView.acceptAllIncoming, 'function');
-    });
-  });
-
-  describe('Keyboard Navigation', () => {
-    it('should support navigating to next conflict', () => {
-      assert.strictEqual(typeof mergeView.nextConflict, 'function');
-    });
-
-    it('should support navigating to previous conflict', () => {
-      assert.strictEqual(typeof mergeView.previousConflict, 'function');
     });
   });
 

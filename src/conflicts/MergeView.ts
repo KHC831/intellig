@@ -32,12 +32,8 @@ export interface IMergeWindowDeps {
  * `show(file)` resolves the absolute URI of the conflicted file and hands it
  * to `git.openMergeEditor`. All per-file staging (`markResolved`) is handled
  * by `ConflictResolutionService.markResolved()` or by the native editor's own
- * `git.acceptMerge` command.
- *
- * The `IMergeView` interface methods for per-hunk resolution
- * (`acceptCurrent`, `acceptIncoming`, etc.) are retained for interface
- * compatibility but are no-ops in this implementation: the native editor owns
- * hunk-level resolution internally.
+ * `git.acceptMerge` command. Hunk-level resolution and conflict navigation are
+ * owned by the native editor internally.
  */
 export class MergeView implements IMergeView {
   /**
@@ -257,56 +253,6 @@ export class MergeView implements IMergeView {
    * interface compatibility with `ResolveConflictsDialog`.
    */
   hide(): void {}
-
-  /**
-   * No-op: hunk-level acceptance is handled inside the native merge editor.
-   */
-  acceptCurrent(_conflictId?: number): void {}
-
-  /**
-   * No-op: hunk-level acceptance is handled inside the native merge editor.
-   */
-  acceptIncoming(_conflictId?: number): void {}
-
-  /**
-   * No-op: hunk-level acceptance is handled inside the native merge editor.
-   */
-  acceptBoth(_conflictId?: number): void {}
-
-  /**
-   * No-op: bulk acceptance is handled inside the native merge editor.
-   */
-  acceptAllCurrent(): void {}
-
-  /**
-   * No-op: bulk acceptance is handled inside the native merge editor.
-   */
-  acceptAllIncoming(): void {}
-
-  /**
-   * No-op: auto-resolve helpers are not applicable to the native editor path.
-   * Returns 0 (no conflicts auto-resolved) to satisfy the interface contract.
-   */
-  applyAllNonConflictingFromLeft(): number {
-    return 0;
-  }
-
-  /**
-   * No-op: symmetric to {@link applyAllNonConflictingFromLeft}.
-   */
-  applyAllNonConflictingFromRight(): number {
-    return 0;
-  }
-
-  /**
-   * No-op: conflict navigation is handled inside the native merge editor.
-   */
-  nextConflict(): void {}
-
-  /**
-   * No-op: conflict navigation is handled inside the native merge editor.
-   */
-  previousConflict(): void {}
 
   /**
    * Stage the resolved file and fire `onDidResolve`. Called from the

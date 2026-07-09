@@ -1,8 +1,8 @@
 /**
- * The `intellig.merge.*` palette commands act on the lazily-created MergeView
- * singleton. When it has never been opened (the user is mid-conflict in the
- * native editor and runs "Accept Current" from the palette), each command
- * must SAY so instead of silently doing nothing.
+ * `intellig.merge.markResolved` acts on the lazily-created MergeView
+ * singleton. When it has never been opened (the user runs "Mark as Resolved"
+ * from the palette with no merge editor open), it must SAY so instead of
+ * silently doing nothing.
  */
 
 import '../../setup';
@@ -13,16 +13,7 @@ import type { ICommandContext } from '../../../src/commands/registration/Command
 
 type Handler = (...args: unknown[]) => unknown;
 
-const MERGE_VIEW_COMMANDS = [
-  'intellig.merge.acceptCurrent',
-  'intellig.merge.acceptIncoming',
-  'intellig.merge.acceptBoth',
-  'intellig.merge.acceptAllCurrent',
-  'intellig.merge.acceptAllIncoming',
-  'intellig.merge.nextConflict',
-  'intellig.merge.previousConflict',
-  'intellig.merge.markResolved',
-];
+const MERGE_VIEW_COMMANDS = ['intellig.merge.markResolved'];
 
 describe('merge.* commands without an open Merge View', () => {
   const handlers = new Map<string, Handler>();
