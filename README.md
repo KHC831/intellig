@@ -273,11 +273,12 @@ chord that behaves differently under the preset.
 
 ### Multi-repo discovery
 
-| Setting                                 | Default | Description                                                     |
-| --------------------------------------- | ------- | --------------------------------------------------------------- |
-| `intellig.repositoryScanMaxDepth`       | `1`     | Max depth for nested-repo discovery; `-1` for unlimited         |
-| `intellig.repositoryScanIgnoredFolders` | `[]`    | Extra folder basenames to skip during the scan                  |
-| `intellig.defaultRepo`                  | `""`    | Preferred repo basename or absolute path when multiple are open |
+| Setting                                 | Default | Description                                                                                             |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| `intellig.repositoryScanMaxDepth`       | `1`     | Max depth for nested-repo discovery; `-1` for unlimited                                                 |
+| `intellig.repositoryScanIgnoredFolders` | `[]`    | Extra folder basenames to skip during the scan                                                          |
+| `intellig.defaultRepo`                  | `""`    | Preferred repo basename or absolute path when multiple are open                                         |
+| `intellig.autorefresh`                  | `true`  | Refresh the Git views live when the working tree changes; off = refresh only on Git ops + manual reload |
 
 ### Commit & Push behavior
 

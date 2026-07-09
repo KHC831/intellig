@@ -301,6 +301,17 @@ export class GitService implements IGitService, IGitServiceCli {
   ];
 
   /**
+   * Path-segment test for a `.git` directory/file. Matches `/repo/.git`,
+   * `/repo/.git/index`, `C:\repo\.git\HEAD`; does NOT match a working-tree file
+   * whose name merely contains `.git` (`.gitignore`, `release.git`). Used by the
+   * working-tree watcher to skip `.git/` events — those are owned by the
+   * dedicated `WATCHED_GIT_PATTERNS` watchers, and skipping them here is what
+   * stops a reload's own `.git` writes from re-triggering the broad watcher
+   * (the same `.git` split VS Code's git extension applies to its watcher).
+   */
+  private static readonly DOT_GIT_PATH_RE = /(^|[/\\])\.git($|[/\\])/;
+
+  /**
    * Event fired when a repository changes
    */
   readonly onDidChangeRepository: vscode.Event<IRepository>;
@@ -1313,6 +1324,40 @@ export class GitService implements IGitService, IGitServiceCli {
       }
       watchers.push(watcher);
     }
+
+    // Working-tree watcher (ported from VS Code's git extension): a single
+    // broad watcher over the repo root so a plain editor save — which touches
+    // the working tree, not `.git/` — still refreshes the repo, keeping the
+    // Local Changes view live. Events are split the same way VS Code splits
+    // its watcher:
+    //   - `.git/` paths are dropped here (the WATCHED_GIT_PATTERNS watchers own
+    //     them); dropping them also breaks the refresh loop, since a reload's
+    //     own git subprocesses write only under `.git/`.
+    //   - the rest route through the shared debounced `handleChange`, whose
+    //     in-flight guard is the equivalent of VS Code's `operations.isIdle()`.
+    // The `intellig.autorefresh` toggle mirrors VS Code's `git.autorefresh`.
+    const handleWorkingTreeChange = (uri: vscode.Uri): void => {
+      if (this._disposed) {
+        return;
+      }
+      if (GitService.DOT_GIT_PATH_RE.test(uri.path)) {
+        return;
+      }
+      const autorefresh = vscode.workspace
+        .getConfiguration('intellig')
+        .get<boolean>('autorefresh', true);
+      if (!autorefresh) {
+        return;
+      }
+      handleChange();
+    };
+    const workingTreeWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(rootPath), '**')
+    );
+    workingTreeWatcher.onDidChange(handleWorkingTreeChange);
+    workingTreeWatcher.onDidCreate(handleWorkingTreeChange);
+    workingTreeWatcher.onDidDelete(handleWorkingTreeChange);
+    watchers.push(workingTreeWatcher);
 
     this._fileWatchers.set(rootPath, watchers);
   }

@@ -42,10 +42,17 @@ describe('GitService — worktree-aware watcher rooting', () => {
     fs.rmSync(base, { recursive: true, force: true });
   });
 
-  /** Distinct bases (RelativePattern roots) of the watchers this test created. */
+  /**
+   * Distinct bases (RelativePattern roots) of the `.git` watchers this test
+   * created. Excludes the broad working-tree watcher (pattern `**`), which is
+   * deliberately rooted at the repo root — its rooting is covered by
+   * gitServiceWorkingTreeWatcher.test.ts. This regression is about the
+   * `.git`-internals watchers following the worktree gitdir pointer.
+   */
   function freshWatcherBases(): string[] {
     const bases = getCreatedFileSystemWatchers()
       .slice(baselineWatcherCount)
+      .filter((w) => !(w._pattern instanceof RelativePattern && w._pattern.pattern === '**'))
       .map((w) => (w._pattern instanceof RelativePattern ? w._pattern.base : String(w._pattern)));
     return [...new Set(bases)];
   }

@@ -1513,6 +1513,12 @@
             ],
             "description": "Branches for which destructive operations are guarded: Reset modes Hard/Keep are disabled, and the Push dialog disables 'Force Push (Anyway)' (bare --force) when the target matches. '--force-with-lease' remains available. Remove a branch from this list to enable the guarded operations.",
             "order": 4
+          },
+          "intellig.autorefresh": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically refresh the Git views (Local Changes, status bar) when files change in the working tree. Turn off to only refresh on Git operations and manual reloads.",
+            "order": 5
           }
         }
       },
