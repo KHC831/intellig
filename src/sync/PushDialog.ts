@@ -57,6 +57,17 @@ export interface IPushOverflowState {
   tagScope: 'all' | 'follow';
 }
 
+/**
+ * Initial gear-overflow state. `tagScope` defaults to 'all' (--tags) to match
+ * git4idea, whose tag-mode combo defaults to ALL: --follow-tags silently drops
+ * lightweight and unreachable tags, so it's a surprising default for "Push tags".
+ */
+export const DEFAULT_PUSH_OVERFLOW: IPushOverflowState = {
+  noVerify: false,
+  pushTags: false,
+  tagScope: 'all',
+};
+
 /** Per-row state in the repo table. */
 export interface IPushRow {
   /** Stable row id (repo root fsPath). */
@@ -496,11 +507,7 @@ export class PushDialog extends BaseWebviewPanel {
   private readonly _pullDialogAccessor?: () => PullDialog | undefined;
   private readonly _onPushComplete?: () => void;
   private _rows: IPushRow[] = [];
-  private _overflow: IPushOverflowState = {
-    noVerify: false,
-    pushTags: false,
-    tagScope: 'follow',
-  };
+  private _overflow: IPushOverflowState = { ...DEFAULT_PUSH_OVERFLOW };
   private _primaryAction: PushAction = 'push';
   private _busy = false;
 

@@ -33,6 +33,7 @@ import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import {
   buildPushOptions,
+  DEFAULT_PUSH_OVERFLOW,
   classifyPushError,
   defaultPrimaryAction,
   IPushDialogOptions,
@@ -497,6 +498,18 @@ describe('PushDialog — pure helpers', () => {
       );
       assert.strictEqual(opts.followTags, true);
       assert.strictEqual(opts.tags, undefined);
+    });
+    it('default tag scope is "all" so checking "Push tags" pushes every tag (git4idea parity)', () => {
+      // git4idea's tag-mode combo defaults to ALL (--tags); --follow-tags silently
+      // drops lightweight/unreachable tags, surprising users who just want to push a tag.
+      assert.strictEqual(DEFAULT_PUSH_OVERFLOW.tagScope, 'all');
+      const opts = buildPushOptions(
+        makeRow(),
+        'push',
+        makeOverflow({ pushTags: true, tagScope: DEFAULT_PUSH_OVERFLOW.tagScope })
+      );
+      assert.strictEqual(opts.tags, true);
+      assert.strictEqual(opts.followTags, undefined);
     });
     it('target edit → refspec "local:target" and no positional branch', () => {
       const row = makeRow({ localBranch: 'feature', targetBranch: 'feature-renamed' });
