@@ -639,6 +639,34 @@ export class PushDialog extends BaseWebviewPanel {
         margin: 12px 0;
         font-size: 0.95em;
       }
+      .overflow label {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .overflow input[type=checkbox] {
+        margin: 0;
+      }
+      .tags-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .hint {
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.85em;
+        margin: -4px 0 12px;
+        min-height: 1.1em;
+      }
+      select {
+        font-family: inherit;
+        font-size: inherit;
+        padding: 3px 6px;
+        background: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, transparent));
+      }
+      select:disabled { opacity: 0.55; cursor: not-allowed; }
       .actions {
         display: flex;
         justify-content: flex-end;
@@ -786,24 +814,43 @@ export class PushDialog extends BaseWebviewPanel {
         const overflow = el('div', { className: 'overflow' });
         const labelled = (input, text) => {
           const l = el('label');
-          l.append(input, ' ' + text);
+          l.append(input, text);
           return l;
+        };
+        const HINTS = {
+          noVerify: 'Skip the pre-push git hook (--no-verify).',
+          all: 'All tags: pushes every local tag to the remote — both lightweight tags (plain "git tag") and annotated ones — no matter which branch they sit on.',
+          follow: 'Follow tags: pushes only annotated tags (made with a message, like release tags) that sit on the commits you are pushing. Plain lightweight tags are left behind — use "All tags" to include them.',
         };
         const noVerify = el('input', { type: 'checkbox', id: 'no-verify' });
         noVerify.checked = INIT.overflow.noVerify;
         const pushTags = el('input', { type: 'checkbox', id: 'push-tags' });
         pushTags.checked = INIT.overflow.pushTags;
-        const tagAll = el('input', { type: 'radio', name: 'tag-scope', value: 'all' });
-        tagAll.checked = INIT.overflow.tagScope === 'all';
-        const tagFollow = el('input', { type: 'radio', name: 'tag-scope', value: 'follow' });
-        tagFollow.checked = INIT.overflow.tagScope === 'follow';
-        overflow.append(
-          labelled(noVerify, '--no-verify'),
-          labelled(pushTags, 'Push tags'),
-          labelled(tagAll, 'all tags'),
-          labelled(tagFollow, '--follow-tags')
-        );
+        // The scope is a sub-choice of "Push tags": a dropdown enabled only when
+        // the box is checked (git4idea's checkbox + combo layout).
+        const tagScope = el('select', { id: 'tag-scope' });
+        tagScope.setAttribute('aria-label', 'Tag scope');
+        const tagAll = el('option', { value: 'all', textContent: 'All tags' });
+        tagAll.selected = INIT.overflow.tagScope === 'all';
+        const tagFollow = el('option', { value: 'follow', textContent: 'Follow tags' });
+        tagFollow.selected = INIT.overflow.tagScope === 'follow';
+        tagScope.append(tagAll, tagFollow);
+        tagScope.disabled = !INIT.overflow.pushTags;
+        const tagsGroup = el('span', { className: 'tags-group' });
+        tagsGroup.append(labelled(pushTags, 'Push tags'), tagScope);
+        overflow.append(labelled(noVerify, '--no-verify'), tagsGroup);
         root.append(overflow);
+        // Always-visible explanation of the enabled options: the --no-verify line
+        // when it is checked, and the current tag-scope line while Push tags is on.
+        const tagHint = el('div', { id: 'tag-hint', className: 'hint' });
+        root.append(tagHint);
+        const updateHint = () => {
+          const parts = [];
+          if (noVerify.checked) parts.push(HINTS.noVerify);
+          if (pushTags.checked) parts.push(tagScope.value === 'follow' ? HINTS.follow : HINTS.all);
+          tagHint.textContent = parts.join(' ');
+        };
+        updateHint();
 
         // ── Action bar ─────────────────────────────────────────────────────
         const actionsBar = el('div', { className: 'actions' });
@@ -854,10 +901,15 @@ export class PushDialog extends BaseWebviewPanel {
         const readOverflow = () => ({
           noVerify: document.getElementById('no-verify').checked,
           pushTags: document.getElementById('push-tags').checked,
-          tagScope: document.querySelector('input[name=tag-scope]:checked')?.value === 'all' ? 'all' : 'follow',
+          tagScope: document.getElementById('tag-scope').value === 'all' ? 'all' : 'follow',
         });
-        document.querySelectorAll('.overflow input').forEach((inp) => {
+        const syncTagScopeEnabled = () => {
+          document.getElementById('tag-scope').disabled = !document.getElementById('push-tags').checked;
+        };
+        document.querySelectorAll('.overflow input, .overflow select').forEach((inp) => {
           inp.addEventListener('change', () => {
+            syncTagScopeEnabled();
+            updateHint();
             vscode.postMessage({ type: 'updateOverflow', overflow: readOverflow() });
           });
         });

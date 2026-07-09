@@ -1210,6 +1210,67 @@ describe('PushDialog — rendered DOM (script-built)', () => {
       dialog.dispose();
     }
   });
+
+  it('tag scope is a dropdown, disabled until "Push tags" is checked, defaulting to All tags', async () => {
+    const { dialog } = makeDialog({ repos: [makeRepo('/repo-a')] });
+    try {
+      await dialog.waitUntilPopulated();
+      const { document, posted } = renderDoc(dialog);
+      const scope = document.querySelector('#tag-scope') as HTMLSelectElement;
+      assert.ok(scope, 'tag scope is a single select, not radios');
+      assert.strictEqual(scope.tagName, 'SELECT');
+      assert.strictEqual(
+        document.querySelectorAll('input[name=tag-scope]').length,
+        0,
+        'the old tag-scope radios are gone'
+      );
+      assert.strictEqual(scope.value, 'all', 'defaults to All tags');
+      assert.strictEqual(scope.disabled, true, 'disabled while "Push tags" is off');
+      const hint = document.querySelector('#tag-hint') as HTMLElement;
+      assert.ok(hint, 'a tag-scope hint line is present');
+      assert.strictEqual(hint.textContent, '', 'hint is empty while "Push tags" is off');
+
+      const pushTags = document.querySelector('#push-tags') as HTMLInputElement;
+      pushTags.checked = true;
+      pushTags.dispatchEvent(
+        new (document.defaultView as unknown as { Event: typeof Event }).Event('change', {
+          bubbles: true,
+        })
+      );
+      assert.strictEqual(scope.disabled, false, 'enables when "Push tags" is checked');
+      assert.match(
+        hint.textContent ?? '',
+        /every local tag/,
+        'checking Push tags shows the All-tags explanation'
+      );
+
+      const noVerify = document.querySelector('#no-verify') as HTMLInputElement;
+      noVerify.checked = true;
+      noVerify.dispatchEvent(
+        new (document.defaultView as unknown as { Event: typeof Event }).Event('change', {
+          bubbles: true,
+        })
+      );
+      assert.match(
+        hint.textContent ?? '',
+        /Skip the pre-push git hook/,
+        'checking --no-verify adds its explanation to the hint'
+      );
+      const last = posted.at(-1) as {
+        type: string;
+        overflow: { pushTags: boolean; tagScope: string };
+      };
+      assert.strictEqual(last.type, 'updateOverflow');
+      assert.strictEqual(last.overflow.pushTags, true);
+      assert.strictEqual(
+        last.overflow.tagScope,
+        'all',
+        'checking Push tags keeps the All-tags default'
+      );
+    } finally {
+      dialog.dispose();
+    }
+  });
 });
 
 // ─── updateAndRetryRejectedRows (IntelliJ GitPushOperation update loop) ──────
