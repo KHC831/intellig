@@ -2326,3 +2326,128 @@ describe('Branch Context Menu - multi-select delete batches', () => {
     assert.strictEqual(infoTracker.calls.length, 1, 'one summary toast');
   });
 });
+
+describe('Tag delete — remote-delete affordance (IntelliJ GitDeleteTagOperation parity)', () => {
+  const repoWithRemote: IRepository = {
+    rootUri: Uri.file('/test/repo'),
+    state: 'idle',
+    head: undefined,
+    remotes: [{ name: 'origin' }],
+    submodules: [],
+  };
+  const repoNoRemote: IRepository = { ...repoWithRemote, remotes: [] };
+
+  // The success toast + remote-delete offer is fired-and-forgotten by the
+  // command so it never holds the command (and its tree refresh) pending on a
+  // toast; drain the microtask queue so the async offer chain settles.
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  function installInfoTracker(choice?: string): { calls: { message: string; items: string[] }[] } {
+    const calls: { message: string; items: string[] }[] = [];
+    writableWindow().showInformationMessage = (
+      message: string,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      calls.push({ message, items });
+      return Promise.resolve(choice);
+    };
+    return { calls };
+  }
+
+  afterEach(() => {
+    restoreMessageFunctions();
+  });
+
+  it('offers "Delete on Remote" after a local tag delete when the repo has a remote', async () => {
+    const deleteRemoteCalls: { name: string; remote: string }[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repoWithRemote],
+      getRepository: async () => repoWithRemote,
+      deleteTag: () => okAsync(undefined),
+      getRemotes: () => okAsync([{ name: 'origin' }]),
+      deleteRemoteTag: (_repo, name, remote) => {
+        deleteRemoteCalls.push({ name, remote: remote ?? 'origin' });
+        return okAsync(undefined);
+      },
+    });
+    const btp = createMockBranchTreeProvider(gitService);
+    btp.getRepository = () => repoWithRemote; // repo is resolved via the tree provider
+    const commands = new BranchContextMenuCommands(gitService, btp);
+    installWarningMessageTracker('Delete'); // confirm the local delete
+    const info = installInfoTracker(undefined); // user dismisses the offer
+
+    const t = createTagTreeItem('v1.0.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.delete', t, [t]);
+    await flush();
+
+    assert.strictEqual(info.calls.length, 1, 'one success toast');
+    assert.ok(
+      info.calls[0].items.includes('Delete on Remote'),
+      `success toast offers "Delete on Remote"; got items ${JSON.stringify(info.calls[0].items)}`
+    );
+    assert.strictEqual(deleteRemoteCalls.length, 0, 'no remote delete unless the offer is clicked');
+  });
+
+  it('deletes the tag on the remote when the user clicks the offer', async () => {
+    const deleteRemoteCalls: { name: string; remote: string }[] = [];
+    const gitService = createMockGitService({
+      getRepositories: () => [repoWithRemote],
+      getRepository: async () => repoWithRemote,
+      deleteTag: () => okAsync(undefined),
+      getRemotes: () => okAsync([{ name: 'origin' }]),
+      deleteRemoteTag: (_repo, name, remote) => {
+        deleteRemoteCalls.push({ name, remote: remote ?? 'origin' });
+        return okAsync(undefined);
+      },
+    });
+    const btp = createMockBranchTreeProvider(gitService);
+    btp.getRepository = () => repoWithRemote;
+    const commands = new BranchContextMenuCommands(gitService, btp);
+    installWarningMessageTracker('Delete');
+    installInfoTracker('Delete on Remote'); // user clicks the offer
+
+    const t = createTagTreeItem('v1.0.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.delete', t, [t]);
+    await flush();
+
+    assert.deepStrictEqual(
+      deleteRemoteCalls,
+      [{ name: 'v1.0.0', remote: 'origin' }],
+      'clicking the offer deletes the tag on origin'
+    );
+  });
+
+  it('does not offer remote delete when the repo has no remote', async () => {
+    let remoteDeleteCalled = false;
+    const gitService = createMockGitService({
+      getRepositories: () => [repoNoRemote],
+      getRepository: async () => repoNoRemote,
+      deleteTag: () => okAsync(undefined),
+      deleteRemoteTag: () => {
+        remoteDeleteCalled = true;
+        return okAsync(undefined);
+      },
+    });
+    const btp = createMockBranchTreeProvider(gitService);
+    btp.getRepository = () => repoNoRemote;
+    const commands = new BranchContextMenuCommands(gitService, btp);
+    installWarningMessageTracker('Delete');
+    const info = installInfoTracker(undefined);
+
+    const t = createTagTreeItem('v1.0.0');
+    await driveBranchMenuCommand(commands, 'intellig.tag.delete', t, [t]);
+    await flush();
+
+    assert.strictEqual(info.calls.length, 1);
+    assert.ok(
+      !info.calls[0].items.includes('Delete on Remote'),
+      'no remote offer when there is no remote'
+    );
+    assert.strictEqual(info.calls[0].message, "Deleted tag 'v1.0.0' locally");
+    assert.strictEqual(remoteDeleteCalled, false);
+  });
+});
