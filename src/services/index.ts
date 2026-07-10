@@ -132,7 +132,6 @@ export {
   validateNewBranchName,
   looksRemoteStartPoint,
 } from '../branches/NewBranchDialog';
-export { NotificationService, createNotificationService } from '../ui-shell/NotificationService';
 export { PatchService, createPatchService, PatchWriteFailed } from '../patches/PatchService';
 export { PullDialog, createPullDialog } from '../sync/PullDialog';
 export { PushDialog, showPushDialog } from '../sync/PushDialog';

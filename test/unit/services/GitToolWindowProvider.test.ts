@@ -6,6 +6,7 @@ import '../../setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { isLogContextAction } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
+import { computeMenuVisibility } from '../../../src/git-core/gitToolWindow/multiSelect';
 import { EventEmitter, Uri, Webview, setMockConfigValue } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import type { ICommitNode, IBranchRef } from '../../../src/git-core/commitGraph';
@@ -3213,24 +3214,12 @@ describe('goToParent/goToChild — commit context menu wiring (G9)', () => {
     assert.ok(/[Gg]o to [Cc]hild/.test(html), 'Item label must say "Go to Child"');
   });
 
-  it('goToParent and goToChild items carry data-multi-action="single-only"', () => {
+  it('goToParent and goToChild are rendered and gated single-only (hidden at N>=2)', () => {
     const html = p._getCommitContextMenuHtml();
-    // Extract the goToParent item block to check it carries single-only.
-    const parentIdx = html.indexOf('data-action="goToParent"');
-    assert.ok(parentIdx !== -1, 'goToParent item must be present');
-    const parentBlock = html.substring(Math.max(0, parentIdx - 200), parentIdx + 100);
-    assert.ok(
-      parentBlock.includes('data-multi-action="single-only"'),
-      'goToParent must carry data-multi-action="single-only"'
-    );
-
-    const childIdx = html.indexOf('data-action="goToChild"');
-    assert.ok(childIdx !== -1, 'goToChild item must be present');
-    const childBlock = html.substring(Math.max(0, childIdx - 200), childIdx + 100);
-    assert.ok(
-      childBlock.includes('data-multi-action="single-only"'),
-      'goToChild must carry data-multi-action="single-only"'
-    );
+    assert.ok(html.includes('data-action="goToParent"'), 'goToParent item must be present');
+    assert.ok(html.includes('data-action="goToChild"'), 'goToChild item must be present');
+    assert.strictEqual(computeMenuVisibility(2).goToParent, false, 'goToParent hidden in multi');
+    assert.strictEqual(computeMenuVisibility(2).goToChild, false, 'goToChild hidden in multi');
   });
 });
 

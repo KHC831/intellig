@@ -1,0 +1,6 @@
+# check-dead-exports allowlist — src-relative paths, one per line.
+#
+# List a src module here ONLY when it is reachable at runtime through a
+# mechanism the import-graph scanner cannot see (a computed dynamic import, a
+# non-import loader). A genuinely dead module should be DELETED, not allowlisted.
+# Each entry needs a one-line justification. Empty today (by design).

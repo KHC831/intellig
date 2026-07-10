@@ -31,8 +31,8 @@ import {
   IFileStatus,
   IGitService,
   IRepository,
-  StatusCode,
 } from '../git-core/interfaces/IGitService';
+import { isConflictedStatus } from '../git-core/gitParser';
 import {
   ICheckinContext,
   ICheckinFile,
@@ -53,24 +53,12 @@ interface IGitServiceWithCli extends IGitService {
 
 /**
  * Resolve the most relevant {@link FileStatus} for a status entry. Conflict
- * wins because the unresolved-merge check keys on `conflicted`.
- *
- * git's porcelain unmerged set is `DD AU UD UA DU AA UU` — i.e. EITHER side
- * is `U`, OR both sides are the same letter in {A, D} (`AA` both-added,
- * `DD` both-deleted). A naive `=== 'U'` check misses `AA`/`DD`, letting an
- * add/add or delete/delete conflict slip past the unresolved-merge check.
+ * wins because the unresolved-merge check keys on `conflicted`. Conflict
+ * detection delegates to the shared predicate so add/add (AA) and delete/
+ * delete (DD) conflicts are caught alongside the U-marked set.
  */
-function isUnmergedStatus(index: StatusCode, workTree: StatusCode): boolean {
-  if (index === 'U' || workTree === 'U') {
-    return true;
-  }
-  // Both-added (AA) and both-deleted (DD) are conflicts even though neither
-  // side is literally `U`.
-  return (index === 'A' && workTree === 'A') || (index === 'D' && workTree === 'D');
-}
-
 function resolveFileStatus(entry: IFileStatus): FileStatus {
-  if (isUnmergedStatus(entry.indexStatus, entry.workTreeStatus)) {
+  if (isConflictedStatus(entry)) {
     return 'conflicted';
   }
   // The unresolved-merge check only cares about `conflicted`; everything

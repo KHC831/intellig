@@ -19,6 +19,7 @@ import { IConflictIndexWriter, ConflictIndexWriter } from './conflictIndexWriter
 import { ConflictUiCoordinator } from './conflictUiCoordinator';
 import { getLogger, type Logger } from '../utils/logger';
 import { NON_INTERACTIVE_GIT_ENV } from '../git-core/gitEnv';
+import { restorePathsToHead } from '../git-core/worktree/restoreToHead';
 
 /**
  * Interface for accessing GitCli from GitService
@@ -694,12 +695,18 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
-   * Abort an unshelve / unstash / apply-patch conflict by restoring ONLY the
-   * given paths to HEAD. Those ops leave conflict markers in the working tree
-   * with no git-level "aborting" state, so there is no `--abort`; a bare
-   * `checkout -- .` would wipe unrelated working-tree changes, hence the caller
-   * passes just the unresolved paths. Paths follow `--` so a leading `-` in a
-   * filename can never be read as a flag.
+   * Abort an unshelve / unstash / apply-patch conflict by restoring the given
+   * paths to HEAD. Those ops leave conflict markers in the working tree with no
+   * git-level "aborting" state, so there is no `--abort`; a bare `checkout -- .`
+   * would wipe unrelated working-tree changes, hence the caller passes just the
+   * unresolved paths.
+   *
+   * Routes through the shared restore-to-HEAD writer, which probes each path's
+   * HEAD membership: a both-added (add/add) path is absent from HEAD, so a bare
+   * `checkout HEAD -- <path>` fatals ("pathspec did not match") and would fail
+   * the whole batch. The writer unindexes such paths instead and keeps the
+   * added copy on disk as untracked (git4idea `GitRollbackEnvironment`
+   * unversions a NEW file rather than deleting it).
    */
   async abortWorkingTreeConflicts(
     repo: IRepository,
@@ -710,15 +717,11 @@ export class ConflictResolutionService implements IConflictResolutionService {
     }
     try {
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-      const result: IGitCommandResult = await gitCli.exec(['checkout', 'HEAD', '--', ...paths], {
-        cwd: repo.rootUri.fsPath,
-      });
-      if (result.exitCode !== 0) {
-        return {
-          success: false,
-          error: `Failed to abort: ${sanitizeGitError(result.stderr || result.stdout)}`,
-        };
-      }
+      await restorePathsToHead(
+        gitCli,
+        repo.rootUri.fsPath,
+        paths.map((path) => ({ path }))
+      );
       const conflicts = await this.getConflictedFiles(repo);
       this._onDidChangeConflicts.fire({ repo, conflicts });
       return { success: true };

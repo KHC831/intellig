@@ -416,6 +416,54 @@ describe('CommitContextMenuCommands — selective revert', () => {
     }
   });
 
+  it('excluding a file the commit DELETED (absent from HEAD) unindexes it instead of a fatal checkout', async () => {
+    const repo = makeRepo();
+    const gitService = makeGitService(repo, {
+      getCommitDiff: async () => [
+        { path: 'a.ts', status: 'modified', hunks: [], binary: false },
+        { path: 'gone.ts', status: 'deleted', hunks: [], binary: false },
+      ],
+    });
+    const cli = makeMockCli();
+    // Model real git: gone.ts is absent from HEAD, so a bare `checkout HEAD --`
+    // over it fatals; its membership probe reports absent.
+    cli.setResponse(/^checkout HEAD -- .*gone\.ts/, {
+      exitCode: 128,
+      stdout: '',
+      stderr: "error: pathspec 'gone.ts' did not match any file(s) known to git",
+    });
+    cli.setResponse('cat-file -e HEAD:gone.ts', { exitCode: 1, stdout: '', stderr: '' });
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebase(),
+      makeProvider(),
+      cli as unknown as GitCli
+    );
+
+    // User picks only a.ts; gone.ts is deselected (kept deleted).
+    const { trackers, restore } = installWindowStubs((items) => [items[0]]);
+    try {
+      await commands._handleAction('revert', [testHash]);
+
+      const joined = cli.executed.map((e) => e.args.join(' '));
+      assert.strictEqual(
+        trackers.error.length,
+        0,
+        `partial revert must not fail; errors: ${trackers.error.join(' | ')}`
+      );
+      assert.ok(
+        joined.some((c) => c.startsWith('rm --cached') && c.includes('gone.ts')),
+        `the deleted-in-commit excluded file must be unindexed; got: ${joined.join(' | ')}`
+      );
+      assert.ok(
+        joined.some((c) => c.startsWith('commit -m ')),
+        'the partial revert must still finalize the commit'
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it('deselect all files → no-op info toast, no revert', async () => {
     const repo = makeRepo();
     const gitService = makeGitService(repo, {

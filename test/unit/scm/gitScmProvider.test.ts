@@ -122,6 +122,24 @@ describe('buildScmResources — working-tree partition', () => {
     assert.equal(changes.length, 1);
   });
 
+  it('routes a both-added (AA) conflict to Changes only with the Conflict code, never Staged', () => {
+    const { staged, changes } = buildScmResources([status('src/aa.ts', 'A', 'A')], root);
+    assert.equal(staged.length, 0, 'AA must not appear as a Staged entry');
+    assert.equal(changes.length, 1, 'AA is a single Changes entry');
+    assert.equal(
+      (changes[0] as { contextValue?: string }).contextValue,
+      'intellig.scm.changes.U',
+      'the conflict arm tags the entry with the U/Conflict code'
+    );
+  });
+
+  it('routes a both-deleted (DD) conflict to Changes only, never Staged', () => {
+    const { staged, changes } = buildScmResources([status('src/dd.ts', 'D', 'D')], root);
+    assert.equal(staged.length, 0, 'DD must not appear as a Staged entry');
+    assert.equal(changes.length, 1, 'DD is a single Changes entry');
+    assert.equal((changes[0] as { contextValue?: string }).contextValue, 'intellig.scm.changes.U');
+  });
+
   it('marks a worktree deletion with a strike-through decoration', () => {
     const { changes } = buildScmResources([status('src/gone.ts', ' ', 'D')], root);
     assert.equal(changes[0].decorations?.strikeThrough, true);

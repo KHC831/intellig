@@ -38,6 +38,7 @@ import {
 import { Uri } from '../../../mocks/vscode';
 import {
   computeMenuState,
+  computeMenuVisibility,
   type MultiSelectMenuAction,
 } from '../../../../src/git-core/gitToolWindow/multiSelect';
 
@@ -394,14 +395,13 @@ describe('provider integration', () => {
 
   // ───: resetToHere single-only at HTML level ──────────────────
   describe('R1 Step 5 H-1 — resetToHere is now single-only', () => {
-    it('the resetToHere context-menu item carries data-multi-action="single-only"', () => {
+    it('resetToHere is rendered and gated single-only (hidden at N>=2)', () => {
       const html = provider._getCommitContextMenuHtml();
-      const idx = html.indexOf('data-action="resetToHere"');
-      assert.ok(idx !== -1);
-      const window = html.substring(Math.max(0, idx - 200), idx + 200);
-      assert.ok(
-        window.includes('data-multi-action="single-only"'),
-        'resetToHere row must declare data-multi-action="single-only"'
+      assert.ok(html.includes('data-action="resetToHere"'), 'resetToHere row must be rendered');
+      assert.strictEqual(
+        computeMenuVisibility(2).resetToHere,
+        false,
+        'resetToHere must be hidden in multi-select'
       );
     });
   });

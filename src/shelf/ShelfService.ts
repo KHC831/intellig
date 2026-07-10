@@ -1390,11 +1390,13 @@ export class ShelfService implements IShelfService {
       await this._gitCli.exec(['reset', '--', file.path], { cwd, throwOnError: false });
       return true;
     }
-    // modified or deleted → restore the committed bytes from HEAD.
-    const result = await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], {
-      cwd,
-      throwOnError: false,
-    });
+    // modified or deleted → restore the committed bytes from HEAD. The added
+    // case is handled above, so this file is present in HEAD and the checkout
+    // can never fatal on a missing pathspec.
+    const result = await this._gitCli.exec(
+      ['checkout', 'HEAD', '--', file.path], // checkout-head-exempt: modified/deleted file is present in HEAD
+      { cwd, throwOnError: false }
+    );
     return result.exitCode === 0;
   }
 
@@ -1513,10 +1515,10 @@ export class ShelfService implements IShelfService {
       // working tree. `git checkout HEAD -- <file>` writes HEAD into both, so
       // staged content is dropped too (a plain `checkout -- <file>` would
       // restore from the index and leave staged changes behind).
-      const checkout = await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], {
-        cwd,
-        throwOnError: false,
-      });
+      const checkout = await this._gitCli.exec(
+        ['checkout', 'HEAD', '--', file.path], // checkout-head-exempt: a HEAD-absent (staged-NEW) path is handled by the cat-file fallback below
+        { cwd, throwOnError: false }
+      );
       if (checkout.exitCode === 0) {
         continue;
       }

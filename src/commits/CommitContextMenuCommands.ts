@@ -1513,14 +1513,18 @@ export class CommitContextMenuCommands {
       return 'handled';
     }
 
-    // Undo the staged revert for each excluded file — this restores the
-    // file to its HEAD (pre-revert-attempt) state in both index and
-    // working tree, so only the user's picked files remain reverted.
+    // Undo the staged revert for each excluded file, restoring it to its HEAD
+    // state in both index and working tree so only the user's picked files stay
+    // reverted. A file the commit DELETED is absent from HEAD, so the shared
+    // writer unindexes and removes it rather than running a bare
+    // `checkout HEAD -- <path>` that would fatal ("pathspec did not match") and
+    // fail the whole batch.
     try {
-      await this._gitCli.exec(['checkout', 'HEAD', '--', ...excludedPaths], {
+      await restorePathsToHead(
+        this._gitCli,
         cwd,
-        throwOnError: true,
-      });
+        excludedPaths.map((path) => ({ path, removeFromDiskIfAbsentFromHead: true }))
+      );
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       // Best-effort abort so the working tree isn't half-reverted; ignore its

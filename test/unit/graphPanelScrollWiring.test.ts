@@ -3,25 +3,13 @@
  *
  * Feature: git-graph-branch-click-scroll.
  *
- * Purpose: document the DOM wiring that connects the rendered graph panel to
- * the inline `scrollToCommit` routine and the extracted pure predicate
- * (`shouldScrollToRow` / `isRowFullyVisible` from
- * `src/git-core/gitToolWindow/scrollVisibility.ts`).
- *
- * This test renders `_getGraphPanelHtml(...)` into jsdom and asserts:
- *   1. The rendered markup wires up the `[data-hash="..."]` selector the
- *      inline `scrollToCommit(commitHash)` relies on, inside the
- *      `.graph-panel` container it walks up to via `closest('.graph-panel')`.
- *   2. Given seeded row/viewport geometry for a fully-visible row vs an
- *      off-screen row, the pure predicate returns the correct scroll decision.
- *
- * IMPORTANT: jsdom does NOT perform layout, so it does not compute
- * `offsetTop` / `offsetHeight` / `clientHeight` / `scrollTop`. The inline
- * `scrollToCommit` gathers those four numbers at runtime in the real webview;
- * here we SEED them explicitly to mirror the geometry that inline script
- * computes, and we assert against the pure predicate directly. The predicate
- * itself is exhaustively covered by 's property tests — this test only
- * documents the wiring, it does not re-test the predicate.
+ * Renders `_getGraphPanelHtml(...)` into jsdom and asserts the DOM wiring the
+ * inline `scrollToCommit(commitHash)` routine depends on: every commit surfaces
+ * a `[data-hash="…"]` row, and each row sits inside the `.graph-panel`
+ * container the inline script walks up to via `closest('.graph-panel')`. The
+ * scroll DECISION itself (a fully-visible row is not scrolled; an off-screen
+ * row is) is covered against the live inline script by
+ * scrollToCommitInlineGuard.test.ts.
  *
  * _Requirements: 1.1, 2.1_
  */
@@ -32,11 +20,6 @@ import { JSDOM } from 'jsdom';
 import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
 import { ICommitNode } from '../../src/git-core/commitGraph';
 import { ICommit } from '../../src/git-core/interfaces/IGitService';
-import {
-  shouldScrollToRow,
-  isRowFullyVisible,
-  IRowViewportGeometry,
-} from '../../src/git-core/gitToolWindow/scrollVisibility';
 import { Uri } from '../mocks/vscode';
 
 /**
@@ -117,60 +100,11 @@ describe('Feature: git-graph-branch-click-scroll - graph panel scroll wiring (js
     );
   });
 
-  it('seeded geometry: a fully-visible row is NOT scrolled', () => {
-    // jsdom does not lay out, so we SEED the four numbers the inline
-    // scrollToCommit reads at runtime:
-    //   rowTop        = commitRow.offsetTop
-    //   rowBottom     = commitRow.offsetTop + commitRow.offsetHeight
-    //   viewportTop   = panel.scrollTop
-    //   viewportBottom= panel.scrollTop + panel.clientHeight
-    // Row [120,140] lies entirely within viewport [100,400] → fully visible.
-    const fullyVisible: IRowViewportGeometry = {
-      rowTop: 120,
-      rowBottom: 140,
-      viewportTop: 100,
-      viewportBottom: 400,
-    };
-
-    assert.strictEqual(
-      isRowFullyVisible(fullyVisible),
-      true,
-      'row entirely within viewport should be fully visible'
-    );
-    assert.strictEqual(
-      shouldScrollToRow(fullyVisible),
-      false,
-      'fully-visible row should NOT trigger a scroll'
-    );
-  });
-
-  it('seeded geometry: an off-screen row IS scrolled', () => {
-    // Row [900,920] is below the viewport [100,400] → not fully visible.
-    const offscreen: IRowViewportGeometry = {
-      rowTop: 900,
-      rowBottom: 920,
-      viewportTop: 100,
-      viewportBottom: 400,
-    };
-
-    assert.strictEqual(
-      isRowFullyVisible(offscreen),
-      false,
-      'row below the viewport should NOT be fully visible'
-    );
-    assert.strictEqual(
-      shouldScrollToRow(offscreen),
-      true,
-      'off-screen row should trigger a scroll'
-    );
-  });
-
   it('mirrors how the inline script gathers geometry from a jsdom element (documentation)', () => {
-    // jsdom returns 0 for layout-derived props by default. To SHOW the shape
-    // of the inline gather step without relying on real layout, we stamp the
-    // same numeric properties the inline script reads, then build the geometry
-    // exactly as `scrollToCommit` does. The assertion remains on the pure
-    // predicate with these seeded numbers.
+    // jsdom returns 0 for layout-derived props by default. To SHOW the shape of
+    // the inline gather step without relying on real layout, we stamp the same
+    // numeric properties the inline script reads, then build the geometry
+    // exactly as the inline `scrollToCommit` does.
     const html = provider._getGraphPanelHtml([
       makeCommitNode({ hash: visibleHash, shortHash: 'aaa1111' }),
     ]);
@@ -188,7 +122,7 @@ describe('Feature: git-graph-branch-click-scroll - graph panel scroll wiring (js
     Object.defineProperty(panel, 'clientHeight', { value: 300, configurable: true });
 
     // Build geometry the way the inline scrollToCommit does.
-    const g: IRowViewportGeometry = {
+    const g = {
       rowTop: row.offsetTop,
       rowBottom: row.offsetTop + row.offsetHeight,
       viewportTop: panel.scrollTop,
@@ -200,7 +134,5 @@ describe('Feature: git-graph-branch-click-scroll - graph panel scroll wiring (js
       { rowTop: 120, rowBottom: 140, viewportTop: 100, viewportBottom: 400 },
       'inline gather step should produce the seeded geometry'
     );
-    // Row [120,140] within viewport [100,400] → no scroll.
-    assert.strictEqual(shouldScrollToRow(g), false, 'seeded visible row → no scroll');
   });
 });

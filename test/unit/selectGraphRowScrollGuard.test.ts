@@ -103,7 +103,7 @@ describe('GitToolWindowProvider - inline selectGraphRow scroll visibility guard'
     );
   });
 
-  it('shared helper computes a fullyVisible visibility gate (mirror of isRowFullyVisible)', () => {
+  it('shared helper computes a fullyVisible visibility gate', () => {
     const gate =
       /const\s+fullyVisible\s*=\s*rowTop\s*>=\s*viewportTop\s*&&\s*rowBottom\s*<=\s*viewportBottom/;
     assert.ok(

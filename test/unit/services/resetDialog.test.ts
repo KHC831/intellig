@@ -862,4 +862,173 @@ describe('ResetDialog', () => {
       }
     });
   });
+
+  // ─── Smart Reset stash bracket (R2-1: stash pin, not stash@{0}) ──────────
+  describe('Smart Reset — SHA-pinned stash bracket', () => {
+    interface GitExec {
+      args: string[];
+    }
+
+    /** Scriptable gitCli covering the saveLocalChanges / restoreLocalChanges bracket. */
+    function makeStashCli(opts: {
+      statusZ: string;
+      stashListRows?: string;
+      popExit?: number;
+      pinnedSha?: string;
+    }): { gitCli: unknown; execs: GitExec[] } {
+      const execs: GitExec[] = [];
+      const pinnedSha = opts.pinnedSha ?? 'PINNEDSHA';
+      const gitCli = {
+        exec: async (args: string[]) => {
+          execs.push({ args });
+          const j = args.join(' ');
+          if (j.startsWith('status --porcelain')) {
+            return { exitCode: 0, stdout: opts.statusZ, stderr: '', combined: opts.statusZ };
+          }
+          if (j === 'rev-parse refs/stash') {
+            return { exitCode: 0, stdout: `${pinnedSha}\n`, stderr: '', combined: '' };
+          }
+          if (j.startsWith('stash list')) {
+            const rows = opts.stashListRows ?? `stash@{0}\x1f${pinnedSha}`;
+            return { exitCode: 0, stdout: rows, stderr: '', combined: rows };
+          }
+          if (j.startsWith('stash pop')) {
+            const code = opts.popExit ?? 0;
+            const err = code === 0 ? '' : 'CONFLICT (content): merge conflict';
+            return { exitCode: code, stdout: '', stderr: err, combined: err };
+          }
+          // stash push and everything else succeed.
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      };
+      return { gitCli, execs };
+    }
+
+    /** gitService whose FIRST reset trips the overwrite guard, later resets succeed. */
+    function makeSmartGitService(
+      gitCli: unknown,
+      firstError = 'error: Your local changes to the following files would be overwritten by reset'
+    ): IGitService & { calls: CallLog[] } {
+      let resetCount = 0;
+      const gs = makeGitService({
+        reset: async () => {
+          resetCount += 1;
+          if (resetCount === 1) {
+            throw new Error(firstError);
+          }
+        },
+      });
+      (gs as unknown as { gitCli: unknown }).gitCli = gitCli;
+      return gs;
+    }
+
+    it('pops the PINNED stash sha even after another entry is pushed between save and restore', async () => {
+      const trackers = installMessageTrackers();
+      // At restore time the pinned entry has been bumped to stash@{1} by an
+      // interloper at stash@{0}. A blind head-pop would apply the WRONG entry.
+      const { gitCli, execs } = makeStashCli({
+        statusZ: ' M src/file.ts\0',
+        stashListRows: 'stash@{0}\x1fINTERLOPER\nstash@{1}\x1fPINNEDSHA',
+      });
+      const gitService = makeSmartGitService(gitCli);
+      const { dialog } = makeDialog({ gitService });
+      trackers.setNextWarnResponse('Stash and Reset');
+      try {
+        await dialog.simulateMessage({ type: 'reset', mode: 'mixed' });
+
+        const pop = execs.find((e) => e.args[0] === 'stash' && e.args[1] === 'pop');
+        assert.ok(pop, 'the bracket must pop the saved stash via gitCli');
+        assert.deepStrictEqual(
+          pop.args,
+          ['stash', 'pop', 'stash@{1}'],
+          'must pop the pinned entry (stash@{1}), never the head (stash@{0})'
+        );
+        const resets = gitService.calls.filter((c) => c.method === 'resetToCommit');
+        assert.strictEqual(
+          resets.length,
+          2,
+          'first reset trips overwrite; second lands after stash'
+        );
+        assert.ok(
+          trackers.log.info.some((m) => m.message.startsWith('Reset to ')),
+          'a successful smart reset shows the info toast'
+        );
+      } finally {
+        dialog.dispose();
+      }
+    });
+
+    it('blocked by unmerged files → error toast, no reset performed', async () => {
+      const trackers = installMessageTrackers();
+      const { gitCli, execs } = makeStashCli({ statusZ: 'UU src/c.ts\0' });
+      const gitService = makeSmartGitService(gitCli);
+      const { dialog } = makeDialog({ gitService });
+      trackers.setNextWarnResponse('Stash and Reset');
+      try {
+        await dialog.simulateMessage({ type: 'reset', mode: 'mixed' });
+
+        assert.ok(
+          trackers.log.error.some((m) => /unmerged|conflicted/i.test(m.message)),
+          'must surface an unmerged-files error'
+        );
+        assert.ok(
+          !execs.some((e) => e.args[0] === 'stash' && e.args[1] === 'push'),
+          'must not stash when unmerged'
+        );
+        const resets = gitService.calls.filter((c) => c.method === 'resetToCommit');
+        assert.strictEqual(
+          resets.length,
+          1,
+          'only the initial (failing) reset runs — no second reset'
+        );
+      } finally {
+        dialog.dispose();
+      }
+    });
+
+    it('reset lands but restoring the stash conflicts → reports reset-succeeded, changes parked', async () => {
+      const trackers = installMessageTrackers();
+      const { gitCli } = makeStashCli({ statusZ: ' M src/file.ts\0', popExit: 1 });
+      const gitService = makeSmartGitService(gitCli);
+      const { dialog } = makeDialog({ gitService });
+      trackers.setNextWarnResponse('Stash and Reset');
+      try {
+        await dialog.simulateMessage({ type: 'reset', mode: 'mixed' });
+
+        assert.ok(
+          trackers.log.warn.some((m) =>
+            /succeeded, but your stashed changes conflicted/.test(m.message)
+          ),
+          'must report reset-succeeded-restore-conflicted'
+        );
+        assert.strictEqual(trackers.log.error.length, 0, 'must NOT claim the reset failed');
+      } finally {
+        dialog.dispose();
+      }
+    });
+
+    it('clean tree (overwrite not from stashable changes) → surfaces the original error, no reset', async () => {
+      const trackers = installMessageTrackers();
+      const { gitCli, execs } = makeStashCli({ statusZ: '' });
+      const gitService = makeSmartGitService(gitCli);
+      const { dialog } = makeDialog({ gitService });
+      trackers.setNextWarnResponse('Stash and Reset');
+      try {
+        await dialog.simulateMessage({ type: 'reset', mode: 'mixed' });
+
+        assert.ok(
+          trackers.log.error.some((m) => /would be overwritten/i.test(m.message)),
+          'must surface the original overwrite error'
+        );
+        assert.ok(
+          !execs.some((e) => e.args[0] === 'stash' && e.args[1] === 'push'),
+          'a clean tree must not stash'
+        );
+        const resets = gitService.calls.filter((c) => c.method === 'resetToCommit');
+        assert.strictEqual(resets.length, 1, 'must not reset blind on a clean tree');
+      } finally {
+        dialog.dispose();
+      }
+    });
+  });
 });

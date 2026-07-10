@@ -69,7 +69,10 @@ export type MultiSelectMenuAction =
   | 'pushUpToCommit'
   // G9: go-to-parent/child navigation — single-only (disabled in multi-select).
   | 'goToParent'
-  | 'goToChild';
+  | 'goToChild'
+  // Create a ref AT the selected commit — single-only (targets one commit).
+  | 'newBranch'
+  | 'newTag';
 
 /**
  * Inputs for {@link computeMenuEnableState}. Centralised here so the
@@ -261,6 +264,9 @@ export function computeMenuVisibility(
     // G9: go-to-parent/child navigation — single-only.
     goToParent: !isMulti,
     goToChild: !isMulti,
+    // Create-ref-at-commit — single-only.
+    newBranch: !isMulti,
+    newTag: !isMulti,
   };
 }
 
@@ -343,6 +349,9 @@ export function computeMenuEnableState(
     // G9: go-to-parent/child navigation — single-only.
     goToParent: isSingle,
     goToChild: isSingle,
+    // Create-ref-at-commit — single-only.
+    newBranch: isSingle,
+    newTag: isSingle,
   };
 }
 

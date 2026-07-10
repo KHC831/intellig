@@ -4,13 +4,12 @@
  * This is an ADR-007-style structural guard: the inline webview
  * `scrollToCommit(commitHash)` function delegates scroll logic to the shared
  * `scrollRowIntoViewIfNeeded` helper (scroll-math de-dup refactor). The helper
- * mirrors the `isRowFullyVisible` contract from `scrollVisibility.ts`
- * (ADR-009 section 2 — scroll position is webview-owned ephemeral state).
+ * only scrolls a row that is not already fully within the viewport (ADR-009
+ * section 2 — scroll position is webview-owned ephemeral state).
  *
  * The guard pins:
  *   - `scrollToCommit` delegates to `scrollRowIntoViewIfNeeded(commitRow)`,
- *   - the shared helper contains the `fullyVisible` gate (mirror of
- *     `isRowFullyVisible`),
+ *   - the shared helper contains the `fullyVisible` visibility gate,
  *   - the early-return for a missing row element is present (Req 2.3), and
  *   - the `scrollIntoView` call is guarded by `if (!fullyVisible)` in the
  *     helper rather than firing unconditionally.
@@ -128,7 +127,7 @@ describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () =>
     );
   });
 
-  it('helper contains the fullyVisible visibility gate (mirror of isRowFullyVisible)', () => {
+  it('helper contains the fullyVisible visibility gate', () => {
     const gate =
       /const\s+fullyVisible\s*=\s*rowTop\s*>=\s*viewportTop\s*&&\s*rowBottom\s*<=\s*viewportBottom/;
     assert.ok(

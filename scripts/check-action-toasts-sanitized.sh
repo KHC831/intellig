@@ -36,7 +36,7 @@
 #
 # 3. Known false-positive cases
 #    - Whitelisted variable names that legitimately carry sanitised
-#      data (e.g. `${pre-sanitised-msg-from-NotificationService}`).
+#      data (e.g. `${pre-sanitised-headline}`).
 #      Suppressed via `// sanitize-exempt: pre-sanitized: <reason>`.
 #    - SHA fragments + user-typed query strings + ID strings —
 #      bounded character sets, can't embed credentials. Suppressed

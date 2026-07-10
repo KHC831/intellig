@@ -16,7 +16,13 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
-import { IGitService, IRepository, ResetMode } from '../git-core/interfaces/IGitService';
+import {
+  IGitService,
+  IGitServiceCli,
+  IRepository,
+  ResetMode,
+} from '../git-core/interfaces/IGitService';
+import { saveLocalChanges, restoreLocalChanges } from '../git-core/ops/preservedChanges';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
@@ -45,6 +51,26 @@ export class SmartResetUnstashConflict extends Error {
   constructor(override readonly cause: unknown) {
     super('Stashed changes conflicted while restoring after reset');
     this.name = 'SmartResetUnstashConflict';
+  }
+}
+
+/** The working tree has unmerged files — smart reset cannot stash over them. */
+export class SmartResetBlockedUnmerged extends Error {
+  constructor() {
+    super('Cannot stash and reset while unmerged files are present');
+    this.name = 'SmartResetBlockedUnmerged';
+  }
+}
+
+/**
+ * The reset was blocked by an overwrite error, yet the working tree has no
+ * stashable changes — stashing would be a no-op. Carries the original reset
+ * error so the caller surfaces it instead of resetting blind.
+ */
+export class SmartResetNotStashable extends Error {
+  constructor(readonly originalError: unknown) {
+    super('Reset blocked but there are no stashable local changes');
+    this.name = 'SmartResetNotStashable';
   }
 }
 
@@ -532,7 +558,7 @@ ${body}
       // Smart Reset: if the reset failed because local changes would be
       // overwritten, propose stashing them rather than just erroring (IntelliJ).
       if (isLocalChangesOverwriteError(errorMessage)) {
-        await this._proposeSmartReset(mode);
+        await this._proposeSmartReset(mode, error);
         return;
       }
       void vscode.window.showErrorMessage(`Failed to reset: ${sanitizeGitError(errorMessage)}`);
@@ -565,9 +591,15 @@ ${body}
    * The reset was blocked by local changes — offer Stash and Reset / Force /
    * Cancel (IntelliJ Smart Reset). Stash → reset → unstash; Force → hard reset.
    */
-  private async _proposeSmartReset(mode: ResetMode): Promise<void> {
+  private async _proposeSmartReset(mode: ResetMode, originalError: unknown): Promise<void> {
     const STASH = 'Stash and Reset';
     const FORCE = 'Force (discard changes)';
+    const gitCli = (this._gitService as unknown as IGitServiceCli).gitCli;
+    const cwd = this._repo.rootUri.fsPath;
+    // Pins the stash entry created by the `stash` arm so the `unstash` arm pops
+    // exactly it — `stash@{0}` is not stable if a concurrent bracket or the
+    // user pushes another stash between save and restore.
+    let stashSha: string | undefined;
     try {
       const choice = await runSmartReset(mode, {
         prompt: async () => {
@@ -579,13 +611,20 @@ ${body}
           );
           return pick === STASH ? 'stash' : pick === FORCE ? 'force' : 'cancel';
         },
-        stash: () =>
-          this._gitService.stash(this._repo).match(
-            () => undefined,
-            (e) => {
-              throw e;
-            }
-          ),
+        stash: async () => {
+          const saved = await saveLocalChanges(gitCli, cwd, 'Auto-stash before reset');
+          if (saved.status === 'blocked-unmerged') {
+            throw new SmartResetBlockedUnmerged();
+          }
+          if (saved.status === 'clean') {
+            // The overwrite error was not raised by stashable working-tree
+            // changes, so a stash would save nothing and a reset here could
+            // destroy the real (non-stashable) obstruction. Surface the
+            // original error instead of resetting blind.
+            throw new SmartResetNotStashable(originalError);
+          }
+          stashSha = saved.stashSha;
+        },
         reset: (m) =>
           this._gitService.resetToCommit(this._repo, this._target.hash, m).match(
             () => undefined,
@@ -593,13 +632,15 @@ ${body}
               throw e;
             }
           ),
-        unstash: () =>
-          this._gitService.stashPop(this._repo, 0).match(
-            () => undefined,
-            (e) => {
-              throw e;
-            }
-          ),
+        unstash: async () => {
+          if (stashSha === undefined) {
+            return;
+          }
+          const restore = await restoreLocalChanges(gitCli, cwd, stashSha);
+          if (restore.status === 'failed') {
+            throw new SmartResetUnstashConflict(restore.detail);
+          }
+        },
       });
       if (choice === 'cancel') {
         this._busy = false;
@@ -622,7 +663,16 @@ ${body}
         this._completeAndClose();
         return;
       }
-      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (error instanceof SmartResetBlockedUnmerged) {
+        void vscode.window.showErrorMessage(
+          'Cannot stash and reset: the working tree has unmerged (conflicted) files. ' +
+            'Resolve the conflicts first.'
+        );
+        this._busy = false;
+        return;
+      }
+      const surfaced = error instanceof SmartResetNotStashable ? error.originalError : error;
+      const msg = surfaced instanceof Error ? surfaced.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to reset: ${sanitizeGitError(msg)}`);
       this._busy = false;
     }

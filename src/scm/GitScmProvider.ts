@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { formatActionFailureToast } from '../git-core/gitError';
 import type { IFileStatus, IGitService, IRepository, StatusCode } from '../services';
 import { runBeforeCommitChecks } from '../commits/CheckinChecks';
+import { isConflictedStatus } from '../git-core/gitParser';
 import { getLogger } from '../utils/logger';
 
 /**
@@ -200,7 +201,9 @@ export function buildScmResources(
   const changes: vscode.SourceControlResourceState[] = [];
 
   for (const s of statuses) {
-    if (s.indexStatus === 'U' || s.workTreeStatus === 'U') {
+    if (isConflictedStatus(s)) {
+      // One Changes entry with the Conflict decoration; 'U' is the code that
+      // drives decorationFor's Conflict icon (an AA/DD file has no literal U).
       changes.push(makeResource(repoRoot, s.path, 'U', 'changes'));
       continue;
     }
@@ -308,13 +311,7 @@ export class GitScmProvider implements vscode.Disposable {
     try {
       const statuses = await this.gitService.getStatus(entry.repo);
       stagedPaths = statuses
-        .filter(
-          (s) =>
-            s.indexStatus !== 'U' &&
-            s.workTreeStatus !== 'U' &&
-            s.indexStatus !== ' ' &&
-            s.indexStatus !== '?'
-        )
+        .filter((s) => !isConflictedStatus(s) && s.indexStatus !== ' ' && s.indexStatus !== '?')
         .map((s) => s.path);
     } catch (error) {
       // A status read that fails means the committed set is unknown, so the

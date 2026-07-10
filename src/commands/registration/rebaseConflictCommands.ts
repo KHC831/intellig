@@ -7,6 +7,7 @@ import { createMergeView } from '../../services';
 import { inferReopenOperation } from '../../conflicts/conflictReversal';
 import { acceptLabels } from '../../conflicts/conflictSideNames';
 import { runUnresolveFlow } from '../../conflicts/unresolveFlow';
+import { isConflictedStatus } from '../../git-core/gitParser';
 import type { ICommandContext } from './CommandContext';
 import { registerBareCommand, registerRepoCommand, registerSelectionCommand } from './commandSpine';
 
@@ -54,9 +55,7 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
           return;
         }
         const status = await gitService.getStatus(repo);
-        const conflictedFiles = status.filter(
-          (f) => f.indexStatus === 'U' || f.workTreeStatus === 'U'
-        );
+        const conflictedFiles = status.filter(isConflictedStatus);
 
         if (conflictedFiles.length === 0) {
           void vscode.window.showInformationMessage('No conflicted files found');

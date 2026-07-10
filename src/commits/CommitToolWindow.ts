@@ -1754,6 +1754,20 @@ function commitToolWindowBehaviorScript(model: ICommitToolWindowInitModel): stri
         return node;
       };
 
+      // Escape a value before splicing it into an attribute selector
+      // ([data-path="<path>"]). Mirrors scriptBuilder.ts's cssEscapeHash:
+      // prefers the native CSS.escape (present in the Chromium webview), falls
+      // back to a minimal escaper under test DOMs that lack the CSS global. A
+      // filename may legally contain a backslash on POSIX, which the old
+      // quote-only escape left as an invalid selector that threw.
+      const cssEscapeAttr = function (value) {
+        var s = String(value);
+        if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') {
+          return CSS.escape(s);
+        }
+        return s.replace(/[^a-zA-Z0-9_-]/g, function (ch) { return '\\\\' + ch; });
+      };
+
       function buildTabStrip() {
         const strip = el('div', { className: 'ctw-tab-strip' });
         setAttrs(strip, { role: 'tablist' });
@@ -2181,7 +2195,7 @@ function commitToolWindowBehaviorScript(model: ICommitToolWindowInitModel): stri
         const m = ev.data;
         if (!m || typeof m.type !== 'string') return;
         if (m.type === 'updateFileCheckbox' && typeof m.path === 'string') {
-          const box = document.querySelector('.ctw-file-check[data-path="' + m.path.replace(/"/g, '\\\\"') + '"]');
+          const box = document.querySelector('.ctw-file-check[data-path="' + cssEscapeAttr(m.path) + '"]');
           if (box) box.checked = !!m.checked;
         }
         if (m.type === 'updateDiffPreview') {

@@ -8,6 +8,7 @@ import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvid
 import * as gitToolWindowProvider from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommitNode } from '../../../src/git-core/commitGraph';
 import { ICommit } from '../../../src/git-core/interfaces/IGitService';
+import { computeMenuVisibility } from '../../../src/git-core/gitToolWindow/multiSelect';
 import { Uri } from '../../mocks/vscode';
 
 /**
@@ -774,7 +775,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const idx = html.indexOf('data-action="newBranch"');
       assert.ok(idx !== -1, 'Should expose the newBranch action');
       const item = html.substring(idx, idx + 140);
-      assert.ok(item.includes('data-multi-action="single-only"'), 'newBranch is single-only');
+      assert.strictEqual(computeMenuVisibility(2).newBranch, false, 'newBranch is single-only');
       assert.ok(item.includes('New Branch…'), 'New Branch label uses the unicode ellipsis');
     });
 
@@ -783,7 +784,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const idx = html.indexOf('data-action="newTag"');
       assert.ok(idx !== -1, 'Should expose the newTag action');
       const item = html.substring(idx, idx + 140);
-      assert.ok(item.includes('data-multi-action="single-only"'), 'newTag is single-only');
+      assert.strictEqual(computeMenuVisibility(2).newTag, false, 'newTag is single-only');
       assert.ok(item.includes('New Tag…'), 'New Tag label uses the unicode ellipsis');
     });
 
@@ -819,7 +820,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const idx = html.indexOf('data-action="fixup"');
       assert.ok(idx !== -1, 'Should expose the fixup action');
       const item = html.substring(idx, idx + 140);
-      assert.ok(item.includes('data-multi-action="single-only"'), 'fixup is single-only');
+      assert.strictEqual(computeMenuVisibility(2).fixup, false, 'fixup is single-only');
       assert.ok(item.includes('Fixup…'), 'Fixup label uses the unicode ellipsis');
     });
 
@@ -828,7 +829,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const idx = html.indexOf('data-action="squashInto"');
       assert.ok(idx !== -1, 'Should expose the squashInto action');
       const item = html.substring(idx, idx + 140);
-      assert.ok(item.includes('data-multi-action="single-only"'), 'squashInto is single-only');
+      assert.strictEqual(computeMenuVisibility(2).squashInto, false, 'squashInto is single-only');
       assert.ok(item.includes('Squash Into…'), 'Squash Into label uses the unicode ellipsis');
     });
 

@@ -6,7 +6,6 @@ import {
   createMergeView,
   MergeView,
   createStatusBarService,
-  createNotificationService,
   KeymapService,
   createStashView,
   createShelfView,
@@ -1255,14 +1254,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Initialize Status Bar Service
     ctx.statusBarService = createStatusBarService(gitService);
     ctx.context.subscriptions.push(ctx.statusBarService);
-
-    // Initialize Notification Service. It owns no disposables of its
-    // own — the shared `IntelliG` OutputChannel it consumes is
-    // registered against `context.subscriptions` by
-    // `initOutputChannel(context)` earlier in activate — so we do NOT
-    // push the service itself onto the subscriptions list (it has no
-    // `dispose()` to call).
-    ctx.notificationService = createNotificationService();
 
     // Initialize Keymap Service
     ctx.keymapService = new KeymapService(ctx.services.configurationService);

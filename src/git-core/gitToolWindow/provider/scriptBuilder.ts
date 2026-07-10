@@ -882,11 +882,11 @@ export function buildInlineScript(): string {
             if (targetRow) {
               targetRow.classList.add('selected');
               targetRow.setAttribute('aria-selected', 'true');
-              // Only scroll when the row isn't already fully on-screen — delegate
-              // to the shared helper (scrollRowIntoViewIfNeeded) which mirrors
-              // shouldScrollToRow (scrollVisibility.ts). Unconditional
-              // smooth-scroll here caused visible "jerk" on every click of an
-              // already-visible row (same bug class as the branch-click sweep).
+              // Only scroll when the row isn't already fully on-screen —
+              // delegate to the shared scrollRowIntoViewIfNeeded helper.
+              // Unconditional smooth-scroll here caused visible "jerk" on every
+              // click of an already-visible row (same bug class as the
+              // branch-click sweep).
               scrollRowIntoViewIfNeeded(targetRow);
             }
             refreshSelectedCount();
@@ -1082,9 +1082,9 @@ export function buildInlineScript(): string {
         });
 
         // Scroll the given row into the nearest .graph-panel only when it is not
-        // already fully visible — mirrors shouldScrollToRow (scrollVisibility.ts).
-        // Shared by scrollToCommit and the selectGraphRow message handler so the
-        // "jerk on already-visible row" fix is applied consistently in both paths.
+        // already fully visible. Shared by scrollToCommit and the selectGraphRow
+        // message handler so the "jerk on already-visible row" fix is applied
+        // consistently in both paths.
         function scrollRowIntoViewIfNeeded(row) {
           const panel = row.closest('.graph-panel');
           if (panel) {

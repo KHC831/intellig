@@ -165,41 +165,42 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
       ? ctx.extendedLogState.commitNodes[0].commit.hash
       : '';
 
-  // \u2014 A2: items marked with `menu-multi-hidden` default to hidden;
-  // the inline-script `updateContextMenuState` JS toggles the class based
-  // on `selectedCount`. This keeps the visibility rules in one
-  // declarative place rather than string-rebuilding the menu each time.
-  //
-  // Single-only items render the `data-multi-action="single-only"` data
-  // attribute so the JS can locate them without hardcoding the action
-  // list. Multi-only items get `data-multi-action="multi-only"`.
+  // Menu-item visibility and enabled state are host-computed (ADR-009): the
+  // host calls computeMenuState (multiSelect.ts) for the current selection and
+  // posts the per-action (visible, enabled) map; the inline-script
+  // applyMenuEnableMap toggles `menu-multi-hidden` / `disabled` per row keyed
+  // on `data-action`. Every `data-action` here MUST be a member of
+  // MultiSelectMenuAction \u2014 an unknown action falls back to visible+enabled, so
+  // a missing entry silently leaves the row clickable in multi-select
+  // (menuActionParity.test.ts pins data-action \u2286 computeMenuVisibility keys).
+  // `menu-multi-hidden` is the default-hidden class for multi-only rows.
   return `
       <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${escapeHtml(headHash)}">
         <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">Copy Revision Number</div>
         <div class="context-menu-item" data-action="createPatch" role="menuitem" tabindex="0">Create Patch\u2026</div>
         <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">Cherry-Pick</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="checkoutRevision" data-multi-action="single-only" role="menuitem" tabindex="0">Checkout Revision</div>
-        <div class="context-menu-item" data-action="showRepoAtRevision" data-multi-action="single-only" role="menuitem" tabindex="0">Show Repository at Revision</div>
-        <div class="context-menu-item" data-action="compareWithLocal" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Local</div>
-        <div class="context-menu-item menu-multi-hidden" data-action="compareVersions" data-multi-action="multi-only" role="menuitem" tabindex="0">Compare Versions</div>
+        <div class="context-menu-item" data-action="checkoutRevision" role="menuitem" tabindex="0">Checkout Revision</div>
+        <div class="context-menu-item" data-action="showRepoAtRevision" role="menuitem" tabindex="0">Show Repository at Revision</div>
+        <div class="context-menu-item" data-action="compareWithLocal" role="menuitem" tabindex="0">Compare with Local</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="compareVersions" role="menuitem" tabindex="0">Compare Versions</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item context-menu-danger" data-action="resetToHere" data-multi-action="single-only" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
+        <div class="context-menu-item context-menu-danger" data-action="resetToHere" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
         <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">Revert Commit</div>
-        <div class="context-menu-item" data-action="undoCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Undo Commit</div>
+        <div class="context-menu-item" data-action="undoCommit" role="menuitem" tabindex="0">Undo Commit</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message\u2026</div>
-        <div class="context-menu-item" data-action="fixup" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup\u2026</div>
-        <div class="context-menu-item" data-action="squashInto" data-multi-action="single-only" role="menuitem" tabindex="0">Squash Into\u2026</div>
-        <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
+        <div class="context-menu-item" data-action="editCommitMessage" role="menuitem" tabindex="0">Edit Commit Message\u2026</div>
+        <div class="context-menu-item" data-action="fixup" role="menuitem" tabindex="0">Fixup\u2026</div>
+        <div class="context-menu-item" data-action="squashInto" role="menuitem" tabindex="0">Squash Into\u2026</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" role="menuitem" tabindex="0">Squash Commits</div>
         <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
-        <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
-        <div class="context-menu-item" data-action="pushUpToCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Push All up to Here\u2026</div>
+        <div class="context-menu-item" data-action="interactiveRebase" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
+        <div class="context-menu-item" data-action="pushUpToCommit" role="menuitem" tabindex="0">Push All up to Here\u2026</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="newBranch" data-multi-action="single-only" role="menuitem" tabindex="0">New Branch\u2026</div>
-        <div class="context-menu-item" data-action="newTag" data-multi-action="single-only" role="menuitem" tabindex="0">New Tag\u2026</div>
+        <div class="context-menu-item" data-action="newBranch" role="menuitem" tabindex="0">New Branch\u2026</div>
+        <div class="context-menu-item" data-action="newTag" role="menuitem" tabindex="0">New Tag\u2026</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="goToChild" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Child Commit</div>
-        <div class="context-menu-item" data-action="goToParent" data-multi-action="single-only" role="menuitem" tabindex="0">Go to Parent Commit</div>
+        <div class="context-menu-item" data-action="goToChild" role="menuitem" tabindex="0">Go to Child Commit</div>
+        <div class="context-menu-item" data-action="goToParent" role="menuitem" tabindex="0">Go to Parent Commit</div>
       </div>`;
 }

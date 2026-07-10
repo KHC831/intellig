@@ -10,15 +10,14 @@
  * report can be triaged from `Output → IntelliG` instead of requiring the
  * user to reproduce under an extension-development host.
  *
- * ### Why a shared module (not NotificationService accessor)?
+ * ### Why a shared module (not a service accessor)?
  *
- * `NotificationService` is a service with injection concerns — GitService's
- * watcher and ConflictResolutionService's state-sync fire during
+ * GitService's watcher and ConflictResolutionService's state-sync fire during
  * initialization, before the full service graph is guaranteed to be wired.
- * Making every init path reach into NotificationService to grab the channel
+ * Making every init path reach through an injected service to grab the channel
  * would (a) widen the coupling surface and (b) risk ordering bugs where a
- * watcher fires before `ExtensionServices.activate` finishes constructing
- * the notification service. A lazy module-level singleton dodges both.
+ * watcher fires before `ExtensionServices.activate` finishes constructing the
+ * service graph. A lazy module-level singleton dodges both.
  *
  * The underlying `vscode.window.createOutputChannel` is safe to call at any
  * point in the extension lifetime, BUT it does NOT dedupe by name — every

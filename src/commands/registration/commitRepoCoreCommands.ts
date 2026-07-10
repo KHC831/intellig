@@ -27,7 +27,7 @@ import {
 } from '../../sync/updateProject';
 import { runConfigureRemotesFlow } from '../../sync/configureRemotes';
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
-import { buildUpdateNotification } from '../../ui-shell/NotificationService';
+import { buildUpdateNotification } from '../../ui-shell/updateNotification';
 import { statusCodeToFileStatus } from '../../git-core/gitParser';
 import type {
   IRollbackChange,

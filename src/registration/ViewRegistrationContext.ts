@@ -7,7 +7,6 @@ import type {
   ShelfView,
   MergeView,
   StatusBarService,
-  NotificationService,
   KeymapService,
   GutterBlameProvider,
   BranchComparisonView,
@@ -63,8 +62,6 @@ export interface IViewRegistrationContext {
   set mergeView(v: MergeView | undefined);
   get statusBarService(): StatusBarService | undefined;
   set statusBarService(v: StatusBarService | undefined);
-  get notificationService(): NotificationService | undefined;
-  set notificationService(v: NotificationService | undefined);
   get keymapService(): KeymapService | undefined;
   set keymapService(v: KeymapService | undefined);
   get gutterBlameProvider(): GutterBlameProvider | undefined;

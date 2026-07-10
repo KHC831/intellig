@@ -54,9 +54,6 @@ export * from '../../branches/interfaces/IBranchComparisonView';
 // Status Bar Service
 export * from '../../ui-shell/interfaces/IStatusBarService';
 
-// Notification Service
-export * from '../../ui-shell/interfaces/INotificationService';
-
 // Keymap Service
 export * from '../../ui-shell/interfaces/IKeymapService';
 

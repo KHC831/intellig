@@ -359,7 +359,10 @@ export class DiffOps {
         statusChar === 'A' ||
         statusChar === 'D' ||
         statusChar === 'T' ||
-        statusChar === 'U'
+        // `git diff --name-status` emits one status letter per file; bare `U`
+        // is the complete unmerged marker (no AA/DD composite in this output),
+        // so this is not the two-column porcelain conflict predicate.
+        statusChar === 'U' // conflict-predicate-exempt: single-letter name-status marker
       ) {
         const filePath = tokens[i];
         i += 1;

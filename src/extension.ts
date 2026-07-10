@@ -14,7 +14,6 @@ import {
   InlineBlameProvider,
   GutterBlameProvider,
   StatusBarService,
-  NotificationService,
   KeymapService,
   StashView,
   ShelfView,
@@ -164,11 +163,6 @@ let gutterBlameProvider: GutterBlameProvider | undefined;
  * Global reference to the Status Bar Service.
  */
 let statusBarService: StatusBarService | undefined;
-
-/**
- * Global reference to the Notification Service.
- */
-let notificationService: NotificationService | undefined;
 
 /**
  * Global reference to the Pull Dialog. Lazily constructed on first use
@@ -397,16 +391,6 @@ export function deactivate(): void {
       statusBarService = undefined;
     }
 
-    // Release the Notification Service reference. It owns no
-    // disposables of its own — the shared OutputChannel it consumes is
-    // registered against `context.subscriptions` by
-    // `initOutputChannel(context)`, so deactivation of the context
-    // handles the underlying tear-down. Nulling the reference here
-    // just lets a subsequent `activate` construct a fresh instance.
-    if (notificationService) {
-      notificationService = undefined;
-    }
-
     // Release the Keymap Service — context.subscriptions owns disposal.
     if (keymapService) {
       keymapService = undefined;
@@ -612,12 +596,6 @@ function createViewRegistrationContext(context: vscode.ExtensionContext): IViewR
     },
     set statusBarService(v) {
       statusBarService = v;
-    },
-    get notificationService() {
-      return notificationService;
-    },
-    set notificationService(v) {
-      notificationService = v;
     },
     get keymapService() {
       return keymapService;

@@ -78,6 +78,63 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
     );
   });
 
+  it('syncs the checkbox for a path containing a backslash (POSIX-legal filename)', () => {
+    const weird = 'weird\\name.txt'; // a single backslash — legal on POSIX
+    const { body, script } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [
+        {
+          id: 'default',
+          name: 'Changes',
+          isDefault: true,
+          isActive: true,
+          files: [makeFile(weird), makeFile('src/plain.ts')],
+        },
+      ],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+    });
+    h = runWebviewScript(script, { bodyHtml: body });
+
+    const box = Array.from(h.document.querySelectorAll('.ctw-file-check')).find(
+      (c) => c.getAttribute('data-path') === weird
+    ) as HTMLInputElement | undefined;
+    assert.ok(box, 'a checkbox for the backslash path must render');
+    assert.strictEqual(box.checked, false, 'starts unchecked');
+
+    h.post({ type: 'updateFileCheckbox', path: weird, checked: true });
+
+    // Old code escaped only `"`, leaving the backslash to form an invalid /
+    // mis-parsed selector: querySelector threw or matched nothing, so the box
+    // never synced. The shared cssEscapeAttr escape fixes both.
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      [],
+      'the message handler must not throw on a backslash path'
+    );
+    assert.strictEqual(box.checked, true, 'the backslash-path checkbox must sync');
+  });
+
+  it('syncs the checkbox for a plain path (unchanged behavior)', () => {
+    const { body, script } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+    });
+    h = runWebviewScript(script, { bodyHtml: body });
+
+    const box = Array.from(h.document.querySelectorAll('.ctw-file-check')).find(
+      (c) => c.getAttribute('data-path') === 'src/a.ts'
+    ) as HTMLInputElement | undefined;
+    assert.ok(box, 'a checkbox for the plain path must render');
+
+    h.post({ type: 'updateFileCheckbox', path: 'src/a.ts', checked: true });
+    assert.strictEqual(box.checked, true, 'the plain-path checkbox syncs');
+  });
+
   it('tolerates representative and garbage messages without throwing', () => {
     const { body, script } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',

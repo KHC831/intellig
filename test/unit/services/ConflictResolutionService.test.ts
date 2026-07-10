@@ -396,15 +396,98 @@ describe('ConflictResolutionService', () => {
   });
 
   describe('abortWorkingTreeConflicts()', () => {
-    it('checks out HEAD for the given paths', async () => {
-      const calls: string[][] = [];
-      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+    /**
+     * Model `git`'s real behavior for the restore-to-HEAD writer: `cat-file -e
+     * HEAD:<path>` reports membership; `checkout HEAD -- <paths>` fatals (exit
+     * 128) when any requested path is absent from HEAD, and throws when the
+     * caller passed `throwOnError` (as the writer does). `failCheckout` forces
+     * a genuine restore failure for a HEAD-tracked path.
+     */
+    function scriptGit(
+      inHead: Set<string>,
+      calls: string[][],
+      opts: { failCheckout?: boolean } = {}
+    ): (args: string[], options?: unknown) => Promise<IGitCommandResult> {
+      return (args: string[], options?: unknown): Promise<IGitCommandResult> => {
         calls.push(args);
+        const throwOnError = Boolean((options as { throwOnError?: boolean })?.throwOnError);
+        if (args[0] === 'cat-file' && args[1] === '-e') {
+          const spec = args[2].replace(/^HEAD:/, '');
+          return Promise.resolve({
+            exitCode: inHead.has(spec) ? 0 : 1,
+            stdout: '',
+            stderr: '',
+            combined: '',
+          });
+        }
+        if (args[0] === 'checkout' && args[1] === 'HEAD') {
+          const paths = args.slice(args.indexOf('--') + 1);
+          const missing = paths.find((p) => !inHead.has(p));
+          if (missing || opts.failCheckout) {
+            const stderr = missing
+              ? `error: pathspec '${missing}' did not match any file(s) known to git`
+              : 'error: unable to checkout';
+            if (throwOnError) {
+              return Promise.reject(new Error(stderr));
+            }
+            return Promise.resolve({ exitCode: 128, stdout: '', stderr, combined: stderr });
+          }
+        }
         return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
       };
+    }
+
+    it('restores an add/add path (absent from HEAD) by unindexing, not a fatal checkout', async () => {
+      const calls: string[][] = [];
+      mockGitCli.exec = scriptGit(new Set(['tracked.ts']), calls);
+      mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
+
+      const res = await conflictService.abortWorkingTreeConflicts(mockRepo, [
+        'tracked.ts',
+        'addadd.ts',
+      ]);
+      assert.strictEqual(res.success, true, 'abort must succeed even with a both-added path');
+
+      const checkout = calls.find((c) => c[0] === 'checkout' && c[1] === 'HEAD');
+      assert.ok(checkout, 'expected a checkout HEAD for the tracked path');
+      const checkoutPaths = checkout.slice(checkout.indexOf('--') + 1);
+      assert.deepStrictEqual(checkoutPaths, ['tracked.ts'], 'only the HEAD path is checked out');
+
+      const unindex = calls.find((c) => c[0] === 'rm' && c.includes('--cached'));
+      assert.ok(unindex, 'the add/add path must be unindexed');
+      assert.ok(unindex.includes('addadd.ts'), 'unindex targets the add/add path');
+      // git4idea GitRollbackEnvironment.rollbackChanges unversions (keeps on disk)
+      // a NEW file — no working-tree delete for an added-only path.
+      assert.ok(!calls.some((c) => c[0] === 'rm' && !c.includes('--cached')));
+    });
+
+    it('checks out HEAD for tracked-only paths (behavior preserved)', async () => {
+      const calls: string[][] = [];
+      mockGitCli.exec = scriptGit(new Set(['a.ts', 'b.ts']), calls);
+      mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
+
       const res = await conflictService.abortWorkingTreeConflicts(mockRepo, ['a.ts', 'b.ts']);
       assert.strictEqual(res.success, true);
-      assert.deepStrictEqual(calls[0], ['checkout', 'HEAD', '--', 'a.ts', 'b.ts']);
+      const checkout = calls.find((c) => c[0] === 'checkout' && c[1] === 'HEAD');
+      assert.ok(checkout, 'expected a checkout HEAD call');
+      const checkoutPaths = checkout.slice(checkout.indexOf('--') + 1);
+      assert.deepStrictEqual(checkoutPaths.sort(), ['a.ts', 'b.ts']);
+      assert.ok(!calls.some((c) => c[0] === 'rm' && c.includes('--cached')));
+    });
+
+    it('maps a writer failure to {success:false} and fires no conflicts-changed event', async () => {
+      const calls: string[][] = [];
+      mockGitCli.exec = scriptGit(new Set(['x.ts']), calls, { failCheckout: true });
+      let fired = false;
+      const sub = conflictService.onDidChangeConflicts(() => {
+        fired = true;
+      });
+
+      const res = await conflictService.abortWorkingTreeConflicts(mockRepo, ['x.ts']);
+      sub.dispose();
+      assert.strictEqual(res.success, false);
+      assert.ok(res.error && /Failed to abort/.test(res.error));
+      assert.strictEqual(fired, false, 'must not fire a conflicts-changed event on failure');
     });
 
     it('is a no-op success for an empty path list (never runs a bare checkout)', async () => {

@@ -150,8 +150,16 @@ export function isConflictedStatus(file: IFileStatus): boolean {
  * The single conflict definition, expressed over the two raw status codes so
  * {@link isConflictedStatus} and {@link statusCodeToFileStatus} share it and
  * cannot drift. See {@link isConflictedStatus} for why AA/DD count as unmerged.
+ *
+ * Exported as THE conflict predicate for code-level callers that hold raw
+ * status codes (not an {@link IFileStatus}); callers with a status entry use
+ * {@link isConflictedStatus}. A hand-rolled `=== 'U'` check misses AA/DD, so
+ * `check:conflict-predicate-shared` fences new copies outside this module.
  */
-function isConflictedStatusCode(indexStatus: StatusCode, workTreeStatus: StatusCode): boolean {
+export function isConflictedStatusCode(
+  indexStatus: StatusCode,
+  workTreeStatus: StatusCode
+): boolean {
   return (
     indexStatus === 'U' ||
     workTreeStatus === 'U' ||
