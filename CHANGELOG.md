@@ -10,6 +10,21 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.3.5] - 2026-07-10
+
+### Fixed
+
+- Repositories no longer vanish from the repository selector after git operations.
+- Repositories behind symlinked folders are now found.
+- Files added or deleted on both sides of a merge now show as conflicts.
+- Aborting conflicts no longer fails on files that are new on both branches.
+- Reset's Smart option always restores the stash it created.
+- The graph search box accepts SHA-256 commit ids.
+- A bad date in a saved log filter no longer blanks the graph.
+- Text diffs mentioning "Binary files ... differ" no longer display as binary.
+- New Branch and New Tag are disabled when multiple commits are selected.
+- File names with backslashes no longer break the Commit tool window.
+
 ## [0.3.4] - 2026-07-09
 
 ### Added
