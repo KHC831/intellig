@@ -67,10 +67,12 @@ import type { IGtwControllerContext } from './provider/IGtwControllerContext';
 import {
   buildLoadingHtml,
   buildNoRepositoryHtml,
+  buildUndockedPlaceholderHtml,
   buildCommitContextMenuHtml,
   escapeHtml,
   getFileStatusColor,
 } from './provider/htmlBuilders';
+import { buildWebviewCsp } from '../../utils/webviewCsp';
 import {
   buildDetailsPanelModel,
   buildDetailsPanelPlaceholderModel,
@@ -90,8 +92,9 @@ import {
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { normalizeRepoPath, normalizeRepoPathString } from '../../utils/normalizeRepoPath';
-import { BaseWebviewView } from '../../utils/BaseWebviewView';
+import { BaseWebviewView, drainDisposables } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
+import { dispatchGuardedWebviewMessage } from '../../utils/webviewMessageGuard';
 import {
   computeMenuState,
   type IMenuItemState,
@@ -103,6 +106,26 @@ import {
  * View ID for the Git Tool Window
  */
 export const GIT_TOOL_WINDOW_VIEW_ID = 'intellig.toolWindow';
+
+/** viewType of the undocked editor-tab panel (also referenced by keybinding when-clauses). */
+export const GIT_LOG_PANEL_VIEW_TYPE = 'intellig.gitLogPanel';
+
+/**
+ * Serializer that revives an undocked Git Log tab after a window reload by
+ * re-attaching it to the provider (attachPanel resets webview options and
+ * requests initial data). Registered in registerViews against
+ * {@link GIT_LOG_PANEL_VIEW_TYPE}.
+ */
+export function createLogPanelSerializer(
+  getProvider: () => GitToolWindowProvider | undefined
+): vscode.WebviewPanelSerializer {
+  return {
+    deserializeWebviewPanel(panel: vscode.WebviewPanel): Thenable<void> {
+      getProvider()?.attachPanel(panel);
+      return Promise.resolve();
+    },
+  };
+}
 
 /**
  * Default maximum number of console entries to keep
@@ -368,6 +391,37 @@ export class GitToolWindowProvider
    * always safe.
    */
   private _focusedPathHashes: Set<string> = new Set();
+  /**
+   * Editor-tab WebviewPanel host while the log is undocked. When set, the
+   * panel is the single live follower webview: every render and post targets
+   * it and the sidebar view shows a placeholder (one follower at a time, so
+   * the ADR-009 posting contract stays singular). Cleared when the panel is
+   * disposed, which re-renders into the sidebar.
+   */
+  private _panel: vscode.WebviewPanel | undefined;
+  /** Listeners scoped to the current panel attachment; drained on detach. */
+  private _panelDisposables: vscode.Disposable[] = [];
+  /**
+   * Set when a render was skipped because the undocked panel was hidden
+   * (retainContextWhenHidden keeps it alive, so it never no-ops on its own).
+   * Flushed with a single rebuild when the panel becomes visible again.
+   */
+  private _panelRenderPending = false;
+  /**
+   * Set once an initial-data fetch has been requested and not yet resolved.
+   * On a cold window reload both a restored panel (attach) and the sidebar
+   * (resolve) fire cold; this latch collapses them to a single request so the
+   * coalesced loader doesn't run a redundant trailing git-log walk. Cleared
+   * when the fetch resolves (data lands via updateLogState / setHasRepository).
+   */
+  private _initialDataRequested = false;
+  /**
+   * The sidebar webview currently showing the undocked placeholder. The
+   * placeholder document is static, so it is written once per sidebar
+   * webview instance rather than on every render; tracked by identity so a
+   * re-resolved sidebar (fresh document) gets it again.
+   */
+  private _placeholderWebview: vscode.Webview | undefined;
   private _panelWidths: [number, number];
   /** Fixed-column pixel widths for the log rows: [author, date]. The title
    * column is the flex absorber, so it has no stored width. Persisted to
@@ -730,7 +784,7 @@ export class GitToolWindowProvider
         // (Inactive panels use `display: none`; a re-render is the simplest
         // way to update `aria-selected` / `aria-hidden` / `style.display`
         // consistently. Future iterations may flip display in JS.)
-        this._updateWebview();
+        this._render();
       },
     });
     this._tabRouter.register('log', createLogTabHandler());
@@ -760,9 +814,9 @@ export class GitToolWindowProvider
     this._historyTab = new HistoryTab(gitService, {
       onStateChange: (): void => {
         // A state change in the History tab means its HTML needs re-rendering.
-        // We piggyback on the existing _updateWebview() path.
+        // We piggyback on the existing _render() path.
         if (this._tabRouter.getActiveTab() === 'history') {
-          this._updateWebview();
+          this._render();
         }
       },
       getRepo: (): IRepository | undefined => this._resolveHistoryRepo(),
@@ -778,7 +832,7 @@ export class GitToolWindowProvider
       {
         onStateChange: (): void => {
           if (this._tabRouter.getActiveTab() === 'incoming') {
-            this._updateWebview();
+            this._render();
           }
         },
         getRepo: (): import('../interfaces/IGitService').IRepository | undefined => {
@@ -796,7 +850,7 @@ export class GitToolWindowProvider
     this._updateInfoTab = new UpdateInfoTab({
       onStateChange: (): void => {
         if (this._tabRouter.getActiveTab() === 'updateInfo') {
-          this._updateWebview();
+          this._render();
         }
       },
       jumpToCommit: (hash: string): void => {
@@ -935,24 +989,18 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Resolve the webview view when it becomes visible.
-   * Called by VS Code when the view needs to be displayed.
-   *
-   * On first resolution, fires the `onDidRequestInitialData` event so the
-   * extension host can fetch initial branch and commit data
-   * or detect that no repository is available.
-   */
-  /**
    * Subclass hook for {@link BaseWebviewView.resolveWebviewView}. The base
    * class has already set webview options, assigned `this._view`, wired
    * `onDidReceiveMessage` → {@link _handleMessage}, wired `onDidDispose` to
-   * clear `this._view`, and performed the initial render via {@link _render}.
+   * clear `this._view`, and performed the initial render via
+   * {@link BaseWebviewView._renderOnResolve}.
    *
    * Here we add GitToolWindow-specific wiring:
    *   - Re-render on visibility change (so the panel repopulates when the user
    *     switches back after hiding the view).
-   *   - Fire {@link onDidRequestInitialData} so the extension host can fetch
-   *     branches + commits + repository availability.
+   *   - Fire {@link onDidRequestInitialData} on a cold resolve only, so the
+   *     extension host fetches branches + commits + repository availability
+   *     without a warm re-resolve clobbering already-loaded pages.
    */
   protected override _onResolve(
     webviewView: vscode.WebviewView,
@@ -961,18 +1009,23 @@ export class GitToolWindowProvider
   ): void {
     // Handle visibility changes. Scoped to this resolve cycle (drained on the
     // view's onDidDispose) so a hide→show re-resolve doesn't accumulate a fresh
-    // visibility listener each time.
+    // visibility listener each time. A become-visible is the same docked-vs-
+    // undocked render decision as resolve, so delegate to _renderOnResolve so
+    // that choice has one owner.
     this._registerPerResolve(
       webviewView.onDidChangeVisibility(() => {
         if (webviewView.visible) {
-          this._updateWebview();
+          this._renderOnResolve();
         }
       })
     );
 
-    // Fire the initial data request event so the extension host can
-    // fetch branches, commits, and detect repository availability.
-    this._onDidRequestInitialData.fire();
+    // Request the initial fetch only on a cold resolve. Provider state is
+    // host-owned and survives a sidebar re-resolve (collapse/expand): a warm
+    // follower already has commits, so refetching would replace commitNodes
+    // with page 1 and drop loaded-more pages. Staleness is the watchers' job
+    // via onDidRequestRefresh; a genuinely cold resolve still fires.
+    this._requestInitialDataIfNeeded();
   }
 
   /**
@@ -996,7 +1049,7 @@ export class GitToolWindowProvider
    * re-fetch data and update all panels.
    */
   public refresh(): void {
-    this._updateWebview();
+    this._render();
     this._onDidChangeState.fire();
     this._onDidRequestRefresh.fire();
   }
@@ -1025,7 +1078,7 @@ export class GitToolWindowProvider
     // on every click" bug) and producing a startup re-render storm. The Console
     // tab re-reads `_consoleEntries` from in-memory state on its next render.
     if (this._tabRouter.getActiveTab() === 'console') {
-      this._updateWebview();
+      this._render();
     }
     this._onDidChangeState.fire();
   }
@@ -1035,7 +1088,7 @@ export class GitToolWindowProvider
    */
   public clearConsole(): void {
     this._consoleEntries = [];
-    this._updateWebview();
+    this._render();
     this._onDidChangeState.fire();
   }
 
@@ -1045,11 +1098,14 @@ export class GitToolWindowProvider
    *.
    */
   public setHasRepository(hasRepository: boolean): void {
+    // The initial fetch has resolved (repo detection landed): allow a later
+    // genuinely-cold request to fire again.
+    this._initialDataRequested = false;
     const wasLoading = this._isLoading;
     this._isLoading = false;
     if (this._hasRepository !== hasRepository || wasLoading) {
       this._hasRepository = hasRepository;
-      this._updateWebview();
+      this._render();
       this._onDidChangeState.fire();
     }
   }
@@ -1083,6 +1139,8 @@ export class GitToolWindowProvider
     totalAvailable?: number
   ): void {
     this._logTotalAvailable = totalAvailable;
+    // Commits landed: the initial fetch has resolved, so clear the latch.
+    this._initialDataRequested = false;
     // The graph caller fetches `git log --topo-order` (extension.ts),
     // so `commits` arrives in a topology-respecting order: every
     // parent of a commit appears later in the list (or off-window).
@@ -1195,7 +1253,7 @@ export class GitToolWindowProvider
 
     this._hasRepository = true;
     this._isLoading = false;
-    this._updateWebview();
+    this._render();
     // Fire BEFORE the post sequence.
     // Aligns with the 5 setters and ADR-009 section 3 generalised rule:
     // any host method that calls `_post*` helpers fires `onDidChangeState`
@@ -1227,8 +1285,8 @@ export class GitToolWindowProvider
    */
   public applyGraphTotalAvailable(total: number): void {
     this._logTotalAvailable = total;
-    if (this._view) {
-      void this._view.webview.postMessage({
+    if (this.hasView()) {
+      this.postToWebview({
         type: 'graphTotalsUpdate',
         loaded: this._extendedLogState.commitNodes.length,
         total,
@@ -1257,10 +1315,10 @@ export class GitToolWindowProvider
    * DOM patching can't silently wedge load-more after the first extra page.
    */
   public notifyCommitsLoaded(): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
-    void this._view.webview.postMessage({ type: 'commitsLoaded' });
+    this.postToWebview({ type: 'commitsLoaded' });
   }
 
   /**
@@ -1296,7 +1354,7 @@ export class GitToolWindowProvider
   public setCherryPickedHashes(hashes: Set<string> | undefined, baseRef?: string): void {
     this._extendedLogState.cherryPickedHashes = hashes && hashes.size > 0 ? hashes : undefined;
     this._extendedLogState.cherryPickBaseRef = baseRef;
-    this._updateWebview();
+    this._render();
     this._onDidChangeState.fire();
   }
 
@@ -1338,8 +1396,8 @@ export class GitToolWindowProvider
     this._scrollToCommitHash = hash;
     this.selectCommit(hash);
 
-    if (this._view) {
-      void this._view.webview.postMessage({
+    if (this.hasView()) {
+      this.postToWebview({
         type: 'scrollToCommit',
         commitHash: hash,
       });
@@ -1394,7 +1452,7 @@ export class GitToolWindowProvider
 
     // Send a partial update to the webview instead of a full re-render
     // to preserve the graph panel's scroll position
-    if (this._view) {
+    if (this.hasView()) {
       const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
@@ -1403,7 +1461,7 @@ export class GitToolWindowProvider
           changedFilesError: error ? String(error) : undefined,
           containingBranches: this._pendingContainingBranches,
         };
-        void this._view.webview.postMessage({
+        this.postToWebview({
           type: 'updateDetailsPanel',
           model: this._getDetailsPanelModel(commitDetails),
         });
@@ -1427,7 +1485,7 @@ export class GitToolWindowProvider
     }
     this._pendingContainingBranches = branches;
 
-    if (this._view) {
+    if (this.hasView()) {
       const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
@@ -1438,7 +1496,7 @@ export class GitToolWindowProvider
             : undefined,
           containingBranches: branches,
         };
-        void this._view.webview.postMessage({
+        this.postToWebview({
           type: 'updateDetailsPanel',
           model: this._getDetailsPanelModel(commitDetails),
         });
@@ -1458,11 +1516,11 @@ export class GitToolWindowProvider
   // `this` on every call: the webview reference and the EventEmitter stay
   // encapsulated on the provider, and the underlying instance methods stay
   // patchable so the render-then-post ordering tests (which reassign
-  // _updateWebview / _onDidChangeState.fire / _postSyncSelection /
+  // _render / _onDidChangeState.fire / _postSyncSelection /
   // _postMenuStateUpdate on the instance) observe the real call order. Do not
   // inline these bodies or capture the references — that would hide the patch.
   updateWebview(): void {
-    this._updateWebview();
+    this._render();
   }
 
   fireDidChangeState(): void {
@@ -1513,11 +1571,170 @@ export class GitToolWindowProvider
   // emitter stay encapsulated on the provider and the underlying instance
   // methods stay patchable for the render-then-post ordering tests.
   hasView(): boolean {
-    return !!this._view;
+    return this._followerWebview !== undefined;
   }
 
   postToWebview(msg: unknown): void {
-    void this._view?.webview.postMessage(msg);
+    void this._followerWebview?.postMessage(msg);
+  }
+
+  /** The single live follower webview: the undocked panel when present, else the sidebar view. */
+  private get _followerWebview(): vscode.Webview | undefined {
+    return this._panel?.webview ?? this._view?.webview;
+  }
+
+  /**
+   * Undock: retarget the provider onto an editor-tab panel. The panel becomes
+   * the follower webview; the sidebar (if resolved) renders a placeholder.
+   * A previously attached panel is closed (never orphaned). Fires the
+   * initial-data request so undocking works even when the sidebar has never
+   * resolved (nothing else triggers the first fetch).
+   */
+  public attachPanel(panel: vscode.WebviewPanel): void {
+    if (this._disposed) {
+      // Refusing adoption must not leave the offered panel as a blank
+      // orphaned tab (teardown-time hardening).
+      panel.dispose();
+      return;
+    }
+    const previous = this._panel;
+    this._detachPanel();
+    previous?.dispose();
+    this._panel = panel;
+    // Give the floated Git Log tab the activity-bar icon instead of the
+    // generic webview glyph. Covers both entry points (openInEditor and the
+    // serializer revive), which both adopt through here.
+    panel.iconPath = vscode.Uri.joinPath(this._extensionUri, 'resources', 'git-icon-branch.svg');
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this._extensionUri],
+    };
+    this._panelDisposables.push(
+      panel.webview.onDidReceiveMessage((message: unknown) => {
+        this._guardedHandleMessage(message);
+      }),
+      panel.onDidDispose(() => {
+        // Dock back: the sidebar becomes the follower again.
+        this._detachPanel();
+        this._retargetFollower();
+      }),
+      panel.onDidChangeViewState(() => {
+        // Flush a render deferred while the panel was hidden, exactly once. Go
+        // through the full render+post sequence: the rebuild resets the
+        // webview's cached message-only state (e.g. the menu enable map), so the
+        // follower-scoped posts must follow, exactly as a normal render does.
+        if (panel.visible && this._panelRenderPending) {
+          this._retargetFollower();
+        }
+      })
+    );
+    this._retargetFollower();
+    // Cold attach only (nothing loaded yet — first-interaction undock or
+    // serializer revival): request the initial fetch. A warm undock keeps
+    // the already-rendered state; refetching would reset loaded-more pages.
+    this._requestInitialDataIfNeeded();
+  }
+
+  /**
+   * Fire the initial-data request at most once per cold start. Gated by
+   * {@link _needsInitialData} (warm followers skip) and by the
+   * {@link _initialDataRequested} latch (so a simultaneous attach + resolve
+   * don't both fire).
+   */
+  private _requestInitialDataIfNeeded(): void {
+    if (this._initialDataRequested || !this._needsInitialData()) {
+      return;
+    }
+    this._initialDataRequested = true;
+    this._onDidRequestInitialData.fire();
+  }
+
+  /**
+   * Clear the initial-data latch when the requested load settled without
+   * reaching the data callbacks (i.e. it rejected). Without this a failed cold
+   * load would wedge the latch and every later cold attach/resolve would
+   * early-return, leaving a stuck spinner with no retry.
+   */
+  public resetInitialDataRequest(): void {
+    this._initialDataRequested = false;
+  }
+
+  /**
+   * True when the follower has nothing to show yet — still loading, or no
+   * commits fetched. Undock/revival uses this to decide whether to request an
+   * initial fetch; a warm follower (commits already loaded) skips it so
+   * loaded-more pages survive.
+   */
+  private _needsInitialData(): boolean {
+    return this._isLoading || this._extendedLogState.commitNodes.length === 0;
+  }
+
+  /**
+   * Create (or reveal) the undocked editor-tab panel. Owns the full panel
+   * spec — viewType, title, and the creation-only retainContextWhenHidden —
+   * so every entry point gets the same panel.
+   */
+  public openInEditor(): vscode.WebviewPanel | undefined {
+    if (this._disposed) {
+      return undefined;
+    }
+    if (this._panel) {
+      this._panel.reveal();
+      return this._panel;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      GIT_LOG_PANEL_VIEW_TYPE,
+      'Git Log',
+      vscode.ViewColumn.Active,
+      { retainContextWhenHidden: true }
+    );
+    this.attachPanel(panel);
+    return panel;
+  }
+
+  /**
+   * Bring the log surface the user actually sees to the front: the undocked
+   * panel when one exists, otherwise the sidebar view. Jump/reveal flows
+   * route through this so they never focus the placeholder while the real
+   * log sits in a background editor group or floated window.
+   */
+  public async revealLogHost(): Promise<void> {
+    if (this._panel) {
+      this._panel.reveal();
+      return;
+    }
+    await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+  }
+
+  /**
+   * Re-render into the current follower and re-post the follower-scoped
+   * state surfaces. Ordering per ADR-009: render first, post last, so the
+   * fresh document receives the posts.
+   */
+  private _retargetFollower(): void {
+    this._render();
+    this._postSyncSelection();
+    this._postMenuStateUpdate();
+  }
+
+  /**
+   * Panel-side message dispatch under the same shared guard the sidebar path
+   * gets from BaseWebviewView.resolveWebviewView.
+   */
+  private _guardedHandleMessage(message: unknown): void {
+    dispatchGuardedWebviewMessage(() => this._handleMessage(message), {
+      component: 'GitToolWindowProvider',
+      rejectionLabel: 'GitToolWindowProvider.attachPanel: async _handleMessage rejection',
+      syncThrowMessage: 'panel message handler threw',
+    });
+  }
+
+  /** Drop the current panel attachment without re-rendering (attach-replace path). */
+  private _detachPanel(): void {
+    drainDisposables(this._panelDisposables);
+    this._panel = undefined;
+    this._placeholderWebview = undefined;
+    this._panelRenderPending = false;
   }
 
   fireDidSelectCommit(hash: string): void {
@@ -1661,6 +1878,11 @@ export class GitToolWindowProvider
     this._remoteCacheSubscription = undefined;
     this._incomingFetchSubscription?.dispose();
     this._incomingFetchSubscription = undefined;
+    // Close the undocked panel with its owner. Detach first so the panel's
+    // onDidDispose dock-back listener is gone before dispose() fires it.
+    const panel = this._panel;
+    this._detachPanel();
+    panel?.dispose();
     super.dispose();
   }
 
@@ -1677,7 +1899,7 @@ export class GitToolWindowProvider
    * selection edit, not per render.
    */
   private _postMenuStateUpdate(): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
     const commitNodes = this._extendedLogState.commitNodes.map((n) => ({
@@ -1707,7 +1929,7 @@ export class GitToolWindowProvider
       state,
       selectedCount: this._extendedLogState.selectedCommits.size,
     };
-    void this._view.webview.postMessage(msg);
+    this.postToWebview(msg);
   }
 
   /**
@@ -1720,7 +1942,7 @@ export class GitToolWindowProvider
    * doesn't trigger a full HTML rebuild).
    */
   private _postSyncSelection(): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
     const msg: WaveAOutboundMessage = {
@@ -1728,20 +1950,20 @@ export class GitToolWindowProvider
       anchorHash: this._extendedLogState.anchorHash,
       selectedHashes: Array.from(this._extendedLogState.selectedCommits),
     };
-    void this._view.webview.postMessage(msg);
+    this.postToWebview(msg);
   }
 
   /**
    * Push an `updateDetailsPanel` message for the current
    * `expandedCommit`. Used by the range-select handlers (which
-   * deliberately avoid `_updateWebview()` to preserve commit-row
+   * deliberately avoid `_render()` to preserve commit-row
    * focus for keyboard navigation) so the details pane still
    * reflects the latest range tip without re-rendering the graph.
    *
    * Mirrors the inline post path in {@link selectCommit}.
    */
   private _postDetailsForExpandedCommit(): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
     const expanded = this._extendedLogState.expandedCommit;
@@ -1750,7 +1972,7 @@ export class GitToolWindowProvider
     }
     const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === expanded);
     if (!node) {
-      void this._view.webview.postMessage({
+      this.postToWebview({
         type: 'updateDetailsPanel',
         model: buildDetailsPanelPlaceholderModel(),
       });
@@ -1760,7 +1982,7 @@ export class GitToolWindowProvider
       ...commitNodeToBaseDetails(node),
       changedFiles: [],
     };
-    void this._view.webview.postMessage({
+    this.postToWebview({
       type: 'updateDetailsPanel',
       model: this._getDetailsPanelModel(commitDetails),
     });
@@ -1779,6 +2001,10 @@ export class GitToolWindowProvider
     switch (message.type) {
       case 'refresh':
         this.refresh();
+        break;
+      case 'focusUndockedPanel':
+        // Sidebar placeholder button while the log is undocked.
+        void this.revealLogHost();
         break;
       case 'selectCommit':
         if (message.commitHash) {
@@ -2208,10 +2434,10 @@ export class GitToolWindowProvider
 
   /** Post the grouped branch options (Local + per-remote) to the Branch popup. */
   private _postLogFilterOptions(groups: IBranchFilterGroups): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
-    void this._view.webview.postMessage({ type: 'logFilterOptionsReady', branchGroups: groups });
+    this.postToWebview({ type: 'logFilterOptionsReady', branchGroups: groups });
   }
 
   /**
@@ -2222,14 +2448,14 @@ export class GitToolWindowProvider
   private async _handleRequestAuthorOptions(): Promise<void> {
     const repo = this.getSelectedRepository();
     const gitService = this._attachedGitService;
-    if (!repo || !gitService || !this._view) {
+    if (!repo || !gitService || !this.hasView()) {
       return;
     }
     const authors = await gitService.getLogContributors(repo).catch(() => []);
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
-    void this._view.webview.postMessage({ type: 'authorOptionsReady', authors });
+    this.postToWebview({ type: 'authorOptionsReady', authors });
   }
 
   /**
@@ -2285,7 +2511,7 @@ export class GitToolWindowProvider
    *
    * Ordering corrected to render-then-post per
    * ADR-009 section 3 (generalisation): every method that calls
-   * `_post*` helpers does `_updateWebview() → fire → _post*()` so the
+   * `_post*` helpers does `_render() → fire → _post*()` so the
    * post lands on the new document, not the doomed pre-render one.
    *
    * The `_focusGeneration` guard bails
@@ -2315,7 +2541,7 @@ export class GitToolWindowProvider
       // ADR-009 section 3 — render FIRST, fire, then post.
       // Posting before render means the post lands on the doomed
       // pre-reload document.
-      this._updateWebview();
+      this._render();
       this._onDidChangeState.fire();
       this._postBranchFocusUpdate(null, null);
       return;
@@ -2333,7 +2559,7 @@ export class GitToolWindowProvider
       this._extendedLogState.focusedBranchName = branchName;
       this._focusedPathHashes = new Set();
       this._regenerateCommitNodesForFocus();
-      this._updateWebview();
+      this._render();
       this._onDidChangeState.fire();
       this._postBranchFocusUpdate(branchName, null);
       return;
@@ -2382,7 +2608,7 @@ export class GitToolWindowProvider
     this._regenerateCommitNodesForFocus();
 
     // ADR-009 section 3 — render-then-fire-then-post.
-    this._updateWebview();
+    this._render();
     this._onDidChangeState.fire();
     this._postBranchFocusUpdate(branchName, targetHash);
 
@@ -2436,7 +2662,7 @@ export class GitToolWindowProvider
    * preserve a user's mid-shift-click range.
    */
   private _scrollWebviewToCommit(hash: string): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
     const matched = this._extendedLogState.commitNodes.some((n) => n.commit.hash === hash);
@@ -2444,7 +2670,7 @@ export class GitToolWindowProvider
       return;
     }
     this._scrollToCommitHash = hash;
-    void this._view.webview.postMessage({
+    this.postToWebview({
       type: 'scrollToCommit',
       commitHash: hash,
     });
@@ -2573,10 +2799,10 @@ export class GitToolWindowProvider
     focusedBranchName: string | null,
     focusedHash: string | null
   ): void {
-    if (!this._view) {
+    if (!this.hasView()) {
       return;
     }
-    void this._view.webview.postMessage({
+    this.postToWebview({
       type: 'updateBranchFocus',
       focusedBranchName,
       focusedHash,
@@ -2622,7 +2848,7 @@ export class GitToolWindowProvider
       // scroll position is preserved. selectCommit posts selectGraphRow +
       // updateDetailsPanel; _scrollWebviewToCommit posts { type: 'scrollToCommit',
       // commitHash } which the now visibility-aware inline scrollToCommit gates.
-      // Avoiding _updateWebview() means scrollTop is never reset to the top, so
+      // Avoiding _render() means scrollTop is never reset to the top, so
       // the inline visibility check runs against the user's real scroll position.
       this.selectCommit(targetCommitHash);
       this._scrollWebviewToCommit(targetCommitHash);
@@ -2795,7 +3021,7 @@ export class GitToolWindowProvider
       }
     }
 
-    this._updateWebview();
+    this._render();
     this._onDidChangeState.fire();
 
     // Announce an effective-scope change so the log + branch wiring (which
@@ -3141,26 +3367,34 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Update the webview content. Delegates to the base class's idempotent,
-   * dispose-safe {@link BaseWebviewView._render} — which in turn calls our
-   * {@link _render} override (below).
-   */
-  private _updateWebview(): void {
-    this._render();
-  }
-
-  /**
-   * Base-class render override. GitToolWindowProvider produces a full
-   * `<!DOCTYPE html>…</html>` document via {@link _getHtmlContent} (the
-   * legacy {@link _getThreePanelHtmlContent} family is public for tests and
-   * owns its own CSP envelope). Rather than re-template in the base, we
-   * override `_render` to assign `_getHtmlContent(view.webview)` directly.
+   * Rebuild the follower's document — the meaning of "content changed"
+   * everywhere. Undocked, that is the panel (plus ensuring the sidebar carries
+   * its placeholder); docked, it is the sidebar view. GitToolWindowProvider
+   * produces a full `<!DOCTYPE html>…</html>` document via
+   * {@link _getHtmlContent}, which delegates to {@link _getThreePanelHtmlContent}
+   * (public for tests, owns its own CSP envelope), so we assign it directly
+   * instead of re-templating in the base. Guards `_disposed` itself since it
+   * renders hosts the base class doesn't know about.
    *
-   * The base class still owns dispose-safety: this override is only called
-   * when `this._view` is defined and `!this._disposed`.
+   * The sole exception is the resolve path — {@link _renderOnResolve} — which
+   * must NOT rewrite the panel while undocked (a sidebar lifecycle event does
+   * not change panel content and would reload the visible panel for nothing).
    */
   protected override _render(): void {
     if (this._disposed) {
+      return;
+    }
+    const panel = this._panel;
+    if (panel) {
+      // A hidden panel is retained but off-screen; defer the rebuild until it
+      // is revealed so background git events don't churn its document.
+      if (panel.visible) {
+        panel.webview.html = this._getHtmlContent(panel.webview);
+        this._panelRenderPending = false;
+      } else {
+        this._panelRenderPending = true;
+      }
+      this._renderSidebarPlaceholder();
       return;
     }
     const view = this._view;
@@ -3168,6 +3402,40 @@ export class GitToolWindowProvider
       return;
     }
     view.webview.html = this._getHtmlContent(view.webview);
+  }
+
+  /**
+   * Resolve-time render override. While undocked the resolving sidebar only
+   * needs its static placeholder — the panel's content is unaffected by
+   * sidebar lifecycle, and rewriting it here would reload the visible panel.
+   * Docked, this is a plain {@link _render}. Keeping the panel-skip here (not
+   * in `_render`) means `_render` stays "rebuild content everywhere" and the
+   * resolve path is the structural special case.
+   */
+  protected override _renderOnResolve(): void {
+    if (this._panel) {
+      this._renderSidebarPlaceholder();
+      return;
+    }
+    this._render();
+  }
+
+  /**
+   * Write the static undocked placeholder into the sidebar, once per sidebar
+   * webview instance — reassigning it on every render would reload the
+   * sidebar iframe for no content change. Guards `_disposed` itself so every
+   * caller (render paths + the resolve path) shares one owner for the check.
+   */
+  private _renderSidebarPlaceholder(): void {
+    if (this._disposed) {
+      return;
+    }
+    const view = this._view;
+    if (!view || this._placeholderWebview === view.webview) {
+      return;
+    }
+    view.webview.html = buildUndockedPlaceholderHtml(this, view.webview);
+    this._placeholderWebview = view.webview;
   }
 
   /**
@@ -3348,7 +3616,7 @@ export class GitToolWindowProvider
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(webview.cspSource, nonce)}">
   <title>Git Tool Window</title>
   <style>
     ${codiconFontCss}

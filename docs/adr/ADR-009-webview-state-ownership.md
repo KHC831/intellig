@@ -154,7 +154,7 @@ For each surface the host owns:
   / L-4) was exactly this bug: four selection-mutating methods
   (`toggleCommitSelection`, `selectCommits`, `rangeSelectCommit`,
   `addRangeSelectCommit`) ran `_postMenuStateUpdate()` BEFORE
-  `_updateWebview()`, so the post landed on the doomed document. The
+  `_render()`, so the post landed on the doomed document. The
   fix reorders to render-then-post and adds `_postSyncSelection` so
   the new document also rehydrates `let anchorHash` immediately.
   When in doubt: render first, post last.
@@ -165,12 +165,12 @@ For each surface the host owns:
   ordering. Subscribers should see "state changed" on the same
   event-loop tick the host knows it; the actual post-to-webview is a
   downstream concern. The full ordering inside such a method is
-  therefore: `_updateWebview()` → `this._onDidChangeState.fire()` →
+  therefore: `_render()` → `this._onDidChangeState.fire()` →
   `_postSyncSelection()` → `_postMenuStateUpdate()`. R4-7 (Senior L-2)
   aligned the four R3 setters with `selectCommit`; R5-1 (TL4-M-1)
   brought `updateLogState` into the same shape so the rule applies
   uniformly across post-emitting methods. (Methods that only call
-  `_updateWebview()` + `fire()` without posts — `refresh`,
+  `_render()` + `fire()` without posts — `refresh`,
   `setHasRepository`, `setCherryPickedHashes`,
   `setAvailableRepositories` — are unaffected: there is no post for
   the fire to precede.)
@@ -199,10 +199,10 @@ The list is append-only as new surfaces are added.
 > (Wave D Trap T-7).
 >
 > **Wave D R1 / TLD-M-1 — ordering correction**: the Wave D drop
-> originally fired + posted BEFORE `_updateWebview()` (Senior
+> originally fired + posted BEFORE `_render()` (Senior
 > caught the regression in R1). The corrected `setFocusedBranch`
 > tail follows the R5-1 (TL4-M-1) generalisation:
-> `_updateWebview()` → `_onDidChangeState.fire()` →
+> `_render()` → `_onDidChangeState.fire()` →
 > `_postBranchFocusUpdate()` (render first, fire second, post
 > last). This applies to the named-branch path AND the null-clear
 > early-return path. The post lands on the new document, not the
@@ -240,7 +240,7 @@ Wave A's selection setters split along an intentional axis:
   in-place via the message handlers. This preserves graph scroll
   position and is cheap on a 200-row commit list. Use partial when
   ONLY the highlighted row + details pane need to change.
-- **Full** (`_updateWebview()`) — for everything else.
+- **Full** (`_render()`) — for everything else.
   `toggleCommitSelection`, `selectCommits`, `rangeSelectCommit`,
   `addRangeSelectCommit`, and `updateLogState` all rebuild the graph
   panel HTML and reset the inline-script state. Use full when commit
@@ -253,7 +253,7 @@ When in doubt, prefer full. Partial is an optimization for the
 single-click happy path that has explicit per-message DOM mutations
 covering exactly what changes; extending it to multi-row selection
 would require a partial-update message for every kind of edit, and
-the resulting matrix is what `_updateWebview()` already covers in
+the resulting matrix is what `_render()` already covers in
 one shot.
 
 ### 6. Display-order vs replay-order at the git boundary (Wave B R1 TLB-M-2)

@@ -82,7 +82,7 @@ const TRANSPARENCY_SIGNALS: RegExp[] = [
   // 2. Refresh / state change — the user sees new state.
   /\.fire\(/,
   /\.refresh\(/,
-  /_updateWebview/,
+  /_render\(/,
   /executeCommand\(/,
   /\.reveal\(/,
   // 3. Logging — bound logger info/warn/error (debug does NOT count: it's

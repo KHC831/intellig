@@ -13,6 +13,7 @@ import {
 } from '../git-core/interfaces/IRebaseService';
 import { IRepository } from '../git-core/interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
+import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
 
 /**
@@ -335,7 +336,7 @@ export class RebaseProgressView implements vscode.Disposable {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(webview.cspSource, nonce, { images: false, fonts: false })}">
   <title>Rebase Progress</title>
   <style>
     ${this._getStyles()}

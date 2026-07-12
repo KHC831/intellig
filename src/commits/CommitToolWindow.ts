@@ -35,6 +35,7 @@ import { performCommit, LAST_NO_VERIFY_STATE_KEY } from './CommitDialog';
 import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
+import { buildWebviewCsp } from '../utils/webviewCsp';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -1529,9 +1530,9 @@ export function buildCommitToolWindowBodyParts(input: Omit<IRenderInput, 'cspSou
  * path no longer calls this — it goes through
  * {@link buildCommitToolWindowBodyParts} + {@link BaseWebviewView._wrapHtml}.
  *
- * The CSP shape here is intentionally kept identical to the pre-migration
- * emission to avoid breaking existing snapshots / asserts. If you need to
- * change CSP semantics, change it on `BaseWebviewView._buildCsp` instead.
+ * The CSP is the shared minimal policy from `buildWebviewCsp` in
+ * `src/utils/webviewCsp.ts` (no img/font-src — this frame needs neither);
+ * change CSP semantics there.
  */
 export function renderCommitToolWindowHtml(input: IRenderInput): string {
   const nonce = generateNonce();
@@ -1542,7 +1543,7 @@ export function renderCommitToolWindowHtml(input: IRenderInput): string {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(cspSource, nonce, { images: false, fonts: false })}">
   <title>Commit</title>
 </head>
 <body>

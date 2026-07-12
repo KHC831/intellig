@@ -192,6 +192,9 @@ export class MergeWindowPanel extends BaseWebviewPanel {
     const bundleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._context.extensionUri, 'media', 'mergeWindow.js')
     );
+    // csp-exempt: Monaco loads its editor + worker scripts from the bundled
+    // media/monaco dir, so script-src must whitelist `${src}` in addition to
+    // the nonce — a policy the shared nonce-only buildWebviewCsp can't express.
     const csp =
       `default-src 'none'; ` +
       `style-src ${src} 'unsafe-inline'; ` +

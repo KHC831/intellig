@@ -1183,7 +1183,7 @@ export function buildInlineScript(): string {
         }
 
         // Auto-scroll to commit on page load when data-scroll-to-commit is set.
-        // This handles the case where _updateWebview() fully replaces the DOM
+        // This handles the case where _render() fully replaces the DOM
         // (e.g., after a branch click), so a postMessage would arrive too late.
         (function autoScrollOnLoad() {
           const graphPanel = document.querySelector('.graph-panel[data-scroll-to-commit]');

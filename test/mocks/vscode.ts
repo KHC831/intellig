@@ -767,6 +767,12 @@ export const window = {
   ): { dispose: () => void } {
     return { dispose: () => {} };
   },
+  registerWebviewPanelSerializer(
+    _viewType: string,
+    _serializer: { deserializeWebviewPanel: (panel: unknown, state: unknown) => Thenable<void> }
+  ): { dispose: () => void } {
+    return { dispose: () => {} };
+  },
   createTextEditorDecorationType(_options: unknown): { dispose: () => void } {
     return { dispose: () => {} };
   },
@@ -802,6 +808,7 @@ export const window = {
       _disposeCallCount: number;
       _revealCallCount: number;
       _fireMessage: (message: unknown) => void;
+      _fireViewState: (visible?: boolean) => void;
     } = {
       viewType,
       title,
@@ -825,6 +832,12 @@ export const window = {
       _revealCallCount: 0,
       _fireMessage: (message: unknown): void => {
         messageEmitter.fire(message);
+      },
+      _fireViewState: (visible?: boolean): void => {
+        if (typeof visible === 'boolean') {
+          panel.visible = visible;
+        }
+        viewStateEmitter.fire({ webviewPanel: panel });
       },
     };
 

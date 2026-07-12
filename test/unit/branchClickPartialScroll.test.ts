@@ -6,7 +6,7 @@
  * `_handleBranchClick` uses the partial-update path rather than a full
  * re-render: `selectCommit(hash)` (posts `selectGraphRow` + `updateDetailsPanel` +
  * `updateMenuEnableState`) followed by `_scrollWebviewToCommit(hash)` (posts
- * `{ type: 'scrollToCommit', commitHash }`). A full re-render (`_updateWebview()`)
+ * `{ type: 'scrollToCommit', commitHash }`). A full re-render (`_render()`)
  * would reassign the webview HTML and reset `.graph-panel` scrollTop to the top;
  * avoiding it keeps the panel's scroll position intact so the visibility-aware
  * inline `scrollToCommit` can measure the user's real scroll position.
@@ -90,7 +90,7 @@ describe('Feature: git-graph-branch-click-scroll - branch click uses the partial
     const tipHash = '1111111111111111111111111111111111111111';
     const branchName = 'feature/x';
 
-    // Seed the log state BEFORE wiring up the view so the `_updateWebview()`
+    // Seed the log state BEFORE wiring up the view so the `_render()`
     // inside `updateLogState` no-ops (`_render` early-returns without a view)
     // and does not contaminate the html-set / postMessage taps.
     const commits: ICommit[] = [mkCommit(tipHash, 'tip commit')];

@@ -232,8 +232,13 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // Open Git Tool Window command
   // spine-exempt: pure focus route with no services dependency
   const openGitToolWindowCommand = registerLoggedCommand('intellig.openGitToolWindow', () => {
-    // Focus the Git Tool Window view
-    void vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+    // Surface the live log host: the undocked panel when one exists,
+    // otherwise the sidebar view.
+    if (ctx.gitToolWindowProvider) {
+      void ctx.gitToolWindowProvider.revealLogHost();
+    } else {
+      void vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+    }
   });
 
   // Commit command
@@ -620,9 +625,29 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       if (!validTabs.includes(tab as TabId)) {
         return;
       }
+      // Deep links must surface the log host, not switch tabs invisibly.
+      await ctx.gitToolWindowProvider.revealLogHost();
       await ctx.gitToolWindowProvider.focusTab(tab as TabId);
     }
   );
+
+  // Undock the git log into an editor-tab panel (which the user can float to
+  // a separate window via VS Code's "Move into New Window"). The provider
+  // owns the panel spec and keeps one live instance: while the panel exists
+  // the sidebar shows a placeholder, and a re-invocation reveals the panel.
+  const openLogInEditorCommand = registerBareCommand(ctx, {
+    id: 'intellig.openLogInEditor',
+    failureTitle: 'Failed to open the Git log in an editor tab',
+    run: () => {
+      const provider = ctx.gitToolWindowProvider;
+      if (!provider) {
+        void vscode.window.showErrorMessage('Git tool window not ready');
+        return Promise.resolve();
+      }
+      provider.openInEditor();
+      return Promise.resolve();
+    },
+  });
 
   // Jump to a commit hash / branch / tag within the currently-loaded
   // log. Accepts user input via an InputBox, resolves via `findCommitByQuery`
@@ -690,7 +715,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
 
-      await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+      await ctx.gitToolWindowProvider.revealLogHost();
       const scrolled = ctx.gitToolWindowProvider.scrollToCommit(match);
       if (!scrolled) {
         // Shouldn't happen given findCommitByQuery matched against the same
@@ -720,7 +745,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       if (!hash) {
         return;
       }
-      await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+      await ctx.gitToolWindowProvider.revealLogHost();
       const scrolled = ctx.gitToolWindowProvider.scrollToCommit(hash);
       if (!scrolled) {
         void vscode.window.showWarningMessage(
@@ -1219,6 +1244,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     updateProjectCommand,
     refreshCommand,
     focusTabCommand,
+    openLogInEditorCommand,
     jumpToHashCommand,
     revealCommitCommand,
     stageSelectedCommand,

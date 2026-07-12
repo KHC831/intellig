@@ -1,8 +1,28 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
-import { safeFireAndForget } from './safeFireAndForget';
-import { getLogger } from './logger';
+import { dispatchGuardedWebviewMessage } from './webviewMessageGuard';
 import { escapeHtml } from './escapeHtml';
+import { buildWebviewCsp } from './webviewCsp';
+
+/**
+ * Dispose and clear every disposable in the list, swallowing individual
+ * disposal errors so one bad disposable doesn't block cleanup of the rest.
+ * Shared by the per-resolve scoping here and per-attachment scopes elsewhere
+ * (e.g. the git tool window's undocked-panel listeners).
+ */
+export function drainDisposables(disposables: vscode.Disposable[]): void {
+  while (disposables.length > 0) {
+    const d = disposables.pop();
+    if (d) {
+      try {
+        d.dispose();
+        // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad disposable doesn't block cleanup of the rest; nothing actionable during cleanup (this drains both teardown and per-attachment detach scopes).
+      } catch {
+        // Swallow disposal errors so one bad disposable doesn't block cleanup.
+      }
+    }
+  }
+}
 
 /**
  * Abstract base class for IntelliG `WebviewViewProvider`s.
@@ -21,10 +41,9 @@ import { escapeHtml } from './escapeHtml';
  *   - Wiring `onDidReceiveMessage` to the subclass's {@link _handleMessage}.
  *   - Wiring `onDidDispose` to {@link dispose}, so teardown is idempotent.
  *   - Setting webview options (`enableScripts`, `localResourceRoots`).
- *   - Constructing the CSP header value — {@link _buildCsp} — with exactly the
- *     same directives as the panel base (default-src 'none'; nonce-bound
- *     script-src; whitelisted style/img/font-src against the webview's
- *     cspSource).
+ *   - Constructing the CSP header value — {@link _buildCsp} — by delegating to
+ *     the shared {@link import('./webviewCsp').buildWebviewCsp}, the single
+ *     policy source for every IntelliG webview.
  *   - Generating the nonce via the shared {@link generateNonce} helper.
  *   - Producing the authoritative `<!DOCTYPE html>…</html>` wrapper
  *     ({@link _wrapHtml}) so subclasses can never drift on the CSP meta tag
@@ -91,17 +110,7 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
 
   /** Dispose + clear every per-resolve disposable. Safe to call repeatedly. */
   private _drainPerResolve(): void {
-    while (this._perResolveDisposables.length > 0) {
-      const d = this._perResolveDisposables.pop();
-      if (d) {
-        try {
-          d.dispose();
-          // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad disposable doesn't block cleanup of the rest; nothing actionable during teardown.
-        } catch {
-          // Swallow disposal errors so one bad disposable doesn't block cleanup.
-        }
-      }
-    }
+    drainDisposables(this._perResolveDisposables);
   }
 
   /**
@@ -133,19 +142,11 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
       // postMessage failure results), so a handler-level reject is a bug signal
       // rather than a direct user-facing failure — log with context so it's
       // grep-able in the extension host output.
-      try {
-        safeFireAndForget(
-          Promise.resolve(this._handleMessage(message)),
-          'BaseWebviewView.resolveWebviewView: async _handleMessage rejection'
-        );
-      } catch (error) {
-        // Defensive: a synchronously-thrown error from a handler must not
-        // take down the host. safeFireAndForget only catches async
-        // rejections — sync throws are handled here.
-        getLogger()
-          .child({ component: 'BaseWebviewView' })
-          .error('message handler threw', error instanceof Error ? error : undefined);
-      }
+      dispatchGuardedWebviewMessage(() => this._handleMessage(message), {
+        component: 'BaseWebviewView',
+        rejectionLabel: 'BaseWebviewView.resolveWebviewView: async _handleMessage rejection',
+        syncThrowMessage: 'message handler threw',
+      });
     });
     this._perResolveDisposables.push(messageSubscription);
 
@@ -159,9 +160,21 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
     });
     this._perResolveDisposables.push(disposeSubscription);
 
-    this._render();
+    this._renderOnResolve();
 
     this._onResolve(webviewView, _context, _token);
+  }
+
+  /**
+   * Render hook invoked once at the end of {@link resolveWebviewView}. Default
+   * is a plain {@link _render}. Subclasses whose `_render` drives hosts beyond
+   * the resolving sidebar view (e.g. the git tool window's undocked panel)
+   * override this to keep the resolve path from rewriting those other hosts —
+   * so `_render` stays "rebuild content everywhere" and the resolve is the
+   * special case.
+   */
+  protected _renderOnResolve(): void {
+    this._render();
   }
 
   /**
@@ -238,19 +251,12 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Build the Content-Security-Policy header value. Mirrors
-   * {@link import('./BaseWebviewPanel').BaseWebviewPanel._buildCsp} exactly —
-   * same directives, same order, same nonce binding, same `default-src 'none'`.
+   * Build the Content-Security-Policy header value by delegating to the shared
+   * {@link import('./webviewCsp').buildWebviewCsp} — the single policy source
+   * every IntelliG webview binds to, so directives cannot drift between them.
    */
   protected _buildCsp(nonce: string): string {
-    const src = this._view?.webview.cspSource ?? '';
-    return (
-      `default-src 'none'; ` +
-      `style-src ${src} 'unsafe-inline'; ` +
-      `script-src 'nonce-${nonce}'; ` +
-      `img-src ${src} data:; ` +
-      `font-src ${src};`
-    );
+    return buildWebviewCsp(this._view?.webview.cspSource ?? '', nonce);
   }
 
   /**
@@ -289,18 +295,7 @@ ${body}
     this._disposed = true;
 
     this._drainPerResolve();
-
-    while (this._disposables.length > 0) {
-      const d = this._disposables.pop();
-      if (d) {
-        try {
-          d.dispose();
-          // eslint-disable-next-line no-restricted-syntax -- swallow disposal errors so one bad disposable doesn't block cleanup of the rest; nothing actionable during teardown.
-        } catch {
-          // Swallow disposal errors so one bad disposable doesn't block cleanup.
-        }
-      }
-    }
+    drainDisposables(this._disposables);
 
     this._view = undefined;
   }

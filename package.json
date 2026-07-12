@@ -38,7 +38,8 @@
   "homepage": "https://github.com/KHC831/intellig-issues#readme",
   "license": "SEE LICENSE IN LICENSE",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:intellig.gitLogPanel"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -48,6 +49,12 @@
         "title": "Open Git Tool Window",
         "category": "IntelliG",
         "icon": "$(git-branch)"
+      },
+      {
+        "command": "intellig.openLogInEditor",
+        "title": "Open Git Log in Editor Tab",
+        "category": "IntelliG",
+        "icon": "$(multiple-windows)"
       },
       {
         "command": "intellig.commit",
@@ -1260,6 +1267,11 @@
           "group": "navigation@6"
         },
         {
+          "command": "intellig.openLogInEditor",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@7"
+        },
+        {
           "command": "intellig.mergeFrom",
           "when": "view == intellig.toolWindow",
           "group": "1_modify@1"
@@ -1944,7 +1956,7 @@
         "command": "intellig.toolWindow.jumpToHash",
         "key": "ctrl+f",
         "mac": "cmd+f",
-        "when": "focusedView == 'intellig.toolWindow' && intellig.toolWindow.activeTab == 'log'"
+        "when": "(focusedView == 'intellig.toolWindow' || activeWebviewPanelId == 'intellig.gitLogPanel') && intellig.toolWindow.activeTab == 'log'"
       },
       {
         "command": "intellig.showBranchPopup",
@@ -2071,7 +2083,8 @@
     "check:rebase-containment": "node scripts/check-rebase-containment-guarded.mjs",
     "check:rev-parse-verified": "bash scripts/check-rev-parse-verified.sh",
     "check:webview-keybinding-panelid": "node scripts/check-webview-keybinding-panelid.mjs",
-    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid",
+    "check:webview-csp": "node scripts/check-webview-csp.mjs",
+    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp",
     "package:dogfood": "INTELLIG_ALLOW_PLACEHOLDERS=1 INTELLIG_DOGFOOD_BUILD=1 INTELLIG_DOGFOOD_INVOCATION=1 npx --yes @vscode/vsce@2.24.0 package --out intellig-${npm_package_version}-dogfood.vsix",
     "release": "bash scripts/publish.sh",
     "release:dry": "bash scripts/publish.sh --dry-run",

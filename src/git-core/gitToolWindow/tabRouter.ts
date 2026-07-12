@@ -122,6 +122,10 @@ export class TabRouter {
 
   constructor(hooks: ITabRouterHooks = {}) {
     this._hooks = hooks;
+    // Publish the initial tab immediately: setActiveTab early-returns on the
+    // default tab, so without this the context key stays unset until the
+    // first tab switch and keybinding when-clauses testing it never match.
+    void this._publishContextKey(this._activeTab);
   }
 
   /** Current active tab. */

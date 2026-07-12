@@ -284,7 +284,7 @@ describe('Wave D R1 — review-round fixes', () => {
 
       // After the call, at least one post (`updateBranchFocus`) should
       // be observed AFTER the most recent html assignment from
-      // setFocusedBranch's own _updateWebview() call.
+      // setFocusedBranch's own _render() call.
       const postsAfter = recorded.postsAfterLastHtml - beforePosts;
       assert.ok(
         postsAfter >= 1,

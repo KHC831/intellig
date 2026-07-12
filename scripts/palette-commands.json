@@ -33,6 +33,7 @@
     "intellig.merge.openMergeView",
     "intellig.mergeFrom",
     "intellig.openGitToolWindow",
+    "intellig.openLogInEditor",
     "intellig.patch.apply",
     "intellig.patch.createFromLocal",
     "intellig.pull",

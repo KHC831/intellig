@@ -4,7 +4,7 @@
  * Every host method that mutates selection state and posts wire messages
  * to the webview MUST order its side effects so that:
  *
- *   1. When the method does a full re-render, `_updateWebview()` runs
+ *   1. When the method does a full re-render, `_render()` runs
  *      FIRST — the new HTML document must exist before any postMessage,
  *      or the post lands on the doomed pre-reload document and is silently
  *      swallowed (ADR-009 3, the menu-flashes-stale-state bug class).
@@ -14,11 +14,11 @@
  *   3. `_postSyncSelection()` / `_postMenuStateUpdate()` run LAST.
  *
  * Note on partial-update methods: `selectCommit`, `rangeSelectCommit`, and
- * `addRangeSelectCommit` deliberately SKIP `_updateWebview()` — a full
+ * `addRangeSelectCommit` deliberately SKIP `_render()` — a full
  * re-render destroys the focused `.commit-row` DOM node and breaks the
  * Shift+Arrow keyboard loop (a fixed regression; see the inline rationale
  * in those methods). For those methods the invariant is only the relative
- * order of `fire` before the `_post*` helpers; there is no `_updateWebview`
+ * order of `fire` before the `_post*` helpers; there is no `_render`
  * to anchor. This test pins the ACTUAL ordering each method implements, not
  * a uniform template, because the partial vs. full split is intentional.
  *
@@ -62,7 +62,7 @@ function mkNode(hash: string, parents: string[] = [], column = 0): ICommitNode {
  */
 interface OrderingInternals {
   _extendedLogState: { commitNodes: ICommitNode[]; anchorHash: string | null };
-  _updateWebview(): void;
+  _render(): void;
   _onDidChangeState: { fire(): void };
   _postSyncSelection(): void;
   _postMenuStateUpdate(): void;
@@ -77,8 +77,8 @@ function instrument(provider: GitToolWindowProvider): string[] {
   const log: string[] = [];
   const internals = provider as unknown as OrderingInternals;
 
-  internals._updateWebview = (): void => {
-    log.push('_updateWebview');
+  internals._render = (): void => {
+    log.push('_render');
   };
   // `_onDidChangeState` is a readonly EventEmitter; we only need its `fire`.
   const fireRecorder = (): void => {
@@ -132,27 +132,27 @@ describe('Post-ordering invariant (spec 8 L6)', () => {
     provider.dispose();
   });
 
-  it('selectCommit: fire before _postMenuStateUpdate (partial-update path, no _updateWebview)', () => {
+  it('selectCommit: fire before _postMenuStateUpdate (partial-update path, no _render)', () => {
     const nodes = [mkNode('aaa'), mkNode('bbb')];
     seed(provider, nodes, null);
     const log = instrument(provider);
 
     provider.selectCommit('aaa');
 
-    // selectCommit uses the inline partial-post path, so _updateWebview is
+    // selectCommit uses the inline partial-post path, so _render is
     // intentionally NOT called; the invariant is fire → _postMenuStateUpdate.
     assertOrder(log, 'fire', '_postMenuStateUpdate', 'selectCommit');
-    assert.strictEqual(idx(log, '_updateWebview'), -1, 'selectCommit must NOT full-render');
+    assert.strictEqual(idx(log, '_render'), -1, 'selectCommit must NOT full-render');
   });
 
-  it('selectCommits: _updateWebview → fire → _postSyncSelection → _postMenuStateUpdate (full template)', () => {
+  it('selectCommits: _render → fire → _postSyncSelection → _postMenuStateUpdate (full template)', () => {
     const nodes = [mkNode('aaa'), mkNode('bbb'), mkNode('ccc')];
     seed(provider, nodes, null);
     const log = instrument(provider);
 
     provider.selectCommits(['aaa', 'bbb'], 'aaa');
 
-    assertOrder(log, '_updateWebview', 'fire', 'selectCommits');
+    assertOrder(log, '_render', 'fire', 'selectCommits');
     assertOrder(log, 'fire', '_postSyncSelection', 'selectCommits');
     assertOrder(log, '_postSyncSelection', '_postMenuStateUpdate', 'selectCommits');
   });
@@ -170,7 +170,7 @@ describe('Post-ordering invariant (spec 8 L6)', () => {
     assertOrder(log, 'fire', '_postMenuStateUpdate', 'rangeSelectCommit');
     assertOrder(log, '_postSyncSelection', '_postMenuStateUpdate', 'rangeSelectCommit');
     // Partial-update path: full re-render is intentionally skipped.
-    assert.strictEqual(idx(log, '_updateWebview'), -1, 'rangeSelectCommit must NOT full-render');
+    assert.strictEqual(idx(log, '_render'), -1, 'rangeSelectCommit must NOT full-render');
   });
 
   it('addRangeSelectCommit: fire before _postSyncSelection and _postMenuStateUpdate (partial-update path)', () => {
@@ -183,17 +183,17 @@ describe('Post-ordering invariant (spec 8 L6)', () => {
     assertOrder(log, 'fire', '_postSyncSelection', 'addRangeSelectCommit');
     assertOrder(log, 'fire', '_postMenuStateUpdate', 'addRangeSelectCommit');
     assertOrder(log, '_postSyncSelection', '_postMenuStateUpdate', 'addRangeSelectCommit');
-    assert.strictEqual(idx(log, '_updateWebview'), -1, 'addRangeSelectCommit must NOT full-render');
+    assert.strictEqual(idx(log, '_render'), -1, 'addRangeSelectCommit must NOT full-render');
   });
 
-  it('toggleCommitSelection: _updateWebview → fire → _postSyncSelection → _postMenuStateUpdate (full template)', () => {
+  it('toggleCommitSelection: _render → fire → _postSyncSelection → _postMenuStateUpdate (full template)', () => {
     const nodes = [mkNode('aaa'), mkNode('bbb')];
     seed(provider, nodes, null);
     const log = instrument(provider);
 
     provider.toggleCommitSelection('aaa');
 
-    assertOrder(log, '_updateWebview', 'fire', 'toggleCommitSelection');
+    assertOrder(log, '_render', 'fire', 'toggleCommitSelection');
     assertOrder(log, 'fire', '_postSyncSelection', 'toggleCommitSelection');
     assertOrder(log, '_postSyncSelection', '_postMenuStateUpdate', 'toggleCommitSelection');
   });

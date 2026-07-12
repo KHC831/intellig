@@ -161,7 +161,7 @@ describe('GitToolWindowProvider — load-more render plumbing', () => {
         'load-more render preserves scroll'
       );
 
-      // Cherry marks arrive async → setCherryPickedHashes → _updateWebview →
+      // Cherry marks arrive async → setCherryPickedHashes → _render →
       // a second render with NO new load-more. It must STILL preserve scroll.
       const cherryRender = provider._getGraphPanelHtml([makeNode('a1')], undefined, 2, 600);
       assert.ok(

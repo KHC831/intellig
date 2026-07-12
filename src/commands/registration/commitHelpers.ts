@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError } from '../../git-core/gitError';
 import { isTabbedGitToolWindowEnabled } from '../../git-core/gitToolWindow/config';
-import { GIT_TOOL_WINDOW_VIEW_ID } from '../../services';
 import type { IGitService, IRepository } from '../../services';
 import type { ICommandContext } from './CommandContext';
 
@@ -21,7 +20,7 @@ export async function presentFileHistory(
   filePath: string
 ): Promise<void> {
   if (isTabbedGitToolWindowEnabled() && ctx.gitToolWindowProvider) {
-    await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+    await ctx.gitToolWindowProvider.revealLogHost();
     // Pass the resolved repo root so the History tab queries the file's OWN
     // repo in a multi-repo workspace (filePath is relative to this repo's root).
     await ctx.gitToolWindowProvider.loadFileHistory(filePath, repo.rootUri.fsPath);

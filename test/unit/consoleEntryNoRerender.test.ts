@@ -3,7 +3,7 @@
  * unless the Console tab is the active tab.
  *
  * Root cause of the "graph resizes / dragged widths snap back on every commit
- * click" report: `addConsoleEntry` called `_updateWebview()` unconditionally.
+ * click" report: `addConsoleEntry` called `_render()` unconditionally.
  * Every git command (including the `git show` a commit selection fires to fetch
  * its diff) logs a console entry, so every git command rebuilt the entire
  * graph+details DOM — discarding the user's live-dragged divider/column widths

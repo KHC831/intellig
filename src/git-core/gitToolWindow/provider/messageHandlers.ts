@@ -133,8 +133,8 @@ export function rangeSelectCommit(ctx: IGtwControllerContext, hash: string): voi
   // Fire BEFORE the post sequence.
   ctx.fireDidChangeState();
   // Partial-update path — sync selection + details panel without
-  // a full HTML re-render. Bug fix: the previous `_updateWebview()`
-  // call rebuilt the entire panel HTML, which destroyed the
+  // a full HTML re-render. A full `_render()` rebuilds the entire
+  // panel HTML, which would destroy the
   // currently-focused commit-row DOM element. The webview JS keys
   // its keyboard handler off `e.target.closest('.commit-row')`, so
   // after a re-render no row is focused and the next Shift+Arrow
@@ -177,7 +177,7 @@ export function addRangeSelectCommit(ctx: IGtwControllerContext, hash: string): 
   // Fire BEFORE the post sequence.
   ctx.fireDidChangeState();
   // Partial-update path — see the matching comment block in
-  // `rangeSelectCommit` for the rationale: a full `_updateWebview()`
+  // `rangeSelectCommit` for the rationale: a full `_render()`
   // re-render destroys commit-row focus and breaks the keyboard
   // Shift+Arrow loop.
   ctx.postSyncSelection();
@@ -213,7 +213,7 @@ export function selectCommit(ctx: IGtwControllerContext, hash: string): void {
   ctx.postMenuStateUpdate();
 
   // Send a partial update to the details panel via postMessage
-  // instead of a full _updateWebview() to preserve graph scroll position.
+  // instead of a full _render() to preserve graph scroll position.
   // Also update the graph row selection highlighting and scroll to the commit.
   if (ctx.hasView()) {
     // Update graph row selection

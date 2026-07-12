@@ -17,6 +17,7 @@ describe('presentFileHistory — shared file-history entry point', () => {
     const ctx = {
       services: { gitService: {} },
       gitToolWindowProvider: {
+        revealLogHost: async (): Promise<void> => {},
         loadFileHistory: async (p: string): Promise<void> => {
           loaded.push(p);
         },

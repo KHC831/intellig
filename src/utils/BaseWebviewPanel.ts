@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
-import { safeFireAndForget } from './safeFireAndForget';
-import { getLogger } from './logger';
+import { dispatchGuardedWebviewMessage } from './webviewMessageGuard';
 import { escapeHtml } from './escapeHtml';
+import { buildWebviewCsp } from './webviewCsp';
 
 /**
  * Abstract base class for IntelliG webview panels.
@@ -64,25 +64,12 @@ export abstract class BaseWebviewPanel {
         // so a reject that reaches this layer is a bug signal rather than a
         // direct data-safety regression.
         //
-        // Also guard against sync-throws. Mirrors BaseWebviewView's
-        // pattern — a synchronously-thrown error from a future sync
-        // `_onMessage` override must not take down the extension host.
-        // `safeFireAndForget` only catches async rejections, so sync throws
-        // need this outer try/catch.
-        try {
-          safeFireAndForget(
-            Promise.resolve(this._onMessage(message)),
-            `BaseWebviewPanel.onDidReceiveMessage: async _onMessage rejection [${viewType}]`
-          );
-        } catch (error) {
-          getLogger()
-            .child({ component: 'BaseWebviewPanel' })
-            .error(
-              '_onMessage threw synchronously',
-              { viewType },
-              error instanceof Error ? error : undefined
-            );
-        }
+        dispatchGuardedWebviewMessage(() => this._onMessage(message), {
+          component: 'BaseWebviewPanel',
+          rejectionLabel: `BaseWebviewPanel.onDidReceiveMessage: async _onMessage rejection [${viewType}]`,
+          syncThrowMessage: '_onMessage threw synchronously',
+          context: { viewType },
+        });
       },
       null,
       this._disposables
@@ -204,19 +191,11 @@ ${body}
   }
 
   /**
-   * Build the Content-Security-Policy header value. Matches the CSP used by
-   * existing IntelliG webviews, extended with `img-src` and `font-src`
-   * directives for dialogs that render icons or custom fonts.
+   * Build the Content-Security-Policy header value from the shared directive
+   * set so every IntelliG webview carries an identical policy.
    */
   protected _buildCsp(nonce: string): string {
-    const src = this._panel.webview.cspSource;
-    return (
-      `default-src 'none'; ` +
-      `style-src ${src} 'unsafe-inline'; ` +
-      `script-src 'nonce-${nonce}'; ` +
-      `img-src ${src} data:; ` +
-      `font-src ${src};`
-    );
+    return buildWebviewCsp(this._panel.webview.cspSource, nonce);
   }
 
   /**

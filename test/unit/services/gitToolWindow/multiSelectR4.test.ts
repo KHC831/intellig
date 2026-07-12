@@ -296,7 +296,7 @@ describe('Wave A R4 — review fixes', () => {
   describe('_postSyncSelection is called from every selection-mutating setter', () => {
     it('each selection-mutating setter calls _postSyncSelection', async () => {
       // _postSyncSelection is the PRIMARY partial-update path for range
-      // selections; a full _updateWebview() would destroy commit-row focus
+      // selections; a full _render() would destroy commit-row focus
       // on re-render (the Shift+Arrow keyboard-multiselect hazard), so it
       // does not fire there.
       // The structural assertion: every selection-mutating

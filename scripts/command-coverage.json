@@ -1,5 +1,5 @@
 {
-  "$comment": "Coverage classification for every intellig.* command that is NOT exercised by a command-level e2e test. e2e-covered commands (their id literal appears in test/e2e/) must NOT be listed here. check:command-coverage fails if a package.json command is neither e2e-covered nor listed below \u2014 so a NEW command can't ship untested-and-unclassified. Categories: 'dialog' = git effect runs through a webview/modal dialog or the native SCM input (covered by dialog/unit tests); 'view' = operates on a live tree / merge-view / stash-view / changelist / annotation state and no-ops without that UI (covered by view unit/property tests); 'nav' = read-only / opens a diff, history, file, browser, or popup menu \u2014 no git mutation to assert; 'backlog' = direct-git and e2e-able, not yet covered (explicit debt, printed every run).",
+  "$comment": "Coverage classification for every intellig.* command that is NOT exercised by a command-level e2e test. e2e-covered commands (their id literal appears in test/e2e/) must NOT be listed here. check:command-coverage fails if a package.json command is neither e2e-covered nor listed below — so a NEW command can't ship untested-and-unclassified. Categories: 'dialog' = git effect runs through a webview/modal dialog or the native SCM input (covered by dialog/unit tests); 'view' = operates on a live tree / merge-view / stash-view / changelist / annotation state and no-ops without that UI (covered by view unit/property tests); 'nav' = read-only / opens a diff, history, file, browser, or popup menu — no git mutation to assert; 'backlog' = direct-git and e2e-able, not yet covered (explicit debt, printed every run).",
   "categories": ["dialog", "view", "nav", "backlog"],
   "commands": {
     "intellig.commit": {
@@ -28,7 +28,7 @@
     },
     "intellig.configureRemotes": {
       "category": "dialog",
-      "note": "QuickPick wizard \u2014 flow unit-tested in test/unit/sync/configureRemotes.test.ts"
+      "note": "QuickPick wizard — flow unit-tested in test/unit/sync/configureRemotes.test.ts"
     },
     "intellig.mergeFrom": {
       "category": "dialog",
@@ -76,7 +76,7 @@
     },
     "intellig.shelve": {
       "category": "dialog",
-      "note": "ShelveDialog webview \u2014 checkbox file list + name field"
+      "note": "ShelveDialog webview — checkbox file list + name field"
     },
     "intellig.commit.resetToHere": {
       "category": "dialog",
@@ -229,6 +229,10 @@
     "intellig.branch.clearSearch": {
       "category": "view",
       "note": "branch-tree search filter state"
+    },
+    "intellig.openLogInEditor": {
+      "category": "nav",
+      "note": "opens the log as an editor-tab panel; retarget behavior unit-tested in gitToolWindowUndock.test.ts"
     }
   }
 }

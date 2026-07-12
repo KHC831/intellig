@@ -14,6 +14,7 @@ import {
 } from '../git-core/interfaces/IGitService';
 import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
 import { generateNonce } from '../utils/webviewNonce';
+import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
 import {
@@ -1324,7 +1325,7 @@ export class CommitDialog {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(webview.cspSource, nonce, { images: false, fonts: false })}">
   <title>Commit</title>
   <style>
     ${this._getStyles()}

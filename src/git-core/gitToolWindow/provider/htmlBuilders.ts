@@ -4,6 +4,7 @@ import type { IChangedFile, ICommitDetails } from '../../../services/interfaces'
 import { FileStatus } from '../../interfaces/IGitService';
 import { FILE_STATUS_THEME_VARS, INTELLIJ_FILE_STATUS_COLORS } from '../GitToolWindowProvider';
 import { escapeHtml } from '../../../utils/escapeHtml';
+import { buildWebviewCsp } from '../../../utils/webviewCsp';
 
 export { escapeHtml };
 
@@ -17,19 +18,58 @@ export { escapeHtml };
  */
 
 /**
- * The loading HTML shown while initial data is being fetched.
+ * Nonced click-to-postMessage wiring for a single button in a static
+ * document: `#buttonId` click posts `{ type: messageType }` to the host.
  */
-export function buildLoadingHtml(ctx: IGtwControllerContext, webview: vscode.Webview): string {
-  const nonce = ctx.getNonce();
+function buildButtonPostScript(buttonId: string, messageType: string): string {
+  return `
+    (function() {
+      const vscode = acquireVsCodeApi();
+      const btn = document.getElementById('${buttonId}');
+      if (btn) {
+        btn.addEventListener('click', function() {
+          vscode.postMessage({ type: '${messageType}' });
+        });
+      }
+    })();
+  `;
+}
+
+/**
+ * Shared document envelope for the tool window's static, pre-graph documents
+ * (loading, no-repository, undocked placeholder): one copy of the CSP meta
+ * tag, head boilerplate, and nonce-bound script tag, so the policy cannot
+ * drift between the builders.
+ */
+function buildStaticDocumentHtml(
+  webview: vscode.Webview,
+  nonce: string,
+  parts: { styles: string; body: string; script?: string }
+): string {
+  const scriptTag = parts.script ? `\n  <script nonce="${nonce}">${parts.script}</script>` : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(webview.cspSource, nonce, { images: false, fonts: false })}">
   <title>Git Tool Window</title>
   <style>
-    ${ctx.getInlineStyles()}
+    ${parts.styles}
+  </style>
+</head>
+<body>
+  ${parts.body}${scriptTag}
+</body>
+</html>`;
+}
+
+/**
+ * The loading HTML shown while initial data is being fetched.
+ */
+export function buildLoadingHtml(ctx: IGtwControllerContext, webview: vscode.Webview): string {
+  return buildStaticDocumentHtml(webview, ctx.getNonce(), {
+    styles: `${ctx.getInlineStyles()}
     .loading-container {
       display: flex;
       flex-direction: column;
@@ -47,16 +87,55 @@ export function buildLoadingHtml(ctx: IGtwControllerContext, webview: vscode.Web
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
-    }
-  </style>
-</head>
-<body>
-  <div class="loading-container">
+    }`,
+    body: `<div class="loading-container">
     <span class="loading-spinner-icon">&#x27F3;</span>
     <p>Loading git graph\u2026</p>
-  </div>
-</body>
-</html>`;
+  </div>`,
+  });
+}
+
+/**
+ * The HTML the SIDEBAR view shows while the log is undocked into an editor
+ * tab. The provider keeps a single live follower webview, so the sidebar gets
+ * this placeholder instead of a second copy of the document; the button asks
+ * the host to reveal the panel.
+ */
+export function buildUndockedPlaceholderHtml(
+  ctx: IGtwControllerContext,
+  webview: vscode.Webview
+): string {
+  const nonce = ctx.getNonce();
+  return buildStaticDocumentHtml(webview, nonce, {
+    styles: `.undocked-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      gap: 12px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 13px;
+      text-align: center;
+      padding: 0 16px;
+    }
+    .undocked-placeholder button {
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      border: none;
+      padding: 6px 14px;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+    .undocked-placeholder button:hover {
+      background: var(--vscode-button-hoverBackground);
+    }`,
+    body: `<div class="undocked-placeholder">
+    <p>The Git log is open as an editor tab. Close the tab to dock it back here.</p>
+    <button id="focus-undocked-panel">Show Editor Tab</button>
+  </div>`,
+    script: buildButtonPostScript('focus-undocked-panel', 'focusUndockedPanel'),
+  });
 }
 
 /**
@@ -65,35 +144,14 @@ export function buildLoadingHtml(ctx: IGtwControllerContext, webview: vscode.Web
  */
 export function buildNoRepositoryHtml(ctx: IGtwControllerContext, webview: vscode.Webview): string {
   const nonce = ctx.getNonce();
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <title>Git Tool Window</title>
-  <style>
-    ${ctx.getInlineStyles()}
-  </style>
-</head>
-<body>
-  <div class="no-repository">
+  return buildStaticDocumentHtml(webview, nonce, {
+    styles: ctx.getInlineStyles(),
+    body: `<div class="no-repository">
     <p>No Git repository found in this workspace.</p>
     <button class="init-repo-button" id="init-repo-btn">Initialize Repository</button>
-  </div>
-  <script nonce="${nonce}">
-    (function() {
-      const vscode = acquireVsCodeApi();
-      const btn = document.getElementById('init-repo-btn');
-      if (btn) {
-        btn.addEventListener('click', function() {
-          vscode.postMessage({ type: 'initRepository' });
-        });
-      }
-    })();
-  </script>
-</body>
-</html>`;
+  </div>`,
+    script: buildButtonPostScript('init-repo-btn', 'initRepository'),
+  });
 }
 
 /**

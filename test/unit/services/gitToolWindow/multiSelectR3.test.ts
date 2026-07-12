@@ -555,7 +555,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     it('new section documents partial-vs-full update flavors', () => {
       assert.ok(
         /partial[\s\S]{0,200}full|full[\s\S]{0,200}partial/i.test(adr),
-        'ADR-009 must contrast partial postMessage vs full _updateWebview() update flavors'
+        'ADR-009 must contrast partial postMessage vs full _render() update flavors'
       );
       assert.ok(
         /scroll position|hot path|single-(?:select|click)/i.test(adr),

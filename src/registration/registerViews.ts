@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
   GIT_TOOL_WINDOW_VIEW_ID,
+  GIT_LOG_PANEL_VIEW_TYPE,
+  createLogPanelSerializer,
   ConsoleService,
   createMergeView,
   MergeView,
@@ -81,6 +83,27 @@ export function selectBoundShelfRepo(
 }
 
 /**
+ * Wire the provider's initial-data request to the coalesced loader, clearing
+ * the provider's cold-start latch if the load rejects. The provider latches
+ * "initial data requested" so a simultaneous attach + resolve fire only one
+ * fetch; that latch is cleared when data lands (setHasRepository /
+ * updateLogState), but a load that rejects before either would wedge it — so
+ * the rejection path resets it here, guaranteeing a later cold entry can retry.
+ * Extracted so this settle-on-failure contract is unit-testable at its seam.
+ */
+export function wireInitialDataLoad(
+  provider: {
+    onDidRequestInitialData: vscode.Event<void>;
+    resetInitialDataRequest(): void;
+  },
+  loadAllPanelData: () => Promise<unknown>
+): vscode.Disposable {
+  return provider.onDidRequestInitialData(() => {
+    void loadAllPanelData().then(undefined, () => provider.resetInitialDataRequest());
+  });
+}
+
+/**
  * Register views and view providers.
  *
  * @param ctx - The view-registration context (RULE E1 bridge to the
@@ -138,6 +161,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
   );
 
   ctx.context.subscriptions.push(gitToolWindowRegistration);
+
+  // Revive an undocked Git Log tab after a window reload by re-attaching it
+  // to the provider (paired with the onWebviewPanel activation event).
+  ctx.context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(
+      GIT_LOG_PANEL_VIEW_TYPE,
+      createLogPanelSerializer(() => ctx.gitToolWindowProvider)
+    )
+  );
 
   // Register the Commit tool window. The view contribution in package.json
   // is gated by `config.intellig.useCommitToolWindow`, so when the flag is
@@ -894,11 +926,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       })
     );
 
-    // Wire up onDidRequestInitialData to load all data when webview first opens
-    const initialDataListener = ctx.gitToolWindowProvider.onDidRequestInitialData(() => {
-      void loadAllPanelData();
-    });
-    ctx.context.subscriptions.push(initialDataListener);
+    // Wire up onDidRequestInitialData to load all data when webview first opens.
+    // Resets the provider's cold-start latch if the load rejects (see
+    // wireInitialDataLoad), so a failed initial fetch can be retried.
+    ctx.context.subscriptions.push(
+      wireInitialDataLoad(ctx.gitToolWindowProvider, loadAllPanelData)
+    );
 
     // Wire up onDidRequestRefresh to reload all data when repository changes
     const refreshListener = ctx.gitToolWindowProvider.onDidRequestRefresh(() => {

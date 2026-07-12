@@ -158,6 +158,24 @@ describe('gitToolWindow/tabRouter — TabRouter.dispatch', () => {
 // ─── TabRouter — tabChange + context key ──────────────────────────────────────
 
 describe('gitToolWindow/tabRouter — tabChange meta-message', () => {
+  it('publishes the initial tab context key at construction', async () => {
+    const setContextCalls: Array<{ key: string; value: unknown }> = [];
+    new TabRouter({
+      setContext: (key, value) => {
+        setContextCalls.push({ key, value });
+      },
+    });
+    await Promise.resolve();
+
+    assert.strictEqual(setContextCalls.length, 1);
+    assert.strictEqual(setContextCalls[0].key, ACTIVE_TAB_CONTEXT_KEY);
+    assert.strictEqual(
+      setContextCalls[0].value,
+      DEFAULT_TAB,
+      'keybinding when-clauses need the key before the first tab switch'
+    );
+  });
+
   it('updates the active tab, publishes the context key, and fires the hook', async () => {
     const setContextCalls: Array<{ key: string; value: unknown }> = [];
     const hookCalls: TabId[] = [];
@@ -175,9 +193,11 @@ describe('gitToolWindow/tabRouter — tabChange meta-message', () => {
     assert.strictEqual(consumed, true, 'tabChange is always consumed by the router');
     assert.strictEqual(router.getActiveTab(), 'console');
     assert.deepStrictEqual(hookCalls, ['console']);
-    assert.strictEqual(setContextCalls.length, 1);
-    assert.strictEqual(setContextCalls[0].key, ACTIVE_TAB_CONTEXT_KEY);
-    assert.strictEqual(setContextCalls[0].value, 'console');
+    // Construction publishes the initial key; the tab change publishes again.
+    assert.strictEqual(setContextCalls.length, 2);
+    assert.strictEqual(setContextCalls[0].value, DEFAULT_TAB);
+    assert.strictEqual(setContextCalls[1].key, ACTIVE_TAB_CONTEXT_KEY);
+    assert.strictEqual(setContextCalls[1].value, 'console');
   });
 
   it('is a no-op when the target tab equals the current one', async () => {
@@ -208,7 +228,10 @@ describe('gitToolWindow/tabRouter — tabChange meta-message', () => {
     });
     await router.setActiveTab('history');
     assert.strictEqual(router.getActiveTab(), 'history');
-    assert.deepStrictEqual(setContextCalls, [{ key: ACTIVE_TAB_CONTEXT_KEY, value: 'history' }]);
+    assert.deepStrictEqual(setContextCalls, [
+      { key: ACTIVE_TAB_CONTEXT_KEY, value: DEFAULT_TAB },
+      { key: ACTIVE_TAB_CONTEXT_KEY, value: 'history' },
+    ]);
   });
 
   it('dispatches a message that explicitly carries `tab: log` back to the Log handler', async () => {
