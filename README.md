@@ -1,6 +1,6 @@
 # IntelliG for VS Code
 
-IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, and a three-pane merge window. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the Source Control view and the diff editor.
+IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, a three-pane merge window, and inline blame annotations. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the Source Control view and the diff editor.
 
 ![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
 
@@ -12,6 +12,36 @@ Install IntelliG from either marketplace:
 - **Open VSX** (VSCodium, Cursor, Gitpod, and other non-Microsoft builds) — <https://open-vsx.org/extension/KaHoChan/intellig>
 
 Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click Install.
+
+## Screenshots
+
+**Three-way merge window** — resolve conflicts IntelliJ-style: yours, the merged result, and theirs side by side. Accept a side (or both) per conflict, or apply all non-conflicting changes in one click.
+
+![Three-way merge window](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/merge.png)
+
+**Inline blame** — per-line author, date, and commit as you read, color-coded by commit. Gutter and inline styles, whitespace/movement detection, and open-on-GitHub from the hover.
+
+![Inline blame annotations](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/blame.png)
+
+**Commit tool window** — Local Changes with staged, unstaged, and untracked files.
+
+![Commit tool window](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/commit.png)
+
+**Branch popup** — local, remote, and tag groups with contextual actions.
+
+![Branch popup](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/branch.png)
+
+**Incoming tab** — commits waiting upstream before you pull.
+
+![Incoming commits tab](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/incoming.png)
+
+**File history** — follows renames across the file's whole history.
+
+![File history following a rename](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/history.png)
+
+**Shelve Changes** — pick which files to shelve in a dedicated dialog.
+
+![Shelve Changes dialog](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/shelf.png)
 
 ## Features
 
@@ -65,32 +95,6 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 - **External Hosting Links** — open a commit on GitHub, GitLab, or Bitbucket from the inline blame hover, and turn issue references in commit messages into links to the host
 - **Status Bar** — current branch + incoming/outgoing commit badge
 - **IntelliJ Keymap Preset** — optional set of IntelliJ IDEA-style keyboard shortcuts
-
-## Screenshots
-
-**Commit tool window** — Local Changes with staged, unstaged, and untracked files.
-
-![Commit tool window](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/commit.png)
-
-**Branch popup** — local, remote, and tag groups with contextual actions.
-
-![Branch popup](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/branch.png)
-
-**Incoming tab** — commits waiting upstream before you pull.
-
-![Incoming commits tab](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/incoming.png)
-
-**File history** — follows renames across the file's whole history.
-
-![File history following a rename](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/history.png)
-
-**Blame annotations** — per-line author and commit, color-coded by commit.
-
-![Inline blame annotations](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/blame.png)
-
-**Shelve Changes** — pick which files to shelve in a dedicated dialog.
-
-![Shelve Changes dialog](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/shelf.png)
 
 ## Multi-repo support
 
