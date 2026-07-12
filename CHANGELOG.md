@@ -10,6 +10,21 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.4.0] - 2026-07-12
+
+### Added
+
+- The git log can open as an editor tab and float into its own window; close the tab to dock it back.
+- The merge window has an Apply Non-Conflicting button, plus a setting to apply non-conflicting changes automatically on open.
+- The merge window counts conflicts ("Conflict 1 / 3") and its Prev/Next buttons jump between them.
+
+### Changed
+
+- Merge window colors follow your VS Code theme, including light themes.
+- Merge window changes show only on the side that made them, matching IntelliJ.
+- The three merge panes scroll together horizontally.
+- Change highlights in the merge window cover the line numbers and flow unbroken into the center connectors.
+
 ## [0.3.5] - 2026-07-10
 
 ### Fixed
