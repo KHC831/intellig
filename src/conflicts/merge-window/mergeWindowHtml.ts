@@ -6,9 +6,9 @@
 // Layout, per IntelliJ's merge dialog: action toolbar top-left with the
 // unresolved counter on its right; three panes separated by two dividers
 // that carry ONLY the curved canvas connectors linking each side block to
-// its result block. The per-change apply/ignore/revert icons live in
-// divider-hugging action strips (Monaco cannot mirror a gutter the way
-// IntelliJ does); the result editor's glyph margin carries only the
+// its result block. The per-change colored bands and apply/ignore/revert
+// icons live in divider-hugging action strips (Monaco cannot mirror a gutter
+// the way IntelliJ does); the result editor's glyph margin carries only the
 // magic-resolve wand; big Apply/Abort buttons bottom-right.
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -36,9 +36,6 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-const UP = String.fromCharCode(0x25b2);
-const DOWN = String.fromCharCode(0x25bc);
-
 /** Builds the merge window skeleton into the given document's body. */
 export function buildMergeWindowDom(doc: Document): void {
   const toolbar = el(doc, 'div', { id: 'toolbar' }, [
@@ -48,9 +45,22 @@ export function buildMergeWindowDom(doc: Document): void {
       text: 'Accept Yours',
     }),
     el(doc, 'span', { className: 'spacer' }),
-    el(doc, 'button', { id: 'btn-prev', title: 'Previous unresolved change', text: UP }),
-    el(doc, 'button', { id: 'btn-next', title: 'Next unresolved change', text: DOWN }),
+    el(doc, 'button', {
+      id: 'btn-prev',
+      title: 'Previous unresolved change (conflicts first)',
+      text: 'Prev',
+    }),
+    el(doc, 'button', {
+      id: 'btn-next',
+      title: 'Next unresolved change (conflicts first)',
+      text: 'Next',
+    }),
     el(doc, 'span', { className: 'sep' }),
+    el(doc, 'button', {
+      id: 'btn-nc-all',
+      title: 'Apply all non-conflicting changes',
+      text: 'Apply Non-Conflicting',
+    }),
     el(doc, 'button', {
       id: 'btn-reset',
       title: 'Reset all resolved changes back to unresolved (Cmd/Ctrl+Z undoes the reset)',
@@ -132,15 +142,17 @@ export function mergeWindowStyles(): string {
   return `
 :root {
   /* IntelliJ diff semantics (green = inserted, blue = modified, red =
-     conflict, grey = deleted) in the tones of VS Code's own conflict
-     decorations. Fallbacks are sampled from the built-in view on the default
-     dark theme. */
+     conflict, grey = deleted), each riding a VS Code merge theme token so
+     every theme works: inserted/modified/deleted take the merge view's
+     content/header tones, conflict takes the merge editor's changed-base tone
+     (--vscode-mergeEditor-changeBase-background / -word-background). Fallbacks
+     are the built-in dark-theme defaults for those tokens. */
   --merge-inserted-bg: var(--vscode-merge-currentContentBackground, #2f5e52);
   --merge-inserted-strong: var(--vscode-merge-currentHeaderBackground, #3a7565);
   --merge-modified-bg: var(--vscode-merge-incomingContentBackground, #284e6e);
   --merge-modified-strong: var(--vscode-merge-incomingHeaderBackground, #2d6596);
-  --merge-conflict-bg: #6b2e35;
-  --merge-conflict-strong: #a03d49;
+  --merge-conflict-bg: var(--vscode-mergeEditor-changeBase-background, #4b1818);
+  --merge-conflict-strong: var(--vscode-mergeEditor-changeBase-word-background, #6f1313);
   --merge-deleted-bg: var(--vscode-merge-commonContentBackground, rgba(112, 118, 124, 0.28));
   --merge-deleted-strong: var(--vscode-merge-commonHeaderBackground, rgba(112, 118, 124, 0.55));
 }
@@ -157,20 +169,26 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .pane-title { flex: none; height: 22px; line-height: 22px; padding: 0 8px; font-size: 0.85em; opacity: 0.85; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
 .editor { flex: 1; min-height: 0; }
-.gutter { flex: none; width: 30px; display: flex; flex-direction: column; border-left: 1px solid var(--vscode-panel-border); border-right: 1px solid var(--vscode-panel-border); }
+.gutter { flex: none; width: 30px; display: flex; flex-direction: column; }
+.gutter .pane-title { border-left: 1px solid var(--vscode-panel-border); border-right: 1px solid var(--vscode-panel-border); box-sizing: border-box; }
 .gutter .pane-title { padding: 0; }
 .gutter-body { flex: 1; position: relative; overflow: hidden; min-height: 0; }
 .gutter-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .action-strip { flex: none; width: 34px; display: flex; flex-direction: column; background: var(--vscode-editor-background); }
 .action-strip .pane-title { padding: 0; }
 .action-strip-body { flex: 1; position: relative; overflow: hidden; min-height: 0; }
-.action-btn { position: absolute; width: 16px; height: 18px; line-height: 18px; text-align: center; border: none; background: none; cursor: pointer; padding: 0; }
+.action-band { position: absolute; left: 0; right: 0; pointer-events: none; }
+.action-band.k-conflict { background: var(--merge-conflict-bg); }
+.action-band.k-modified { background: var(--merge-modified-bg); }
+.action-band.k-inserted { background: var(--merge-inserted-bg); }
+.action-band.k-deleted { background: var(--merge-deleted-bg); }
+.action-btn { position: absolute; z-index: 1; width: 16px; height: 18px; line-height: 18px; text-align: center; border: none; background: none; cursor: pointer; padding: 0; color: var(--vscode-icon-foreground, #c5c5c5); }
 .action-btn::before { font-family: codicon; font-size: 14px; display: inline-block; }
 .action-btn:hover { filter: brightness(1.4); }
-.action-btn.apply { left: 0; color: var(--vscode-charts-green, #73c991); }
+.action-btn.apply { left: 0; }
 .action-btn.apply.toward-result-right::before { content: '\\ea9c'; }
 .action-btn.apply.toward-result-left::before { content: '\\ea9b'; }
-.action-btn.ignore { right: 0; color: var(--vscode-editorError-foreground, #f14c4c); }
+.action-btn.ignore { right: 0; }
 .action-btn.ignore::before { content: '\\ea76'; }
 .action-btn.revert { left: 0; right: 0; margin: 0 auto; background-color: var(--vscode-icon-foreground, #c5c5c5); -webkit-mask: ${REVERT_ICON_MASK} center / 14px 14px no-repeat; mask: ${REVERT_ICON_MASK} center / 14px 14px no-repeat; }
 #bottombar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex: none; border-top: 1px solid var(--vscode-panel-border); }
@@ -185,6 +203,9 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 .merge-inserted { background: var(--merge-inserted-bg); }
 .merge-deleted { background: var(--merge-deleted-bg); }
 .merge-empty { border-top: 2px solid var(--merge-deleted-strong); background: transparent; }
+.merge-empty.k-conflict { border-top-color: var(--merge-conflict-strong); }
+.merge-empty.k-modified { border-top-color: var(--merge-modified-strong); }
+.merge-empty.k-inserted { border-top-color: var(--merge-inserted-strong); }
 .merge-word.k-conflict { background: var(--merge-conflict-strong); }
 .merge-word.k-modified { background: var(--merge-modified-strong); }
 .merge-word.k-inserted { background: var(--merge-inserted-strong); }
@@ -206,14 +227,16 @@ export type MergeChangeKind = 'conflict' | 'modified' | 'inserted' | 'deleted';
 /**
  * Connector color per change kind: the CSS variable to read at runtime (so
  * canvas fills match the theme-derived highlight colors exactly) and the
- * fallback used when the variable does not resolve (jsdom harness).
+ * fallback used when the variable does not resolve (jsdom harness). Uses the
+ * row-highlight (-bg) tone so pane band, strip band, and connector read as
+ * one continuous channel; word-level emphasis keeps the -strong tone.
  */
 export const MERGE_KIND_CONNECTOR_COLORS: Record<
   MergeChangeKind,
   { cssVar: string; fallback: string }
 > = {
-  conflict: { cssVar: '--merge-conflict-strong', fallback: '#a03d49' },
-  modified: { cssVar: '--merge-modified-strong', fallback: '#2d6596' },
-  inserted: { cssVar: '--merge-inserted-strong', fallback: '#3a7565' },
-  deleted: { cssVar: '--merge-deleted-strong', fallback: 'rgba(112, 118, 124, 0.55)' },
+  conflict: { cssVar: '--merge-conflict-bg', fallback: '#4b1818' },
+  modified: { cssVar: '--merge-modified-bg', fallback: '#284e6e' },
+  inserted: { cssVar: '--merge-inserted-bg', fallback: '#2f5e52' },
+  deleted: { cssVar: '--merge-deleted-bg', fallback: 'rgba(112, 118, 124, 0.28)' },
 };

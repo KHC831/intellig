@@ -39,7 +39,8 @@ function fakeContext(): vscode.ExtensionContext {
 
 function buildPanel(
   absolutePath: string,
-  stagedPaths: string[][]
+  stagedPaths: string[][],
+  gitCli: GitCli = {} as GitCli
 ): { panel: PanelProbe; applied: string[] } {
   const applied: string[] = [];
   const repository = { rootUri: vscode.Uri.file('/repo') } as IRepository;
@@ -57,13 +58,54 @@ function buildPanel(
     absolutePath,
     leftLabel: 'Yours',
     rightLabel: 'Theirs',
-    gitCli: {} as GitCli,
+    gitCli,
     gitService,
     onApplied: (rel): void => {
       applied.push(rel);
     },
   });
   return { panel, applied };
+}
+
+/** A gitCli whose exec serves one conflicted path's three index stages. */
+function stubStagesGitCli(relPath: string): GitCli {
+  const shas = { base: '1'.repeat(40), ours: '2'.repeat(40), theirs: '3'.repeat(40) };
+  return {
+    exec: (args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+      if (args[0] === 'ls-files') {
+        const stdout = [
+          `100644 ${shas.base} 1\t${relPath}`,
+          `100644 ${shas.ours} 2\t${relPath}`,
+          `100644 ${shas.theirs} 3\t${relPath}`,
+        ]
+          .map((line) => line + '\u0000')
+          .join('');
+        return Promise.resolve({ exitCode: 0, stdout, stderr: '' });
+      }
+      if (args[0] === 'cat-file') {
+        const bySha: Record<string, string> = {
+          [shas.base]: 'base\n',
+          [shas.ours]: 'ours\n',
+          [shas.theirs]: 'theirs\n',
+        };
+        return Promise.resolve({ exitCode: 0, stdout: bySha[args[2]] ?? '', stderr: '' });
+      }
+      return Promise.resolve({ exitCode: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` });
+    },
+  } as unknown as GitCli;
+}
+
+/** Waits for the constructor's async load to post its init message. */
+async function initMessageOf(panel: IMockPanel): Promise<Record<string, unknown>> {
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+    const posted = (panel.webview as unknown as { _posted: unknown[] })._posted;
+    const init = posted.find((m) => (m as { type?: string }).type === 'init');
+    if (init) {
+      return init as Record<string, unknown>;
+    }
+  }
+  throw new Error('the panel never posted its init message');
 }
 
 /** Exposes the protected message handler and rendered HTML for assertions. */
@@ -88,6 +130,52 @@ describe('MergeWindowPanel', () => {
       panel.dispose();
     } finally {
       capture.restore();
+    }
+  });
+
+  it('the document styles ride VS Code theme tokens, not IntelliJ hexes', () => {
+    const capture = capturePanels();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', []);
+      assert.ok(
+        panel.html.includes('--vscode-mergeEditor-changeBase-background'),
+        'conflict color rides the VS Code merge-editor theme token'
+      );
+      assert.ok(!panel.html.includes('#6b2e35'), 'no hardcoded IntelliJ conflict background');
+      assert.ok(!panel.html.includes('#a03d49'), 'no hardcoded IntelliJ conflict accent');
+      panel.dispose();
+    } finally {
+      capture.restore();
+    }
+  });
+
+  it('the init payload carries the auto-apply setting', async () => {
+    const capture = capturePanels();
+    try {
+      setMockConfigValue('intellig', 'mergeWindow.autoApplyNonConflicting', true);
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'));
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[0]);
+      assert.strictEqual(init.autoApplyNonConflicting, true);
+      assert.strictEqual(init.left, 'ours\n', 'stage 2 is the left pane');
+      panel.dispose();
+    } finally {
+      capture.restore();
+      resetMockConfiguration();
+    }
+  });
+
+  it('the auto-apply setting defaults to off (IntelliJ parity)', async () => {
+    const capture = capturePanels();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'));
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[0]);
+      assert.strictEqual(init.autoApplyNonConflicting, false);
+      panel.dispose();
+    } finally {
+      capture.restore();
+      resetMockConfiguration();
     }
   });
 

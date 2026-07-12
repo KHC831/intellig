@@ -122,6 +122,11 @@ export class MergeWindowPanel extends BaseWebviewPanel {
         leftLabel: this._opts.leftLabel,
         rightLabel: this._opts.rightLabel,
         fileName: path.basename(absolutePath),
+        // IntelliJ's "Automatically apply non-conflicting changes" (opt-in,
+        // off by default there too).
+        autoApplyNonConflicting: vscode.workspace
+          .getConfiguration('intellig')
+          .get<boolean>('mergeWindow.autoApplyNonConflicting', false),
       });
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);

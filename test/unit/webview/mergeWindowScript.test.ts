@@ -34,12 +34,30 @@ interface IMergeWindowFixture {
   redo(): Promise<void>;
   /** Themes passed to `monaco.editor.setTheme`, in call order. */
   themeCalls: string[];
+  /** The live MergeWindow instance, for the theme-sync internals. */
+  mergeWindow(): unknown;
   dispose(): void;
+}
+
+/**
+ * The MergeWindow internals the theme-sync test drives: connector colors are
+ * cached at layout and cleared on any theme change, but connectors never paint
+ * under jsdom, so the suite seeds and reads the cache directly to assert the
+ * invalidation contract the DOM can't express.
+ */
+interface MergeWindowThemeInternals {
+  connectorColor(kind: string): string;
+  connectorColorCache: Map<string, string>;
 }
 
 const MAIN_MODULE = '../../../src/conflicts/merge-window/webview/main';
 
-function bootMergeWindow(left: string, base: string, right: string): IMergeWindowFixture {
+function bootMergeWindow(
+  left: string,
+  base: string,
+  right: string,
+  initExtra: Record<string, unknown> = {}
+): IMergeWindowFixture {
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
   const posted: unknown[] = [];
   const { stub, editors, themeCalls } = createMonacoStub();
@@ -57,7 +75,7 @@ function bootMergeWindow(left: string, base: string, right: string): IMergeWindo
 
   delete require.cache[require.resolve(MAIN_MODULE)];
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require(MAIN_MODULE) as { boot(): void };
+  const mod = require(MAIN_MODULE) as { boot(): void; __getMergeWindowForTest(): unknown };
   mod.boot();
 
   // jsdom has no canvas backend; the script skips connectors when the canvas
@@ -77,6 +95,7 @@ function bootMergeWindow(left: string, base: string, right: string): IMergeWindo
         leftLabel: 'Yours (main)',
         rightLabel: 'Theirs (feature)',
         fileName: 'a.txt',
+        ...initExtra,
       },
     })
   );
@@ -126,6 +145,7 @@ function bootMergeWindow(left: string, base: string, right: string): IMergeWindo
     resultText: (): string => editors[1].getModel().getValue(),
     counterText: (): string => doc.getElementById('counter')?.textContent ?? '',
     themeCalls,
+    mergeWindow: (): unknown => mod.__getMergeWindowForTest(),
     dispose: (): void => {
       delete g.window;
       delete g.document;
@@ -157,17 +177,23 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     assert.ok(f.posted.some((m) => (m as { type?: string }).type === 'ready'));
     assert.strictEqual(f.editors.length, 3);
     assert.strictEqual(f.resultText(), BASE);
-    assert.strictEqual(f.counterText(), '2 of 2 changes remaining');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
     assert.strictEqual(f.document.getElementById('left-title')?.textContent, 'Yours (main)');
-    // Nothing happened yet → Reset greyed out; no undo/redo or bulk-apply
-    // buttons exist (undo stays on the keyboard).
+    // Nothing happened yet → Reset greyed out; no undo/redo buttons exist
+    // (undo stays on the keyboard). Apply Non-Conflicting is offered because
+    // a non-conflicting change is pending.
     assert.strictEqual(
       (f.document.getElementById('btn-reset') as HTMLButtonElement).disabled,
       true
     );
     assert.strictEqual(f.document.getElementById('btn-undo'), null);
     assert.strictEqual(f.document.getElementById('btn-redo'), null);
-    assert.strictEqual(f.document.getElementById('btn-nc-all'), null);
+    assert.strictEqual(
+      (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled,
+      false
+    );
+    assert.strictEqual(f.document.getElementById('btn-prev')?.textContent, 'Prev');
+    assert.strictEqual(f.document.getElementById('btn-next')?.textContent, 'Next');
     // Apply stays greyed out until every change is resolved.
     assert.strictEqual(
       (f.document.getElementById('btn-apply') as HTMLButtonElement).disabled,
@@ -188,17 +214,36 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     f = bootMergeWindow(LEFT, BASE, RIGHT);
     await f.flush();
 
+    // Apply Non-Conflicting tracks whether the one-sided change is applied, so
+    // its disabled state discriminates every step of the apply/undo/redo cycle.
+    const ncDisabled = (): boolean =>
+      (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled;
+    assert.strictEqual(ncDisabled(), false, 'a non-conflicting change is pending');
+
     await f.clickAction('left', 'apply', 0);
     assert.strictEqual(f.resultText(), AFTER_NC_APPLY);
-    assert.strictEqual(f.counterText(), '1 of 2 changes remaining');
+    assert.strictEqual(ncDisabled(), true, 'the only non-conflicting change is now applied');
 
     await f.undo();
     assert.strictEqual(f.resultText(), BASE);
-    assert.strictEqual(f.counterText(), '2 of 2 changes remaining');
+    assert.strictEqual(ncDisabled(), false, 'undo restores the pending change');
 
     await f.redo();
     assert.strictEqual(f.resultText(), AFTER_NC_APPLY);
-    assert.strictEqual(f.counterText(), '1 of 2 changes remaining');
+    assert.strictEqual(ncDisabled(), true, 'redo re-applies it');
+  });
+
+  it('a resolved one-sided change reverts only on the side that owns it', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    await f.clickAction('left', 'apply', 0); // resolve the one-sided LEFT change
+
+    // The revert button lives only on the owning (left) strip. The right side
+    // never changed here — no pane block, band, or connector — so its strip
+    // stays bare rather than carrying an orphaned revert.
+    assert.strictEqual(f.actionButtons('left', 'revert').length, 1);
+    assert.strictEqual(f.actionButtons('right', 'revert').length, 0);
   });
 
   it('gutter apply takes a conflict side; the opposite side then appends', async () => {
@@ -208,7 +253,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
 
     await f.clickAction('right', 'apply');
     assert.strictEqual(f.resultText(), 'L1 changed\nmid\nconf right\nmid2\nend');
-    assert.strictEqual(f.counterText(), '1 of 2 changes remaining');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
 
     await f.clickAction('left', 'apply');
     assert.strictEqual(f.resultText(), 'L1 changed\nmid\nconf right\nconf left\nmid2\nend');
@@ -227,7 +272,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
 
     await f.clickAction('left', 'ignore');
     assert.strictEqual(f.resultText(), AFTER_NC_APPLY);
-    assert.strictEqual(f.counterText(), '1 of 2 changes remaining');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
 
     await f.clickAction('right', 'ignore');
     assert.strictEqual(f.resultText(), AFTER_NC_APPLY);
@@ -239,7 +284,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     await f.flush();
 
     assert.strictEqual(f.resultText(), 'version: 1.0.0');
-    assert.strictEqual(f.counterText(), '1 of 1 changes remaining');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
     // Nothing auto-applied → nothing to reset.
     assert.strictEqual(
       (f.document.getElementById('btn-reset') as HTMLButtonElement).disabled,
@@ -294,7 +339,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
 
     await f.clickAction('left', 'revert');
     assert.strictEqual(f.resultText(), BASE);
-    assert.strictEqual(f.counterText(), '2 of 2 changes remaining');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
     assert.strictEqual(f.actionButtons('left', 'revert').length, 0);
   });
 
@@ -349,7 +394,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
 
     await f.click('btn-reset');
     assert.strictEqual(f.resultText(), BASE);
-    assert.strictEqual(f.counterText(), '2 of 2 changes remaining');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
     assert.strictEqual(
       (f.document.getElementById('btn-reset') as HTMLButtonElement).disabled,
       true
@@ -361,24 +406,139 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     assert.strictEqual(f.resultText(), 'L1 changed\nmid\nconf right\nmid2\nend');
   });
 
-  it('next/prev navigate relative to the caret, not a stale cursor', async () => {
+  it('next/prev walk conflicts, then fall back to other unresolved changes', async () => {
     f = bootMergeWindow(LEFT, BASE, RIGHT);
     await f.flush();
 
-    // Changes sit at result lines 1 (one-sided) and 3 (conflict). The caret
-    // starts on line 1, so Next moves past it to the conflict, then wraps.
+    // Changes sit at result lines 1 (one-sided) and 3 (conflict). While a
+    // conflict is unresolved Prev/Next walk CONFLICTS: the one-sided change on
+    // line 1 is never a stop, so from the caret on line 1 both directions land
+    // (and stay) on the conflict.
     await f.click('btn-next');
     assert.strictEqual(f.editors[1].revealedLine, 3);
-    await f.click('btn-next');
-    assert.strictEqual(f.editors[1].revealedLine, 1);
-
-    // Resolving a change must not desync navigation: from line 1 the only
-    // unresolved change left is the conflict on line 3.
-    await f.clickAction('left', 'apply', 0);
     await f.click('btn-next');
     assert.strictEqual(f.editors[1].revealedLine, 3);
     await f.click('btn-prev');
     assert.strictEqual(f.editors[1].revealedLine, 3);
+
+    // Resolving the conflict leaves the one-sided change still unresolved:
+    // navigation falls back to it so there is always a path to an unresolved
+    // change. Prev/Next stay enabled and now reach line 1.
+    await f.clickAction('left', 'ignore', 1);
+    await f.clickAction('right', 'ignore');
+    assert.strictEqual(f.counterText(), 'All conflicts resolved · 1 non-conflicting left');
+    assert.strictEqual(
+      (f.document.getElementById('btn-next') as HTMLButtonElement).disabled,
+      false
+    );
+    assert.strictEqual(
+      (f.document.getElementById('btn-prev') as HTMLButtonElement).disabled,
+      false
+    );
+    await f.click('btn-next');
+    assert.strictEqual(f.editors[1].revealedLine, 1);
+
+    // Resolving that last change leaves nothing to navigate: both buttons grey.
+    await f.clickAction('left', 'ignore', 0);
+    assert.strictEqual(f.counterText(), 'All changes processed');
+    assert.strictEqual((f.document.getElementById('btn-next') as HTMLButtonElement).disabled, true);
+    assert.strictEqual((f.document.getElementById('btn-prev') as HTMLButtonElement).disabled, true);
+  });
+
+  it('Apply Non-Conflicting resolves every non-conflict in one undo step', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    await f.click('btn-nc-all');
+    assert.strictEqual(f.resultText(), AFTER_NC_APPLY);
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1', 'the conflict stays unresolved');
+    assert.strictEqual(
+      (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled,
+      true,
+      'nothing non-conflicting left to apply'
+    );
+
+    await f.undo();
+    assert.strictEqual(f.resultText(), BASE);
+    assert.strictEqual(
+      (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled,
+      false
+    );
+  });
+
+  it('auto-applies non-conflicting changes on open when the host asks', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT, { autoApplyNonConflicting: true });
+    await f.flush();
+
+    assert.strictEqual(f.resultText(), AFTER_NC_APPLY);
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1', 'conflicts stay untouched');
+    // The auto-applied change is resolved → Reset has something to revert.
+    assert.strictEqual(
+      (f.document.getElementById('btn-reset') as HTMLButtonElement).disabled,
+      false
+    );
+  });
+
+  it('auto-apply never touches conflicts, even simple ones', async () => {
+    f = bootMergeWindow('version: 2.0.0', 'version: 1.0.0', 'version: 1.0.4', {
+      autoApplyNonConflicting: true,
+    });
+    await f.flush();
+
+    assert.strictEqual(f.resultText(), 'version: 1.0.0');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
+  });
+
+  it('a one-sided change paints only on its own side and the result', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const classesOf = (idx: number): string[] =>
+      (f.editors[idx].collections[0].decorations as Array<{ options: { className?: string } }>).map(
+        (d) => d.options.className ?? ''
+      );
+
+    // The one-sided LEFT modification (line 1) is painted on the left pane and
+    // the result, but NOT on the right pane, which did not change — matching
+    // IntelliJ, where a side editor decorates only the changes it owns while
+    // the result always shows every block. The conflict (line 3) is painted on
+    // every pane.
+    const left = classesOf(0);
+    const result = classesOf(1);
+    const right = classesOf(2);
+
+    assert.ok(left.some((c) => c.includes('merge-modified')));
+    assert.ok(result.some((c) => c.includes('merge-modified')));
+    assert.ok(
+      !right.some((c) => c.includes('modified')),
+      `the unchanged right pane must not decorate the one-sided change, got ${JSON.stringify(right)}`
+    );
+    assert.ok(right.some((c) => c.includes('merge-conflict')));
+  });
+
+  it('unresolved changes paint a colored band through the action strips', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const bands = (pane: 'left' | 'right'): string[] =>
+      Array.from(
+        f.document
+          .getElementById(pane === 'left' ? 'action-left' : 'action-right')!
+          .querySelectorAll('.action-band')
+      ).map((b) => b.className);
+
+    // A strip bands only the unresolved changes its own side owns: the left
+    // modification bands the left strip, the conflict bands both. The right
+    // strip carries no band for the one-sided change, since the right pane
+    // paints nothing there.
+    assert.deepStrictEqual(bands('left'), ['action-band k-modified', 'action-band k-conflict']);
+    assert.deepStrictEqual(bands('right'), ['action-band k-conflict']);
+
+    // Resolving the modification drops its band from the left strip; the
+    // conflict band stays on both (resolved rows render as boundary lines).
+    await f.clickAction('left', 'apply', 0);
+    assert.deepStrictEqual(bands('left'), ['action-band k-conflict']);
+    assert.deepStrictEqual(bands('right'), ['action-band k-conflict']);
   });
 
   it('scrolling one pane drives BOTH other panes', async () => {
@@ -394,6 +554,65 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     assert.strictEqual(f.editors[2].getScrollTop(), 36);
   });
 
+  it('scrolling one pane horizontally drives BOTH other panes', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    f.editors[0].setScrollLeft(42);
+    assert.strictEqual(f.editors[1].getScrollLeft(), 42);
+    assert.strictEqual(f.editors[2].getScrollLeft(), 42);
+
+    f.editors[1].setScrollLeft(17);
+    assert.strictEqual(f.editors[0].getScrollLeft(), 17);
+    assert.strictEqual(f.editors[2].getScrollLeft(), 17);
+  });
+
+  it('row highlights and resolved boundaries carry into the line-number margin', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+    await f.clickAction('left', 'apply', 0); // the one-sided change → resolved boundary
+
+    const decos = f.editors[1].collections[0].decorations as Array<{
+      options: { className?: string; marginClassName?: string };
+    }>;
+
+    // The still-unresolved conflict fills the row: the fill must reach the
+    // line-number margin too (same class).
+    const filled = decos.find((d) => d.options.className === 'merge-conflict');
+    assert.ok(filled, 'the unresolved conflict still fills the result row');
+    assert.strictEqual(filled.options.marginClassName, 'merge-conflict');
+
+    // The applied change renders as a resolved boundary: its dotted border
+    // must continue across the margin.
+    const resolved = decos.find((d) => (d.options.className ?? '').includes('merge-resolved-top'));
+    assert.ok(resolved, 'the applied change renders as a resolved boundary');
+    assert.strictEqual(resolved.options.marginClassName, resolved.options.className);
+
+    // Word-level inline highlights are not whole-line, so they stay off the margin.
+    const word = decos.find((d) => (d.options.className ?? '').includes('merge-word'));
+    if (word) {
+      assert.strictEqual(word.options.marginClassName, undefined);
+    }
+  });
+
+  it('an empty result block marks in the change color, not always grey', async () => {
+    // Add/add conflict: base has nothing between a and b, each side inserts a
+    // different line → the conflict occupies zero result lines (empty block).
+    f = bootMergeWindow('a\nLEFT\nb', 'a\nb', 'a\nRIGHT\nb');
+    await f.flush();
+
+    const decos = f.editors[1].collections[0].decorations as Array<{
+      options: { className?: string; marginClassName?: string };
+    }>;
+    const empty = decos.find((d) => (d.options.className ?? '').includes('merge-empty'));
+    assert.ok(empty, 'the conflict has an empty result block');
+    assert.ok(
+      empty.options.className!.includes('k-conflict'),
+      `empty marker should carry the conflict kind, got "${empty.options.className}"`
+    );
+    assert.strictEqual(empty.options.marginClassName, empty.options.className);
+  });
+
   it('follows a VS Code theme switch while open', async () => {
     f = bootMergeWindow(LEFT, BASE, RIGHT);
     await f.flush();
@@ -407,5 +626,31 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     f.document.body.classList.add('vscode-dark');
     await f.flush();
     assert.deepStrictEqual(f.themeCalls, ['vs', 'vs-dark'], 'dark theme must reach Monaco');
+  });
+
+  it('re-derives connector colors on a same-polarity theme switch', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const theme = f.mergeWindow() as MergeWindowThemeInternals;
+    // Connectors never paint under jsdom, so seed the cache directly to observe
+    // its invalidation.
+    theme.connectorColor('conflict');
+    assert.ok(theme.connectorColorCache.size > 0, 'cache seeded');
+
+    // VS Code swaps data-vscode-theme-name (class unchanged) between two dark
+    // themes: the cached connector colors are stale and must drop, but Monaco's
+    // base theme must NOT be re-set — the light/dark polarity did not flip.
+    f.document.body.setAttribute('data-vscode-theme-name', 'Solarized Dark');
+    await f.flush();
+    assert.strictEqual(theme.connectorColorCache.size, 0, 'connector cache invalidated');
+    assert.deepStrictEqual(f.themeCalls, [], 'same polarity → no Monaco theme reset');
+
+    // A polarity flip both invalidates the cache and re-sets Monaco's theme.
+    theme.connectorColor('conflict');
+    f.document.body.classList.add('vscode-light');
+    await f.flush();
+    assert.strictEqual(theme.connectorColorCache.size, 0);
+    assert.deepStrictEqual(f.themeCalls, ['vs']);
   });
 });

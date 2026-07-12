@@ -110,8 +110,11 @@ export interface IStubMouseEvent {
 
 export class StubEditor {
   private scrollTop = 0;
+  private scrollLeft = 0;
   readonly collections: IStubDecorationsCollection[] = [];
-  readonly scrollListeners: Array<(e: { scrollTopChanged: boolean }) => void> = [];
+  readonly scrollListeners: Array<
+    (e: { scrollTopChanged?: boolean; scrollLeftChanged?: boolean }) => void
+  > = [];
   readonly mouseDownListeners: Array<(e: IStubMouseEvent) => void> = [];
   revealedLine: number | undefined;
 
@@ -131,7 +134,9 @@ export class StubEditor {
     return { dispose: (): void => undefined };
   }
 
-  onDidScrollChange(cb: (e: { scrollTopChanged: boolean }) => void): { dispose(): void } {
+  onDidScrollChange(cb: (e: { scrollTopChanged?: boolean; scrollLeftChanged?: boolean }) => void): {
+    dispose(): void;
+  } {
     this.scrollListeners.push(cb);
     return { dispose: (): void => undefined };
   }
@@ -166,9 +171,18 @@ export class StubEditor {
   }
 
   private position = { lineNumber: 1, column: 1 };
+  private cursorListeners: Array<() => void> = [];
+
+  onDidChangeCursorPosition(cb: () => void): { dispose(): void } {
+    this.cursorListeners.push(cb);
+    return { dispose: (): void => undefined };
+  }
 
   setPosition(position: { lineNumber: number; column: number }): void {
     this.position = position;
+    for (const listener of [...this.cursorListeners]) {
+      listener();
+    }
   }
 
   getPosition(): { lineNumber: number; column: number } {
@@ -198,6 +212,17 @@ export class StubEditor {
     this.scrollTop = value;
     for (const listener of [...this.scrollListeners]) {
       listener({ scrollTopChanged: true });
+    }
+  }
+
+  getScrollLeft(): number {
+    return this.scrollLeft;
+  }
+
+  setScrollLeft(value: number, _type?: unknown): void {
+    this.scrollLeft = value;
+    for (const listener of [...this.scrollListeners]) {
+      listener({ scrollLeftChanged: true });
     }
   }
 

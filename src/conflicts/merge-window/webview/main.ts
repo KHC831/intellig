@@ -14,10 +14,11 @@
 // left editor's gutter to its right edge (scrollbar orientation LEFT →
 // EditorGutterComponentImpl.isMirrored), so every icon column sits against a
 // divider. Monaco cannot mirror its margin, so each side editor gets a
-// dedicated action strip at its divider edge carrying an apply/ignore icon
-// pair per unresolved change and a revert icon per resolved one; the result
-// editor carries the magic-resolve wand in its glyph margin. The dividers
-// themselves hold only the curved canvas connectors.
+// dedicated action strip at its divider edge, painting a per-change colored
+// band plus an apply/ignore icon pair per unresolved change and a revert icon
+// per resolved one; the result editor carries the magic-resolve wand in its
+// glyph margin. The dividers themselves hold only the curved canvas
+// connectors.
 
 import type * as Monaco from 'monaco-editor';
 import { ComparisonPolicy } from '../../../diff-engine/comparison/ComparisonPolicy';
@@ -52,6 +53,8 @@ interface IInitMessage {
   readonly leftLabel: string;
   readonly rightLabel: string;
   readonly fileName: string;
+  /** IntelliJ's "Automatically apply non-conflicting changes" (opt-in). */
+  readonly autoApplyNonConflicting?: boolean;
 }
 
 const vscodeApi = acquireVsCodeApi();
@@ -124,6 +127,9 @@ class MergeWindow {
   private renderQueued = false;
   /** Result-editor lines carrying a magic-resolve wand → change index. */
   private readonly magicGlyphLines = new Map<number, number>();
+  /** Conflicts sorted by result line, memoized until the next mutation, so the
+   * caret-driven counter/navigation don't re-scan and re-sort per keystroke. */
+  private conflictsMemo: TextMergeChange[] | undefined;
 
   constructor(init: IInitMessage) {
     const language = languageForFile(init.fileName);
@@ -190,15 +196,21 @@ class MergeWindow {
     this.wireToolbar();
     this.wireMagicGlyph();
     this.wireThemeSync();
+    // The "Conflict i / n" ordinal follows the caret.
+    this.resultEditor.onDidChangeCursorPosition(() => this.updateCounter());
     window.addEventListener('resize', () => this.layoutGutters());
 
     this.model.addListener(() => this.scheduleRender());
 
     // Like IntelliJ's default, nothing is applied on open: the result starts
     // as the base with every change highlighted and waiting for the user.
-    // Every change is resolved individually (side arrows, ignore, wand, or
-    // hand edits) — there is deliberately no bulk-apply action.
+    // With the auto-apply option on (IntelliJ's "Automatically apply
+    // non-conflicting changes", off by default), the non-conflicting changes
+    // land immediately; conflicts always wait for the user.
     this.renderAll();
+    if (init.autoApplyNonConflicting === true) {
+      this.applyNonConflicted();
+    }
   }
 
   //
@@ -352,6 +364,22 @@ class MergeWindow {
     this.scheduleRender();
   }
 
+  /**
+   * IntelliJ's Apply All Non-Conflicting Changes: every non-conflicting
+   * change lands in the result as one undo step; conflicts stay untouched.
+   * Scrolls to the first change still unresolved, like IntelliJ.
+   */
+  private applyNonConflicted(): void {
+    this.model.applyNonConflictedChanges(ThreeSide.BASE);
+    const model = this.resultEditor.getModel();
+    const lineCount = model ? model.getLineCount() : 1;
+    const first = this.model.getUnresolvedChanges()[0];
+    if (first) {
+      this.resultEditor.revealLineInCenter(Math.min(first.resultStartLine + 1, lineCount));
+    }
+    this.scheduleRender();
+  }
+
   private wireToolbar(): void {
     const on = (id: string, handler: () => void): void => {
       mustGet(id).addEventListener('click', handler);
@@ -365,6 +393,7 @@ class MergeWindow {
       this.scheduleRender();
     });
     on('btn-reset', () => this.resetChanges());
+    on('btn-nc-all', () => this.applyNonConflicted());
     on('btn-prev', () => this.navigate(-1));
     on('btn-next', () => this.navigate(1));
     on('btn-apply', () => {
@@ -382,25 +411,35 @@ class MergeWindow {
 
   /**
    * Follow VS Code theme switches while the window is open. Monaco's theme
-   * and the cached connector colors are both derived at construction; VS Code
-   * signals a switch by swapping the body's `vscode-light`/`vscode-dark`
-   * class, so observe it and re-derive both.
+   * and the cached connector colors are both derived at construction. VS Code
+   * signals a switch on the body via the `vscode-light`/`vscode-dark` class
+   * and the `data-vscode-theme-*` markers; a switch between two themes of the
+   * same light/dark polarity changes the CSS variables but not the class, so
+   * ANY of those attribute changes must invalidate the connector cache. Monaco
+   * only carries two base themes, so re-set it only when the polarity flips.
    */
   private wireThemeSync(): void {
-    let applied = document.body.classList.contains('vscode-light') ? 'vs' : 'vs-dark';
+    let polarity = document.body.classList.contains('vscode-light') ? 'vs' : 'vs-dark';
     const observer = new MutationObserver(() => {
-      const theme = document.body.classList.contains('vscode-light') ? 'vs' : 'vs-dark';
-      if (theme === applied) {
-        return;
-      }
-      applied = theme;
-      monaco.editor.setTheme(theme);
-      // Connector fills read theme CSS variables; drop the cache so the next
-      // layout samples the new theme's values.
+      // Connector fills read theme CSS variables, which may have changed under
+      // any theme marker; drop the cache and re-lay the gutters unconditionally.
       this.connectorColorCache.clear();
       this.layoutGutters();
+      const next = document.body.classList.contains('vscode-light') ? 'vs' : 'vs-dark';
+      if (next !== polarity) {
+        polarity = next;
+        monaco.editor.setTheme(next);
+      }
     });
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: [
+        'class',
+        'data-vscode-theme-kind',
+        'data-vscode-theme-name',
+        'data-vscode-theme-id',
+      ],
+    });
   }
 
   /** Clicking the wand in the result gutter magic-resolves that conflict. */
@@ -425,15 +464,21 @@ class MergeWindow {
   }
 
   /**
-   * Jump the result editor to the previous/next unresolved change relative
-   * to the caret (IntelliJ navigates from the caret too). A stored cursor
+   * Jump the result editor to the previous/next unresolved change relative to
+   * the caret (IntelliJ navigates from the caret too). While any conflict is
+   * unresolved, Prev/Next walk conflicts only — the bulk action and per-change
+   * icons own the non-conflicting changes; once every conflict is resolved the
+   * stops fall back to whatever non-conflicting changes remain, so there is
+   * always a keyboard/toolbar path to an unresolved change. A stored cursor
    * would desync as changes resolve and the unresolved list re-indexes.
    */
   private navigate(direction: -1 | 1): void {
     const model = this.resultEditor.getModel();
     const lineCount = model ? model.getLineCount() : 1;
-    const lines = this.model
-      .getUnresolvedChanges()
+    const unresolvedConflicts = this.conflictsByResultLine().filter((c) => !c.isResolved());
+    const targets =
+      unresolvedConflicts.length > 0 ? unresolvedConflicts : this.model.getUnresolvedChanges();
+    const lines = targets
       .map((c) => Math.min(c.resultStartLine + 1, lineCount))
       .sort((a, b) => a - b);
     if (lines.length === 0) {
@@ -446,6 +491,65 @@ class MergeWindow {
         : ([...lines].reverse().find((l) => l < caret) ?? lines[lines.length - 1]);
     this.resultEditor.revealLineInCenter(line);
     this.resultEditor.setPosition({ lineNumber: line, column: 1 });
+  }
+
+  /**
+   * Conflict-centric progress ("Conflict i / n"): n counts every conflict in
+   * the file; i follows the result-editor caret (the conflict at or before
+   * it; 1 before the first). Non-conflicting changes report only a remainder
+   * so the user is never staring at a disabled Apply with no explanation.
+   */
+  private updateCounter(): void {
+    const conflicts = this.conflictsByResultLine();
+    const total = this.model.getAllChanges().length;
+    const unresolvedConflicts = conflicts.filter((c) => !c.isResolved()).length;
+    const unresolvedOthers = this.model.getUnresolvedChanges().length - unresolvedConflicts;
+
+    let text: string;
+    if (total === 0) {
+      text = 'No changes';
+    } else if (unresolvedConflicts > 0) {
+      text = `Conflict ${this.conflictOrdinal(conflicts)} / ${conflicts.length}`;
+    } else if (unresolvedOthers > 0) {
+      text =
+        conflicts.length === 0
+          ? `${unresolvedOthers} non-conflicting left`
+          : `All conflicts resolved · ${unresolvedOthers} non-conflicting left`;
+    } else {
+      // Nothing unresolved: one phrase for the done state, matching the banner.
+      text = 'All changes processed';
+    }
+    const counter = mustGet('counter');
+    if (counter.textContent !== text) {
+      counter.textContent = text;
+    }
+  }
+
+  /**
+   * Every conflict in the file, sorted ascending by result line, so the
+   * "Conflict i / n" ordinal and Prev/Next navigation share one ordering
+   * rather than each re-deriving (and re-assuming) getAllChanges() order.
+   */
+  private conflictsByResultLine(): TextMergeChange[] {
+    if (this.conflictsMemo === undefined) {
+      this.conflictsMemo = this.model
+        .getAllChanges()
+        .filter((c) => c.isConflict)
+        .sort((a, b) => a.resultStartLine - b.resultStartLine);
+    }
+    return this.conflictsMemo;
+  }
+
+  /** 1-based index of the conflict at or before the result caret. */
+  private conflictOrdinal(conflicts: TextMergeChange[]): number {
+    const caret = this.resultEditor.getPosition()?.lineNumber ?? 1;
+    let ordinal = 1;
+    for (let i = 0; i < conflicts.length; i++) {
+      if (conflicts[i].resultStartLine + 1 <= caret) {
+        ordinal = i + 1;
+      }
+    }
+    return ordinal;
   }
 
   //
@@ -473,6 +577,19 @@ class MergeWindow {
       }>
     ): void => {
       from.onDidScrollChange((e) => {
+        // Horizontal scroll mirrors verbatim: the three panes share one column
+        // grid, so no anchor mapping is needed.
+        if (e.scrollLeftChanged && !this.syncingScroll) {
+          const scrollLeft = from.getScrollLeft();
+          this.syncingScroll = true;
+          try {
+            for (const { to } of targets) {
+              to.setScrollLeft(scrollLeft, monaco.editor.ScrollType.Immediate);
+            }
+          } finally {
+            this.syncingScroll = false;
+          }
+        }
         if (!e.scrollTopChanged) {
           return;
         }
@@ -537,6 +654,9 @@ class MergeWindow {
   //
 
   private scheduleRender(): void {
+    // Every mutation path funnels through here; drop the conflict memo so the
+    // next counter/navigation read rebuilds against the changed model.
+    this.conflictsMemo = undefined;
     if (this.renderQueued) {
       return;
     }
@@ -595,6 +715,17 @@ class MergeWindow {
     return compareThreesideInner(chunks, ComparisonPolicy.DEFAULT);
   }
 
+  /**
+   * The single ownership predicate: a side paints and acts on only the changes
+   * it made, while BASE (the result) owns every change (isChange(BASE) is
+   * always true). Pane decorations, the strip band, the strip revert, and the
+   * gutter connector all gate on this — the unchanged side of a one-sided
+   * change paints nothing (no block, band, revert, or connector).
+   */
+  private paintsOn(change: TextMergeChange, side: ThreeSide): boolean {
+    return change.isChange(side);
+  }
+
   private paneDecorations(
     editor: Monaco.editor.IStandaloneCodeEditor,
     side: ThreeSide,
@@ -606,51 +737,55 @@ class MergeWindow {
     }
     const decorations: Monaco.editor.IModelDeltaDecoration[] = [];
     for (const change of this.model.getAllChanges()) {
+      if (!this.paintsOn(change, side)) {
+        continue;
+      }
       const start = change.getStartLine(side);
       const end = change.getEndLine(side);
       const kind = kindOf(change);
+
+      // Whole-line highlights also decorate the line-number margin (same
+      // class), so the change band spans the number column instead of leaving
+      // a dark gap through it.
+      const wholeLine = (
+        range: Monaco.Range,
+        className: string
+      ): Monaco.editor.IModelDeltaDecoration => ({
+        range,
+        options: { isWholeLine: true, className, marginClassName: className },
+      });
 
       if (change.isResolved()) {
         // IntelliJ paints resolved changes without a fill: just dotted
         // boundary lines in the change color (PaintMode.RESOLVED).
         if (start === end) {
           const line = Math.min(start + 1, model.getLineCount());
-          decorations.push({
-            range: new monaco.Range(line, 1, line, 1),
-            options: { isWholeLine: true, className: `merge-resolved-top k-${kind}` },
-          });
+          decorations.push(
+            wholeLine(new monaco.Range(line, 1, line, 1), `merge-resolved-top k-${kind}`)
+          );
         } else if (end - start === 1) {
-          decorations.push({
-            range: new monaco.Range(start + 1, 1, start + 1, 1),
-            options: {
-              isWholeLine: true,
-              className: `merge-resolved-top merge-resolved-bottom k-${kind}`,
-            },
-          });
+          decorations.push(
+            wholeLine(
+              new monaco.Range(start + 1, 1, start + 1, 1),
+              `merge-resolved-top merge-resolved-bottom k-${kind}`
+            )
+          );
         } else {
-          decorations.push({
-            range: new monaco.Range(start + 1, 1, start + 1, 1),
-            options: { isWholeLine: true, className: `merge-resolved-top k-${kind}` },
-          });
-          decorations.push({
-            range: new monaco.Range(end, 1, end, 1),
-            options: { isWholeLine: true, className: `merge-resolved-bottom k-${kind}` },
-          });
+          decorations.push(
+            wholeLine(new monaco.Range(start + 1, 1, start + 1, 1), `merge-resolved-top k-${kind}`)
+          );
+          decorations.push(
+            wholeLine(new monaco.Range(end, 1, end, 1), `merge-resolved-bottom k-${kind}`)
+          );
         }
         continue;
       }
 
       if (start === end) {
         const line = Math.min(start + 1, model.getLineCount());
-        decorations.push({
-          range: new monaco.Range(line, 1, line, 1),
-          options: { isWholeLine: true, className: `merge-empty merge-${kind}` },
-        });
+        decorations.push(wholeLine(new monaco.Range(line, 1, line, 1), `merge-empty k-${kind}`));
       } else {
-        decorations.push({
-          range: new monaco.Range(start + 1, 1, end, 1),
-          options: { isWholeLine: true, className: `merge-${kind}` },
-        });
+        decorations.push(wholeLine(new monaco.Range(start + 1, 1, end, 1), `merge-${kind}`));
       }
 
       // Word-level inner highlights within the block.
@@ -715,12 +850,7 @@ class MergeWindow {
 
     const unresolved = this.model.getUnresolvedChanges().length;
     const total = this.model.getAllChanges().length;
-    mustGet('counter').textContent =
-      total === 0
-        ? 'No changes'
-        : unresolved === 0
-          ? 'All changes processed'
-          : `${unresolved} of ${total} changes remaining`;
+    this.updateCounter();
     const banner = mustGet('banner');
     banner.textContent =
       total > 0 && unresolved === 0 ? 'All changes processed — press Apply to save and stage.' : '';
@@ -728,6 +858,13 @@ class MergeWindow {
 
     (mustGet('btn-reset') as HTMLButtonElement).disabled = unresolved === total || total === 0;
     (mustGet('btn-apply') as HTMLButtonElement).disabled = unresolved > 0;
+    // Prev/Next fall back to non-conflicting changes once conflicts are gone,
+    // so they only grey out when nothing unresolved remains at all.
+    (mustGet('btn-prev') as HTMLButtonElement).disabled = unresolved === 0;
+    (mustGet('btn-next') as HTMLButtonElement).disabled = unresolved === 0;
+    (mustGet('btn-nc-all') as HTMLButtonElement).disabled = !this.model.hasNonConflictedChanges(
+      ThreeSide.BASE
+    );
 
     this.layoutGutters();
 
@@ -810,10 +947,17 @@ class MergeWindow {
     actionSide: Side,
     applyDirectionClass: string
   ): void {
-    for (const old of Array.from(stripBody.querySelectorAll('.action-btn'))) {
+    for (const old of Array.from(stripBody.querySelectorAll('.action-btn, .action-band'))) {
       old.remove();
     }
     for (const change of this.model.getAllChanges()) {
+      // A strip paints and acts on only the changes its own side owns. The
+      // unchanged side of a one-sided change paints nothing (no pane block,
+      // band, connector, or button), so skip the whole row up front; the
+      // result editor always shows the block on its own gutters.
+      if (!this.paintsOn(change, side)) {
+        continue;
+      }
       const span = this.blockSpan(editor, change.getStartLine(side), change.getEndLine(side));
       const y = span.top;
 
@@ -827,7 +971,18 @@ class MergeWindow {
         continue;
       }
 
-      if (!change.isChange(actionSide) || change.isResolved(actionSide)) {
+      // An unresolved change this side made carries its highlight color across
+      // the strip, so the pane band, the icons, and the connector read as one
+      // channel.
+      const band = document.createElement('div');
+      band.className = `action-band k-${kindOf(change)}`;
+      band.style.top = `${y}px`;
+      band.style.height = `${Math.max(span.bottom - y, 2)}px`;
+      stripBody.appendChild(band);
+
+      // A conflict side already resolved individually keeps its band but drops
+      // the apply/ignore pair.
+      if (change.isResolved(actionSide)) {
         continue;
       }
       const applyBtn = document.createElement('button');
@@ -875,6 +1030,11 @@ class MergeWindow {
     }
 
     for (const change of this.model.getAllChanges()) {
+      // The side pane paints nothing for the unchanged side of a one-sided
+      // change, so its connector would float from a blank block — skip it.
+      if (!this.paintsOn(change, side)) {
+        continue;
+      }
       const sideSpan = this.blockSpan(editor, change.getStartLine(side), change.getEndLine(side));
       const resultSpan = this.blockSpan(
         this.resultEditor,
@@ -944,6 +1104,20 @@ class MergeWindow {
   }
 }
 
+/**
+ * Test-only handle onto the live MergeWindow. Theme-sync invalidation has no
+ * DOM-observable effect under jsdom (no canvas → connectors never paint), so
+ * the webview suite reaches through this to assert the connector-color cache
+ * clears. Production code MUST NOT read it.
+ * @internal
+ */
+let mergeWindowForTest: MergeWindow | undefined;
+
+/** @internal — see {@link mergeWindowForTest}. Production MUST NOT call this. */
+export function __getMergeWindowForTest(): unknown {
+  return mergeWindowForTest;
+}
+
 export function boot(): void {
   // The panel ships an empty body; the whole skeleton is DOM-built here
   // (createElement, the repo-wide webview convention).
@@ -953,7 +1127,7 @@ export function boot(): void {
     const message = event.data as Partial<IInitMessage> | undefined;
     if (message && message.type === 'init') {
       try {
-        new MergeWindow(message as IInitMessage);
+        mergeWindowForTest = new MergeWindow(message as IInitMessage);
       } catch (err) {
         logToHost('error', `merge window failed to initialize: ${String(err)}`);
       }
