@@ -111,14 +111,26 @@ describe('Graph load-more — real git, more than one page', function () {
     git('config', 'user.email', 't@t.io');
     git('config', 'user.name', 'T');
     git('config', 'commit.gpgsign', 'false');
-    // 600 empty commits via a single shell process — c1 (oldest) … c600 (newest).
-    execFileSync(
-      'bash',
-      ['-c', `for i in $(seq 1 ${TOTAL}); do git commit --allow-empty -q -m "c$i"; done`],
-      {
-        cwd: dir,
-      }
-    );
+    // 600 empty commits — c1 (oldest) … c600 (newest) — as ONE fast-import
+    // stream: a per-commit `git commit` loop spawns 600 processes, and under
+    // machine load individual spawns can fail silently, leaving a short repo
+    // that surfaces as baffling assertion failures later.
+    const who = 'T <t@t.io> 1700000000 +0000';
+    let stream = '';
+    for (let i = 1; i <= TOTAL; i++) {
+      stream +=
+        `commit HEAD\nmark :${i}\nauthor ${who}\ncommitter ${who}\n` +
+        `data ${`c${i}`.length}\nc${i}\n` +
+        (i > 1 ? `from :${i - 1}\n` : '') +
+        '\n';
+    }
+    execFileSync('git', ['fast-import', '--quiet'], { cwd: dir, input: stream });
+    // Fail loudly at setup if the fixture is short; every assertion below
+    // presumes exactly TOTAL commits.
+    const count = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: dir })
+      .toString()
+      .trim();
+    assert.strictEqual(Number(count), TOTAL, 'fixture must contain every generated commit');
   });
 
   after(() => {
