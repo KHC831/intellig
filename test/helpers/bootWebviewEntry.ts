@@ -38,6 +38,12 @@ export interface IBootWebviewEntryOptions {
   bodyHtml?: string;
   /** Seed `vscode.getState()` before boot (a reload with rehydrated state). */
   initialState?: unknown;
+  /**
+   * Run against the jsdom window AFTER globals are installed but BEFORE the
+   * entry boots — mirrors `runWebviewScript`'s `beforeParse`. For pre-boot
+   * instrumentation (e.g. wrapping `addEventListener` to count registrations).
+   */
+  beforeBoot?: (window: JSDOM['window']) => void;
 }
 
 /**
@@ -78,11 +84,40 @@ export function bootWebviewEntry(
     document: g.document,
     MutationObserver: g.MutationObserver,
     acquireVsCodeApi: g.acquireVsCodeApi,
+    Element: g.Element,
+    Node: g.Node,
+    HTMLElement: g.HTMLElement,
+    requestAnimationFrame: g.requestAnimationFrame,
+    navigator: g.navigator,
   };
   g.window = dom.window;
   g.document = dom.window.document;
+  // `navigator` is a read-only getter on the Node global; redefine it so the
+  // entry's `navigator.clipboard.*` reads the jsdom navigator a test can stub.
+  Object.defineProperty(g, 'navigator', {
+    value: dom.window.navigator,
+    configurable: true,
+    writable: true,
+  });
   g.MutationObserver = dom.window.MutationObserver;
+  // The browser exposes the DOM constructors as globals; mirror them so an
+  // entry's realm-sensitive `instanceof Element` / `instanceof Node` checks
+  // match the jsdom nodes the test dispatches (the module runs in Node's realm
+  // via require, not inside the jsdom window).
+  g.Element = dom.window.Element;
+  g.Node = dom.window.Node;
+  g.HTMLElement = dom.window.HTMLElement;
   g.acquireVsCodeApi = (): unknown => api;
+
+  if (options.beforeBoot) {
+    options.beforeBoot(dom.window);
+  }
+
+  // Mirror `requestAnimationFrame` to the global realm AFTER beforeBoot, so a
+  // test that installs a capturing rAF on the jsdom window is visible to the
+  // entry (which reads the bare global). jsdom omits it by default, so absent a
+  // capture this stays undefined and the entry's `typeof` guard skips the retry.
+  g.requestAnimationFrame = dom.window.requestAnimationFrame;
 
   // The entry self-boots on load; a cache-busted require re-runs it against the
   // globals + init island just seeded (matching how the bundle boots in the page).
@@ -107,6 +142,15 @@ export function bootWebviewEntry(
       g.document = saved.document;
       g.MutationObserver = saved.MutationObserver;
       g.acquireVsCodeApi = saved.acquireVsCodeApi;
+      g.Element = saved.Element;
+      g.Node = saved.Node;
+      g.HTMLElement = saved.HTMLElement;
+      g.requestAnimationFrame = saved.requestAnimationFrame;
+      Object.defineProperty(g, 'navigator', {
+        value: saved.navigator,
+        configurable: true,
+        writable: true,
+      });
       dom.window.close();
     },
   };

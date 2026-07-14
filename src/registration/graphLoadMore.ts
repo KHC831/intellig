@@ -6,7 +6,7 @@ import type { IRepository } from '../git-core/interfaces/IGitService';
  * window commit graph.
  *
  * The webview posts `loadMoreCommits` when the user scrolls near the bottom
- * (scriptBuilder); the provider re-fires it as `onDidRequestLoadMoreCommits`.
+ * (the gitToolWindow entry); the provider re-fires it as `onDidRequestLoadMoreCommits`.
  * This module supplies the subscriber: a small state machine that tracks the
  * active repo/filter + current display limit and grows the limit by one page
  * on each load-more, re-running the same scoped load.

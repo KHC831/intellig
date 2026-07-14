@@ -20,7 +20,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommit } from '../../../src/git-core/interfaces/IGitService';
-import { buildInlineScript } from '../../../src/git-core/gitToolWindow/provider/scriptBuilder';
 import { Uri, Memento } from '../../mocks/vscode';
 
 /**
@@ -651,9 +650,12 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
     // If a future change emits a message with no handler case (an orphan), the
     // subset assertion below reds.
 
-    /** Extract the message types the inline client script posts to the host. */
+    /** Extract the message types the client entry posts to the host. */
     function emittedMessageTypes(): Set<string> {
-      const script = buildInlineScript();
+      const script = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+        'utf8'
+      );
       const types = new Set<string>();
       const re = /type:\s*'([\w.]+)'/g;
       let m: RegExpExecArray | null;

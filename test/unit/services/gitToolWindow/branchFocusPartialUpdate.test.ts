@@ -15,34 +15,24 @@
 
 import '../../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
-import { buildInlineScript } from '../../../../src/git-core/gitToolWindow/provider/scriptBuilder';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../../helpers/bootWebviewEntry';
 
-/**
- * Boot a jsdom document carrying one chip of each branch-chip kind, then
- * execute the real inline script against it.
- */
-function bootDom(): { window: JSDOM['window']; document: Document } {
-  const dom = new JSDOM(
-    `<!doctype html><html><body>
-      <div class="graph-panel" aria-multiselectable="true" data-selected-count="0">
-        <span class="branch-label-head" data-branch-name="main"><i class="codicon codicon-git-branch"></i>main</span>
-        <span class="branch-label-local" data-branch-name="feature"><i class="codicon codicon-git-branch"></i>feature</span>
-        <span class="branch-label-remote" data-branch-name="origin/main"><i class="codicon codicon-git-branch"></i>origin/main</span>
-      </div>
-    </body></html>`,
-    { runScripts: 'outside-only', pretendToBeVisual: true }
-  );
-  (dom.window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: () => undefined,
-    getState: () => undefined,
-    setState: () => undefined,
-  });
-  dom.window.eval(buildInlineScript());
-  return { window: dom.window, document: dom.window.document };
+const BODY = `
+  <div class="graph-panel" aria-multiselectable="true" data-selected-count="0">
+    <span class="branch-label-head" data-branch-name="main"><i class="codicon codicon-git-branch"></i>main</span>
+    <span class="branch-label-local" data-branch-name="feature"><i class="codicon codicon-git-branch"></i>feature</span>
+    <span class="branch-label-remote" data-branch-name="origin/main"><i class="codicon codicon-git-branch"></i>origin/main</span>
+  </div>`;
+
+let harness: IWebviewEntryHarness;
+
+/** Boot the entry over one chip of each branch-chip kind. */
+function bootDom(): { window: IWebviewEntryHarness['window']; document: Document } {
+  harness = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', { bodyHtml: BODY });
+  return { window: harness.window, document: harness.document };
 }
 
-function postFocus(window: JSDOM['window'], focusedBranchName: string | null): void {
+function postFocus(window: IWebviewEntryHarness['window'], focusedBranchName: string | null): void {
   const evt = new window.MessageEvent('message', {
     data: { type: 'updateBranchFocus', focusedBranchName, focusedHash: null },
   });
@@ -50,6 +40,12 @@ function postFocus(window: JSDOM['window'], focusedBranchName: string | null): v
 }
 
 describe('Branch-focus partial-update — updateBranchFocus DOM toggle', () => {
+  afterEach(() => {
+    if (harness) {
+      harness.dispose();
+    }
+  });
+
   it('adds branch-label-focused to the CURRENT-branch (.branch-label-head) chip when it is focused', () => {
     const { window, document } = bootDom();
     const headChip = document.querySelector('.branch-label-head')!;

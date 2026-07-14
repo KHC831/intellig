@@ -46,6 +46,7 @@ const PANEL_ENTRIES = [
   { in: join(root, 'src/rebase/webview/rebaseEditor.ts'), out: 'rebaseEditor' },
   { in: join(root, 'src/commits/webview/commitDialog.ts'), out: 'commitDialog' },
   { in: join(root, 'src/commits/webview/commitToolWindow.ts'), out: 'commitToolWindow' },
+  { in: join(root, 'src/git-core/gitToolWindow/webview/gitToolWindow.ts'), out: 'gitToolWindow' },
 ];
 
 const configs = [

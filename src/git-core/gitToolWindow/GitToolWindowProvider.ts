@@ -62,7 +62,6 @@ import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs
 import { createUpdateInfoTabHandler, UpdateInfoTab } from './tabs/UpdateInfoTab';
 import type { IUpdateInfoSummary } from '../../sync/updateProject';
 import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
-import { buildInlineScript } from './provider/scriptBuilder';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
 import {
@@ -80,6 +79,7 @@ import {
   getFileStatusColor,
 } from './provider/htmlBuilders';
 import { buildWebviewCsp } from '../../utils/webviewCsp';
+import { initIslandHtml } from '../../utils/webviewInit';
 import {
   buildDetailsPanelModel,
   buildDetailsPanelPlaceholderModel,
@@ -3652,11 +3652,12 @@ export class GitToolWindowProvider
 </head>
 <body>
 ${bodyMarkup}
+${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDetailsModel })}
 
+  <script nonce="${nonce}" src="${webview
+    .asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'gitToolWindow.js'))
+    .toString()}"></script>
   <script nonce="${nonce}">
-    window.__intelligInitialDetails = ${JSON.stringify(detailsPanelModel).replace(/</g, '\\u003c')};
-    window.__intelligHistoryDetails = ${JSON.stringify(historyDetailsModel).replace(/</g, '\\u003c')};
-    ${this._getInlineScript()}
     ${this._getDividerDragScript()}
     ${this._getColumnResizeScript()}
   </script>
@@ -4786,17 +4787,6 @@ ${bodyMarkup}
    */
   private _getInlineStyles(): string {
     return buildInlineStyles();
-  }
-
-  /**
-   * Inline `<script>` source for the webview.
-   *
-   * Thin forwarder to {@link buildInlineScript} (in provider/scriptBuilder.ts),
-   * kept as an instance method because a test reaches it by name on the
-   * provider instance.
-   */
-  private _getInlineScript(): string {
-    return buildInlineScript();
   }
 
   /**

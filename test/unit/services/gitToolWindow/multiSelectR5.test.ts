@@ -285,6 +285,7 @@ describe('Wave A R5 — final review fixes', () => {
       // currently holds it; absent files are tolerated (the other supplies
       // the source).
       const candidatePaths = [
+        'src/git-core/gitToolWindow/webview/gitToolWindow.ts',
         'src/git-core/gitToolWindow/GitToolWindowProvider.ts',
         'src/git-core/gitToolWindow/provider/scriptBuilder.ts',
       ];

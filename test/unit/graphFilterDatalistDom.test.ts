@@ -14,19 +14,14 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
-import { Uri, Webview } from '../mocks/vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
-function createMockWebview(): Webview {
-  return {
-    html: '',
-    options: {},
-    cspSource: 'https://mock.csp.source',
-    onDidReceiveMessage: () => ({ dispose: () => {} }),
-    postMessage: () => Promise.resolve(true),
-    asWebviewUri: (uri: Uri) => uri,
-  } as unknown as Webview;
-}
+/** Source of the bundled Git tool-window client entry (logFilterOptionsReady lives here). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
   const match = headerPattern.exec(body);
@@ -52,24 +47,13 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
   return null;
 }
 
-describe('GitToolWindowProvider - Branch popup items built via createElement (DOM migration)', () => {
-  let provider: GitToolWindowProvider;
+describe('git tool-window entry - Branch popup items built via createElement (DOM migration)', () => {
   let block: string;
 
   beforeEach(() => {
-    const extensionUri = Uri.file('/test/extension');
-    provider = new GitToolWindowProvider(extensionUri);
-    const html = provider._getThreePanelHtmlContent(
-      createMockWebview() as unknown as import('vscode').Webview,
-      []
-    );
-    const b = extractBlockAfter(html, /message\.type === 'logFilterOptionsReady'/);
-    assert.ok(b, 'rendered inline script must contain a logFilterOptionsReady handler');
+    const b = extractBlockAfter(ENTRY_SOURCE, /message\.type === 'logFilterOptionsReady'/);
+    assert.ok(b, 'rendered client entry must contain a logFilterOptionsReady handler');
     block = b;
-  });
-
-  afterEach(() => {
-    provider.dispose();
   });
 
   it('builds Branch popup items via document.createElement', () => {

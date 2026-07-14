@@ -28,11 +28,15 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
-import { buildInlineScript } from '../../src/git-core/gitToolWindow/provider/scriptBuilder';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../helpers/bootWebviewEntry';
 
+/** The entry persists graphScrollTop under a versioned `{v,data}` slot envelope. */
+interface ScrollEnvelope {
+  v: number;
+  data: number;
+}
 interface WebviewState {
-  graphScrollTop?: number;
+  graphScrollTop?: ScrollEnvelope;
   [k: string]: unknown;
 }
 
@@ -41,83 +45,80 @@ interface BootOptions {
   preserveScroll: boolean;
   /** Stamp `data-scroll-to-commit` so the explicit-jump path takes priority. */
   scrollToCommit?: string;
-  initialState?: WebviewState;
+  /** Raw initial state; a numeric `graphScrollTop` is wrapped in the slot envelope. */
+  initialState?: { graphScrollTop?: number; [k: string]: unknown };
   /**
    * Provide a `requestAnimationFrame` that records callbacks instead of running
    * them, so a test can assert the deferred re-apply and fire it on demand. When
-   * absent, no rAF global is defined (the script must guard on `typeof`).
+   * absent, no rAF global is defined (the entry must guard on `typeof`).
    */
   captureRaf?: boolean;
 }
 
+const rafCallbacks: Array<() => void> = [];
+
 /**
- * Boot the inline script in jsdom with a single `.graph-panel`, a recording
- * `scrollTop` accessor, and a stubbed webview state. The restore IIFE runs at
- * script-eval time, so the panel's attributes and the initial state must be in
- * place BEFORE eval.
+ * Boot the entry in jsdom with a single `.graph-panel`, a recording `scrollTop`
+ * accessor, and a stubbed webview state. The restore runs at boot, so the
+ * panel's attributes and the initial state must be in place BEFORE boot.
  */
 function boot(opts: BootOptions): {
-  window: JSDOM['window'];
+  harness: IWebviewEntryHarness;
+  window: IWebviewEntryHarness['window'];
   panel: HTMLElement;
   getScrollTop: () => number;
-  state: WebviewState;
+  state: () => WebviewState;
   flushRaf: () => void;
 } {
+  rafCallbacks.length = 0;
+  let scrollTopVal = 0;
   const preserveAttr = opts.preserveScroll ? ' data-preserve-scroll="true"' : '';
   const scrollToCommitAttr = opts.scrollToCommit
     ? ` data-scroll-to-commit="${opts.scrollToCommit}"`
     : '';
-  const dom = new JSDOM(
-    `<!doctype html><html><body>` +
-      `<div class="graph-panel" data-loaded-count="0" data-total-available="0"` +
-      `${preserveAttr}${scrollToCommitAttr}></div>` +
-      `</body></html>`,
-    { runScripts: 'outside-only' }
-  );
-  const window = dom.window;
-  const panel = window.document.querySelector('.graph-panel') as HTMLElement;
 
-  // jsdom doesn't lay out, so scrollTop is a no-op number; back it with an
-  // accessor that actually records reads/writes.
-  let scrollTopVal = 0;
-  Object.defineProperty(panel, 'scrollTop', {
-    get: () => scrollTopVal,
-    set: (v: number) => {
-      scrollTopVal = v;
-    },
-    configurable: true,
-  });
-
-  const rafCallbacks: Array<() => void> = [];
-  if (opts.captureRaf) {
-    (
-      window as unknown as { requestAnimationFrame: (cb: () => void) => number }
-    ).requestAnimationFrame = (cb: () => void): number => {
-      rafCallbacks.push(cb);
-      return rafCallbacks.length;
-    };
+  // Wrap a numeric graphScrollTop into the WebviewStateSlot `{v,data}` envelope.
+  const rawInit = { ...(opts.initialState ?? {}) };
+  const seedState: Record<string, unknown> = { ...rawInit };
+  if (typeof rawInit.graphScrollTop === 'number') {
+    seedState.graphScrollTop = { v: 1, data: rawInit.graphScrollTop };
   }
 
-  const state: WebviewState = { ...(opts.initialState ?? {}) };
-  const api = {
-    postMessage: (): void => {},
-    // VS Code hands back a fresh object each call (structured-clone), never the
-    // live ref — return a copy so the script's read→mutate→setState merge works.
-    getState: (): WebviewState => ({ ...state }),
-    setState: (s: WebviewState): void => {
-      Object.keys(state).forEach((k) => delete state[k]);
-      Object.assign(state, s);
+  const harness = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+    bodyHtml:
+      `<div class="graph-panel" data-loaded-count="0" data-total-available="0"` +
+      `${preserveAttr}${scrollToCommitAttr}></div>`,
+    initialState: seedState,
+    beforeBoot: (window) => {
+      const panel = window.document.querySelector('.graph-panel') as HTMLElement;
+      // jsdom doesn't lay out, so scrollTop is a no-op number; back it with an
+      // accessor that actually records reads/writes.
+      Object.defineProperty(panel, 'scrollTop', {
+        get: () => scrollTopVal,
+        set: (v: number) => {
+          scrollTopVal = v;
+        },
+        configurable: true,
+      });
+      if (opts.captureRaf) {
+        (
+          window as unknown as { requestAnimationFrame: (cb: () => void) => number }
+        ).requestAnimationFrame = (cb: () => void): number => {
+          rafCallbacks.push(cb);
+          return rafCallbacks.length;
+        };
+      }
     },
-  };
-  (window as unknown as { acquireVsCodeApi: () => typeof api }).acquireVsCodeApi = () => api;
+  });
 
-  window.eval(buildInlineScript());
+  const panel = harness.document.querySelector('.graph-panel') as HTMLElement;
 
   return {
-    window,
+    harness,
+    window: harness.window,
     panel,
     getScrollTop: () => scrollTopVal,
-    state,
+    state: () => (harness.readState() ?? {}) as WebviewState,
     flushRaf: () => {
       const pending = rafCallbacks.splice(0);
       pending.forEach((cb) => cb());
@@ -125,25 +126,42 @@ function boot(opts: BootOptions): {
   };
 }
 
-describe('Git tool window inline script — load-more scroll restore (jsdom)', () => {
+describe('Git tool window entry — load-more scroll restore (jsdom)', () => {
+  const booted: IWebviewEntryHarness[] = [];
+  const track = <T extends { harness: IWebviewEntryHarness }>(b: T): T => {
+    booted.push(b.harness);
+    return b;
+  };
+
+  afterEach(() => {
+    // Dispose in reverse (LIFO) so each restores the globals its predecessor set.
+    while (booted.length) {
+      booted.pop()!.dispose();
+    }
+  });
+
   it('persists the graph-panel scrollTop to webview state on scroll (merging existing keys)', () => {
-    const { window, panel, state } = boot({
-      preserveScroll: true,
-      initialState: { unrelated: 'keep-me' },
-    });
+    const { window, panel, state } = track(
+      boot({
+        preserveScroll: true,
+        initialState: { unrelated: 'keep-me' },
+      })
+    );
 
     panel.scrollTop = 742; // user scrolled
     panel.dispatchEvent(new window.Event('scroll'));
 
-    assert.strictEqual(state.graphScrollTop, 742, 'scrollTop is saved to webview state');
-    assert.strictEqual(state.unrelated, 'keep-me', 'existing state keys are preserved');
+    assert.strictEqual(state().graphScrollTop?.data, 742, 'scrollTop is saved to webview state');
+    assert.strictEqual(state().unrelated, 'keep-me', 'existing state keys are preserved');
   });
 
   it('restores the saved scrollTop on a preserve render (the default)', () => {
-    const { getScrollTop } = boot({
-      preserveScroll: true,
-      initialState: { graphScrollTop: 1234 },
-    });
+    const { getScrollTop } = track(
+      boot({
+        preserveScroll: true,
+        initialState: { graphScrollTop: 1234 },
+      })
+    );
 
     assert.strictEqual(
       getScrollTop(),
@@ -153,37 +171,41 @@ describe('Git tool window inline script — load-more scroll restore (jsdom)', (
   });
 
   it('does NOT restore on a navigational render (no attribute) — stays at the top', () => {
-    const { getScrollTop } = boot({
-      preserveScroll: false,
-      initialState: { graphScrollTop: 1234 },
-    });
+    const { getScrollTop } = track(
+      boot({
+        preserveScroll: false,
+        initialState: { graphScrollTop: 1234 },
+      })
+    );
 
     assert.strictEqual(getScrollTop(), 0, 'a navigational (repo/filter) render starts at the top');
   });
 
   it('clears the stale saved position on a navigational render so the next render starts at top', () => {
-    const { state } = boot({
-      preserveScroll: false,
-      initialState: { graphScrollTop: 1234, unrelated: 'keep-me' },
-    });
+    const { state } = track(
+      boot({
+        preserveScroll: false,
+        initialState: { graphScrollTop: 1234, unrelated: 'keep-me' },
+      })
+    );
 
     assert.strictEqual(
-      state.graphScrollTop,
+      state().graphScrollTop?.data,
       0,
       'the navigational render wipes the now-stale scroll so an incidental re-render restores top'
     );
-    assert.strictEqual(state.unrelated, 'keep-me', 'other state keys survive the reset');
+    assert.strictEqual(state().unrelated, 'keep-me', 'other state keys survive the reset');
   });
 
   it('preserves scroll across an incidental render right after load-more (the dogfood regression)', () => {
     // Render 1: load-more (preserve) restores the saved position.
-    const first = boot({ preserveScroll: true, initialState: { graphScrollTop: 980 } });
+    const first = track(boot({ preserveScroll: true, initialState: { graphScrollTop: 980 } }));
     assert.strictEqual(first.getScrollTop(), 980, 'load-more render restores scroll');
 
     // Render 2: the cherry-mark update is ALSO a preserve render (preserve is
     // the default now), so it restores again instead of snapping to top. The
     // saved position is untouched by render 1, so the value is still there.
-    const second = boot({ preserveScroll: true, initialState: { graphScrollTop: 980 } });
+    const second = track(boot({ preserveScroll: true, initialState: { graphScrollTop: 980 } }));
     assert.strictEqual(
       second.getScrollTop(),
       980,
@@ -192,11 +214,13 @@ describe('Git tool window inline script — load-more scroll restore (jsdom)', (
   });
 
   it('does not let the preserve-restore override an explicit data-scroll-to-commit render', () => {
-    const { getScrollTop } = boot({
-      preserveScroll: true,
-      scrollToCommit: 'abc123',
-      initialState: { graphScrollTop: 1234 },
-    });
+    const { getScrollTop } = track(
+      boot({
+        preserveScroll: true,
+        scrollToCommit: 'abc123',
+        initialState: { graphScrollTop: 1234 },
+      })
+    );
 
     // The explicit jump-to-commit path (autoScrollOnLoad) owns the scroll; the
     // restore must bail so it doesn't clobber it back to the saved position.
@@ -208,13 +232,15 @@ describe('Git tool window inline script — load-more scroll restore (jsdom)', (
   });
 
   it('re-applies the restore on the next animation frame so it survives the first layout pass', () => {
-    const { panel, getScrollTop, flushRaf } = boot({
-      preserveScroll: true,
-      initialState: { graphScrollTop: 555 },
-      captureRaf: true,
-    });
+    const { panel, getScrollTop, flushRaf } = track(
+      boot({
+        preserveScroll: true,
+        initialState: { graphScrollTop: 555 },
+        captureRaf: true,
+      })
+    );
 
-    // Immediate restore happened at parse time.
+    // Immediate restore happened at boot time.
     assert.strictEqual(getScrollTop(), 555, 'restore applies synchronously');
 
     // Simulate the real webview clamping/resetting scrollTop before layout.
@@ -228,10 +254,12 @@ describe('Git tool window inline script — load-more scroll restore (jsdom)', (
   });
 
   it('does not restore a zero/absent saved position (no spurious scroll)', () => {
-    const { getScrollTop } = boot({
-      preserveScroll: true,
-      initialState: {},
-    });
+    const { getScrollTop } = track(
+      boot({
+        preserveScroll: true,
+        initialState: {},
+      })
+    );
     assert.strictEqual(getScrollTop(), 0, 'no saved position → nothing to restore');
   });
 });

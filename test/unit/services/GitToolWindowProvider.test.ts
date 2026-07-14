@@ -4,6 +4,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { isLogContextAction } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
 import { computeMenuVisibility } from '../../../src/git-core/gitToolWindow/multiSelect';
@@ -11,6 +13,12 @@ import { EventEmitter, Uri, Webview, setMockConfigValue } from '../../mocks/vsco
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import type { ICommitNode, IBranchRef } from '../../../src/git-core/commitGraph';
 import type { IRemoteUrl } from '../../../src/utils/remoteUrl';
+
+/** Source of the bundled Git tool-window client entry (was `_getInlineScript()`). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 /**
  * Test-surface reaching into {@link GitToolWindowProvider}'s private
@@ -1762,21 +1770,19 @@ describe('Multi-Repository Selection State', () => {
       assert.ok(html.includes('&lt;em&gt;'), 'contains the escaped tag');
     });
 
-    it('wires repo-subset selection (selectRepositories / toggleRepoCheckbox) via the inline script', () => {
-      const inlineScript = (
-        provider as unknown as { _getInlineScript: () => string }
-      )._getInlineScript();
+    it('wires repo-subset selection (selectRepositories / toggleRepoCheckbox) via the entry', () => {
+      const inlineScript = ENTRY_SOURCE;
       assert.ok(
         inlineScript.includes('selectRepositories'),
-        'inline script posts the selectRepositories message type'
+        'entry posts the selectRepositories message type'
       );
       assert.ok(
         inlineScript.includes('toggleRepoCheckbox'),
-        'inline script handles the repo-checkbox action'
+        'entry handles the repo-checkbox action'
       );
       assert.ok(
         inlineScript.includes('toggleAllRepos'),
-        'inline script handles the All-repositories reset'
+        'entry handles the All-repositories reset'
       );
     });
 
@@ -1971,23 +1977,21 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('scriptBuilder posts the repo-checkbox subset (Repository popup)', () => {
+  describe('the entry posts the repo-checkbox subset (Repository popup)', () => {
     it('collects the checked repo roots and posts a selectRepositories message', () => {
-      const inlineScript = (
-        provider as unknown as { _getInlineScript: () => string }
-      )._getInlineScript();
+      const inlineScript = ENTRY_SOURCE;
 
       assert.ok(
         inlineScript.includes("type: 'selectRepositories'"),
-        'inline script must post the selectRepositories message'
+        'entry must post the selectRepositories message'
       );
       assert.ok(
         inlineScript.includes('input[data-repo-root]'),
-        'inline script must read the repo-root checkboxes'
+        'entry must read the repo-root checkboxes'
       );
       assert.ok(
         inlineScript.includes('toggleAllRepos'),
-        'inline script must mirror the All-repositories reset onto every checkbox'
+        'entry must mirror the All-repositories reset onto every checkbox'
       );
     });
   });

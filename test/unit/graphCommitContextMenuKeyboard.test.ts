@@ -1,6 +1,6 @@
 /**
  * Runtime (jsdom) regression test for the keyboard ContextMenu-key redirect
- * in the Git tool window inline script.
+ * in the Git tool window entry.
  *
  * The keyboard `ContextMenu` key on a focused commit row must call the LIVE
  * `showCommitContextMenu` (which reveals the rendered `#commit-context-menu`),
@@ -11,35 +11,31 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
-import { buildInlineScript } from '../../src/git-core/gitToolWindow/provider/scriptBuilder';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../helpers/bootWebviewEntry';
 
-describe('Git tool window inline script — keyboard ContextMenu key (W1, jsdom)', () => {
+describe('Git tool window entry — keyboard ContextMenu key (W1, jsdom)', () => {
+  let h: IWebviewEntryHarness;
+
+  afterEach(() => {
+    if (h) {
+      h.dispose();
+    }
+  });
+
   it('opens the LIVE commit-context-menu (not the removed log menu) on the ContextMenu key', () => {
-    const dom = new JSDOM(
-      `<!doctype html><html><body>` +
+    h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+      bodyHtml:
         `<div class="graph-panel">` +
         `<div class="commit-row" data-hash="abc1234567890" tabindex="0"></div>` +
         `</div>` +
-        `<div id="commit-context-menu" class="commit-context-menu context-menu" hidden></div>` +
-        `</body></html>`,
-      { runScripts: 'outside-only' }
-    );
-    const window = dom.window;
-    (window as unknown as { acquireVsCodeApi: () => Record<string, () => void> }).acquireVsCodeApi =
-      () => ({
-        postMessage: () => {},
-        getState: () => {},
-        setState: () => {},
-      });
+        `<div id="commit-context-menu" class="commit-context-menu context-menu" hidden></div>`,
+    });
 
-    window.eval(buildInlineScript());
-
-    const row = window.document.querySelector('.commit-row') as HTMLElement;
-    const menu = window.document.getElementById('commit-context-menu') as HTMLElement;
+    const row = h.document.querySelector('.commit-row') as HTMLElement;
+    const menu = h.document.getElementById('commit-context-menu') as HTMLElement;
     assert.strictEqual(menu.hidden, true, 'menu starts hidden');
 
-    row.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }));
+    row.dispatchEvent(new h.window.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }));
 
     assert.strictEqual(
       menu.hidden,

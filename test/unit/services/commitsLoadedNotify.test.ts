@@ -15,9 +15,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
-import { buildInlineScript } from '../../../src/git-core/gitToolWindow/provider/scriptBuilder';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { Uri } from '../../mocks/vscode';
 
 describe('GitToolWindowProvider.notifyCommitsLoaded — host post', () => {
@@ -46,35 +45,30 @@ describe('GitToolWindowProvider.notifyCommitsLoaded — host post', () => {
   });
 });
 
-describe('Inline script — commitsLoaded re-arms the load-more debounce (jsdom)', () => {
+describe('Entry — commitsLoaded re-arms the load-more debounce (jsdom)', () => {
+  let h: IWebviewEntryHarness;
+
+  afterEach(() => {
+    if (h) {
+      h.dispose();
+    }
+  });
+
   it('a second near-bottom scroll fires loadMoreCommits again only after commitsLoaded', () => {
-    const dom = new JSDOM(
-      `<!doctype html><html><body>` +
-        `<div class="graph-panel" data-loaded-count="10" data-total-available="100"></div>` +
-        `</body></html>`,
-      { runScripts: 'outside-only' }
-    );
-    const window = dom.window;
-    const panel = window.document.querySelector('.graph-panel') as HTMLElement;
+    h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+      bodyHtml: `<div class="graph-panel" data-loaded-count="10" data-total-available="100"></div>`,
+    });
+    const window = h.window;
+    const panel = h.document.querySelector('.graph-panel') as HTMLElement;
 
-    const postedTypes: string[] = [];
-    const api = {
-      postMessage: (msg: { type: string }): void => {
-        postedTypes.push(msg.type);
-      },
-      getState: () => ({}),
-      setState: (): void => {},
-    };
-    (window as unknown as { acquireVsCodeApi: () => typeof api }).acquireVsCodeApi = () => api;
-
-    // Seed geometry so a scroll lands within 50px of the bottom with more to load.
+    // Seed geometry so a scroll lands within 50px of the bottom with more to
+    // load (read by the entry's scroll handler when the event fires).
     Object.defineProperty(panel, 'scrollTop', { value: 1000, configurable: true });
     Object.defineProperty(panel, 'scrollHeight', { value: 1050, configurable: true });
     Object.defineProperty(panel, 'clientHeight', { value: 50, configurable: true });
 
-    window.eval(buildInlineScript());
-
-    const loadMoreCount = (): number => postedTypes.filter((t) => t === 'loadMoreCommits').length;
+    const loadMoreCount = (): number =>
+      h.posted.filter((m) => (m as { type?: string }).type === 'loadMoreCommits').length;
     const fireScroll = (): void => {
       panel.dispatchEvent(new window.Event('scroll'));
     };
@@ -87,7 +81,7 @@ describe('Inline script — commitsLoaded re-arms the load-more debounce (jsdom)
     assert.strictEqual(loadMoreCount(), 1, 'debounce blocks a second request until the page loads');
 
     // Host signals the page rendered → debounce re-arms.
-    window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'commitsLoaded' } }));
+    h.post({ type: 'commitsLoaded' });
 
     fireScroll();
     assert.strictEqual(loadMoreCount(), 2, 'after commitsLoaded the next scroll requests again');

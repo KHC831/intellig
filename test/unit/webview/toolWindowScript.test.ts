@@ -1,19 +1,22 @@
 /**
- * Webview client-script test — the Git tool-window inline script
- * (`buildInlineScript`). Runs the actual browser-side script under jsdom and
- * asserts it loads without throwing and tolerates extension→webview messages
- * without throwing. This is the layer that catches "the webview script threw"
- * regressions (e.g. a createElement-migration slip), which are invisible to
- * every other test lane.
+ * Webview client-script test — the Git tool-window bundled entry
+ * (`git-core/gitToolWindow/webview/gitToolWindow`). Boots the actual browser-side
+ * entry under jsdom and asserts it loads without throwing and tolerates
+ * extension→webview messages without throwing. This is the layer that catches
+ * "the webview script threw" regressions (e.g. a createElement-migration slip),
+ * which are invisible to every other test lane.
  */
 
 import '../../setup';
 import * as assert from 'assert';
-import { buildInlineScript } from '../../../src/git-core/gitToolWindow/provider/scriptBuilder';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import * as fs from 'fs';
+import * as path from 'path';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 
-describe('webview: git tool-window inline script (jsdom)', () => {
-  let h: IWebviewHarness;
+const ENTRY = 'git-core/gitToolWindow/webview/gitToolWindow';
+
+describe('webview: git tool-window entry (jsdom)', () => {
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -22,18 +25,18 @@ describe('webview: git tool-window inline script (jsdom)', () => {
   });
 
   it('loads without throwing a script error', () => {
-    h = runWebviewScript(buildInlineScript());
+    h = bootWebviewEntry(ENTRY);
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
       [],
-      'the tool-window script must parse and run without errors'
+      'the tool-window entry must parse and run without errors'
     );
   });
 
   it('handles representative extension→webview messages without throwing', () => {
-    h = runWebviewScript(buildInlineScript());
+    h = bootWebviewEntry(ENTRY);
 
-    // A spread of message shapes the script dispatches on. The point is that
+    // A spread of message shapes the entry dispatches on. The point is that
     // none of them throws (the handler chain is defensive), not that each
     // renders specific DOM — that is asserted per-message elsewhere.
     const messages: unknown[] = [
@@ -58,12 +61,15 @@ describe('webview: git tool-window inline script (jsdom)', () => {
   it('escapes every interpolated hash in a [data-hash] selector via cssEscapeHash', () => {
     // A host SHA spliced raw into '[data-hash="' + hash + '"]' would throw a
     // SyntaxError / mis-select if it ever contained a quote. Every such selector
-    // must route the value through the script's cssEscapeHash helper (which
+    // must route the value through the entry's cssEscapeHash helper (which
     // prefers the native CSS.escape and falls back when the global CSS is
     // absent), so a malformed value degrades to "no match", not a thrown
     // querySelector.
-    const script = buildInlineScript();
-    const matches = [...script.matchAll(/\[data-hash="'\s*\+\s*([\s\S]+?)\s*\+\s*'"\]/g)];
+    const entrySource = fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', 'src', ENTRY + '.ts'),
+      'utf8'
+    );
+    const matches = [...entrySource.matchAll(/\[data-hash="'\s*\+\s*([\s\S]+?)\s*\+\s*'"\]/g)];
     assert.ok(
       matches.length >= 5,
       `sanity: expected several data-hash selectors, got ${matches.length}`

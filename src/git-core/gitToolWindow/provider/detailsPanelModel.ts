@@ -3,8 +3,8 @@
  *
  * Part of the string→DOM webview migration: instead of the host building a
  * Details-Panel HTML string and the webview assigning it via `innerHTML`, the
- * host precomputes a plain JSON model and the inline script builds the DOM via
- * createElement (see `scriptBuilder.buildDetailsPanelDom`). Everything a
+ * host precomputes a plain JSON model and the webview entry builds the DOM via
+ * createElement (see `webview/detailsPanelDom.buildDetailsPanelDom`). Everything a
  * hostile commit message / path / author could carry crosses as data
  * (postMessage structured clone + textContent / element props), so the panel is
  * injection-proof without a host-side escape pass.

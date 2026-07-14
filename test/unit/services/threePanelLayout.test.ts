@@ -10,6 +10,13 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../../src/services/interfaces';
 import { Uri, Webview } from '../../mocks/vscode';
+import { bootWebviewEntry } from '../../helpers/bootWebviewEntry';
+
+/** Inner HTML of the assembled document's `<body>` (island + panels + tags). */
+function bodyOf(html: string): string {
+  const match = /<body>([\s\S]*)<\/body>/.exec(html);
+  return match ? match[1] : html;
+}
 
 /**
  * Helper to create minimal commit details.
@@ -211,15 +218,24 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
     });
 
     it('should render details placeholder when no commit details provided', () => {
+      // The details panel is now filled client-side from the init island; boot
+      // the entry over the assembled body and assert the placeholder renders.
       const html = provider._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
         []
       );
-
-      assert.ok(
-        html.includes('Select a commit to view details'),
-        'Should show placeholder when no commit selected'
-      );
+      const h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+        bodyHtml: bodyOf(html),
+      });
+      try {
+        const details = h.document.getElementById('details-panel');
+        assert.ok(
+          details && details.textContent?.includes('Select a commit to view details'),
+          'Should show placeholder when no commit selected'
+        );
+      } finally {
+        h.dispose();
+      }
     });
 
     it('should render commit details when provided', () => {

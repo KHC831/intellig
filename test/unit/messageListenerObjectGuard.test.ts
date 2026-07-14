@@ -18,19 +18,14 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
-import { Uri, Webview } from '../mocks/vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
-function createMockWebview(): Webview {
-  return {
-    html: '',
-    options: {},
-    cspSource: 'https://mock.csp.source',
-    onDidReceiveMessage: () => ({ dispose: () => {} }),
-    postMessage: () => Promise.resolve(true),
-    asWebviewUri: (uri: Uri) => uri,
-  } as unknown as Webview;
-}
+/** Source of the bundled Git tool-window client entry (the message listeners live here). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 /**
  * Extract a brace-matched block beginning at the first `{` after the header
@@ -65,18 +60,8 @@ function extractBlockAfter(body: string, headerPattern: RegExp, startFrom = 0): 
 const OBJECT_GUARD =
   /if\s*\(\s*!message\s*\|\|\s*typeof\s+message\s*!==\s*['"]object['"]\s*\)\s*\{\s*return\s*;?\s*\}/;
 
-describe('scriptBuilder inline webview - message listener object-check guards', () => {
-  let html: string;
-
-  before(() => {
-    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
-    const mockWebview = createMockWebview();
-    html = provider._getThreePanelHtmlContent(
-      mockWebview as unknown as import('vscode').Webview,
-      []
-    );
-    provider.dispose();
-  });
+describe('git tool-window client entry - message listener object-check guards', () => {
+  const html = ENTRY_SOURCE;
 
   it('main message listener (scrollToCommit / selectGraphRow handler) has object guard', () => {
     // Extract the callback of the first window.addEventListener('message', ...)

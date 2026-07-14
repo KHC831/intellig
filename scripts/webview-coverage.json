@@ -2,9 +2,9 @@
   "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer \u2014 invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' \u2014 the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet \u2014 printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
   "statuses": ["tested", "backlog"],
   "files": {
-    "src/git-core/gitToolWindow/provider/scriptBuilder.ts": {
+    "src/git-core/gitToolWindow/webview/gitToolWindow.ts": {
       "status": "tested",
-      "note": "buildInlineScript run in jsdom (toolWindowScript.test.ts)"
+      "note": "bundled Git tool-window entry booted in jsdom over the three-panel body + #intellig-init island; log-filter popups, commit-row select/range-select, menu enable-map, scroll/load-more, commit + ref context menus, updateDetailsPanel (toolWindowScript.test.ts, gitToolWindowProviderScript.test.ts, historyTabIntegration.test.ts, branchFilterSelectorDom + graph* + refPopup + branchFocus/multiSelect suites)"
     },
     "src/git-core/gitToolWindow/html/commonHtml.ts": {
       "status": "tested",

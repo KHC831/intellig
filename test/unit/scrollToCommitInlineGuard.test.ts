@@ -17,22 +17,17 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
-import { Uri, Webview } from '../mocks/vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
- * Create a mock Webview object for rendering the full inline-script HTML.
+ * Source of the bundled Git tool-window client entry — the scroll functions the
+ * provider used to inline now live here.
  */
-function createMockWebview(): Webview {
-  return {
-    html: '',
-    options: {},
-    cspSource: 'https://mock.csp.source',
-    onDidReceiveMessage: () => ({ dispose: () => {} }),
-    postMessage: () => Promise.resolve(true),
-    asWebviewUri: (uri: Uri) => uri,
-  } as unknown as Webview;
-}
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 /**
  * Extract a brace-matched block beginning at the first `{` after the header
@@ -94,29 +89,14 @@ function extractScrollToCommitBody(html: string): string {
 }
 
 describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () => {
-  let provider: GitToolWindowProvider;
-  let mockWebview: Webview;
-  let html: string;
   let scrollBody: string;
   let helperBody: string;
 
   beforeEach(() => {
-    const extensionUri = Uri.file('/test/extension');
-    provider = new GitToolWindowProvider(extensionUri);
-    mockWebview = createMockWebview();
-    html = provider._getThreePanelHtmlContent(
-      mockWebview as unknown as import('vscode').Webview,
-      []
-    );
-    scrollBody = extractScrollToCommitBody(html);
-
-    const hb = extractBlockAfter(html, /function scrollRowIntoViewIfNeeded\s*\(/);
-    assert.ok(hb, 'rendered inline script must define a scrollRowIntoViewIfNeeded helper');
+    scrollBody = extractScrollToCommitBody(ENTRY_SOURCE);
+    const hb = extractBlockAfter(ENTRY_SOURCE, /function scrollRowIntoViewIfNeeded\s*\(/);
+    assert.ok(hb, 'rendered client entry must define a scrollRowIntoViewIfNeeded helper');
     helperBody = hb;
-  });
-
-  afterEach(() => {
-    provider.dispose();
   });
 
   it('delegates scroll to the shared scrollRowIntoViewIfNeeded helper', () => {
@@ -172,23 +152,10 @@ describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () =>
  * may not scroll — so the highlight is unconditional.
  */
 describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', () => {
-  let provider: GitToolWindowProvider;
-  let mockWebview: Webview;
   let scrollBody: string;
 
   beforeEach(() => {
-    const extensionUri = Uri.file('/test/extension');
-    provider = new GitToolWindowProvider(extensionUri);
-    mockWebview = createMockWebview();
-    const html = provider._getThreePanelHtmlContent(
-      mockWebview as unknown as import('vscode').Webview,
-      []
-    );
-    scrollBody = extractScrollToCommitBody(html);
-  });
-
-  afterEach(() => {
-    provider.dispose();
+    scrollBody = extractScrollToCommitBody(ENTRY_SOURCE);
   });
 
   it('adds the highlight-scroll class to the row (Req 3.2, 3.3)', () => {
@@ -249,23 +216,7 @@ describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', 
  * _Requirements: 4.3, 5.3_
  */
 describe('GitToolWindowProvider - autoScrollOnLoad delegates to scrollToCommit', () => {
-  let provider: GitToolWindowProvider;
-  let mockWebview: Webview;
-  let html: string;
-
-  beforeEach(() => {
-    const extensionUri = Uri.file('/test/extension');
-    provider = new GitToolWindowProvider(extensionUri);
-    mockWebview = createMockWebview();
-    html = provider._getThreePanelHtmlContent(
-      mockWebview as unknown as import('vscode').Webview,
-      []
-    );
-  });
-
-  afterEach(() => {
-    provider.dispose();
-  });
+  const html = ENTRY_SOURCE;
 
   it('defines an autoScrollOnLoad routine that delegates to scrollToCommit (Req 4.3, 5.3)', () => {
     const autoScrollBody = extractBlockAfter(html, /function\s+autoScrollOnLoad\s*\(/);

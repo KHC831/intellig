@@ -3,11 +3,11 @@
  * GitToolWindowProvider.
  *
  * `_getThreePanelHtmlContent` composes the graph/details panels, the codicon
- * font CSS, the three-panel styles, and the concatenated inline scripts
- * (initial-details island + buildInlineScript + divider-drag + column-resize).
- * Running that whole composite under jsdom catches a renderer regression in the
- * assembled document — wiring that the isolated buildInlineScript test cannot
- * see — which no extension-host / e2e lane exercises.
+ * font CSS, the three-panel styles, the `#intellig-init` details island, and the
+ * external bundle `<script>` tag. This boots the real bundled entry over that
+ * assembled body, catching a renderer regression in the composed document —
+ * wiring that the isolated entry test cannot see — which no extension-host / e2e
+ * lane exercises.
  */
 
 import '../../setup';
@@ -16,8 +16,9 @@ import * as vscode from 'vscode';
 import { GitToolWindowProvider } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
 import type { ICommitNode } from '../../../src/git-core/commitGraph';
 import { Uri } from '../../mocks/vscode';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
-import { extractWebviewScript } from '../../helpers/webviewHtml';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+
+const ENTRY = 'git-core/gitToolWindow/webview/gitToolWindow';
 
 const GARBAGE_MESSAGES: unknown[] = [
   { type: 'totally-unknown-message' },
@@ -33,11 +34,18 @@ function mockWebview(): vscode.Webview {
   } as unknown as vscode.Webview;
 }
 
+/** Inner HTML of the assembled document's `<body>` (island + panels + tags). */
+function bodyOf(html: string): string {
+  const match = /<body>([\s\S]*)<\/body>/.exec(html);
+  assert.ok(match, 'assembled document has a <body>');
+  return match[1];
+}
+
 function fullHtml(): string {
   const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
   // `_getThreePanelHtmlContent` is the public (testability) entry point that
   // produces the complete `<!DOCTYPE html>` document. Empty commitNodes render
-  // the loaded-but-empty graph — enough to exercise the inline script wiring.
+  // the loaded-but-empty graph — enough to exercise the client wiring.
   return provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
 }
 
@@ -60,7 +68,7 @@ function fullHtmlWithRepos(paths: string[]): string {
 }
 
 describe('webview: Git tool-window full document (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -68,9 +76,8 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     }
   });
 
-  it('loads the composed inline scripts without throwing and builds the panels', () => {
-    const { script, bodyHtml } = extractWebviewScript(fullHtml());
-    h = runWebviewScript(script, { bodyHtml });
+  it('loads the composed document without throwing and builds the panels', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
       []
@@ -80,8 +87,7 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('graphTotalsUpdate updates the load-count attributes without rebuilding the panel', () => {
-    const { script, bodyHtml } = extractWebviewScript(fullHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
     const panel = h.document.querySelector('.graph-panel');
     assert.ok(panel, 'graph panel present');
     h.post({ type: 'graphTotalsUpdate', loaded: 100, total: 5000 });
@@ -100,10 +106,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('posts a selectRepositories subset when a repo checkbox is unchecked', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b', '/work/repo-c'])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(fullHtmlWithRepos(['/work/repo-a', '/work/repo-b', '/work/repo-c'])),
+    });
 
     const list = h.document.getElementById('filter-repo-list');
     assert.ok(list, 'repo checkbox list present in a multi-root workspace');
@@ -133,8 +138,7 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('branch tri-state: all renders all-checked; unchecking the master posts branchesNone', () => {
-    const { script, bodyHtml } = extractWebviewScript(fullHtml()); // no filter → ALL
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) }); // no filter → ALL
     h.post({
       type: 'logFilterOptionsReady',
       branchGroups: { local: ['main', 'dev'], remotes: [] },
@@ -164,8 +168,7 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('branch tri-state: unchecking one leaf posts the remaining refs as a subset', () => {
-    const { script, bodyHtml } = extractWebviewScript(fullHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
     h.post({
       type: 'logFilterOptionsReady',
       branchGroups: { local: ['main', 'dev', 'release'], remotes: [] },
@@ -194,10 +197,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     provider.setLogFilter({ branches: ['main', 'feature/gone'] } as unknown as Parameters<
       typeof provider.setLogFilter
     >[0]);
-    const { script, bodyHtml } = extractWebviewScript(
-      provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])),
+    });
     // The new scope's branch list no longer has feature/gone (and adds dev).
     h.post({
       type: 'logFilterOptionsReady',
@@ -219,10 +221,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     provider.setLogFilter({ branches: ['feature/gone'] } as unknown as Parameters<
       typeof provider.setLogFilter
     >[0]);
-    const { script, bodyHtml } = extractWebviewScript(
-      provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])),
+    });
     h.post({
       type: 'logFilterOptionsReady',
       branchGroups: { local: ['main', 'dev'], remotes: [] },
@@ -248,10 +249,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     provider.setLogFilter({ branches: ['feature/login', 'main'] } as unknown as Parameters<
       typeof provider.setLogFilter
     >[0]);
-    const { script, bodyHtml } = extractWebviewScript(
-      provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])),
+    });
 
     const bridge = (
       h.window as unknown as {
@@ -273,10 +273,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('unchecking every repo posts an empty set and labels the button "None"', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])),
+    });
 
     const list = h.document.getElementById('filter-repo-list')!;
     const boxes = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-repo-root]'));
@@ -301,10 +300,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('remembers an open repo popup so a graph-reloading pick keeps it open', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])),
+    });
 
     // Open the Repository popup the way a click does.
     const btn = h.document.querySelector<HTMLElement>(
@@ -313,20 +311,20 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     assert.ok(btn, 'Repository popup button present');
     btn.dispatchEvent(new h.window.Event('click', { bubbles: true }));
 
-    // The open popup is persisted so it can be restored after a re-render.
+    // The open popup is persisted (versioned slot) so it can be restored after a re-render.
     assert.strictEqual(
-      (h.readState() as { openFilterPopup?: string }).openFilterPopup,
+      (h.readState() as { openFilterPopup?: { data?: string } }).openFilterPopup?.data,
       'repo',
       'open repo popup is remembered in webview state'
     );
   });
 
   it('reopens the remembered popup on init (after a re-render) without throwing', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
-    );
     // Simulate the post-pick reload: VS Code rehydrates state with the popup open.
-    h = runWebviewScript(script, { bodyHtml, initialState: { openFilterPopup: 'repo' } });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])),
+      initialState: { openFilterPopup: { v: 1, data: 'repo' } },
+    });
 
     const popup = h.document.getElementById('filter-popup-repo');
     assert.ok(popup, 'repo popup present');
@@ -338,10 +336,9 @@ describe('webview: Git tool-window full document (jsdom)', () => {
   });
 
   it('closes open popups and the context menu when the webview loses focus', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(fullHtmlWithRepos(['/work/repo-a', '/work/repo-b'])),
+    });
 
     const btn = h.document.querySelector<HTMLElement>(
       '[data-action="toggleFilterPopup"][data-popup="repo"]'
@@ -363,14 +360,14 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     assert.strictEqual(popup.hidden, true, 'popup must close on webview blur');
     assert.strictEqual(menu.hidden, true, 'context menu must close on webview blur');
     assert.ok(
-      (h.readState() as { openFilterPopup?: string | null }).openFilterPopup !== 'repo',
+      (h.readState() as { openFilterPopup?: { data?: string | null } }).openFilterPopup?.data !==
+        'repo',
       'the remembered-open key must clear so a re-render does not resurrect the popup'
     );
   });
 
   it('tolerates representative and garbage extension→webview messages', () => {
-    const { script, bodyHtml } = extractWebviewScript(fullHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
     h.post({ type: 'update', commits: [], branches: [], tags: [] });
     h.post({ type: 'selectGraphRow', commitHash: 'abc' });
     h.post({ type: 'scrollToCommit', commitHash: 'abc' });

@@ -12,8 +12,7 @@
 
 import '../../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
-import { buildInlineScript } from '../../../../src/git-core/gitToolWindow/provider/scriptBuilder';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../../helpers/bootWebviewEntry';
 import { escapeHtml } from '../../../../src/git-core/gitToolWindow/provider/htmlBuilders';
 
 interface PostedMessage {
@@ -26,48 +25,39 @@ interface PostedMessage {
  * (GitToolWindowProvider) does: a JSON array, then HTML-escaped so it is
  * safe inside the double-quoted `data-collapsed-branches` attribute. The
  * jsdom parser decodes the entities back to valid JSON, mirroring how the
- * real webview hands the string to the inline `JSON.parse`.
+ * real webview hands the string to the entry's `JSON.parse`.
  */
 function encodeCollapsed(names: string[]): string {
   return escapeHtml(JSON.stringify(names));
 }
 
+let harness: IWebviewEntryHarness;
+
 /**
- * Spin up a jsdom document carrying a collapsed chip + the #ref-popup
- * overlay, then execute the real inline script against it. Returns the
- * window/document plus the captured postMessage log.
+ * Boot the entry over a document carrying a collapsed chip + the #ref-popup
+ * overlay. Returns the window/document plus the captured postMessage log.
  */
 function bootDom(branchNames: string[]): {
-  window: JSDOM['window'];
+  window: IWebviewEntryHarness['window'];
   document: Document;
   posted: PostedMessage[];
 } {
-  const dom = new JSDOM(
-    `<!doctype html><html><body>
+  harness = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+    bodyHtml: `
       <div class="graph-panel">
         <span class="branch-label-collapsed" data-collapsed-branches="${encodeCollapsed(branchNames)}"
               role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">+${branchNames.length}</span>
       </div>
-      <div id="ref-popup" class="context-menu" hidden role="menu"></div>
-    </body></html>`,
-    { runScripts: 'outside-only', pretendToBeVisual: true }
-  );
-
-  const posted: PostedMessage[] = [];
-  // Stub the VS Code webview API the inline script acquires at startup.
-  (dom.window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (msg: PostedMessage) => posted.push(msg),
-    getState: () => undefined,
-    setState: () => undefined,
+      <div id="ref-popup" class="context-menu" hidden role="menu"></div>`,
   });
-
-  // Execute the real inline script in the jsdom realm.
-  dom.window.eval(buildInlineScript());
-
-  return { window: dom.window, document: dom.window.document, posted };
+  return {
+    window: harness.window,
+    document: harness.document,
+    posted: harness.posted as PostedMessage[],
+  };
 }
 
-function clickChip(window: JSDOM['window'], chip: Element): void {
+function clickChip(window: IWebviewEntryHarness['window'], chip: Element): void {
   const evt = new window.MouseEvent('click', { bubbles: true, cancelable: true });
   // jsdom MouseEvent ignores clientX/Y constructor args in some versions;
   // assign them so the popup positioning math reads finite numbers.
@@ -77,11 +67,17 @@ function clickChip(window: JSDOM['window'], chip: Element): void {
 }
 
 /** Dispatch a bubbling keydown from a specific element (the focus target). */
-function keydown(window: JSDOM['window'], from: Element, key: string): void {
+function keydown(window: IWebviewEntryHarness['window'], from: Element, key: string): void {
   from.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
 
 describe('Collapsed-ref popup (branch-label +N chip)', () => {
+  afterEach(() => {
+    if (harness) {
+      harness.dispose();
+    }
+  });
+
   it('opens the popup with one row per collapsed ref on chip click', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
