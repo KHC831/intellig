@@ -3654,9 +3654,7 @@ export class GitToolWindowProvider
 ${bodyMarkup}
 ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDetailsModel })}
 
-  <script nonce="${nonce}" src="${webview
-    .asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'gitToolWindow.js'))
-    .toString()}"></script>
+  <script nonce="${nonce}" src="${this.getWebviewBundleUri(webview)}"></script>
 </body>
 </html>`;
   }
@@ -3669,6 +3667,12 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
 
   getInlineStyles(): string {
     return this._getInlineStyles();
+  }
+
+  getWebviewBundleUri(webview: vscode.Webview): string {
+    return webview
+      .asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'gitToolWindow.js'))
+      .toString();
   }
 
   /**

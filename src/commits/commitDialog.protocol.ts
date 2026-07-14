@@ -17,17 +17,13 @@ export interface ICommitDialogWebviewMessage {
   message?: string;
   amend?: boolean;
   signOff?: boolean;
-  files?: string[];
   path?: string;
   hunkIndex?: number;
   lineNumber?: number;
   /** 'add' | 'delete' — disambiguates which number-space lineNumber belongs to. */
   lineType?: string;
-  lines?: number[];
   /** Author override payload from the `authorChange` message. */
   author?: string;
-  /** Gear-menu `--no-verify` toggle payload. */
-  noVerify?: boolean;
 }
 
 type Fields = Omit<ICommitDialogWebviewMessage, 'type'>;

@@ -29,7 +29,6 @@ import {
 } from '../../../src/git-core/gitToolWindow/tabs/HistoryTab';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
 import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
-import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 
 const GTW_ENTRY = 'git-core/gitToolWindow/webview/gitToolWindow';
@@ -154,31 +153,36 @@ describe('webview: git tool-window HTML pieces (jsdom)', () => {
     });
   });
 
-  describe('htmlBuilders — no-repository inline script', () => {
+  describe('htmlBuilders — no-repository document (bundled entry)', () => {
     function noRepoHtml(): string {
       const ctx = {
         getNonce: () => 'test-nonce',
         getInlineStyles: () => buildInlineStyles(),
+        getWebviewBundleUri: () => 'vscode-webview://mock/media/webview/gitToolWindow.js',
       } as unknown as Parameters<typeof buildNoRepositoryHtml>[0];
       const webview = { cspSource: 'vscode-webview://mock' } as unknown as vscode.Webview;
       return buildNoRepositoryHtml(ctx, webview);
     }
 
+    /** Inner HTML of the assembled document's `<body>`. */
+    function bodyOf(html: string): string {
+      const match = /<body>([\s\S]*)<\/body>/.exec(html);
+      return match ? match[1] : html;
+    }
+
     it('loads without throwing and builds the init button', () => {
-      const { script, bodyHtml } = extractWebviewScript(noRepoHtml());
-      h = runWebviewScript(script, { bodyHtml });
+      entry = bootWebviewEntry(GTW_ENTRY, { bodyHtml: bodyOf(noRepoHtml()) });
       assert.deepStrictEqual(
-        h.errors.map((e) => e.message),
+        entry.errors.map((e) => e.message),
         []
       );
-      assert.ok(h.document.getElementById('init-repo-btn'), 'init-repo button present');
+      assert.ok(entry.document.getElementById('init-repo-btn'), 'init-repo button present');
     });
 
     it('posts initRepository when the init button is clicked', () => {
-      const { script, bodyHtml } = extractWebviewScript(noRepoHtml());
-      h = runWebviewScript(script, { bodyHtml });
-      h.document.getElementById('init-repo-btn')?.click();
-      assert.deepEqual(h.posted.at(-1), { type: 'initRepository' });
+      entry = bootWebviewEntry(GTW_ENTRY, { bodyHtml: bodyOf(noRepoHtml()) });
+      entry.document.getElementById('init-repo-btn')?.click();
+      assert.deepEqual(entry.posted.at(-1), { type: 'initRepository' });
     });
   });
 

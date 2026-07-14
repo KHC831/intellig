@@ -2120,6 +2120,25 @@ function main(vscode: IVsCodeApi): void {
     });
   })();
 
+  // ─── Static-document action buttons ──────────────────────────────
+  // The pre-graph documents (no-repository prompt, undocked placeholder) load
+  // this same bundle so the whole tool window ships one client script; wire
+  // their single action buttons here. No-ops when neither button is present.
+  (function setupStaticButtons(): void {
+    const initBtn = document.getElementById('init-repo-btn');
+    if (initBtn) {
+      initBtn.addEventListener('click', function () {
+        post({ type: 'initRepository' });
+      });
+    }
+    const focusBtn = document.getElementById('focus-undocked-panel');
+    if (focusBtn) {
+      focusBtn.addEventListener('click', function () {
+        post({ type: 'focusUndockedPanel' });
+      });
+    }
+  })();
+
   // Build the initial + History Details panels from the host-provided island.
   const island = readInitIsland();
 

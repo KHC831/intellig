@@ -18,35 +18,23 @@ export { escapeHtml };
  */
 
 /**
- * Nonced click-to-postMessage wiring for a single button in a static
- * document: `#buttonId` click posts `{ type: messageType }` to the host.
- */
-function buildButtonPostScript(buttonId: string, messageType: string): string {
-  return `
-    (function() {
-      const vscode = acquireVsCodeApi();
-      const btn = document.getElementById('${buttonId}');
-      if (btn) {
-        btn.addEventListener('click', function() {
-          vscode.postMessage({ type: '${messageType}' });
-        });
-      }
-    })();
-  `;
-}
-
-/**
  * Shared document envelope for the tool window's static, pre-graph documents
- * (loading, no-repository, undocked placeholder): one copy of the CSP meta
- * tag, head boilerplate, and nonce-bound script tag, so the policy cannot
- * drift between the builders.
+ * (loading, no-repository, undocked placeholder): one copy of the CSP meta tag
+ * and head boilerplate so the policy cannot drift between the builders. When
+ * `bundle` is set the document loads the same external `gitToolWindow.js` entry
+ * the graph document does (nonce-authorized `src`, no CSP change) — the entry
+ * no-ops on the panels these documents lack and wires their action buttons
+ * (init-repo / focus-undocked). Client JS ships as the bundle, never inline.
  */
 function buildStaticDocumentHtml(
+  ctx: IGtwControllerContext,
   webview: vscode.Webview,
-  nonce: string,
-  parts: { styles: string; body: string; script?: string }
+  parts: { styles: string; body: string; bundle?: boolean }
 ): string {
-  const scriptTag = parts.script ? `\n  <script nonce="${nonce}">${parts.script}</script>` : '';
+  const nonce = ctx.getNonce();
+  const scriptTag = parts.bundle
+    ? `\n  <script nonce="${nonce}" src="${ctx.getWebviewBundleUri(webview)}"></script>`
+    : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -68,7 +56,7 @@ function buildStaticDocumentHtml(
  * The loading HTML shown while initial data is being fetched.
  */
 export function buildLoadingHtml(ctx: IGtwControllerContext, webview: vscode.Webview): string {
-  return buildStaticDocumentHtml(webview, ctx.getNonce(), {
+  return buildStaticDocumentHtml(ctx, webview, {
     styles: `${ctx.getInlineStyles()}
     .loading-container {
       display: flex;
@@ -105,8 +93,7 @@ export function buildUndockedPlaceholderHtml(
   ctx: IGtwControllerContext,
   webview: vscode.Webview
 ): string {
-  const nonce = ctx.getNonce();
-  return buildStaticDocumentHtml(webview, nonce, {
+  return buildStaticDocumentHtml(ctx, webview, {
     styles: `.undocked-placeholder {
       display: flex;
       flex-direction: column;
@@ -134,7 +121,7 @@ export function buildUndockedPlaceholderHtml(
     <p>The Git log is open as an editor tab. Close the tab to dock it back here.</p>
     <button id="focus-undocked-panel">Show Editor Tab</button>
   </div>`,
-    script: buildButtonPostScript('focus-undocked-panel', 'focusUndockedPanel'),
+    bundle: true,
   });
 }
 
@@ -143,14 +130,13 @@ export function buildUndockedPlaceholderHtml(
  * user to initialize a repository.
  */
 export function buildNoRepositoryHtml(ctx: IGtwControllerContext, webview: vscode.Webview): string {
-  const nonce = ctx.getNonce();
-  return buildStaticDocumentHtml(webview, nonce, {
+  return buildStaticDocumentHtml(ctx, webview, {
     styles: ctx.getInlineStyles(),
     body: `<div class="no-repository">
     <p>No Git repository found in this workspace.</p>
     <button class="init-repo-button" id="init-repo-btn">Initialize Repository</button>
   </div>`,
-    script: buildButtonPostScript('init-repo-btn', 'initRepository'),
+    bundle: true,
   });
 }
 

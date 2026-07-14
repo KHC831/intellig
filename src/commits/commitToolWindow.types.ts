@@ -107,13 +107,11 @@ export interface ICommitToolWebviewMessage {
   type: string;
   tab?: CommitToolWindowTab;
   path?: string;
-  paths?: string[];
   changelistId?: string;
   message?: string;
   amend?: boolean;
   signOff?: boolean;
   files?: string[];
-  collapsed?: boolean;
   /**
    * `contextOpen` is the right-click ping that asks the host to present the
    * QuickPick menu; the host then recurses with the concrete action the user

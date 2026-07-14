@@ -1079,12 +1079,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   }
 
   /**
-   * {@link BaseWebviewView} hook. Returns the `{body, script}` tuple; the base
-   * class wraps `body` in the authoritative CSP + nonce template and emits the
-   * external bundle tag (see {@link _getBundleName}), so `script` is unused.
-   * `body` carries the empty root + the init island the bundled entry reads.
+   * {@link BaseWebviewView} hook. Returns `{ body }`; the base class wraps it in
+   * the authoritative CSP + nonce template and emits the external bundle tag
+   * (see {@link _getBundleName}). `body` carries the empty root + the init
+   * island the bundled entry reads.
    */
-  protected override _getBodyParts(): { body: string; script: string } {
+  protected override _getBodyParts(): { body: string } {
     return buildCommitToolWindowBodyParts({
       activeTab: this._activeTab,
       changelists: sortChangelistsForDisplay(this._changelists),
@@ -1376,18 +1376,16 @@ export function buildCommitToolWindowInitModel(input: IRenderInput): ICommitTool
 
 export function buildCommitToolWindowBodyParts(input: IRenderInput): {
   body: string;
-  script: string;
 } {
   const model = buildCommitToolWindowInitModel(input);
   // Body = styles + an empty root + the init island the bundled entry
   // (src/commits/webview/commitToolWindow.ts) reads on boot. The external
   // bundle `<script src>` tag is emitted by BaseWebviewView._wrapHtml via
-  // {@link CommitToolWindow._getBundleName}; the `script` slot is unused for
-  // bundle-backed views.
+  // {@link CommitToolWindow._getBundleName}.
   const body = `
   <style>${commitToolWindowStyles()}</style>
   <div id="ctw-root"></div>${initIslandHtml(model)}`;
-  return { body, script: '' };
+  return { body };
 }
 
 /** workspaceState key persisting the Local Changes grouping mode. */

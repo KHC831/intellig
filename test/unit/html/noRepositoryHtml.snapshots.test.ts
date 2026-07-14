@@ -19,8 +19,9 @@
  *   2. The shared `_getInlineStyles()` `<style>` block (not specific to this
  *      view, and itself huge) → `__INLINE_STYLES__`.
  * What remains is the no-repository document structure: the CSP scaffold, the
- * message paragraph, the Initialize Repository button, and the init-repo
- * bootstrap script.
+ * message paragraph, the Initialize Repository button, and the external
+ * `gitToolWindow.js` bundle tag (its `src` normalized to `__BUNDLE__`) — the
+ * bundled entry wires the button's click.
  *
  * The absence assertions deliberately target the loading-view BODY markers
  * (`loading-container`, `loading-spinner-icon`, `Loading git graph`) rather
@@ -69,7 +70,8 @@ function normalize(html: string): string {
   return html
     .replace(/nonce="[A-Za-z0-9_-]{22}"/g, 'nonce="__NONCE__"')
     .replace(/'nonce-[A-Za-z0-9_-]{22}'/g, "'nonce-__NONCE__'")
-    .replace(/<style>[\s\S]*?<\/style>/, '<style>__INLINE_STYLES__</style>');
+    .replace(/<style>[\s\S]*?<\/style>/, '<style>__INLINE_STYLES__</style>')
+    .replace(/ src="[^"]*gitToolWindow\.js"/, ' src="__BUNDLE__"');
 }
 
 describe('git-view-layout-parity / snap-norepo — _getNoRepositoryHtml Visual_Parity_Snapshot', () => {
@@ -102,17 +104,7 @@ describe('git-view-layout-parity / snap-norepo — _getNoRepositoryHtml Visual_P
     <p>No Git repository found in this workspace.</p>
     <button class="init-repo-button" id="init-repo-btn">Initialize Repository</button>
   </div>
-  <script nonce="__NONCE__">
-    (function() {
-      const vscode = acquireVsCodeApi();
-      const btn = document.getElementById('init-repo-btn');
-      if (btn) {
-        btn.addEventListener('click', function() {
-          vscode.postMessage({ type: 'initRepository' });
-        });
-      }
-    })();
-  </script>
+  <script nonce="__NONCE__" src="__BUNDLE__"></script>
 </body>
 </html>`;
 

@@ -52,13 +52,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
  * string. Each Phase-5 port round removes its file(s); the final round empties it
  * and it must stay empty. Paths are relative to srcDir.
  */
-const STRING_SCRIPT_ALLOWLIST_DEFAULT = [
-  join('git-core', 'gitToolWindow', 'provider', 'htmlBuilders.ts'),
-  // The Base view wraps each subclass's `${script}` in an inline tag; it comes
-  // off the ratchet when its last subclass is ported and it emits an external
-  // bundle tag (Round 4 — the tool window).
-  join('utils', 'BaseWebviewView.ts'),
-];
+// Empty by design: every webview's client code now ships as a bundled TS entry
+// referenced by an external `<script nonce src>` tag (or an empty sentinel). It
+// MUST stay empty — a new inline `<script>` body fails the gate here.
+const STRING_SCRIPT_ALLOWLIST_DEFAULT = [];
 
 const SCRIPT_BLOCK_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
 

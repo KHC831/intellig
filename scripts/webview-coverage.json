@@ -6,10 +6,6 @@
       "status": "tested",
       "note": "bundled Git tool-window entry booted in jsdom over the three-panel body + #intellig-init island; log-filter popups, commit-row select/range-select, menu enable-map, scroll/load-more, commit + ref context menus, updateDetailsPanel, plus the folded tab-strip switch, History-tab actions, and panel-divider / column-resize persistence (toolWindowScript.test.ts, gitToolWindowProviderScript.test.ts, historyTabIntegration.test.ts, toolWindowHtmlPieces.test.ts, branchFilterSelectorDom + graph* + refPopup + branchFocus/multiSelect suites)"
     },
-    "src/git-core/gitToolWindow/provider/htmlBuilders.ts": {
-      "status": "tested",
-      "note": "buildNoRepositoryHtml inline init-repo script run in jsdom (toolWindowHtmlPieces.test.ts)"
-    },
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
       "status": "tested",
       "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom \u2014 no behavior script (toolWindowHtmlPieces.test.ts)"
