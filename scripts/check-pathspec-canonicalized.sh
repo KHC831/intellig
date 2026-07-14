@@ -34,9 +34,9 @@
 #    gate, which is the intended review gate: either it is a git pathspec
 #    (use repoRelativePath) or another containment check (add the marker
 #    with a justification). The guard runs in two modes:
-#      * DEFAULT (no path args — the real gate): `git grep` over git-TRACKED
-#        files under `src`, excluding `src/test`. Tracked-only means
-#        untracked/gitignored scratch is never scanned.
+#      * DEFAULT (no path args — the real gate): `git grep --untracked` over
+#        tracked AND new-but-uncommitted files under `src`, excluding
+#        `src/test`. Gitignored scratch is still never scanned.
 #      * EXPLICIT PATHS (used by the companion spec): plain recursive
 #        `grep -rnIE` over the given paths (fixtures live in temp, non-git
 #        dirs, so git-based scanning cannot apply there).
@@ -80,7 +80,7 @@ PATTERN='(^|[^A-Za-z0-9_])path\.relative[[:space:]]*\('
 MARKER='pathspec-guard-allow'
 
 if [ "$#" -eq 0 ]; then
-  raw=$(git grep -nIE "$PATTERN" -- 'src' ':!src/test' 2>/dev/null || true)
+  raw=$(git grep --untracked -nIE "$PATTERN" -- 'src' ':!src/test' 2>/dev/null || true)
 else
   raw=$(grep -rnIE --include='*.ts' "$PATTERN" "$@" 2>/dev/null || true)
 fi

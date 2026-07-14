@@ -27,7 +27,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # `|| true`: git grep exits 1 on zero matches, which is the PASSING case.
-violations=$( (git grep -n '(item: BranchTreeItem)' -- 'src/**/*.ts' || true) | while IFS=: read -r file line _rest; do
+violations=$( (git grep --untracked -n '(item: BranchTreeItem)' -- 'src/**/*.ts' || true) | while IFS=: read -r file line _rest; do
   prev=$((line - 1))
   if ! sed -n "${prev}p" "$file" | grep -q 'item-required-exempt:'; then
     echo "  $file:$line"

@@ -35,10 +35,11 @@
 #    None in shipped code. The src/test tree, docs/, and root .md are all
 #    IN scope: test describe/it titles, doc-content assertions, and ADR
 #    cross-references all spell the word "section" rather than the glyph,
-#    so there is no doc-coupled surface left to carve out. Untracked and
-#    gitignored files are not a false-positive surface: the default mode
-#    scans tracked files only, so a glyph in a local coordination note
-#    (AGENT_WORKSPACE.md) cannot fail the gate.
+#    so there is no doc-coupled surface left to carve out. The default mode
+#    runs `git grep --untracked`, so new-but-uncommitted files are in scope
+#    (a violation fails the gate before it lands, not after). Gitignored files
+#    stay out, so a glyph in a local coordination note (AGENT_WORKSPACE.md,
+#    workspace-notes/, both gitignored) cannot fail the gate.
 #    Binary files are skipped via the -I flag: gitignored binaries that
 #    macOS Finder scatters through scanned dirs (notably .DS_Store) can
 #    carry a raw 0xA7 byte and would otherwise false-fail the gate; -I
@@ -62,10 +63,12 @@ set -euo pipefail
 GLYPH=$(printf '\xc2\xa7')
 
 if [ "$#" -eq 0 ]; then
-  # Default (the real gate): only git-TRACKED files in scope. `git grep`
-  # never searches untracked/gitignored files, so local coordination
-  # scratch (AGENT_WORKSPACE.md, etc.) is excluded by construction.
-  hits=$(git grep -nFI "$GLYPH" -- src test scripts docs '*.md' 2>/dev/null || true)
+  # Default (the real gate): `--untracked` puts tracked AND new-but-uncommitted
+  # files in scope, so a violation in a freshly-added file fails the gate before
+  # it is committed. Gitignored paths stay out (git grep never searches those),
+  # so local coordination scratch (AGENT_WORKSPACE.md, workspace-notes/, both
+  # gitignored) is still excluded by construction.
+  hits=$(git grep --untracked -nFI "$GLYPH" -- src test scripts docs '*.md' 2>/dev/null || true)
 else
   # Explicit paths (companion-spec fixtures live in temp, non-git dirs):
   # plain recursive text scan.

@@ -4,9 +4,9 @@
  * Proves the guard (a) passes against the real tree, (b) has teeth — it fails
  * when the glyph appears in a scanned path, (c) honours its broadened scope —
  * the test subtree is IN scope (test titles + doc-content assertions spell
- * the word "section"), and (d) in default (no-arg) mode scans git-TRACKED
- * files only, so an untracked/gitignored coordination scratch file
- * is never flagged while a tracked glyph still fails.
+ * the word "section"), and (d) in default (no-arg) mode runs `git grep
+ * --untracked`, so a new-but-uncommitted file with the glyph fails BEFORE it
+ * lands, while gitignored coordination scratch stays out of scope.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -84,26 +84,48 @@ describe('check-no-section-symbol guard', () => {
     }
   });
 
-  // Default (no-arg) mode scans git-tracked files only. These fixtures stand
-  // up a throwaway git repo so the git-grep path is exercised for real.
-  it('default mode skips untracked + gitignored files (a coordination scratch note is not flagged)', () => {
+  // Default (no-arg) mode runs `git grep --untracked`: tracked AND
+  // new-but-uncommitted files are in scope, gitignored scratch is not. These
+  // fixtures stand up a throwaway git repo so the git-grep path runs for real.
+  it('default mode scans untracked (uncommitted) files — a new .md with the glyph fails before it is committed', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sect-guard-git-'));
     try {
       git(dir, 'init', '-q');
       // A tracked, clean doc so the in-scope scan has real content to chew on.
       fs.mkdirSync(path.join(dir, 'docs'));
       fs.writeFileSync(path.join(dir, 'docs', 'clean.md'), '# clean\nsee section 3\n', 'utf8');
+      git(dir, 'add', 'docs/clean.md');
+      // Untracked, NOT gitignored — the webviewStateSlot.ts class: a violation a
+      // tracked-only scan carried through a green gate until commit.
+      fs.writeFileSync(path.join(dir, 'NEW.md'), `report cites ADR-009 ${GLYPH}6\n`, 'utf8');
+      const { status, stderr } = runGuardInDir(dir);
+      assert.strictEqual(
+        status,
+        1,
+        `an untracked new file with the glyph must fail the gate; stderr:\n${stderr}`
+      );
+      assert.ok(/section-symbol guard FAILED/.test(stderr), 'should report the failure');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('default mode still skips gitignored scratch (a coordination note is not flagged)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sect-guard-git-'));
+    try {
+      git(dir, 'init', '-q');
+      fs.mkdirSync(path.join(dir, 'docs'));
+      fs.writeFileSync(path.join(dir, 'docs', 'clean.md'), '# clean\nsee section 3\n', 'utf8');
       fs.writeFileSync(path.join(dir, '.gitignore'), 'IGNORED.md\n', 'utf8');
       git(dir, 'add', 'docs/clean.md', '.gitignore');
-      // Untracked AND gitignored scratch, both glyph-laden — mimics an
-      // untracked/gitignored coordination scratch file.
-      fs.writeFileSync(path.join(dir, 'UNTRACKED.md'), `report cites ADR-009 ${GLYPH}6\n`, 'utf8');
+      // Gitignored scratch (the AGENT_WORKSPACE.md / workspace-notes/ class)
+      // stays out of scope even with --untracked.
       fs.writeFileSync(path.join(dir, 'IGNORED.md'), `report cites ADR-009 ${GLYPH}3\n`, 'utf8');
       const { status, stderr } = runGuardInDir(dir);
       assert.strictEqual(
         status,
         0,
-        `untracked/gitignored .md must be out of default scope; stderr:\n${stderr}`
+        `gitignored scratch must stay out of default scope; stderr:\n${stderr}`
       );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

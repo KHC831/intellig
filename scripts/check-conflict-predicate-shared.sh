@@ -26,7 +26,8 @@
 #    `conflict-predicate-exempt: <reason>` is skipped — sanctioned where `U`
 #    is a single-letter marker in a DIFFERENT git output format (e.g.
 #    `git diff --name-status`, where no AA/DD composite exists). Two modes:
-#      * DEFAULT (no args — the gate): `git grep` over tracked `src`.
+#      * DEFAULT (no args — the gate): `git grep --untracked` over tracked
+#        AND new-but-uncommitted `src` (gitignored scratch stays out).
 #      * EXPLICIT PATHS (companion spec): recursive `grep` over given dirs.
 #
 # 3. Known false-positive cases
@@ -54,7 +55,7 @@ MARKER='conflict-predicate-exempt:'
 COMMENT='^[[:space:]]*(//|\*|/\*)'
 
 if [ "$#" -eq 0 ]; then
-  raw=$(git grep -nIE "$PATTERN" -- 'src' ':!src/git-core/gitParser.ts' ':!src/test' 2>/dev/null || true)
+  raw=$(git grep --untracked -nIE "$PATTERN" -- 'src' ':!src/git-core/gitParser.ts' ':!src/test' 2>/dev/null || true)
 else
   raw=$(grep -rnIE --include='*.ts' "$PATTERN" "$@" 2>/dev/null || true)
 fi

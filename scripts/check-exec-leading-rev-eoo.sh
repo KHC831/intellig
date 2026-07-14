@@ -96,7 +96,7 @@ PATTERN="\.exec\(\[[[:space:]]*['\"](${REF_CMDS})['\"][[:space:]]*,[[:space:]]*\
 MARKER='argv-guard-allow'
 
 if [ "$#" -eq 0 ]; then
-  raw=$(git grep -nIE "$PATTERN" -- 'src' ':!src/test' 2>/dev/null || true)
+  raw=$(git grep --untracked -nIE "$PATTERN" -- 'src' ':!src/test' 2>/dev/null || true)
 else
   raw=$(grep -rnIE --include='*.ts' "$PATTERN" "$@" 2>/dev/null || true)
 fi

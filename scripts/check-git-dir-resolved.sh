@@ -50,7 +50,7 @@ cd "$(dirname "$0")/.."
 # The resolver modules that legitimately hold the `.git` join.
 RESOLVERS='src/git-core/repo/RepositoryDiscovery.ts|src/git-core/gitDirMarkers.ts'
 
-matches=$(git grep -nE "(\.join\([^)]*['\"]\.git['\"]|['\" ]\.git/)" -- 'src/**/*.ts' \
+matches=$(git grep --untracked -nE "(\.join\([^)]*['\"]\.git['\"]|['\" ]\.git/)" -- 'src/**/*.ts' \
   | grep -vE "^($RESOLVERS):" \
   | grep -vE ':[0-9]+: *(\*|//|/\*)' \
   | grep -v 'git-dir-resolve-exempt:' || true)

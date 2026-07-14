@@ -31,7 +31,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-matches=$(git grep -nE 'getRepositories\(\)\[0\]' -- 'src/**/*.ts' \
+matches=$(git grep --untracked -nE 'getRepositories\(\)\[0\]' -- 'src/**/*.ts' \
   | grep -vE ':[0-9]+: *(\*|//)' \
   | grep -v 'single-repo-exempt:' || true)
 
