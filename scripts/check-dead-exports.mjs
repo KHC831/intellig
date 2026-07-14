@@ -75,6 +75,7 @@ const DEFAULT_ENTRIES = [
   'rebase/webview/rebaseProgressView.ts',
   'rebase/webview/rebaseEditor.ts',
   'commits/webview/commitDialog.ts',
+  'commits/webview/commitToolWindow.ts',
 ];
 const ALLOWLIST_FILE = path.join(repoRoot, 'scripts', 'dead-exports-allowlist.txt');
 

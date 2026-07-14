@@ -12,10 +12,10 @@ import type {
   IShelfTabEntry,
   CommitToolWindowTab,
   ShelfTabFilter,
-} from './CommitToolWindow';
-import type { IChangelist } from '../changelists/interfaces/IChangelistService';
-import type { IShelfItem } from '../shelf/interfaces/IShelfService';
-import type { IStash, IDiff } from '../git-core/interfaces/IGitService';
+} from './commitToolWindow.types';
+import type { IChangelist } from '../changelists/interfaces/changelistModels';
+import type { IShelfItem } from '../shelf/interfaces/shelfModels';
+import type { IStash, IDiff } from '../git-core/interfaces/gitModels';
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Shared field bag (every wire field except the discriminant), reused verbatim. */

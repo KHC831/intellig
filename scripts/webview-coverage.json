@@ -22,9 +22,9 @@
       "status": "tested",
       "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom \u2014 no behavior script (toolWindowHtmlPieces.test.ts)"
     },
-    "src/commits/CommitToolWindow.ts": {
+    "src/commits/webview/commitToolWindow.ts": {
       "status": "tested",
-      "note": "commitToolWindowBehaviorScript (localChanges + shelf tabs) run in jsdom (commitToolWindowScript.test.ts)"
+      "note": "bundled Commit Tool Window entry booted in jsdom over #ctw-root island; localChanges + shelf tabs, file/diff/composer wiring, updateFileCheckbox sync (commitToolWindowScript.test.ts, commitToolWindow.test.ts, commitToolWindow.shelfTab.test.ts, commitToolWindowGrouping.test.ts)"
     },
     "src/commits/webview/commitDialog.ts": {
       "status": "tested",

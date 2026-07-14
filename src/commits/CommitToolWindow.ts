@@ -42,8 +42,7 @@ import { IGitService, IRepository, IStash, FileStatus } from '../git-core/interf
 import { performCommit, LAST_NO_VERIFY_SLOT } from './CommitDialog';
 import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
-import { generateNonce } from '../utils/webviewNonce';
-import { buildWebviewCsp } from '../utils/webviewCsp';
+import { initIslandHtml } from '../utils/webviewInit';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
 import { assertNever } from '../utils/assertNever';
 import {
@@ -52,6 +51,36 @@ import {
 } from './commitToolWindow.protocol';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { sanitizeGitError } from '../git-core/gitError';
+import type {
+  CommitToolWindowTab,
+  ShelfTabFilter,
+  ChangesGroupingMode,
+  IShelfTabEntry,
+  ChangelistAction,
+  FileAction,
+  ShelfTabShelfAction,
+  ShelfTabStashAction,
+  ICommitToolWebviewMessage,
+  ICommitToolWindowInitModel,
+  ICtwChangelistModel,
+  ICtwFileEntry,
+} from './commitToolWindow.types';
+
+// The pure wire shapes + render model live in the vscode-free
+// `./commitToolWindow.types` module so the protocol + the bundled webview entry
+// can type-import them. Re-exported so existing importers (and the
+// `src/services` barrel) keep resolving them from this file.
+export type {
+  CommitToolWindowTab,
+  ShelfTabFilter,
+  ChangesGroupingMode,
+  IShelfTabEntry,
+  ChangelistAction,
+  FileAction,
+  ShelfTabShelfAction,
+  ShelfTabStashAction,
+  ICommitToolWebviewMessage,
+} from './commitToolWindow.types';
 
 export const COMMIT_TOOL_WINDOW_VIEW_ID = 'intellig.commitToolWindow';
 
@@ -75,43 +104,6 @@ export const RECENT_MESSAGES_MAX = 20;
 
 /** Sentinel id for the "Unversioned Files" pseudo-changelist. */
 export const UNVERSIONED_PSEUDO_CHANGELIST_ID = '_unversioned';
-
-/** Valid tab ids for this view. */
-export type CommitToolWindowTab = 'localChanges' | 'shelf';
-
-/**
- * Which kinds of entries appear in the Shelf tab.
- *   - `shelves` — only IDE-managed shelf entries (the legacy view).
- *   - `stashes` — only `git stash` entries.
- *   - `both`    — combined list, newest-first, with a type badge per row.
- */
-export type ShelfTabFilter = 'shelves' | 'stashes' | 'both';
-
-/**
- * A unified row for the combined Shelf+Stash list. The `kind` discriminator
- * lets the renderer pick a badge + drive the context menu's shape (shelf
- * rows expose Rename…/Restore; stash rows expose Pop/Create Branch…; common
- * actions appear on both).
- */
-export type IShelfTabEntry =
-  | {
-      kind: 'shelf';
-      id: string;
-      name: string;
-      timestamp: Date;
-      fileCount: number;
-      /** Present when the entry has been Already-Unshelved. */
-      unshelvedAt?: Date;
-    }
-  | {
-      kind: 'stash';
-      /** Full `stash@{index}` ref as of the list snapshot. */
-      id: string;
-      name: string;
-      timestamp: Date;
-      /** Stash index used for apply/pop/drop plumbing. */
-      index: number;
-    };
 
 /**
  * Imperative bag for Shelf-row context-menu actions. The extension binds
@@ -141,27 +133,6 @@ export interface IShelfTabStashController {
   rename?: (index: number) => Promise<void>;
   branchFromStash?: (index: number) => Promise<void>;
 }
-
-/** Action payload on a changelist-level context menu entry. */
-export type ChangelistAction =
-  | 'new'
-  | 'setActive'
-  | 'rename'
-  | 'editDescription'
-  | 'delete'
-  | 'commitOnly'
-  | 'shelve';
-
-/** Action payload on a file-level context menu entry. */
-export type FileAction =
-  | 'showDiff'
-  | 'jumpToSource'
-  | 'moveToChangelist'
-  | 'rollback'
-  | 'shelve'
-  | 'addToVcs'
-  | 'showHistory'
-  | 'annotate';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure helpers (tested directly)
@@ -350,55 +321,6 @@ export function gearMenuItems(): Array<{ label: string; tooltip: string }> {
     { label: 'Disable pre-commit hooks (--no-verify)', tooltip },
   ];
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Message shapes
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Message types posted from the webview to the host. */
-export interface ICommitToolWebviewMessage {
-  type: string;
-  tab?: CommitToolWindowTab;
-  path?: string;
-  paths?: string[];
-  changelistId?: string;
-  message?: string;
-  amend?: boolean;
-  signOff?: boolean;
-  files?: string[];
-  collapsed?: boolean;
-  action?: ChangelistAction | FileAction | ShelfTabShelfAction | ShelfTabStashAction;
-  targetFiles?: string[];
-  /** Newly-selected Shelf-tab filter from the segmented control. */
-  filter?: ShelfTabFilter;
-  /** Newly-selected Local Changes grouping mode from the segmented control. */
-  grouping?: ChangesGroupingMode;
-  /** Row kind being operated on when `action` targets a Shelf-tab row. */
-  rowKind?: 'shelf' | 'stash';
-  /** Shelf entry id (when rowKind === 'shelf'). */
-  shelfId?: string;
-  /** Stash index (when rowKind === 'stash'). */
-  stashIndex?: number;
-}
-
-/** Shelf-row actions dispatched via the Shelf-tab context menu. */
-export type ShelfTabShelfAction =
-  | 'shelfApply'
-  | 'shelfDelete'
-  | 'shelfShowDiff'
-  | 'shelfRename'
-  | 'shelfRestore'
-  | 'shelfImportPatches'
-  | 'shelfCreatePatch';
-
-/** Stash-row actions dispatched via the Shelf-tab context menu. */
-export type ShelfTabStashAction =
-  | 'stashApply'
-  | 'stashPop'
-  | 'stashDrop'
-  | 'stashShowDiff'
-  | 'stashRename'
-  | 'stashBranchFromStash';
 
 /**
  * Menu entries for a Shelf row in the combined tab. Pure — unit-tested
@@ -1163,8 +1085,20 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   // ── HTML rendering ─────────────────────────────────────────────────────
 
   /**
-   * {@link BaseWebviewView} hook. Returns the current {body, script} tuple;
-   * the base class wraps it in the authoritative CSP + nonce template.
+   * Render the bundled webview entry (`media/webview/commitToolWindow.js`) via
+   * an external `<script nonce src>` tag instead of an inline block. The base
+   * class emits the tag when this returns a name; the client code is the
+   * compiled entry `src/commits/webview/commitToolWindow.ts`.
+   */
+  protected override _getBundleName(): string {
+    return 'commitToolWindow.js';
+  }
+
+  /**
+   * {@link BaseWebviewView} hook. Returns the `{body, script}` tuple; the base
+   * class wraps `body` in the authoritative CSP + nonce template and emits the
+   * external bundle tag (see {@link _getBundleName}), so `script` is unused.
+   * `body` carries the empty root + the init island the bundled entry reads.
    */
   protected override _getBodyParts(): { body: string; script: string } {
     return buildCommitToolWindowBodyParts({
@@ -1344,14 +1278,6 @@ function findActiveChangelistId(changelists: readonly IChangelist[]): string | u
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface IRenderInput {
-  /**
-   * Present for backward-compat with the standalone
-   * {@link renderCommitToolWindowHtml} legacy template. The
-   * `BaseWebviewView`-backed flow ignores this field — CSP / nonce / cspSource
-   * are owned by the base class now — but older tests call the standalone
-   * renderer with `cspSource` supplied.
-   */
-  cspSource?: string;
   activeTab: CommitToolWindowTab;
   changelists: readonly IChangelist[];
   shelfItems: readonly IShelfItem[];
@@ -1363,63 +1289,6 @@ export interface IRenderInput {
   activeChangelistId?: string;
   /** Local Changes file-grouping mode. Defaults to `flat` when omitted. */
   grouping?: ChangesGroupingMode;
-}
-
-/**
- * Build the Commit tool window's `{body, script}` tuple. Pure — safe to
- * unit-test without a webview instance. The `BaseWebviewView` base class
- * wraps the body in the authoritative CSP + nonce template on the class path.
- *
- * The standalone {@link renderCommitToolWindowHtml} wrapper preserves the
- * legacy end-to-end renderer for tests that want to assert against a
- * complete document.
- */
-/** A single file entry in the Local Changes render model. */
-interface ICtwFileEntry {
-  path: string;
-  statusChar: string;
-  /** Full path in flat mode, basename in directory mode. */
-  displayName: string;
-}
-
-/** One changelist (or the unversioned pseudo-node) in the render model. */
-interface ICtwChangelistModel {
-  id: string;
-  name: string;
-  isActive: boolean;
-  fileCount: number;
-  /** Present in flat grouping: file rows rendered directly. */
-  files?: ICtwFileEntry[];
-  /** Present in directory grouping: files bucketed under directory nodes. */
-  dirGroups?: Array<{ dir: string | null; files: ICtwFileEntry[] }>;
-}
-
-/**
- * JSON-serializable render model for the Commit Tool Window. The host
- * precomputes everything the inline script needs to build the DOM via
- * createElement (no host-side HTML strings), so the script is a pure
- * data→DOM mapper. Crosses to the webview as the `INIT` island.
- */
-interface ICommitToolWindowInitModel {
-  activeTab: CommitToolWindowTab;
-  showLocal: boolean;
-  grouping: ChangesGroupingMode;
-  gearItems: Array<{ label: string; tooltip: string }>;
-  composer: { message: string; amend: boolean; signOff: boolean };
-  local: {
-    empty: boolean;
-    changelists: ICtwChangelistModel[];
-    unversioned: ICtwChangelistModel | null;
-  };
-  shelf: {
-    filter: ShelfTabFilter;
-    empty: boolean;
-    emptyCopy: string;
-    rows: Array<
-      | { kind: 'shelf'; id: string; name: string; alreadyUnshelved: boolean; fileCount: number }
-      | { kind: 'stash'; index: number; name: string; id: string }
-    >;
-  };
 }
 
 /** Map an {@link IFileChange} to its render-model entry. */
@@ -1451,9 +1320,7 @@ function buildCtwChangelistFiles(
  * Precompute the full {@link ICommitToolWindowInitModel} from render input.
  * Exported for unit/jsdom tests that assert the built DOM.
  */
-export function buildCommitToolWindowInitModel(
-  input: Omit<IRenderInput, 'cspSource'>
-): ICommitToolWindowInitModel {
+export function buildCommitToolWindowInitModel(input: IRenderInput): ICommitToolWindowInitModel {
   const { activeTab, changelists, shelfItems, composer, activeChangelistId } = input;
   const grouping: ChangesGroupingMode = input.grouping ?? 'flat';
   // Derive combined entries when not already computed. Callers that skip
@@ -1523,63 +1390,21 @@ export function buildCommitToolWindowInitModel(
   };
 }
 
-export function buildCommitToolWindowBodyParts(input: Omit<IRenderInput, 'cspSource'>): {
+export function buildCommitToolWindowBodyParts(input: IRenderInput): {
   body: string;
   script: string;
 } {
   const model = buildCommitToolWindowInitModel(input);
-  // Body is an empty root + styles; the inline script builds every panel via
-  // createElement from the INIT island (no host-side HTML strings).
+  // Body = styles + an empty root + the init island the bundled entry
+  // (src/commits/webview/commitToolWindow.ts) reads on boot. The external
+  // bundle `<script src>` tag is emitted by BaseWebviewView._wrapHtml via
+  // {@link CommitToolWindow._getBundleName}; the `script` slot is unused for
+  // bundle-backed views.
   const body = `
   <style>${commitToolWindowStyles()}</style>
-  <div id="ctw-root"></div>`;
-  return { body, script: commitToolWindowBehaviorScript(model) };
+  <div id="ctw-root"></div>${initIslandHtml(model)}`;
+  return { body, script: '' };
 }
-
-/**
- * Legacy end-to-end renderer. Preserved so existing unit tests that assert
- * against a complete `<!DOCTYPE html>` document keep working. The class-side
- * path no longer calls this — it goes through
- * {@link buildCommitToolWindowBodyParts} + {@link BaseWebviewView._wrapHtml}.
- *
- * The CSP is the shared minimal policy from `buildWebviewCsp` in
- * `src/utils/webviewCsp.ts` (no img/font-src — this frame needs neither);
- * change CSP semantics there.
- */
-export function renderCommitToolWindowHtml(input: IRenderInput): string {
-  const nonce = generateNonce();
-  const { body, script } = buildCommitToolWindowBodyParts(input);
-  const cspSource = input.cspSource ?? '';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(cspSource, nonce, { images: false, fonts: false })}">
-  <title>Commit</title>
-</head>
-<body>
-${body}
-  <script nonce="${nonce}">${script}</script>
-</body>
-</html>`;
-}
-
-/**
- * How the Local Changes file list is grouped within each changelist.
- *
- * IntelliJ's `ChangesGroupingPolicy` supports directory / module / repository
- * grouping. IntelliG implements:
- *   - `flat`      — every file as a row showing its full repo-relative path
- *     (the pre-A4 behaviour).
- *   - `directory` — files nested under collapsible directory nodes, the
- *     IntelliJ default. Directory nodes show the directory path; file rows
- *     show just the basename.
- *
- * Module grouping has no VS Code analogue (no module model) and repository
- * grouping is the multi-root tool-window's job — both are out of scope here.
- */
-export type ChangesGroupingMode = 'flat' | 'directory';
 
 /** workspaceState key persisting the Local Changes grouping mode. */
 export const CHANGES_GROUPING_STATE_KEY = 'intellig.commitToolWindow.changesGrouping';
@@ -1754,479 +1579,6 @@ function commitToolWindowStyles(): string {
     .ctw-btn-commit, .ctw-btn-commit-dropdown, .ctw-btn-commit-and-push { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 4px 12px; cursor: pointer; }
     .ctw-btn-commit-dropdown { border-left: 1px solid var(--vscode-button-separator, rgba(0,0,0,0.2)); padding: 4px 6px; }
     .ctw-primary-menu { position: absolute; right: 0; bottom: 100%; background: var(--vscode-menu-background); border: 1px solid var(--vscode-menu-border); min-width: 180px; z-index: 10; }
-  `;
-}
-
-function commitToolWindowBehaviorScript(model: ICommitToolWindowInitModel): string {
-  // `<`→`<` so the serialized model can never break out of the <script>.
-  const initJson = JSON.stringify(model).replace(/</g, '\\u003c');
-  return `
-    (function () {
-      const vscode = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : undefined;
-      if (!vscode) return;
-
-      const INIT = ${initJson};
-
-      // ---- DOM builders (createElement — no host-side HTML strings) ----
-      const el = function (tag, props) { return Object.assign(document.createElement(tag), props || {}); };
-      const setAttrs = function (node, attrs) {
-        for (const k in attrs) { if (attrs[k] !== null && attrs[k] !== undefined) node.setAttribute(k, String(attrs[k])); }
-        return node;
-      };
-
-      // Escape a value before splicing it into an attribute selector
-      // ([data-path="<path>"]). Mirrors scriptBuilder.ts's cssEscapeHash:
-      // prefers the native CSS.escape (present in the Chromium webview), falls
-      // back to a minimal escaper under test DOMs that lack the CSS global. A
-      // filename may legally contain a backslash on POSIX, which the old
-      // quote-only escape left as an invalid selector that threw.
-      const cssEscapeAttr = function (value) {
-        var s = String(value);
-        if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') {
-          return CSS.escape(s);
-        }
-        return s.replace(/[^a-zA-Z0-9_-]/g, function (ch) { return '\\\\' + ch; });
-      };
-
-      function buildTabStrip() {
-        const strip = el('div', { className: 'ctw-tab-strip' });
-        setAttrs(strip, { role: 'tablist' });
-        const tab = function (id, label) {
-          const b = el('button', { className: 'ctw-tab' + (INIT.activeTab === id ? ' ctw-tab-active' : ''), textContent: label });
-          setAttrs(b, { 'data-tab': id, role: 'tab', 'aria-selected': INIT.activeTab === id });
-          return b;
-        };
-        strip.appendChild(tab('localChanges', 'Local Changes'));
-        strip.appendChild(tab('shelf', 'Shelf'));
-        strip.appendChild(el('div', { className: 'ctw-tab-spacer' }));
-        const gearWrap = el('div', { className: 'ctw-gear-wrap' });
-        const gear = el('button', { className: 'ctw-gear', textContent: '⚙' });
-        setAttrs(gear, { title: 'Options', 'aria-haspopup': 'menu' });
-        gearWrap.appendChild(gear);
-        const gearMenu = el('div', { className: 'ctw-gear-menu', hidden: true });
-        (INIT.gearItems || []).forEach(function (i) {
-          const item = el('button', { className: 'ctw-gear-item', disabled: true, textContent: i.label });
-          setAttrs(item, { title: i.tooltip });
-          gearMenu.appendChild(item);
-        });
-        gearWrap.appendChild(gearMenu);
-        strip.appendChild(gearWrap);
-        return strip;
-      }
-
-      function buildFileRow(f, changelistId) {
-        const row = el('div', { className: 'ctw-file-row' });
-        setAttrs(row, { 'data-path': f.path, 'data-changelist': changelistId });
-        const chk = el('input', { type: 'checkbox', className: 'ctw-file-check' });
-        setAttrs(chk, { 'data-path': f.path });
-        row.appendChild(chk);
-        row.appendChild(el('span', { className: 'ctw-file-status', textContent: f.statusChar }));
-        row.appendChild(el('span', { className: 'ctw-file-path', textContent: f.displayName }));
-        return row;
-      }
-
-      // Append a changelist's files into its block, honoring grouping. Flat
-      // mode appends file rows directly; directory mode wraps each bucket in a
-      // .ctw-dir-group (with an optional .ctw-dir-row header).
-      function appendChangelistFiles(block, cl) {
-        if (cl.dirGroups) {
-          cl.dirGroups.forEach(function (g) {
-            const group = el('div', { className: 'ctw-dir-group' });
-            if (g.dir !== null && g.dir !== undefined) {
-              const dirRow = el('div', { className: 'ctw-dir-row' });
-              setAttrs(dirRow, { 'data-dir': g.dir });
-              dirRow.appendChild(el('span', { className: 'ctw-dir-chevron', textContent: '▾' }));
-              dirRow.appendChild(el('span', { className: 'ctw-dir-path', textContent: g.dir }));
-              group.appendChild(dirRow);
-            }
-            (g.files || []).forEach(function (f) { group.appendChild(buildFileRow(f, cl.id)); });
-            block.appendChild(group);
-          });
-        } else {
-          (cl.files || []).forEach(function (f) { block.appendChild(buildFileRow(f, cl.id)); });
-        }
-      }
-
-      function buildChangelistBlock(cl, opts) {
-        const block = el('div', { className: 'ctw-changelist-block' + (opts && opts.unversioned ? ' ctw-unversioned-block' : '') });
-        const header = el('div', { className: 'ctw-changelist-row' + (opts && opts.unversioned ? ' ctw-unversioned-row' : '') });
-        setAttrs(header, { 'data-changelist': cl.id });
-        header.appendChild(el('span', { className: 'ctw-chevron', textContent: '▾' }));
-        const name = el('span', { className: 'ctw-changelist-name' + (cl.isActive ? ' ctw-changelist-active' : '') });
-        name.appendChild(document.createTextNode(cl.name));
-        if (cl.isActive) {
-          name.appendChild(document.createTextNode(' '));
-          name.appendChild(el('span', { className: 'ctw-active-tag', textContent: '(Active)' }));
-        }
-        header.appendChild(name);
-        header.appendChild(el('span', { className: 'ctw-count', textContent: cl.fileCount + ' file' + (cl.fileCount === 1 ? '' : 's') }));
-        block.appendChild(header);
-        appendChangelistFiles(block, cl);
-        return block;
-      }
-
-      function buildGroupingToggle() {
-        const wrap = el('div', { className: 'ctw-grouping' });
-        setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Group by' });
-        wrap.appendChild(el('span', { className: 'ctw-grouping-label', textContent: 'Group by:' }));
-        const btn = function (value, label) {
-          const b = el('button', { className: 'ctw-grouping-btn' + (INIT.grouping === value ? ' ctw-grouping-active' : ''), textContent: label });
-          setAttrs(b, { 'data-grouping': value, 'aria-pressed': INIT.grouping === value });
-          return b;
-        };
-        wrap.appendChild(btn('directory', 'Directory'));
-        wrap.appendChild(btn('flat', 'Flat'));
-        return wrap;
-      }
-
-      function buildLocalChangesPanel() {
-        const frag = document.createDocumentFragment();
-        frag.appendChild(buildGroupingToggle());
-        if (INIT.local.empty) {
-          frag.appendChild(el('div', { className: 'ctw-empty', textContent: 'No uncommitted changes.' }));
-          return frag;
-        }
-        const tree = el('div', { className: 'ctw-changelist-tree' });
-        setAttrs(tree, { role: 'tree' });
-        INIT.local.changelists.forEach(function (cl) { tree.appendChild(buildChangelistBlock(cl)); });
-        if (INIT.local.unversioned) { tree.appendChild(buildChangelistBlock(INIT.local.unversioned, { unversioned: true })); }
-        frag.appendChild(tree);
-        const pane = el('div', { className: 'ctw-diff-preview' });
-        setAttrs(pane, { 'data-diff-preview': '' });
-        pane.appendChild(el('div', { className: 'ctw-diff-preview-empty', textContent: 'Select a file to preview changes' }));
-        frag.appendChild(pane);
-        return frag;
-      }
-
-      function buildComposerPanel() {
-        const c = INIT.composer;
-        const wrap = el('div', { className: 'ctw-composer' });
-        const row = el('div', { className: 'ctw-composer-row' });
-        const ta = el('textarea', { className: 'ctw-composer-msg', value: c.message });
-        setAttrs(ta, { placeholder: 'Commit message' });
-        row.appendChild(ta);
-        const hist = el('button', { className: 'ctw-msg-history', textContent: '∨' });
-        setAttrs(hist, { title: 'Recent messages' });
-        row.appendChild(hist);
-        wrap.appendChild(row);
-        const opts = el('div', { className: 'ctw-composer-options' });
-        const checkbox = function (cls, checked, label) {
-          const lbl = el('label');
-          const input = el('input', { type: 'checkbox', className: cls, checked: !!checked });
-          lbl.appendChild(input);
-          lbl.appendChild(document.createTextNode(' ' + label));
-          return lbl;
-        };
-        opts.appendChild(checkbox('ctw-chk-amend', c.amend, 'Amend'));
-        opts.appendChild(checkbox('ctw-chk-signoff', c.signOff, 'Sign-off'));
-        wrap.appendChild(opts);
-        const actions = el('div', { className: 'ctw-composer-actions' });
-        const group = el('div', { className: 'ctw-primary-group' });
-        const commitBtn = el('button', { className: 'ctw-btn-commit', textContent: 'Commit' });
-        setAttrs(commitBtn, { type: 'button' });
-        group.appendChild(commitBtn);
-        const dropdown = el('button', { className: 'ctw-btn-commit-dropdown', textContent: '▾' });
-        setAttrs(dropdown, { type: 'button', 'aria-haspopup': 'menu' });
-        group.appendChild(dropdown);
-        actions.appendChild(group);
-        const menu = el('div', { className: 'ctw-primary-menu', hidden: true });
-        const cap = el('button', { className: 'ctw-btn-commit-and-push', textContent: 'Commit and Push…' });
-        setAttrs(cap, { type: 'button' });
-        menu.appendChild(cap);
-        actions.appendChild(menu);
-        wrap.appendChild(actions);
-        return wrap;
-      }
-
-      function buildShelfFilterHeader() {
-        const wrap = el('div', { className: 'ctw-shelf-filter' });
-        setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Show' });
-        wrap.appendChild(el('span', { className: 'ctw-shelf-filter-label', textContent: 'Show:' }));
-        const btn = function (value, label) {
-          const b = el('button', { className: 'ctw-shelf-filter-btn' + (INIT.shelf.filter === value ? ' ctw-shelf-filter-active' : ''), textContent: label });
-          setAttrs(b, { 'data-shelf-filter': value, 'aria-pressed': INIT.shelf.filter === value });
-          return b;
-        };
-        wrap.appendChild(btn('shelves', 'Shelves'));
-        wrap.appendChild(btn('stashes', 'Stashes'));
-        wrap.appendChild(btn('both', 'Both'));
-        return wrap;
-      }
-
-      function buildShelfRow(entry) {
-        const row = el('div', { className: 'ctw-shelf-row' });
-        setAttrs(row, { role: 'listitem' });
-        if (entry.kind === 'shelf') {
-          setAttrs(row, { 'data-row-kind': 'shelf', 'data-shelf-id': entry.id });
-          const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📚' });
-          setAttrs(badge, { title: 'Shelf entry' });
-          row.appendChild(badge);
-          const name = el('span', { className: 'ctw-shelf-name' });
-          name.appendChild(document.createTextNode(entry.name));
-          if (entry.alreadyUnshelved) {
-            name.appendChild(document.createTextNode(' '));
-            name.appendChild(el('span', { className: 'ctw-shelf-alreadyUnshelved', textContent: '(already unshelved)' }));
-          }
-          row.appendChild(name);
-          row.appendChild(el('span', { className: 'ctw-shelf-count', textContent: entry.fileCount + ' file' + (entry.fileCount === 1 ? '' : 's') }));
-        } else {
-          setAttrs(row, { 'data-row-kind': 'stash', 'data-stash-index': entry.index });
-          const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📦' });
-          setAttrs(badge, { title: 'Git stash' });
-          row.appendChild(badge);
-          row.appendChild(el('span', { className: 'ctw-shelf-name', textContent: entry.name }));
-          row.appendChild(el('span', { className: 'ctw-shelf-count', textContent: entry.id }));
-        }
-        return row;
-      }
-
-      function buildShelfPanel() {
-        const frag = document.createDocumentFragment();
-        frag.appendChild(buildShelfFilterHeader());
-        if (INIT.shelf.empty) {
-          frag.appendChild(el('div', { className: 'ctw-empty', textContent: INIT.shelf.emptyCopy }));
-          return frag;
-        }
-        const list = el('div', { className: 'ctw-shelf-list' });
-        setAttrs(list, { role: 'list' });
-        INIT.shelf.rows.forEach(function (r) { list.appendChild(buildShelfRow(r)); });
-        frag.appendChild(list);
-        return frag;
-      }
-
-      // Assemble the tool window into #ctw-root before wiring listeners.
-      (function buildDom() {
-        const root = document.getElementById('ctw-root');
-        if (!root) return;
-        root.appendChild(buildTabStrip());
-        const bodyEl = el('div', { className: 'ctw-body' });
-        const localPanel = el('div', { className: 'ctw-panel' });
-        setAttrs(localPanel, { 'data-panel': 'localChanges', style: 'display:' + (INIT.showLocal ? 'flex' : 'none') + ';' });
-        localPanel.appendChild(buildLocalChangesPanel());
-        localPanel.appendChild(buildComposerPanel());
-        bodyEl.appendChild(localPanel);
-        const shelfPanel = el('div', { className: 'ctw-panel' });
-        setAttrs(shelfPanel, { 'data-panel': 'shelf', style: 'display:' + (INIT.showLocal ? 'none' : 'flex') + ';' });
-        shelfPanel.appendChild(buildShelfPanel());
-        bodyEl.appendChild(shelfPanel);
-        root.appendChild(bodyEl);
-      })();
-
-      // Tab click
-      document.querySelectorAll('.ctw-tab').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const tab = btn.getAttribute('data-tab');
-          if (tab) vscode.postMessage({ type: 'tabChange', tab: tab });
-        });
-      });
-
-      // Gear toggle
-      const gear = document.querySelector('.ctw-gear');
-      const gearMenu = document.querySelector('.ctw-gear-menu');
-      if (gear && gearMenu) {
-        gear.addEventListener('click', function () { gearMenu.hidden = !gearMenu.hidden; });
-      }
-
-      // File row click → selectFile, checkbox change → toggleFile
-      document.querySelectorAll('.ctw-file-row').forEach(function (row) {
-        row.addEventListener('click', function (e) {
-          if (e.target && e.target.tagName === 'INPUT') return; // checkbox handled below
-          const path = row.getAttribute('data-path');
-          if (path) vscode.postMessage({ type: 'selectFile', path: path });
-        });
-      });
-      document.querySelectorAll('.ctw-file-check').forEach(function (chk) {
-        chk.addEventListener('change', function () {
-          const path = chk.getAttribute('data-path');
-          if (path) vscode.postMessage({ type: 'toggleFile', path: path });
-        });
-      });
-
-      // Right-click on a changelist row or file row → send a context-action
-      // ping to the host. Host decides what menu to present (keeps the
-      // menu labels in one place — see changelistContextMenuLabels /
-      // fileContextMenuLabels in the host module).
-      document.addEventListener('contextmenu', function (e) {
-        if (!(e.target instanceof Element)) return;
-        const row = e.target.closest('.ctw-changelist-row, .ctw-file-row, .ctw-shelf-row');
-        if (!row) return;
-        e.preventDefault();
-        // Shelf/stash rows take precedence — they open a QuickPick
-        // via a dedicated host message rather than the changelist-flavored
-        // context-action.
-        if (row.classList.contains('ctw-shelf-row')) {
-          const rowKind = row.getAttribute('data-row-kind');
-          const shelfId = row.getAttribute('data-shelf-id');
-          const stashIdxAttr = row.getAttribute('data-stash-index');
-          vscode.postMessage({
-            type: 'shelfTabContextAction',
-            action: 'contextOpen',
-            rowKind: rowKind,
-            shelfId: shelfId || undefined,
-            stashIndex: stashIdxAttr === null ? undefined : Number(stashIdxAttr),
-          });
-          return;
-        }
-        const path = row.getAttribute('data-path');
-        const changelistId = row.getAttribute('data-changelist');
-        vscode.postMessage({
-          type: 'changelistContextAction',
-          action: 'contextOpen',
-          changelistId: changelistId,
-          path: path,
-        });
-      });
-
-      // Shelf-tab filter segmented control.
-      document.querySelectorAll('.ctw-shelf-filter-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const f = btn.getAttribute('data-shelf-filter');
-          if (f === 'shelves' || f === 'stashes' || f === 'both') {
-            vscode.postMessage({ type: 'shelfTabFilterChange', filter: f });
-          }
-        });
-      });
-
-      // Local Changes grouping segmented control (Directory / Flat).
-      document.querySelectorAll('.ctw-grouping-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const g = btn.getAttribute('data-grouping');
-          if (g === 'flat' || g === 'directory') {
-            vscode.postMessage({ type: 'changesGroupingChange', grouping: g });
-          }
-        });
-      });
-
-      // Plain click on a shelf-tab row → selection / preview. For
-      // MVP this is a no-op; kept in the dispatcher so it's easy to hook
-      // a diff preview when the UX spec grows.
-      document.querySelectorAll('.ctw-shelf-row').forEach(function (row) {
-        row.addEventListener('click', function () {
-          // Reserved — host doesn't currently act on row clicks.
-        });
-      });
-
-      // Composer fields
-      const msgField = document.querySelector('.ctw-composer-msg');
-      const amendChk = document.querySelector('.ctw-chk-amend');
-      const signoffChk = document.querySelector('.ctw-chk-signoff');
-      if (msgField) {
-        msgField.addEventListener('input', function () {
-          vscode.postMessage({ type: 'updateComposerField', message: msgField.value });
-        });
-      }
-      if (amendChk) {
-        amendChk.addEventListener('change', function () {
-          vscode.postMessage({ type: 'updateComposerField', amend: amendChk.checked });
-        });
-      }
-      if (signoffChk) {
-        signoffChk.addEventListener('change', function () {
-          vscode.postMessage({ type: 'updateComposerField', signOff: signoffChk.checked });
-        });
-      }
-
-      // Primary commit button
-      const commitBtn = document.querySelector('.ctw-btn-commit');
-      const commitDropdownBtn = document.querySelector('.ctw-btn-commit-dropdown');
-      const commitPushMenu = document.querySelector('.ctw-primary-menu');
-      const commitAndPushBtn = document.querySelector('.ctw-btn-commit-and-push');
-
-      function getComposerPayload() {
-        return {
-          message: msgField ? msgField.value : '',
-          amend: amendChk ? amendChk.checked : false,
-          signOff: signoffChk ? signoffChk.checked : false,
-          files: Array.prototype.slice
-            .call(document.querySelectorAll('.ctw-file-check'))
-            .filter(function (c) { return c.checked; })
-            .map(function (c) { return c.getAttribute('data-path'); }),
-        };
-      }
-
-      if (commitBtn) {
-        commitBtn.addEventListener('click', function () {
-          vscode.postMessage(Object.assign({ type: 'commit' }, getComposerPayload()));
-        });
-      }
-      if (commitDropdownBtn && commitPushMenu) {
-        commitDropdownBtn.addEventListener('click', function () {
-          commitPushMenu.hidden = !commitPushMenu.hidden;
-        });
-      }
-      if (commitAndPushBtn) {
-        commitAndPushBtn.addEventListener('click', function () {
-          vscode.postMessage(Object.assign({ type: 'commitAndPush' }, getComposerPayload()));
-          if (commitPushMenu) commitPushMenu.hidden = true;
-        });
-      }
-
-      // Message-history dropdown — request history from the host and render
-      // a simple native <select>-like overlay. Phase 1 keeps this minimal.
-      const histBtn = document.querySelector('.ctw-msg-history');
-      if (histBtn) {
-        histBtn.addEventListener('click', function () {
-          vscode.postMessage({ type: 'messageHistoryRequest' });
-        });
-      }
-
-      // Render a diff into the preview pane. Builds DOM nodes (no innerHTML
-      // with interpolated content) so a hostile path/line can't inject markup.
-      function renderDiffPreview(pane, path, diff, error) {
-        while (pane.firstChild) pane.removeChild(pane.firstChild);
-        const head = document.createElement('div');
-        head.className = 'ctw-diff-preview-head';
-        head.textContent = path || '';
-        pane.appendChild(head);
-        if (error) {
-          const err = document.createElement('div');
-          err.className = 'ctw-diff-preview-empty';
-          err.textContent = 'Failed to load diff: ' + error;
-          pane.appendChild(err);
-          return;
-        }
-        if (!diff || diff.binary || !diff.hunks || diff.hunks.length === 0) {
-          const note = document.createElement('div');
-          note.className = 'ctw-diff-preview-empty';
-          note.textContent = diff && diff.binary ? 'Binary file' : 'No changes';
-          pane.appendChild(note);
-          return;
-        }
-        const body = document.createElement('pre');
-        body.className = 'ctw-diff-preview-body';
-        (diff.hunks || []).forEach(function (hunk) {
-          const h = document.createElement('div');
-          h.className = 'ctw-diff-hunk-header';
-          h.textContent = hunk.header || '';
-          body.appendChild(h);
-          (hunk.lines || []).forEach(function (line) {
-            const row = document.createElement('div');
-            const t = line.type === 'add' ? 'add' : line.type === 'delete' ? 'del' : 'ctx';
-            row.className = 'ctw-diff-line ctw-diff-' + t;
-            const prefix = t === 'add' ? '+' : t === 'del' ? '-' : ' ';
-            row.textContent = prefix + (line.content != null ? line.content : '');
-            body.appendChild(row);
-          });
-        });
-        pane.appendChild(body);
-      }
-
-      window.addEventListener('message', function (ev) {
-        const m = ev.data;
-        if (!m || typeof m.type !== 'string') return;
-        if (m.type === 'updateFileCheckbox' && typeof m.path === 'string') {
-          const box = document.querySelector('.ctw-file-check[data-path="' + cssEscapeAttr(m.path) + '"]');
-          if (box) box.checked = !!m.checked;
-        }
-        if (m.type === 'updateDiffPreview') {
-          const pane = document.querySelector('[data-diff-preview]');
-          if (pane) renderDiffPreview(pane, m.path, m.diff, m.error);
-        }
-        if (m.type === 'commitDone' && m.success && msgField) {
-          msgField.value = '';
-        }
-      });
-    })();
   `;
 }
 

@@ -26,17 +26,17 @@ import '../../setup';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JSDOM } from 'jsdom';
 import {
   CommitToolWindow,
   buildShelfTabEntries,
   isShelfTabFilter,
   shelfRowContextMenuLabels,
   stashRowContextMenuLabels,
-  renderCommitToolWindowHtml,
+  buildCommitToolWindowBodyParts,
   COMMIT_TOOL_WINDOW_SHELF_TAB_FILTER_STATE_KEY,
 } from '../../../src/services';
 import type { IRenderInput } from '../../../src/services';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import type {
   IShelfTabEntry,
   IShelfTabShelfController,
@@ -195,24 +195,24 @@ describe('stashRowContextMenuLabels', () => {
 // ─── Shelf panel (built client-side via createElement) ──────────────────────
 
 /**
- * Render the tool window's HTML, eval its inline nonce'd script in jsdom, and
- * return the built document. The body ships as an empty `#ctw-root`; the script
- * builds every panel via createElement from the INIT island, so the rendered
- * DOM — not a host-side HTML string — is the assertion surface.
+ * Boot the bundled Commit Tool Window entry against the host body (empty
+ * `#ctw-root` + the `#intellig-init` island) and return the built document; the
+ * entry builds every panel via createElement, so the rendered DOM — not a
+ * host-side HTML string — is the assertion surface. Harnesses are disposed
+ * after each test so jsdom globals don't leak.
  */
-function buildCtwDoc(input: Omit<IRenderInput, 'cspSource'>): Document {
-  const html = renderCommitToolWindowHtml({ cspSource: 'vscode-webview://mock', ...input });
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const { window } = dom;
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (): void => {},
-    getState: (): undefined => undefined,
-    setState: (): void => {},
-  });
-  const script = window.document.querySelector('script[nonce]');
-  assert.ok(script && script.textContent, 'rendered html must carry a nonce script');
-  window.eval(script.textContent);
-  return window.document as unknown as Document;
+const _ctwHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_ctwHarnesses.length > 0) {
+    _ctwHarnesses.pop()?.dispose();
+  }
+});
+
+function buildCtwDoc(input: IRenderInput): Document {
+  const { body } = buildCommitToolWindowBodyParts(input);
+  const h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+  _ctwHarnesses.push(h);
+  return h.document;
 }
 
 /** Build a doc whose shelf tab shows the given entries + filter. */
@@ -600,9 +600,9 @@ describe('CommitToolWindow shelfTabContextAction routing', () => {
   });
 });
 
-// ─── render smoke: renderCommitToolWindowHtml still handles legacy shape ────
+// ─── render smoke: the init model still handles the legacy shape ────
 
-describe('renderCommitToolWindowHtml backward compat', () => {
+describe('CommitToolWindow render backward compat', () => {
   it('works without the new shelfTab* fields (legacy callers)', () => {
     const doc = buildCtwDoc({
       activeTab: 'shelf',

@@ -218,6 +218,19 @@ export abstract class BaseWebviewView<TOutbound = unknown> implements vscode.Web
   protected abstract _handleMessage(message: unknown): void | Promise<void>;
 
   /**
+   * Subclass hook: when a bundle file name is returned, the view renders an
+   * EXTERNAL `<script nonce src=media/webview/<name>>` tag (paired with an init
+   * island the subclass bakes into its `body`) instead of the inline
+   * `${script}` block. Ported views return their bundle basename (e.g.
+   * `commitToolWindow.js`); legacy inline-script views leave the default
+   * `undefined`. A view that overrides {@link _render} directly (e.g. the git
+   * tool window provider, which builds its own document) is unaffected.
+   */
+  protected _getBundleName(): string | undefined {
+    return undefined;
+  }
+
+  /**
    * Subclass hook: the `<title>` for the wrapper document. Most views leave
    * this as the default — the browser-style title is invisible for views
    * (VS Code owns the view's display title via the view contribution).
@@ -290,9 +303,26 @@ export abstract class BaseWebviewView<TOutbound = unknown> implements vscode.Web
 </head>
 <body>
 ${body}
-<script nonce="${nonce}">${script}</script>
+${this._buildScriptTag(nonce, script)}
 </body>
 </html>`;
+  }
+
+  /**
+   * The end-of-body script tag. An external bundle tag when
+   * {@link _getBundleName} is set (nonce authorizes the external `src` exactly
+   * as it does an inline block, so no CSP change is needed); otherwise the
+   * inline `${script}` block the legacy inline-script views still use.
+   */
+  private _buildScriptTag(nonce: string, script: string): string {
+    const bundle = this._getBundleName();
+    if (bundle !== undefined) {
+      const uri = this._view?.webview.asWebviewUri(
+        vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', bundle)
+      );
+      return `<script nonce="${nonce}" src="${uri?.toString() ?? ''}"></script>`;
+    }
+    return `<script nonce="${nonce}">${script}</script>`;
   }
 
   /**

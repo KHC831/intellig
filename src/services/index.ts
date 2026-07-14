@@ -85,7 +85,6 @@ export {
   fileContextMenuLabels,
   changelistContextMenuLabels,
   gearMenuItems,
-  renderCommitToolWindowHtml,
   buildCommitToolWindowBodyParts,
   buildShelfTabEntries,
   isShelfTabFilter,
