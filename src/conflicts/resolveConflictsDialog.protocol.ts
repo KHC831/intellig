@@ -2,6 +2,7 @@
  * Wire protocol for the Resolve Conflicts dialog. NO vscode import (so the
  * Phase-5 webview TS entry can import the same shapes). Frozen wire.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Per-file resolution state shown in the dialog + carried on updateFileStatus. */
 export type ConflictFileStatus = 'unresolved' | 'resolved';
@@ -74,3 +75,9 @@ export function asResolveConflictsDialogInbound(
     ? (message as ResolveConflictsDialogInbound)
     : undefined;
 }
+
+/** Compile tie: RESOLVE_CONFLICTS_DIALOG_INBOUND_TYPES and ResolveConflictsDialogInbound agree both ways (check:typed-messages Rule D). */
+const _resolveConflictsDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<ResolveConflictsDialogInbound, typeof RESOLVE_CONFLICTS_DIALOG_INBOUND_TYPES>
+> = true;
+void _resolveConflictsDialogInboundTie;

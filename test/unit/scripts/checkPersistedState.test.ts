@@ -2,8 +2,8 @@
  * Companion spec for scripts/check-persisted-state.mjs.
  *
  * Proves the ban (a) passes on the real tree, (b) catches raw Memento
- * get/update on the three conventional identifiers (workspaceState /
- * globalState / memento, optional leading underscore), including the multiline
+ * get/update on the four conventional identifiers (workspaceState /
+ * globalState / memento / store, optional leading underscore), including the multiline
  * split, (c) honors the `// persisted-state-exempt:` escape hatch, and (d) does
  * NOT fire on `.getState()` view accessors, a `context.workspaceState`
  * constructor arg, or the webview `vscode.getState()` handle.
@@ -81,6 +81,21 @@ describe('check-persisted-state guard', () => {
       assert.strictEqual(status, 1, 'both alias forms must fail');
       assert.ok(/a\.ts:2/.test(stderr), `should name _memento site; stderr:\n${stderr}`);
       assert.ok(/b\.ts:2/.test(stderr), `should name globalState site; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('catches a `store`-aliased Memento (store.get / _store.update)', () => {
+    const fx = makeFixture('store-alias', {
+      'a.ts': 'export function r(store) {\n  return store.get("k");\n}\n',
+      'b.ts': 'class F {\n  w() {\n    return this._store.update("k", 1);\n  }\n}\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir]);
+      assert.strictEqual(status, 1, 'a store-aliased Memento must fail');
+      assert.ok(/a\.ts:2/.test(stderr), `should name store.get site; stderr:\n${stderr}`);
+      assert.ok(/b\.ts:3/.test(stderr), `should name _store.update site; stderr:\n${stderr}`);
     } finally {
       fs.rmSync(fx.dir, { recursive: true, force: true });
     }

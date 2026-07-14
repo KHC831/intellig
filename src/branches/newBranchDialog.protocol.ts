@@ -1,6 +1,7 @@
 /**
  * Wire protocol for the New Branch dialog. NO vscode import. Frozen wire.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Initial state the host bakes into the body island; the entry reads it on boot. */
 export interface INewBranchDialogInit {
@@ -42,3 +43,9 @@ export function asNewBranchDialogInbound(message: unknown): NewBranchDialogInbou
     ? (message as NewBranchDialogInbound)
     : undefined;
 }
+
+/** Compile tie: NEW_BRANCH_DIALOG_INBOUND_TYPES and NewBranchDialogInbound agree both ways (check:typed-messages Rule D). */
+const _newBranchDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<NewBranchDialogInbound, typeof NEW_BRANCH_DIALOG_INBOUND_TYPES>
+> = true;
+void _newBranchDialogInboundTie;

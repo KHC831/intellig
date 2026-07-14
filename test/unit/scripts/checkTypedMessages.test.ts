@@ -152,6 +152,37 @@ describe('check-typed-messages guard', () => {
     }
   });
 
+  it('Rule D: fails a file defining an *_INBOUND_TYPES array with no InboundArrayTie', () => {
+    const fx = makeFixture('ruleD', {
+      'foo.protocol.ts':
+        "export type FooInbound = { type: 'a' } | { type: 'b' };\n" +
+        "export const FOO_INBOUND_TYPES = ['a', 'b'] as const;\n",
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'an INBOUND_TYPES array without the compile tie must fail');
+      assert.ok(/InboundArrayTie/.test(stderr), `should name the missing tie; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule D: passes when the file carries the InboundArrayTie compile tie', () => {
+    const fx = makeFixture('ruleD-ok', {
+      'foo.protocol.ts':
+        "import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';\n" +
+        "export type FooInbound = { type: 'a' } | { type: 'b' };\n" +
+        "export const FOO_INBOUND_TYPES = ['a', 'b'] as const;\n" +
+        'type _Tie = AssertInboundArrayTie<InboundArrayTie<FooInbound, typeof FOO_INBOUND_TYPES>>;\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 0, `a tied INBOUND_TYPES array must pass; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
   it('does not fire on getState(), vscode.getState(), or a prose comment', () => {
     const fx = makeFixture('false-positives', {
       'view.ts':

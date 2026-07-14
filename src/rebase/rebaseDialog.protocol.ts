@@ -2,6 +2,7 @@
  * Wire protocol for the Rebase dialog. NO vscode import. Frozen wire; the
  * dialog posts nothing back.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** One option checkbox row baked into the init island. */
 export interface IRebaseOptionCheckbox {
@@ -51,3 +52,9 @@ export function asRebaseDialogInbound(message: unknown): RebaseDialogInbound | u
     ? (message as RebaseDialogInbound)
     : undefined;
 }
+
+/** Compile tie: REBASE_DIALOG_INBOUND_TYPES and RebaseDialogInbound agree both ways (check:typed-messages Rule D). */
+const _rebaseDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<RebaseDialogInbound, typeof REBASE_DIALOG_INBOUND_TYPES>
+> = true;
+void _rebaseDialogInboundTie;

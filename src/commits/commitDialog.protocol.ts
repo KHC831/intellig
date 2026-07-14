@@ -8,6 +8,7 @@
  * via `Omit`, split into a discriminated union so `assertNever` can gate it.
  */
 import type { ICommitDialogWebviewMessage } from './CommitDialog';
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 type Fields = Omit<ICommitDialogWebviewMessage, 'type'>;
 
@@ -70,3 +71,9 @@ export function asCommitDialogInbound(message: unknown): CommitDialogInbound | u
     ? (message as CommitDialogInbound)
     : undefined;
 }
+
+/** Compile tie: COMMIT_DIALOG_INBOUND_TYPES and CommitDialogInbound agree both ways (check:typed-messages Rule D). */
+const _commitDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<CommitDialogInbound, typeof COMMIT_DIALOG_INBOUND_TYPES>
+> = true;
+void _commitDialogInboundTie;

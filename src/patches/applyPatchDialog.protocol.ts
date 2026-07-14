@@ -1,6 +1,7 @@
 /**
  * Wire protocol for the Apply Patch dialog. NO vscode import. Frozen wire.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Initial state the host bakes into the body island; the entry reads it on boot. */
 export interface IApplyPatchDialogInit {
@@ -40,3 +41,9 @@ export function asApplyPatchDialogInbound(message: unknown): ApplyPatchDialogInb
     ? (message as ApplyPatchDialogInbound)
     : undefined;
 }
+
+/** Compile tie: APPLY_PATCH_DIALOG_INBOUND_TYPES and ApplyPatchDialogInbound agree both ways (check:typed-messages Rule D). */
+const _applyPatchDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<ApplyPatchDialogInbound, typeof APPLY_PATCH_DIALOG_INBOUND_TYPES>
+> = true;
+void _applyPatchDialogInboundTie;

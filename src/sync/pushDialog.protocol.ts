@@ -3,6 +3,7 @@
  * here (vscode-free) so both the host and the webview entry import them from one
  * place. Frozen wire.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Which push variant the primary button performs. */
 export type PushAction = 'push' | 'forceWithLease' | 'force';
@@ -85,3 +86,9 @@ export function asPushDialogInbound(message: unknown): PushDialogInbound | undef
     ? (message as PushDialogInbound)
     : undefined;
 }
+
+/** Compile tie: PUSH_DIALOG_INBOUND_TYPES and PushDialogInbound agree both ways (check:typed-messages Rule D). */
+const _pushDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<PushDialogInbound, typeof PUSH_DIALOG_INBOUND_TYPES>
+> = true;
+void _pushDialogInboundTie;

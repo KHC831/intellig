@@ -8,6 +8,7 @@
  * Shapes are the frozen wire — do not rename fields here (Phase 5 owns wire
  * cleanups).
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../../utils/protocolTie';
 
 /** Host → webview: seed the three-pane merge model. */
 export type MergeWindowInitMessage = {
@@ -57,3 +58,9 @@ export function asMergeWindowInbound(message: unknown): MergeWindowInbound | und
     ? (message as MergeWindowInbound)
     : undefined;
 }
+
+/** Compile tie: MERGE_WINDOW_INBOUND_TYPES and MergeWindowInbound agree both ways (check:typed-messages Rule D). */
+const _mergeWindowInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<MergeWindowInbound, typeof MERGE_WINDOW_INBOUND_TYPES>
+> = true;
+void _mergeWindowInboundTie;

@@ -3,6 +3,7 @@
  * import. Frozen wire; the view re-renders its HTML rather than posting, so the
  * outbound side is `never`.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** One commit row baked into the init island. */
 export interface IRebaseProgressCommit {
@@ -60,3 +61,9 @@ export function asRebaseProgressViewInbound(
     ? (message as RebaseProgressViewInbound)
     : undefined;
 }
+
+/** Compile tie: REBASE_PROGRESS_VIEW_INBOUND_TYPES and RebaseProgressViewInbound agree both ways (check:typed-messages Rule D). */
+const _rebaseProgressViewInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<RebaseProgressViewInbound, typeof REBASE_PROGRESS_VIEW_INBOUND_TYPES>
+> = true;
+void _rebaseProgressViewInboundTie;

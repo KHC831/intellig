@@ -4,6 +4,7 @@
  * wire; the dialog posts nothing back.
  */
 import type { ResetMode } from '../git-core/interfaces/resetMode';
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Initial state the host bakes into the body island; the entry reads it on boot. */
 export interface IResetDialogInit {
@@ -30,3 +31,9 @@ export function asResetDialogInbound(message: unknown): ResetDialogInbound | und
     ? (message as ResetDialogInbound)
     : undefined;
 }
+
+/** Compile tie: RESET_DIALOG_INBOUND_TYPES and ResetDialogInbound agree both ways (check:typed-messages Rule D). */
+const _resetDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<ResetDialogInbound, typeof RESET_DIALOG_INBOUND_TYPES>
+> = true;
+void _resetDialogInboundTie;

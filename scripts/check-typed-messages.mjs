@@ -71,6 +71,7 @@ const ON_DID_RECEIVE_RE = /\.onDidReceiveMessage\s*\(/g;
 const RAW_POST_RE = /\b\w*[wW]ebview\s*(?:\?\.|\.)\s*postMessage\s*\(/g;
 const PROTOCOL_IMPORT_RE = /from\s+['"][^'"]*\.protocol['"]/;
 const HANDLER_DEF_RE = /_onMessage\s*\(|_handleMessage\s*\(|_handleWebviewMessage\s*\(/;
+const INBOUND_TYPES_DEF_RE = /\b\w*_INBOUND_TYPES\s*=\s*\[/;
 
 function collectTsFiles(dir) {
   const out = [];
@@ -145,6 +146,19 @@ function main() {
             'handler but has no assertNever exhaustiveness gate. Add `default: assertNever(msg)`.'
         );
       }
+    }
+
+    // Rule D — a runtime `*_INBOUND_TYPES` discriminant array must carry the
+    // compile-time InboundArrayTie to its inbound union. Without it, a variant
+    // added to the union + host switch but NOT the array is silently
+    // guard-rejected at runtime (the effort's bug class, inside the guard).
+    if (INBOUND_TYPES_DEF_RE.test(content) && !content.includes('InboundArrayTie<')) {
+      failures.push(
+        `check-typed-messages: ${relRoot} defines an *_INBOUND_TYPES array with no InboundArrayTie\n` +
+          'compile tie to its inbound union. Add\n' +
+          '`type _Tie = AssertInboundArrayTie<InboundArrayTie<XInbound, typeof X_INBOUND_TYPES>>;`\n' +
+          'from src/utils/protocolTie.ts (a missing/extra discriminant then fails to compile).'
+      );
     }
   }
 

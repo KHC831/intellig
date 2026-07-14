@@ -4,6 +4,7 @@
  * editor re-renders its HTML rather than posting, so outbound is `never`.
  */
 import type { RebaseAction } from '../git-core/interfaces/IRebaseService';
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 export type RebaseEditorInbound =
   | { type: 'execute' }
@@ -32,3 +33,9 @@ export function asRebaseEditorInbound(message: unknown): RebaseEditorInbound | u
     ? (message as RebaseEditorInbound)
     : undefined;
 }
+
+/** Compile tie: REBASE_EDITOR_INBOUND_TYPES and RebaseEditorInbound agree both ways (check:typed-messages Rule D). */
+const _rebaseEditorInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<RebaseEditorInbound, typeof REBASE_EDITOR_INBOUND_TYPES>
+> = true;
+void _rebaseEditorInboundTie;

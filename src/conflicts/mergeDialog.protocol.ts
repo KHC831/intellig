@@ -3,6 +3,7 @@
  * posts nothing back. The strategy-flag shape is inlined (not imported from the
  * panel) to keep this module vscode-free by construction.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Initial state the host bakes into the body island; the entry reads it on boot. */
 export interface IMergeDialogInit {
@@ -39,3 +40,9 @@ export function asMergeDialogInbound(message: unknown): MergeDialogInbound | und
     ? (message as MergeDialogInbound)
     : undefined;
 }
+
+/** Compile tie: MERGE_DIALOG_INBOUND_TYPES and MergeDialogInbound agree both ways (check:typed-messages Rule D). */
+const _mergeDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<MergeDialogInbound, typeof MERGE_DIALOG_INBOUND_TYPES>
+> = true;
+void _mergeDialogInboundTie;

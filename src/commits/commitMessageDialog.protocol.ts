@@ -3,6 +3,7 @@
  * The dialog bakes its initial state into the HTML and posts nothing back, so
  * the outbound side is `never`.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Initial state the host bakes into the body island; the entry reads it on boot. */
 export interface ICommitMessageDialogInit {
@@ -31,3 +32,9 @@ export function asCommitMessageDialogInbound(
     ? (message as CommitMessageDialogInbound)
     : undefined;
 }
+
+/** Compile tie: COMMIT_MESSAGE_DIALOG_INBOUND_TYPES and CommitMessageDialogInbound agree both ways (check:typed-messages Rule D). */
+const _commitMessageDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<CommitMessageDialogInbound, typeof COMMIT_MESSAGE_DIALOG_INBOUND_TYPES>
+> = true;
+void _commitMessageDialogInboundTie;

@@ -7,6 +7,7 @@
  * island the entry reads on boot) rather than posting it, so the host emits
  * nothing: `ShelveDialogOutbound` is `never`.
  */
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** A file row in the dialog's checkbox list (pure view-model, vscode-free). */
 export interface IShelveFileItem {
@@ -51,3 +52,9 @@ export function asShelveDialogInbound(message: unknown): ShelveDialogInbound | u
     ? (message as ShelveDialogInbound)
     : undefined;
 }
+
+/** Compile tie: SHELVE_DIALOG_INBOUND_TYPES and ShelveDialogInbound agree both ways (check:typed-messages Rule D). */
+const _shelveDialogInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<ShelveDialogInbound, typeof SHELVE_DIALOG_INBOUND_TYPES>
+> = true;
+void _shelveDialogInboundTie;

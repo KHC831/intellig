@@ -10,6 +10,7 @@
 import type { IWebviewMessage, IBranchFilterGroups } from './GitToolWindowProvider';
 import type { DetailsPanelModel } from './provider/detailsPanelModel';
 import type { MultiSelectMenuAction, IMenuItemState } from './multiSelect';
+import type { AssertInboundArrayTie, InboundArrayTie } from '../../utils/protocolTie';
 
 /** Shared field bag (every wire field except the discriminant), reused verbatim. */
 type Fields = Omit<IWebviewMessage, 'type'>;
@@ -87,3 +88,9 @@ export function asGitToolWindowInbound(message: unknown): GitToolWindowInbound |
     ? (message as GitToolWindowInbound)
     : undefined;
 }
+
+/** Compile tie: GIT_TOOL_WINDOW_INBOUND_TYPES and GitToolWindowInbound agree both ways (check:typed-messages Rule D). */
+const _gitToolWindowInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<GitToolWindowInbound, typeof GIT_TOOL_WINDOW_INBOUND_TYPES>
+> = true;
+void _gitToolWindowInboundTie;

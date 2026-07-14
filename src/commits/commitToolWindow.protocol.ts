@@ -16,6 +16,7 @@ import type {
 import type { IChangelist } from '../changelists/interfaces/IChangelistService';
 import type { IShelfItem } from '../shelf/interfaces/IShelfService';
 import type { IStash, IDiff } from '../git-core/interfaces/IGitService';
+import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Shared field bag (every wire field except the discriminant), reused verbatim. */
 type Fields = Omit<ICommitToolWebviewMessage, 'type'>;
@@ -75,3 +76,9 @@ export function asCommitToolWindowInbound(message: unknown): CommitToolWindowInb
     ? (message as CommitToolWindowInbound)
     : undefined;
 }
+
+/** Compile tie: COMMIT_TOOL_WINDOW_INBOUND_TYPES and CommitToolWindowInbound agree both ways (check:typed-messages Rule D). */
+const _commitToolWindowInboundTie: AssertInboundArrayTie<
+  InboundArrayTie<CommitToolWindowInbound, typeof COMMIT_TOOL_WINDOW_INBOUND_TYPES>
+> = true;
+void _commitToolWindowInboundTie;

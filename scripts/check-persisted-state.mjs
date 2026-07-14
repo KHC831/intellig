@@ -19,9 +19,10 @@
  *    Every `.ts` under srcDir (except *.test.ts and the seam module itself) is
  *    read as one string (content-based, so a receiver/`.get` split across lines
  *    is caught) and scanned for
- *      \b_?(workspaceState|globalState|memento)\s*\.\s*(get|update)\s*\(
- *    keying on the three conventional Memento identifiers this codebase uses
- *    (optional leading underscore / `this.`). A match fails unless a
+ *      \b_?(workspaceState|globalState|memento|store)\s*\.\s*(get|update)\s*\(
+ *    keying on the four conventional Memento identifiers this codebase uses
+ *    (optional leading underscore / `this.`; `store` is the common Memento-alias
+ *    param name). A match fails unless a
  *    `// persisted-state-exempt: <reason>` comment sits within the four lines
  *    above. New persisted state added via a slot + loadPersisted/savePersisted
  *    is covered automatically; no per-key edit here.
@@ -40,7 +41,8 @@
  *    removes every legitimate Memento `.get` from the rest of the tree; (b) a
  *    Memento is only ever acquired via `context.workspaceState` /
  *    `context.globalState`, trivial to eyeball in review; (c) the teeth test
- *    pins the three conventional names. Banning `state.get(` broadly would
+ *    pins the four conventional names — incl. `store`, the common Memento-alias
+ *    param name a slot-helper caller reaches for. Banning `state.get(` broadly would
  *    collide with `Map.get` and non-Memento `.get` — noise, deliberately not done.
  *
  * 5. Retirement criteria
@@ -55,7 +57,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const SEAM_REL = join('utils', 'persistedState.ts');
-const BAN_RE = /\b_?(?:workspaceState|globalState|memento)\s*\.\s*(?:get|update)\s*\(/g;
+const BAN_RE = /\b_?(?:workspaceState|globalState|memento|store)\s*\.\s*(?:get|update)\s*\(/g;
 
 function collectTsFiles(dir) {
   const out = [];
