@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import { registerLoggedCommand, getLogger } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
@@ -548,9 +549,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
 
-      const pullRebaseDefault = vscode.workspace
-        .getConfiguration('intellig')
-        .get<boolean>('pullRebase', false);
+      const pullRebaseDefault = readConfig('pullRebase');
 
       // The 0a getIncomingOutgoing lives on the concrete GitService (ADR-001 —
       // not the frozen IGitService composite). The runtime instance is always a

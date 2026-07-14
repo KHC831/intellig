@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import { ResultAsync } from 'neverthrow';
 import {
   IRepository,
@@ -34,7 +34,7 @@ export class DiffOps {
    * injection-safe.
    */
   private whitespaceFlags(): string[] {
-    const raw = vscode.workspace.getConfiguration('intellig.diff').get<string>('ignorePolicy');
+    const raw = readConfig('diff.ignorePolicy');
     return diffIgnorePolicyFlags(normalizeDiffIgnorePolicy(raw));
   }
 

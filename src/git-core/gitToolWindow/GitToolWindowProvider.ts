@@ -5,6 +5,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import * as path from 'path';
 import { abbreviateHomePath } from '../../utils/displayPath';
 import {
@@ -4849,8 +4850,7 @@ ${bodyMarkup}
    */
   private _isIssueLinkingEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('commitMessageIssueLinks', true);
+      return readConfig('commitMessageIssueLinks');
     } catch {
       // Getting configuration shouldn't throw in practice, but if it does
       // we prefer to keep the flag on so the feature stays visible.
@@ -4866,8 +4866,7 @@ ${bodyMarkup}
    */
   private _isShowGpgColumnEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showGpgColumn', false);
+      return readConfig('log.showGpgColumn');
     } catch {
       return false;
     }
@@ -4881,8 +4880,7 @@ ${bodyMarkup}
    */
   private _isShowLongEdgesEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showLongEdges', false);
+      return readConfig('log.showLongEdges');
     } catch {
       return false;
     }
@@ -4896,8 +4894,7 @@ ${bodyMarkup}
    */
   private _isShowRootNamesEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showRootNames', false);
+      return readConfig('log.showRootNames');
     } catch {
       return false;
     }
@@ -4924,8 +4921,7 @@ ${bodyMarkup}
    */
   private _isShowAllRootsConfigEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showAllRoots', true);
+      return readConfig('log.showAllRoots');
     } catch {
       // Defensive: on a config-read failure, degrade to single-repo scope.
       return false;

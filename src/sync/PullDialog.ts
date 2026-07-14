@@ -12,6 +12,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import {
   IBranch,
   IGitService,
@@ -475,8 +476,7 @@ export class PullDialog {
       return { status: 'cancelled', step: 'source' };
     }
 
-    const config = vscode.workspace.getConfiguration('intellig');
-    const defaultRebase = config.get<boolean>('pullRebase', false);
+    const defaultRebase = readConfig('pullRebase');
 
     return runPullDialog({
       repo: targetRepo,

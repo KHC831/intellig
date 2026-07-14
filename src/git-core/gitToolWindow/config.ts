@@ -6,7 +6,7 @@
  * defaults to `true`; users can opt out to restore the single Log panel.
  */
 
-import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 
 export const TABBED_CONFIG_KEY = 'useTabbedGitToolWindow';
 export const TABBED_CONFIG_FULL_KEY = `intellig.${TABBED_CONFIG_KEY}`;
@@ -20,8 +20,7 @@ export const TABBED_CONFIG_FULL_KEY = `intellig.${TABBED_CONFIG_KEY}`;
  */
 export function isTabbedGitToolWindowEnabled(): boolean {
   try {
-    const config = vscode.workspace.getConfiguration('intellig');
-    return Boolean(config.get<boolean>(TABBED_CONFIG_KEY, true));
+    return Boolean(readConfig('useTabbedGitToolWindow'));
   } catch {
     return true;
   }

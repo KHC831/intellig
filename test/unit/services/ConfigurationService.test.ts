@@ -44,7 +44,6 @@ describe('ConfigurationService', () => {
         'pullRebase',
         'autoFetchEnabled',
         'autoFetchInterval',
-        'defaultToolWindowTab',
         'blameAnnotationStyle',
         'showStatusBarBranch',
         'modifiedFileColor',
@@ -107,12 +106,6 @@ describe('ConfigurationService', () => {
     });
 
     it('should return valid enum values for enum settings', () => {
-      const defaultToolWindowTab = service.get('defaultToolWindowTab');
-      assert.ok(
-        ['local-changes', 'log', 'console'].includes(defaultToolWindowTab),
-        `Invalid defaultToolWindowTab: ${defaultToolWindowTab}`
-      );
-
       const blameAnnotationStyle = service.get('blameAnnotationStyle');
       assert.ok(
         ['inline', 'gutter', 'both', 'off'].includes(blameAnnotationStyle),
@@ -267,7 +260,6 @@ describe('getDefaultConfiguration', () => {
     assert.strictEqual(defaults.autoFetchInterval, 180);
 
     // UI settings
-    assert.strictEqual(defaults.defaultToolWindowTab, 'local-changes');
     assert.strictEqual(defaults.blameAnnotationStyle, 'inline');
     assert.strictEqual(defaults.showStatusBarBranch, true);
 

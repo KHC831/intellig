@@ -24,6 +24,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import {
   IChangelist,
   IFileChange,
@@ -2210,8 +2211,7 @@ function commitToolWindowBehaviorScript(model: ICommitToolWindowInitModel): stri
  */
 export function isCommitToolWindowEnabled(): boolean {
   try {
-    const config = vscode.workspace.getConfiguration('intellig');
-    return Boolean(config.get<boolean>(COMMIT_TOOL_WINDOW_CONFIG_KEY, true));
+    return Boolean(readConfig('useCommitToolWindow'));
   } catch {
     return true;
   }

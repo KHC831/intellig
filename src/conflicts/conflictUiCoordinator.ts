@@ -5,6 +5,7 @@ import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { resolveGitDir, REBASE_STATE_DIRS } from '../git-core/gitDirMarkers';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
+import { readConfig } from '../config/configKeys';
 import { getLogger, type Logger } from '../utils/logger';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { IMergeView } from './interfaces/IMergeView';
@@ -14,7 +15,6 @@ import {
 } from './interfaces/IConflictResolutionService';
 
 const STATE_FILE_DEBOUNCE_MS = 300;
-const CONFIG_AUTO_OPEN_KEY = 'autoOpenResolveConflictsDialog';
 
 /**
  * The resolution backend the coordinator drives: the headless Layer-3 resolver
@@ -89,9 +89,7 @@ export class ConflictUiCoordinator {
     // The config only gates AUTOMATIC opening after a conflict-producing op. An
     // explicit user action (status-bar prompt / VCS menu) always opens —
     // otherwise the opt-out turns that entry point into a dead-end.
-    const autoOpen =
-      options?.explicit === true ||
-      vscode.workspace.getConfiguration('intellig').get<boolean>(CONFIG_AUTO_OPEN_KEY, true);
+    const autoOpen = options?.explicit === true || readConfig('autoOpenResolveConflictsDialog');
 
     if (!autoOpen) {
       // Feature flag off: surface context key only so the status-bar prompt

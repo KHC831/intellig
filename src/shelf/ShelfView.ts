@@ -5,6 +5,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import * as path from 'path';
 import * as fs from 'fs';
 import { IRepository, IDiff, IFileStatus } from '../git-core/interfaces/IGitService';
@@ -1035,9 +1036,7 @@ export class ShelfView implements IShelfView {
    * Still routes conflicts through the Resolve Conflicts dialog.
    */
   async unshelveSilent(id: string): Promise<IShelfActionResult> {
-    const removeAppliedFiles = vscode.workspace
-      .getConfiguration('intellig.shelve')
-      .get<boolean>('removeAppliedFiles', false);
+    const removeAppliedFiles = readConfig('shelve.removeAppliedFiles');
     return this.unshelve(id, {
       removeFromShelf: true,
       removeAppliedFiles,

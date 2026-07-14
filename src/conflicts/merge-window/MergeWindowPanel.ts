@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BaseWebviewPanel } from '../../utils/BaseWebviewPanel';
@@ -124,9 +125,7 @@ export class MergeWindowPanel extends BaseWebviewPanel {
         fileName: path.basename(absolutePath),
         // IntelliJ's "Automatically apply non-conflicting changes" (opt-in,
         // off by default there too).
-        autoApplyNonConflicting: vscode.workspace
-          .getConfiguration('intellig')
-          .get<boolean>('mergeWindow.autoApplyNonConflicting', false),
+        autoApplyNonConflicting: readConfig('mergeWindow.autoApplyNonConflicting'),
       });
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);

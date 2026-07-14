@@ -57,7 +57,7 @@
  * - The set of knobs we drive is restricted to those whose value is
  *   either a non-empty string (`commitMessageTemplate`,
  *   `modifiedFileColor`, etc.), a finite-domain enum
- *   (`defaultToolWindowTab`, `blameAnnotationStyle`, `keymapPreset`),
+ *   (`blameAnnotationStyle`, `keymapPreset`),
  *   or a boolean. We deliberately exclude `logLevel` and `logConsole`
  *   because driving them would also re-trigger the Logger's own
  *   `LogLevelResolver.refresh()`, which could change whether the
@@ -364,15 +364,6 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
   } as IKnobDescriptor<'conflictFileColor'>,
 
   // Enum knobs
-  {
-    typedKey: 'defaultToolWindowTab',
-    settingName: 'defaultToolWindowTab',
-    valueArb: fc
-      .constantFrom<
-        IExtensionConfiguration['defaultToolWindowTab']
-      >('local-changes', 'log', 'console')
-      .filter((v) => v !== defaults.defaultToolWindowTab),
-  } as IKnobDescriptor<'defaultToolWindowTab'>,
   {
     typedKey: 'blameAnnotationStyle',
     settingName: 'blameAnnotationStyle',

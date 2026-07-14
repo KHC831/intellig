@@ -2,7 +2,6 @@ import * as fc from 'fast-check';
 import * as assert from 'assert';
 import {
   IExtensionConfiguration,
-  GitToolWindowTab,
   BlameAnnotationStyle,
 } from '../../src/config/interfaces/IConfigurationService';
 import { getDefaultConfiguration } from '../../src/config/ConfigurationService';
@@ -21,12 +20,6 @@ describe('Configuration Persistence Property Tests', () => {
   /**
    * Arbitrary generators for configuration values
    */
-  const gitToolWindowTabArb: fc.Arbitrary<GitToolWindowTab> = fc.constantFrom(
-    'local-changes',
-    'log',
-    'console'
-  );
-
   const blameAnnotationStyleArb: fc.Arbitrary<BlameAnnotationStyle> = fc.constantFrom(
     'inline',
     'gutter',
@@ -75,7 +68,6 @@ describe('Configuration Persistence Property Tests', () => {
     autoFetchInterval: autoFetchIntervalArb,
 
     // UI settings
-    defaultToolWindowTab: gitToolWindowTabArb,
     blameAnnotationStyle: blameAnnotationStyleArb,
     showStatusBarBranch: fc.boolean(),
 
@@ -158,10 +150,6 @@ describe('Configuration Persistence Property Tests', () => {
         pullRebase: this.storage.get('pullRebase', this.defaults.pullRebase),
         autoFetchEnabled: this.storage.get('autoFetchEnabled', this.defaults.autoFetchEnabled),
         autoFetchInterval: this.storage.get('autoFetchInterval', this.defaults.autoFetchInterval),
-        defaultToolWindowTab: this.storage.get(
-          'defaultToolWindowTab',
-          this.defaults.defaultToolWindowTab
-        ),
         blameAnnotationStyle: this.storage.get(
           'blameAnnotationStyle',
           this.defaults.blameAnnotationStyle
@@ -442,21 +430,15 @@ describe('Configuration Persistence Property Tests', () => {
      */
     it('Property: Enum settings accept valid values and persist', () => {
       fc.assert(
-        fc.property(gitToolWindowTabArb, blameAnnotationStyleArb, (tab, style) => {
+        fc.property(blameAnnotationStyleArb, (style) => {
           // Setup
           const storage = new MockConfigurationStorage();
           const service = new MockConfigurationService(storage);
 
-          // Act: Set enum values
-          service.update('defaultToolWindowTab', tab);
+          // Act: Set enum value
           service.update('blameAnnotationStyle', style);
 
-          // Assert: Values should be set correctly
-          assert.strictEqual(
-            service.get('defaultToolWindowTab'),
-            tab,
-            'defaultToolWindowTab should be set correctly'
-          );
+          // Assert: Value should be set correctly
           assert.strictEqual(
             service.get('blameAnnotationStyle'),
             style,
@@ -466,11 +448,6 @@ describe('Configuration Persistence Property Tests', () => {
           // Verify persistence
           const newStorage = storage.simulateSessionRestart();
           const newService = new MockConfigurationService(newStorage);
-          assert.strictEqual(
-            newService.get('defaultToolWindowTab'),
-            tab,
-            'defaultToolWindowTab should persist'
-          );
           assert.strictEqual(
             newService.get('blameAnnotationStyle'),
             style,

@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import { ResultAsync, ok, err, errAsync } from 'neverthrow';
 import {
   IRepository,
@@ -255,9 +255,7 @@ export class RemoteOps {
     } else if (options.noTags) {
       flags.push('--no-tags');
     } else {
-      const fetchTagsPolicy = vscode.workspace
-        .getConfiguration('intellig')
-        .get<string>('fetchTags', 'auto');
+      const fetchTagsPolicy = readConfig('fetchTags');
       if (fetchTagsPolicy === 'all') {
         flags.push('--tags');
       } else if (fetchTagsPolicy === 'never') {

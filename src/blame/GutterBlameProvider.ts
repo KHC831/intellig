@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import { INTELLIG_GIT_SCHEME, parseIntelligGitTarget } from '../utils/intelligGitUri';
 import { IGutterBlameProvider } from './interfaces/IGutterBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
@@ -466,9 +467,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * test-seam pattern used elsewhere in this codebase.
    */
   isAnnotationStyleEnabled(): boolean {
-    const style = vscode.workspace
-      .getConfiguration('intellig')
-      .get<string>('blameAnnotationStyle', 'inline');
+    const style = readConfig('blameAnnotationStyle');
     return style === 'gutter' || style === 'both';
   }
 

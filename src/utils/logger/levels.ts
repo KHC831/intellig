@@ -10,8 +10,8 @@
  * - The readonly `LEVEL_RANK` table (`trace=0` … `off=5`) used by every
  *   threshold comparison in the Logger hot path.
  * - The `LogLevelResolver` class that caches the configured threshold
- *   and the developer-console mirror flag, and re-reads them directly
- *   from `vscode.workspace.getConfiguration('intellig')` on demand.
+ *   and the developer-console mirror flag, and re-reads them from the
+ *   typed config seam (`readConfig`) on demand.
  *
  * The resolver does NOT emit log records itself (it has no Logger
  * reference and no sinks). Instead, when an invalid `intellig.log.level`
@@ -24,9 +24,8 @@
  *
  * ### Bootstrap order rationale
  *
- * The resolver reads
- * `vscode.workspace.getConfiguration` directly rather than going
- * through `ConfigurationService`. This avoids a bootstrap circular:
+ * The resolver reads the config seam (`readConfig`) directly rather
+ * than going through `ConfigurationService`. This avoids a bootstrap circular:
  * `ConfigurationService` is constructed by `ExtensionServices`, which
  * runs *after* `initLogger(context)` so the Logger can be ready for
  * service constructors that emit their first record during their own
@@ -35,7 +34,7 @@
  * @see {@link LogLevelResolver}
  */
 
-import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 
 import type { LogLevel } from './sinks/types';
 
@@ -82,12 +81,6 @@ const VALID_THRESHOLDS: ReadonlySet<string> = new Set<LogThreshold>([
   'error',
   'off',
 ]);
-
-/**
- * The configuration section IntelliG reads its `log.*` settings from.
- * Matches `package.json` `contributes.configuration`.
- */
-const CONFIG_SECTION = 'intellig';
 
 /**
  * Default threshold when the configured value is missing or invalid.
@@ -154,9 +147,8 @@ export class LogLevelResolver {
   }
 
   /**
-   * Re-read `intellig.log.level` and `intellig.log.console` from
-   * `vscode.workspace.getConfiguration('intellig')` and refresh the
-   * cached state.
+   * Re-read `intellig.log.level` and `intellig.log.console` from the typed
+   * config seam (`readConfig`) and refresh the cached state.
    *
    * Returns the offending invalid level string the **first** time it
    * is observed (per Logger instance lifetime), so the caller can
@@ -175,10 +167,11 @@ export class LogLevelResolver {
    * @returns the invalid level string to warn about, or `undefined`.
    */
   refresh(): string | undefined {
-    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-
-    const rawLevel = config.get<unknown>('log.level');
-    const rawConsole = config.get<unknown>('log.console');
+    // Read through the config seam but keep the values loose: this resolver
+    // runs pre-getLogger and validates the raw setting itself, so it must not
+    // trust the typed union.
+    const rawLevel: unknown = readConfig('log.level');
+    const rawConsole: unknown = readConfig('log.console');
 
     let invalidToWarn: string | undefined;
     if (typeof rawLevel === 'string' && VALID_THRESHOLDS.has(rawLevel)) {

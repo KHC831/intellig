@@ -25,6 +25,7 @@ import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
 import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
+import { readConfig } from '../config/configKeys';
 import { getOutputChannel } from '../utils/outputChannel';
 import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
@@ -617,10 +618,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       if (!ctx.gitToolWindowProvider) {
         return;
       }
-      const flagOn =
-        vscode.workspace
-          .getConfiguration('intellig.log')
-          .get<boolean>('highlightCherryPicked', true) ?? true;
+      const flagOn = readConfig('log.highlightCherryPicked');
       if (!flagOn) {
         ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
         return;

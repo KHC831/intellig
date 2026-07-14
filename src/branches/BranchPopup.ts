@@ -19,6 +19,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig, updateConfig } from '../config/configKeys';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
 import type { IFavoritesStore } from './BranchTreeProvider';
 import type { IIncomingOutgoing } from '../git-core/ops/IncomingOutgoingOps';
@@ -238,23 +239,15 @@ export function buildSettingsToggleItems(
   ];
 }
 
-/** VS Code configuration keys backing each branch-popup toggle. */
-const BRANCH_POPUP_SETTING_KEYS: Record<keyof IBranchPopupSettings, string> = {
-  showTags: 'branches.showTags',
-  showRecentBranches: 'branches.showRecentBranches',
-  groupByDirectory: 'branches.groupByDirectory',
-};
-
 /**
  * Read the persisted branch-popup settings from VS Code configuration,
  * defaulting every toggle to `true` so the popup's default layout is unchanged.
  */
 export function readBranchPopupSettings(): IBranchPopupSettings {
-  const cfg = vscode.workspace.getConfiguration('intellig');
   return {
-    showTags: cfg.get<boolean>(BRANCH_POPUP_SETTING_KEYS.showTags, true),
-    showRecentBranches: cfg.get<boolean>(BRANCH_POPUP_SETTING_KEYS.showRecentBranches, true),
-    groupByDirectory: cfg.get<boolean>(BRANCH_POPUP_SETTING_KEYS.groupByDirectory, true),
+    showTags: readConfig('branches.showTags'),
+    showRecentBranches: readConfig('branches.showRecentBranches'),
+    groupByDirectory: readConfig('branches.groupByDirectory'),
   };
 }
 
@@ -1457,17 +1450,12 @@ export class BranchPopup {
     }
 
     const selectedSettings = new Set(picked.map((i) => i.setting));
-    const cfg = vscode.workspace.getConfiguration('intellig');
     const updates: Thenable<void>[] = [];
     for (const item of items) {
       const next = selectedSettings.has(item.setting);
       if (next !== before[item.setting]) {
         updates.push(
-          cfg.update(
-            BRANCH_POPUP_SETTING_KEYS[item.setting],
-            next,
-            vscode.ConfigurationTarget.Global
-          )
+          updateConfig(`branches.${item.setting}`, next, vscode.ConfigurationTarget.Global)
         );
       }
     }

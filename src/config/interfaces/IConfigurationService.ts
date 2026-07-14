@@ -3,11 +3,6 @@ import * as vscode from 'vscode';
 import type { LogThreshold } from '../../utils/logger';
 
 /**
- * Git Tool Window tab types
- */
-export type GitToolWindowTab = 'local-changes' | 'log' | 'console';
-
-/**
  * Blame annotation style options.
  * `off` disables all blame annotations without removing the toggle state.
  */
@@ -34,7 +29,6 @@ export interface IExtensionConfiguration {
   autoFetchInterval: number;
 
   // UI settings
-  defaultToolWindowTab: GitToolWindowTab;
   blameAnnotationStyle: BlameAnnotationStyle;
   showStatusBarBranch: boolean;
 

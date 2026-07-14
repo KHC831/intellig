@@ -92,7 +92,7 @@ describe('DiffOps applies configured ignore-policy', () => {
   });
 
   it('getCommitDiff appends -w flag when policy = ignore-whitespaces', async () => {
-    setMockConfigValue('intellig.diff', 'ignorePolicy', 'ignore-whitespaces');
+    setMockConfigValue('intellig', 'diff.ignorePolicy', 'ignore-whitespaces');
     const cli = new ScriptedGitCli();
     cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
     const svc = createGitServiceWithCli(cli);
@@ -118,7 +118,7 @@ describe('DiffOps applies configured ignore-policy', () => {
   });
 
   it('getDiff appends trim flag when policy = trim-whitespaces', async () => {
-    setMockConfigValue('intellig.diff', 'ignorePolicy', 'trim-whitespaces');
+    setMockConfigValue('intellig', 'diff.ignorePolicy', 'trim-whitespaces');
     const cli = new ScriptedGitCli();
     cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
     const svc = createGitServiceWithCli(cli);

@@ -5,6 +5,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import {
   IGitService,
   IRepository,
@@ -504,8 +505,7 @@ export class CommitDialog {
     // caller already supplied one. Invalid configured values still populate
     // the input so the user sees and can fix them.
     if (!this._author) {
-      const cfg = vscode.workspace.getConfiguration('intellig');
-      const configured = cfg.get<string>(COMMIT_AUTHOR_CONFIG_KEY, '');
+      const configured = readConfig('commitAuthor');
       if (configured && configured.trim().length > 0) {
         this._author = configured.trim();
         this._authorError = isValidAuthorFormat(this._author)

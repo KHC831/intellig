@@ -21,6 +21,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import type { IRepository } from '../git-core/interfaces/IGitService';
 import { canonicalizeFsPath } from './repoRelativePath';
 import { normalizeRepoPathString } from './normalizeRepoPath';
@@ -175,8 +176,7 @@ export async function resolveRepo(
   gitService: { getRepositories(): readonly IRepository[] },
   context: IResolveRepoContext = {}
 ): Promise<IRepository | undefined> {
-  const config = vscode.workspace.getConfiguration('intellig');
-  const defaultRepo = config.get<string>(DEFAULT_REPO_CONFIG_KEY, '') ?? '';
+  const defaultRepo = readConfig('defaultRepo');
 
   const activeEditor = vscode.window.activeTextEditor;
   const activeEditorFsPath =

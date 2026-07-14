@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import { IGitService } from '../git-core/interfaces/IGitService';
 import { computeLineStatusRanges, ILineStatusRange, splitLines } from './lineStatusDiff';
 import { fetchHeadContent } from './lineStatusHead';
@@ -44,7 +45,7 @@ export class LineStatusHoverProvider implements vscode.Disposable {
   }
 
   private isEnabled(): boolean {
-    return vscode.workspace.getConfiguration('intellig').get<boolean>('lineStatus.enabled', true);
+    return readConfig('lineStatus.enabled');
   }
 
   async provideHover(

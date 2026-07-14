@@ -9,6 +9,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import { IAutoFetchService, AutoFetchPauseReason } from './interfaces/IAutoFetchService';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -99,14 +100,9 @@ export class AutoFetchService implements IAutoFetchService {
 
   constructor(gitService: IGitService, options?: IAutoFetchServiceOptions) {
     this._gitService = gitService;
-    this._readEnabled =
-      options?.readEnabled ??
-      ((): boolean =>
-        vscode.workspace.getConfiguration('intellig').get<boolean>('autoFetchEnabled', true));
+    this._readEnabled = options?.readEnabled ?? ((): boolean => readConfig('autoFetchEnabled'));
     this._readIntervalSec =
-      options?.readIntervalSec ??
-      ((): number =>
-        vscode.workspace.getConfiguration('intellig').get<number>('autoFetchInterval', 180));
+      options?.readIntervalSec ?? ((): number => readConfig('autoFetchInterval'));
 
     this._logger = getLogger().child({ component: 'AutoFetchService' });
     this._logger.info('AutoFetchService constructed');

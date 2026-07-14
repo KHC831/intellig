@@ -131,22 +131,31 @@ const configurationStore: Map<string, ScopeStore> = new Map();
 // until a test explicitly writes via `setMockConfigValue` or the
 // production code calls `update`.
 function initializeDefaultConfig(): void {
+  // Derive schema defaults straight from package.json contributes.configuration
+  // so the mock cannot drift from the real manifest: getConfiguration('intellig')
+  // .get(name) returns the schema default for an unset key, exactly as VS Code
+  // does and as the fallback-free readConfig() seam relies on. A property with no
+  // `default` is skipped (VS Code returns undefined there too).
   const schemaDefaults = new Map<string, unknown>();
-  schemaDefaults.set('defaultCommitSignOff', false);
-  schemaDefaults.set('commitMessageTemplate', '');
-  schemaDefaults.set('pullRebase', false);
-  schemaDefaults.set('autoFetchEnabled', true);
-  schemaDefaults.set('autoFetchInterval', 180);
-  schemaDefaults.set('defaultToolWindowTab', 'local-changes');
-  schemaDefaults.set('useTabbedGitToolWindow', true);
-  schemaDefaults.set('blameAnnotationStyle', 'inline');
-  schemaDefaults.set('showStatusBarBranch', true);
-  schemaDefaults.set('keymapPreset', 'default');
-  schemaDefaults.set('modifiedFileColor', '#6897BB');
-  schemaDefaults.set('addedFileColor', '#629755');
-  schemaDefaults.set('deletedFileColor', '#6C6C6C');
-  schemaDefaults.set('ignoredFileColor', '#848504');
-  schemaDefaults.set('conflictFileColor', '#FF0000');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pkg = require('../../package.json') as {
+    contributes?: {
+      configuration?:
+        | { properties?: Record<string, { default?: unknown }> }
+        | Array<{ properties?: Record<string, { default?: unknown }> }>;
+    };
+  };
+  const cfg = pkg.contributes?.configuration;
+  const sections = Array.isArray(cfg) ? cfg : cfg ? [cfg] : [];
+  const PREFIX = 'intellig.';
+  for (const section of sections) {
+    for (const [fullName, prop] of Object.entries(section.properties ?? {})) {
+      if (!fullName.startsWith(PREFIX) || !('default' in prop)) {
+        continue;
+      }
+      schemaDefaults.set(fullName.slice(PREFIX.length), prop.default);
+    }
+  }
   configurationStore.set('intellig', {
     global: new Map(),
     workspace: new Map(),
