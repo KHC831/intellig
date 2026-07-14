@@ -41,6 +41,11 @@ import {
   DEFAULT_COLUMN_WIDTHS,
 } from '../../utils/columnLayout';
 import { TabRouter, type TabId } from './tabRouter';
+import type {
+  IWebviewMessage,
+  IWebviewLogFilter,
+  IBranchFilterGroups,
+} from './gitToolWindow.wireTypes';
 import { isTabbedGitToolWindowEnabled } from './config';
 import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
 import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
@@ -4956,40 +4961,6 @@ ${bodyMarkup}
 }
 
 /**
- * Branch options for the Branch popup, grouped IntelliJ-style: local branches
- * plus one group per remote (e.g. `origin`). Posted in `logFilterOptionsReady`.
- */
-export interface IBranchFilterGroups {
-  local: string[];
-  remotes: Array<{ remote: string; branches: string[] }>;
-}
-
-/**
- * Log filter from webview (with string dates)
- */
-interface IWebviewLogFilter {
-  branch?: string;
-  branches?: string[];
-  /** Every branch checkbox unchecked → show no commits (distinct from "all"). */
-  branchesNone?: boolean;
-  searchText?: string;
-  author?: string;
-  path?: string;
-  paths?: string[];
-  since?: string | null;
-  until?: string | null;
-  searchRegex?: boolean;
-  searchCaseSensitive?: boolean;
-}
-
-/**
- * Message types from the webview.
- *
- * The optional `tab` field is used for per-tab routing. Legacy
- * messages (selectCommit, panelResize, applyLogFilter, etc.) omit `tab`
- * and are treated as implicit `tab: 'log'` by {@link TabRouter}.
- */
-/**
  * Typed envelopes for the new wire types.
  * Included as a separate union (rather than a refactor of the legacy
  * flat `IWebviewMessage` shape) to keep the scope tight: can
@@ -5028,50 +4999,7 @@ export type WaveAOutboundMessage =
       selectedHashes: string[];
     };
 
-export interface IWebviewMessage {
-  type: string;
-  path?: string;
-  changelistId?: string;
-  commitHash?: string;
-  commitHashes?: string[];
-  action?: string;
-  files?: string[];
-  targetChangelistId?: string;
-  filter?: IWebviewLogFilter | null;
-  /**
-   * Branch name carried by `branchClick` and `focusBranchOnGraph`.
-   * `null` is allowed for the focus message to clear the
-   * current focus.
-   */
-  branchName?: string | null;
-  branchType?: 'local' | 'remote';
-  widths?: [number, number];
-  /**
-   * Carried by `selectRepository`: a numeric repository index, or the `'all'`
-   * sentinel for the merged "all repositories" scope.
-   */
-  repositoryIndex?: number | 'all';
-  /**
-   * Carried by `selectRepositories`: the fsPaths of the repository roots the
-   * user checked in the multi-select "Repository" filter. An empty array (or one
-   * covering every root) means "show all".
-   */
-  roots?: string[];
-  /**
-   * Click anchor that travels with
-   * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no
-   * prior anchor" (first click after a render). Authoritative for the
-   * single message it carries; see {@link WaveAInboundMessage}.
-   */
-  anchorHash?: string | null;
-  /** Optional tab discriminator for tab routing. */
-  tab?: TabId;
-  /**
-   * Carried by `jumpToFixupTarget` (G6): the commit subject text that the
-   * fixup!/squash! link's target commit must match.
-   */
-  targetSubject?: string;
-}
+export type { IWebviewMessage, IBranchFilterGroups } from './gitToolWindow.wireTypes';
 
 // Nonce generation is owned by `BaseWebviewView._getNonce()`, which
 // delegates to the shared `generateNonce()` helper in `utils/webviewNonce.ts`

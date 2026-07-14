@@ -21,11 +21,9 @@
  */
 
 import { CONTEXT_KEYS, setContextKey } from '../../utils/contextKeys';
+import { TAB_IDS, isTabId, type TabId } from './tabIds';
 
-export const TAB_IDS = ['log', 'console', 'incoming', 'updateInfo', 'history'] as const;
-
-/** Union of valid tab IDs. */
-export type TabId = (typeof TAB_IDS)[number];
+export { TAB_IDS, isTabId, type TabId };
 
 /** Default tab — preserves pre-refactor behavior (Log panel is what users see today). */
 export const DEFAULT_TAB: TabId = 'log';
@@ -102,11 +100,6 @@ export function inferTabForMessage(message: IWebviewTabMessage, activeTab: TabId
   // Fall back to the active tab so stray malformed-but-type-less messages
   // land somewhere sensible.
   return activeTab;
-}
-
-/** Type guard for {@link TabId}. */
-export function isTabId(value: unknown): value is TabId {
-  return typeof value === 'string' && (TAB_IDS as readonly string[]).includes(value);
 }
 
 /**

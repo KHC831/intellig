@@ -7,8 +7,8 @@
  * split into a discriminated union so `assertNever` can gate it; outbound is
  * enumerated from every `postToWebview` site in the provider + messageHandlers.
  */
-import type { IWebviewMessage, IBranchFilterGroups } from './GitToolWindowProvider';
-import type { DetailsPanelModel } from './provider/detailsPanelModel';
+import type { IWebviewMessage, IBranchFilterGroups } from './gitToolWindow.wireTypes';
+import type { DetailsPanelModel } from './provider/detailsPanelModel.types';
 import type { MultiSelectMenuAction, IMenuItemState } from './multiSelect';
 import type { AssertInboundArrayTie, InboundArrayTie } from '../../utils/protocolTie';
 

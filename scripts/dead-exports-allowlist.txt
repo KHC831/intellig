@@ -4,3 +4,9 @@
 # mechanism the import-graph scanner cannot see (a computed dynamic import, a
 # non-import loader). A genuinely dead module should be DELETED, not allowlisted.
 # Each entry needs a one-line justification. Empty today (by design).
+
+# Consumed by the gitToolWindow webview entry when C2a completes; banked ahead
+# of that atomic transcription pass. TEMPORARY — remove with the entry commit.
+git-core/gitToolWindow/webview/detailsPanelDom.ts
+# Same banking: consumed when C2b types the tab channel. TEMPORARY.
+git-core/gitToolWindow/gitToolWindowTabs.protocol.ts
