@@ -8,7 +8,6 @@ import * as vscode from 'vscode';
 import {
   IRebaseService,
   IRebaseSession,
-  IRebaseCommit,
   IRebaseAction,
   IRebaseResult,
   RebaseAction,
@@ -243,11 +242,6 @@ export class RebaseEditor {
           this._handleReorder(message.fromIndex, message.toIndex);
         }
         break;
-      case 'updatePlan':
-        if (message.commits) {
-          this._handleUpdatePlan(message.commits);
-        }
-        break;
       case 'updateMessage':
         if (message.hash !== undefined && message.message !== undefined) {
           this._handleUpdateMessage(message.hash, message.message);
@@ -412,9 +406,9 @@ export class RebaseEditor {
     }
 
     // Fail-closed: reject out-of-range or non-integer indices from the
-    // (untrusted) webview — mirroring _handleUpdatePlan's posture.
-    // splice() with a negative or non-integer index silently moves the
-    // wrong element or inserts `undefined`, corrupting the plan.
+    // (untrusted) webview. splice() with a negative or non-integer index
+    // silently moves the wrong element or inserts `undefined`, corrupting
+    // the plan.
     const len = this._session.commits.length;
     if (
       !Number.isInteger(fromIndex) ||
@@ -432,46 +426,6 @@ export class RebaseEditor {
     commits.splice(toIndex, 0, removed);
     this._session.commits = commits;
     this._updateWebview();
-  }
-
-  /**
-   * Handle updating the entire plan from the webview.
-   */
-  private _handleUpdatePlan(commits: IRebaseCommit[]): void {
-    if (!this._session) {
-      return;
-    }
-
-    // The webview may only reorder, re-action, or re-message the commits it was
-    // given — never introduce new hashes. Validate the incoming plan against
-    // the known session hashes and the valid action set; reject the whole
-    // update if anything is off so a forged hash (path-traversal sink) or a
-    // forged action (todo-injection sink) can't reach git. Fail closed: keep
-    // the prior plan rather than applying a partially-trusted one.
-    if (!Array.isArray(commits)) {
-      return;
-    }
-    const knownHashes = new Set(this._session.commits.map((c) => c.hash));
-    const allValid = commits.every((c) => c && knownHashes.has(c.hash) && isRebaseAction(c.action));
-    if (!allValid) {
-      return;
-    }
-
-    // Require the plan to be a PERMUTATION of the known commit set: same
-    // length and every known hash appears exactly once. A shorter plan drops
-    // commits silently; a plan with duplicates would apply one commit twice and
-    // skip another. Both pass the per-entry hash check above because all hashes
-    // are in knownHashes, so a separate set-size check is needed.
-    if (commits.length !== knownHashes.size) {
-      return;
-    }
-    const planHashes = new Set(commits.map((c) => c.hash));
-    if (planHashes.size !== knownHashes.size) {
-      // Duplicate hashes: the Set collapses them, so the plan set is smaller.
-      return;
-    }
-
-    this._session.commits = commits;
   }
 
   /**

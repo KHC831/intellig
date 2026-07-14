@@ -372,44 +372,6 @@ describe('RebaseEditor', () => {
       }
     }
 
-    it('rejects an updatePlan that introduces an unknown / traversal hash', async () => {
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [{ hash: 'x/../../../../tmp/pwned', action: 'drop', message: 'x' }],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.hash),
-        before,
-        'a forged-hash plan must be rejected wholesale'
-      );
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('rejects an updatePlan carrying a forged action on a known hash', async () => {
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.action);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [{ hash: 'abc1234567890', action: 'exec rm -rf ~', message: 'x' }],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.action),
-        before,
-        'a forged-action plan must be rejected wholesale'
-      );
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
     it('ignores an updateAction with an action outside the six commands', async () => {
       const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
       await untilPanel(rebaseEditor);
@@ -422,78 +384,6 @@ describe('RebaseEditor', () => {
 
       const commit = sessionOf(rebaseEditor).commits.find((c) => c.hash === 'abc1234567890');
       assert.strictEqual(commit?.action, 'pick', 'forged action must not be stored');
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('still applies a legitimate reordering updatePlan', async () => {
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [
-          { hash: 'ghi3456789012', action: 'pick', message: 'Third commit' },
-          { hash: 'abc1234567890', action: 'drop', message: 'First commit' },
-          { hash: 'def2345678901', action: 'pick', message: 'Second commit' },
-        ],
-      });
-
-      const commits = sessionOf(rebaseEditor).commits;
-      assert.strictEqual(commits[0].hash, 'ghi3456789012');
-      assert.strictEqual(commits[1].action, 'drop');
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('rejects an updatePlan that duplicates a known hash (plan is not a permutation)', async () => {
-      // A forged plan that repeats a commit would apply a hash twice and drop
-      // another — git would produce unexpected output or skip commits silently.
-      // The validator must require each known hash appears exactly once.
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [
-          // abc appears twice; def is dropped
-          { hash: 'abc1234567890', action: 'pick', message: 'First commit' },
-          { hash: 'abc1234567890', action: 'drop', message: 'First commit again' },
-          { hash: 'ghi3456789012', action: 'pick', message: 'Third commit' },
-        ],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.hash),
-        before,
-        'a plan with a duplicated hash must be rejected wholesale'
-      );
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('rejects an updatePlan that drops a commit (fewer entries than the session)', async () => {
-      // A plan with only a subset of the known commits would silently lose
-      // commits from the interactive rebase — defense-in-depth.
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [
-          // Only 2 of the 3 session commits
-          { hash: 'abc1234567890', action: 'pick', message: 'First commit' },
-          { hash: 'def2345678901', action: 'pick', message: 'Second commit' },
-        ],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.hash),
-        before,
-        'a plan that drops commits (wrong length) must be rejected'
-      );
       panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
       await showPromise;
     });

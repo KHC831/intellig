@@ -82,6 +82,8 @@ import {
   commitNodeToBaseDetails,
   type DetailsPanelModel,
 } from './provider/detailsPanelModel';
+import { assertNever } from '../../utils/assertNever';
+import { asGitToolWindowInbound, type GitToolWindowOutbound } from './gitToolWindow.protocol';
 import {
   handleLoadMoreCommits,
   handlePanelResize,
@@ -690,12 +692,6 @@ export class GitToolWindowProvider
   private readonly _onDidRequestRefresh = new vscode.EventEmitter<void>();
 
   /**
-   * Event emitter that fires when the user selects a different repository
-   * from the repository selector in the webview.
-   */
-  private readonly _onDidSelectRepository = new vscode.EventEmitter<IRepository>();
-
-  /**
    * Event emitter that fires whenever the repository SCOPE changes — either to
    * a specific repository or to the merged "all repositories" view. Drives the
    * dual log + branches wiring (see `wireRepositorySelection`).
@@ -727,12 +723,6 @@ export class GitToolWindowProvider
    * Event fired when the repository changes and all panels should be refreshed.
    */
   public readonly onDidRequestRefresh = this._onDidRequestRefresh.event;
-
-  /**
-   * Event fired when the user selects a different repository from the
-   * repository selector in the webview.
-   */
-  public readonly onDidSelectRepository = this._onDidSelectRepository.event;
 
   /**
    * Event fired when the repository scope changes (a specific repo or the
@@ -776,7 +766,6 @@ export class GitToolWindowProvider
       this._onDidRequestLoadMoreCommits,
       this._onDidRequestInitialData,
       this._onDidRequestRefresh,
-      this._onDidSelectRepository,
       this._onDidChangeRepositoryScope
     );
 
@@ -1632,7 +1621,8 @@ export class GitToolWindowProvider
     return this._followerWebview !== undefined;
   }
 
-  postToWebview(msg: unknown): void {
+  postToWebview(msg: GitToolWindowOutbound): void {
+    // typed-messages-exempt: the single typed send wrapper for the follower webview (docked view or undocked panel); msg is on-contract (GitToolWindowOutbound)
     void this._followerWebview?.postMessage(msg);
   }
 
@@ -1668,6 +1658,7 @@ export class GitToolWindowProvider
       localResourceRoots: [this._extensionUri],
     };
     this._panelDisposables.push(
+      // typed-messages-exempt: second raw panel of the undocked window — same guarded pipeline as the docked view
       panel.webview.onDidReceiveMessage((message: unknown) => {
         this._guardedHandleMessage(message);
       }),
@@ -2056,7 +2047,18 @@ export class GitToolWindowProvider
     if (this._routeIfNonLog(message)) {
       return;
     }
-    switch (message.type) {
+    // Runtime-reject an unknown/old type (storm-attribution log preserved);
+    // assertNever below is the compile-time exhaustiveness gate over the union.
+    const msg = asGitToolWindowInbound(message);
+    if (!msg) {
+      getLogger()
+        .child({ component: 'GitToolWindowProvider' })
+        .warn('unknown webview message type', {
+          messageType: typeof message.type === 'string' ? message.type : '<non-string>',
+        });
+      return;
+    }
+    switch (msg.type) {
       case 'refresh':
         this.refresh();
         break;
@@ -2065,13 +2067,13 @@ export class GitToolWindowProvider
         void this.revealLogHost();
         break;
       case 'selectCommit':
-        if (message.commitHash) {
-          this._handleCommitSelection(message.commitHash);
+        if (msg.commitHash) {
+          this._handleCommitSelection(msg.commitHash);
         }
         break;
       case 'toggleCommitSelection':
-        if (message.commitHash) {
-          this.toggleCommitSelection(message.commitHash);
+        if (msg.commitHash) {
+          this.toggleCommitSelection(msg.commitHash);
         }
         break;
       case 'rangeSelectCommit':
@@ -2083,28 +2085,28 @@ export class GitToolWindowProvider
         // Real type narrow — accept string|null only,
         // ignore wrong-type fields (a rogue / bug-mutated webview can't
         // poison the host state).
-        if (message.commitHash) {
-          if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
-            this._extendedLogState.anchorHash = message.anchorHash;
+        if (msg.commitHash) {
+          if (typeof msg.anchorHash === 'string' || msg.anchorHash === null) {
+            this._extendedLogState.anchorHash = msg.anchorHash;
           }
-          this.rangeSelectCommit(message.commitHash);
+          this.rangeSelectCommit(msg.commitHash);
         }
         break;
       case 'addRangeSelectCommit':
         // shift+ctrl+click: ADD [anchor..click] to existing selection.
         // Same message-anchor-wins contract as rangeSelectCommit.
         // Same type narrow.
-        if (message.commitHash) {
-          if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
-            this._extendedLogState.anchorHash = message.anchorHash;
+        if (msg.commitHash) {
+          if (typeof msg.anchorHash === 'string' || msg.anchorHash === null) {
+            this._extendedLogState.anchorHash = msg.anchorHash;
           }
-          this.addRangeSelectCommit(message.commitHash);
+          this.addRangeSelectCommit(msg.commitHash);
         }
         break;
       case 'selectIfNotSelected':
         // right-click on a non-selected commit.
-        if (message.commitHash) {
-          this.selectIfNotSelected(message.commitHash);
+        if (msg.commitHash) {
+          this.selectIfNotSelected(msg.commitHash);
         }
         break;
       case 'initRepository':
@@ -2118,25 +2120,20 @@ export class GitToolWindowProvider
         // desynced message carrying a non-array commitHashes, which would
         // throw inside _handleCommitContextMenu's .filter() call and abort
         // dispatch. The sibling `selectRepositories` handler uses the same pattern.
-        if (isLogContextAction(message.action) && Array.isArray(message.commitHashes)) {
-          this._handleCommitContextMenu(message.action, message.commitHashes);
+        if (isLogContextAction(msg.action) && Array.isArray(msg.commitHashes)) {
+          this._handleCommitContextMenu(msg.action, msg.commitHashes);
         }
         break;
       case 'doubleClickFile':
         // The only emitter is the `.changed-file-item` dblclick delegation,
         // which always carries both commitHash and path.
-        if (message.commitHash && message.path) {
+        if (msg.commitHash && msg.path) {
           // opens a VS Code diff view for that file at the selected commit.
-          this._handleCommitFileDoubleClick(message.commitHash, message.path);
-        }
-        break;
-      case 'doubleClickCommitFile':
-        if (message.commitHash && message.path) {
-          this._handleCommitFileDoubleClick(message.commitHash, message.path);
+          this._handleCommitFileDoubleClick(msg.commitHash, msg.path);
         }
         break;
       case 'applyLogFilter':
-        this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
+        this._handleApplyLogFilter(msg.filter as IWebviewLogFilter | null);
         break;
       case 'requestLogFilterOptions':
         // Defense-in-depth: the handler swallows per-root failures internally,
@@ -2157,53 +2154,26 @@ export class GitToolWindowProvider
         this._handleApplyLogFilter(null);
         break;
       case 'branchClick':
-        if (message.branchName) {
-          this._handleBranchClick(message.branchName);
+        if (msg.branchName) {
+          this._handleBranchClick(msg.branchName);
         }
         break;
       case 'loadMoreCommits':
         this._handleLoadMoreCommits();
         break;
       case 'panelResize':
-        if (message.widths) {
-          this._handlePanelResize(message.widths);
+        if (msg.widths) {
+          this._handlePanelResize(msg.widths);
         }
         break;
       case 'columnResize':
-        if (message.widths) {
-          this._handleColumnResize(message.widths);
-        }
-        break;
-      case 'selectRepository':
-        if (message.repositoryIndex !== undefined) {
-          this._handleRepositorySelection(message.repositoryIndex);
+        if (msg.widths) {
+          this._handleColumnResize(msg.widths);
         }
         break;
       case 'selectRepositories':
-        if (Array.isArray(message.roots)) {
-          this._handleVisibleRepositoriesSelection(message.roots);
-        }
-        break;
-      case 'focusBranchOnGraph':
-        // Webview asked to focus the graph on a branch.
-        // The bridge is async (getMergeBase + scroll); fire-and-forget.
-        //
-        // (security) — the branchName arrives
-        // from the webview, which is untrusted; combined with the
-        // `git merge-base <refA> <refB>` argv shape this can become a
-        // git-option-injection if a string like `--upload-pack=evil`
-        // is passed in. Validate against the *current* host-known
-        // branch list before propagating; on mismatch, drop silently.
-        // The argv hardening (`--end-of-options` separator) lives in
-        // GitService.getMergeBase.
-        if (message.branchName === null) {
-          void this.setFocusedBranch(null);
-        } else if (typeof message.branchName === 'string') {
-          const known = this._collectKnownBranchNames();
-          if (known.has(message.branchName)) {
-            void this.setFocusedBranch(message.branchName);
-          }
-          // else: silently drop — webview is desync'd or compromised.
+        if (Array.isArray(msg.roots)) {
+          this._handleVisibleRepositoriesSelection(msg.roots);
         }
         break;
       case 'jumpToFixupTarget': {
@@ -2211,19 +2181,14 @@ export class GitToolWindowProvider
         // target commit (the one whose subject matches the text after the
         // prefix).  Uses the same scrollToCommit path as jump-to-hash so
         // the webview selection + scroll behaviour is identical.
-        const targetSubject =
-          typeof message.targetSubject === 'string' ? message.targetSubject : undefined;
+        const targetSubject = typeof msg.targetSubject === 'string' ? msg.targetSubject : undefined;
         if (targetSubject) {
           this._handleJumpToFixupTarget(targetSubject);
         }
         break;
       }
       default:
-        getLogger()
-          .child({ component: 'GitToolWindowProvider' })
-          .warn('unknown webview message type', {
-            messageType: typeof message.type === 'string' ? message.type : '<non-string>',
-          });
+        assertNever(msg);
     }
   }
 
@@ -3250,8 +3215,7 @@ export class GitToolWindowProvider
    *
    * Accepts either the `'all'` sentinel (merged multi-root view) or a numeric
    * repository index. Numeric indices are clamped to the valid range with a
-   * warning. Fires {@link onDidChangeRepositoryScope} for both cases (and the
-   * legacy {@link onDidSelectRepository} for the specific-repo case) so the
+   * warning. Fires {@link onDidChangeRepositoryScope} for both cases so the
    * extension host can re-route the log and branches in lockstep.
    *
    * @param selection - The repository index, or `'all'`, selected by the user
@@ -3299,7 +3263,6 @@ export class GitToolWindowProvider
     this._onDidChangeState.fire();
 
     const selectedRepo = this._availableRepositories[clampedIndex];
-    this._onDidSelectRepository.fire(selectedRepo);
     this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: selectedRepo });
   }
 
@@ -4996,7 +4959,7 @@ ${bodyMarkup}
  * Branch options for the Branch popup, grouped IntelliJ-style: local branches
  * plus one group per remote (e.g. `origin`). Posted in `logFilterOptionsReady`.
  */
-interface IBranchFilterGroups {
+export interface IBranchFilterGroups {
   local: string[];
   remotes: Array<{ remote: string; branches: string[] }>;
 }
@@ -5065,7 +5028,7 @@ export type WaveAOutboundMessage =
       selectedHashes: string[];
     };
 
-interface IWebviewMessage {
+export interface IWebviewMessage {
   type: string;
   path?: string;
   changelistId?: string;

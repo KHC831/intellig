@@ -100,6 +100,40 @@ describe('check-typed-messages guard', () => {
     }
   });
 
+  it('Rule B: catches an identifier-suffixed handle (`_fooWebview.postMessage`)', () => {
+    // Regression: an aliased handle whose receiver is not the literal `webview`
+    // used to slip the fence. The receiver pattern is `\w*[wW]ebview`, so any
+    // `*Webview` handle is caught.
+    const fx = makeFixture('ruleB-alias', {
+      'a.ts': 'class A {\n  send(msg) {\n    void this._fooWebview.postMessage(msg);\n  }\n}\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'an aliased *Webview handle must fail');
+      assert.ok(/a\.ts:3/.test(stderr), `should name the aliased handle; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule B: catches an optional-chained send (`webview?.postMessage`)', () => {
+    // Regression: `?.` between receiver and `postMessage` used to evade the
+    // dot-only pattern; the receiver group now allows `?.` as well as `.`.
+    const fx = makeFixture('ruleB-optchain', {
+      'b.ts': 'class B {\n  send(p, msg) {\n    void p.webview?.postMessage(msg);\n  }\n}\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'an optional-chained send must fail');
+      assert.ok(
+        /b\.ts:3/.test(stderr),
+        `should name the optional-chained send; stderr:\n${stderr}`
+      );
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
   it('Rule C: fails a protocol-importing handler that lacks an assertNever gate', () => {
     const fx = makeFixture('ruleC', {
       'panel.ts':

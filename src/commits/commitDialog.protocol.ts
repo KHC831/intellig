@@ -31,7 +31,6 @@ export type CommitDialogInbound =
   | ({ type: 'selectAllLinesInHunk' } & Fields)
   | ({ type: 'deselectAllLinesInHunk' } & Fields)
   | ({ type: 'authorChange' } & Fields)
-  | ({ type: 'toggleNoVerify' } & Fields)
   | ({ type: 'openRecentMessages' } & Fields)
   | ({ type: 'openGearMenu' } & Fields);
 
@@ -57,7 +56,6 @@ export const COMMIT_DIALOG_INBOUND_TYPES = [
   'selectAllLinesInHunk',
   'deselectAllLinesInHunk',
   'authorChange',
-  'toggleNoVerify',
   'openRecentMessages',
   'openGearMenu',
 ] as const;

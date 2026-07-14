@@ -3,14 +3,13 @@
  * runtime vscode import (the two type-only imports are erased). Frozen wire; the
  * editor re-renders its HTML rather than posting, so outbound is `never`.
  */
-import type { IRebaseCommit, RebaseAction } from '../git-core/interfaces/IRebaseService';
+import type { RebaseAction } from '../git-core/interfaces/IRebaseService';
 
 export type RebaseEditorInbound =
   | { type: 'execute' }
   | { type: 'cancel' }
   | { type: 'updateAction'; hash?: string; action?: RebaseAction }
   | { type: 'reorder'; fromIndex?: number; toIndex?: number }
-  | { type: 'updatePlan'; commits?: IRebaseCommit[] }
   | { type: 'updateMessage'; hash?: string; message?: string };
 
 export type RebaseEditorOutbound = never;
@@ -20,7 +19,6 @@ export const REBASE_EDITOR_INBOUND_TYPES = [
   'cancel',
   'updateAction',
   'reorder',
-  'updatePlan',
   'updateMessage',
 ] as const;
 

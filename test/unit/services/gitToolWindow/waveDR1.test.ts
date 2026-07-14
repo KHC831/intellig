@@ -136,62 +136,6 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── webview branchName injection guard ───────────────────────
-  describe('webview branchName injection', () => {
-    it('drops focusBranchOnGraph for branchName not in branchMap', () => {
-      const internals = provider as unknown as R1Internals;
-      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
-      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
-      provider.updateLogState([mkCommit('aaa')], branchMap);
-
-      // Inject a malicious option-like string. Must NOT propagate to
-      // setFocusedBranch.
-      internals._handleWebviewMessage({
-        type: 'focusBranchOnGraph',
-        branchName: '--upload-pack=evil',
-      });
-
-      assert.strictEqual(
-        internals._extendedLogState.focusedBranchName,
-        null,
-        'focusedBranchName must remain null when an unknown name is posted'
-      );
-    });
-
-    it('drops focusBranchOnGraph for any string not in the live branch list', () => {
-      const internals = provider as unknown as R1Internals;
-      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
-      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
-      provider.updateLogState([mkCommit('aaa')], branchMap);
-
-      internals._handleWebviewMessage({
-        type: 'focusBranchOnGraph',
-        branchName: 'unknown-branch',
-      });
-
-      assert.strictEqual(internals._extendedLogState.focusedBranchName, null);
-    });
-
-    it('still allows null branchName (clear focus path)', async () => {
-      const internals = provider as unknown as R1Internals;
-      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
-      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
-      provider.updateLogState([mkCommit('aaa')], branchMap);
-
-      // Set focus first, then clear via null.
-      await provider.setFocusedBranch('feature');
-      assert.strictEqual(internals._extendedLogState.focusedBranchName, 'feature');
-
-      internals._handleWebviewMessage({
-        type: 'focusBranchOnGraph',
-        branchName: null,
-      });
-
-      // Need to wait a microtask for the void Promise to resolve.
-      await Promise.resolve();
-      assert.strictEqual(internals._extendedLogState.focusedBranchName, null);
-    });
-  });
-
   // ─── async race generation guard ──────────────────────────────
   describe('async race generation guard (Senior H-1, TLD-M-2)', () => {
     it('rapid focus(A) → focus(B) lands B as the final state even when A resolves last', async () => {

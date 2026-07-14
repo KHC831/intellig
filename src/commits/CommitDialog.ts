@@ -780,9 +780,6 @@ export class CommitDialog {
       case 'authorChange':
         this._handleAuthorChange(message.author ?? '');
         break;
-      case 'toggleNoVerify':
-        await this._handleToggleNoVerify(message.noVerify ?? false);
-        break;
       case 'openRecentMessages':
         await this._handleOpenRecentMessages();
         break;

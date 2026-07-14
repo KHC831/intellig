@@ -673,7 +673,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       // switches (e.g. keyboard `case 'ArrowLeft':`) don't pollute the set.
       const methodStart = providerSrc.indexOf('_handleWebviewMessage(message: IWebviewMessage)');
       assert.notStrictEqual(methodStart, -1, 'sanity: _handleWebviewMessage method found');
-      const switchStart = providerSrc.indexOf('switch (message.type)', methodStart);
+      const switchStart = providerSrc.indexOf('switch (msg.type)', methodStart);
       const defaultIdx = providerSrc.indexOf('default:', switchStart);
       assert.ok(
         switchStart !== -1 && defaultIdx !== -1 && defaultIdx > switchStart,

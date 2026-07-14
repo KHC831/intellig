@@ -25,7 +25,6 @@ export type CommitToolWindowInbound =
   | ({ type: 'tabChange' } & Fields)
   | ({ type: 'selectFile' } & Fields)
   | ({ type: 'toggleFile' } & Fields)
-  | ({ type: 'toggleChangelist' } & Fields)
   | ({ type: 'updateComposerField' } & Fields)
   | ({ type: 'messageHistoryRequest' } & Fields)
   | ({ type: 'commit' } & Fields)
@@ -56,7 +55,6 @@ export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
   'tabChange',
   'selectFile',
   'toggleFile',
-  'toggleChangelist',
   'updateComposerField',
   'messageHistoryRequest',
   'commit',

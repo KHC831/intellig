@@ -679,9 +679,6 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
           this._handleToggleFile(msg.path);
         }
         break;
-      case 'toggleChangelist':
-        // Collapsed-state toggle is not persisted; this case is intentionally empty.
-        break;
       case 'updateComposerField':
         if (typeof msg.message === 'string') {
           this._composerMessage = msg.message;

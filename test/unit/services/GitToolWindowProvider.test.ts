@@ -1559,24 +1559,6 @@ describe('Multi-Repository Selection State', () => {
       )._handleRepositorySelection(1);
     });
 
-    it('should fire onDidSelectRepository event with the selected repository', (done) => {
-      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
-
-      provider.setAvailableRepositories(
-        repos as Parameters<typeof provider.setAvailableRepositories>[0]
-      );
-
-      const disposable = provider.onDidSelectRepository((repo) => {
-        assert.strictEqual(repo.rootUri.fsPath, '/workspace/b');
-        disposable.dispose();
-        done();
-      });
-
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
-    });
-
     it('should clamp negative index to 0', () => {
       const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
@@ -1606,64 +1588,11 @@ describe('Multi-Repository Selection State', () => {
     });
 
     it('should do nothing when no repositories are available', () => {
-      let eventFired = false;
-      const disposable = provider.onDidSelectRepository(() => {
-        eventFired = true;
-      });
-
       (
         provider as unknown as { _handleRepositorySelection: (index: number) => void }
       )._handleRepositorySelection(0);
 
-      assert.strictEqual(eventFired, false);
       assert.strictEqual(provider.getSelectedRepository(), undefined);
-
-      disposable.dispose();
-    });
-  });
-
-  describe('selectRepository webview message handling', () => {
-    it('should handle selectRepository message via _handleWebviewMessage', () => {
-      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
-
-      provider.setAvailableRepositories(
-        repos as Parameters<typeof provider.setAvailableRepositories>[0]
-      );
-
-      // Simulate the webview message
-      (
-        provider as unknown as {
-          _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void;
-        }
-      )._handleWebviewMessage({
-        type: 'selectRepository',
-        repositoryIndex: 1,
-      });
-
-      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
-    });
-
-    it('should fire onDidSelectRepository when selectRepository message is received', (done) => {
-      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
-
-      provider.setAvailableRepositories(
-        repos as Parameters<typeof provider.setAvailableRepositories>[0]
-      );
-
-      const disposable = provider.onDidSelectRepository((repo) => {
-        assert.strictEqual(repo.rootUri.fsPath, '/workspace/b');
-        disposable.dispose();
-        done();
-      });
-
-      (
-        provider as unknown as {
-          _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void;
-        }
-      )._handleWebviewMessage({
-        type: 'selectRepository',
-        repositoryIndex: 1,
-      });
     });
   });
 

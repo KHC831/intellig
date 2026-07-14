@@ -6,6 +6,7 @@ import type { ICommitDetails } from '../../../services/interfaces';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
 import type { DetailsPanelModel } from './detailsPanelModel';
+import type { GitToolWindowOutbound } from '../gitToolWindow.protocol';
 
 /**
  * The slice of the Git tool window provider that extracted builder and
@@ -87,7 +88,7 @@ export interface IGtwControllerContext {
    * webview reference stays encapsulated on the provider while the payload
    * shape stays at the call site.
    */
-  postToWebview(msg: unknown): void;
+  postToWebview(msg: GitToolWindowOutbound): void;
   /**
    * Fire the onDidSelectCommit event with the single-selected hash. Exposes
    * only the fire capability so handlers can announce the click-driven

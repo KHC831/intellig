@@ -20,17 +20,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 describe('Wave D / D4-spec — branch-focus structural guards', () => {
-  it('SG-1: focusBranchOnGraph has a matching case in _handleWebviewMessage', () => {
-    const src = fs.readFileSync(
-      path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
-      'utf8'
-    );
-    assert.ok(
-      /case ['"]focusBranchOnGraph['"]\s*:/.test(src),
-      "GitToolWindowProvider._handleWebviewMessage must have `case 'focusBranchOnGraph':`"
-    );
-  });
-
   it('SG-2: GitToolWindowProvider exposes setFocusedBranch as a public async method', () => {
     const src = fs.readFileSync(
       path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),

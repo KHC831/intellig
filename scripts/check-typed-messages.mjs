@@ -40,9 +40,12 @@
  *    calls `postMessage`/`addEventListener('message')` as raw strings the fence
  *    cannot type-check; it is OUT OF SCOPE until Phase 5 turns those scripts into
  *    TS importing these protocol modules (Phase 5's check:no-string-scripts
- *    ratchet removes the hole). A handle aliased to a non-`webview` identifier
- *    would also evade Rule B; the house convention posts via `this.postMessage`
- *    or `<x>.webview.postMessage`.
+ *    ratchet removes the hole). Rule B's receiver pattern is `\w*[wW]ebview`
+ *    followed by `(?:\?\.|\.)`, so identifier-suffixed handles AND optional-chained
+ *    sends (`_followerWebview?.postMessage`, `panel.webview?.postMessage`) are
+ *    caught, not just the literal `webview.` receiver — an aliased or `?.`-accessed
+ *    raw handle can't silently bypass the fence. It deliberately does NOT match the
+ *    string-emitted `vscode.postMessage(` webview-side text (the Phase-5 hole).
  *
  * 5. Retirement criteria
  *    Retire when every panel is on the typed spine and the webview side is TS
@@ -62,10 +65,10 @@ const BASE_FILES = new Set([join('utils', 'BaseWebviewPanel.ts'), join('utils', 
  * raw sites. Each Phase-4 round deletes its files here; Round 4 empties it and
  * it must stay empty. Paths are relative to srcDir.
  */
-const NOT_YET_MIGRATED_DEFAULT = [join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts')];
+const NOT_YET_MIGRATED_DEFAULT = [];
 
 const ON_DID_RECEIVE_RE = /\.onDidReceiveMessage\s*\(/g;
-const RAW_POST_RE = /\bwebview\s*\.\s*postMessage\s*\(/g;
+const RAW_POST_RE = /\b\w*[wW]ebview\s*(?:\?\.|\.)\s*postMessage\s*\(/g;
 const PROTOCOL_IMPORT_RE = /from\s+['"][^'"]*\.protocol['"]/;
 const HANDLER_DEF_RE = /_onMessage\s*\(|_handleMessage\s*\(|_handleWebviewMessage\s*\(/;
 
