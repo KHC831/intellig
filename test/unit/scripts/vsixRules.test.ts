@@ -151,6 +151,8 @@ describe('scripts/lib/vsix-rules.sh — shared .vsix content rules', () => {
         'media/webview/rebaseDialog.js',
         'media/webview/applyPatchDialog.js',
         'media/webview/resolveConflictsDialog.js',
+        'media/webview/pushDialog.js',
+        'media/webview/rebaseProgressView.js',
         'media/codicon.ttf',
         'media/monaco/vs/loader.js',
         'resources/git-icon-branch.svg',

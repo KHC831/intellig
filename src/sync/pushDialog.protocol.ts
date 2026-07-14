@@ -17,6 +17,31 @@ export interface IPushOverflowState {
   tagScope: 'all' | 'follow';
 }
 
+/** Classified push-failure kind carried on a row's error. */
+export type PushErrorKind = 'rejected-non-ff' | 'rejected-protected' | 'auth' | 'hook' | 'other';
+
+/** One repo row baked into the init island (wire view — no live IRepository). */
+export interface IPushRowView {
+  id: string;
+  repoLabel: string;
+  localBranch: string;
+  targetBranch: string;
+  ahead: number;
+  selected: boolean;
+  protected: boolean;
+  error: { message: string; kind: PushErrorKind } | null;
+}
+
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IPushDialogInit {
+  empty: boolean;
+  rows: IPushRowView[];
+  primaryAction: PushAction;
+  primaryLabel: string;
+  anyProtected: boolean;
+  overflow: IPushOverflowState;
+}
+
 /** Fields shared across the inbound variants (all optional, as on the wire). */
 type PushInboundFields = {
   action?: PushAction;

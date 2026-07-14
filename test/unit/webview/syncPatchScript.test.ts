@@ -16,7 +16,6 @@ import { PushDialog } from '../../../src/sync/PushDialog';
 import { ApplyPatchDialog } from '../../../src/patches/ApplyPatchDialog';
 import type { IPatchService } from '../../../src/patches/interfaces/IPatchService';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
@@ -29,7 +28,7 @@ const GARBAGE_MESSAGES: unknown[] = [
 ];
 
 describe('webview: sync + patch dialog scripts (jsdom)', () => {
-  let h: IWebviewHarness | IWebviewEntryHarness;
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -48,9 +47,14 @@ describe('webview: sync + patch dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('sync/webview/pushDialog', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the push + cancel buttons', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -60,15 +64,13 @@ describe('webview: sync + patch dialog scripts (jsdom)', () => {
     });
 
     it('posts cancel when the cancel button is clicked', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       h.document.getElementById('cancel-btn')?.click();
       assert.deepEqual(h.posted.at(-1), { type: 'cancel' });
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }

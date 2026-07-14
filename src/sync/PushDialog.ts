@@ -35,10 +35,13 @@ import { assertNever } from '../utils/assertNever';
 import {
   asPushDialogInbound,
   type PushAction,
+  type PushErrorKind,
   type IPushOverflowState,
+  type IPushDialogInit,
   type PushDialogOutbound,
 } from './pushDialog.protocol';
-export type { PushAction, IPushOverflowState } from './pushDialog.protocol';
+export type { PushAction, PushErrorKind, IPushOverflowState } from './pushDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { sanitizeGitError } from '../git-core/gitError';
 import {
   IGitService,
@@ -91,9 +94,6 @@ export interface IPushRow {
    */
   error?: IPushRowError;
 }
-
-/** Classification of a push failure. */
-export type PushErrorKind = 'rejected-non-ff' | 'rejected-protected' | 'auth' | 'hook' | 'other';
 
 /** Row-level push error for rendering retry affordances. */
 export interface IPushRowError {
@@ -654,26 +654,10 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
   }
 
   protected _getBodyHtml(): string {
-    return this._getBodyParts().body;
-  }
-
-  /**
-   * Emit the body HTML and the interactive script separately so `_wrapHtml`
-   * can splice the script into a nonced `<script>` block without fragile
-   * regex extraction (nested `</script>` inside any future string
-   * literal would break the old regex).
-   */
-  private _getBodyParts(): { body: string; script: string } {
-    // Body ships an empty root; the script builds the table, overflow options,
-    // and action bar via document.createElement. Host data crosses as a JSON
-    // init island and reaches the DOM via .value / .textContent / element props
-    // (injection-proof) — never markup.
-    const body = `<div id="root"></div>`;
-
     const anyProtected = this._rows.some(
       (r) => r.selected && isProtectedTarget(r.targetBranch, this._protectedBranches)
     );
-    const initJson = JSON.stringify({
+    const init: IPushDialogInit = {
       empty: this._rows.length === 0,
       rows: this._rows.map((r) => ({
         id: r.id,
@@ -693,258 +677,16 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
         pushTags: this._overflow.pushTags,
         tagScope: this._overflow.tagScope,
       },
-    }).replace(/</g, '\\u003c');
-
-    // Script is returned separately so `_render()` can splice it into
-    // a nonced `<script>` without fragile regex extraction. Builds the body
-    // via createElement, then wires events + the incremental patch handlers
-    // (patchRow / patchOverflow) that replace the old full-rerender path.
-    const script = `
-      (function() {
-        const vscode = acquireVsCodeApi();
-        const INIT = ${initJson};
-        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-        const root = document.getElementById('root');
-
-        if (INIT.empty) {
-          root.append(el('div', { textContent: 'Loading repositories…' }));
-          return;
-        }
-
-        // ── Repository table ───────────────────────────────────────────────
-        const table = el('table');
-        const thead = el('thead');
-        const headRow = el('tr');
-        const th0 = el('th');
-        th0.setAttribute('style', 'width:30px');
-        headRow.append(
-          th0,
-          el('th', { textContent: 'Repository' }),
-          el('th', { textContent: 'Branch' }),
-          el('th', { textContent: 'Target' }),
-          el('th', { textContent: 'Commits' })
-        );
-        thead.append(headRow);
-        const tbody = el('tbody', { id: 'rows' });
-        for (const r of INIT.rows) {
-          const tr = el('tr');
-          tr.setAttribute('data-row-id', r.id);
-          if (r.protected) tr.setAttribute('data-protected', '1');
-          const c0 = el('td');
-          const cb = el('input', { type: 'checkbox', className: 'row-select' });
-          cb.checked = r.selected;
-          cb.setAttribute('data-row-id', r.id);
-          c0.append(cb);
-          const c3 = el('td');
-          const ti = el('input', { type: 'text', className: 'row-target', value: r.targetBranch });
-          ti.setAttribute('data-row-id', r.id);
-          c3.append(ti);
-          const c4 = el('td');
-          c4.append(el('span', { className: 'badge', textContent: r.ahead === 0 ? 'up to date' : String(r.ahead) }));
-          tr.append(c0, el('td', { textContent: r.repoLabel }), el('td', { textContent: r.localBranch }), c3, c4);
-          tbody.append(tr);
-          if (r.error) {
-            const er = el('tr', { className: 'row-error' });
-            er.setAttribute('data-row-id', r.id);
-            const td = el('td');
-            td.setAttribute('colspan', '5');
-            td.append('⚠ ' + r.error.message + ' ');
-            if (r.error.kind === 'rejected-non-ff') {
-              const b1 = el('button', { textContent: 'Pull and Retry…' });
-              b1.setAttribute('data-action', 'pullAndRetry');
-              b1.setAttribute('data-row-id', r.id);
-              const b2 = el('button', { textContent: 'Force with Lease' });
-              b2.setAttribute('data-action', 'forceWithLease-row');
-              b2.setAttribute('data-row-id', r.id);
-              td.append(b1, ' ', b2);
-            }
-            er.append(td);
-            tbody.append(er);
-          }
-        }
-        table.append(thead, tbody);
-        root.append(table);
-
-        root.append(el('a', { className: 'edit-all', id: 'edit-all', textContent: 'Edit all targets' }));
-
-        // ── Overflow options ───────────────────────────────────────────────
-        const overflow = el('div', { className: 'overflow' });
-        const labelled = (input, text) => {
-          const l = el('label');
-          l.append(input, text);
-          return l;
-        };
-        const HINTS = {
-          noVerify: 'Skip the pre-push git hook (--no-verify).',
-          all: 'All tags: pushes every local tag to the remote — both lightweight tags (plain "git tag") and annotated ones — no matter which branch they sit on.',
-          follow: 'Follow tags: pushes only annotated tags (made with a message, like release tags) that sit on the commits you are pushing. Plain lightweight tags are left behind — use "All tags" to include them.',
-        };
-        const noVerify = el('input', { type: 'checkbox', id: 'no-verify' });
-        noVerify.checked = INIT.overflow.noVerify;
-        const pushTags = el('input', { type: 'checkbox', id: 'push-tags' });
-        pushTags.checked = INIT.overflow.pushTags;
-        // The scope is a sub-choice of "Push tags": a dropdown enabled only when
-        // the box is checked (git4idea's checkbox + combo layout).
-        const tagScope = el('select', { id: 'tag-scope' });
-        tagScope.setAttribute('aria-label', 'Tag scope');
-        const tagAll = el('option', { value: 'all', textContent: 'All tags' });
-        tagAll.selected = INIT.overflow.tagScope === 'all';
-        const tagFollow = el('option', { value: 'follow', textContent: 'Follow tags' });
-        tagFollow.selected = INIT.overflow.tagScope === 'follow';
-        tagScope.append(tagAll, tagFollow);
-        tagScope.disabled = !INIT.overflow.pushTags;
-        const tagsGroup = el('span', { className: 'tags-group' });
-        tagsGroup.append(labelled(pushTags, 'Push tags'), tagScope);
-        overflow.append(labelled(noVerify, '--no-verify'), tagsGroup);
-        root.append(overflow);
-        // Always-visible explanation of the enabled options: the --no-verify line
-        // when it is checked, and the current tag-scope line while Push tags is on.
-        const tagHint = el('div', { id: 'tag-hint', className: 'hint' });
-        root.append(tagHint);
-        const updateHint = () => {
-          const parts = [];
-          if (noVerify.checked) parts.push(HINTS.noVerify);
-          if (pushTags.checked) parts.push(tagScope.value === 'follow' ? HINTS.follow : HINTS.all);
-          tagHint.textContent = parts.join(' ');
-        };
-        updateHint();
-
-        // ── Action bar ─────────────────────────────────────────────────────
-        const actionsBar = el('div', { className: 'actions' });
-        const cancelBtn = el('button', { id: 'cancel-btn', className: 'secondary', type: 'button', textContent: 'Cancel' });
-        const actionSelect = el('select', { id: 'action-select' });
-        actionSelect.setAttribute('aria-label', 'Push action');
-        const optPush = el('option', { value: 'push', textContent: 'Push' });
-        optPush.selected = INIT.primaryAction === 'push';
-        const optLease = el('option', { value: 'forceWithLease', textContent: 'Force Push with Lease' });
-        optLease.selected = INIT.primaryAction === 'forceWithLease';
-        const optForce = el('option', { value: 'force', textContent: 'Force Push (Anyway)…' });
-        optForce.selected = INIT.primaryAction === 'force';
-        optForce.disabled = INIT.anyProtected;
-        actionSelect.append(optPush, optLease, optForce);
-        const pushBtn = el('button', { id: 'push-btn', type: 'button', textContent: INIT.primaryLabel });
-        actionsBar.append(cancelBtn, actionSelect, pushBtn);
-        root.append(actionsBar);
-
-        const postRowPatch = (rowId, patch) => {
-          vscode.postMessage({ type: 'updateRow', rowId, rowPatch: patch });
-        };
-        document.getElementById('rows').addEventListener('change', (e) => {
-          const el = e.target;
-          const rowId = el.getAttribute('data-row-id');
-          if (!rowId) return;
-          if (el.classList.contains('row-select')) {
-            postRowPatch(rowId, { selected: el.checked });
-          } else if (el.classList.contains('row-target')) {
-            postRowPatch(rowId, { targetBranch: el.value });
-          }
-        });
-        document.getElementById('rows').addEventListener('click', (e) => {
-          const el = e.target;
-          // e.target on a click inside #rows is always an HTMLElement,
-          // which always has getAttribute. Drop the defensive guard.
-          const action = el.getAttribute('data-action');
-          const rowId = el.getAttribute('data-row-id');
-          if (action && rowId) {
-            vscode.postMessage({ type: action, rowId });
-          }
-        });
-        document.getElementById('edit-all').addEventListener('click', () => {
-          document.querySelectorAll('input.row-target').forEach((inp) => {
-            inp.focus();
-            inp.select();
-          });
-        });
-        const readOverflow = () => ({
-          noVerify: document.getElementById('no-verify').checked,
-          pushTags: document.getElementById('push-tags').checked,
-          tagScope: document.getElementById('tag-scope').value === 'all' ? 'all' : 'follow',
-        });
-        const syncTagScopeEnabled = () => {
-          document.getElementById('tag-scope').disabled = !document.getElementById('push-tags').checked;
-        };
-        document.querySelectorAll('.overflow input, .overflow select').forEach((inp) => {
-          inp.addEventListener('change', () => {
-            syncTagScopeEnabled();
-            updateHint();
-            vscode.postMessage({ type: 'updateOverflow', overflow: readOverflow() });
-          });
-        });
-        document.getElementById('action-select').addEventListener('change', (e) => {
-          vscode.postMessage({ type: 'updateOverflow', action: e.target.value });
-        });
-        const submit = () => {
-          const action = document.getElementById('action-select').value;
-          vscode.postMessage({ type: 'submit', action });
-        };
-        const cancel = () => {
-          vscode.postMessage({ type: 'cancel' });
-        };
-        document.getElementById('push-btn').addEventListener('click', submit);
-        document.getElementById('cancel-btn').addEventListener('click', cancel);
-
-        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
-        //   Cmd+Enter / Ctrl+Enter → primary action (Push)
-        //   Esc                    → cancel
-        // Plain Enter inside a row's target-branch text input is left to the
-        // browser default so it doesn't submit mid-edit.
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancel();
-          }
-        });
-
-        // Apply incremental host→webview patches. Only derived
-        // display state is touched; the user's checkbox / text-input
-        // value is left alone so the caret doesn't bounce.
-        function applyPrimary(primary) {
-          if (!primary) return;
-          var btn = document.getElementById('push-btn');
-          if (btn) btn.textContent = primary.label;
-          var sel = document.getElementById('action-select');
-          if (sel) {
-            if (sel.value !== primary.action) {
-              sel.value = primary.action;
-            }
-            for (var i = 0; i < sel.options.length; i++) {
-              var opt = sel.options[i];
-              if (opt.value === 'force') {
-                opt.disabled = !!primary.anyProtected;
-              }
-            }
-          }
-        }
-        window.addEventListener('message', (event) => {
-          const msg = event.data;
-          if (!msg || typeof msg.type !== 'string') return;
-          if (msg.type === 'patchRow' && typeof msg.rowId === 'string') {
-            var row = document.querySelector('tr[data-row-id="' + CSS.escape(msg.rowId) + '"]');
-            if (row) {
-              if (msg.protected) row.setAttribute('data-protected', '1');
-              else row.removeAttribute('data-protected');
-            }
-            applyPrimary(msg.primary);
-            return;
-          }
-          if (msg.type === 'patchOverflow') {
-            applyPrimary(msg.primary);
-            return;
-          }
-        });
-      })();
-    `;
-
-    return { body, script };
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Override the base renderer entirely so we emit the interactive script
-   * with the CSP nonce. Receives body + script as an explicit tuple
-   * from `_getBodyParts()` instead of regex-splicing the body.
+   * Override the base renderer so the body ships with an EXTERNAL bundle tag
+   * (media/webview/pushDialog.js) instead of the base's empty sentinel. The
+   * interactive logic lives in the bundled entry (src/sync/webview/pushDialog.ts),
+   * which reads its init from the body island and applies host patchRow/
+   * patchOverflow patches.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -955,7 +697,9 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const styleBlock = styles.length > 0 ? `<style>${styles}</style>` : '';
-    const { body, script } = this._getBodyParts();
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'pushDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -967,8 +711,8 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
   ${styleBlock}
 </head>
 <body>
-${body}
-<script nonce="${nonce}">${script}</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }

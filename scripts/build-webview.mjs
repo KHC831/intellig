@@ -41,6 +41,8 @@ const PANEL_ENTRIES = [
     in: join(root, 'src/conflicts/webview/resolveConflictsDialog.ts'),
     out: 'resolveConflictsDialog',
   },
+  { in: join(root, 'src/sync/webview/pushDialog.ts'), out: 'pushDialog' },
+  { in: join(root, 'src/rebase/webview/rebaseProgressView.ts'), out: 'rebaseProgressView' },
 ];
 
 const configs = [

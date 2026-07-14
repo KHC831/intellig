@@ -97,7 +97,12 @@ const DIALOGS: DialogUnderAudit[] = [
     entryFile: 'src/branches/webview/main.ts',
     keyboardContract: true,
   },
-  { name: 'PushDialog', file: 'src/sync/PushDialog.ts', keyboardContract: true },
+  {
+    name: 'PushDialog',
+    file: 'src/sync/PushDialog.ts',
+    entryFile: 'src/sync/webview/pushDialog.ts',
+    keyboardContract: true,
+  },
   {
     name: 'ResolveConflictsDialog',
     file: 'src/conflicts/ResolveConflictsDialog.ts',

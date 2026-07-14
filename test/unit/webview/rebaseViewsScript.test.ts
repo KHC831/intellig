@@ -26,6 +26,7 @@ import { Uri } from '../../mocks/vscode';
 import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
 const GARBAGE_MESSAGES: unknown[] = [
@@ -131,15 +132,16 @@ describe('webview: rebase view scripts (jsdom)', () => {
   });
 
   describe('RebaseProgressView', () => {
-    function script(): string {
+    function boot(): IWebviewEntryHarness {
       const view = new RebaseProgressView(Uri.file('/tmp/ext'), stubRebaseService());
-      return (view as unknown as { _getScript(): string })._getScript();
+      const init = (view as unknown as { _getInit(): unknown })._getInit();
+      const bodyHtml =
+        '<div class="rebase-progress" id="progress-root"></div>' + initIslandHtml(init);
+      return bootWebviewEntry('rebase/webview/rebaseProgressView', { bodyHtml });
     }
 
     it('loads against the #progress-root skeleton without throwing', () => {
-      h = runWebviewScript(script(), {
-        bodyHtml: '<div class="rebase-progress" id="progress-root"></div>',
-      });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -147,9 +149,7 @@ describe('webview: rebase view scripts (jsdom)', () => {
     });
 
     it('tolerates garbage messages without throwing', () => {
-      h = runWebviewScript(script(), {
-        bodyHtml: '<div class="rebase-progress" id="progress-root"></div>',
-      });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }

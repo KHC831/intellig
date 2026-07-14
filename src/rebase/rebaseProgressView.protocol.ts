@@ -4,22 +4,49 @@
  * outbound side is `never`.
  */
 
+/** One commit row baked into the init island. */
+export interface IRebaseProgressCommit {
+  shortHash: string;
+  action: string;
+  message: string;
+  statusIcon: string;
+  statusClass: string;
+}
+
+/** Rebase-progress detail (present when a session exists). */
+export interface IRebaseProgressDetail {
+  originalBranch: string;
+  onto: string;
+  currentStep: number;
+  totalSteps: number;
+  progressPercent: number;
+  currentCommit: { shortHash: string; action: string; message: string } | null;
+  commits: IRebaseProgressCommit[];
+}
+
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IRebaseProgressViewInit {
+  statusText: string;
+  statusClass: string;
+  hasSession: boolean;
+  progress: IRebaseProgressDetail | null;
+  isConflict: boolean;
+  conflictFiles: string[];
+  rebaseInProgress: boolean;
+  showContinue: boolean;
+  showSkip: boolean;
+  showAbort: boolean;
+}
+
 export type RebaseProgressViewInbound =
   | { type: 'continue' }
   | { type: 'abort' }
   | { type: 'skip' }
-  | { type: 'provideRewordMessage'; message?: string }
   | { type: 'refresh' };
 
 export type RebaseProgressViewOutbound = never;
 
-export const REBASE_PROGRESS_VIEW_INBOUND_TYPES = [
-  'continue',
-  'abort',
-  'skip',
-  'provideRewordMessage',
-  'refresh',
-] as const;
+export const REBASE_PROGRESS_VIEW_INBOUND_TYPES = ['continue', 'abort', 'skip', 'refresh'] as const;
 
 export function asRebaseProgressViewInbound(
   message: unknown

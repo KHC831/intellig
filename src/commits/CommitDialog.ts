@@ -575,7 +575,10 @@ export class CommitDialog {
 
       // Handle messages from webview. Standalone panel (no Base envelope), so
       // the guarded-dispatch wrapper is applied here directly.
-      // typed-messages-exempt: standalone panel, no Base envelope — Base-fold deferred to its Phase 5 port
+      // typed-messages-exempt: permanently standalone — lazy, re-showable
+      // lifecycle (creates its panel on show(), recreates after dispose; the
+      // instance is persisted on CommandContext and reused across commits),
+      // incompatible with BaseWebviewPanel's eager one-shot constructor creation.
       this._panel.webview.onDidReceiveMessage(
         (message: unknown) =>
           dispatchGuardedWebviewMessage(() => this._handleMessage(message), {

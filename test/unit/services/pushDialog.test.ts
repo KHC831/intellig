@@ -29,7 +29,8 @@ import '../../setup';
 import { SpawnFailedError } from '../../../src/git-core/errors';
 import { okAsync, errAsync } from 'neverthrow';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import * as vscode from 'vscode';
 import {
   buildPushOptions,
@@ -336,6 +337,13 @@ function makeDialog(
 }
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
+
+const _pushHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_pushHarnesses.length > 0) {
+    _pushHarnesses.pop()?.dispose();
+  }
+});
 
 describe('PushDialog — pure helpers', () => {
   describe('isValidPushRef', () => {
@@ -1144,26 +1152,14 @@ describe('PushDialog — rendered DOM (script-built)', () => {
    * the host markup ships an empty root, not pre-baked controls.
    */
   function renderDoc(dialog: TestPushDialog): { document: Document; posted: unknown[] } {
-    const html = dialog.renderedHtml();
-    const dom = new JSDOM(html, { runScripts: 'outside-only' });
-    const window = dom.window;
-    const posted: unknown[] = [];
-    (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-      postMessage: (m: unknown): void => {
-        posted.push(m);
-      },
-      getState: (): void => {},
-      setState: (): void => {},
-    });
-    assert.strictEqual(
-      window.document.querySelector('#rows'),
-      null,
-      'the table must not be pre-baked in host markup — the script builds the DOM'
+    const bodyHtml = extractWebviewScript(dialog.renderedHtml()).bodyHtml;
+    assert.ok(
+      !/id="rows"/.test(bodyHtml),
+      'the table must not be pre-baked in host markup — the entry builds the DOM'
     );
-    const scriptEl = window.document.querySelector('script[nonce]');
-    assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-    window.eval(scriptEl.textContent ?? '');
-    return { document: window.document as unknown as Document, posted };
+    const h = bootWebviewEntry('sync/webview/pushDialog', { bodyHtml });
+    _pushHarnesses.push(h);
+    return { document: h.document, posted: h.posted };
   }
 
   it('builds a table row per repository with checkbox, target input, and action bar', async () => {

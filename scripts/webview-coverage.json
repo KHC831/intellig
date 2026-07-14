@@ -54,9 +54,9 @@
       "status": "tested",
       "note": "bundled Shelve dialog entry booted in jsdom; checkbox file list + name field + shelve/cancel wiring (shelveDialogScript.test.ts)"
     },
-    "src/sync/PushDialog.ts": {
+    "src/sync/webview/pushDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds push/cancel + cancel wiring (syncPatchScript.test.ts)"
+      "note": "bundled Push entry booted in jsdom; repo table + overflow + action bar + patchRow/patchOverflow (syncPatchScript.test.ts, pushDialog.test.ts)"
     },
     "src/patches/webview/applyPatchDialog.ts": {
       "status": "tested",
@@ -70,9 +70,9 @@
       "status": "tested",
       "note": "_getScript run in jsdom over #rebase-root skeleton (rebaseViewsScript.test.ts)"
     },
-    "src/rebase/RebaseProgressView.ts": {
+    "src/rebase/webview/rebaseProgressView.ts": {
       "status": "tested",
-      "note": "_getScript run in jsdom over #progress-root skeleton (rebaseViewsScript.test.ts)"
+      "note": "bundled Rebase Progress entry booted in jsdom over #progress-root island (rebaseViewsScript.test.ts)"
     },
     "src/conflicts/merge-window/webview/main.ts": {
       "status": "tested",
