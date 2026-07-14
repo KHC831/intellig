@@ -7,6 +7,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../../src/services/interfaces';
 import { Uri, Webview } from '../../mocks/vscode';
@@ -189,17 +190,22 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
       );
     });
 
-    it('should include JS-based width check for vertical stacking', () => {
+    it('applies the vertical-layout class from the bundled width check', () => {
+      // The divider script (now folded into the entry) runs checkVerticalLayout
+      // on boot: jsdom reports a 0-width layout (< 500px), so the class lands.
       const html = provider._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
         []
       );
-
-      assert.ok(
-        html.includes('checkVerticalLayout'),
-        'Should include JS function for vertical layout check'
-      );
-      assert.ok(html.includes('500'), 'Should reference 500px threshold');
+      const h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+        bodyHtml: bodyOf(html),
+      });
+      try {
+        const layout = h.document.querySelector('.three-panel-layout');
+        assert.ok(layout?.classList.contains('vertical-layout'), 'width check toggled the class');
+      } finally {
+        h.dispose();
+      }
     });
   });
 
@@ -313,45 +319,49 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
     });
   });
 
-  describe('Divider drag functionality', () => {
-    it('should include divider drag script', () => {
+  describe('Divider drag functionality (bundled entry)', () => {
+    // Regression (F-C): the divider script used to reference a free `vscode`
+    // from its own inline <script> IIFE, which was never defined there — so a
+    // drag threw a ReferenceError and no panelResize ever persisted. Folded
+    // into the entry it shares the real acquired handle; this drives the real
+    // entry and asserts the drag now posts.
+    it('posts panelResize on drag end (F-C: divider wired to the real vscode handle)', () => {
       const html = provider._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
         []
       );
-
-      assert.ok(html.includes('mousedown'), 'Should include mousedown handler for drag');
-      assert.ok(html.includes('mousemove'), 'Should include mousemove handler for drag');
-      assert.ok(html.includes('mouseup'), 'Should include mouseup handler for drag');
+      const h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+        bodyHtml: bodyOf(html),
+      });
+      try {
+        const divider = h.document.querySelector('.panel-divider');
+        assert.ok(divider, 'a panel divider is rendered');
+        divider.dispatchEvent(
+          new h.window.MouseEvent('mousedown', { bubbles: true, clientX: 200 })
+        );
+        h.document.dispatchEvent(
+          new h.window.MouseEvent('mouseup', { bubbles: true, clientX: 260 })
+        );
+        assert.ok(
+          h.posted.some((m) => (m as { type?: string }).type === 'panelResize'),
+          'drag end must post panelResize'
+        );
+      } finally {
+        h.dispose();
+      }
     });
 
-    it('should post panelResize message on drag end', () => {
-      const html = provider._getThreePanelHtmlContent(
-        mockWebview as unknown as import('vscode').Webview,
-        []
+    // jsdom lays nothing out, so the min-width clamp + keyboard-nudge paths
+    // (which gate on getBoundingClientRect) can't be exercised here; assert the
+    // bundled entry source carries them so the behavior can't silently vanish.
+    it('the entry carries the divider min-width clamp + keyboard nudge', () => {
+      const entrySrc = fs.readFileSync(
+        require.resolve('../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+        'utf8'
       );
-
-      assert.ok(html.includes("'panelResize'"), 'Should post panelResize message type');
-    });
-
-    it('should enforce minimum panel width of 100px in drag script', () => {
-      const html = provider._getThreePanelHtmlContent(
-        mockWebview as unknown as import('vscode').Webview,
-        []
-      );
-
-      assert.ok(html.includes('MIN_PANEL_PX'), 'Should reference minimum panel width constant');
-      assert.ok(html.includes('100'), 'Should use 100px as minimum');
-    });
-
-    it('should include keyboard support for divider repositioning', () => {
-      const html = provider._getThreePanelHtmlContent(
-        mockWebview as unknown as import('vscode').Webview,
-        []
-      );
-
-      assert.ok(html.includes('ArrowLeft'), 'Should handle ArrowLeft key');
-      assert.ok(html.includes('ArrowRight'), 'Should handle ArrowRight key');
+      assert.ok(entrySrc.includes('MIN_PANEL_PX'), 'min-width constant present');
+      assert.ok(entrySrc.includes('100'), '100px minimum present');
+      assert.ok(entrySrc.includes('ArrowLeft') && entrySrc.includes('ArrowRight'), 'arrow keys');
     });
   });
 

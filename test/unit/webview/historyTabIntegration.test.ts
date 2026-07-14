@@ -11,8 +11,6 @@ import * as vscode from 'vscode';
 import { GitToolWindowProvider } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
 import type { ICommitNode } from '../../../src/git-core/commitGraph';
 import { Uri } from '../../mocks/vscode';
-import { runWebviewScript } from '../../helpers/webviewHarness';
-import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { bootWebviewEntry } from '../../helpers/bootWebviewEntry';
 import { createMockGitService } from '../../mocks/mockGitService';
 
@@ -226,8 +224,7 @@ describe('History tab — real provider end-to-end', () => {
   it('clicking a commit row posts history.selectRevision (selection wiring intact)', async () => {
     const provider = await driveToHistory();
     const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
-    const { script, bodyHtml } = extractWebviewScript(html);
-    const h = runWebviewScript(script, { bodyHtml });
+    const h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(html) });
     const row = h.document.querySelector('.history-commit-row');
     assert.ok(row, 'a commit row is rendered in the list');
     row.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));

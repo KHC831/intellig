@@ -53,8 +53,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
  * and it must stay empty. Paths are relative to srcDir.
  */
 const STRING_SCRIPT_ALLOWLIST_DEFAULT = [
-  join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts'),
-  join('git-core', 'gitToolWindow', 'html', 'commonHtml.ts'),
   join('git-core', 'gitToolWindow', 'provider', 'htmlBuilders.ts'),
   // The Base view wraps each subclass's `${script}` in an inline tag; it comes
   // off the ratchet when its last subclass is ported and it emits an external

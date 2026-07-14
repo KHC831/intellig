@@ -8,18 +8,18 @@
  * collapsed-ref context menus. Reads the initial + History commit-details models
  * from the host's `data-init` island and builds both panels via the shared
  * `buildDetailsPanelDom`. Posts protocol-typed messages on the log channel
- * (GitToolWindowInbound) plus the one History-tab message the parent-hash click
- * routes (GitToolWindowTabsInbound).
+ * (GitToolWindowInbound) and the tab channel (GitToolWindowTabsInbound: the
+ * tab-strip switch plus every History-tab action).
  *
- * The VS Code API handle is shared via the `window.__intelligVscodeApi` memo:
- * the tabbed layout still hosts sibling inline scripts (tab strip, History
- * behavior, divider/column resize) that each `acquireVsCodeApi()` at most once
- * per document, so whichever runs first acquires and the rest reuse the memo.
+ * The tab strip, History behavior, and the graph/column dividers all run from
+ * this one bundle, so the whole document has a single `acquireVsCodeApi()` and
+ * the sibling inline scripts are gone.
  */
 
 import type { GitToolWindowInbound, GitToolWindowOutbound } from '../gitToolWindow.protocol';
 import type { GitToolWindowTabsInbound } from '../gitToolWindowTabs.protocol';
 import type { DetailsPanelModel } from '../provider/detailsPanelModel.types';
+import { isTabId } from '../tabIds';
 import { buildDetailsPanelDom } from './detailsPanelDom';
 import { INIT_ELEMENT_ID, parseInitIsland } from '../../../utils/webviewInit';
 import {
@@ -39,7 +39,6 @@ declare function acquireVsCodeApi(): IVsCodeApi;
 declare global {
   // eslint-disable-next-line @typescript-eslint/naming-convention -- augmenting the built-in `Window` lib interface (declaration merging)
   interface Window {
-    __intelligVscodeApi?: IVsCodeApi;
     /**
      * Read accessors for the branch/author filter state, exposed for the
      * message handlers that fill the branch/author lists (and pinned by the
@@ -78,10 +77,7 @@ const GRAPH_SCROLL_TOP_SLOT: IWebviewStateSlot<number> = {
 };
 
 const vscodeApi: IVsCodeApi | undefined =
-  window.__intelligVscodeApi ||
-  (typeof acquireVsCodeApi === 'function'
-    ? (window.__intelligVscodeApi = acquireVsCodeApi())
-    : undefined);
+  typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : undefined;
 
 if (vscodeApi) {
   main(vscodeApi);
@@ -1798,6 +1794,331 @@ function main(vscode: IVsCodeApi): void {
     setupGraphPanelScrollListener();
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // ─── Tab strip ───────────────────────────────────────────────────
+  // Clicks on the tab strip post `tabChange`; the host re-renders with the
+  // chosen tab active. No-ops when the tabbed layout is off (no strip).
+  (function setupTabStrip(): void {
+    const strip = document.querySelector('.intellig-tab-strip');
+    if (!strip) {
+      return;
+    }
+    strip.addEventListener('click', function (event) {
+      const target = event.target instanceof Element ? event.target : null;
+      const btn = target ? target.closest('[data-tab]') : null;
+      if (!btn) {
+        return;
+      }
+      const tab = btn.getAttribute('data-tab');
+      if (!tab || !isTabId(tab)) {
+        return;
+      }
+      post({ type: 'tabChange', tab: tab });
+    });
+  })();
+
+  // ─── History tab behavior ────────────────────────────────────────
+  // Binds the History tab's commit list, toolbar buttons, and dropdowns to the
+  // tab-channel messages. No-ops when the History tab isn't rendered.
+  (function setupHistoryTab(): void {
+    document.querySelectorAll('.history-commit-row').forEach(function (row) {
+      row.addEventListener('click', function (event) {
+        const rev = row.getAttribute('data-rev');
+        if (!rev) {
+          return;
+        }
+        const me = event as MouseEvent;
+        post({
+          type: 'history.selectRevision',
+          rev: rev,
+          additive: Boolean(me.ctrlKey || me.metaKey),
+        });
+      });
+      row.addEventListener('dblclick', function () {
+        const rev = row.getAttribute('data-rev');
+        if (!rev) {
+          return;
+        }
+        post({ type: 'history.openAtRevision', rev: rev });
+      });
+    });
+
+    const followChk = document.querySelector<HTMLInputElement>('.history-follow-chk');
+    if (followChk) {
+      followChk.addEventListener('change', function () {
+        post({ type: 'history.toggleFollowRenames', value: followChk.checked });
+      });
+    }
+
+    const branchSel = document.querySelector<HTMLSelectElement>('.history-branch-select');
+    if (branchSel) {
+      branchSel.addEventListener('change', function () {
+        const value = branchSel.value;
+        post({ type: 'history.setBranchFilter', branch: value || undefined });
+      });
+    }
+
+    const getVersionBtn = document.querySelector('.history-btn-get-version');
+    if (getVersionBtn) {
+      getVersionBtn.addEventListener('click', function () {
+        const selected = document.querySelector('.history-commit-row.history-selected');
+        const rev = selected ? selected.getAttribute('data-rev') : null;
+        if (rev) {
+          post({ type: 'history.getVersion', rev: rev });
+        }
+      });
+    }
+
+    const compareLocalBtn = document.querySelector('.history-btn-compare-local');
+    if (compareLocalBtn) {
+      compareLocalBtn.addEventListener('click', function () {
+        const selected = document.querySelector('.history-commit-row.history-selected');
+        const rev = selected ? selected.getAttribute('data-rev') : null;
+        if (rev) {
+          post({ type: 'history.compareWithLocal', rev: rev });
+        }
+      });
+    }
+
+    const copyBtn = document.querySelector('.history-details-copy');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        const hash = copyBtn.getAttribute('data-copy-hash');
+        if (hash && navigator.clipboard) {
+          navigator.clipboard.writeText(hash).catch(function (_err) {
+            /* clipboard writes can fail on focus loss; the hash stays visible */
+          });
+        }
+      });
+    }
+
+    const diffTwoBtn = document.querySelector('.history-btn-diff-two');
+    if (diffTwoBtn) {
+      diffTwoBtn.addEventListener('click', function () {
+        const selected = document.querySelector('.history-commit-row.history-selected');
+        const compare = document.querySelector('.history-commit-row.history-compare');
+        const to = selected ? selected.getAttribute('data-rev') : null;
+        const from = compare ? compare.getAttribute('data-rev') : null;
+        if (from && to) {
+          post({ type: 'history.compareWith', from: from, to: to });
+        }
+      });
+    }
+  })();
+
+  // ─── Panel divider drag (graph ↔ details) ────────────────────────
+  // Drag or arrow-key the `.panel-divider` to repartition the two panels; the
+  // final percentages post as `panelResize` so they persist across renders.
+  (function setupDividerDrag(): void {
+    const layoutMaybe = document.querySelector<HTMLElement>('.three-panel-layout');
+    if (!layoutMaybe) {
+      return;
+    }
+    // Bind a non-null local: the hoisted `checkVerticalLayout` closure below
+    // otherwise re-widens the guarded const back to `HTMLElement | null`.
+    const layout: HTMLElement = layoutMaybe;
+    const panels = layout.querySelectorAll<HTMLElement>('.panel');
+    const dividers = layout.querySelectorAll<HTMLElement>('.panel-divider');
+    let activeDivider: HTMLElement | null = null;
+    let startX = 0;
+    let startWidths: number[] = [];
+    const MIN_PANEL_PX = 100;
+
+    function checkVerticalLayout(): void {
+      const width = layout.getBoundingClientRect().width;
+      if (width < 500) {
+        layout.classList.add('vertical-layout');
+      } else {
+        layout.classList.remove('vertical-layout');
+      }
+    }
+    checkVerticalLayout();
+    window.addEventListener('resize', checkVerticalLayout);
+    if (typeof ResizeObserver !== 'undefined') {
+      const resizeObserver = new ResizeObserver(function () {
+        checkVerticalLayout();
+      });
+      resizeObserver.observe(layout);
+    }
+
+    function panelWidths(): [number, number] {
+      const w = Array.from(panels).map(function (p) {
+        return parseFloat(p.style.width) || 0;
+      });
+      return [w[0] ?? 0, w[1] ?? 0];
+    }
+
+    dividers.forEach(function (divider) {
+      divider.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        activeDivider = divider;
+        startX = e.clientX;
+        startWidths = Array.from(panels).map(function (p) {
+          return p.getBoundingClientRect().width;
+        });
+        document.body.classList.add('resizing');
+        divider.classList.add('dragging');
+      });
+
+      divider.addEventListener('keydown', function (e) {
+        const dividerIndex = parseInt(divider.getAttribute('data-divider') || '0', 10);
+        const leftPanel = panels[dividerIndex];
+        const rightPanel = panels[dividerIndex + 1];
+        if (!leftPanel || !rightPanel) {
+          return;
+        }
+        const step = 10;
+        let delta = 0;
+        switch (e.key) {
+          case 'ArrowLeft':
+            delta = -step;
+            e.preventDefault();
+            break;
+          case 'ArrowRight':
+            delta = step;
+            e.preventDefault();
+            break;
+          default:
+            return;
+        }
+        const leftWidth = leftPanel.getBoundingClientRect().width + delta;
+        const rightWidth = rightPanel.getBoundingClientRect().width - delta;
+        if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
+          const totalWidth = layout.getBoundingClientRect().width;
+          leftPanel.style.width = (leftWidth / totalWidth) * 100 + '%';
+          rightPanel.style.width = (rightWidth / totalWidth) * 100 + '%';
+          post({ type: 'panelResize', widths: panelWidths() });
+        }
+      });
+    });
+
+    document.addEventListener('mousemove', function (e) {
+      if (!activeDivider) {
+        return;
+      }
+      const dividerIndex = parseInt(activeDivider.getAttribute('data-divider') || '0', 10);
+      const delta = e.clientX - startX;
+      const leftWidth = startWidths[dividerIndex] + delta;
+      const rightWidth = startWidths[dividerIndex + 1] - delta;
+      if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
+        const totalWidth = layout.getBoundingClientRect().width;
+        panels[dividerIndex].style.width = (leftWidth / totalWidth) * 100 + '%';
+        panels[dividerIndex + 1].style.width = (rightWidth / totalWidth) * 100 + '%';
+      }
+    });
+
+    document.addEventListener('mouseup', function () {
+      if (!activeDivider) {
+        return;
+      }
+      document.body.classList.remove('resizing');
+      activeDivider.classList.remove('dragging');
+      activeDivider = null;
+      post({ type: 'panelResize', widths: panelWidths() });
+    });
+  })();
+
+  // ─── Log column resize (Author / Date) ───────────────────────────
+  // Drag or arrow-key the `.log-column-resize-handle` to resize the fixed
+  // Author/Date columns via the panel's CSS custom properties; the clamped
+  // widths post as `columnResize` so they persist across renders.
+  (function setupColumnResize(): void {
+    const MIN_COL = 40;
+    const MAX_COL = 600;
+    const VAR_BY_COLUMN: Record<string, string> = {
+      author: '--col-author-width',
+      date: '--col-date-width',
+    };
+
+    function panelFor(el: Element): HTMLElement | null {
+      return el.closest<HTMLElement>('.graph-panel');
+    }
+    function currentWidth(panel: HTMLElement, column: string): number {
+      const raw = window.getComputedStyle(panel).getPropertyValue(VAR_BY_COLUMN[column]);
+      const n = parseFloat(raw);
+      return isFinite(n) ? n : column === 'author' ? 120 : 145;
+    }
+    function clamp(px: number): number {
+      return Math.round(Math.min(MAX_COL, Math.max(MIN_COL, px)));
+    }
+    function applyAndPost(panel: HTMLElement, column: string, px: number): number {
+      const clamped = clamp(px);
+      panel.style.setProperty(VAR_BY_COLUMN[column], clamped + 'px');
+      post({
+        type: 'columnResize',
+        widths: [currentWidth(panel, 'author'), currentWidth(panel, 'date')],
+      });
+      return clamped;
+    }
+
+    let active: HTMLElement | null = null;
+    let activePanel: HTMLElement | null = null;
+    let activeColumn: string | null = null;
+    let startX = 0;
+    let startWidth = 0;
+
+    document.addEventListener('mousedown', function (e) {
+      const target = e.target instanceof Element ? e.target : null;
+      const handle = target ? target.closest<HTMLElement>('.log-column-resize-handle') : null;
+      if (!handle) {
+        return;
+      }
+      const panel = panelFor(handle);
+      if (!panel) {
+        return;
+      }
+      e.preventDefault();
+      active = handle;
+      activePanel = panel;
+      activeColumn = handle.getAttribute('data-column-resize');
+      startX = e.clientX;
+      startWidth = currentWidth(panel, activeColumn || '');
+      document.body.classList.add('resizing-column');
+      handle.classList.add('dragging');
+    });
+
+    document.addEventListener('mousemove', function (e) {
+      if (!active || !activePanel || activeColumn === null) {
+        return;
+      }
+      const delta = e.clientX - startX;
+      applyAndPost(activePanel, activeColumn, startWidth - delta);
+    });
+
+    document.addEventListener('mouseup', function () {
+      if (!active) {
+        return;
+      }
+      document.body.classList.remove('resizing-column');
+      active.classList.remove('dragging');
+      active = null;
+      activePanel = null;
+      activeColumn = null;
+    });
+
+    document.addEventListener('keydown', function (e) {
+      const target = e.target instanceof Element ? e.target : null;
+      const handle = target ? target.closest<HTMLElement>('.log-column-resize-handle') : null;
+      if (!handle) {
+        return;
+      }
+      let step = 0;
+      if (e.key === 'ArrowLeft') {
+        step = -10;
+      } else if (e.key === 'ArrowRight') {
+        step = 10;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      const panel = panelFor(handle);
+      if (!panel) {
+        return;
+      }
+      const column = handle.getAttribute('data-column-resize') || '';
+      applyAndPost(panel, column, currentWidth(panel, column) + step);
+    });
+  })();
 
   // Build the initial + History Details panels from the host-provided island.
   const island = readInitIsland();

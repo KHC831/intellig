@@ -2733,57 +2733,40 @@ describe('_getBranchLabelsHtml', () => {
     }
 
     /**
-     * Count `acquireVsCodeApi(` call sites in the assembled document that are
-     * NOT the memoised `window.__intelligVscodeApi = acquireVsCodeApi()` form.
-     * Comments are stripped first (URL-safe, so the `https://` in the CSP is
-     * not mistaken for a line comment) so prose mentions cannot trip the guard.
-     * A non-zero result means a bare re-acquire slipped into the document — the
-     * second such call throws and kills its inline script (dead tabs / commit
-     * details).
+     * Count inline `acquireVsCodeApi(` call sites in the assembled document.
+     * All tool-window client code now ships as the external `gitToolWindow.js`
+     * bundle, so the document itself must carry ZERO inline acquire — a non-zero
+     * count means an inline `<script>` (a sibling that would double-acquire and
+     * throw) crept back into the provider's HTML assembly. Comments are stripped
+     * first (URL-safe, so the `https://` in the CSP is not read as a comment).
      */
-    function bareAcquireCount(documentHtml: string): { bare: number; total: number } {
+    function inlineAcquireCount(documentHtml: string): number {
       const code = documentHtml
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-      const total = (code.match(/acquireVsCodeApi\s*\(/g) ?? []).length;
-      const memoised = code.replace(/__intelligVscodeApi\s*=\s*acquireVsCodeApi\s*\(/g, '');
-      const bare = (memoised.match(/acquireVsCodeApi\s*\(/g) ?? []).length;
-      return { bare, total };
+      return (code.match(/acquireVsCodeApi\s*\(/g) ?? []).length;
     }
 
-    /**
-     * The tabbed layout (default-on) renders multiple inline scripts into ONE
-     * document; only the first may execute `acquireVsCodeApi()`. This guards
-     * the REAL assembled provider output — not just the three builders — so a
-     * future bare acquire added directly in the provider's HTML assembly (the
-     * divider/column block, or a new inline script) is caught too.
-     */
-    it('log-active document has zero bare acquireVsCodeApi() call sites', () => {
+    it('log-active document carries no inline acquireVsCodeApi (client is the bundle)', () => {
       setMockConfigValue('intellig', 'useTabbedGitToolWindow', true);
       const html = provider._getThreePanelHtmlContent(mockWebview(), []);
-      const { bare, total } = bareAcquireCount(html);
-      assert.ok(total >= 1, 'the document must wire the VS Code API at least once');
       assert.strictEqual(
-        bare,
+        inlineAcquireCount(html),
         0,
-        'every acquireVsCodeApi() in the log-active document must be the memoised form'
+        'the log-active document must ship its client code as the external bundle only'
       );
     });
 
-    it('history-active document has zero bare acquireVsCodeApi() call sites', async () => {
+    it('history-active document carries no inline acquireVsCodeApi (client is the bundle)', async () => {
       setMockConfigValue('intellig', 'useTabbedGitToolWindow', true);
-      // Switch the active tab to History so its inline script joins the main
-      // and tab-strip scripts in the same document — the three-script case.
       await (
         provider as unknown as { _tabRouter: { setActiveTab: (t: string) => Promise<void> } }
       )._tabRouter.setActiveTab('history');
       const html = provider._getThreePanelHtmlContent(mockWebview(), []);
-      const { bare, total } = bareAcquireCount(html);
-      assert.ok(total >= 1, 'the document must wire the VS Code API at least once');
       assert.strictEqual(
-        bare,
+        inlineAcquireCount(html),
         0,
-        'every acquireVsCodeApi() in the history-active document must be the memoised form'
+        'the history-active document must ship its client code as the external bundle only'
       );
     });
   });

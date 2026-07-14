@@ -18,7 +18,21 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommitNode } from '../../../src/git-core/commitGraph';
 import { ICommit } from '../../../src/git-core/interfaces/IGitService';
-import { Uri, Memento } from '../../mocks/vscode';
+import { Uri, Memento, Webview } from '../../mocks/vscode';
+import { bootWebviewEntry } from '../../helpers/bootWebviewEntry';
+
+/** Inner HTML of the assembled document's `<body>`. */
+function bodyOf(html: string): string {
+  const match = /<body>([\s\S]*)<\/body>/.exec(html);
+  return match ? match[1] : html;
+}
+
+function mockWebview(): Webview {
+  return {
+    cspSource: 'vscode-webview://mock',
+    asWebviewUri: (uri: Uri) => uri,
+  } as unknown as Webview;
+}
 
 /** Access the private message-routing entry point the same way the routing
  * suite does — the column flow is dispatched through this switch. */
@@ -145,6 +159,34 @@ describe('GitToolWindowProvider - Resizable Log Columns', () => {
         html.includes('data-column-resize="date"'),
         'should render a drag handle that resizes the date column'
       );
+      provider.dispose();
+    });
+
+    // Regression (F-C): the column-resize script used to reference a free
+    // `vscode` from its own inline <script> IIFE that was never defined there —
+    // so a drag threw a ReferenceError and no columnResize ever persisted.
+    // Folded into the entry it shares the real acquired handle; drive the real
+    // entry and assert the drag now posts.
+    it('posts columnResize when a column handle is dragged (F-C: real vscode handle)', () => {
+      const provider = new GitToolWindowProvider(extensionUri);
+      const html = provider._getThreePanelHtmlContent(mockWebview(), [makeCommitNode()]);
+      const h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+        bodyHtml: bodyOf(html),
+      });
+      try {
+        const handle = h.document.querySelector('.log-column-resize-handle[data-column-resize]');
+        assert.ok(handle, 'a column drag handle is rendered');
+        handle.dispatchEvent(new h.window.MouseEvent('mousedown', { bubbles: true, clientX: 300 }));
+        h.document.dispatchEvent(
+          new h.window.MouseEvent('mousemove', { bubbles: true, clientX: 280 })
+        );
+        assert.ok(
+          h.posted.some((m) => (m as { type?: string }).type === 'columnResize'),
+          'dragging a column handle must post columnResize'
+        );
+      } finally {
+        h.dispose();
+      }
       provider.dispose();
     });
 

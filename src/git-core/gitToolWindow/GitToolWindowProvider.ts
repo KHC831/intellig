@@ -51,11 +51,7 @@ import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
 import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
 import { renderIncomingTabBody } from './html/incomingHtml';
 import { renderUpdateInfoTabBody, updateInfoTabStyles } from './html/updateInfoHtml';
-import {
-  renderHistoryTabBody,
-  historyTabStyles,
-  historyTabBehaviorScript,
-} from './html/historyHtml';
+import { renderHistoryTabBody, historyTabStyles } from './html/historyHtml';
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
@@ -89,6 +85,7 @@ import {
 } from './provider/detailsPanelModel';
 import { assertNever } from '../../utils/assertNever';
 import { asGitToolWindowInbound, type GitToolWindowOutbound } from './gitToolWindow.protocol';
+import { asGitToolWindowTabsInbound } from './gitToolWindowTabs.protocol';
 import {
   handleLoadMoreCommits,
   handlePanelResize,
@@ -2227,10 +2224,18 @@ export class GitToolWindowProvider
       // Unreachable — dispatch is noexcept, but belt-and-suspenders.
       return false;
     }
-    const type = typeof message.type === 'string' ? message.type : '';
-    if (type === 'tabChange') {
+    // Typed tab-channel messages the webview entry posts (tabChange + the
+    // History-tab actions) are recognized here. This guard is a typed
+    // RECOGNIZER, not the drift fence: the fence is send-side — the entry's
+    // typed `post()` (+ the Rule-D array tie) makes a new webview-posted
+    // history.X fail to compile until it joins the union — so the prefix
+    // fallback below is intentional, not a hole. The prefix checks also carry
+    // the stub tabs and host-dispatched history messages that are NOT part of
+    // the webview contract (e.g. `history.loadFile` from openFileHistory).
+    if (asGitToolWindowTabsInbound(message)) {
       return true;
     }
+    const type = typeof message.type === 'string' ? message.type : '';
     if (
       type.startsWith('console.') ||
       type.startsWith('incoming.') ||
@@ -3614,12 +3619,7 @@ export class GitToolWindowProvider
           consoleBodyHtml: renderConsoleTabBody(this._consoleEntries),
           incomingBodyHtml: renderIncomingTabBody(incomingState),
           updateInfoBodyHtml: renderUpdateInfoTabBody(this._updateInfoTab?.getState()),
-          historyBodyHtml:
-            renderHistoryTabBody(historyState) +
-            (historyActive
-              ? `<script nonce="${nonce}">${historyTabBehaviorScript()}</script>`
-              : ''),
-          nonce,
+          historyBodyHtml: renderHistoryTabBody(historyState),
         })
       : logBody;
 
@@ -3657,10 +3657,6 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
   <script nonce="${nonce}" src="${webview
     .asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'gitToolWindow.js'))
     .toString()}"></script>
-  <script nonce="${nonce}">
-    ${this._getDividerDragScript()}
-    ${this._getColumnResizeScript()}
-  </script>
 </body>
 </html>`;
   }
@@ -3708,254 +3704,6 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    */
   private _getThreePanelStyles(): string {
     return buildThreePanelStyles();
-  }
-
-  /**
-   * Get the inline JavaScript for draggable panel dividers.
-   *
-   * Handles:
-   * - Mouse down/move/up events on dividers for drag resizing
-   * - Posting panelResize messages to the extension host
-   * - JS-based width check for vertical stacking at < 500px
-   * - Keyboard arrow key support for divider repositioning
-   *
-   * @returns JavaScript string for divider drag functionality
-   */
-  private _getDividerDragScript(): string {
-    return `
-      (function() {
-        const layout = document.querySelector('.three-panel-layout');
-        if (!layout) return;
-
-        const panels = layout.querySelectorAll('.panel');
-        const dividers = layout.querySelectorAll('.panel-divider');
-        let activeDivider = null;
-        let startX = 0;
-        let startWidths = [];
-        const MIN_PANEL_PX = 100;
-
-        // JS-based vertical stacking check
-        function checkVerticalLayout() {
-          if (!layout) return;
-          const width = layout.getBoundingClientRect().width;
-          if (width < 500) {
-            layout.classList.add('vertical-layout');
-          } else {
-            layout.classList.remove('vertical-layout');
-          }
-        }
-
-        // Check on load and on resize
-        checkVerticalLayout();
-        window.addEventListener('resize', checkVerticalLayout);
-
-        // Observe layout size changes
-        if (typeof ResizeObserver !== 'undefined') {
-          const resizeObserver = new ResizeObserver(function() {
-            checkVerticalLayout();
-          });
-          resizeObserver.observe(layout);
-        }
-
-        dividers.forEach(function(divider) {
-          divider.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            activeDivider = divider;
-            startX = e.clientX;
-
-            // Capture current widths of all panels in pixels
-            startWidths = Array.from(panels).map(function(p) {
-              return p.getBoundingClientRect().width;
-            });
-
-            document.body.classList.add('resizing');
-            divider.classList.add('dragging');
-          });
-
-          // Keyboard support for divider
-          divider.addEventListener('keydown', function(e) {
-            const dividerIndex = parseInt(divider.getAttribute('data-divider'), 10);
-            const leftPanel = panels[dividerIndex];
-            const rightPanel = panels[dividerIndex + 1];
-            if (!leftPanel || !rightPanel) return;
-
-            const step = 10; // pixels per key press
-            let delta = 0;
-
-            switch (e.key) {
-              case 'ArrowLeft':
-                delta = -step;
-                e.preventDefault();
-                break;
-              case 'ArrowRight':
-                delta = step;
-                e.preventDefault();
-                break;
-              default:
-                return;
-            }
-
-            const leftWidth = leftPanel.getBoundingClientRect().width + delta;
-            const rightWidth = rightPanel.getBoundingClientRect().width - delta;
-
-            if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
-              const totalWidth = layout.getBoundingClientRect().width;
-              const leftPct = (leftWidth / totalWidth) * 100;
-              const rightPct = (rightWidth / totalWidth) * 100;
-
-              leftPanel.style.width = leftPct + '%';
-              rightPanel.style.width = rightPct + '%';
-
-              // Post resize message
-              const widths = Array.from(panels).map(function(p) {
-                return parseFloat(p.style.width) || 0;
-              });
-              vscode.postMessage({ type: 'panelResize', widths: widths });
-            }
-          });
-        });
-
-        document.addEventListener('mousemove', function(e) {
-          if (!activeDivider) return;
-
-          const dividerIndex = parseInt(activeDivider.getAttribute('data-divider'), 10);
-          const delta = e.clientX - startX;
-
-          const leftWidth = startWidths[dividerIndex] + delta;
-          const rightWidth = startWidths[dividerIndex + 1] - delta;
-
-          // Enforce minimum widths
-          if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
-            const totalWidth = layout.getBoundingClientRect().width;
-            const leftPct = (leftWidth / totalWidth) * 100;
-            const rightPct = (rightWidth / totalWidth) * 100;
-
-            panels[dividerIndex].style.width = leftPct + '%';
-            panels[dividerIndex + 1].style.width = rightPct + '%';
-          }
-        });
-
-        document.addEventListener('mouseup', function() {
-          if (!activeDivider) return;
-
-          document.body.classList.remove('resizing');
-          activeDivider.classList.remove('dragging');
-          activeDivider = null;
-
-          // Post the final panel widths as percentages
-          const widths = Array.from(panels).map(function(p) {
-            return parseFloat(p.style.width) || 0;
-          });
-          vscode.postMessage({ type: 'panelResize', widths: widths });
-        });
-      })();
-    `;
-  }
-
-  /**
-   * Inline JavaScript for drag-to-resize on the log column headers.
-   *
-   * Handles:
-   * - Mouse down/move/up on the `data-column-resize` handles to resize the
-   *   fixed Author and Date columns live by writing the panel's
-   *   `--col-author-width` / `--col-date-width` custom properties.
-   * - Min/max pixel clamps so a column can never be dragged to zero (or so
-   *   wide it crowds out the flexible Title column). The clamp mirrors the
-   *   host-side `clampColumnWidths` bounds.
-   * - Keyboard arrow support on a focused handle (10px steps).
-   * - Posting a `columnResize` message so the new widths persist across
-   *   re-renders.
-   *
-   * Re-binds on every render via event delegation on `document`, so the
-   * handlers survive the webview's full-HTML refresh without per-element
-   * listener bookkeeping.
-   *
-   * @returns JavaScript string for column-resize functionality.
-   */
-  private _getColumnResizeScript(): string {
-    return `
-      (function() {
-        const MIN_COL = 40;
-        const MAX_COL = 600;
-        // CSS custom property each handle drives, keyed by data-column-resize.
-        const VAR_BY_COLUMN = { author: '--col-author-width', date: '--col-date-width' };
-
-        function panelFor(el) {
-          return el.closest('.graph-panel');
-        }
-        function currentWidth(panel, column) {
-          const raw = getComputedStyle(panel).getPropertyValue(VAR_BY_COLUMN[column]);
-          const n = parseFloat(raw);
-          return isFinite(n) ? n : (column === 'author' ? 120 : 145);
-        }
-        function clamp(px) {
-          return Math.round(Math.min(MAX_COL, Math.max(MIN_COL, px)));
-        }
-        function applyAndPost(panel, column, px) {
-          const clamped = clamp(px);
-          panel.style.setProperty(VAR_BY_COLUMN[column], clamped + 'px');
-          vscode.postMessage({
-            type: 'columnResize',
-            widths: [currentWidth(panel, 'author'), currentWidth(panel, 'date')],
-          });
-          return clamped;
-        }
-
-        let active = null;     // the handle element being dragged
-        let activePanel = null;
-        let activeColumn = null;
-        let startX = 0;
-        let startWidth = 0;
-
-        document.addEventListener('mousedown', function(e) {
-          const handle = e.target.closest && e.target.closest('.log-column-resize-handle');
-          if (!handle) return;
-          const panel = panelFor(handle);
-          if (!panel) return;
-          e.preventDefault();
-          active = handle;
-          activePanel = panel;
-          activeColumn = handle.getAttribute('data-column-resize');
-          startX = e.clientX;
-          startWidth = currentWidth(panel, activeColumn);
-          document.body.classList.add('resizing-column');
-          handle.classList.add('dragging');
-        });
-
-        // Each handle sits on the LEFT edge of the column it resizes (the
-        // fixed columns are right-anchored), so moving the pointer LEFT widens
-        // the column and moving RIGHT shrinks it — the delta is subtracted.
-        document.addEventListener('mousemove', function(e) {
-          if (!active) return;
-          const delta = e.clientX - startX;
-          applyAndPost(activePanel, activeColumn, startWidth - delta);
-        });
-
-        document.addEventListener('mouseup', function() {
-          if (!active) return;
-          document.body.classList.remove('resizing-column');
-          active.classList.remove('dragging');
-          active = null;
-          activePanel = null;
-          activeColumn = null;
-        });
-
-        // Keyboard support: arrow keys nudge a focused handle by 10px.
-        document.addEventListener('keydown', function(e) {
-          const handle = e.target.closest && e.target.closest('.log-column-resize-handle');
-          if (!handle) return;
-          let step = 0;
-          if (e.key === 'ArrowLeft') step = -10;
-          else if (e.key === 'ArrowRight') step = 10;
-          else return;
-          e.preventDefault();
-          const panel = panelFor(handle);
-          if (!panel) return;
-          const column = handle.getAttribute('data-column-resize');
-          applyAndPost(panel, column, currentWidth(panel, column) + step);
-        });
-      })();
-    `;
   }
 
   /**
