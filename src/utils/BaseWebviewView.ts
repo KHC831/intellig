@@ -75,7 +75,7 @@ export function drainDisposables(disposables: vscode.Disposable[]): void {
  * {@link _onResolve}; super's `resolveWebviewView` will call it after the
  * standard wiring.
  */
-export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
+export abstract class BaseWebviewView<TOutbound = unknown> implements vscode.WebviewViewProvider {
   /** Current webview view handle, or `undefined` when not resolved / disposed. */
   protected _view: vscode.WebviewView | undefined;
 
@@ -224,6 +224,16 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
    */
   protected _getDocumentTitle(): string {
     return 'IntelliG';
+  }
+
+  /**
+   * Post a message to the resolved webview. Typed to the view's declared
+   * outbound union (`TOutbound`) so the host can only send on-contract messages;
+   * subclasses that have not yet declared a protocol default to `unknown`. No-op
+   * when the view is unresolved / disposed.
+   */
+  protected postMessage(message: TOutbound): void {
+    void this._view?.webview.postMessage(message);
   }
 
   /**

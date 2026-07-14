@@ -3,6 +3,8 @@ import { readConfig } from '../../config/configKeys';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BaseWebviewPanel } from '../../utils/BaseWebviewPanel';
+import { assertNever } from '../../utils/assertNever';
+import { asMergeWindowInbound, type MergeWindowOutbound } from './mergeWindow.protocol';
 import { IGitService, IRepository } from '../../git-core/interfaces/IGitService';
 import { GitCli } from '../../git-core/gitCli';
 import { sanitizeGitError } from '../../git-core/gitError';
@@ -24,7 +26,7 @@ import { detectEol, normalizeToLf, restoreEol } from './mergeWindowText';
  * Opened by MergeView.show() only when `intellig.mergeWindow.enabled` is on —
  * the VS Code merge editor remains the default path.
  */
-export class MergeWindowPanel extends BaseWebviewPanel {
+export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
   private _eol: '\n' | '\r\n' = '\n';
   private _modified = false;
 
@@ -51,14 +53,13 @@ export class MergeWindowPanel extends BaseWebviewPanel {
   }
 
   protected override async _onMessage(message: unknown): Promise<void> {
-    const msg = message as Partial<{
-      type: string;
-      resultText: string;
-      modified: boolean;
-      level: string;
-      text: string;
-      unresolved: number;
-    }>;
+    const msg = asMergeWindowInbound(message);
+    if (!msg) {
+      getLogger()
+        .child({ component: 'MergeWindowPanel' })
+        .warn('merge window posted an unknown message type; ignoring');
+      return;
+    }
     switch (msg.type) {
       case 'ready':
         await this._sendInit();
@@ -90,6 +91,8 @@ export class MergeWindowPanel extends BaseWebviewPanel {
         }
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 

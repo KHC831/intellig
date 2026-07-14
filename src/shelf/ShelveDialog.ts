@@ -24,6 +24,8 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import { asShelveDialogInbound, type ShelveDialogOutbound } from './shelveDialog.protocol';
 import { IFileStatus, IRepository } from '../git-core/interfaces/IGitService';
 import { IShelfItem } from './interfaces/IShelfService';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -61,13 +63,6 @@ export interface IShelveFileItem {
   statusLabel: string;
   statusColor: string;
   selected: boolean;
-}
-
-/** Webview → extension message shape. */
-interface IShelveDialogMessage {
-  type: 'shelve' | 'cancel';
-  name?: string;
-  files?: string[];
 }
 
 const VIEW_TYPE = 'intellig.shelveDialog';
@@ -165,7 +160,7 @@ export function buildShelveFileItems(
   return items;
 }
 
-export class ShelveDialog extends BaseWebviewPanel {
+export class ShelveDialog extends BaseWebviewPanel<ShelveDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _shelfService: IShelveDialogShelfService;
   private readonly _items: IShelveFileItem[];
@@ -413,8 +408,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as IShelveDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asShelveDialogInbound(raw);
+    if (!msg) {
       return;
     }
     switch (msg.type) {
@@ -424,6 +419,8 @@ ${body}
       case 'shelve':
         await this._executeShelve(msg.name ?? '', Array.isArray(msg.files) ? msg.files : []);
         return;
+      default:
+        assertNever(msg);
     }
   }
 
