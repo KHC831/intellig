@@ -68,7 +68,6 @@ const NOT_YET_MIGRATED_DEFAULT = [
   join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts'),
   join('rebase', 'RebaseEditor.ts'),
   join('rebase', 'RebaseProgressView.ts'),
-  join('sync', 'PushDialog.ts'),
 ];
 
 const ON_DID_RECEIVE_RE = /\.onDidReceiveMessage\s*\(/g;

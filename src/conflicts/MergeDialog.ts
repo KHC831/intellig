@@ -29,6 +29,8 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import { asMergeDialogInbound, type MergeDialogOutbound } from './mergeDialog.protocol';
 import { IGitService, IMergeOptions, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -100,23 +102,11 @@ export function resolveMergeMutex(
 }
 
 /** Webview → extension message shape. */
-interface IMergeDialogMessage {
-  type: 'merge' | 'cancel';
-  flags?: Partial<IMergeFlagState>;
-  /**
-   * Independent (non-strategy, non-mutex) flags carried alongside
-   * {@link IMergeFlagState}. Kept off `IMergeFlagState` so the pure mutex
-   * resolver and its tests stay scoped to the strategy flags.
-   */
-  noVerify?: boolean;
-  allowUnrelatedHistories?: boolean;
-  message?: string;
-}
 
 const VIEW_TYPE = 'intellig.mergeDialog';
 const TITLE = 'Merge Branch';
 
-export class MergeDialog extends BaseWebviewPanel {
+export class MergeDialog extends BaseWebviewPanel<MergeDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _sourceBranch: string;
   private readonly _targetBranch: string;
@@ -384,8 +374,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as IMergeDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asMergeDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -416,6 +406,8 @@ ${body}
         await this._executeMerge(options);
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 

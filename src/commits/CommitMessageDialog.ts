@@ -18,12 +18,12 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import {
+  asCommitMessageDialogInbound,
+  type CommitMessageDialogOutbound,
+} from './commitMessageDialog.protocol';
 import { escapeHtml } from '../utils/escapeHtml';
-
-interface ICommitMessageDialogMessage {
-  type: 'submit' | 'cancel';
-  message?: string;
-}
 
 /** Presentation + identity for one dialog instance. */
 export interface ICommitMessageDialogOptions {
@@ -41,7 +41,7 @@ export interface ICommitMessageDialogOptions {
   submitVerb: string;
 }
 
-export class CommitMessageDialog extends BaseWebviewPanel {
+export class CommitMessageDialog extends BaseWebviewPanel<CommitMessageDialogOutbound> {
   private readonly _seedMessage: string;
   private readonly _heading: string;
   private readonly _submitLabel: string;
@@ -292,8 +292,8 @@ export class CommitMessageDialog extends BaseWebviewPanel {
     if (this._disposed || this._resolved) {
       return;
     }
-    const msg = raw as ICommitMessageDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asCommitMessageDialogInbound(raw);
+    if (!msg) {
       return;
     }
     switch (msg.type) {
@@ -308,6 +308,8 @@ export class CommitMessageDialog extends BaseWebviewPanel {
       case 'cancel':
         this._finish(undefined);
         return;
+      default:
+        assertNever(msg);
     }
   }
 }

@@ -25,6 +25,12 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import {
+  asApplyPatchDialogInbound,
+  type ApplyPatchDialogInbound,
+  type ApplyPatchDialogOutbound,
+} from './applyPatchDialog.protocol';
 import { escapeHtml } from '../utils/escapeHtml';
 import { IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
@@ -58,26 +64,6 @@ export interface IApplyPatchDialogOptions {
   initialPatchPath?: string;
 }
 
-/** Incoming message shapes from webview → extension. */
-type IncomingMessage =
-  | { type: 'cancel' }
-  | { type: 'browse' }
-  | { type: 'preview'; patchPath?: string; useClipboard?: boolean }
-  | {
-      type: 'apply';
-      patchPath?: string;
-      useClipboard?: boolean;
-      useAm?: boolean;
-      stripLevel?: number;
-      baseDir?: string;
-    };
-
-/** Outgoing message shapes from extension → webview. */
-type OutgoingMessage =
-  | { type: 'patchPathChosen'; patchPath: string }
-  | { type: 'preview'; content: string }
-  | { type: 'error'; message: string };
-
 const VIEW_TYPE = 'intellig.applyPatchDialog';
 const TITLE = 'Apply Patch';
 
@@ -87,7 +73,7 @@ const TITLE = 'Apply Patch';
  */
 const PREVIEW_LINE_CAP = 500;
 
-export class ApplyPatchDialog extends BaseWebviewPanel {
+export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _patchService: IPatchService;
   private readonly _conflictResolutionService: IConflictResolutionService | undefined;
@@ -441,15 +427,15 @@ ${body}
   }
 
   /**
-   * Route incoming webview messages. See IncomingMessage for the full
+   * Route incoming webview messages. See ApplyPatchDialogInbound for the full
    * discriminated union.
    */
   protected async _onMessage(raw: unknown): Promise<void> {
     if (this._disposed) {
       return;
     }
-    const msg = raw as IncomingMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asApplyPatchDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -474,6 +460,8 @@ ${body}
           this._busy = false;
         }
         return;
+      default:
+        assertNever(msg);
     }
   }
 
@@ -499,13 +487,15 @@ ${body}
     await this.postMessage({
       type: 'patchPathChosen',
       patchPath: this._patchPath,
-    } as OutgoingMessage);
+    });
   }
 
   /**
    * Load the patch contents for preview. Capped at PREVIEW_LINE_CAP lines.
    */
-  private async _handlePreview(msg: Extract<IncomingMessage, { type: 'preview' }>): Promise<void> {
+  private async _handlePreview(
+    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>
+  ): Promise<void> {
     try {
       const text = await this._readPatchContent(msg.patchPath, msg.useClipboard);
       const lines = text.split('\n');
@@ -515,13 +505,13 @@ ${body}
           ? lines.slice(0, PREVIEW_LINE_CAP).join('\n') +
             `\n\n… (${overflow} more ${overflow === 1 ? 'line' : 'lines'} truncated)`
           : text;
-      await this.postMessage({ type: 'preview', content: capped } as OutgoingMessage);
+      await this.postMessage({ type: 'preview', content: capped });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       await this.postMessage({
         type: 'error',
         message: `Preview failed: ${errMsg}`,
-      } as OutgoingMessage);
+      });
     }
   }
 
@@ -530,7 +520,9 @@ ${body}
    * and invoke the PatchService. Handles success, conflict, and hard-error
    * paths.
    */
-  private async _handleApply(msg: Extract<IncomingMessage, { type: 'apply' }>): Promise<void> {
+  private async _handleApply(
+    msg: Extract<ApplyPatchDialogInbound, { type: 'apply' }>
+  ): Promise<void> {
     let applyOptions: IApplyPatchOptions;
     try {
       applyOptions = await this._buildApplyOptions(msg);
@@ -674,7 +666,7 @@ ${body}
    * supplied.
    */
   private async _buildApplyOptions(
-    msg: Extract<IncomingMessage, { type: 'apply' }>
+    msg: Extract<ApplyPatchDialogInbound, { type: 'apply' }>
   ): Promise<IApplyPatchOptions> {
     // Validate at the webview boundary as defense-in-depth. The
     // webview sends `parseInt(..., 10)` which returns NaN on non-numeric

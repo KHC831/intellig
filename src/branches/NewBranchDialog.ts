@@ -20,6 +20,8 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import { asNewBranchDialogInbound, type NewBranchDialogOutbound } from './newBranchDialog.protocol';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { isHexObjectId } from '../git-core/gitDirMarkers';
@@ -118,19 +120,10 @@ export function isTrackableStartPoint(
   return !isHexObjectId(startPoint, { allowPrefix: true });
 }
 
-/** Webview → extension message shape. */
-interface INewBranchDialogMessage {
-  type: 'create' | 'cancel';
-  name?: string;
-  track?: boolean;
-  overwrite?: boolean;
-  checkout?: boolean;
-}
-
 const VIEW_TYPE = 'intellig.newBranchDialog';
 const TITLE = 'Create New Branch';
 
-export class NewBranchDialog extends BaseWebviewPanel {
+export class NewBranchDialog extends BaseWebviewPanel<NewBranchDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _gitService: IGitService;
   private readonly _startPoint: string | undefined;
@@ -527,8 +520,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as INewBranchDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asNewBranchDialogInbound(raw);
+    if (!msg) {
       return;
     }
     switch (msg.type) {
@@ -543,6 +536,8 @@ ${body}
           checkout: msg.checkout === true,
         });
         return;
+      default:
+        assertNever(msg);
     }
   }
 

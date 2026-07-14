@@ -16,6 +16,8 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import { asResetDialogInbound, type ResetDialogOutbound } from './resetDialog.protocol';
 import {
   IGitService,
   IGitServiceCli,
@@ -144,10 +146,6 @@ export interface IResetDialogOptions {
 /**
  * Internal message shape from webview → extension.
  */
-interface IResetDialogMessage {
-  type: 'reset' | 'cancel';
-  mode?: ResetMode;
-}
 
 const VIEW_TYPE = 'intellig.resetDialog';
 const TITLE = 'Reset Current Branch';
@@ -234,7 +232,7 @@ export function resolveDefaultMode(
   return preferred;
 }
 
-export class ResetDialog extends BaseWebviewPanel {
+export class ResetDialog extends BaseWebviewPanel<ResetDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _target: IResetTarget;
   private readonly _currentBranch: string;
@@ -490,8 +488,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as IResetDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asResetDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -526,6 +524,8 @@ ${body}
         await this._executeReset(mode);
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 

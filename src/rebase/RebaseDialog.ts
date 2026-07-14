@@ -29,6 +29,8 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import { asRebaseDialogInbound, type RebaseDialogOutbound } from './rebaseDialog.protocol';
 import { IGitService, IRepository, IRebaseOptions } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { RebaseEditor } from './RebaseEditor';
@@ -75,18 +77,6 @@ export interface IRebaseDialogPreselect {
 }
 
 /** Webview → extension message shape. */
-interface IRebaseDialogMessage {
-  type: 'rebase' | 'cancel';
-  onto?: string;
-  /** Optional `--onto <newbase>` target; '' / absent means rebase onto upstream. */
-  newBase?: string;
-  interactive?: boolean;
-  rebaseMerges?: boolean;
-  keepEmpty?: boolean;
-  updateRefs?: boolean;
-  autosquash?: boolean;
-  root?: boolean;
-}
 
 /**
  * The non-interactive rebase options surfaced as checkboxes, in git4idea's
@@ -196,7 +186,7 @@ export function saveRebaseOptions(
   return savePersisted(store, REBASE_OPTIONS_SLOT, options);
 }
 
-export class RebaseDialog extends BaseWebviewPanel {
+export class RebaseDialog extends BaseWebviewPanel<RebaseDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _onto: string;
   private readonly _branchChoices: string[];
@@ -507,8 +497,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as IRebaseDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asRebaseDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -551,6 +541,8 @@ ${body}
         }
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 

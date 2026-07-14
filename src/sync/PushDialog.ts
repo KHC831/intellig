@@ -31,6 +31,8 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import { asPushDialogInbound, type PushDialogOutbound } from './pushDialog.protocol';
 import { sanitizeGitError } from '../git-core/gitError';
 import {
   IGitService,
@@ -450,58 +452,18 @@ export interface IPushDialogOptions {
   onPushComplete?: () => void;
 }
 
-/** Webview → extension message shape. */
-interface IPushDialogMessage {
-  type:
-    | 'submit'
-    | 'cancel'
-    | 'updateRow'
-    | 'updateOverflow'
-    | 'pullAndRetry'
-    | 'forceWithLease-row';
-  action?: PushAction;
-  rowId?: string;
-  rowPatch?: Partial<Pick<IPushRow, 'selected' | 'targetBranch'>>;
-  overflow?: IPushOverflowState;
-}
-
-/**
- * Host → webview incremental-patch messages. When a user edits a row's
- * target field or toggles an overflow checkbox, the host would previously
- * call `_render()` to regenerate the entire body — which wiped input focus,
- * selection, and mid-word keystrokes. We now send a targeted DOM patch so
- * only the derived display state updates (primary-button label, row
- * `data-protected` attribute, Force-Push-Anyway disabled state). Structural
- * changes (rows added / removed / errored, etc.) still fall back to
- * `_render()`.
- *
- * Note: we deliberately do NOT echo the user's `targetBranch` / `selected` /
- * overflow-checkbox values back into the webview — the input element the
- * user just touched already reflects the new value. Writing it back would
- * either be a no-op (value unchanged) or would fight the user's cursor in
- * rare race conditions.
- */
-interface IPushDialogPatchRow {
-  type: 'patchRow';
-  rowId: string;
-  /** `true` if the row's edited target is in the protected-branches list. */
-  protected: boolean;
-  /** Derived primary-button + select state (may flip on selected/target edits). */
-  primary: { action: PushAction; label: string; anyProtected: boolean };
-}
-
-interface IPushDialogPatchOverflow {
-  type: 'patchOverflow';
-  /** Derived primary-button + select state (flips when action-select changes). */
-  primary: { action: PushAction; label: string; anyProtected: boolean };
-}
+// Wire shapes (inbound union + incremental-patch outbound) live in
+// pushDialog.protocol.ts. The outbound patches are targeted DOM updates rather
+// than a full `_render()`, which would wipe input focus + mid-word keystrokes;
+// they deliberately do NOT echo the user's edited targetBranch / selected /
+// overflow values back (the touched input already reflects them).
 
 const VIEW_TYPE = 'intellig.pushDialog';
 const TITLE = 'Push Commits to Remote';
 
 // ─── PushDialog class ────────────────────────────────────────────────────────
 
-export class PushDialog extends BaseWebviewPanel {
+export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
   private readonly _gitService: IGitService;
   private readonly _protectedBranches: ReadonlyArray<string>;
   private readonly _pullDialogAccessor?: () => PullDialog | undefined;
@@ -1022,8 +984,8 @@ ${body}
     if (this._disposed) {
       return;
     }
-    const msg = raw as IPushDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asPushDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -1116,6 +1078,8 @@ ${body}
         await this._submitRows(selected, action);
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 
@@ -1166,13 +1130,13 @@ ${body}
     if (!row) {
       return;
     }
-    const payload: IPushDialogPatchRow = {
+    const payload: PushDialogOutbound = {
       type: 'patchRow',
       rowId,
       protected: isProtectedTarget(row.targetBranch, this._protectedBranches),
       primary: this._computePrimaryPayload(),
     };
-    void this._panel.webview.postMessage(payload);
+    void this.postMessage(payload);
   }
 
   /**
@@ -1181,11 +1145,11 @@ ${body}
    * availability.
    */
   private _patchOverflow(): void {
-    const payload: IPushDialogPatchOverflow = {
+    const payload: PushDialogOutbound = {
       type: 'patchOverflow',
       primary: this._computePrimaryPayload(),
     };
-    void this._panel.webview.postMessage(payload);
+    void this.postMessage(payload);
   }
 
   private async _submitRows(rows: ReadonlyArray<IPushRow>, action: PushAction): Promise<void> {
