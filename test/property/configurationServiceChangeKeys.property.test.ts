@@ -55,10 +55,9 @@
  * ### Generator constraints
  *
  * - The set of knobs we drive is restricted to those whose value is
- *   either a non-empty string (`commitMessageTemplate`,
- *   `modifiedFileColor`, etc.), a finite-domain enum
- *   (`blameAnnotationStyle`, `keymapPreset`),
- *   or a boolean. We deliberately exclude `logLevel` and `logConsole`
+ *   a finite-domain enum (`blameAnnotationStyle`, `keymapPreset`), a
+ *   number (`autoFetchInterval`), or a boolean. We deliberately exclude
+ *   `logLevel` and `logConsole`
  *   because driving them would also re-trigger the Logger's own
  *   `LogLevelResolver.refresh()`, which could change whether the
  *   debug record is admitted mid-iteration. Asserting the same
@@ -222,65 +221,6 @@ interface IKnobDescriptor<K extends keyof IExtensionConfiguration> {
 const defaults = getDefaultConfiguration();
 
 /**
- * String generator for the safe alphanumeric subset. Excludes every
- * char the sanitizer rewrites and quote/JSON delimiters so the
- * "value does not appear in the rendered block" check stays
- * unambiguous. Excludes the literal substring 'logLevel', 'keys',
- * 'true', 'false', and key-like tokens to keep the assertion
- * disjoint from the rendered context object.
- */
-const safeStringArb: fc.Arbitrary<string> = fc
-  .stringOf(
-    fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')),
-    { minLength: 5, maxLength: 16 }
-  )
-  .filter((s) => {
-    const lower = s.toLowerCase();
-    // Disallow tokens that would collide with the rendered record's
-    // shape. The change record always carries `keys`, `ctx`, `cid`,
-    // and the message body. Any value containing those substrings
-    // would produce a false positive in the leak assertion below.
-    if (lower.includes('key') || lower.includes('ctx')) {
-      return false;
-    }
-    if (lower.includes('cid') || lower.includes('intellig')) {
-      return false;
-    }
-    if (lower.includes('configuration') || lower.includes('changed')) {
-      return false;
-    }
-    if (lower === 'true' || lower === 'false') {
-      return false;
-    }
-    // Disallow tokens that match any of the typed-key strings — see
-    // generator-constraint note above.
-    for (const k of Object.keys(defaults)) {
-      if (lower === k.toLowerCase()) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-/**
- * Hex-color generator. Produces a `#RRGGBB` token whose hex chars
- * avoid pure-zero outputs (so the value differs from the colour
- * defaults for the modified/added/deleted/ignored/conflict knobs)
- * and avoid `'true'`/`'false'`/`'keys'` collisions by construction
- * (six hex chars cannot equal those tokens).
- */
-const hexColorArb: fc.Arbitrary<string> = fc
-  .tuple(
-    fc.integer({ min: 16, max: 255 }),
-    fc.integer({ min: 16, max: 255 }),
-    fc.integer({ min: 16, max: 255 })
-  )
-  .map(([r, g, b]) => {
-    const toHex = (n: number): string => n.toString(16).padStart(2, '0').toUpperCase();
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  });
-
-/**
  * Boolean knobs: flip to the negation of the schema default so the
  * diff always fires.
  */
@@ -302,11 +242,6 @@ const autoFetchIntervalArb: fc.Arbitrary<number> = fc
 const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
   // Boolean knobs
   {
-    typedKey: 'defaultCommitSignOff',
-    settingName: 'defaultCommitSignOff',
-    valueArb: booleanFlipArb('defaultCommitSignOff'),
-  } as IKnobDescriptor<'defaultCommitSignOff'>,
-  {
     typedKey: 'pullRebase',
     settingName: 'pullRebase',
     valueArb: booleanFlipArb('pullRebase'),
@@ -316,11 +251,6 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
     settingName: 'autoFetchEnabled',
     valueArb: booleanFlipArb('autoFetchEnabled'),
   } as IKnobDescriptor<'autoFetchEnabled'>,
-  {
-    typedKey: 'showStatusBarBranch',
-    settingName: 'showStatusBarBranch',
-    valueArb: booleanFlipArb('showStatusBarBranch'),
-  } as IKnobDescriptor<'showStatusBarBranch'>,
 
   // Numeric knob
   {
@@ -328,40 +258,6 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
     settingName: 'autoFetchInterval',
     valueArb: autoFetchIntervalArb,
   } as IKnobDescriptor<'autoFetchInterval'>,
-
-  // String knobs
-  {
-    typedKey: 'commitMessageTemplate',
-    settingName: 'commitMessageTemplate',
-    valueArb: safeStringArb,
-  } as IKnobDescriptor<'commitMessageTemplate'>,
-
-  // Color knobs (hex-color string)
-  {
-    typedKey: 'modifiedFileColor',
-    settingName: 'modifiedFileColor',
-    valueArb: hexColorArb.filter((s) => s !== defaults.modifiedFileColor),
-  } as IKnobDescriptor<'modifiedFileColor'>,
-  {
-    typedKey: 'addedFileColor',
-    settingName: 'addedFileColor',
-    valueArb: hexColorArb.filter((s) => s !== defaults.addedFileColor),
-  } as IKnobDescriptor<'addedFileColor'>,
-  {
-    typedKey: 'deletedFileColor',
-    settingName: 'deletedFileColor',
-    valueArb: hexColorArb.filter((s) => s !== defaults.deletedFileColor),
-  } as IKnobDescriptor<'deletedFileColor'>,
-  {
-    typedKey: 'ignoredFileColor',
-    settingName: 'ignoredFileColor',
-    valueArb: hexColorArb.filter((s) => s !== defaults.ignoredFileColor),
-  } as IKnobDescriptor<'ignoredFileColor'>,
-  {
-    typedKey: 'conflictFileColor',
-    settingName: 'conflictFileColor',
-    valueArb: hexColorArb.filter((s) => s !== defaults.conflictFileColor),
-  } as IKnobDescriptor<'conflictFileColor'>,
 
   // Enum knobs
   {

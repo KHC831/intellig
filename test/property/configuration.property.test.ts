@@ -28,40 +28,14 @@ describe('Configuration Persistence Property Tests', () => {
   );
 
   /**
-   * Generate valid hex color strings
-   */
-  const hexColorArb: fc.Arbitrary<string> = fc
-    .tuple(
-      fc.integer({ min: 0, max: 255 }),
-      fc.integer({ min: 0, max: 255 }),
-      fc.integer({ min: 0, max: 255 })
-    )
-    .map(([r, g, b]) => {
-      const toHex = (n: number): string => n.toString(16).padStart(2, '0').toUpperCase();
-      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-    });
-
-  /**
    * Generate valid auto-fetch intervals (positive integers, reasonable range)
    */
   const autoFetchIntervalArb: fc.Arbitrary<number> = fc.integer({ min: 30, max: 3600 });
 
   /**
-   * Generate valid commit message templates (non-empty strings without control characters)
-   */
-  const commitMessageTemplateArb: fc.Arbitrary<string> = fc.string({
-    minLength: 0,
-    maxLength: 500,
-  });
-
-  /**
    * Generate a complete configuration object with arbitrary values
    */
   const configurationArb: fc.Arbitrary<IExtensionConfiguration> = fc.record({
-    // Commit settings
-    defaultCommitSignOff: fc.boolean(),
-    commitMessageTemplate: commitMessageTemplateArb,
-
     // Pull settings
     pullRebase: fc.boolean(),
     autoFetchEnabled: fc.boolean(),
@@ -69,17 +43,9 @@ describe('Configuration Persistence Property Tests', () => {
 
     // UI settings
     blameAnnotationStyle: blameAnnotationStyleArb,
-    showStatusBarBranch: fc.boolean(),
 
     // Keyboard shortcuts
     keymapPreset: fc.constantFrom<'default' | 'intellij'>('default', 'intellij'),
-
-    // Colors
-    modifiedFileColor: hexColorArb,
-    addedFileColor: hexColorArb,
-    deletedFileColor: hexColorArb,
-    ignoredFileColor: hexColorArb,
-    conflictFileColor: hexColorArb,
 
     // Logging settings
     logLevel: fc.constantFrom<LogThreshold>('trace', 'debug', 'info', 'warn', 'error', 'off'),
@@ -139,14 +105,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     getConfiguration(): IExtensionConfiguration {
       return {
-        defaultCommitSignOff: this.storage.get(
-          'defaultCommitSignOff',
-          this.defaults.defaultCommitSignOff
-        ),
-        commitMessageTemplate: this.storage.get(
-          'commitMessageTemplate',
-          this.defaults.commitMessageTemplate
-        ),
         pullRebase: this.storage.get('pullRebase', this.defaults.pullRebase),
         autoFetchEnabled: this.storage.get('autoFetchEnabled', this.defaults.autoFetchEnabled),
         autoFetchInterval: this.storage.get('autoFetchInterval', this.defaults.autoFetchInterval),
@@ -154,16 +112,7 @@ describe('Configuration Persistence Property Tests', () => {
           'blameAnnotationStyle',
           this.defaults.blameAnnotationStyle
         ),
-        showStatusBarBranch: this.storage.get(
-          'showStatusBarBranch',
-          this.defaults.showStatusBarBranch
-        ),
         keymapPreset: this.storage.get('keymapPreset', this.defaults.keymapPreset),
-        modifiedFileColor: this.storage.get('modifiedFileColor', this.defaults.modifiedFileColor),
-        addedFileColor: this.storage.get('addedFileColor', this.defaults.addedFileColor),
-        deletedFileColor: this.storage.get('deletedFileColor', this.defaults.deletedFileColor),
-        ignoredFileColor: this.storage.get('ignoredFileColor', this.defaults.ignoredFileColor),
-        conflictFileColor: this.storage.get('conflictFileColor', this.defaults.conflictFileColor),
         logLevel: this.storage.get('logLevel', this.defaults.logLevel),
         logConsole: this.storage.get('logConsole', this.defaults.logConsole),
       };
@@ -382,12 +331,7 @@ describe('Configuration Persistence Property Tests', () => {
      * Property: Boolean settings toggle correctly and persist.
      */
     it('Property: Boolean settings toggle correctly and persist', () => {
-      const booleanKeys: (keyof IExtensionConfiguration)[] = [
-        'defaultCommitSignOff',
-        'pullRebase',
-        'autoFetchEnabled',
-        'showStatusBarBranch',
-      ];
+      const booleanKeys: (keyof IExtensionConfiguration)[] = ['pullRebase', 'autoFetchEnabled'];
 
       fc.assert(
         fc.property(
@@ -453,39 +397,6 @@ describe('Configuration Persistence Property Tests', () => {
             style,
             'blameAnnotationStyle should persist'
           );
-        }),
-        { numRuns: 100 }
-      );
-    });
-
-    /**
-     * Property: Color settings accept valid hex colors and persist.
-     */
-    it('Property: Color settings accept valid hex colors and persist', () => {
-      const colorKeys: (keyof IExtensionConfiguration)[] = [
-        'modifiedFileColor',
-        'addedFileColor',
-        'deletedFileColor',
-        'ignoredFileColor',
-        'conflictFileColor',
-      ];
-
-      fc.assert(
-        fc.property(fc.constantFrom(...colorKeys), hexColorArb, (key, color) => {
-          // Setup
-          const storage = new MockConfigurationStorage();
-          const service = new MockConfigurationService(storage);
-
-          // Act: Set color value
-          service.update(key, color as IExtensionConfiguration[typeof key]);
-
-          // Assert: Value should be set correctly
-          assert.strictEqual(service.get(key), color, `Color key '${key}' should be set correctly`);
-
-          // Verify persistence
-          const newStorage = storage.simulateSessionRestart();
-          const newService = new MockConfigurationService(newStorage);
-          assert.strictEqual(newService.get(key), color, `Color key '${key}' should persist`);
         }),
         { numRuns: 100 }
       );

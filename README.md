@@ -288,9 +288,7 @@ chord that behaves differently under the preset.
 
 | Setting                                        | Default              | Description                                                                                      |
 | ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
-| `intellig.defaultCommitSignOff`                | `false`              | Add `Signed-off-by` line to commit messages                                                      |
 | `intellig.commitAuthor`                        | `""`                 | Optional commit-author override in `Name <email>` format                                         |
-| `intellig.commitMessageTemplate`               | `""`                 | Default commit message template                                                                  |
 | `intellig.commitMessageIssueLinks`             | `true`               | Detect issue/PR references and render as clickable links                                         |
 | `intellig.protectedBranches`                   | `["main", "master"]` | Branches that require a confirm before destructive ops                                           |
 | `intellig.pullRebase`                          | `false`              | Use `--rebase` by default in the Pull dialog                                                     |
@@ -338,19 +336,13 @@ chord that behaves differently under the preset.
 
 ### UI polish
 
-| Setting                              | Default     | Description                                                                                                                                          |
-| ------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `intellig.showStatusBarBranch`       | `true`      | Show current branch + incoming/outgoing badge in the status bar                                                                                      |
-| `intellig.log.highlightCherryPicked` | `true`      | Dim commits already cherry-picked into the current branch                                                                                            |
-| `intellig.log.showGpgColumn`         | `false`     | Show a GPG/SSH signature status column in the commit log                                                                                             |
-| `intellig.log.showAllRoots`          | `true`      | Show commits from all workspace repositories merged into one log, matching the branch view; disable to scope a multi-repo log to one repository (G8) |
-| `intellig.log.showRootNames`         | `false`     | Widen the multi-repo log's Root column to show each repository's name on its color, instead of the narrow stripe                                     |
-| `intellig.log.showLongEdges`         | `false`     | Draw graph edges at full length. Off (default) hides the middle of edges longer than 30 rows and caps them with arrows, matching IntelliJ            |
-| `intellig.modifiedFileColor`         | `"#6897BB"` | Color for modified files (IntelliJ blue)                                                                                                             |
-| `intellig.addedFileColor`            | `"#629755"` | Color for added files (IntelliJ green)                                                                                                               |
-| `intellig.deletedFileColor`          | `"#6C6C6C"` | Color for deleted files (IntelliJ gray)                                                                                                              |
-| `intellig.ignoredFileColor`          | `"#848504"` | Color for ignored files                                                                                                                              |
-| `intellig.conflictFileColor`         | `"#FF0000"` | Color for conflicted files (red)                                                                                                                     |
+| Setting                              | Default | Description                                                                                                                                          |
+| ------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `intellig.log.highlightCherryPicked` | `true`  | Dim commits already cherry-picked into the current branch                                                                                            |
+| `intellig.log.showGpgColumn`         | `false` | Show a GPG/SSH signature status column in the commit log                                                                                             |
+| `intellig.log.showAllRoots`          | `true`  | Show commits from all workspace repositories merged into one log, matching the branch view; disable to scope a multi-repo log to one repository (G8) |
+| `intellig.log.showRootNames`         | `false` | Widen the multi-repo log's Root column to show each repository's name on its color, instead of the narrow stripe                                     |
+| `intellig.log.showLongEdges`         | `false` | Draw graph edges at full length. Off (default) hides the middle of edges longer than 30 rows and caps them with arrows, matching IntelliJ            |
 
 ### Logging
 

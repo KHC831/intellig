@@ -158,10 +158,6 @@ export class ConfigurationService implements IConfigurationService {
    */
   private loadConfiguration(): IExtensionConfiguration {
     return {
-      // Commit settings
-      defaultCommitSignOff: readConfig('defaultCommitSignOff'),
-      commitMessageTemplate: readConfig('commitMessageTemplate'),
-
       // Pull settings
       pullRebase: readConfig('pullRebase'),
       autoFetchEnabled: readConfig('autoFetchEnabled'),
@@ -169,17 +165,9 @@ export class ConfigurationService implements IConfigurationService {
 
       // UI settings
       blameAnnotationStyle: readConfig('blameAnnotationStyle'),
-      showStatusBarBranch: readConfig('showStatusBarBranch'),
 
       // Keyboard shortcuts
       keymapPreset: readConfig('keymapPreset'),
-
-      // Colors
-      modifiedFileColor: readConfig('modifiedFileColor'),
-      addedFileColor: readConfig('addedFileColor'),
-      deletedFileColor: readConfig('deletedFileColor'),
-      ignoredFileColor: readConfig('ignoredFileColor'),
-      conflictFileColor: readConfig('conflictFileColor'),
 
       // Logging settings. The Logger's own `LogLevelResolver` reads these
       // settings directly (via the same seam) to avoid a bootstrap circular —
@@ -200,7 +188,7 @@ export class ConfigurationService implements IConfigurationService {
    * Emit one debug-level Logger record naming the
    * `intellig.*` keys whose effective values changed in this
    * snapshot. Values are deliberately omitted —
-   * settings such as `commitMessageTemplate` may contain user content
+   * settings such as `commitAuthor` may contain user content
    * and are not safe to log unconditionally. Computing the diff here
    * (rather than re-deriving it from `e.affectsConfiguration` per
    * key) ensures the record reflects the *effective* change at the
@@ -270,19 +258,11 @@ export function getDefaultConfiguration(): IExtensionConfiguration {
   const schemaDefault = <K extends ConfigKey>(key: K): ConfigValues[K] =>
     inspectConfig(key)?.defaultValue as ConfigValues[K];
   return {
-    defaultCommitSignOff: schemaDefault('defaultCommitSignOff'),
-    commitMessageTemplate: schemaDefault('commitMessageTemplate'),
     pullRebase: schemaDefault('pullRebase'),
     autoFetchEnabled: schemaDefault('autoFetchEnabled'),
     autoFetchInterval: schemaDefault('autoFetchInterval'),
     blameAnnotationStyle: schemaDefault('blameAnnotationStyle'),
-    showStatusBarBranch: schemaDefault('showStatusBarBranch'),
     keymapPreset: schemaDefault('keymapPreset'),
-    modifiedFileColor: schemaDefault('modifiedFileColor'),
-    addedFileColor: schemaDefault('addedFileColor'),
-    deletedFileColor: schemaDefault('deletedFileColor'),
-    ignoredFileColor: schemaDefault('ignoredFileColor'),
-    conflictFileColor: schemaDefault('conflictFileColor'),
     logLevel: schemaDefault('log.level'),
     logConsole: schemaDefault('log.console'),
   };

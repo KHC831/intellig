@@ -75,7 +75,6 @@ describe('package.json — settings-page sections', () => {
       'intellig.diff.ignorePolicy',
       'intellig.mergeWindow.enabled',
       'intellig.shelve.removeAppliedFiles',
-      'intellig.modifiedFileColor',
       'intellig.repositoryScanMaxDepth',
       'intellig.log.level',
       'intellig.protectedBranches',

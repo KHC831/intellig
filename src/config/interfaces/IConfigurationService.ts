@@ -19,10 +19,6 @@ export type KeymapPresetName = 'default' | 'intellij';
  * Extension configuration model
  */
 export interface IExtensionConfiguration {
-  // Commit settings
-  defaultCommitSignOff: boolean;
-  commitMessageTemplate: string;
-
   // Pull settings
   pullRebase: boolean;
   autoFetchEnabled: boolean;
@@ -30,7 +26,6 @@ export interface IExtensionConfiguration {
 
   // UI settings
   blameAnnotationStyle: BlameAnnotationStyle;
-  showStatusBarBranch: boolean;
 
   // Keyboard shortcuts
   /**
@@ -38,13 +33,6 @@ export interface IExtensionConfiguration {
    * clauses (`config.intellig.keymapPreset == 'intellij'`).
    */
   keymapPreset: KeymapPresetName;
-
-  // Colors
-  modifiedFileColor: string;
-  addedFileColor: string;
-  deletedFileColor: string;
-  ignoredFileColor: string;
-  conflictFileColor: string;
 
   // Logging settings (typed projection of `intellig.log.*`)
   /**

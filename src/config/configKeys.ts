@@ -10,13 +10,10 @@ const SECTION = 'intellig';
  */
 export const CONFIG_KEYS = {
   defaultRepo: 'defaultRepo',
-  showStatusBarBranch: 'showStatusBarBranch',
   keymapPreset: 'keymapPreset',
   protectedBranches: 'protectedBranches',
   autorefresh: 'autorefresh',
   useCommitToolWindow: 'useCommitToolWindow',
-  defaultCommitSignOff: 'defaultCommitSignOff',
-  commitMessageTemplate: 'commitMessageTemplate',
   commitAuthor: 'commitAuthor',
   commitMessageIssueLinks: 'commitMessageIssueLinks',
   useTabbedGitToolWindow: 'useTabbedGitToolWindow',
@@ -47,11 +44,6 @@ export const CONFIG_KEYS = {
   mergeWindowEnabled: 'mergeWindow.enabled',
   mergeWindowAutoApplyNonConflicting: 'mergeWindow.autoApplyNonConflicting',
   shelveRemoveAppliedFiles: 'shelve.removeAppliedFiles',
-  modifiedFileColor: 'modifiedFileColor',
-  addedFileColor: 'addedFileColor',
-  deletedFileColor: 'deletedFileColor',
-  ignoredFileColor: 'ignoredFileColor',
-  conflictFileColor: 'conflictFileColor',
   repositoryScanMaxDepth: 'repositoryScanMaxDepth',
   repositoryScanIgnoredFolders: 'repositoryScanIgnoredFolders',
   logLevel: 'log.level',
@@ -67,13 +59,10 @@ export type ConfigKey = (typeof CONFIG_KEYS)[keyof typeof CONFIG_KEYS];
  */
 export type ConfigValues = {
   defaultRepo: string;
-  showStatusBarBranch: boolean;
   keymapPreset: 'default' | 'intellij';
   protectedBranches: string[];
   autorefresh: boolean;
   useCommitToolWindow: boolean;
-  defaultCommitSignOff: boolean;
-  commitMessageTemplate: string;
   commitAuthor: string;
   commitMessageIssueLinks: boolean;
   useTabbedGitToolWindow: boolean;
@@ -108,11 +97,6 @@ export type ConfigValues = {
   'mergeWindow.enabled': boolean;
   'mergeWindow.autoApplyNonConflicting': boolean;
   'shelve.removeAppliedFiles': boolean;
-  modifiedFileColor: string;
-  addedFileColor: string;
-  deletedFileColor: string;
-  ignoredFileColor: string;
-  conflictFileColor: string;
   repositoryScanMaxDepth: number;
   repositoryScanIgnoredFolders: string[];
   'log.level': 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'off';

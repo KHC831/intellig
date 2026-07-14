@@ -1494,12 +1494,6 @@
             "description": "Repository basename or absolute path to use by default in multi-root workspaces. When empty, IntelliG uses the repo containing the active editor when unambiguous, otherwise prompts.",
             "order": 1
           },
-          "intellig.showStatusBarBranch": {
-            "type": "boolean",
-            "default": true,
-            "description": "Show current branch in status bar",
-            "order": 2
-          },
           "intellig.keymapPreset": {
             "type": "string",
             "enum": [
@@ -1543,18 +1537,6 @@
             "default": true,
             "description": "Show the Commit tool window (Local Changes + Shelf tabs, directory grouping, Unversioned Files node, diff preview, before-commit checks) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog instead.",
             "order": 1
-          },
-          "intellig.defaultCommitSignOff": {
-            "type": "boolean",
-            "default": false,
-            "description": "Add Signed-off-by line to commit messages by default",
-            "order": 2
-          },
-          "intellig.commitMessageTemplate": {
-            "type": "string",
-            "default": "",
-            "description": "Default commit message template",
-            "order": 3
           },
           "intellig.commitAuthor": {
             "type": "string",
@@ -1829,42 +1811,6 @@
             "default": false,
             "description": "When unshelving silently, remove successfully-applied files from the shelf entry. If all files apply cleanly, the entry is deleted.",
             "order": 1
-          }
-        }
-      },
-      {
-        "title": "File Colors",
-        "order": 10,
-        "properties": {
-          "intellig.modifiedFileColor": {
-            "type": "string",
-            "default": "#6897BB",
-            "description": "Color for modified files in IntelliG views",
-            "order": 1
-          },
-          "intellig.addedFileColor": {
-            "type": "string",
-            "default": "#629755",
-            "description": "Color for added files in IntelliG views",
-            "order": 2
-          },
-          "intellig.deletedFileColor": {
-            "type": "string",
-            "default": "#6C6C6C",
-            "description": "Color for deleted files in IntelliG views",
-            "order": 3
-          },
-          "intellig.ignoredFileColor": {
-            "type": "string",
-            "default": "#848504",
-            "description": "Color for ignored files",
-            "order": 4
-          },
-          "intellig.conflictFileColor": {
-            "type": "string",
-            "default": "#FF0000",
-            "description": "Color for conflicted files in IntelliG views",
-            "order": 5
           }
         }
       },
