@@ -7,15 +7,8 @@
  * via `Omit`, split into a discriminated union so `assertNever` can gate it;
  * outbound is enumerated from the panel's `_postMessage` call sites.
  */
-import type {
-  ICommitToolWebviewMessage,
-  IShelfTabEntry,
-  CommitToolWindowTab,
-  ShelfTabFilter,
-} from './commitToolWindow.types';
-import type { IChangelist } from '../changelists/interfaces/changelistModels';
-import type { IShelfItem } from '../shelf/interfaces/shelfModels';
-import type { IStash, IDiff } from '../git-core/interfaces/gitModels';
+import type { ICommitToolWebviewMessage } from './commitToolWindow.types';
+import type { IDiff } from '../git-core/interfaces/gitModels';
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Shared field bag (every wire field except the discriminant), reused verbatim. */
@@ -27,7 +20,6 @@ export type CommitToolWindowInbound =
   | ({ type: 'selectFile' } & Fields)
   | ({ type: 'toggleFile' } & Fields)
   | ({ type: 'updateComposerField' } & Fields)
-  | ({ type: 'messageHistoryRequest' } & Fields)
   | ({ type: 'commit' } & Fields)
   | ({ type: 'commitAndPush' } & Fields)
   | ({ type: 'changelistContextAction' } & Fields)
@@ -35,21 +27,15 @@ export type CommitToolWindowInbound =
   | ({ type: 'changesGroupingChange' } & Fields)
   | ({ type: 'shelfTabContextAction' } & Fields);
 
-/** Host → webview messages (incremental patches + the full render). */
+/**
+ * Host → webview messages. The view has no incremental live-update path today —
+ * initial load, structural changes, and post-commit/rollback all go through a
+ * full host-side re-render — so this is just the three fine-grained patches the
+ * client listener applies in place.
+ */
 export type CommitToolWindowOutbound =
-  | {
-      type: 'fullRender';
-      tab: CommitToolWindowTab;
-      changelists: IChangelist[];
-      shelf: IShelfItem[];
-      stash: IStash[];
-      filter: ShelfTabFilter;
-    }
-  | { type: 'updateChangelistTree'; changelists: IChangelist[] }
-  | { type: 'updateShelfList'; entries: IShelfTabEntry[]; filter: ShelfTabFilter }
   | { type: 'updateDiffPreview'; path: string; diff?: IDiff; error?: string }
   | { type: 'updateFileCheckbox'; path: string; checked: boolean }
-  | { type: 'messageHistory'; messages: string[] }
   | { type: 'commitDone'; success: boolean };
 
 export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
@@ -57,7 +43,6 @@ export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
   'selectFile',
   'toggleFile',
   'updateComposerField',
-  'messageHistoryRequest',
   'commit',
   'commitAndPush',
   'changelistContextAction',

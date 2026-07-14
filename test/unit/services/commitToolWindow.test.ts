@@ -76,6 +76,7 @@ import { writableCommands, writableWindow } from '../../typed/windowStub';
 interface CommitToolWindowTestSurface {
   _changelists: IChangelist[];
   _handleWebviewMessage: (message: unknown) => Promise<void>;
+  _reloadState: () => Promise<void>;
 }
 function asTestSurface(tw: CommitToolWindow): CommitToolWindowTestSurface {
   return tw as unknown as CommitToolWindowTestSurface;
@@ -1087,6 +1088,62 @@ describe('CommitToolWindow — host behavior', () => {
 
     // No commit, stage, or unstage should have been called.
     assert.strictEqual(services.calls.length, 0);
+    tw.dispose();
+  });
+
+  it('re-renders the view with the freshly-loaded changelists on reload (first open / post-commit)', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      {
+        id: 'cl1',
+        name: 'ReloadRendersChangelist',
+        isDefault: true,
+        isActive: true,
+        files: [{ path: 'src/loaded.ts', status: 'modified', staged: false }],
+      },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+
+    // A resolved view that captures the html the class renders into it.
+    let html = '';
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        get html(): string {
+          return html;
+        },
+        set html(v: string) {
+          html = v;
+        },
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: () => Promise.resolve(true),
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    // Reload is the sole render in this direct-injection path. Before the fix
+    // it posted a `fullRender` message the webview never handled and never
+    // touched `webview.html`, so the loaded changelist stayed invisible until a
+    // structural interaction (empty/stale on first open).
+    await asTestSurface(tw)._reloadState();
+
+    assert.ok(
+      html.includes('ReloadRendersChangelist'),
+      'the reload must re-render the view with the freshly-loaded changelists'
+    );
+
     tw.dispose();
   });
 });

@@ -218,9 +218,6 @@ function render(INIT: ICommitToolWindowInitModel): void {
     const ta = el('textarea', { className: 'ctw-composer-msg', value: c.message });
     setAttrs(ta, { placeholder: 'Commit message' });
     row.appendChild(ta);
-    const hist = el('button', { className: 'ctw-msg-history', textContent: '∨' });
-    setAttrs(hist, { title: 'Recent messages' });
-    row.appendChild(hist);
     wrap.appendChild(row);
     const opts = el('div', { className: 'ctw-composer-options' });
     const checkbox = (cls: string, checked: boolean, label: string): HTMLLabelElement => {
@@ -571,14 +568,6 @@ function wireControls(): void {
       if (commitPushMenu) {
         commitPushMenu.hidden = true;
       }
-    });
-  }
-
-  // Message-history dropdown — request history from the host.
-  const histBtn = document.querySelector('.ctw-msg-history');
-  if (histBtn) {
-    histBtn.addEventListener('click', () => {
-      post({ type: 'messageHistoryRequest' });
     });
   }
 

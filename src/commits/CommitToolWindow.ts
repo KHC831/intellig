@@ -439,19 +439,13 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       this._changesGrouping = persistedGrouping;
     }
 
-    // Watch the underlying services so the view updates incrementally.
+    // Track the underlying services' state so the next full render reflects it.
     this._disposables.push(
       this._changelistService.onDidChangeChangelists((changelists) => {
         this._changelists = changelists;
-        this.postMessage({ type: 'updateChangelistTree', changelists });
       }),
       this._shelfService.onDidChangeShelf((items) => {
         this._shelfItems = items;
-        this.postMessage({
-          type: 'updateShelfList',
-          entries: buildShelfTabEntries(items, this._stashEntries, this._shelfTabFilter),
-          filter: this._shelfTabFilter,
-        });
       }),
       this._onDidCommit
     );
@@ -481,10 +475,10 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    // Kick an async load. The initial HTML render already happened via
-    // BaseWebviewView._render(); a data refresh follows once the services
-    // respond. Bucket C: init path; the view rerenders on
-    // onDidChangeRepository, so a first-load reject self-heals.
+    // The base class already rendered an empty shell; kick the async state
+    // load, which re-renders the view with the loaded changelists / shelf /
+    // stash once the services respond. Bucket C: init path — a first-load
+    // reject leaves the empty shell and self-heals on the next reload.
     safeFireAndForget(this._reloadState(), 'CommitToolWindow._onResolve: initial state reload');
   }
 
@@ -611,12 +605,6 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         if (typeof msg.signOff === 'boolean') {
           this._signOff = msg.signOff;
         }
-        break;
-      case 'messageHistoryRequest':
-        this.postMessage({
-          type: 'messageHistory',
-          messages: this._readRecentMessages(),
-        });
         break;
       case 'commit':
         await this._handleCommit(msg, /* push */ false);
@@ -1024,14 +1012,10 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       this._stashEntries = [];
     }
 
-    this.postMessage({
-      type: 'fullRender',
-      tab: this._activeTab,
-      changelists: this._changelists,
-      shelf: this._shelfItems,
-      stash: this._stashEntries,
-      filter: this._shelfTabFilter,
-    });
+    // Rebuild the whole view from the freshly-loaded state. This is the
+    // refresh for the initial load and for post-commit / post-rollback reloads;
+    // the view has no incremental host→webview update path.
+    this._render();
   }
 
   /**
@@ -1572,7 +1556,6 @@ function commitToolWindowStyles(): string {
     .ctw-composer { border-top: 1px solid var(--vscode-panel-border, #3c3c3c); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
     .ctw-composer-row { display: flex; gap: 4px; }
     .ctw-composer-msg { flex: 1; min-height: 60px; resize: vertical; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); padding: 4px 6px; font: inherit; }
-    .ctw-msg-history { background: transparent; border: 1px solid var(--vscode-input-border, transparent); color: inherit; padding: 0 8px; cursor: pointer; }
     .ctw-composer-options { display: flex; gap: 16px; }
     .ctw-composer-actions { display: flex; justify-content: flex-end; position: relative; }
     .ctw-primary-group { display: flex; }

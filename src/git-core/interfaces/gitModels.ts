@@ -1,7 +1,7 @@
 /**
  * Pure git data models — vscode-free AND node-free.
  *
- * These shapes describe git plumbing output (diffs, stashes, file status) and
+ * These shapes describe git plumbing output (diffs, file status) and
  * carry no dependency on the VS Code API. They live here, apart from
  * {@link import('./IGitService').IGitService} (which imports `vscode` for its
  * service surface), so a webview entry's `*.protocol.ts` can type-import them
@@ -66,21 +66,4 @@ export interface IDiff {
   status: FileStatus;
   hunks: IHunk[];
   binary: boolean;
-}
-
-/**
- * Stash model
- */
-export interface IStash {
-  index: number;
-  message: string;
-  date: Date;
-  branch?: string;
-  /**
-   * The stash's commit sha. Stable across stack renumbering (unlike `index`),
-   * so a destructive action can re-validate that `stash@{index}` still points at
-   * the stash the user selected before mutating it. Optional: the legacy
-   * stash-list form (no hash field) leaves it undefined.
-   */
-  hash?: string;
 }

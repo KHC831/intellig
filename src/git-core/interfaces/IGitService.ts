@@ -1,16 +1,16 @@
 import * as vscode from 'vscode';
 import type { ResultAsync } from 'neverthrow';
 import type { ResetMode } from './resetMode';
-import type { FileStatus, IHunk, IDiff, IStash } from './gitModels';
+import type { FileStatus, IHunk, IDiff } from './gitModels';
 
 import type { GitCli } from '../gitCli';
 import type { GitError } from '../errors';
 
-// Pure git data models live in the vscode-free `./gitModels` module so a
-// webview entry's protocol can type-import them without pulling this
-// vscode-importing file into the DOM-only program. Re-exported here so every
-// existing `from './IGitService'` importer is unchanged.
-export type { FileStatus, DiffLineType, IDiffLine, IHunk, IDiff, IStash } from './gitModels';
+// The diff data models live in the vscode-free `./gitModels` module so the
+// commit tool window's webview entry can type-import `IDiff` without pulling
+// this vscode-importing file into the DOM-only program. Re-exported here so
+// every existing `from './IGitService'` importer is unchanged.
+export type { FileStatus, DiffLineType, IDiffLine, IHunk, IDiff } from './gitModels';
 
 /**
  * Repository state enumeration
@@ -209,6 +209,23 @@ export interface ICommit {
 export interface ILineSelection {
   readonly addLines: ReadonlySet<number>;
   readonly deleteLines: ReadonlySet<number>;
+}
+
+/**
+ * Stash model
+ */
+export interface IStash {
+  index: number;
+  message: string;
+  date: Date;
+  branch?: string;
+  /**
+   * The stash's commit sha. Stable across stack renumbering (unlike `index`),
+   * so a destructive action can re-validate that `stash@{index}` still points at
+   * the stash the user selected before mutating it. Optional: the legacy
+   * stash-list form (no hash field) leaves it undefined.
+   */
+  hash?: string;
 }
 
 /**
