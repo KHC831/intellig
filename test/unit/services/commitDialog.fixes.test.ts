@@ -454,8 +454,8 @@ describe('CommitDialog — recent messages + author + gear', () => {
           }
         )._handleCommit({ type: 'commit', message: 'feat: hello' });
 
-        const lru = mem.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
-        assert.deepStrictEqual(lru, ['feat: hello']);
+        const lru = mem.get(RECENT_MESSAGES_STATE_KEY);
+        assert.deepStrictEqual(lru, { v: 1, data: ['feat: hello'] });
       } finally {
         dialog.dispose();
       }
@@ -553,13 +553,13 @@ describe('CommitDialog — recent messages + author + gear', () => {
           await (
             dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
           )._handleOpenGearMenu();
-          assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), true);
+          assert.deepStrictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), { v: 1, data: true });
 
           // Toggle again → off.
           await (
             dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
           )._handleOpenGearMenu();
-          assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), false);
+          assert.deepStrictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), { v: 1, data: false });
         } finally {
           (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = originalPick;
         }
@@ -645,8 +645,8 @@ describe('CommitDialog — recent messages + author + gear', () => {
         assert.strictEqual(opts.author, 'Kit <k@e.com>');
         assert.strictEqual(opts.noVerify, true);
 
-        const lru = mem.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
-        assert.deepStrictEqual(lru, ['feat: wire']);
+        const lru = mem.get(RECENT_MESSAGES_STATE_KEY);
+        assert.deepStrictEqual(lru, { v: 1, data: ['feat: wire'] });
       } finally {
         dialog.dispose();
       }

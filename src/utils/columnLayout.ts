@@ -14,6 +14,7 @@
  */
 
 import * as vscode from 'vscode';
+import { loadPersisted, savePersisted, type PersistedSlot } from './persistedState';
 
 /** Minimum pixel width for a resizable log column — keeps content legible and
  * guarantees the drag handle can never collapse a column to zero. */
@@ -22,9 +23,6 @@ export const MIN_COLUMN_WIDTH = 40;
 /** Maximum pixel width for a resizable log column — a hard ceiling so a column
  * can't be dragged so wide it crowds the flexible title column off-screen. */
 export const MAX_COLUMN_WIDTH = 600;
-
-/** Workspace state key for persisted log-column widths. */
-const COLUMN_WIDTHS_KEY = 'intellig.columnWidths';
 
 /** Default fixed-column pixel widths: [author 120px, date 145px]. Mirrors the
  * historical hardcoded CSS widths so first render is byte-for-byte unchanged. */
@@ -69,6 +67,13 @@ function isColumnWidthsTuple(value: unknown): value is [number, number] {
   );
 }
 
+/** Persisted slot for the two resizable log-column widths (re-clamped on load). */
+export const COLUMN_WIDTHS_SLOT: PersistedSlot<[number, number]> = {
+  key: 'intellig.columnWidths',
+  version: 1,
+  validate: (raw) => (isColumnWidthsTuple(raw) ? clampColumnWidths([raw[0], raw[1]]) : undefined),
+};
+
 /**
  * Saves log-column widths to VS Code workspace state. Widths are clamped
  * before persisting so the stored value is always within bounds.
@@ -77,7 +82,7 @@ function isColumnWidthsTuple(value: unknown): value is [number, number] {
  * @param widths - The [author, date] column widths in pixels.
  */
 export function saveColumnWidths(state: vscode.Memento, widths: [number, number]): void {
-  void state.update(COLUMN_WIDTHS_KEY, clampColumnWidths(widths));
+  void savePersisted(state, COLUMN_WIDTHS_SLOT, clampColumnWidths(widths));
 }
 
 /**
@@ -91,11 +96,5 @@ export function saveColumnWidths(state: vscode.Memento, widths: [number, number]
  * @returns A valid [author, date] column-width tuple in pixels.
  */
 export function loadColumnWidths(state: vscode.Memento): [number, number] {
-  const stored = state.get<unknown>(COLUMN_WIDTHS_KEY);
-
-  if (isColumnWidthsTuple(stored)) {
-    return clampColumnWidths([stored[0], stored[1]]);
-  }
-
-  return [...DEFAULT_COLUMN_WIDTHS];
+  return loadPersisted(state, COLUMN_WIDTHS_SLOT) ?? [...DEFAULT_COLUMN_WIDTHS];
 }

@@ -17,6 +17,12 @@
 
 import * as vscode from 'vscode';
 import { readConfig, updateConfig } from '../config/configKeys';
+import {
+  loadPersisted,
+  savePersisted,
+  readStringArray,
+  type PersistedSlot,
+} from '../utils/persistedState';
 import { IBlameOptions } from './interfaces/IBlameService';
 import { AuthorNameFormat, normalizeAuthorNameFormat } from './authorNameFormat';
 
@@ -53,8 +59,12 @@ const ASPECT_CONFIG_KEY = {
   revision: CONFIG_SHOW_REVISION,
 } as const satisfies Record<BlameAspectId, string>;
 
-/** Workspace-state key for the hidden-revision set. */
-const WS_STATE_HIDDEN = 'intellig.blame.hiddenRevisions';
+/** Persisted slot for the hidden-revision set. */
+export const HIDDEN_REVISIONS_SLOT: PersistedSlot<string[]> = {
+  key: 'intellig.blame.hiddenRevisions',
+  version: 1,
+  validate: readStringArray,
+};
 
 /**
  * Blame annotation background color mode. Mirrors IntelliJ's
@@ -98,7 +108,9 @@ export class BlameOptionsSource {
   private readonly _disposables: vscode.Disposable[] = [];
 
   constructor(private readonly _workspaceState?: vscode.Memento) {
-    const stored = _workspaceState?.get<string[]>(WS_STATE_HIDDEN, []) ?? [];
+    const stored = _workspaceState
+      ? (loadPersisted(_workspaceState, HIDDEN_REVISIONS_SLOT) ?? [])
+      : [];
     this._hidden = new Set(stored);
 
     // Re-fire whenever the relevant config keys flip so subscribers can
@@ -255,6 +267,6 @@ export class BlameOptionsSource {
     if (!this._workspaceState) {
       return;
     }
-    await this._workspaceState.update(WS_STATE_HIDDEN, Array.from(this._hidden));
+    await savePersisted(this._workspaceState, HIDDEN_REVISIONS_SLOT, Array.from(this._hidden));
   }
 }

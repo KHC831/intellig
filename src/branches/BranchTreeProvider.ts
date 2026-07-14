@@ -9,6 +9,12 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 import {
+  loadPersisted,
+  savePersisted,
+  readStringArray,
+  type PersistedSlot,
+} from '../utils/persistedState';
+import {
   enrichBranchesWithIncomingOutgoing,
   getIncomingOutgoingFetcher,
   type IncomingOutgoingFetcher,
@@ -65,6 +71,13 @@ export const CONTEXT_VALUES = {
  * (`GitFavoriteRefs`), reduced here to local-branch names.
  */
 const FAVORITES_MEMENTO_KEY = 'intellig.branchTree.favorites';
+
+/** Persisted slot for the favorite-branch set (globalState). */
+export const FAVORITES_SLOT: PersistedSlot<string[]> = {
+  key: FAVORITES_MEMENTO_KEY,
+  version: 1,
+  validate: readStringArray,
+};
 
 /**
  * Persistence seam for the favorite-branch set (git4idea parity:
@@ -135,10 +148,10 @@ class MementoFavoritesStore extends FavoritesStoreBase {
     super();
   }
   read(): string[] {
-    return this._memento.get<string[]>(FAVORITES_MEMENTO_KEY, []);
+    return loadPersisted(this._memento, FAVORITES_SLOT) ?? [];
   }
   write(favorites: string[]): void {
-    void this._memento.update(FAVORITES_MEMENTO_KEY, favorites);
+    void savePersisted(this._memento, FAVORITES_SLOT, favorites);
     this._fireChange();
   }
 }

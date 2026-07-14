@@ -24,6 +24,12 @@ import {
 } from '../git-core/interfaces/IGitService';
 import { saveLocalChanges, restoreLocalChanges } from '../git-core/ops/preservedChanges';
 import { sanitizeGitError } from '../git-core/gitError';
+import {
+  loadPersisted,
+  savePersisted,
+  type MementoLike,
+  type PersistedSlot,
+} from '../utils/persistedState';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
 
@@ -154,10 +160,14 @@ export const RESET_MODE_STATE_KEY = 'intellig.reset.lastMode';
  * the preferred reset mode. Declared narrowly so the pure helpers below are
  * testable against an in-memory store.
  */
-export interface IResetModeStore {
-  get<T>(key: string, defaultValue: T): T;
-  update(key: string, value: unknown): Thenable<void>;
-}
+export type IResetModeStore = MementoLike;
+
+/** Persisted slot for the last-used reset mode. */
+export const RESET_MODE_SLOT: PersistedSlot<ResetMode> = {
+  key: RESET_MODE_STATE_KEY,
+  version: 1,
+  validate: (raw) => (isResetMode(raw) ? raw : undefined),
+};
 
 /**
  * Load the user's last-used reset mode (IntelliJ GitVcsSettings.getResetMode
@@ -165,13 +175,12 @@ export interface IResetModeStore {
  * is stored or the stored value is not a valid {@link ResetMode}.
  */
 export function loadPreferredResetMode(store: IResetModeStore): ResetMode {
-  const stored = store.get<unknown>(RESET_MODE_STATE_KEY, undefined);
-  return isResetMode(stored) ? stored : 'mixed';
+  return loadPersisted(store, RESET_MODE_SLOT) ?? 'mixed';
 }
 
 /** Persist the chosen reset mode so the next dialog pre-selects it. */
 export function savePreferredResetMode(store: IResetModeStore, mode: ResetMode): Thenable<void> {
-  return store.update(RESET_MODE_STATE_KEY, mode);
+  return savePersisted(store, RESET_MODE_SLOT, mode);
 }
 
 /**

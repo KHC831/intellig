@@ -550,16 +550,19 @@ describe('CommitToolWindow — host behavior', () => {
     );
 
     await asTestSurface(tw)._handleWebviewMessage({ type: 'tabChange', tab: 'shelf' });
-    assert.strictEqual(
+    assert.deepStrictEqual(
       memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY),
-      'shelf',
+      { v: 1, data: 'shelf' },
       `expected active tab stored under ${COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY}, got ${JSON.stringify(Object.fromEntries(memento.store))}`
     );
     assert.strictEqual(tw.getActiveTab(), 'shelf');
 
     // Switch back
     await asTestSurface(tw)._handleWebviewMessage({ type: 'tabChange', tab: 'localChanges' });
-    assert.strictEqual(memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY), 'localChanges');
+    assert.deepStrictEqual(memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY), {
+      v: 1,
+      data: 'localChanges',
+    });
     tw.dispose();
   });
 
@@ -700,7 +703,11 @@ describe('CommitToolWindow — host behavior', () => {
         files: ['src/a.ts'],
       });
     }
-    const stored = memento.store.get(COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY) as string[];
+    const envelope = memento.store.get(COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY) as {
+      v: number;
+      data: string[];
+    };
+    const stored = envelope.data;
     assert.ok(Array.isArray(stored), 'recent messages should be persisted as an array');
     assert.strictEqual(stored.length, RECENT_MESSAGES_MAX);
     assert.strictEqual(stored[0], 'msg 24');

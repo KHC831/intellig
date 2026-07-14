@@ -94,7 +94,7 @@ describe('BlameOptionsSource', () => {
       const sha = 'abcdefabcdefabcdefabcdefabcdefabcdefabcd';
       await source!.hideRevision(sha);
       assert.strictEqual(source!.isHidden(sha), true);
-      assert.deepStrictEqual(memento.get<string[]>('intellig.blame.hiddenRevisions'), [sha]);
+      assert.deepStrictEqual(memento.get('intellig.blame.hiddenRevisions'), { v: 1, data: [sha] });
     });
 
     it('ignores the all-zero sentinel SHA and empty strings', async () => {
@@ -117,7 +117,7 @@ describe('BlameOptionsSource', () => {
       await source!.hideRevision(sha);
       await source!.showRevision(sha);
       assert.strictEqual(source!.isHidden(sha), false);
-      assert.deepStrictEqual(memento.get<string[]>('intellig.blame.hiddenRevisions'), []);
+      assert.deepStrictEqual(memento.get('intellig.blame.hiddenRevisions'), { v: 1, data: [] });
     });
 
     it('clearHiddenRevisions wipes the set and persists', async () => {

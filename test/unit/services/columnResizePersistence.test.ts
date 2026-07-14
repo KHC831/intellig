@@ -107,7 +107,7 @@ describe('GitToolWindowProvider - Resizable Log Columns', () => {
       dispatch(provider, { type: 'columnResize', widths: [170, 200] });
 
       assert.deepStrictEqual(provider.getColumnWidths(), [170, 200]);
-      assert.deepStrictEqual(state.get('intellig.columnWidths'), [170, 200]);
+      assert.deepStrictEqual(state.get('intellig.columnWidths'), { v: 1, data: [170, 200] });
       provider.dispose();
     });
 

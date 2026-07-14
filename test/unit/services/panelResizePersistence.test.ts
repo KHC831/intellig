@@ -135,8 +135,8 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
         widths: [65, 35],
       });
 
-      const stored = memento.get<[number, number]>('intellig.panelWidths');
-      assert.deepStrictEqual(stored, [65, 35]);
+      const stored = memento.get('intellig.panelWidths');
+      assert.deepStrictEqual(stored, { v: 1, data: [65, 35] });
       provider.dispose();
     });
 
@@ -191,8 +191,8 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       assert.ok(Math.abs(graph + details - 100) < 1e-6, 'clamped widths must still sum to 100');
 
       // The persisted value must be the clamped one, not the rogue input.
-      const stored = memento.get<[number, number]>('intellig.panelWidths');
-      assert.deepStrictEqual(stored, [graph, details]);
+      const stored = memento.get('intellig.panelWidths');
+      assert.deepStrictEqual(stored, { v: 1, data: [graph, details] });
       provider.dispose();
     });
 
@@ -210,8 +210,8 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const widths = provider.getPanelWidths();
       assert.deepStrictEqual(widths, [50, 50]);
 
-      const stored = memento.get<[number, number]>('intellig.panelWidths');
-      assert.deepStrictEqual(stored, [50, 50]);
+      const stored = memento.get('intellig.panelWidths');
+      assert.deepStrictEqual(stored, { v: 1, data: [50, 50] });
       provider.dispose();
     });
   });

@@ -26,13 +26,20 @@
 import * as vscode from 'vscode';
 import { readConfig } from '../config/configKeys';
 import {
+  loadPersisted,
+  savePersisted,
+  readEnum,
+  readStringArray,
+  type PersistedSlot,
+} from '../utils/persistedState';
+import {
   IChangelist,
   IFileChange,
   IChangelistService,
 } from '../changelists/interfaces/IChangelistService';
 import { IShelfItem, IShelfService } from '../shelf/interfaces/IShelfService';
 import { IGitService, IRepository, IStash, FileStatus } from '../git-core/interfaces/IGitService';
-import { performCommit, LAST_NO_VERIFY_STATE_KEY } from './CommitDialog';
+import { performCommit, LAST_NO_VERIFY_SLOT } from './CommitDialog';
 import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
@@ -245,6 +252,27 @@ export function buildShelfTabEntries(
 export function isShelfTabFilter(value: unknown): value is ShelfTabFilter {
   return value === 'shelves' || value === 'stashes' || value === 'both';
 }
+
+/** Persisted slot for the active tab (Local Changes / Shelf). */
+export const ACTIVE_TAB_SLOT: PersistedSlot<CommitToolWindowTab> = {
+  key: ACTIVE_TAB_STATE_KEY,
+  version: 1,
+  validate: readEnum<CommitToolWindowTab>(['localChanges', 'shelf']),
+};
+
+/** Persisted slot for the Shelf-tab filter toggle. */
+export const SHELF_TAB_FILTER_SLOT: PersistedSlot<ShelfTabFilter> = {
+  key: SHELF_TAB_FILTER_STATE_KEY,
+  version: 1,
+  validate: (raw) => (isShelfTabFilter(raw) ? raw : undefined),
+};
+
+/** Persisted slot for the recent-commit-messages LRU (shared with CommitDialog). */
+export const RECENT_MESSAGES_SLOT: PersistedSlot<string[]> = {
+  key: RECENT_MESSAGES_STATE_KEY,
+  version: 1,
+  validate: readStringArray,
+};
 
 /**
  * Labels for the file-action context menu, in IntelliJ-parity order.
@@ -466,27 +494,21 @@ export class CommitToolWindow extends BaseWebviewView {
   ) {
     super(extensionUri);
     // Restore persisted active tab (defaults to localChanges).
-    const persistedTab = this._workspaceState.get<CommitToolWindowTab>(
-      ACTIVE_TAB_STATE_KEY,
-      'localChanges'
-    );
-    if (persistedTab === 'localChanges' || persistedTab === 'shelf') {
+    const persistedTab = loadPersisted(this._workspaceState, ACTIVE_TAB_SLOT);
+    if (persistedTab !== undefined) {
       this._activeTab = persistedTab;
     }
 
     // Restore persisted Shelf-tab filter (defaults to 'both').
-    const persistedFilter = this._workspaceState.get<unknown>(SHELF_TAB_FILTER_STATE_KEY, 'both');
-    if (isShelfTabFilter(persistedFilter)) {
+    const persistedFilter = loadPersisted(this._workspaceState, SHELF_TAB_FILTER_SLOT);
+    if (persistedFilter !== undefined) {
       this._shelfTabFilter = persistedFilter;
     }
 
     // Restore persisted Local Changes grouping mode (defaults to 'directory',
     // matching IntelliJ's default ChangesGroupingPolicy).
-    const persistedGrouping = this._workspaceState.get<unknown>(
-      CHANGES_GROUPING_STATE_KEY,
-      'directory'
-    );
-    if (isChangesGroupingMode(persistedGrouping)) {
+    const persistedGrouping = loadPersisted(this._workspaceState, CHANGES_GROUPING_SLOT);
+    if (persistedGrouping !== undefined) {
       this._changesGrouping = persistedGrouping;
     }
 
@@ -582,7 +604,7 @@ export class CommitToolWindow extends BaseWebviewView {
       return;
     }
     this._shelfTabFilter = filter;
-    await this._workspaceState.update(SHELF_TAB_FILTER_STATE_KEY, filter);
+    await savePersisted(this._workspaceState, SHELF_TAB_FILTER_SLOT, filter);
     this._render();
   }
 
@@ -600,7 +622,7 @@ export class CommitToolWindow extends BaseWebviewView {
       return;
     }
     this._changesGrouping = grouping;
-    await this._workspaceState.update(CHANGES_GROUPING_STATE_KEY, grouping);
+    await savePersisted(this._workspaceState, CHANGES_GROUPING_SLOT, grouping);
     this._render();
   }
 
@@ -702,7 +724,7 @@ export class CommitToolWindow extends BaseWebviewView {
       return;
     }
     this._activeTab = tab;
-    await this._workspaceState.update(ACTIVE_TAB_STATE_KEY, tab);
+    await savePersisted(this._workspaceState, ACTIVE_TAB_SLOT, tab);
     this._render(); // structural change → full regen
   }
 
@@ -773,7 +795,7 @@ export class CommitToolWindow extends BaseWebviewView {
     // Run the before-commit checks unless `--no-verify` is persisted on
     // (shared workspaceState key with CommitDialog). `--no-verify` skips
     // both git's hooks and these IDE-side checks.
-    const noVerify = this._workspaceState.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
+    const noVerify = loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT) ?? false;
     if (!noVerify) {
       const proceed = await runBeforeCommitChecks(this._gitService, repo, selected);
       if (!proceed) {
@@ -1126,12 +1148,12 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   private _readRecentMessages(): string[] {
-    return this._workspaceState.get<string[]>(RECENT_MESSAGES_STATE_KEY, []) ?? [];
+    return loadPersisted(this._workspaceState, RECENT_MESSAGES_SLOT) ?? [];
   }
 
   private async _pushRecentMessage(message: string): Promise<void> {
     const updated = updateRecentMessagesLru(this._readRecentMessages(), message);
-    await this._workspaceState.update(RECENT_MESSAGES_STATE_KEY, updated);
+    await savePersisted(this._workspaceState, RECENT_MESSAGES_SLOT, updated);
   }
 
   private _postMessage(payload: unknown): void {
@@ -1569,6 +1591,13 @@ export const CHANGES_GROUPING_STATE_KEY = 'intellig.commitToolWindow.changesGrou
 export function isChangesGroupingMode(value: unknown): value is ChangesGroupingMode {
   return value === 'flat' || value === 'directory';
 }
+
+/** Persisted slot for the Local Changes grouping mode. */
+export const CHANGES_GROUPING_SLOT: PersistedSlot<ChangesGroupingMode> = {
+  key: CHANGES_GROUPING_STATE_KEY,
+  version: 1,
+  validate: (raw) => (isChangesGroupingMode(raw) ? raw : undefined),
+};
 
 /** A node in the directory-grouped file tree. Pure data — unit-tested. */
 export interface IChangesTreeDirNode {

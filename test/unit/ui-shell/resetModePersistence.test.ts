@@ -19,15 +19,15 @@ import type { ResetMode } from '../../../src/git-core/interfaces/IGitService';
 
 /** Minimal in-memory Memento for the helpers (get/update subset). */
 function makeStore(initial?: Record<string, unknown>): {
-  get<T>(key: string, fallback: T): T;
+  get<T>(key: string, fallback?: T): T | undefined;
   update(key: string, value: unknown): Thenable<void>;
   _data: Record<string, unknown>;
 } {
   const data: Record<string, unknown> = { ...initial };
   return {
     _data: data,
-    get<T>(key: string, fallback: T): T {
-      return (key in data ? data[key] : fallback) as T;
+    get<T>(key: string, fallback?: T): T | undefined {
+      return (key in data ? data[key] : fallback) as T | undefined;
     },
     update(key: string, value: unknown): Thenable<void> {
       data[key] = value;
@@ -44,7 +44,7 @@ describe('reset mode persistence (#P3)', () => {
   it('round-trips a saved mode', async () => {
     const store = makeStore();
     await savePreferredResetMode(store, 'soft');
-    assert.strictEqual(store._data[RESET_MODE_STATE_KEY], 'soft');
+    assert.deepStrictEqual(store._data[RESET_MODE_STATE_KEY], { v: 1, data: 'soft' });
     assert.strictEqual(loadPreferredResetMode(store), 'soft');
   });
 

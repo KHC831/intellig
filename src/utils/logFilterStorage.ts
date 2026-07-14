@@ -4,66 +4,30 @@
  * while the filter row still shows the old values.
  *
  * ADR-003 storage discipline: the stored payload is validated FIELD BY FIELD
- * on load — wrong types and unparseable dates load as "no filter", unknown
- * fields are dropped rather than resurrected into a future ILogFilter shape.
+ * on load (wrong types and unparseable dates load as "no filter", unknown
+ * fields are dropped) through the shared {@link PersistedSlot} seam, which also
+ * adds the version envelope and keeps legacy bare values loading.
  */
 
 import type * as vscode from 'vscode';
 import type { ILogFilter } from '../git-core/interfaces/IGitToolWindowProvider';
+import {
+  loadPersisted,
+  savePersisted,
+  readString,
+  readBoolean,
+  readNumber,
+  readStringArray,
+  readDate,
+  type PersistedSlot,
+} from './persistedState';
 
-const LOG_FILTER_KEY = 'intellig.logFilter';
-
-/** Persist the filter (Dates → ISO strings); `undefined` clears the slot. */
-export function saveLogFilter(state: vscode.Memento, filter: ILogFilter | undefined): void {
-  if (!filter) {
-    void state.update(LOG_FILTER_KEY, undefined);
-    return;
-  }
-  void state.update(LOG_FILTER_KEY, {
-    ...filter,
-    since: filter.since?.toISOString(),
-    until: filter.until?.toISOString(),
-  });
-}
-
-function readString(v: unknown): string | undefined {
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
-}
-
-function readBoolean(v: unknown): boolean | undefined {
-  return typeof v === 'boolean' ? v : undefined;
-}
-
-function readNumber(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-}
-
-function readStringArray(v: unknown): string[] | undefined {
-  if (!Array.isArray(v) || v.length === 0 || !v.every((x) => typeof x === 'string')) {
+/** Validate a raw payload into an ILogFilter, keeping only well-typed fields. */
+function validateLogFilter(raw: unknown): ILogFilter | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return undefined;
   }
-  return v;
-}
-
-function readDate(v: unknown): Date | undefined {
-  if (typeof v !== 'string') {
-    return undefined;
-  }
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
-
-/**
- * Load the persisted filter, or `undefined` when nothing valid is stored.
- * A payload that yields zero valid fields (junk, wrong types) is "no
- * filter" — the log must never fail to load because storage soured.
- */
-export function loadLogFilter(state: vscode.Memento): ILogFilter | undefined {
-  const stored = state.get<unknown>(LOG_FILTER_KEY);
-  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) {
-    return undefined;
-  }
-  const raw = stored as Record<string, unknown>;
+  const src = raw as Record<string, unknown>;
   const filter: ILogFilter = {};
 
   const assign = <T>(key: keyof ILogFilter, value: T | undefined): void => {
@@ -72,23 +36,49 @@ export function loadLogFilter(state: vscode.Memento): ILogFilter | undefined {
     }
   };
 
-  assign('branch', readString(raw.branch));
-  assign('branches', readStringArray(raw.branches));
-  assign('branchesNone', readBoolean(raw.branchesNone));
-  assign('author', readString(raw.author));
-  assign('since', readDate(raw.since));
-  assign('until', readDate(raw.until));
-  assign('path', readString(raw.path));
-  assign('paths', readStringArray(raw.paths));
-  assign('searchText', readString(raw.searchText));
-  assign('searchRegex', readBoolean(raw.searchRegex));
-  assign('searchCaseSensitive', readBoolean(raw.searchCaseSensitive));
-  assign('noMerges', readBoolean(raw.noMerges));
-  assign('firstParent', readBoolean(raw.firstParent));
-  assign('simplifyMerges', readBoolean(raw.simplifyMerges));
-  assign('minParents', readNumber(raw.minParents));
-  assign('maxParents', readNumber(raw.maxParents));
-  assign('logRange', readString(raw.logRange));
+  assign('branch', readString(src.branch));
+  assign('branches', readStringArray(src.branches));
+  assign('branchesNone', readBoolean(src.branchesNone));
+  assign('author', readString(src.author));
+  assign('since', readDate(src.since));
+  assign('until', readDate(src.until));
+  assign('path', readString(src.path));
+  assign('paths', readStringArray(src.paths));
+  assign('searchText', readString(src.searchText));
+  assign('searchRegex', readBoolean(src.searchRegex));
+  assign('searchCaseSensitive', readBoolean(src.searchCaseSensitive));
+  assign('noMerges', readBoolean(src.noMerges));
+  assign('firstParent', readBoolean(src.firstParent));
+  assign('simplifyMerges', readBoolean(src.simplifyMerges));
+  assign('minParents', readNumber(src.minParents));
+  assign('maxParents', readNumber(src.maxParents));
+  assign('logRange', readString(src.logRange));
 
   return Object.keys(filter).length > 0 ? filter : undefined;
+}
+
+/** Persisted slot for the active log filter (Dates serialized as ISO strings). */
+export const LOG_FILTER_SLOT: PersistedSlot<ILogFilter> = {
+  key: 'intellig.logFilter',
+  version: 1,
+  validate: validateLogFilter,
+  serialize: (filter) => ({
+    ...filter,
+    since: filter.since?.toISOString(),
+    until: filter.until?.toISOString(),
+  }),
+};
+
+/** Persist the filter (Dates → ISO strings); `undefined` clears the slot. */
+export function saveLogFilter(state: vscode.Memento, filter: ILogFilter | undefined): void {
+  void savePersisted(state, LOG_FILTER_SLOT, filter);
+}
+
+/**
+ * Load the persisted filter, or `undefined` when nothing valid is stored.
+ * A payload that yields zero valid fields (junk, wrong types) is "no filter" —
+ * the log must never fail to load because storage soured.
+ */
+export function loadLogFilter(state: vscode.Memento): ILogFilter | undefined {
+  return loadPersisted(state, LOG_FILTER_SLOT);
 }

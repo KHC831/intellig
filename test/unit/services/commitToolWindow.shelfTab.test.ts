@@ -464,7 +464,10 @@ describe('CommitToolWindow filter persistence', () => {
     );
     try {
       await ctw.setShelfTabFilter('stashes');
-      assert.strictEqual(mem._store.get(COMMIT_TOOL_WINDOW_SHELF_TAB_FILTER_STATE_KEY), 'stashes');
+      assert.deepStrictEqual(mem._store.get(COMMIT_TOOL_WINDOW_SHELF_TAB_FILTER_STATE_KEY), {
+        v: 1,
+        data: 'stashes',
+      });
       assert.strictEqual(ctw.getShelfTabFilter(), 'stashes');
     } finally {
       ctw.dispose();

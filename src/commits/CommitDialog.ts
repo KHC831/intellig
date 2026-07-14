@@ -13,7 +13,13 @@ import {
   ICommitOptions,
   ILineSelection,
 } from '../git-core/interfaces/IGitService';
-import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
+import { RECENT_MESSAGES_SLOT, updateRecentMessagesLru } from './CommitToolWindow';
+import {
+  loadPersisted,
+  savePersisted,
+  readBoolean,
+  type PersistedSlot,
+} from '../utils/persistedState';
 import { generateNonce } from '../utils/webviewNonce';
 import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -30,6 +36,13 @@ import { runCheckinHandlers } from './CheckinHandlers';
  * survives between dialog invocations.
  */
 export const LAST_NO_VERIFY_STATE_KEY = 'intellig.commit.lastNoVerify';
+
+/** Persisted slot for the gear-menu `--no-verify` toggle (shared with CommitToolWindow). */
+export const LAST_NO_VERIFY_SLOT: PersistedSlot<boolean> = {
+  key: LAST_NO_VERIFY_STATE_KEY,
+  version: 1,
+  validate: readBoolean,
+};
 
 /**
  * Configuration key for the optional default author override.
@@ -483,7 +496,10 @@ export class CommitDialog {
     this._gitService = gitService;
     this._workspaceState = workspaceState;
     // Seed the gear toggle from persisted workspaceState (defaults false).
-    this._noVerify = this._workspaceState?.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
+    this._noVerify =
+      (this._workspaceState
+        ? loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT)
+        : undefined) ?? false;
   }
 
   /**
@@ -780,7 +796,7 @@ export class CommitDialog {
   private async _handleToggleNoVerify(value: boolean): Promise<void> {
     this._noVerify = value;
     if (this._workspaceState) {
-      await this._workspaceState.update(LAST_NO_VERIFY_STATE_KEY, value);
+      await savePersisted(this._workspaceState, LAST_NO_VERIFY_SLOT, value);
     }
   }
 
@@ -879,8 +895,7 @@ export class CommitDialog {
     if (!this._workspaceState) {
       return [];
     }
-    const value = this._workspaceState.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
-    return Array.isArray(value) ? value : [];
+    return loadPersisted(this._workspaceState, RECENT_MESSAGES_SLOT) ?? [];
   }
 
   /**
@@ -892,7 +907,7 @@ export class CommitDialog {
       return;
     }
     const updated = updateRecentMessagesLru(this._readRecentMessages(), message);
-    await this._workspaceState.update(RECENT_MESSAGES_STATE_KEY, updated);
+    await savePersisted(this._workspaceState, RECENT_MESSAGES_SLOT, updated);
   }
 
   /**

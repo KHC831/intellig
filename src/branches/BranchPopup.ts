@@ -20,6 +20,13 @@
 
 import * as vscode from 'vscode';
 import { readConfig, updateConfig } from '../config/configKeys';
+import {
+  loadPersisted,
+  savePersisted,
+  readStringArray,
+  readRecordOfStringArrays,
+  type PersistedSlot,
+} from '../utils/persistedState';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
 import type { IFavoritesStore } from './BranchTreeProvider';
 import type { IIncomingOutgoing } from '../git-core/ops/IncomingOutgoingOps';
@@ -70,6 +77,13 @@ export function getIncomingOutgoingFetcher(
  */
 export const RECENT_BRANCHES_STATE_KEY = 'intellig.recentBranches';
 
+/** Persisted slot for the per-repo recent-branches LRU map. */
+export const RECENT_BRANCHES_SLOT: PersistedSlot<Record<string, string[]>> = {
+  key: RECENT_BRANCHES_STATE_KEY,
+  version: 1,
+  validate: readRecordOfStringArrays,
+};
+
 /** Maximum number of recent branches retained in the LRU. */
 export const RECENT_BRANCHES_MAX = 5;
 
@@ -85,6 +99,16 @@ export const AUTO_INDENT_MIN_GROUP_SIZE = 3;
  * IntelliJ's forgiving behaviour around transient/remote-only branches).
  */
 export const FAVORITE_BRANCHES_STATE_KEY = 'intellig.favoriteBranches';
+
+/**
+ * Persisted slot for the legacy per-workspace favorites list. Read only by the
+ * one-time migration into the shared {@link IFavoritesStore} (globalState).
+ */
+export const FAVORITES_LEGACY_SLOT: PersistedSlot<string[]> = {
+  key: FAVORITE_BRANCHES_STATE_KEY,
+  version: 1,
+  validate: readStringArray,
+};
 
 /**
  * Section identifier for an item in the main sectioned QuickPick.
@@ -283,23 +307,6 @@ export function updateFavoritesList(
 ): string[] {
   const filtered = existing.filter((n) => n !== branchName);
   return favorite ? [...filtered, branchName] : filtered;
-}
-
-/**
- * Read the legacy per-workspace favorites list (key
- * {@link FAVORITE_BRANCHES_STATE_KEY}). Retained only so the popup can migrate
- * pre-existing favorites into the shared store; persistence lives in
- * {@link IFavoritesStore}.
- *
- * Returns a defensive copy so callers can't mutate the stored array by
- * reference. Exported for unit tests.
- */
-export function readLegacyFavorites(workspaceState: vscode.Memento | undefined): string[] {
-  if (!workspaceState) {
-    return [];
-  }
-  const raw = workspaceState.get<string[]>(FAVORITE_BRANCHES_STATE_KEY, []);
-  return Array.isArray(raw) ? [...raw] : [];
 }
 
 /**
@@ -1044,7 +1051,7 @@ export class BranchPopup {
     if (!this._workspaceState) {
       return {};
     }
-    return this._workspaceState.get<Record<string, string[]>>(RECENT_BRANCHES_STATE_KEY, {}) ?? {};
+    return loadPersisted(this._workspaceState, RECENT_BRANCHES_SLOT) ?? {};
   }
 
   /** Write the per-repo Recent LRU map to workspaceState. */
@@ -1052,7 +1059,7 @@ export class BranchPopup {
     if (!this._workspaceState) {
       return;
     }
-    await this._workspaceState.update(RECENT_BRANCHES_STATE_KEY, map);
+    await savePersisted(this._workspaceState, RECENT_BRANCHES_SLOT, map);
   }
 
   /** Show the main sectioned branch picker. */
@@ -1217,13 +1224,13 @@ export class BranchPopup {
     if (!this._workspaceState || !this._favoritesStore) {
       return;
     }
-    const legacy = readLegacyFavorites(this._workspaceState);
+    const legacy = loadPersisted(this._workspaceState, FAVORITES_LEGACY_SLOT) ?? [];
     if (legacy.length === 0) {
       return;
     }
     const merged = [...new Set([...this._favoritesStore.read(), ...legacy])];
     this._favoritesStore.write(merged);
-    void this._workspaceState.update(FAVORITE_BRANCHES_STATE_KEY, undefined);
+    void savePersisted(this._workspaceState, FAVORITES_LEGACY_SLOT, undefined);
   }
 
   /** Show the secondary action menu for the picked branch. */

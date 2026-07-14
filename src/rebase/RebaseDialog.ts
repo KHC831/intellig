@@ -35,6 +35,12 @@ import { RebaseEditor } from './RebaseEditor';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
+import {
+  loadPersisted,
+  savePersisted,
+  type MementoLike,
+  type PersistedSlot,
+} from '../utils/persistedState';
 
 /** Options for constructing a {@link RebaseDialog}. */
 export interface IRebaseDialogOptions {
@@ -144,10 +150,7 @@ export interface IPersistedRebaseOptions {
 }
 
 /** Memento subset (ExtensionContext.globalState shape) for option persistence. */
-export interface IRebaseOptionsStore {
-  get<T>(key: string, defaultValue: T): T;
-  update(key: string, value: unknown): Thenable<void>;
-}
+export type IRebaseOptionsStore = MementoLike;
 
 const REBASE_OPTIONS_DEFAULT: IPersistedRebaseOptions = {
   rebaseMerges: false,
@@ -157,24 +160,32 @@ const REBASE_OPTIONS_DEFAULT: IPersistedRebaseOptions = {
   root: false,
 };
 
+/** Persisted slot for the last-used rebase options (each field coerced to boolean). */
+export const REBASE_OPTIONS_SLOT: PersistedSlot<IPersistedRebaseOptions> = {
+  key: REBASE_OPTIONS_STATE_KEY,
+  version: 1,
+  validate: (raw) => {
+    if (!raw || typeof raw !== 'object') {
+      return undefined;
+    }
+    const obj = raw as Record<string, unknown>;
+    return {
+      rebaseMerges: Boolean(obj.rebaseMerges),
+      keepEmpty: Boolean(obj.keepEmpty),
+      updateRefs: Boolean(obj.updateRefs),
+      autosquash: Boolean(obj.autosquash),
+      root: Boolean(obj.root),
+    };
+  },
+};
+
 /**
  * Load the user's last-used rebase options (IntelliJ GitRebaseSettings
  * parity). Coerces each field to a boolean and defaults any missing/invalid
  * key to false; returns all-false when nothing valid is stored.
  */
 export function loadRebaseOptions(store: IRebaseOptionsStore): IPersistedRebaseOptions {
-  const raw = store.get<unknown>(REBASE_OPTIONS_STATE_KEY, undefined);
-  if (!raw || typeof raw !== 'object') {
-    return { ...REBASE_OPTIONS_DEFAULT };
-  }
-  const obj = raw as Record<string, unknown>;
-  return {
-    rebaseMerges: Boolean(obj.rebaseMerges),
-    keepEmpty: Boolean(obj.keepEmpty),
-    updateRefs: Boolean(obj.updateRefs),
-    autosquash: Boolean(obj.autosquash),
-    root: Boolean(obj.root),
-  };
+  return loadPersisted(store, REBASE_OPTIONS_SLOT) ?? { ...REBASE_OPTIONS_DEFAULT };
 }
 
 /** Persist the chosen rebase options so the next dialog pre-checks them. */
@@ -182,7 +193,7 @@ export function saveRebaseOptions(
   store: IRebaseOptionsStore,
   options: IPersistedRebaseOptions
 ): Thenable<void> {
-  return store.update(REBASE_OPTIONS_STATE_KEY, options);
+  return savePersisted(store, REBASE_OPTIONS_SLOT, options);
 }
 
 export class RebaseDialog extends BaseWebviewPanel {
