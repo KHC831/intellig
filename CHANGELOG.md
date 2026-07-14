@@ -10,6 +10,14 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.4.1] - 2026-07-13
+
+### Fixed
+
+- Background refreshes no longer rebuild the git log: scroll position, the commit details panel, and open right-click menus survive file changes in the workspace.
+- Editing or saving files no longer re-runs the full log/branches/tags pipeline; working-tree changes only refresh the views that show them.
+- The New Branch dialog no longer offers tracking when starting from a commit hash, and a branch created from the dialog appears in the graph immediately.
+
 ## [0.4.0] - 2026-07-12
 
 ### Added
