@@ -45,6 +45,11 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
 import { buildWebviewCsp } from '../utils/webviewCsp';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
+import { assertNever } from '../utils/assertNever';
+import {
+  asCommitToolWindowInbound,
+  type CommitToolWindowOutbound,
+} from './commitToolWindow.protocol';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { sanitizeGitError } from '../git-core/gitError';
 
@@ -450,7 +455,7 @@ export function stashRowContextMenuLabels(): Array<{
  *   - {@link IShelfService} for the Shelf tab.
  *   - {@link performCommit} for commits (shared with `CommitDialog`).
  */
-export class CommitToolWindow extends BaseWebviewView {
+export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> {
   public static readonly viewId = COMMIT_TOOL_WINDOW_VIEW_ID;
 
   private _activeTab: CommitToolWindowTab = 'localChanges';
@@ -516,11 +521,11 @@ export class CommitToolWindow extends BaseWebviewView {
     this._disposables.push(
       this._changelistService.onDidChangeChangelists((changelists) => {
         this._changelists = changelists;
-        this._postMessage({ type: 'updateChangelistTree', changelists });
+        this.postMessage({ type: 'updateChangelistTree', changelists });
       }),
       this._shelfService.onDidChangeShelf((items) => {
         this._shelfItems = items;
-        this._postMessage({
+        this.postMessage({
           type: 'updateShelfList',
           entries: buildShelfTabEntries(items, this._stashEntries, this._shelfTabFilter),
           filter: this._shelfTabFilter,
@@ -651,71 +656,73 @@ export class CommitToolWindow extends BaseWebviewView {
   // ── Message handling ───────────────────────────────────────────────────
 
   private async _handleWebviewMessage(message: ICommitToolWebviewMessage): Promise<void> {
-    if (!message || typeof message.type !== 'string') {
+    // Runtime-reject an unknown/old type (forward-compat: an older webview
+    // posting a since-removed type is dropped here); assertNever below is the
+    // compile-time exhaustiveness gate over the known union.
+    const msg = asCommitToolWindowInbound(message);
+    if (!msg) {
       return;
     }
-    switch (message.type) {
+    switch (msg.type) {
       case 'tabChange':
-        if (message.tab === 'localChanges' || message.tab === 'shelf') {
-          await this._setActiveTab(message.tab);
+        if (msg.tab === 'localChanges' || msg.tab === 'shelf') {
+          await this._setActiveTab(msg.tab);
         }
         break;
       case 'selectFile':
-        if (message.path) {
-          await this._handleSelectFile(message.path);
+        if (msg.path) {
+          await this._handleSelectFile(msg.path);
         }
         break;
       case 'toggleFile':
-        if (message.path) {
-          this._handleToggleFile(message.path);
+        if (msg.path) {
+          this._handleToggleFile(msg.path);
         }
         break;
       case 'toggleChangelist':
         // Collapsed-state toggle is not persisted; this case is intentionally empty.
         break;
       case 'updateComposerField':
-        if (typeof message.message === 'string') {
-          this._composerMessage = message.message;
+        if (typeof msg.message === 'string') {
+          this._composerMessage = msg.message;
         }
-        if (typeof message.amend === 'boolean') {
-          this._amend = message.amend;
+        if (typeof msg.amend === 'boolean') {
+          this._amend = msg.amend;
         }
-        if (typeof message.signOff === 'boolean') {
-          this._signOff = message.signOff;
+        if (typeof msg.signOff === 'boolean') {
+          this._signOff = msg.signOff;
         }
         break;
       case 'messageHistoryRequest':
-        this._postMessage({
+        this.postMessage({
           type: 'messageHistory',
           messages: this._readRecentMessages(),
         });
         break;
       case 'commit':
-        await this._handleCommit(message, /* push */ false);
+        await this._handleCommit(msg, /* push */ false);
         break;
       case 'commitAndPush':
-        await this._handleCommit(message, /* push */ true);
+        await this._handleCommit(msg, /* push */ true);
         break;
       case 'changelistContextAction':
-        await this._handleChangelistAction(message);
+        await this._handleChangelistAction(msg);
         break;
       case 'shelfTabFilterChange':
-        if (isShelfTabFilter(message.filter)) {
-          await this.setShelfTabFilter(message.filter);
+        if (isShelfTabFilter(msg.filter)) {
+          await this.setShelfTabFilter(msg.filter);
         }
         break;
       case 'changesGroupingChange':
-        if (isChangesGroupingMode(message.grouping)) {
-          await this.setChangesGrouping(message.grouping);
+        if (isChangesGroupingMode(msg.grouping)) {
+          await this.setChangesGrouping(msg.grouping);
         }
         break;
       case 'shelfTabContextAction':
-        await this._handleShelfTabAction(message);
+        await this._handleShelfTabAction(msg);
         break;
       default:
-        // Unknown — drop silently so future message types can be added
-        // without breaking older webview bundles.
-        break;
+        assertNever(msg);
     }
   }
 
@@ -738,9 +745,9 @@ export class CommitToolWindow extends BaseWebviewView {
     }
     try {
       const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
-      this._postMessage({ type: 'updateDiffPreview', path, diff });
+      this.postMessage({ type: 'updateDiffPreview', path, diff });
     } catch (error) {
-      this._postMessage({
+      this.postMessage({
         type: 'updateDiffPreview',
         path,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -754,7 +761,7 @@ export class CommitToolWindow extends BaseWebviewView {
     } else {
       this._selectedFiles.add(path);
     }
-    this._postMessage({
+    this.postMessage({
       type: 'updateFileCheckbox',
       path,
       checked: this._selectedFiles.has(path),
@@ -799,7 +806,7 @@ export class CommitToolWindow extends BaseWebviewView {
     if (!noVerify) {
       const proceed = await runBeforeCommitChecks(this._gitService, repo, selected);
       if (!proceed) {
-        this._postMessage({ type: 'commitDone', success: false });
+        this.postMessage({ type: 'commitDone', success: false });
         return;
       }
     }
@@ -816,7 +823,7 @@ export class CommitToolWindow extends BaseWebviewView {
     if (!result.success) {
       // The webview renders nothing from this message beyond the flag — the
       // error itself is surfaced via the toast below.
-      this._postMessage({
+      this.postMessage({
         type: 'commitDone',
         success: false,
       });
@@ -836,7 +843,7 @@ export class CommitToolWindow extends BaseWebviewView {
       files: result.files ?? selected,
     });
 
-    this._postMessage({ type: 'commitDone', success: true });
+    this.postMessage({ type: 'commitDone', success: true });
     void vscode.window.showInformationMessage(
       `Committed ${(result.files ?? selected).length} file(s)`
     );
@@ -1098,7 +1105,7 @@ export class CommitToolWindow extends BaseWebviewView {
       this._stashEntries = [];
     }
 
-    this._postMessage({
+    this.postMessage({
       type: 'fullRender',
       tab: this._activeTab,
       changelists: this._changelists,
@@ -1154,13 +1161,6 @@ export class CommitToolWindow extends BaseWebviewView {
   private async _pushRecentMessage(message: string): Promise<void> {
     const updated = updateRecentMessagesLru(this._readRecentMessages(), message);
     await savePersisted(this._workspaceState, RECENT_MESSAGES_SLOT, updated);
-  }
-
-  private _postMessage(payload: unknown): void {
-    if (!this._view) {
-      return;
-    }
-    void this._view.webview.postMessage(payload);
   }
 
   // ── HTML rendering ─────────────────────────────────────────────────────

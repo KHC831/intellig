@@ -6,6 +6,9 @@
 
 import * as vscode from 'vscode';
 import { readConfig } from '../config/configKeys';
+import { assertNever } from '../utils/assertNever';
+import { dispatchGuardedWebviewMessage } from '../utils/webviewMessageGuard';
+import { asCommitDialogInbound } from './commitDialog.protocol';
 import {
   IGitService,
   IRepository,
@@ -429,7 +432,7 @@ export async function commitChangelist(
 /**
  * Message types from webview to extension
  */
-interface IWebviewMessage {
+export interface ICommitDialogWebviewMessage {
   type: string;
   message?: string;
   amend?: boolean;
@@ -570,9 +573,16 @@ export class CommitDialog {
         this._disposables
       );
 
-      // Handle messages from webview
+      // Handle messages from webview. Standalone panel (no Base envelope), so
+      // the guarded-dispatch wrapper is applied here directly.
+      // typed-messages-exempt: standalone panel, no Base envelope — Base-fold deferred to its Phase 5 port
       this._panel.webview.onDidReceiveMessage(
-        (message: IWebviewMessage) => this._handleMessage(message),
+        (message: unknown) =>
+          dispatchGuardedWebviewMessage(() => this._handleMessage(message), {
+            component: 'CommitDialog',
+            rejectionLabel: 'CommitDialog.onDidReceiveMessage: async _handleMessage rejection',
+            syncThrowMessage: '_handleMessage threw synchronously',
+          }),
         null,
         this._disposables
       );
@@ -676,7 +686,11 @@ export class CommitDialog {
   /**
    * Handle messages from the webview.
    */
-  private async _handleMessage(message: IWebviewMessage): Promise<void> {
+  private async _handleMessage(raw: unknown): Promise<void> {
+    const message = asCommitDialogInbound(raw);
+    if (!message) {
+      return;
+    }
     switch (message.type) {
       case 'commit':
         await this._handleCommit(message);
@@ -775,6 +789,8 @@ export class CommitDialog {
       case 'openGearMenu':
         await this._handleOpenGearMenu();
         break;
+      default:
+        assertNever(message);
     }
   }
 
@@ -913,7 +929,7 @@ export class CommitDialog {
   /**
    * Handle commit action.
    */
-  private async _handleCommit(message: IWebviewMessage): Promise<void> {
+  private async _handleCommit(message: ICommitDialogWebviewMessage): Promise<void> {
     // Re-entrancy guard: a rapid second accept (double Enter, or Enter while the
     // before-commit modal is open) must not launch a second commit while the
     // first is still in flight.
@@ -928,7 +944,7 @@ export class CommitDialog {
     }
   }
 
-  private async _handleCommitInner(message: IWebviewMessage): Promise<void> {
+  private async _handleCommitInner(message: ICommitDialogWebviewMessage): Promise<void> {
     if (!this._repository) {
       return;
     }

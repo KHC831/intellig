@@ -17,6 +17,9 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
 import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
+import { assertNever } from '../utils/assertNever';
+import { dispatchGuardedWebviewMessage } from '../utils/webviewMessageGuard';
+import { asRebaseEditorInbound } from './rebaseEditor.protocol';
 import { isRebaseAction } from '../git-core/rebaseTodo';
 
 /**
@@ -60,15 +63,6 @@ export interface IRebaseEditorResult {
 /**
  * Message types from webview to extension
  */
-interface IWebviewMessage {
-  type: string;
-  commits?: IRebaseCommit[];
-  hash?: string;
-  action?: RebaseAction;
-  message?: string;
-  fromIndex?: number;
-  toIndex?: number;
-}
 
 /**
  * Rebase Editor class.
@@ -191,9 +185,16 @@ export class RebaseEditor {
         this._disposables
       );
 
-      // Handle messages from webview
+      // Handle messages from webview. Standalone panel (no Base envelope), so
+      // the guarded-dispatch wrapper is applied here directly.
+      // typed-messages-exempt: standalone panel, no Base envelope — Base-fold deferred to its Phase 5 port
       this._panel.webview.onDidReceiveMessage(
-        (message: IWebviewMessage) => this._handleMessage(message),
+        (message: unknown) =>
+          dispatchGuardedWebviewMessage(() => this._handleMessage(message), {
+            component: 'RebaseEditor',
+            rejectionLabel: 'RebaseEditor.onDidReceiveMessage: async _handleMessage rejection',
+            syncThrowMessage: '_handleMessage threw synchronously',
+          }),
         null,
         this._disposables
       );
@@ -220,7 +221,11 @@ export class RebaseEditor {
   /**
    * Handle messages from the webview.
    */
-  private async _handleMessage(message: IWebviewMessage): Promise<void> {
+  private async _handleMessage(raw: unknown): Promise<void> {
+    const message = asRebaseEditorInbound(raw);
+    if (!message) {
+      return;
+    }
     switch (message.type) {
       case 'execute':
         await this._handleExecute();
@@ -248,6 +253,8 @@ export class RebaseEditor {
           this._handleUpdateMessage(message.hash, message.message);
         }
         break;
+      default:
+        assertNever(message);
     }
   }
 

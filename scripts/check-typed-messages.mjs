@@ -62,13 +62,7 @@ const BASE_FILES = new Set([join('utils', 'BaseWebviewPanel.ts'), join('utils', 
  * raw sites. Each Phase-4 round deletes its files here; Round 4 empties it and
  * it must stay empty. Paths are relative to srcDir.
  */
-const NOT_YET_MIGRATED_DEFAULT = [
-  join('commits', 'CommitDialog.ts'),
-  join('commits', 'CommitToolWindow.ts'),
-  join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts'),
-  join('rebase', 'RebaseEditor.ts'),
-  join('rebase', 'RebaseProgressView.ts'),
-];
+const NOT_YET_MIGRATED_DEFAULT = [join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts')];
 
 const ON_DID_RECEIVE_RE = /\.onDidReceiveMessage\s*\(/g;
 const RAW_POST_RE = /\bwebview\s*\.\s*postMessage\s*\(/g;

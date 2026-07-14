@@ -15,14 +15,13 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
 import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
+import { assertNever } from '../utils/assertNever';
+import { dispatchGuardedWebviewMessage } from '../utils/webviewMessageGuard';
+import { asRebaseProgressViewInbound } from './rebaseProgressView.protocol';
 
 /**
  * Message types from webview to extension
  */
-interface IWebviewMessage {
-  type: string;
-  message?: string;
-}
 
 /**
  * Rebase Progress View class.
@@ -98,9 +97,17 @@ export class RebaseProgressView implements vscode.Disposable {
         this._disposables
       );
 
-      // Handle messages from webview
+      // Handle messages from webview. Standalone panel (no Base envelope), so
+      // the guarded-dispatch wrapper is applied here directly.
+      // typed-messages-exempt: standalone panel, no Base envelope — Base-fold deferred to its Phase 5 port
       this._panel.webview.onDidReceiveMessage(
-        (message: IWebviewMessage) => this._handleMessage(message),
+        (message: unknown) =>
+          dispatchGuardedWebviewMessage(() => this._handleMessage(message), {
+            component: 'RebaseProgressView',
+            rejectionLabel:
+              'RebaseProgressView.onDidReceiveMessage: async _handleMessage rejection',
+            syncThrowMessage: '_handleMessage threw synchronously',
+          }),
         null,
         this._disposables
       );
@@ -142,8 +149,12 @@ export class RebaseProgressView implements vscode.Disposable {
   /**
    * Handle messages from the webview.
    */
-  private async _handleMessage(message: IWebviewMessage): Promise<void> {
+  private async _handleMessage(raw: unknown): Promise<void> {
     if (!this._repository) {
+      return;
+    }
+    const message = asRebaseProgressViewInbound(raw);
+    if (!message) {
       return;
     }
 
@@ -165,6 +176,8 @@ export class RebaseProgressView implements vscode.Disposable {
       case 'refresh':
         this.refresh();
         break;
+      default:
+        assertNever(message);
     }
   }
 
