@@ -17,9 +17,9 @@ import { SquashMessageDialog } from '../../../src/commits/SquashMessageDialog';
 import { CommitMessageDialog } from '../../../src/commits/CommitMessageDialog';
 import type { IGitService } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
 const GARBAGE_MESSAGES: unknown[] = [
@@ -30,7 +30,7 @@ const GARBAGE_MESSAGES: unknown[] = [
 ];
 
 describe('webview: commit-flow dialog scripts (jsdom)', () => {
-  let h: IWebviewHarness | IWebviewEntryHarness;
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -39,15 +39,17 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
   });
 
   describe('CommitDialog', () => {
-    function script(): string {
+    function boot(): IWebviewEntryHarness {
       const dialog = new CommitDialog(Uri.file('/tmp/ext'), {} as IGitService);
-      return (dialog as unknown as { _getScript(): string })._getScript();
+      const init = (dialog as unknown as { _getInit(): unknown })._getInit();
+      dialog.dispose();
+      return bootWebviewEntry('commits/webview/commitDialog', {
+        bodyHtml: '<div class="commit-dialog" id="root"></div>' + initIslandHtml(init),
+      });
     }
 
     it('loads without throwing and builds the message + files sections', () => {
-      h = runWebviewScript(script(), {
-        bodyHtml: '<div class="commit-dialog" id="root"></div>',
-      });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -57,9 +59,7 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
     });
 
     it('tolerates representative and garbage messages without throwing', () => {
-      h = runWebviewScript(script(), {
-        bodyHtml: '<div class="commit-dialog" id="root"></div>',
-      });
+      h = boot();
       h.post({ type: 'update', files: [] });
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);

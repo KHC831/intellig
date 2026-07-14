@@ -26,9 +26,9 @@
       "status": "tested",
       "note": "commitToolWindowBehaviorScript (localChanges + shelf tabs) run in jsdom (commitToolWindowScript.test.ts)"
     },
-    "src/commits/CommitDialog.ts": {
+    "src/commits/webview/commitDialog.ts": {
       "status": "tested",
-      "note": "_getScript inline createElement builder run in jsdom (commitDialogsScript.test.ts)"
+      "note": "bundled Commit dialog entry booted in jsdom over #root island; message/files/diff sections + partial-staging hunks/lines + data-action delegation (commitDialogsScript.test.ts, CommitDialog.test.ts, commitDialog.fixes.test.ts)"
     },
     "src/commits/webview/commitMessageDialog.ts": {
       "status": "tested",

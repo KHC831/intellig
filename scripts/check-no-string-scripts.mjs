@@ -53,7 +53,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
  * and it must stay empty. Paths are relative to srcDir.
  */
 const STRING_SCRIPT_ALLOWLIST_DEFAULT = [
-  join('commits', 'CommitDialog.ts'),
   join('commits', 'CommitToolWindow.ts'),
   join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts'),
   join('git-core', 'gitToolWindow', 'html', 'commonHtml.ts'),

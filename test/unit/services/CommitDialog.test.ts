@@ -27,27 +27,22 @@ import { JSDOM } from 'jsdom';
 import { CommitDialog } from '../../../src/commits/CommitDialog';
 import { IGitService } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 
 /**
  * Build a CommitDialog's body the way the webview host does: seed the private
- * render state, run the dialog's inline nonce'd script in jsdom (which now
- * BUILDS the DOM via document.createElement), and return the live document.
+ * render state, serialize it into the `data-init` island, and boot the bundled
+ * entry under jsdom (which BUILDS the DOM via document.createElement).
  */
-function buildDialogDoc(state: Record<string, unknown>): Document {
+function buildDialogDoc(state: Record<string, unknown>): IWebviewEntryHarness {
   const dialog = new CommitDialog(Uri.file('/tmp/ext'), {} as IGitService);
   Object.assign(dialog as unknown as Record<string, unknown>, state);
-  const script = (dialog as unknown as { _getScript(): string })._getScript();
-  const dom = new JSDOM(`<div class="commit-dialog" id="root"></div>`, {
-    runScripts: 'outside-only',
-  });
-  (dom.window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (): void => {},
-    getState: (): void => {},
-    setState: (): void => {},
-  });
-  dom.window.eval(script);
+  const init = (dialog as unknown as { _getInit(): unknown })._getInit();
   dialog.dispose();
-  return dom.window.document as unknown as Document;
+  return bootWebviewEntry('commits/webview/commitDialog', {
+    bodyHtml: '<div class="commit-dialog" id="root"></div>' + initIslandHtml(init),
+  });
 }
 
 /** Render a single file row and return its built `.file-item` outerHTML. */
@@ -57,8 +52,12 @@ function renderFileItem(file: {
   staged: boolean;
   selected: boolean;
 }): string {
-  const doc = buildDialogDoc({ _stagedFiles: [file], _selectedFilePath: undefined });
-  return doc.querySelector('.file-item')?.outerHTML ?? '';
+  const h = buildDialogDoc({ _stagedFiles: [file], _selectedFilePath: undefined });
+  try {
+    return h.document.querySelector('.file-item')?.outerHTML ?? '';
+  } finally {
+    h.dispose();
+  }
 }
 
 /** Render a single hunk and return its built `.diff-hunk` outerHTML. */
@@ -68,14 +67,18 @@ function renderHunk(
   partialStagingMode: boolean,
   selectedLines: Map<number, Set<number>> = new Map()
 ): string {
-  const doc = buildDialogDoc({
+  const h = buildDialogDoc({
     _stagedFiles: [{ path: 'f.ts', status: 'Modified', staged: isStaged, selected: false }],
     _selectedFilePath: 'f.ts',
     _currentDiff: { binary: false, hunks: [hunk] },
     _partialStagingMode: partialStagingMode,
     _selectedLines: selectedLines,
   });
-  return doc.querySelector('.diff-hunk')?.outerHTML ?? '';
+  try {
+    return h.document.querySelector('.diff-hunk')?.outerHTML ?? '';
+  } finally {
+    h.dispose();
+  }
 }
 
 describe('Wave I H-2 — CommitDialog data-action delegation', () => {
