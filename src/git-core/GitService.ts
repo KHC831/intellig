@@ -1204,12 +1204,18 @@ export class GitService implements IGitService, IGitServiceCli {
     // readdir would throw on a file. `resolveWorktreeGitDir` follows the pointer.
     const gitDir = vscode.Uri.file(resolveWorktreeGitDir(rootPath));
 
-    const handleChange = (): void => {
+    const handleChange = (trigger?: vscode.Uri): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
       // or late-arriving watcher events must become no-ops once dispose()
       // has latched.
       if (this._disposed) {
         return;
+      }
+      // Name the trigger so a refresh storm is attributable from the logs
+      // alone (which file, how often) instead of only showing its downstream
+      // reload cycles. Chained re-entries pass no trigger.
+      if (trigger) {
+        this._logger.debug('watcher event', { rootPath, path: trigger.fsPath });
       }
       const existing = this._refreshTimers.get(rootPath);
       if (existing) {
@@ -1360,7 +1366,7 @@ export class GitService implements IGitService, IGitServiceCli {
       if (!autorefresh) {
         return;
       }
-      handleChange();
+      handleChange(uri);
     };
     const workingTreeWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(rootPath), '**')

@@ -71,7 +71,8 @@ describe('Graph load-more — real git, more than one page', function () {
     if (loadMore) {
       limit = loadMore.limit;
     } else {
-      controller.noteFreshLoad(repo(), undefined);
+      controller.beginLoad(repo(), undefined);
+      controller.commitLoad();
       limit = controller.currentLimit();
       provider.markResetScrollOnNextRender();
     }
@@ -98,7 +99,7 @@ describe('Graph load-more — real git, more than one page', function () {
     provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes.slice(0, 1));
   }
 
-  const controller = createGraphLoadMoreController<undefined>(PAGE, (_r, _f, opts) => {
+  const controller = createGraphLoadMoreController<Record<string, never>>(PAGE, (_r, _f, opts) => {
     void load(opts);
   });
 

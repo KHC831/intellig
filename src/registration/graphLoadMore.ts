@@ -2,21 +2,65 @@ import * as vscode from 'vscode';
 import type { IRepository } from '../git-core/interfaces/IGitService';
 
 /**
- * Scroll-to-bottom "load more" for the Git tool window commit graph.
+ * Scroll-to-bottom "load more" + navigation classification for the Git tool
+ * window commit graph.
  *
  * The webview posts `loadMoreCommits` when the user scrolls near the bottom
  * (scriptBuilder); the provider re-fires it as `onDidRequestLoadMoreCommits`.
- * Nothing used to subscribe, so the graph was hard-capped at the first page.
- * This module supplies the missing subscriber: a small state machine that
- * tracks the active repo/filter + current display limit and grows the limit by
- * one page on each load-more, re-running the same scoped load. Scroll is kept by
- * default — every in-place re-render preserves the user's position; only a fresh
- * navigational load resets to the top (see GitToolWindowProvider).
+ * This module supplies the subscriber: a small state machine that tracks the
+ * active repo/filter + current display limit and grows the limit by one page
+ * on each load-more, re-running the same scoped load.
+ *
+ * It also owns the NAVIGATIONAL verdict — whether a load targets a different
+ * (repo, filter) than the previous one — because navigation and the load-more
+ * window are the same state: a navigational load resets the limit to one page
+ * and the webview scroll to the top, while an in-place refresh of the same
+ * target (watcher tick, refresh button, post-action reload) keeps both. One
+ * tracker, so the two can never disagree.
+ *
+ * Loads run in two phases: `beginLoad` stages the target and classifies it;
+ * `commitLoad` promotes the staged target once its data has rendered. A load
+ * that fails (or is superseded by the staleness guard) never commits, so the
+ * retry classifies as navigational again, and every successful load — in-place
+ * ones included — refreshes the captured repo snapshot that `handleLoadMore`
+ * replays (repo objects are rebuilt on every reload; a pinned old snapshot
+ * would replay a stale HEAD into the head-anchor resolution).
  *
  * The controller is generic over the registerViews-local log-filter shape so
  * it carries the EXACT filter through to the grown fetch (and the rev-list
  * count) without depending on registerViews internals.
  */
+
+/** Value shapes a log filter may carry — kept flat so the stable key below is
+ * total; a nested object field would stringify uselessly and must instead
+ * extend this union (the constraint makes that a compile error). */
+export type FlatFilterValue = string | number | boolean | Date | readonly string[] | undefined;
+
+/** Stable, order-independent key for a log filter object. */
+export function stableLogFilterKey(
+  filter: Readonly<Record<string, FlatFilterValue>> | undefined
+): string {
+  if (filter === undefined || filter === null) {
+    return '';
+  }
+  const keys = Object.keys(filter)
+    .filter((k) => filter[k] !== undefined)
+    .sort();
+  if (keys.length === 0) {
+    return '';
+  }
+  const parts = keys.map((k) => {
+    const value = filter[k];
+    const rendered =
+      value instanceof Date
+        ? value.toISOString()
+        : Array.isArray(value)
+          ? JSON.stringify(value)
+          : String(value);
+    return `${k}=${rendered}`;
+  });
+  return parts.join('\u0000');
+}
 
 /** Re-run the scoped graph load at a grown limit. */
 export type GraphLoadMoreReloader<F> = (
@@ -27,23 +71,33 @@ export type GraphLoadMoreReloader<F> = (
 
 export interface IGraphLoadMoreController<F> {
   /**
-   * Record a FRESH (non-load-more) load — a repo switch, filter change, or
-   * refresh. Resets the display limit back to one page so a previously-grown
-   * repo never carries its limit into a different repo/filter.
+   * Phase 1 of a non-load-more load: stage the target and classify it.
+   * Returns true when the load is NAVIGATIONAL — a repo switch, a filter
+   * change, or the first load — which is the caller's cue to reset the
+   * webview scroll (and, via {@link currentLimit}, the one-page window).
    */
-  noteFreshLoad(repo: IRepository, filter: F | undefined): void;
+  beginLoad(repo: IRepository, filter: F | undefined): boolean;
+  /**
+   * Phase 2: commit the staged target after its data rendered. Establishes
+   * the baseline for the next `beginLoad`, refreshes the repo snapshot that
+   * `handleLoadMore` replays, and applies the navigational limit reset.
+   * No-op when nothing is staged (load-more re-runs never stage).
+   */
+  commitLoad(): void;
   /**
    * Called when entering the merged "All repositories" view. Clears the
    * active single-repo state so `handleLoadMore` is a no-op until the next
-   * single-repo fresh load — prevents a scroll-to-bottom from re-running a
-   * stale single-repo load over the merged graph.
+   * single-repo load commits — prevents a scroll-to-bottom from re-running a
+   * stale single-repo load over the merged graph — and makes that next
+   * single-repo load navigational (it is a scope switch).
    */
   noteMergedLoad(): void;
-  /** The limit the current load should request (base page, or grown). */
+  /** The limit the current load should request: one base page for a staged
+   * navigational load, the grown window otherwise. */
   currentLimit(): number;
   /**
    * Handle a scroll-to-bottom request: grow the limit by one page and re-run
-   * the active scoped load. No-op until a fresh load has established which
+   * the active scoped load. No-op until a load has committed which
    * repo/filter is active.
    */
   handleLoadMore(): void;
@@ -57,7 +111,7 @@ export interface IGraphLoadMoreController<F> {
  * paying for it up front. `reload` re-runs the scoped load — in production this
  * is `loadLogCommitsForRepo` with an explicit grown limit.
  */
-export function createGraphLoadMoreController<F>(
+export function createGraphLoadMoreController<F extends Readonly<Record<string, FlatFilterValue>>>(
   basePage: number,
   reload: GraphLoadMoreReloader<F>,
   incrementPage: number = basePage
@@ -65,23 +119,46 @@ export function createGraphLoadMoreController<F>(
   let limit = basePage;
   let repo: IRepository | undefined;
   let filter: F | undefined;
+  /** Committed (rootPath, filterKey) baseline; undefined = next load is navigational. */
+  let activeKey: string | undefined;
+  let staged:
+    | { repo: IRepository; filter: F | undefined; key: string; navigational: boolean }
+    | undefined;
+
+  const targetKey = (r: IRepository, f: F | undefined): string =>
+    r.rootUri.fsPath + '\u0001' + stableLogFilterKey(f);
 
   return {
-    noteFreshLoad(r: IRepository, f: F | undefined): void {
-      repo = r;
-      filter = f;
-      limit = basePage;
+    beginLoad(r: IRepository, f: F | undefined): boolean {
+      const key = targetKey(r, f);
+      const navigational = key !== activeKey;
+      staged = { repo: r, filter: f, key, navigational };
+      return navigational;
+    },
+    commitLoad(): void {
+      if (!staged) {
+        return;
+      }
+      repo = staged.repo;
+      filter = staged.filter;
+      activeKey = staged.key;
+      if (staged.navigational) {
+        limit = basePage;
+      }
+      staged = undefined;
     },
     noteMergedLoad(): void {
       // Clear the active single-repo state. handleLoadMore guards on `repo`
       // being defined, so this makes load-more a no-op until the next
-      // single-repo noteFreshLoad re-establishes the active repo.
+      // single-repo load commits and re-establishes the active repo.
       repo = undefined;
       filter = undefined;
+      activeKey = undefined;
+      staged = undefined;
       limit = basePage;
     },
     currentLimit(): number {
-      return limit;
+      return staged?.navigational ? basePage : limit;
     },
     handleLoadMore(): void {
       if (!repo) {

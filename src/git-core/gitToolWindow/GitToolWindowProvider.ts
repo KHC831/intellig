@@ -17,6 +17,7 @@ import {
 } from '../../services/interfaces';
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
 import { ICommitNode, IBranchRef, generateCommitGraph } from '../commitGraph';
+import { fingerprintLogState } from './provider/logStateFingerprint';
 import { DEFAULT_GRAPH_CONFIG } from '../../utils/graphRenderer';
 import {
   buildGraphPrintModel,
@@ -449,6 +450,16 @@ export class GitToolWindowProvider
    * navigation sets this. Consumed (cleared) by the render.
    */
   private _resetScrollOnNextRender: boolean = false;
+  /**
+   * Fingerprint of the last {@link updateLogState} inputs (commit hashes,
+   * branch/tag maps, head anchor, total). A repeated update with the same
+   * fingerprint is an in-place background refresh that changed nothing —
+   * it skips the full re-render (and the post sequence) so watcher-driven
+   * reload churn can't rebuild the DOM and throw away the user's scroll.
+   * Cleared whenever repository availability transitions (the no-repo screen
+   * must never swallow a later identical update).
+   */
+  private _lastLogFingerprint: string | undefined;
   private _pendingChangedFiles: IChangedFile[] | undefined;
   private _pendingChangedFilesError: unknown;
   /**
@@ -1105,6 +1116,10 @@ export class GitToolWindowProvider
     this._isLoading = false;
     if (this._hasRepository !== hasRepository || wasLoading) {
       this._hasRepository = hasRepository;
+      // Availability transitioned (or the loading screen resolved): the DOM no
+      // longer shows the last log render, so the next updateLogState must
+      // paint even if its data is unchanged.
+      this._lastLogFingerprint = undefined;
       this._render();
       this._onDidChangeState.fire();
     }
@@ -1138,6 +1153,32 @@ export class GitToolWindowProvider
     headBranchName?: string,
     totalAvailable?: number
   ): void {
+    // Change detection: a watcher-driven background refresh usually reloads
+    // the exact state already on screen. When the fingerprint matches and no
+    // navigational scroll-reset is pending, update the cheap flags and stop —
+    // no graph regeneration, no re-render, no post sequence. A pending
+    // scroll-reset always forces the render through so navigation both
+    // repaints and consumes its reset.
+    const fingerprint = fingerprintLogState(
+      commits,
+      branchMap,
+      tagMap,
+      headHash,
+      headBranchName,
+      totalAvailable
+    );
+    if (
+      fingerprint === this._lastLogFingerprint &&
+      !this._resetScrollOnNextRender &&
+      this._hasRepository
+    ) {
+      this._logTotalAvailable = totalAvailable;
+      this._initialDataRequested = false;
+      this._isLoading = false;
+      return;
+    }
+    this._lastLogFingerprint = fingerprint;
+
     this._logTotalAvailable = totalAvailable;
     // Commits landed: the initial fetch has resolved, so clear the latch.
     this._initialDataRequested = false;
@@ -1352,7 +1393,23 @@ export class GitToolWindowProvider
    * flag is off, the caller should pass `undefined` so the UI stays clean.
    */
   public setCherryPickedHashes(hashes: Set<string> | undefined, baseRef?: string): void {
-    this._extendedLogState.cherryPickedHashes = hashes && hashes.size > 0 ? hashes : undefined;
+    const next = hashes && hashes.size > 0 ? hashes : undefined;
+    // Change detection: this setter runs at the tail of EVERY graph load
+    // (loadCherryMarksForRepo), including watcher-driven refreshes whose
+    // marks are identical — rendering unconditionally here would rebuild the
+    // DOM on every background tick even when updateLogState skipped.
+    const prev = this._extendedLogState.cherryPickedHashes;
+    const unchanged =
+      this._extendedLogState.cherryPickBaseRef === baseRef &&
+      (prev === next ||
+        (prev !== undefined &&
+          next !== undefined &&
+          prev.size === next.size &&
+          [...next].every((h) => prev.has(h))));
+    if (unchanged) {
+      return;
+    }
+    this._extendedLogState.cherryPickedHashes = next;
     this._extendedLogState.cherryPickBaseRef = baseRef;
     this._render();
     this._onDidChangeState.fire();

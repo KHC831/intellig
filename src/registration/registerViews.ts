@@ -402,12 +402,25 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       try {
         const myGeneration = stalenessGuard.bump();
 
-        // Stale-while-revalidate: a default (unfiltered, first-page) load is a
-        // navigational repo switch. Paint the last cached render for this repo
-        // IMMEDIATELY so the switch feels instant, then fall through to the
-        // fresh fetch below which repaints in place once git returns.
+        // Navigational = a different (repo, filter) than the previous
+        // committed load: a repo switch, a filter change, or the first load.
+        // Only navigation resets scroll, paints the stale cache, or collapses
+        // the load-more window back to one page; a repeat of the same pair —
+        // watcher tick, refresh button, post-action reload — refreshes in
+        // place and preserves both. The staged target is committed only after
+        // its data renders (below), so a failed load re-classifies as
+        // navigational on retry.
+        const isNavigational = !loadMore && graphLoadMore.beginLoad(repo, filter);
+
+        // Stale-while-revalidate: a default (unfiltered, first-page)
+        // navigational load is a repo switch. Paint the last cached render for
+        // this repo IMMEDIATELY so the switch feels instant, then fall through
+        // to the fresh fetch below which repaints in place once git returns.
+        // The cached paint consumes the scroll reset; the fresh repaint then
+        // preserves the (top) position.
         const isDefaultLoad = !loadMore && filter === undefined;
-        if (isDefaultLoad && ctx.gitToolWindowProvider) {
+        let paintedFromCache = false;
+        if (isDefaultLoad && isNavigational && ctx.gitToolWindowProvider) {
           const cached = defaultLogCache.get(repo.rootUri.fsPath);
           if (cached) {
             ctx.gitToolWindowProvider.markResetScrollOnNextRender();
@@ -419,23 +432,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               cached.headBranchName,
               cached.totalAvailable
             );
+            paintedFromCache = true;
           }
         }
 
-        // A fresh load resets the grown limit to one page; a load-more re-run
-        // carries the explicit grown limit through.
-        let limit: number;
-        if (loadMore) {
-          limit = loadMore.limit;
-        } else {
-          graphLoadMore.noteFreshLoad(repo, filter);
-          limit = graphLoadMore.currentLimit();
-          // A fresh load is navigational (repo switch / filter-branch-range
-          // change / initial load): reset the webview to the top. Every other
-          // (in-place) re-render preserves scroll by default, so load-more and
-          // incidental renders (cherry marks, selection) keep the user's place.
-          ctx.gitToolWindowProvider?.markResetScrollOnNextRender();
-        }
+        // A load-more re-run carries the explicit grown limit through;
+        // otherwise the controller answers: one base page for a navigational
+        // load, the grown window for an in-place refresh (so a background
+        // reload can't shrink the list under the user).
+        const limit = loadMore ? loadMore.limit : graphLoadMore.currentLimit();
 
         // Fetch the windowed commit list now; the honest total (`getLogCount`,
         // a `rev-list --count` that walks the WHOLE history on a big repo) comes
@@ -507,6 +512,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           if (!stalenessGuard.isCurrent(myGeneration)) {
             return;
           }
+          // Navigation resets the webview to the top. Armed HERE — after the
+          // fetch succeeded and the staleness guard passed — so a failed or
+          // superseded navigational load can't leave a pending reset that a
+          // later in-place render would consume. When the cached paint above
+          // already ran, the reset was consumed there and this fresh repaint
+          // preserves the position.
+          if (isNavigational && !paintedFromCache) {
+            ctx.gitToolWindowProvider.markResetScrollOnNextRender();
+          }
           // Render NOW with the total unknown (undefined → "all loaded", no
           // spinner). The exact total folds in below when its background promise
           // resolves — first paint renders without waiting on the count.
@@ -518,6 +532,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
             headBranchName,
             undefined
           );
+          // The staged (repo, filter) becomes the committed baseline only now
+          // that its data rendered; this also hands the controller the fresh
+          // repo snapshot for load-more replays. No-op on load-more re-runs.
+          graphLoadMore.commitLoad();
 
           // Cache the fresh default-page render so a later switch back to this
           // repo paints instantly (see the stale-while-revalidate paint above).
