@@ -34,13 +34,13 @@
       "status": "tested",
       "note": "base dialog that owns the inline script (SquashMessageDialog + the reword edit dialog are presets); rendered script run in jsdom (commitDialogsScript.test.ts)"
     },
-    "src/branches/NewBranchDialog.ts": {
+    "src/branches/webview/main.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds form + cancel wiring (branchResetScript.test.ts)"
+      "note": "bundled New Branch entry booted in jsdom; builds form + live validation + cancel wiring (branchResetScript.test.ts, newBranchDialog.test.ts)"
     },
-    "src/conflicts/MergeDialog.ts": {
+    "src/conflicts/webview/main.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds strategy flags (conflictDialogsScript.test.ts)"
+      "note": "bundled Merge dialog entry booted in jsdom; builds strategy flags + mutex + submit/cancel (conflictDialogsScript.test.ts, mergeDialog.test.ts)"
     },
     "src/conflicts/ResolveConflictsDialog.ts": {
       "status": "tested",
@@ -50,9 +50,9 @@
       "status": "tested",
       "note": "rendered dialog script run in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts)"
     },
-    "src/shelf/ShelveDialog.ts": {
+    "src/shelf/webview/main.ts": {
       "status": "tested",
-      "note": "rendered shelve dialog script run in jsdom; checkbox file list + name field + shelve/cancel wiring (shelveDialogScript.test.ts)"
+      "note": "bundled Shelve dialog entry booted in jsdom; checkbox file list + name field + shelve/cancel wiring (shelveDialogScript.test.ts)"
     },
     "src/sync/PushDialog.ts": {
       "status": "tested",

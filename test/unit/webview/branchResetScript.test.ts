@@ -15,6 +15,7 @@ import { NewBranchDialog } from '../../../src/branches/NewBranchDialog';
 import { ResetDialog } from '../../../src/ui-shell/ResetDialog';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
 import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
@@ -26,7 +27,7 @@ const GARBAGE_MESSAGES: unknown[] = [
 ];
 
 describe('webview: branch + reset dialog scripts (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewHarness | IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -45,9 +46,14 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('branches/webview/main', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the branch-name input + create button', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -57,15 +63,13 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
     });
 
     it('posts cancel when the cancel button is clicked', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       h.document.getElementById('cancel-btn')?.click();
       assert.deepEqual(h.posted.at(-1), { type: 'cancel' });
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }

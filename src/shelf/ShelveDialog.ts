@@ -25,7 +25,13 @@
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { assertNever } from '../utils/assertNever';
-import { asShelveDialogInbound, type ShelveDialogOutbound } from './shelveDialog.protocol';
+import {
+  asShelveDialogInbound,
+  type IShelveDialogInit,
+  type IShelveFileItem,
+  type ShelveDialogOutbound,
+} from './shelveDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { IFileStatus, IRepository } from '../git-core/interfaces/IGitService';
 import { IShelfItem } from './interfaces/IShelfService';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -52,17 +58,6 @@ export interface IShelveDialogOptions {
   defaultName?: string;
   /** Fired after a successful shelve, with the created entry (e.g. to refresh the shelf view). */
   onShelved?: (item: IShelfItem) => void;
-}
-
-/** A file row in the dialog's checkbox list. */
-export interface IShelveFileItem {
-  path: string;
-  fileName: string;
-  fileDir: string;
-  statusChar: string;
-  statusLabel: string;
-  statusColor: string;
-  selected: boolean;
 }
 
 const VIEW_TYPE = 'intellig.shelveDialog';
@@ -260,123 +255,15 @@ export class ShelveDialog extends BaseWebviewPanel<ShelveDialogOutbound> {
   }
 
   protected _getBodyHtml(): string {
-    return this._getBodyParts().body;
+    const init: IShelveDialogInit = { defaultName: this._defaultName, files: this._items };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Emit body + interactive script separately so `_render` can splice the
-   * script into a nonce'd block without regex-extracting it (a nested
-   * `</script>` inside a string literal would break the old regex). Mirrors
-   * {@link NewBranchDialog}.
-   */
-  private _getBodyParts(): { body: string; script: string } {
-    const body = `<div id="root"></div>`;
-
-    const initJson = JSON.stringify({
-      defaultName: this._defaultName,
-      files: this._items,
-    }).replace(/</g, '\\u003c');
-
-    const script = `
-      (function() {
-        const vscode = acquireVsCodeApi();
-        const INIT = ${initJson};
-        const root = document.getElementById('root');
-        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-        const setData = (node, attrs) => { for (const k in attrs) node.setAttribute(k, attrs[k]); return node; };
-
-        // ── Name field ─────────────────────────────────────────────────────
-        const field = el('div', { className: 'field' });
-        field.append(el('label', { className: 'top', htmlFor: 'shelve-name', textContent: 'Name:' }));
-        const nameInput = el('input', { type: 'text', id: 'shelve-name', placeholder: 'Shelf name', value: INIT.defaultName });
-        field.append(nameInput);
-
-        // ── Files header (master checkbox + count) ─────────────────────────
-        const filesHeader = el('div', { className: 'files-header' });
-        const masterLabel = el('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
-        const masterCb = el('input', { type: 'checkbox', id: 'shelve-master' });
-        masterLabel.append(masterCb, el('span', { textContent: 'Changes' }));
-        const countSpan = el('span', { id: 'shelve-count' });
-        filesHeader.append(masterLabel, countSpan);
-
-        // ── File list ──────────────────────────────────────────────────────
-        const filesBox = el('div', { className: 'files' });
-        if (INIT.files.length === 0) {
-          filesBox.append(el('div', { className: 'empty', textContent: 'No changes to shelve' }));
-        }
-        for (const f of INIT.files) {
-          const row = el('div', { className: 'file-row' });
-          const cb = el('input', { type: 'checkbox', className: 'shelve-file-checkbox' });
-          cb.checked = f.selected;
-          setData(cb, { 'data-path': f.path });
-          const status = el('span', { className: 'file-status', textContent: f.statusChar, title: f.statusLabel });
-          status.style.color = f.statusColor;
-          row.append(cb, status, el('span', { className: 'file-name', textContent: f.fileName }), el('span', { className: 'file-dir', textContent: f.fileDir }));
-          // Clicking the row (not the checkbox itself) toggles the box.
-          row.addEventListener('click', (e) => {
-            if (e.target !== cb) { cb.checked = !cb.checked; refresh(); }
-          });
-          cb.addEventListener('change', refresh);
-          filesBox.append(row);
-        }
-
-        // ── Actions ────────────────────────────────────────────────────────
-        const actions = el('div', { className: 'actions' });
-        const cancelBtn = el('button', { id: 'shelve-cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' });
-        const shelveBtn = el('button', { id: 'shelve-btn', type: 'button', textContent: 'Shelve Changes' });
-        actions.append(cancelBtn, shelveBtn);
-
-        root.append(field, filesHeader, filesBox, actions);
-        nameInput.focus();
-
-        function checkedBoxes() {
-          return Array.prototype.slice.call(document.querySelectorAll('input.shelve-file-checkbox')).filter((b) => b.checked);
-        }
-        function refresh() {
-          const all = document.querySelectorAll('input.shelve-file-checkbox');
-          const checked = checkedBoxes();
-          countSpan.textContent = checked.length + ' of ' + all.length + ' selected';
-          masterCb.checked = all.length > 0 && checked.length === all.length;
-          masterCb.indeterminate = checked.length > 0 && checked.length < all.length;
-          shelveBtn.disabled = nameInput.value.trim().length === 0 || checked.length === 0;
-        }
-
-        masterCb.addEventListener('change', () => {
-          const target = masterCb.checked;
-          document.querySelectorAll('input.shelve-file-checkbox').forEach((b) => { b.checked = target; });
-          refresh();
-        });
-        nameInput.addEventListener('input', refresh);
-
-        function submit() {
-          if (shelveBtn.disabled) { return; }
-          vscode.postMessage({
-            type: 'shelve',
-            name: nameInput.value.trim(),
-            files: checkedBoxes().map((b) => b.getAttribute('data-path')),
-          });
-        }
-        shelveBtn.addEventListener('click', submit);
-        cancelBtn.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
-
-        // Dialog keyboard contract (shared across IntelliG dialogs):
-        //   Cmd/Ctrl+Enter → primary (Shelve); Esc → Cancel.
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
-          else if (e.key === 'Escape') { e.preventDefault(); cancelBtn.click(); }
-        });
-
-        refresh();
-      })();
-    `;
-
-    return { body, script };
-  }
-
-  /**
-   * Override the base renderer so the interactive script ships inside the
-   * nonce'd `<script>` block (the base `_wrapHtml` emits an empty sentinel
-   * script only). Mirrors {@link NewBranchDialog._render}.
+   * Override the base renderer so the body ships alongside an EXTERNAL bundle tag
+   * (`media/webview/shelveDialog.js`) instead of the base's empty sentinel. The
+   * interactive logic lives in the bundled TS entry (src/shelf/webview/main.ts),
+   * which reads its init from the body's `data-init` island.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -386,7 +273,9 @@ export class ShelveDialog extends BaseWebviewPanel<ShelveDialogOutbound> {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const styleBlock = styles.length > 0 ? `<style>${styles}</style>` : '';
-    const { body, script } = this._getBodyParts();
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'shelveDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -398,8 +287,8 @@ export class ShelveDialog extends BaseWebviewPanel<ShelveDialogOutbound> {
   ${styleBlock}
 </head>
 <body>
-${body}
-<script nonce="${nonce}">${script}</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }

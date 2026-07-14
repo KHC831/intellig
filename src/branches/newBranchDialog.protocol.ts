@@ -2,6 +2,15 @@
  * Wire protocol for the New Branch dialog. NO vscode import. Frozen wire.
  */
 
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface INewBranchDialogInit {
+  startPointLabel: string;
+  defaultName: string;
+  defaultTrack: boolean;
+  /** Render-time trackability answer; the `conflicts` message refines it later. */
+  trackVisible: boolean;
+}
+
 export type NewBranchDialogInbound =
   | {
       type: 'create';

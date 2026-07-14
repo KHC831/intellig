@@ -4,6 +4,12 @@
  * panel) to keep this module vscode-free by construction.
  */
 
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IMergeDialogInit {
+  sourceBranch: string;
+  targetBranch: string;
+}
+
 export type MergeDialogInbound =
   | {
       type: 'merge';

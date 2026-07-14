@@ -226,6 +226,7 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
 ${body}
 <script nonce="${nonce}" src="${vsUri.toString()}/loader.js"></script>
 <script nonce="${nonce}" src="${bundleUri.toString()}"></script>
+<!-- no-string-script-exempt: Monaco's AMD require(['vs/...']) boot deferral is irreducible inline (Monaco-specific, needs the loaded --global-name); the merge window is the ported template, not a ratchet item -->
 <script nonce="${nonce}">
   require.config({ paths: { vs: '${vsUri.toString()}' } });
   window.MonacoEnvironment = { getWorker: function () { throw new Error('workers disabled in webview'); } };

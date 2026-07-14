@@ -1,18 +1,21 @@
 /**
  * Dialog-framework conventions audit (spec 5.1).
  *
- * Every IntelliG webview dialog that extends `BaseWebviewPanel` and carries
- * its own inline `<script>` MUST honor the shared dialog contract:
+ * Every IntelliG webview dialog that extends `BaseWebviewPanel` MUST honor the
+ * shared dialog contract, whether its script is an inline block or (Phase 5) a
+ * bundled TS entry loaded via an external `<script nonce src>` tag:
  *
  *   1. A CSP `<meta http-equiv="Content-Security-Policy">` tag whose
  *      `script-src` is gated by a `'nonce-...'` (no `'unsafe-inline'` on
  *      scripts).
- *   2. Exactly one inline `<script nonce="${nonce}">` tag, so the page's
- *      one script block is the nonced one the CSP authorizes.
+ *   2. Exactly one `<script nonce="${nonce}">` tag — the inline block, or the
+ *      external bundle tag `<script nonce="${nonce}" src="...">` — so the page's
+ *      one script is the nonced one the CSP authorizes.
  *   3. A keyboard contract: Cmd+Enter / Ctrl+Enter triggers the primary
  *      action and Esc triggers cancel. This is the IntelliJ-parity muscle
  *      memory users rely on — a dialog that only responds to mouse clicks
- *      is the regression this audit forbids.
+ *      is the regression this audit forbids. For a ported dialog this lives in
+ *      its bundled entry (`entryFile`), not the host string.
  *
  * Why a STATIC source audit (not a behavioral one): the seven dialogs have
  * divergent constructor dependency graphs (GitService stubs, op-context,
@@ -45,8 +48,15 @@ function repoRoot(): string {
 interface DialogUnderAudit {
   /** Human-readable dialog name (for assertion messages). */
   name: string;
-  /** Repo-relative POSIX source path. */
+  /** Repo-relative POSIX source path (the host panel). */
   file: string;
+  /**
+   * Repo-relative path to the bundled TS webview entry, for dialogs ported to
+   * an external bundle (Phase 5). When set, the keyboard contract is checked
+   * against the entry (the script no longer lives in the host string); when
+   * absent, the host still carries the inline script.
+   */
+  entryFile?: string;
   /**
    * Whether the dialog is held to the keyboard contract. False only for
    * ResolveConflictsDialog (destructive-abort exception, see file header).
@@ -63,9 +73,19 @@ const DIALOGS: DialogUnderAudit[] = [
     keyboardContract: true,
   },
   { name: 'ApplyPatchDialog', file: 'src/patches/ApplyPatchDialog.ts', keyboardContract: true },
-  { name: 'MergeDialog', file: 'src/conflicts/MergeDialog.ts', keyboardContract: true },
+  {
+    name: 'MergeDialog',
+    file: 'src/conflicts/MergeDialog.ts',
+    entryFile: 'src/conflicts/webview/main.ts',
+    keyboardContract: true,
+  },
   { name: 'ResetDialog', file: 'src/ui-shell/ResetDialog.ts', keyboardContract: true },
-  { name: 'NewBranchDialog', file: 'src/branches/NewBranchDialog.ts', keyboardContract: true },
+  {
+    name: 'NewBranchDialog',
+    file: 'src/branches/NewBranchDialog.ts',
+    entryFile: 'src/branches/webview/main.ts',
+    keyboardContract: true,
+  },
   { name: 'PushDialog', file: 'src/sync/PushDialog.ts', keyboardContract: true },
   {
     name: 'ResolveConflictsDialog',
@@ -101,18 +121,20 @@ describe('Dialog-framework conventions audit (spec 5.1)', () => {
         );
       });
 
-      it('gates its inline script with a nonce (script-src nonce, not unsafe-inline)', () => {
-        // Every dialog with an interactive script renders exactly one
-        // `<script nonce="${nonce}">`. The literal `nonce="${nonce}"`
-        // substring is the load-bearing token: it proves the script tag is
-        // wired to the CSP nonce rather than left un-nonced (which CSP would
-        // block) or opened up with 'unsafe-inline' (which the contract
-        // forbids).
-        const noncedScriptCount = (source.match(/<script nonce="\$\{nonce\}">/g) ?? []).length;
+      it('gates its script with a nonce (script-src nonce, not unsafe-inline)', () => {
+        // Every dialog renders exactly one `<script nonce="${nonce}">` — either
+        // the inline block (dialogs still carrying their script) or the external
+        // bundle tag `<script nonce="${nonce}" src="...">` (Phase-5 ports). The
+        // `nonce="${nonce}"` token is load-bearing: it proves the script tag is
+        // wired to the CSP nonce, not left un-nonced (CSP would block it) or
+        // opened up with 'unsafe-inline' (the contract forbids it).
+        const noncedScriptCount = (
+          source.match(/<script nonce="\$\{nonce\}"(?:\s+src="[^"]*")?>/g) ?? []
+        ).length;
         assert.strictEqual(
           noncedScriptCount,
           1,
-          `${dialog.name} must render exactly one nonced inline <script> tag; ` +
+          `${dialog.name} must render exactly one nonced <script> tag (inline or external bundle); ` +
             `found ${noncedScriptCount}. See spec 5.1.`
         );
         assert.ok(
@@ -122,18 +144,22 @@ describe('Dialog-framework conventions audit (spec 5.1)', () => {
       });
 
       if (dialog.keyboardContract) {
+        // The keyboard contract lives wherever the interactive script does: the
+        // host string for inline dialogs, the bundled entry for Phase-5 ports.
+        const scriptOf = (): string => (dialog.entryFile ? read(dialog.entryFile) : source);
+
         it('binds Cmd+Enter / Ctrl+Enter to the primary action', () => {
           // The canonical guard expression in every dialog's keydown
           // handler. metaKey covers macOS Cmd, ctrlKey covers Win/Linux.
           assert.ok(
-            /e\.key === 'Enter' && \(e\.metaKey \|\| e\.ctrlKey\)/.test(source),
+            /e\.key === 'Enter' && \(e\.metaKey \|\| e\.ctrlKey\)/.test(scriptOf()),
             `${dialog.name} must bind Cmd+Enter / Ctrl+Enter to its primary action. See spec 5.1.`
           );
         });
 
         it('binds Esc to cancel', () => {
           assert.ok(
-            /e\.key === 'Escape'/.test(source),
+            /e\.key === 'Escape'/.test(scriptOf()),
             `${dialog.name} must bind Esc to cancel. See spec 5.1.`
           );
         });

@@ -1,10 +1,13 @@
 /**
- * jsdom client-script test for the Shelve Changes dialog (ShelveDialog.ts).
+ * jsdom test for the Shelve Changes dialog's bundled webview entry
+ * (src/shelf/webview/main.ts, shipped as media/webview/shelveDialog.js).
  *
- * The dialog builds its DOM in the webview renderer via createElement from a
- * JSON init island; this runs that script under jsdom (via the shared webview
- * harness) and asserts the structure + message wiring an invisible-to-e2e
- * renderer would otherwise hide. Files exercised: ShelveDialog.ts.
+ * Boots the REAL TS entry under jsdom (Phase-5 successor to the string-eval
+ * harness): the host serializes the dialog's init into a `data-init` island in
+ * the body, the entry reads it on boot and builds the DOM via createElement.
+ * The behavioral assertions (DOM structure + message wiring) are identical to
+ * the pre-port string-script test; only the boot mechanism changed. Files
+ * exercised: ShelveDialog.ts + src/shelf/webview/main.ts.
  */
 
 import '../../setup';
@@ -12,7 +15,7 @@ import * as assert from 'assert';
 import { ShelveDialog, IShelveDialogOptions } from '../../../src/shelf/ShelveDialog';
 import { IFileStatus, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { IShelfItem } from '../../../src/shelf/interfaces/IShelfService';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 import { Uri } from '../../mocks/vscode';
@@ -53,8 +56,14 @@ function buildHtml(overrides: Partial<IShelveDialogOptions> = {}): string {
   return panelHtml(dialog);
 }
 
-describe('webview: ShelveDialog script (jsdom)', () => {
-  let h: IWebviewHarness;
+/** Boot the real entry against the host body (incl. the data-init island). */
+function boot(overrides: Partial<IShelveDialogOptions> = {}): IWebviewEntryHarness {
+  const bodyHtml = extractWebviewScript(buildHtml(overrides)).bodyHtml;
+  return bootWebviewEntry('shelf/webview/main', { bodyHtml });
+}
+
+describe('webview: ShelveDialog entry (jsdom)', () => {
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -63,8 +72,7 @@ describe('webview: ShelveDialog script (jsdom)', () => {
   });
 
   it('loads without throwing and builds the name field + a checkbox per file + Shelve button', () => {
-    const { script, bodyHtml } = extractWebviewScript(buildHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot();
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
       []
@@ -79,8 +87,7 @@ describe('webview: ShelveDialog script (jsdom)', () => {
   });
 
   it('checks ALL files by default', () => {
-    const { script, bodyHtml } = extractWebviewScript(buildHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot();
     const checked = Array.from(h.document.querySelectorAll('input.shelve-file-checkbox')).filter(
       (b) => (b as HTMLInputElement).checked
     );
@@ -88,10 +95,7 @@ describe('webview: ShelveDialog script (jsdom)', () => {
   });
 
   it('checks ONLY the preselected file when a subset is given', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      buildHtml({ preSelectedPaths: ['src/b.ts'] })
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot({ preSelectedPaths: ['src/b.ts'] });
     const checked = Array.from(h.document.querySelectorAll('input.shelve-file-checkbox')).filter(
       (b) => (b as HTMLInputElement).checked
     ) as HTMLInputElement[];
@@ -100,8 +104,7 @@ describe('webview: ShelveDialog script (jsdom)', () => {
   });
 
   it('disables Shelve on an empty name and enables it once a name is typed', () => {
-    const { script, bodyHtml } = extractWebviewScript(buildHtml({ defaultName: '' }));
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot({ defaultName: '' });
     const btn = h.document.getElementById('shelve-btn') as HTMLButtonElement;
     assert.strictEqual(btn.disabled, true);
     const name = h.document.getElementById('shelve-name') as HTMLInputElement;
@@ -111,24 +114,19 @@ describe('webview: ShelveDialog script (jsdom)', () => {
   });
 
   it('Cancel posts a cancel message', () => {
-    const { script, bodyHtml } = extractWebviewScript(buildHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot();
     (h.document.getElementById('shelve-cancel-btn') as HTMLButtonElement).click();
     assert.deepEqual(h.posted.at(-1), { type: 'cancel' });
   });
 
   it('Shelve posts the name and the checked file paths', () => {
-    const { script, bodyHtml } = extractWebviewScript(
-      buildHtml({ defaultName: 'My WIP', preSelectedPaths: ['src/a.ts'] })
-    );
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot({ defaultName: 'My WIP', preSelectedPaths: ['src/a.ts'] });
     (h.document.getElementById('shelve-btn') as HTMLButtonElement).click();
     assert.deepEqual(h.posted.at(-1), { type: 'shelve', name: 'My WIP', files: ['src/a.ts'] });
   });
 
   it('tolerates garbage extension→webview messages without throwing', () => {
-    const { script, bodyHtml } = extractWebviewScript(buildHtml());
-    h = runWebviewScript(script, { bodyHtml });
+    h = boot();
     for (const msg of GARBAGE_MESSAGES) {
       h.post(msg);
     }

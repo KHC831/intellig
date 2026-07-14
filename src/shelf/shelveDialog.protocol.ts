@@ -3,16 +3,34 @@
  * webview TS entry can import the same shapes). Frozen wire — do not rename
  * fields here.
  *
- * The dialog bakes its initial data into the rendered HTML rather than posting
- * it, so the host emits nothing: `ShelveDialogOutbound` is `never`.
+ * The dialog bakes its initial data into the rendered HTML (a `data-*` init
+ * island the entry reads on boot) rather than posting it, so the host emits
+ * nothing: `ShelveDialogOutbound` is `never`.
  */
+
+/** A file row in the dialog's checkbox list (pure view-model, vscode-free). */
+export interface IShelveFileItem {
+  path: string;
+  fileName: string;
+  fileDir: string;
+  statusChar: string;
+  statusLabel: string;
+  statusColor: string;
+  selected: boolean;
+}
+
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IShelveDialogInit {
+  defaultName: string;
+  files: IShelveFileItem[];
+}
 
 /** Webview → host messages. */
 export type ShelveDialogInbound =
   | { readonly type: 'cancel' }
   | { readonly type: 'shelve'; readonly name: string; readonly files: string[] };
 
-/** Host → webview messages: none (initial state is embedded in the HTML). */
+/** Host → webview messages: none (initial state is embedded in the HTML island). */
 export type ShelveDialogOutbound = never;
 
 /** Runtime discriminant set — the host guard rejects an unknown type before dispatch. */
