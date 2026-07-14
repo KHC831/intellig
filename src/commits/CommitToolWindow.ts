@@ -57,9 +57,6 @@ export const RECENT_MESSAGES_STATE_KEY = 'intellig.recentCommitMessages';
  */
 export const SHELF_TAB_FILTER_STATE_KEY = 'intellig.commitToolWindow.shelfFilter';
 
-/** VS Code context key mirroring {@link ACTIVE_TAB_STATE_KEY}. */
-export const ACTIVE_TAB_CONTEXT_KEY = 'intellig.commitToolWindow.activeTab';
-
 /** Maximum size of the recent-commit-messages LRU. */
 export const RECENT_MESSAGES_MAX = 20;
 
@@ -527,17 +524,13 @@ export class CommitToolWindow extends BaseWebviewView {
    * Subclass hook for {@link BaseWebviewView.resolveWebviewView}. Base class
    * has already set webview options, wired `onDidReceiveMessage` →
    * {@link _handleMessage}, wired `onDidDispose`, and performed the initial
-   * render via {@link _getBodyParts}. Here we publish the active-tab context
-   * key + kick an async reload of state.
+   * render via {@link _getBodyParts}. Here we kick an async reload of state.
    */
   protected override _onResolve(
     _webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    // Publish the active-tab context key so `when` clauses can react.
-    void vscode.commands.executeCommand('setContext', ACTIVE_TAB_CONTEXT_KEY, this._activeTab);
-
     // Kick an async load. The initial HTML render already happened via
     // BaseWebviewView._render(); a data refresh follows once the services
     // respond. Bucket C: init path; the view rerenders on
@@ -709,7 +702,6 @@ export class CommitToolWindow extends BaseWebviewView {
     }
     this._activeTab = tab;
     await this._workspaceState.update(ACTIVE_TAB_STATE_KEY, tab);
-    await vscode.commands.executeCommand('setContext', ACTIVE_TAB_CONTEXT_KEY, tab);
     this._render(); // structural change → full regen
   }
 

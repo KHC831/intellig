@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { resolveGitDir, REBASE_STATE_DIRS } from '../git-core/gitDirMarkers';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
 import { getLogger, type Logger } from '../utils/logger';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { IMergeView } from './interfaces/IMergeView';
@@ -12,7 +13,6 @@ import {
   IConflictedFile,
 } from './interfaces/IConflictResolutionService';
 
-const CONTEXT_KEY_CONFLICTS_ACTIVE = 'intellig.conflicts.active';
 const STATE_FILE_DEBOUNCE_MS = 300;
 const CONFIG_AUTO_OPEN_KEY = 'autoOpenResolveConflictsDialog';
 
@@ -299,16 +299,7 @@ export class ConflictUiCoordinator {
       return;
     }
     this._conflictsActiveAggregate = nextAggregate;
-    try {
-      await vscode.commands.executeCommand(
-        'setContext',
-        CONTEXT_KEY_CONFLICTS_ACTIVE,
-        nextAggregate
-      );
-      // eslint-disable-next-line no-restricted-syntax -- setContext is a non-essential UI context key; a failure (e.g. unit tests that don't mock it) is non-fatal.
-    } catch {
-      // setContext isn't available in non-test extension-host builds; swallow.
-    }
+    await setContextKey(CONTEXT_KEYS.conflictsActive, nextAggregate);
   }
 
   /** Compute the aggregate — any repo conflicted ⇒ true. */
