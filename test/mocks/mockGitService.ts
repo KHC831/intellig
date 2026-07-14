@@ -22,6 +22,7 @@
 
 import type {
   IGitService,
+  IGitWorkingTreeEvents,
   IRepository,
   IFetchResult,
   ICommit,
@@ -44,16 +45,17 @@ export interface IGitServiceMockTestSurface {
 
 export function createMockGitService(
   mockRepo: IRepository,
-  overrides: Partial<IGitService> = {},
+  overrides: Partial<IGitService & IGitWorkingTreeEvents> = {},
   // Optional git CLI to expose as the `IGitServiceWithCli` escape hatch that
   // BlameService (and similar services) borrow from the gitService. Not part of
   // IGitService; attached as an extra property when provided.
   gitCli?: unknown
-): IGitService & IGitServiceMockTestSurface {
+): IGitService & IGitWorkingTreeEvents & IGitServiceMockTestSurface {
   const repoChange = new EventEmitter<IRepository>();
 
-  const base: IGitService = {
+  const base: IGitService & IGitWorkingTreeEvents = {
     onDidChangeRepository: repoChange.event,
+    onDidChangeWorkingTree: noopEvent<IRepository>(),
     onDidRemoveRepository: noopEvent<IRepository>(),
     getRepositories: () => [mockRepo],
     getRepository: async () => mockRepo,
@@ -142,7 +144,7 @@ export function createMockGitService(
     revertFile: () => okAsync(undefined),
     rollbackChanges: () => okAsync(undefined),
     dispose: () => {},
-  } as IGitService;
+  } as IGitService & IGitWorkingTreeEvents;
 
   // Wrap with TestSurface helpers that expose the
   // EventEmitter without leaking it onto the public IGitService.

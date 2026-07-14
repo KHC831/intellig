@@ -616,7 +616,30 @@ export function fireActiveTextEditor(editor: unknown): void {
   }
 }
 
+const windowStateListeners: Array<(e: { focused: boolean }) => void> = [];
+
+/** Test helper: flip window focus and notify onDidChangeWindowState listeners. */
+export function setWindowFocused(focused: boolean): void {
+  window.state.focused = focused;
+  for (const listener of [...windowStateListeners]) {
+    listener({ focused });
+  }
+}
+
 export const window = {
+  /** Window focus state — the status lane's focus gate reads `focused`. */
+  state: { focused: true },
+  onDidChangeWindowState: (listener: (e: { focused: boolean }) => void): { dispose(): void } => {
+    windowStateListeners.push(listener);
+    return {
+      dispose: (): void => {
+        const i = windowStateListeners.indexOf(listener);
+        if (i >= 0) {
+          windowStateListeners.splice(i, 1);
+        }
+      },
+    };
+  },
   showInformationMessage: async (
     _message: string,
     ..._items: string[]

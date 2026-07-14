@@ -2,7 +2,13 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { formatActionFailureToast } from '../git-core/gitError';
-import type { IFileStatus, IGitService, IRepository, StatusCode } from '../services';
+import type {
+  IFileStatus,
+  IGitService,
+  IGitWorkingTreeEvents,
+  IRepository,
+  StatusCode,
+} from '../services';
 import { runBeforeCommitChecks } from '../commits/CheckinChecks';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { getLogger } from '../utils/logger';
@@ -241,7 +247,7 @@ export class GitScmProvider implements vscode.Disposable {
   private readonly _committing = new Set<string>();
 
   constructor(
-    private readonly gitService: IGitService,
+    private readonly gitService: IGitService & IGitWorkingTreeEvents,
     private readonly scm: IScmApi = defaultScmApi
   ) {}
 
@@ -256,6 +262,10 @@ export class GitScmProvider implements vscode.Disposable {
         (sourceControl: vscode.SourceControl) => this.commitFromInput(sourceControl)
       ),
       this.gitService.onDidChangeRepository((repo) => void this.syncRepo(repo)),
+      // Status lane: editor saves refresh file statuses without firing
+      // onDidChangeRepository — the SCM view renders statuses, so it
+      // subscribes to both lanes.
+      this.gitService.onDidChangeWorkingTree((repo) => void this.syncRepo(repo)),
       this.gitService.onDidRemoveRepository((repo) => this.removeRepo(repo))
     );
     await Promise.all(this.gitService.getRepositories().map((repo) => this.syncRepo(repo)));

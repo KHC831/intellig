@@ -11,7 +11,7 @@ import {
   IAutoFetchService,
   IPatchService,
 } from './interfaces';
-import { IGitServiceCli } from '../git-core/interfaces/IGitService';
+import { IGitServiceCli, IGitWorkingTreeEvents } from '../git-core/interfaces/IGitService';
 import { ConfigurationService } from '../config/ConfigurationService';
 import { GitService } from '../git-core/GitService';
 import { RebaseService } from '../git-core/RebaseService';
@@ -30,7 +30,7 @@ import { getLogger } from '../utils/logger';
  * Holds references to all core services used by the extension.
  */
 export interface IExtensionServices {
-  readonly gitService: IGitService;
+  readonly gitService: IGitService & IGitWorkingTreeEvents;
   readonly changelistService: IChangelistService;
   readonly shelfService: IShelfService;
   readonly rebaseService: IRebaseService;
@@ -63,7 +63,7 @@ export interface IExtensionServices {
  * Manages the lifecycle of all extension services.
  */
 export class ExtensionServices implements IExtensionServices {
-  private _gitService: IGitService | undefined;
+  private _gitService: (IGitService & IGitWorkingTreeEvents) | undefined;
   private _changelistService: IChangelistService | undefined;
   private _shelfService: IShelfService | undefined;
   private _rebaseService: IRebaseService | undefined;
@@ -82,7 +82,7 @@ export class ExtensionServices implements IExtensionServices {
    * Get the Git service instance
    * @throws Error if services not initialized
    */
-  get gitService(): IGitService {
+  get gitService(): IGitService & IGitWorkingTreeEvents {
     this.ensureInitialized();
     return this._gitService!;
   }
@@ -315,7 +315,7 @@ export class ExtensionServices implements IExtensionServices {
 
     switch (serviceName) {
       case 'gitService':
-        this._gitService = service as IGitService;
+        this._gitService = service as IGitService & IGitWorkingTreeEvents;
         break;
       case 'changelistService':
         this._changelistService = service as IChangelistService;
@@ -452,7 +452,7 @@ export class ExtensionServices implements IExtensionServices {
  * Service name to type mapping
  */
 interface IServiceMap {
-  gitService: IGitService;
+  gitService: IGitService & IGitWorkingTreeEvents;
   changelistService: IChangelistService;
   shelfService: IShelfService;
   rebaseService: IRebaseService;

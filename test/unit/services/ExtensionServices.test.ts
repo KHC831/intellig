@@ -218,7 +218,8 @@ describe('ExtensionServices', () => {
         () =>
           services.registerService(
             'gitService',
-            {} as import('../../../src/services/interfaces').IGitService
+            {} as import('../../../src/services/interfaces').IGitService &
+              import('../../../src/services/interfaces').IGitWorkingTreeEvents
           ),
         /Cannot register service on disposed ExtensionServices/
       );

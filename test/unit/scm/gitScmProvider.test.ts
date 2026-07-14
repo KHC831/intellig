@@ -235,6 +235,34 @@ describe('GitScmProvider — lifecycle', () => {
     provider.dispose();
   });
 
+  it('refreshes resource states on a working-tree (status lane) event', async () => {
+    const repo = repoAt('/repo');
+    let files: IFileStatus[] = [status('src/a.ts', ' ', 'M')];
+    const workingTree = new EventEmitter<IRepository>();
+    const git = createMockGitService(repo, {
+      getRepositories: () => [repo],
+      getStatus: async () => files,
+      onDidChangeWorkingTree: workingTree.event,
+    });
+    const { api, created } = fakeScmApi();
+
+    const provider = new GitScmProvider(git, api);
+    await provider.initialize();
+    assert.equal(created[0].group('changes').resourceStates.length, 1);
+
+    // An editor save adds an untracked file; only the status lane fires.
+    files = [status('src/a.ts', ' ', 'M'), status('docs/n.md', '?', '?')];
+    workingTree.fire(repo);
+    await new Promise((r) => setTimeout(r, 0));
+
+    assert.equal(
+      created[0].group('changes').resourceStates.length,
+      2,
+      'the SCM view must stay live on saves, which never fire onDidChangeRepository'
+    );
+    provider.dispose();
+  });
+
   it('disposes the source control when its repository is removed', async () => {
     const repo = repoAt('/repo');
     const removeEmitter = new EventEmitter<IRepository>();

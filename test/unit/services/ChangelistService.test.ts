@@ -9,6 +9,7 @@ import {
 import {
   IFileStatus,
   IGitService,
+  IGitWorkingTreeEvents,
   IRepository,
 } from '../../../src/git-core/interfaces/IGitService';
 import { IChangelist } from '../../../src/changelists/interfaces/IChangelistService';
@@ -124,12 +125,16 @@ async function flushMicrotasks(): Promise<void> {
  * we actually stub and surfaces a type error if `ChangelistService` ever
  * starts touching a new `IGitService` method without us updating the stub.
  */
-type NoopGitService = Pick<IGitService, 'getStatus' | 'onDidChangeRepository'>;
+type NoopGitService = Pick<IGitService, 'getStatus' | 'onDidChangeRepository'> &
+  IGitWorkingTreeEvents;
 
 function makeNoopGitServiceStub(): NoopGitService {
   return {
     // stub signature must match IGitService.getStatus; structural conformance only.
     getStatus: async (_repo) => [],
+    onDidChangeWorkingTree: ((_listener: (repo: IRepository) => void) => ({
+      dispose: (): void => {},
+    })) as IGitWorkingTreeEvents['onDidChangeWorkingTree'],
     onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
       dispose: (): void => {
         // no-op
@@ -206,7 +211,9 @@ describe('ChangelistService', () => {
     // Create the changelist service with the no-op stub — specs under
     // this `describe` don't assert on reconcile behavior, so the stub's
     // empty-status / no-fire semantics keep storage deterministic.
-    changelistService = createChangelistService(makeNoopGitServiceStub() as IGitService);
+    changelistService = createChangelistService(
+      makeNoopGitServiceStub() as IGitService & IGitWorkingTreeEvents
+    );
   });
 
   /**
@@ -517,7 +524,9 @@ describe('ChangelistService', () => {
       changelistService.createChangelist(mockRepo, 'Persistent');
 
       // Create a new service instance
-      const newService = createChangelistService(makeNoopGitServiceStub() as IGitService);
+      const newService = createChangelistService(
+        makeNoopGitServiceStub() as IGitService & IGitWorkingTreeEvents
+      );
 
       try {
         // Get changelists from new instance
@@ -535,7 +544,9 @@ describe('ChangelistService', () => {
       changelistService.moveToChangelist(mockRepo, ['file1.txt', 'file2.txt'], changelist.id);
 
       // Create a new service instance
-      const newService = createChangelistService(makeNoopGitServiceStub() as IGitService);
+      const newService = createChangelistService(
+        makeNoopGitServiceStub() as IGitService & IGitWorkingTreeEvents
+      );
 
       try {
         const changelists = newService.getChangelists(mockRepo);
@@ -784,7 +795,9 @@ describe('ChangelistService', () => {
       assert.strictEqual(active.id, cl.id);
 
       // Also visible across a fresh service instance (persistence check).
-      const fresh = createChangelistService(makeNoopGitServiceStub() as IGitService);
+      const fresh = createChangelistService(
+        makeNoopGitServiceStub() as IGitService & IGitWorkingTreeEvents
+      );
       try {
         const active2 = await fresh.getActiveChangelist(mockRepo);
         assert.strictEqual(active2.id, cl.id);
@@ -841,19 +854,23 @@ describe('ChangelistService', () => {
        * `NoopGitService`-style Pick cast at the boundary) so call sites can
        * hand it straight to `createChangelistService(...)` without each
        * test site repeating the `as unknown as IGitService` dance. Only
-       * `getStatus` + `onDidChangeRepository` are actually implemented —
+       * `getStatus` + the two change events are actually implemented —
        * any other method access will throw `undefined is not a function`,
        * surfacing accidental production-code dependencies on new
        * `IGitService` members.
        */
-      gitService: IGitService;
+      gitService: IGitService & IGitWorkingTreeEvents;
       fireRepoChange: (repo: IRepository) => void;
       statusCallCount: () => number;
     } {
       let callCount = 0;
       const repoChangeListeners: Array<(repo: IRepository) => void> = [];
 
-      const gitService: Pick<IGitService, 'getStatus' | 'onDidChangeRepository'> = {
+      const gitService: Pick<IGitService, 'getStatus' | 'onDidChangeRepository'> &
+        IGitWorkingTreeEvents = {
+        onDidChangeWorkingTree: ((_l: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        })) as IGitWorkingTreeEvents['onDidChangeWorkingTree'],
         // Only the subset used by ChangelistService + the test's trigger
         // is implemented; everything else throws if touched by accident.
         // IGitService.getStatus contract returns Promise<IFileStatus[]>;
@@ -885,7 +902,7 @@ describe('ChangelistService', () => {
       };
 
       return {
-        gitService: gitService as IGitService,
+        gitService: gitService as IGitService & IGitWorkingTreeEvents,
         fireRepoChange: (repo: IRepository) => {
           for (const l of repoChangeListeners) {
             l(repo);
@@ -917,7 +934,10 @@ describe('ChangelistService', () => {
           repoChangeListeners.push(listener);
           return { dispose: (): void => {} };
         },
-      } as unknown as IGitService;
+        onDidChangeWorkingTree: (_listener: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+      } as unknown as IGitService & IGitWorkingTreeEvents;
 
       const svc = createChangelistService(gitService);
       try {
@@ -1200,7 +1220,10 @@ describe('ChangelistService', () => {
       const gitService = {
         getStatus: async () => rows,
         onDidChangeRepository: (_l: (repo: IRepository) => void) => ({ dispose: (): void => {} }),
-      } as unknown as IGitService;
+        onDidChangeWorkingTree: (_l: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+      } as unknown as IGitService & IGitWorkingTreeEvents;
 
       const svc = createChangelistService(gitService);
       try {
@@ -1230,7 +1253,10 @@ describe('ChangelistService', () => {
       const gitService = {
         getStatus: async () => rows,
         onDidChangeRepository: (_l: (repo: IRepository) => void) => ({ dispose: (): void => {} }),
-      } as unknown as IGitService;
+        onDidChangeWorkingTree: (_l: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+      } as unknown as IGitService & IGitWorkingTreeEvents;
 
       const svc = createChangelistService(gitService);
       try {
@@ -1259,13 +1285,16 @@ describe('ChangelistService', () => {
      * IFileStatus rows verbatim, so specs can drive real index/work-tree
      * codes through reconcile and assert the overlaid metadata.
      */
-    function makeStatusStub(rows: IFileStatus[]): IGitService {
+    function makeStatusStub(rows: IFileStatus[]): IGitService & IGitWorkingTreeEvents {
       return {
         getStatus: async () => rows,
         onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
           dispose: (): void => {},
         }),
-      } as unknown as IGitService;
+        onDidChangeWorkingTree: (_listener: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+      } as unknown as IGitService & IGitWorkingTreeEvents;
     }
 
     async function reconcileAndGet(rows: IFileStatus[]): Promise<IChangelist[]> {
@@ -1382,5 +1411,43 @@ describe('makeThrowingGitServiceStub (defense-in-depth helper)', () => {
       () => stub.onDidChangeRepository,
       /unexpected call to IGitService\.onDidChangeRepository/
     );
+  });
+});
+
+describe('ChangelistService — working-tree (status lane) events', () => {
+  it('a working-tree refresh schedules a reconcile, same as a repository change', async () => {
+    const treeListeners: Array<(repo: IRepository) => void> = [];
+    let statusCalls = 0;
+    const gitService = {
+      getStatus: async (): Promise<IFileStatus[]> => {
+        statusCalls += 1;
+        return [];
+      },
+      onDidChangeRepository: (_l: (repo: IRepository) => void) => ({ dispose: (): void => {} }),
+      onDidChangeWorkingTree: (l: (repo: IRepository) => void) => {
+        treeListeners.push(l);
+        return { dispose: (): void => {} };
+      },
+    } as unknown as IGitService & IGitWorkingTreeEvents;
+
+    const svc = createChangelistService(gitService);
+    try {
+      const repo = {
+        rootUri: Uri.file('/repo-wt-lane'),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+      for (const l of treeListeners) {
+        l(repo);
+      }
+      await new Promise((r) => setTimeout(r, 400));
+      assert.ok(
+        statusCalls >= 1,
+        'an editor save (status lane) must reconcile changelists so Local Changes stays live'
+      );
+    } finally {
+      svc.dispose();
+    }
   });
 });

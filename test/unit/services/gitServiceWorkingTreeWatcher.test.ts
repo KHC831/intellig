@@ -1,23 +1,30 @@
 /**
- * Tests for the working-tree file watcher that keeps the Local Changes view
- * (and every other `onDidChangeRepository` subscriber) live when a tracked
- * file is edited.
+ * Tests for the working-tree STATUS lane: the broad `**` watcher that keeps
+ * the Local Changes view live when a tracked file is edited.
  *
  * The `.git/`-internals watchers (WATCHED_GIT_PATTERNS) only fire when
  * something under `.git/` changes — staging, commits, branch switches. A plain
- * editor save touches the WORKING TREE, not `.git/`, so before this watcher the
- * Commit tool window stayed stale until the view was re-resolved.
+ * editor save touches the WORKING TREE, not `.git/`. Working-tree events can
+ * only change file STATUSES — never refs, commits, or the log — so they take
+ * a separate lane (ported from VS Code's git extension response policy):
  *
- * Ported from VS Code's built-in git extension: one broad watcher over the repo
- * root, events split by whether the path is inside `.git/` (those are left to
- * the dedicated `.git` watchers), the rest routed through the existing debounced
- * refresh — gated by an `intellig.autorefresh` toggle.
+ *   - refresh runs behind the status-lane debounce + a hard floor between
+ *     runs, and defers entirely while the window is unfocused;
+ *   - the refresh fires `onDidChangeWorkingTree` (status-family consumers),
+ *     NOT `onDidChangeRepository` — the graph/branch pipeline must not rerun
+ *     because a build wrote a file;
+ *   - gated by the `intellig.autorefresh` toggle.
  */
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { GitService } from '../../../src/git-core/GitService';
-import { Uri, getCreatedFileSystemWatchers, RelativePattern } from '../../mocks/vscode';
+import {
+  Uri,
+  getCreatedFileSystemWatchers,
+  RelativePattern,
+  setWindowFocused,
+} from '../../mocks/vscode';
 
 function installFakeTimers(): { tick: (ms: number) => void; uninstall: () => void } {
   const realSet = globalThis.setTimeout;
@@ -100,9 +107,14 @@ function wireWatcher(service: GitService, rootPath: string): { loadCount: () => 
   return { loadCount: (): number => count };
 }
 
-function debounceMs(): number {
+function statusLaneDebounceMs(): number {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-  return (GitService as any).WATCHER_DEBOUNCE_MS as number;
+  return (GitService as any).STATUS_LANE_DEBOUNCE_MS as number;
+}
+
+function statusLaneFloorMs(): number {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+  return (GitService as any).STATUS_LANE_FLOOR_MS as number;
 }
 
 describe('GitService — working-tree watcher (live Local Changes)', () => {
@@ -120,6 +132,7 @@ describe('GitService — working-tree watcher (live Local Changes)', () => {
   afterEach(async () => {
     timers.uninstall();
     gitService.dispose();
+    setWindowFocused(true);
     await vscode.workspace.getConfiguration('intellig').update('autorefresh', undefined);
   });
 
@@ -142,14 +155,75 @@ describe('GitService — working-tree watcher (live Local Changes)', () => {
     assert.strictEqual(base, rootPath, 'working-tree watcher is rooted at the repo root');
   });
 
-  it('a working-tree file change triggers exactly one debounced reload', async () => {
+  it('a working-tree file change triggers exactly one status-lane reload', async () => {
     const probe = wireWatcher(gitService, rootPath);
     const w = workingTreeWatcher();
     w._fireChange(Uri.file(`${rootPath}/src/foo.ts`));
     assert.strictEqual(probe.loadCount(), 0, 'no synchronous reload — the refresh is debounced');
-    timers.tick(debounceMs());
+    timers.tick(statusLaneDebounceMs());
     await flushMicrotasks();
     assert.strictEqual(probe.loadCount(), 1, 'a saved working-tree file reloads the repository');
+  });
+
+  it('a working-tree change fires onDidChangeWorkingTree, never onDidChangeRepository', async () => {
+    const probe = wireWatcher(gitService, rootPath);
+    let repoEvents = 0;
+    let workingTreeEvents = 0;
+    gitService.onDidChangeRepository(() => {
+      repoEvents += 1;
+    });
+    gitService.onDidChangeWorkingTree(() => {
+      workingTreeEvents += 1;
+    });
+
+    const w = workingTreeWatcher();
+    w._fireChange(Uri.file(`${rootPath}/src/foo.ts`));
+    timers.tick(statusLaneDebounceMs());
+    await flushMicrotasks();
+
+    assert.strictEqual(probe.loadCount(), 1, 'the status lane reloads repo state');
+    assert.strictEqual(workingTreeEvents, 1, 'status-family consumers hear about the save');
+    assert.strictEqual(
+      repoEvents,
+      0,
+      'the graph/branch pipeline must NOT rerun for a working-tree write'
+    );
+  });
+
+  it('sustained working-tree events are spaced by the floor', async () => {
+    const probe = wireWatcher(gitService, rootPath);
+    const w = workingTreeWatcher();
+
+    w._fireChange(Uri.file(`${rootPath}/build/a.log`));
+    timers.tick(statusLaneDebounceMs());
+    await flushMicrotasks();
+    assert.strictEqual(probe.loadCount(), 1, 'first run after the debounce');
+
+    // A storm during the run's floor window coalesces into ONE trailing run.
+    w._fireChange(Uri.file(`${rootPath}/build/b.log`));
+    w._fireChange(Uri.file(`${rootPath}/build/c.log`));
+    w._fireChange(Uri.file(`${rootPath}/build/d.log`));
+    await flushMicrotasks();
+    assert.strictEqual(probe.loadCount(), 1, 'no run during the floor');
+
+    timers.tick(statusLaneFloorMs());
+    await flushMicrotasks();
+    assert.strictEqual(probe.loadCount(), 2, 'one trailing run after the floor for the storm');
+  });
+
+  it('defers the refresh while the window is unfocused', async () => {
+    const probe = wireWatcher(gitService, rootPath);
+    const w = workingTreeWatcher();
+    setWindowFocused(false);
+
+    w._fireChange(Uri.file(`${rootPath}/src/foo.ts`));
+    timers.tick(statusLaneDebounceMs());
+    await flushMicrotasks();
+    assert.strictEqual(probe.loadCount(), 0, 'an unfocused window refreshes nothing');
+
+    setWindowFocused(true);
+    await flushMicrotasks();
+    assert.strictEqual(probe.loadCount(), 1, 'the pending refresh lands when focus returns');
   });
 
   it('ignores events under .git/ (the dedicated .git watchers own those, avoids a refresh loop)', async () => {
@@ -157,7 +231,7 @@ describe('GitService — working-tree watcher (live Local Changes)', () => {
     const w = workingTreeWatcher();
     w._fireChange(Uri.file(`${rootPath}/.git/index`));
     w._fireChange(Uri.file(`${rootPath}/.git/refs/heads/main`));
-    timers.tick(debounceMs());
+    timers.tick(statusLaneDebounceMs());
     await flushMicrotasks();
     assert.strictEqual(
       probe.loadCount(),
@@ -170,7 +244,7 @@ describe('GitService — working-tree watcher (live Local Changes)', () => {
     const probe = wireWatcher(gitService, rootPath);
     const w = workingTreeWatcher();
     w._fireChange(Uri.file(`${rootPath}/.gitignore`));
-    timers.tick(debounceMs());
+    timers.tick(statusLaneDebounceMs());
     await flushMicrotasks();
     assert.strictEqual(probe.loadCount(), 1, 'editing .gitignore is a working-tree change');
   });
@@ -180,8 +254,154 @@ describe('GitService — working-tree watcher (live Local Changes)', () => {
     const probe = wireWatcher(gitService, rootPath);
     const w = workingTreeWatcher();
     w._fireChange(Uri.file(`${rootPath}/src/foo.ts`));
-    timers.tick(debounceMs());
+    timers.tick(statusLaneDebounceMs());
     await flushMicrotasks();
     assert.strictEqual(probe.loadCount(), 0, 'autorefresh=false suppresses working-tree refresh');
+  });
+});
+
+describe('GitService — status lane defers to the ref lane (no cross-lane double reload)', () => {
+  const rootPath = '/tmp/repo-lane-serialization';
+  let gitService: GitService;
+  let timers: { tick: (ms: number) => void; uninstall: () => void };
+  let baseline: number;
+
+  beforeEach(() => {
+    gitService = new GitService();
+    timers = installFakeTimers();
+    baseline = getCreatedFileSystemWatchers().length;
+  });
+
+  afterEach(() => {
+    timers.uninstall();
+    gitService.dispose();
+    setWindowFocused(true);
+  });
+
+  function watchers(): ReturnType<typeof getCreatedFileSystemWatchers> {
+    return getCreatedFileSystemWatchers().slice(baseline);
+  }
+
+  function treeWatcher(): ReturnType<typeof getCreatedFileSystemWatchers>[number] {
+    const w = watchers().find(
+      (x) => x._pattern instanceof RelativePattern && x._pattern.pattern === '**'
+    );
+    assert.ok(w);
+    return w;
+  }
+
+  function headWatcher(): ReturnType<typeof getCreatedFileSystemWatchers>[number] {
+    const w = watchers().find(
+      (x) => x._pattern instanceof RelativePattern && x._pattern.pattern === 'HEAD'
+    );
+    assert.ok(w, 'a HEAD watcher must be installed');
+    return w;
+  }
+
+  it('a ref-lane reload in flight absorbs the status lane run entirely', async () => {
+    // Hang loadRepository on a controllable promise so the .git-lane reload
+    // is still in flight when the status lane's debounce fires.
+    const surface = gitService as unknown as WatcherTestSurface;
+    surface._gitCli = new StubGitCli();
+    let loads = 0;
+    let release: (() => void) | undefined;
+    surface.loadRepository = (): Promise<unknown> => {
+      loads += 1;
+      return new Promise((resolve) => {
+        release = (): void =>
+          resolve({
+            rootUri: Uri.file(rootPath),
+            state: 'idle',
+            head: { name: 'main', commit: 'a'.repeat(40), ahead: 0, behind: 0 },
+            remotes: [],
+            submodules: [],
+          });
+      });
+    };
+    surface.setupRepositoryWatcher(rootPath);
+
+    let workingTreeEvents = 0;
+    gitService.onDidChangeWorkingTree(() => {
+      workingTreeEvents += 1;
+    });
+
+    // A checkout touches .git AND the working tree.
+    headWatcher()._fireChange(Uri.file(`${rootPath}/.git/HEAD`));
+    treeWatcher()._fireChange(Uri.file(`${rootPath}/src/checked-out.ts`));
+
+    timers.tick(250); // ref lane debounce — reload 1 starts and HANGS
+    await flushMicrotasks();
+    assert.strictEqual(loads, 1, 'ref-lane reload in flight');
+
+    timers.tick(1000); // status lane debounce fires while reload 1 is in flight
+    await flushMicrotasks();
+    assert.strictEqual(loads, 1, 'the status lane must not start a concurrent reload');
+
+    release?.();
+    await flushMicrotasks();
+    timers.tick(6000); // status-lane floor drains
+    await flushMicrotasks();
+    assert.strictEqual(
+      loads,
+      1,
+      'the completed ref-lane reload covers the save — no second reload'
+    );
+    assert.strictEqual(
+      workingTreeEvents,
+      0,
+      'covered saves fire no working-tree event (the repository event already reached both-lane consumers)'
+    );
+  });
+
+  it('a ref-lane reload that completed after the save absorbs the status lane run', async () => {
+    const surface = gitService as unknown as WatcherTestSurface;
+    surface._gitCli = new StubGitCli();
+    let loads = 0;
+    surface.loadRepository = async (): Promise<unknown> => {
+      loads += 1;
+      return {
+        rootUri: Uri.file(rootPath),
+        state: 'idle',
+        head: { name: 'main', commit: 'a'.repeat(40), ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+    };
+    surface.setupRepositoryWatcher(rootPath);
+
+    // Save (poke) first, then the .git event whose reload completes BEFORE
+    // the status lane's slower debounce elapses.
+    treeWatcher()._fireChange(Uri.file(`${rootPath}/src/pulled.ts`));
+    headWatcher()._fireChange(Uri.file(`${rootPath}/.git/HEAD`));
+
+    timers.tick(250); // ref-lane reload runs to completion
+    await flushMicrotasks();
+    assert.strictEqual(loads, 1);
+
+    timers.tick(1000); // status lane fires — must notice it is already covered
+    await flushMicrotasks();
+    timers.tick(6000);
+    await flushMicrotasks();
+    assert.strictEqual(loads, 1, 'a pull/checkout must cost ONE reload, not one per lane');
+  });
+
+  it('an uncovered save still refreshes through the status lane', async () => {
+    const probe = wireWatcher(gitService, rootPath);
+    treeWatcher()._fireChange(Uri.file(`${rootPath}/src/plain-save.ts`));
+    timers.tick(1000);
+    await flushMicrotasks();
+    assert.strictEqual(probe.loadCount(), 1, 'no ref activity — the lane refreshes normally');
+  });
+});
+
+describe('GitService — .git/config is watched (remote set-url has no save heartbeat anymore)', () => {
+  it('WATCHED_GIT_PATTERNS includes config', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    const patterns = (GitService as any).WATCHED_GIT_PATTERNS as readonly string[];
+    assert.ok(
+      patterns.includes('config'),
+      'git remote set-url writes .git/config and fires no other event; without this ' +
+        'pattern the remote caches (blame links, tool-window remotes) go stale forever'
+    );
   });
 });

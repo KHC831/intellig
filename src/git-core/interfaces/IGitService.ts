@@ -951,6 +951,23 @@ export interface IBranchComparison {
 }
 
 /**
+ * Working-tree change notifications — the STATUS lane's event surface.
+ *
+ * Fired when a working-tree file event refreshed the repository's status
+ * state. Distinct from `onDidChangeRepository` (the ref lane: commits,
+ * branches, HEAD, staging), which working-tree writes deliberately do NOT
+ * fire — a build writing output must not rerun the log/branch pipeline.
+ * Consumers that render file STATUSES (SCM view, changelists, commit tool
+ * window) subscribe to BOTH events.
+ *
+ * A role interface per ADR-001: `IGitService` is frozen, so new capabilities
+ * land on narrow interfaces like this one. `GitService` implements it.
+ */
+export interface IGitWorkingTreeEvents {
+  onDidChangeWorkingTree: vscode.Event<IRepository>;
+}
+
+/**
  * Core Git Service interface for interacting with Git repositories.
  * This is the main service for all Git operations.
  *

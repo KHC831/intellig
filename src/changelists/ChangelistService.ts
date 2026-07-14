@@ -7,6 +7,7 @@ import { getLogger, type Logger } from '../utils/logger';
 import { IChangelistService, IChangelist, IFileChange } from './interfaces/IChangelistService';
 import {
   IGitService,
+  IGitWorkingTreeEvents,
   IRepository,
   FileStatus,
   IFileStatus,
@@ -337,7 +338,7 @@ export class ChangelistService implements IChangelistService {
    */
   readonly onDidChangeChangelists: vscode.Event<IChangelist[]>;
 
-  constructor(gitService: IGitService) {
+  constructor(gitService: IGitService & IGitWorkingTreeEvents) {
     this._onDidChangeChangelists = new vscode.EventEmitter<IChangelist[]>();
     this.onDidChangeChangelists = this._onDidChangeChangelists.event;
 
@@ -345,10 +346,17 @@ export class ChangelistService implements IChangelistService {
     this._logger = getLogger().child({ component: 'ChangelistService' });
     this._logger.info('ChangelistService constructed');
 
-    // Subscribe to repository changes so storage stays in sync with
-    // external `git add`, file removal, rename, etc.
+    // Subscribe to BOTH change lanes so storage stays in sync: the
+    // repository lane (external `git add`, commits, checkouts) and the
+    // working-tree lane (editor saves — the status-only refresh that
+    // deliberately does not fire onDidChangeRepository).
     this._disposables.push(
       gitService.onDidChangeRepository((repo) => {
+        this.scheduleReconcile(repo);
+      })
+    );
+    this._disposables.push(
+      gitService.onDidChangeWorkingTree((repo) => {
         this.scheduleReconcile(repo);
       })
     );
@@ -1134,6 +1142,8 @@ export class ChangelistService implements IChangelistService {
  *   {@link ChangelistService} constructor docs.
  * @returns A new ChangelistService instance
  */
-export function createChangelistService(gitService: IGitService): ChangelistService {
+export function createChangelistService(
+  gitService: IGitService & IGitWorkingTreeEvents
+): ChangelistService {
   return new ChangelistService(gitService);
 }

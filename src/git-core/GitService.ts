@@ -5,6 +5,7 @@ import { canonicalizeFsPath } from '../utils/repoRelativePath';
 import {
   IGitService,
   IGitServiceCli,
+  IGitWorkingTreeEvents,
   IRepository,
   IBranch,
   ICommit,
@@ -43,6 +44,7 @@ import {
   ILineSelection,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
+import { createStatusLane } from './statusLane';
 import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
 import {
   isPathInsideOrEqual,
@@ -82,7 +84,7 @@ interface IRepositoryCache {
  * Git Service implementation.
  * Provides all Git operations through the Git CLI.
  */
-export class GitService implements IGitService, IGitServiceCli {
+export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeEvents {
   private _gitCli: GitCli;
   private readonly _staging: StagingOps;
   private readonly _diff: DiffOps;
@@ -94,6 +96,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private readonly _worktrees: WorktreeOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
+  private _onDidChangeWorkingTree: vscode.EventEmitter<IRepository>;
   /**
    * (#213): fired when a previously-discovered repository is removed
    * from `_repositories` — either because the user removed its workspace
@@ -114,9 +117,26 @@ export class GitService implements IGitService, IGitServiceCli {
    * `.git/objects/**`, re-triggering the watcher → `loadRepository` → the
    * same git reads again.
    */
-  private _fileWatchers: Map<string, vscode.FileSystemWatcher[]> = new Map();
+  private _fileWatchers: Map<string, vscode.Disposable[]> = new Map();
   /** Per-rootPath debounce timers for coalescing watcher event bursts. */
   private _refreshTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+  /**
+   * Monotonic tick shared by working-tree pokes and evented refresh
+   * completions; strictly orders them even inside one millisecond (wall-clock
+   * comparison wrongly absorbed a save landing in the same ms as a refresh).
+   */
+  private _laneClock = 0;
+
+  /**
+   * Per-root tick of the last refresh completion that FIRED a change event
+   * (either lane). The status lane skips its reload when a covering refresh
+   * completed after the save that scheduled it — a checkout or pull that
+   * touches both `.git` and the working tree must cost one reload, not one
+   * per lane. TTL cache-miss reloads do NOT count: they fire no event, so
+   * they cover no consumer.
+   */
+  private _lastEventedRefreshAt: Map<string, number> = new Map();
   /** In-flight `loadRepository` promises, keyed by rootPath. */
   private _reloading: Map<string, Promise<IRepository>> = new Map();
   /**
@@ -262,6 +282,18 @@ export class GitService implements IGitService, IGitServiceCli {
   private static readonly WATCHER_DEBOUNCE_MS = 250;
 
   /**
+   * STATUS lane (working-tree events) timings — a port of the VS Code git
+   * extension's policy (repository.ts: @debounce(1000) then status() then
+   * timeout(5000)). Working-tree writes can only change file statuses, so
+   * they are debounced harder and floored: a build storm costs at most one
+   * status refresh per floor window, and nothing runs while the window is
+   * unfocused. The `.git` lane above keeps the tighter WATCHER_DEBOUNCE_MS —
+   * user-initiated git actions should feel instant.
+   */
+  private static readonly STATUS_LANE_DEBOUNCE_MS = 1000;
+  private static readonly STATUS_LANE_FLOOR_MS = 5000;
+
+  /**
    * Narrow allow-list of `.git/` entries we react to. Ordered roughly by
    * hit frequency; each entry becomes its own `FileSystemWatcher` with a
    * `RelativePattern(gitDir, entry)` glob.
@@ -275,9 +307,12 @@ export class GitService implements IGitService, IGitServiceCli {
    *    `fetch()` call completes.
    *  - `ORIG_HEAD` — a side-effect file written by reset/merge; the real
    *    branch change is captured by HEAD/refs/** which we already watch.
-   *  - `config` — remote URL / user / alias edits are rare and editor-driven;
-   *    deliberately not watched. Fresh values are picked up via the 5 s cache
-   *    TTL on `_repositories` plus any explicit reload path.
+   *
+   * `config` IS watched: `git remote set-url` (and user/alias edits) write it
+   * and fire no other event, and remote-derived caches (blame links,
+   * tool-window remotes) flush on the repository-lane event this produces.
+   * Config writes are rare — read-path git commands never touch it — so the
+   * watcher adds no churn.
    *  - `modules/**` — submodule state changes surface through the parent
    *    repo's `HEAD` / `index` updates; the inner `.git/modules/<name>/`
    *    tree is deliberately not watched. Relies on the 5 s cache TTL +
@@ -292,6 +327,7 @@ export class GitService implements IGitService, IGitServiceCli {
     'index',
     'refs/**',
     'packed-refs',
+    'config',
     'MERGE_HEAD',
     'CHERRY_PICK_HEAD',
     'REVERT_HEAD',
@@ -317,6 +353,14 @@ export class GitService implements IGitService, IGitServiceCli {
   readonly onDidChangeRepository: vscode.Event<IRepository>;
 
   /**
+   * STATUS-lane event: a working-tree file event refreshed this repo's
+   * status state. See {@link IGitWorkingTreeEvents} — deliberately distinct
+   * from {@link onDidChangeRepository} so a build writing files can never
+   * rerun the log/branch pipeline.
+   */
+  readonly onDidChangeWorkingTree: vscode.Event<IRepository>;
+
+  /**
    * Event fired when a previously-discovered repository is removed from
    * tracking (workspace folder removed OR `.git/HEAD` deleted mid-session
    * per issue #213). Fires exactly once per repo per removal cause.
@@ -332,6 +376,8 @@ export class GitService implements IGitService, IGitServiceCli {
     this._gitCli = createGitCli(gitPath);
     this._onDidChangeRepository = new vscode.EventEmitter<IRepository>();
     this.onDidChangeRepository = this._onDidChangeRepository.event;
+    this._onDidChangeWorkingTree = new vscode.EventEmitter<IRepository>();
+    this.onDidChangeWorkingTree = this._onDidChangeWorkingTree.event;
     this._onDidRemoveRepository = new vscode.EventEmitter<IRepository>();
     this.onDidRemoveRepository = this._onDidRemoveRepository.event;
     this._onDidFetch = new vscode.EventEmitter<{ repo: IRepository; result: IFetchResult }>();
@@ -621,6 +667,7 @@ export class GitService implements IGitService, IGitServiceCli {
       // Enroll into `_reloading` so drain paths see this in-flight load.
       const fresh = await this._enrollReload(rootPath, this.loadRepository(rootPath));
       if (!this._disposed) {
+        this._lastEventedRefreshAt.set(rootPath, ++this._laneClock);
         this._onDidChangeRepository.fire(fresh);
       }
       this._logger.info('reloadRepository exit', { rootPath, ok: true });
@@ -1322,7 +1369,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // (Disposable.dispose() is idempotent, so it's not user-visible). Only the
     // _onDidChangeRepository emitter and other process-lifetime disposables
     // belong in `_disposables`.
-    const watchers: vscode.FileSystemWatcher[] = [];
+    const watchers: vscode.Disposable[] = [];
     for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(gitDir, pattern)
@@ -1344,15 +1391,49 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Working-tree watcher (ported from VS Code's git extension): a single
     // broad watcher over the repo root so a plain editor save — which touches
-    // the working tree, not `.git/` — still refreshes the repo, keeping the
-    // Local Changes view live. Events are split the same way VS Code splits
-    // its watcher:
+    // the working tree, not `.git/` — still refreshes file statuses, keeping
+    // the Local Changes view live. Events are split the same way VS Code
+    // splits its watcher:
     //   - `.git/` paths are dropped here (the WATCHED_GIT_PATTERNS watchers own
     //     them); dropping them also breaks the refresh loop, since a reload's
     //     own git subprocesses write only under `.git/`.
-    //   - the rest route through the shared debounced `handleChange`, whose
-    //     in-flight guard is the equivalent of VS Code's `operations.isIdle()`.
+    //   - the rest take the STATUS lane: a working-tree write can only change
+    //     file statuses — never refs, commits, or the log — so it is
+    //     debounced/floored/focus-gated (see statusLane.ts) and its refresh
+    //     fires onDidChangeWorkingTree, NOT onDidChangeRepository. The
+    //     graph/branch pipeline never reruns because a build wrote a file.
     // The `intellig.autorefresh` toggle mirrors VS Code's `git.autorefresh`.
+    let lastPokeAt = 0;
+    const statusLane = createStatusLane({
+      debounceMs: GitService.STATUS_LANE_DEBOUNCE_MS,
+      floorMs: GitService.STATUS_LANE_FLOOR_MS,
+      isFocused: (): boolean => vscode.window.state?.focused ?? true,
+      onDidFocus: (listener: () => void): { dispose(): void } =>
+        vscode.window.onDidChangeWindowState((e) => {
+          if (e.focused) {
+            listener();
+          }
+        }),
+      run: async (): Promise<void> => {
+        const pokeAt = lastPokeAt;
+        // Defer to the ref lane. A checkout/pull touches both `.git` and the
+        // working tree; the ref lane's reload already refreshes repo state
+        // and its onDidChangeRepository reaches every both-lane consumer, so
+        // a covered save needs no second reload and no second event.
+        const inflight = this._reloading.get(rootPath);
+        if (inflight) {
+          await inflight.then(
+            () => undefined,
+            () => undefined
+          );
+          return;
+        }
+        if ((this._lastEventedRefreshAt.get(rootPath) ?? 0) >= pokeAt) {
+          return;
+        }
+        await this._performDebouncedRefresh(rootPath, 'workingTree');
+      },
+    });
     const handleWorkingTreeChange = (uri: vscode.Uri): void => {
       if (this._disposed) {
         return;
@@ -1366,7 +1447,11 @@ export class GitService implements IGitService, IGitServiceCli {
       if (!autorefresh) {
         return;
       }
-      handleChange(uri);
+      // Name the trigger so a refresh storm is attributable from the logs
+      // alone (which file, how often).
+      this._logger.debug('watcher event', { rootPath, path: uri.fsPath, lane: 'workingTree' });
+      lastPokeAt = ++this._laneClock;
+      statusLane.poke();
     };
     const workingTreeWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(rootPath), '**')
@@ -1375,6 +1460,10 @@ export class GitService implements IGitService, IGitServiceCli {
     workingTreeWatcher.onDidCreate(handleWorkingTreeChange);
     workingTreeWatcher.onDidDelete(handleWorkingTreeChange);
     watchers.push(workingTreeWatcher);
+    // The lane rides the same per-root disposables array as the watchers, so
+    // removeRepositoryWatcher / dispose() tear it down through the ADR-008
+    // family registry with no extra bookkeeping.
+    watchers.push(statusLane);
 
     this._fileWatchers.set(rootPath, watchers);
   }
@@ -1388,7 +1477,10 @@ export class GitService implements IGitService, IGitServiceCli {
    * must not crash the watcher callback chain, or we'd silently stop
    * reacting to future file changes.
    */
-  private async _performDebouncedRefresh(rootPath: string): Promise<void> {
+  private async _performDebouncedRefresh(
+    rootPath: string,
+    lane: 'repository' | 'workingTree' = 'repository'
+  ): Promise<void> {
     // Re-check the dispose latch at the start of the async tail — the timer
     // callback that scheduled us may have won the race against dispose().
     if (this._disposed) {
@@ -1424,7 +1516,12 @@ export class GitService implements IGitService, IGitServiceCli {
       });
     }
     if (repo && !this._disposed) {
-      this._onDidChangeRepository.fire(repo);
+      this._lastEventedRefreshAt.set(rootPath, ++this._laneClock);
+      if (lane === 'workingTree') {
+        this._onDidChangeWorkingTree.fire(repo);
+      } else {
+        this._onDidChangeRepository.fire(repo);
+      }
     }
   }
 
@@ -2655,6 +2752,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // mid-flight.
     this._disposed = true;
     this._onDidChangeRepository.dispose();
+    this._onDidChangeWorkingTree.dispose();
     this._onDidRemoveRepository.dispose();
     this._onDidFetch.dispose();
     this._gitCli.dispose();
