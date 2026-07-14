@@ -22,6 +22,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
+import { isHexObjectId } from '../git-core/gitDirMarkers';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
 import {
@@ -78,6 +79,43 @@ export function looksRemoteStartPoint(startPoint: string | undefined): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Pure helper: can `--track` work for this start point? Git only sets up
+ * tracking when the start point is a BRANCH (local or remote); a commit hash
+ * or tag fails with "cannot set up tracking information". With a loaded
+ * branch list the answer is exact (context stores remote names STRIPPED of
+ * their remote prefix). Without one — the list hasn't loaded yet, or the load
+ * failed and left an empty context — be permissive: only a commit hash is
+ * knowably untrackable, and git stays the final authority on everything else
+ * (a bare name like `main` may well be a local branch, which `--track`
+ * accepts). No start point means HEAD, whose `--track` tracks the current
+ * branch and always works.
+ */
+export function isTrackableStartPoint(
+  startPoint: string | undefined,
+  ctx?: IBranchConflictContext
+): boolean {
+  if (!startPoint) {
+    return true;
+  }
+  if (ctx && (ctx.localBranches !== undefined || ctx.remoteBranches !== undefined)) {
+    // Normalize full refs to the short names the context stores.
+    const short = startPoint.startsWith('refs/remotes/')
+      ? startPoint.substring('refs/remotes/'.length)
+      : startPoint.startsWith('refs/heads/')
+        ? startPoint.substring('refs/heads/'.length)
+        : startPoint;
+    if (ctx.localBranches?.includes(short)) {
+      return true;
+    }
+    return (
+      looksRemoteStartPoint(startPoint) &&
+      (ctx.remoteBranches?.includes(stripRemotePrefix(short)) ?? false)
+    );
+  }
+  return !isHexObjectId(startPoint, { allowPrefix: true });
 }
 
 /** Webview → extension message shape. */
@@ -160,6 +198,10 @@ export class NewBranchDialog extends BaseWebviewPanel {
       localBranches: ctx.localBranches ?? [],
       remoteBranches: ctx.remoteBranches ?? [],
       currentBranch: ctx.currentBranch ?? '',
+      // Refine the render-time heuristic with the loaded branch list: the
+      // webview hides the Track checkbox when the start point turns out not
+      // to be a branch (commit hash, tag) — `--track` can never work there.
+      startPointTrackable: isTrackableStartPoint(this._startPoint, ctx),
     });
   }
 
@@ -255,6 +297,10 @@ export class NewBranchDialog extends BaseWebviewPanel {
       startPointLabel: this._startPointLabel,
       defaultName: this._defaultName,
       defaultTrack: this._defaultTrack,
+      // Render-time answer (no branch list yet): hides Track immediately for
+      // a commit-hash start point; the conflicts message refines it once the
+      // branch list loads.
+      trackVisible: isTrackableStartPoint(this._startPoint),
     }).replace(/</g, '\\u003c');
 
     const script = `
@@ -292,8 +338,14 @@ export class NewBranchDialog extends BaseWebviewPanel {
           label.append(input, ...parts);
           return label;
         };
+        const trackRow = flagRow('flag-track', INIT.defaultTrack, ['Track remote (', el('code', { textContent: '--track' }), ')']);
+        trackRow.id = 'track-row';
+        // Tracking only works when the start point is a branch; a commit hash
+        // never qualifies, so the row starts hidden and the conflicts message
+        // (loaded branch list) gives the final answer below.
+        trackRow.hidden = !INIT.trackVisible;
         flagsBox.append(
-          flagRow('flag-track', INIT.defaultTrack, ['Track remote (', el('code', { textContent: '--track' }), ')']),
+          trackRow,
           flagRow('flag-overwrite', false, [
             'Overwrite if exists (',
             el('code', { textContent: '-f' }),
@@ -376,6 +428,14 @@ export class NewBranchDialog extends BaseWebviewPanel {
               remoteBranches: m.remoteBranches || [],
               currentBranch: m.currentBranch || '',
             };
+            if (m.startPointTrackable === false) {
+              const row = document.getElementById('track-row');
+              const box = document.getElementById('flag-track');
+              row.hidden = true;
+              box.checked = false;
+            } else if (m.startPointTrackable === true) {
+              document.getElementById('track-row').hidden = false;
+            }
             refresh();
           }
         });
@@ -500,6 +560,16 @@ ${body}
       void vscode.window.showErrorMessage(error);
       return;
     }
+    // Server-side twin of the webview's Track gating (the checkbox may have
+    // been checked before the branch list loaded): git can only set up
+    // tracking from a branch, so fail fast with a clear message instead of
+    // letting `git checkout --track` 128 on a commit-hash start point.
+    if (params.track && !isTrackableStartPoint(this._startPoint, context)) {
+      void vscode.window.showErrorMessage(
+        `Cannot set up tracking: start point '${this._startPointLabel}' is not a branch.`
+      );
+      return;
+    }
     this._busy = true;
     try {
       await this._gitService
@@ -515,6 +585,22 @@ ${body}
             throw e;
           }
         );
+      // Reload BEFORE announcing: the branch views and the graph's per-repo
+      // log cache invalidate on onDidChangeRepository, which only the reload
+      // fires deterministically — the `.git` watcher's debounced reload can
+      // land after the refresh below, leaving a stale snapshot that hides the
+      // new branch from the log until the next unrelated change. Best-effort:
+      // the branch already exists, so a reload failure must not surface as a
+      // failed create (the watcher reload eventually covers it).
+      try {
+        await this._gitService.reloadRepository(this._repo);
+      } catch (err) {
+        getLogger()
+          .child({ component: 'NewBranchDialog' })
+          .warn('post-create reload failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+      }
       const verb = params.checkout ? 'Created and switched to' : 'Created';
       void vscode.window.showInformationMessage(`${verb} branch '${params.name}'`);
       if (this._onBranchCreated) {

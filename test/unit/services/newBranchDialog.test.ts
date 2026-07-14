@@ -33,6 +33,7 @@ import { CommandFailedError } from '../../../src/git-core/errors';
 import {
   NewBranchDialog,
   INewBranchDialogOptions,
+  isTrackableStartPoint,
   looksRemoteStartPoint,
   validateNewBranchName,
 } from '../../../src/branches/NewBranchDialog';
@@ -90,6 +91,7 @@ function makeGitService(shouldThrow?: Error): IGitService & { _createCalls: Crea
       }
       return okAsync(undefined);
     },
+    reloadRepository: async () => undefined,
   } as unknown as IGitService & { _createCalls: CreateBranchCall[] };
 }
 
@@ -571,5 +573,170 @@ describe('NewBranchDialog — rendered DOM (script-built)', () => {
     const { document, posted } = runNewBranchScript(dialog);
     (document.querySelector('#cancel-btn') as HTMLButtonElement).click();
     assert.deepEqual(posted.at(-1), { type: 'cancel' }, 'Cancel posts a cancel message');
+  });
+});
+
+// ─── Track-remote gating ─────────────────────────────────────────────────────
+
+describe('isTrackableStartPoint', () => {
+  it('no start point (HEAD) → true: --track tracks the current branch', () => {
+    assert.strictEqual(isTrackableStartPoint(undefined), true);
+  });
+
+  it('a commit hash is never trackable', () => {
+    assert.strictEqual(isTrackableStartPoint('a'.repeat(40)), false);
+    assert.strictEqual(isTrackableStartPoint('abc1234'), false);
+  });
+
+  it('remote-looking start point without context → true (heuristic)', () => {
+    assert.strictEqual(isTrackableStartPoint('origin/main'), true);
+    assert.strictEqual(isTrackableStartPoint('refs/remotes/origin/main'), true);
+  });
+
+  it('bare name without context → true (git stays the final authority)', () => {
+    assert.strictEqual(isTrackableStartPoint('main'), true);
+  });
+
+  it('a known local branch is trackable', () => {
+    assert.strictEqual(
+      isTrackableStartPoint('main', { localBranches: ['main'], remoteBranches: [] }),
+      true
+    );
+  });
+
+  it('a known remote branch is trackable (context stores stripped names)', () => {
+    assert.strictEqual(
+      isTrackableStartPoint('origin/feature/x', {
+        localBranches: [],
+        remoteBranches: ['feature/x'],
+      }),
+      true
+    );
+  });
+
+  it('a name the loaded branch list does not contain (e.g. a tag) is not trackable', () => {
+    assert.strictEqual(
+      isTrackableStartPoint('v1.2.3', { localBranches: ['main'], remoteBranches: ['main'] }),
+      false
+    );
+    assert.strictEqual(
+      isTrackableStartPoint('release/v1', { localBranches: ['main'], remoteBranches: ['main'] }),
+      false
+    );
+  });
+
+  it('an empty (load-failed) context is permissive: only a commit hash blocks', () => {
+    assert.strictEqual(isTrackableStartPoint('origin/main', {}), true);
+    assert.strictEqual(isTrackableStartPoint('main', {}), true);
+    assert.strictEqual(isTrackableStartPoint('a'.repeat(40), {}), false);
+  });
+});
+
+describe('NewBranchDialog — Track checkbox gating', () => {
+  it('a commit-hash start point renders with the track row hidden', () => {
+    const { dialog } = makeDialog({ startPoint: 'a'.repeat(40) });
+    const { document } = runNewBranchScript(dialog);
+    const row = document.querySelector('#track-row') as HTMLElement;
+    assert.ok(row, 'script must build the track row');
+    assert.strictEqual(row.hidden, true, 'track row hidden for a non-branch start point');
+  });
+
+  it('a remote start point renders with the track row visible and checked', () => {
+    const { dialog } = makeDialog({ startPoint: 'origin/main' });
+    const { document } = runNewBranchScript(dialog);
+    const row = document.querySelector('#track-row') as HTMLElement;
+    assert.strictEqual(row.hidden, false, 'track row visible for a remote start point');
+    const box = document.querySelector('#flag-track') as HTMLInputElement;
+    assert.strictEqual(box.checked, true, 'track defaults on for a remote start point');
+  });
+
+  it('a conflicts message that marks the start point untrackable hides and unchecks track', () => {
+    const { dialog } = makeDialog({ startPoint: 'release/v1' });
+    const { document, window } = runNewBranchScript(dialog);
+    const row = document.querySelector('#track-row') as HTMLElement;
+    const box = document.querySelector('#flag-track') as HTMLInputElement;
+    assert.strictEqual(row.hidden, false, 'precondition: slash heuristic shows the row');
+    box.checked = true;
+
+    window.dispatchEvent(
+      new (window as unknown as { MessageEvent: typeof MessageEvent }).MessageEvent('message', {
+        data: {
+          type: 'conflicts',
+          localBranches: ['main'],
+          remoteBranches: ['main'],
+          currentBranch: 'main',
+          startPointTrackable: false,
+        },
+      })
+    );
+    assert.strictEqual(row.hidden, true, 'track row hides when the start point is not a branch');
+    assert.strictEqual(box.checked, false, 'a hidden track row unchecks the box');
+  });
+
+  it('create with track for a commit-hash start point is blocked before git runs', async () => {
+    const log = installMessageTrackers();
+    const { dialog, gitService } = makeDialog({ startPoint: 'a'.repeat(40) });
+    await dialog.simulateMessage({ type: 'create', name: 'feat', track: true, checkout: true });
+
+    assert.strictEqual(gitService._createCalls.length, 0, 'no git command may run');
+    assert.strictEqual(log.error.length, 1, 'the user sees why the create was blocked');
+    assert.ok(/track/i.test(log.error[0]), 'the error names tracking');
+    assert.strictEqual(dialog.disposed(), false, 'dialog stays open for retry');
+  });
+
+  it('create without track for a commit-hash start point still goes through', async () => {
+    installMessageTrackers();
+    const { dialog, gitService } = makeDialog({ startPoint: 'a'.repeat(40) });
+    await dialog.simulateMessage({ type: 'create', name: 'feat', track: false, checkout: true });
+    assert.strictEqual(gitService._createCalls.length, 1, 'create must run');
+    assert.strictEqual(dialog.disposed(), true, 'dialog closes on success');
+  });
+});
+
+describe('NewBranchDialog — deterministic post-create refresh', () => {
+  it('a rejecting reload does not masquerade as a failed create', async () => {
+    const log = installMessageTrackers();
+    const gitService = makeGitService();
+    gitService.reloadRepository = (async () => {
+      throw new Error('index.lock contention');
+    }) as unknown as IGitService['reloadRepository'];
+    let created = 0;
+    const { dialog } = makeDialog({
+      gitService,
+      startPoint: 'origin/main',
+      onBranchCreated: () => {
+        created += 1;
+      },
+    });
+    await dialog.simulateMessage({ type: 'create', name: 'feat', track: true, checkout: true });
+
+    assert.strictEqual(log.error.length, 0, 'the branch WAS created — no failure toast');
+    assert.strictEqual(log.info.length, 1, 'success toast still shows');
+    assert.strictEqual(created, 1, 'refresh callback still fires');
+    assert.strictEqual(dialog.disposed(), true, 'dialog closes on success');
+  });
+
+  it('a successful create reloads the repository before onBranchCreated fires', async () => {
+    installMessageTrackers();
+    const order: string[] = [];
+    const gitService = makeGitService();
+    gitService.reloadRepository = (async () => {
+      order.push('reload');
+      return undefined;
+    }) as IGitService['reloadRepository'];
+    const { dialog } = makeDialog({
+      gitService,
+      startPoint: 'origin/main',
+      onBranchCreated: () => {
+        order.push('created');
+      },
+    });
+    await dialog.simulateMessage({ type: 'create', name: 'feat', track: true, checkout: true });
+
+    assert.deepStrictEqual(
+      order,
+      ['reload', 'created'],
+      'reload must land before the graph/branch refresh callback so no view can repaint from a stale cache'
+    );
   });
 });
