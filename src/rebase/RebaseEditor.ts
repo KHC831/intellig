@@ -18,7 +18,12 @@ import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
 import { assertNever } from '../utils/assertNever';
 import { dispatchGuardedWebviewMessage } from '../utils/webviewMessageGuard';
-import { asRebaseEditorInbound } from './rebaseEditor.protocol';
+import {
+  asRebaseEditorInbound,
+  type IRebaseEditorCommit,
+  type IRebaseEditorInit,
+} from './rebaseEditor.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { isRebaseAction } from '../git-core/rebaseTodo';
 
 /**
@@ -451,6 +456,9 @@ export class RebaseEditor {
    */
   private _getHtmlContent(webview: vscode.Webview, preserveScroll = false): string {
     const nonce = this._getNonce();
+    const bundleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'rebaseEditor.js')
+    );
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -465,20 +473,19 @@ export class RebaseEditor {
 </head>
 <body>
   <div class="rebase-editor" id="rebase-root"></div>
-  <script nonce="${nonce}">
-    ${this._getScript(preserveScroll)}
-  </script>
+  ${initIslandHtml(this._getInit(preserveScroll))}
+  <script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
 
   /**
-   * Serialize the host-side rebase session into the JSON init island the
-   * inline script reads to build the DOM. Every dynamic value reaches the DOM
-   * via .value / .textContent / element props (injection-proof) — never markup.
+   * Build the host-side rebase session the bundled entry reads from the body's
+   * `data-init` island to build the DOM. Every dynamic value reaches the DOM via
+   * .value / .textContent / element props (injection-proof) — never markup.
    */
-  private _getInitJson(preserveScroll = false): string {
-    const ACTIONS: { value: RebaseAction; label: string; description: string }[] = [
+  private _getInit(preserveScroll = false): IRebaseEditorInit {
+    const ACTIONS: IRebaseEditorInit['actions'] = [
       { value: 'pick', label: 'pick', description: 'use commit' },
       { value: 'reword', label: 'reword', description: 'use commit, but edit the commit message' },
       { value: 'edit', label: 'edit', description: 'use commit, but stop for amending' },
@@ -505,7 +512,7 @@ export class RebaseEditor {
       reword: 'New commit message (leave blank to keep the original)',
       squash: 'Combined commit message (leave blank to auto-combine the messages)',
     };
-    const commits = (this._session?.commits ?? []).map((commit) => {
+    const commits: IRebaseEditorCommit[] = (this._session?.commits ?? []).map((commit) => {
       const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
       return {
         hash: commit.hash,
@@ -517,7 +524,7 @@ export class RebaseEditor {
         rewordValue: commit.newMessage ?? commit.message,
       };
     });
-    return JSON.stringify({
+    return {
       originalBranch: this._session?.originalBranch || '',
       onto: this._session?.onto || '',
       commitCount: this._session?.commits.length || 0,
@@ -525,7 +532,7 @@ export class RebaseEditor {
       placeholders,
       actions: ACTIONS,
       commits,
-    }).replace(/</g, '\\u003c');
+    };
   }
 
   /**
@@ -845,329 +852,6 @@ export class RebaseEditor {
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: 2px;
       }
-    `;
-  }
-
-  /**
-   * Get the JavaScript for the webview.
-   */
-  private _getScript(preserveScroll = false): string {
-    return `
-      const vscode = acquireVsCodeApi();
-      const INIT = ${this._getInitJson(preserveScroll)};
-      const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-
-      // ── Build the body via createElement (no HTML-string injection) ────────
-      (function buildBody() {
-        const root = document.getElementById('rebase-root');
-        if (!root) return;
-
-        // Header
-        const header = el('div', { className: 'header' });
-        header.append(el('h2', { textContent: 'Interactive Rebase' }));
-        const info = el('div', { className: 'rebase-info' });
-        const infoItem = (label, value) => {
-          const span = el('span', { className: 'info-item' });
-          span.append(
-            el('span', { className: 'info-label', textContent: label }),
-            el('span', { className: 'info-value', textContent: String(value) })
-          );
-          return span;
-        };
-        info.append(
-          infoItem('Rebasing:', INIT.originalBranch),
-          infoItem('Onto:', INIT.onto),
-          infoItem('Commits:', INIT.commitCount)
-        );
-        header.append(info);
-        const instructions = el('div', { className: 'instructions' });
-        instructions.append(
-          el('p', { textContent: 'Drag commits to reorder. Select an action for each commit.' }),
-          el('p', {
-            className: 'hint',
-            textContent:
-              'Order: oldest at the top, newest at the bottom — commits are applied top to bottom.',
-          }),
-          el('p', {
-            className: 'hint',
-            textContent:
-              'squash and fixup meld a commit into the one directly above it (the previous, older commit).',
-          })
-        );
-        header.append(instructions);
-        root.append(header);
-
-        // Commit list
-        if (INIT.commits.length === 0) {
-          const empty = el('div', { className: 'commit-list empty' });
-          empty.append(el('p', { className: 'empty-message', textContent: 'No commits to rebase' }));
-          root.append(empty);
-        } else {
-          const list = el('div', { className: 'commit-list', id: 'commit-list' });
-          INIT.commits.forEach((commit, index) => {
-            const item = el('div', { className: 'commit-item ' + commit.actionClass, draggable: true });
-            item.setAttribute('data-hash', commit.hash);
-            item.setAttribute('data-index', String(index));
-            item.append(el('div', { className: 'drag-handle', title: 'Drag to reorder', textContent: '⋮⋮' }));
-
-            const selector = el('div', { className: 'action-selector' });
-            const select = el('select', { className: 'action-dropdown' });
-            select.setAttribute('data-hash', commit.hash);
-            for (const a of INIT.actions) {
-              const opt = el('option', { value: a.value, title: a.description, textContent: a.label });
-              opt.selected = a.value === commit.action;
-              select.append(opt);
-            }
-            selector.append(select);
-            item.append(selector);
-
-            const hashEl = el('div', { className: 'commit-hash', title: commit.hash, textContent: commit.shortHash });
-            const msgEl = el('div', { className: 'commit-message', title: commit.message, textContent: commit.message });
-            item.append(hashEl, msgEl);
-
-            if (commit.showMessageEditor) {
-              item.append(buildMessageEditor(commit.hash, commit.action, commit.rewordValue));
-            }
-            list.append(item);
-          });
-          root.append(list);
-          wireScroll(list);
-        }
-
-        // Footer
-        const footer = el('div', { className: 'footer' });
-        const legend = el('div', { className: 'action-legend' });
-        const LEGEND = [
-          ['pick', 'pick - use commit'],
-          ['reword', 'reword - edit message'],
-          ['edit', 'edit - stop for amending'],
-          ['squash', 'squash - meld into commit above'],
-          ['fixup', 'fixup - meld into above, drop message'],
-          ['drop', 'drop - remove commit'],
-        ];
-        for (const [cls, text] of LEGEND) {
-          legend.append(el('span', { className: 'legend-item ' + cls, textContent: text }));
-        }
-        footer.append(legend);
-        const buttonRow = el('div', { className: 'button-row' });
-        const cancelBtn = el('button', { className: 'button cancel-button', textContent: 'Cancel' });
-        cancelBtn.setAttribute('data-action', 'cancel');
-        const executeBtn = el('button', { className: 'button execute-button', textContent: 'Start Rebase' });
-        executeBtn.setAttribute('data-action', 'execute');
-        buttonRow.append(cancelBtn, executeBtn);
-        footer.append(buttonRow);
-        root.append(footer);
-      })();
-
-      // Persist the commit-list scroll position and restore it across the full
-      // re-renders the host does on every action change / reorder — otherwise a
-      // selection near the bottom snaps the list back to the top. Scroll is
-      // preserved by DEFAULT; the host clears INIT.preserveScroll only on the
-      // first render of a fresh rebase, which starts at the top and drops any
-      // stale saved position. Mirrors the Git tool window graph restore.
-      function wireScroll(list) {
-        if (!list || !vscode || typeof vscode.getState !== 'function') return;
-
-        list.addEventListener('scroll', function () {
-          const prev = vscode.getState() || {};
-          prev.rebaseScrollTop = list.scrollTop;
-          vscode.setState(prev);
-        });
-
-        if (!INIT.preserveScroll) {
-          const prev = vscode.getState() || {};
-          if (prev.rebaseScrollTop) {
-            prev.rebaseScrollTop = 0;
-            vscode.setState(prev);
-          }
-          return;
-        }
-
-        const saved = (vscode.getState() || {}).rebaseScrollTop;
-        if (typeof saved !== 'number' || saved <= 0) return;
-        // Apply now AND once on the next frame: the Electron webview can clamp a
-        // synchronous scrollTop set before its first layout pass. Exactly one
-        // retry (see the graph restore) — more would widen the window in which a
-        // user's in-frame scroll gets clobbered back to the saved value.
-        list.scrollTop = saved;
-        if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(function () {
-            list.scrollTop = saved;
-          });
-        }
-      }
-
-      // Build a reword/squash message box wired to post edits to the host. Used
-      // by the initial render AND the in-place action switch so both produce an
-      // identically-wired textarea (single wiring site — do NOT also wire these
-      // in initControls, or newly-switched rows would double-post).
-      function buildMessageEditor(hash, action, value) {
-        const editor = el('div', { className: 'reword-message-editor' });
-        const ta = el('textarea', {
-          className: 'reword-message-input',
-          rows: 3,
-          placeholder: (INIT.placeholders && INIT.placeholders[action]) || '',
-        });
-        ta.setAttribute('data-hash', hash);
-        ta.value = value;
-        ta.addEventListener('input', function () { updateMessage(hash, ta.value); });
-        editor.append(ta);
-        return editor;
-      }
-
-      // Apply an action change to a single row in place: swap its color class
-      // and show/hide the reword/squash message box. The host is notified
-      // separately (updateAction) and does NOT re-render, so this is the only
-      // thing that reflects the change visually.
-      function applyActionToItem(item, hash, action) {
-        if (!item) return;
-        Array.from(item.classList).forEach(function (cls) {
-          if (cls.indexOf('action-') === 0) item.classList.remove(cls);
-        });
-        item.classList.add('action-' + action);
-
-        const showEditor = action === 'reword' || action === 'squash';
-        const editor = item.querySelector('.reword-message-editor');
-        if (showEditor && !editor) {
-          // Fresh box: seed with the commit's original message — the host clears
-          // any prior override when the action leaves reword/squash, so the
-          // default here matches the host's (message, not the old edit).
-          const orig = INIT.commits.find(function (c) { return c.hash === hash; });
-          item.append(buildMessageEditor(hash, action, orig ? orig.message : ''));
-        } else if (showEditor && editor) {
-          // reword ⇄ squash: keep the typed text, just correct the placeholder.
-          const ta = editor.querySelector('.reword-message-input');
-          if (ta) ta.placeholder = (INIT.placeholders && INIT.placeholders[action]) || '';
-        } else if (editor) {
-          editor.remove();
-        }
-      }
-
-      let draggedElement = null;
-      let draggedIndex = -1;
-
-      // Initialize drag and drop
-      document.addEventListener('DOMContentLoaded', () => {
-        initDragAndDrop();
-      });
-
-      function initDragAndDrop() {
-        const commitList = document.getElementById('commit-list');
-        if (!commitList) return;
-
-        const items = commitList.querySelectorAll('.commit-item');
-        
-        items.forEach((item, index) => {
-          item.addEventListener('dragstart', handleDragStart);
-          item.addEventListener('dragend', handleDragEnd);
-          item.addEventListener('dragover', handleDragOver);
-          item.addEventListener('dragenter', handleDragEnter);
-          item.addEventListener('dragleave', handleDragLeave);
-          item.addEventListener('drop', handleDrop);
-        });
-      }
-
-      function handleDragStart(e) {
-        draggedElement = e.target.closest('.commit-item');
-        draggedIndex = parseInt(draggedElement.dataset.index, 10);
-        draggedElement.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', draggedIndex.toString());
-      }
-
-      function handleDragEnd(e) {
-        if (draggedElement) {
-          draggedElement.classList.remove('dragging');
-        }
-        document.querySelectorAll('.commit-item').forEach(item => {
-          item.classList.remove('drag-over');
-        });
-        draggedElement = null;
-        draggedIndex = -1;
-      }
-
-      function handleDragOver(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      }
-
-      function handleDragEnter(e) {
-        e.preventDefault();
-        const target = e.target.closest('.commit-item');
-        if (target && target !== draggedElement) {
-          target.classList.add('drag-over');
-        }
-      }
-
-      function handleDragLeave(e) {
-        const target = e.target.closest('.commit-item');
-        if (target) {
-          target.classList.remove('drag-over');
-        }
-      }
-
-      function handleDrop(e) {
-        e.preventDefault();
-        const target = e.target.closest('.commit-item');
-        if (!target || target === draggedElement) return;
-
-        const toIndex = parseInt(target.dataset.index, 10);
-        
-        if (draggedIndex !== -1 && toIndex !== draggedIndex) {
-          vscode.postMessage({
-            type: 'reorder',
-            fromIndex: draggedIndex,
-            toIndex: toIndex
-          });
-        }
-
-        target.classList.remove('drag-over');
-      }
-
-      function updateAction(hash, action) {
-        vscode.postMessage({
-          type: 'updateAction',
-          hash: hash,
-          action: action
-        });
-      }
-
-      function updateMessage(hash, newMessage) {
-        vscode.postMessage({ type: 'updateMessage', hash: hash, message: newMessage });
-      }
-
-      function execute() {
-        vscode.postMessage({ type: 'execute' });
-      }
-
-      function cancel() {
-        vscode.postMessage({ type: 'cancel' });
-      }
-
-      // Wire the action dropdowns and footer buttons via addEventListener /
-      // delegation. They were inline onchange/onclick attributes, which the
-      // nonce-only CSP (no 'unsafe-inline') blocks — leaving the action selector
-      // and Cancel / Start Rebase buttons dead. Reading the hash from data-hash
-      // (DOM property channel) also removes the attribute quote-breakout footgun.
-      // (Reword textareas wire their own input handler in buildMessageEditor.)
-      function initControls() {
-        document.querySelectorAll('.action-dropdown').forEach((sel) => {
-          sel.addEventListener('change', () => {
-            updateAction(sel.dataset.hash, sel.value);
-            applyActionToItem(sel.closest('.commit-item'), sel.dataset.hash, sel.value);
-          });
-        });
-        document.addEventListener('click', (e) => {
-          const target = e.target.closest('[data-action]');
-          if (!target) return;
-          if (target.dataset.action === 'cancel') cancel();
-          else if (target.dataset.action === 'execute') execute();
-        });
-      }
-
-      // Initialize on load
-      initDragAndDrop();
-      initControls();
     `;
   }
 

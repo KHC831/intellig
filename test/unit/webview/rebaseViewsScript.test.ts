@@ -23,7 +23,6 @@ import type {
 } from '../../../src/git-core/interfaces/IRebaseService';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
 import { Uri } from '../../mocks/vscode';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { initIslandHtml } from '../../../src/utils/webviewInit';
@@ -45,7 +44,7 @@ function stubRebaseService(): IRebaseService {
 }
 
 describe('webview: rebase view scripts (jsdom)', () => {
-  let h: IWebviewHarness | IWebviewEntryHarness;
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -101,15 +100,15 @@ describe('webview: rebase view scripts (jsdom)', () => {
   });
 
   describe('RebaseEditor', () => {
-    function script(): string {
+    function boot(): IWebviewEntryHarness {
       const editor = new RebaseEditor(Uri.file('/tmp/ext'), stubRebaseService());
-      return (editor as unknown as { _getScript(): string })._getScript();
+      const init = (editor as unknown as { _getInit(): unknown })._getInit();
+      const bodyHtml = '<div class="rebase-editor" id="rebase-root"></div>' + initIslandHtml(init);
+      return bootWebviewEntry('rebase/webview/rebaseEditor', { bodyHtml });
     }
 
     it('loads against the #rebase-root skeleton without throwing and builds the footer', () => {
-      h = runWebviewScript(script(), {
-        bodyHtml: '<div class="rebase-editor" id="rebase-root"></div>',
-      });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -118,9 +117,7 @@ describe('webview: rebase view scripts (jsdom)', () => {
     });
 
     it('tolerates garbage messages without throwing', () => {
-      h = runWebviewScript(script(), {
-        bodyHtml: '<div class="rebase-editor" id="rebase-root"></div>',
-      });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }

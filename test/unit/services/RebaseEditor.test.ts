@@ -3,7 +3,10 @@
  */
 
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import * as fs from 'fs';
+import * as path from 'path';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 import * as vscode from 'vscode';
 import {
   RebaseEditor,
@@ -124,6 +127,24 @@ function createMockRepository(): IRepository {
   };
 }
 
+const _rebaseHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_rebaseHarnesses.length > 0) {
+    _rebaseHarnesses.pop()?.dispose();
+  }
+});
+
+const rebaseEntrySource = (): string =>
+  fs.readFileSync(path.join(process.cwd(), 'src/rebase/webview/rebaseEditor.ts'), 'utf8');
+
+function bootRebaseEditor(ed: unknown): Document {
+  const init = (ed as { _getInit(p?: boolean): unknown })._getInit();
+  const bodyHtml = '<div class="rebase-editor" id="rebase-root"></div>' + initIslandHtml(init);
+  const h = bootWebviewEntry('rebase/webview/rebaseEditor', { bodyHtml });
+  _rebaseHarnesses.push(h);
+  return h.document;
+}
+
 describe('RebaseEditor', () => {
   let rebaseEditor: RebaseEditor;
   let mockRebaseService: MockRebaseService;
@@ -144,7 +165,7 @@ describe('RebaseEditor', () => {
 
   describe('CSP-safe event wiring (no inline handlers)', () => {
     interface Internals {
-      _getScript(): string;
+      _getInit(): unknown;
       _session?: { onto: string; originalBranch: string; commits: IRebaseCommit[] };
     }
     const internals = (): Internals => rebaseEditor as unknown as Internals;
@@ -154,23 +175,10 @@ describe('RebaseEditor', () => {
      * `#rebase-root` skeleton. Post-migration contract: the script BUILDS the
      * header, commit rows, and footer via document.createElement.
      */
-    function buildDom(): Document {
-      const script = internals()._getScript();
-      const dom = new JSDOM(`<div class="rebase-editor" id="rebase-root"></div>`, {
-        runScripts: 'outside-only',
-      });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      window.eval(script);
-      return window.document as unknown as Document;
-    }
+    const buildDom = (): Document => bootRebaseEditor(rebaseEditor);
 
     it('footer buttons build with data-action and no inline onclick', () => {
-      const script = internals()._getScript();
+      const script = rebaseEntrySource();
       assert.ok(!/\son(click|change|input)\s*=/.test(script), 'no inline handler attributes');
       const doc = buildDom();
       assert.ok(doc.querySelector('button[data-action="cancel"]'), 'Cancel uses data-action');
@@ -205,7 +213,7 @@ describe('RebaseEditor', () => {
     });
 
     it('script wires dropdowns/textareas via listeners + delegated button clicks', () => {
-      const script = internals()._getScript();
+      const script = rebaseEntrySource();
       assert.ok(
         /action-dropdown[\s\S]*?addEventListener\('change'/.test(script),
         'action dropdowns must wire change via addEventListener'
@@ -215,7 +223,7 @@ describe('RebaseEditor', () => {
         'reword textareas must wire input via addEventListener'
       );
       assert.ok(
-        /closest\('\[data-action\]'\)/.test(script),
+        /closest(?:<[^>]*>)?\('\[data-action\]'\)/.test(script),
         'footer buttons must route through a delegated click dispatcher'
       );
     });
@@ -730,18 +738,8 @@ describe('RebaseEditor', () => {
         originalBranch: 'feature',
         commits: [{ hash: 'abc1234567890', message: 'orig', action }],
       };
-      const script = (editor as unknown as { _getScript(): string })._getScript();
-      const dom = new JSDOM(`<div class="rebase-editor" id="rebase-root"></div>`, {
-        runScripts: 'outside-only',
-      });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      window.eval(script);
-      const ta = window.document.querySelector('.reword-message-input');
+      const doc = bootRebaseEditor(editor);
+      const ta = doc.querySelector('.reword-message-input');
       return ta?.getAttribute('placeholder') ?? '';
     }
 

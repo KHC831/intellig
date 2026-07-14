@@ -73,6 +73,7 @@ const DEFAULT_ENTRIES = [
   'conflicts/webview/resolveConflictsDialog.ts',
   'sync/webview/pushDialog.ts',
   'rebase/webview/rebaseProgressView.ts',
+  'rebase/webview/rebaseEditor.ts',
 ];
 const ALLOWLIST_FILE = path.join(repoRoot, 'scripts', 'dead-exports-allowlist.txt');
 

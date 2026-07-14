@@ -1,6 +1,6 @@
 /**
  * Runtime (jsdom) regression for the scroll persist/restore in the interactive
- * Rebase Editor inline script.
+ * Rebase Editor bundled entry.
  *
  * The user's complaint: with many commits, picking an action for a commit near
  * the BOTTOM of the list snapped the list back to the TOP, forcing a re-scroll
@@ -14,12 +14,15 @@
  * the init island: true on re-renders (action/reorder), false on the first
  * render of a fresh rebase (start at the top, drop any stale saved position).
  *
- * jsdom does no layout, so scrollTop is backed by a recording accessor on the
- * element prototype.
+ * Post-Phase-5, the scroll state rides a WebviewStateSlot (versioned `{ v, data }`
+ * envelope under `rebaseScroll`) instead of a raw `rebaseScrollTop` key — same
+ * invariants, versioned storage. jsdom does no layout, so scrollTop is backed by
+ * a recording accessor on the element prototype.
  */
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import { RebaseEditor } from '../../../src/rebase/RebaseEditor';
@@ -27,12 +30,20 @@ import type {
   IRebaseService,
   IRebaseSession,
 } from '../../../src/git-core/interfaces/IRebaseService';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 import { Uri } from '../../mocks/vscode';
 
+/** The WebviewStateSlot envelope the scroll slot stores. */
+interface ScrollEnvelope {
+  v: number;
+  data: unknown;
+}
 interface WebviewState {
-  rebaseScrollTop?: number;
+  rebaseScroll?: ScrollEnvelope;
   [k: string]: unknown;
 }
+
+const ENTRY = path.join(__dirname, '..', '..', '..', 'src', 'rebase', 'webview', 'rebaseEditor');
 
 function stubRebaseService(): IRebaseService {
   const emitter = new vscode.EventEmitter<IRebaseSession | undefined>();
@@ -42,8 +53,8 @@ function stubRebaseService(): IRebaseService {
   } as unknown as IRebaseService;
 }
 
-function editorWithCommits(count: number): RebaseEditor {
-  const commits = Array.from({ length: count }, (_, i) => ({
+function islandFor(preserveScroll: boolean): string {
+  const commits = Array.from({ length: 20 }, (_, i) => ({
     hash: String(i + 1).padStart(40, '0'),
     message: `commit ${i + 1}`,
     action: 'pick' as const,
@@ -56,11 +67,13 @@ function editorWithCommits(count: number): RebaseEditor {
     currentStep: 0,
     status: 'planning',
   };
-  return editor;
+  const init = (editor as unknown as { _getInit(p?: boolean): unknown })._getInit(preserveScroll);
+  return initIslandHtml(init);
 }
 
-function scriptFor(editor: RebaseEditor, preserveScroll: boolean): string {
-  return (editor as unknown as { _getScript(p?: boolean): string })._getScript(preserveScroll);
+/** Convenience: the slot value the tests seed / assert. */
+function scroll(data: unknown): ScrollEnvelope {
+  return { v: 1, data };
 }
 
 interface BootOptions {
@@ -70,9 +83,9 @@ interface BootOptions {
 }
 
 /**
- * Boot the rebase-editor script in jsdom over its `#rebase-root` skeleton, with
- * a recording `scrollTop` accessor on the element prototype and a stubbed
- * webview state. The build+restore runs at eval time.
+ * Boot the real rebase-editor ENTRY in jsdom over its `#rebase-root` skeleton +
+ * init island, with a recording `scrollTop` accessor on the element prototype
+ * and a stubbed webview state. The build+restore runs at boot (module load).
  */
 function boot(opts: BootOptions): {
   window: JSDOM['window'];
@@ -84,13 +97,11 @@ function boot(opts: BootOptions): {
   const dom = new JSDOM(
     `<!doctype html><html><body>` +
       `<div class="rebase-editor" id="rebase-root"></div>` +
-      `</body></html>`,
-    { runScripts: 'outside-only' }
+      islandFor(opts.preserveScroll) +
+      `</body></html>`
   );
   const window = dom.window;
 
-  // jsdom doesn't lay out, so scrollTop is a no-op; back it per-element with a
-  // recording accessor on the prototype (the list is created during eval).
   const store = new WeakMap<object, number>();
   Object.defineProperty(window.HTMLElement.prototype, 'scrollTop', {
     get(): number {
@@ -102,16 +113,6 @@ function boot(opts: BootOptions): {
     configurable: true,
   });
 
-  const rafCallbacks: Array<() => void> = [];
-  if (opts.captureRaf) {
-    (
-      window as unknown as { requestAnimationFrame: (cb: () => void) => number }
-    ).requestAnimationFrame = (cb: () => void): number => {
-      rafCallbacks.push(cb);
-      return rafCallbacks.length;
-    };
-  }
-
   const state: WebviewState = { ...(opts.initialState ?? {}) };
   const api = {
     postMessage: (): void => {},
@@ -121,9 +122,30 @@ function boot(opts: BootOptions): {
       Object.assign(state, s);
     },
   };
-  (window as unknown as { acquireVsCodeApi: () => typeof api }).acquireVsCodeApi = () => api;
 
-  window.eval(scriptFor(editorWithCommits(20), opts.preserveScroll));
+  const g = global as Record<string, unknown>;
+  const saved = {
+    window: g.window,
+    document: g.document,
+    acquireVsCodeApi: g.acquireVsCodeApi,
+    requestAnimationFrame: g.requestAnimationFrame,
+  };
+  const rafCallbacks: Array<() => void> = [];
+  g.window = window;
+  g.document = window.document;
+  g.acquireVsCodeApi = (): typeof api => api;
+  g.requestAnimationFrame = opts.captureRaf
+    ? (cb: () => void): number => rafCallbacks.push(cb)
+    : undefined;
+
+  delete require.cache[require.resolve(ENTRY)];
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require(ENTRY);
+
+  g.window = saved.window;
+  g.document = saved.document;
+  g.acquireVsCodeApi = saved.acquireVsCodeApi;
+  g.requestAnimationFrame = saved.requestAnimationFrame;
 
   const list = window.document.getElementById('commit-list') as HTMLElement;
   return {
@@ -135,7 +157,7 @@ function boot(opts: BootOptions): {
   };
 }
 
-describe('Rebase Editor inline script — scroll persist/restore (jsdom)', () => {
+describe('Rebase Editor entry — scroll persist/restore (jsdom)', () => {
   it('persists the commit-list scrollTop to webview state on scroll (merging keys)', () => {
     const { window, list, state } = boot({
       preserveScroll: true,
@@ -145,14 +167,14 @@ describe('Rebase Editor inline script — scroll persist/restore (jsdom)', () =>
     list.scrollTop = 640;
     list.dispatchEvent(new window.Event('scroll'));
 
-    assert.strictEqual(state.rebaseScrollTop, 640, 'scrollTop is saved to webview state');
+    assert.deepStrictEqual(state.rebaseScroll, scroll(640), 'scrollTop is saved to webview state');
     assert.strictEqual(state.unrelated, 'keep-me', 'existing state keys are preserved');
   });
 
   it('restores the saved scrollTop on a preserve render (action change / reorder)', () => {
     const { list, getScrollTop } = boot({
       preserveScroll: true,
-      initialState: { rebaseScrollTop: 512 },
+      initialState: { rebaseScroll: scroll(512) },
     });
     assert.strictEqual(
       getScrollTop(list),
@@ -164,7 +186,7 @@ describe('Rebase Editor inline script — scroll persist/restore (jsdom)', () =>
   it('does NOT restore on the initial render — starts at the top', () => {
     const { list, getScrollTop } = boot({
       preserveScroll: false,
-      initialState: { rebaseScrollTop: 512 },
+      initialState: { rebaseScroll: scroll(512) },
     });
     assert.strictEqual(getScrollTop(list), 0, 'a fresh rebase starts at the top');
   });
@@ -172,16 +194,20 @@ describe('Rebase Editor inline script — scroll persist/restore (jsdom)', () =>
   it('clears the stale saved position on the initial render', () => {
     const { state } = boot({
       preserveScroll: false,
-      initialState: { rebaseScrollTop: 512, unrelated: 'keep-me' },
+      initialState: { rebaseScroll: scroll(512), unrelated: 'keep-me' },
     });
-    assert.strictEqual(state.rebaseScrollTop, 0, 'the initial render wipes the stale scroll');
+    assert.deepStrictEqual(
+      state.rebaseScroll,
+      scroll(0),
+      'the initial render wipes the stale scroll'
+    );
     assert.strictEqual(state.unrelated, 'keep-me', 'other state keys survive the reset');
   });
 
   it('re-applies the restore on the next animation frame so it survives first layout', () => {
     const { list, getScrollTop, flushRaf } = boot({
       preserveScroll: true,
-      initialState: { rebaseScrollTop: 333 },
+      initialState: { rebaseScroll: scroll(333) },
       captureRaf: true,
     });
     assert.strictEqual(getScrollTop(list), 333, 'restore applies synchronously');

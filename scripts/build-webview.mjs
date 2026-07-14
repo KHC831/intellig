@@ -43,6 +43,7 @@ const PANEL_ENTRIES = [
   },
   { in: join(root, 'src/sync/webview/pushDialog.ts'), out: 'pushDialog' },
   { in: join(root, 'src/rebase/webview/rebaseProgressView.ts'), out: 'rebaseProgressView' },
+  { in: join(root, 'src/rebase/webview/rebaseEditor.ts'), out: 'rebaseEditor' },
 ];
 
 const configs = [

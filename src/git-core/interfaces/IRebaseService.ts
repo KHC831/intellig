@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import { IRepository } from './IGitService';
+import type { RebaseAction } from './rebaseAction';
 
 /**
- * Rebase action types
+ * Rebase action types (defined vscode-free in ./rebaseAction; re-exported here
+ * as the canonical name).
  */
-export type RebaseAction = 'pick' | 'reword' | 'edit' | 'squash' | 'fixup' | 'drop';
+export type { RebaseAction } from './rebaseAction';
 
 /**
  * Rebase session status.

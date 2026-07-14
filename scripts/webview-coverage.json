@@ -66,9 +66,9 @@
       "status": "tested",
       "note": "bundled Rebase entry booted in jsdom; builds onto/newbase selects + options + cancel wiring (rebaseViewsScript.test.ts, rebaseDialog.test.ts)"
     },
-    "src/rebase/RebaseEditor.ts": {
+    "src/rebase/webview/rebaseEditor.ts": {
       "status": "tested",
-      "note": "_getScript run in jsdom over #rebase-root skeleton (rebaseViewsScript.test.ts)"
+      "note": "bundled Rebase Editor entry booted in jsdom over #rebase-root island; drag-drop + action selects + reword editors (rebaseViewsScript.test.ts, RebaseEditor.test.ts)"
     },
     "src/rebase/webview/rebaseProgressView.ts": {
       "status": "tested",
