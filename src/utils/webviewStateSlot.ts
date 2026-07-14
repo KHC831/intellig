@@ -1,7 +1,7 @@
 /**
  * Versioned, validate-on-load slots over the webview VS Code API's
  * `getState()/setState()` — the webview-side sibling of the host's
- * `persistedState` seam (Phase 3 §3d shape). A slot stores a `{ v, data }`
+ * `persistedState` seam (Phase 3 section 3d shape). A slot stores a `{ v, data }`
  * envelope under its `key` in the webview's single state object; a load whose
  * stored version differs or whose data fails `validate` returns `undefined`
  * (default), so yesterday's writer can't feed today's reader a stale shape.
