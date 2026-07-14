@@ -24,6 +24,7 @@ import type {
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
 import { Uri } from '../../mocks/vscode';
 import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
@@ -43,7 +44,7 @@ function stubRebaseService(): IRebaseService {
 }
 
 describe('webview: rebase view scripts (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewHarness | IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -64,9 +65,14 @@ describe('webview: rebase view scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('rebase/webview/rebaseDialog', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the onto select + rebase/cancel buttons', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -76,15 +82,13 @@ describe('webview: rebase view scripts (jsdom)', () => {
     });
 
     it('posts cancel when the cancel button is clicked', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       h.document.getElementById('cancel-btn')?.click();
       assert.deepEqual(h.posted.at(-1), { type: 'cancel' });
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }

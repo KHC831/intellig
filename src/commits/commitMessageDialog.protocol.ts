@@ -4,6 +4,15 @@
  * the outbound side is `never`.
  */
 
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface ICommitMessageDialogInit {
+  seedMessage: string;
+  heading: string;
+  submitLabel: string;
+  submitVerb: string;
+  isMac: boolean;
+}
+
 export type CommitMessageDialogInbound = { type: 'submit'; message?: string } | { type: 'cancel' };
 
 export type CommitMessageDialogOutbound = never;

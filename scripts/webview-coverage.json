@@ -30,9 +30,9 @@
       "status": "tested",
       "note": "_getScript inline createElement builder run in jsdom (commitDialogsScript.test.ts)"
     },
-    "src/commits/CommitMessageDialog.ts": {
+    "src/commits/webview/commitMessageDialog.ts": {
       "status": "tested",
-      "note": "base dialog that owns the inline script (SquashMessageDialog + the reword edit dialog are presets); rendered script run in jsdom (commitDialogsScript.test.ts)"
+      "note": "bundled Commit Message entry (SquashMessageDialog + reword preset share it) booted in jsdom (commitDialogsScript.test.ts)"
     },
     "src/branches/webview/main.ts": {
       "status": "tested",
@@ -42,13 +42,13 @@
       "status": "tested",
       "note": "bundled Merge dialog entry booted in jsdom; builds strategy flags + mutex + submit/cancel (conflictDialogsScript.test.ts, mergeDialog.test.ts)"
     },
-    "src/conflicts/ResolveConflictsDialog.ts": {
+    "src/conflicts/webview/resolveConflictsDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds per-file rows + handles fileResolved update (conflictDialogsScript.test.ts)"
+      "note": "bundled Resolve Conflicts entry booted in jsdom; builds per-file rows + handles updateFileStatus (conflictDialogsScript.test.ts)"
     },
-    "src/ui-shell/ResetDialog.ts": {
+    "src/ui-shell/webview/resetDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts)"
+      "note": "bundled Reset entry booted in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts, resetDialog.test.ts)"
     },
     "src/shelf/webview/main.ts": {
       "status": "tested",
@@ -58,13 +58,13 @@
       "status": "tested",
       "note": "rendered dialog script run in jsdom; builds push/cancel + cancel wiring (syncPatchScript.test.ts)"
     },
-    "src/patches/ApplyPatchDialog.ts": {
+    "src/patches/webview/applyPatchDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds patch inputs + cancel wiring (syncPatchScript.test.ts)"
+      "note": "bundled Apply Patch entry booted in jsdom; builds patch inputs + apply/cancel + host-message handling (syncPatchScript.test.ts, applyPatchDialogDom.test.ts)"
     },
-    "src/rebase/RebaseDialog.ts": {
+    "src/rebase/webview/rebaseDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds onto select + cancel wiring (rebaseViewsScript.test.ts)"
+      "note": "bundled Rebase entry booted in jsdom; builds onto/newbase selects + options + cancel wiring (rebaseViewsScript.test.ts, rebaseDialog.test.ts)"
     },
     "src/rebase/RebaseEditor.ts": {
       "status": "tested",

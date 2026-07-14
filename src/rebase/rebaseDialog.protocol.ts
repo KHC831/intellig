@@ -3,6 +3,25 @@
  * dialog posts nothing back.
  */
 
+/** One option checkbox row baked into the init island. */
+export interface IRebaseOptionCheckbox {
+  id: string;
+  flag: string;
+  title: string;
+  desc: string;
+  checked: boolean;
+}
+
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IRebaseDialogInit {
+  currentBranch: string;
+  branchChoices: string[];
+  onto: string;
+  interactiveDefault: boolean;
+  rootDisablesOnto: boolean;
+  optionCheckboxes: IRebaseOptionCheckbox[];
+}
+
 export type RebaseDialogInbound =
   | {
       type: 'rebase';

@@ -17,7 +17,12 @@
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { assertNever } from '../utils/assertNever';
-import { asResetDialogInbound, type ResetDialogOutbound } from './resetDialog.protocol';
+import {
+  asResetDialogInbound,
+  type IResetDialogInit,
+  type ResetDialogOutbound,
+} from './resetDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import {
   IGitService,
   IGitServiceCli,
@@ -333,129 +338,27 @@ export class ResetDialog extends BaseWebviewPanel<ResetDialogOutbound> {
   }
 
   protected _getBodyHtml(): string {
-    return this._getBodyParts().body;
-  }
-
-  /**
-   * Emit the body HTML and the interactive script separately. Used by
-   * `_wrapHtml` so it can splice the script into a nonced `<script>` block
-   * without regex-extracting it from the body (nested `</script>`
-   * inside a string literal would break the old regex).
-   */
-  private _getBodyParts(): { body: string; script: string } {
-    // Compute the effective default explicitly instead of leaning
-    // on the brittle `checked && !disabled` trick. If someone later flips
-    // the designated default to Hard, a protected branch will now fall back
-    // to the first enabled mode (Soft) rather than render no radio checked.
+    // Compute the effective default explicitly (not the brittle
+    // `checked && !disabled` trick) so a protected branch preselects the first
+    // enabled mode rather than rendering no radio checked.
     const disabledSet = new Set<ResetMode>(this.isProtected ? ['hard', 'keep'] : []);
-    // Preselect the user's last-used mode (IntelliJ persists this per project),
-    // falling back through resolveDefaultMode if it's disabled on a protected
-    // branch.
     const preferred = loadPreferredResetMode(this._context.globalState);
     const effectiveDefault = resolveDefaultMode(preferred, disabledSet);
-
-    // Body ships an empty root; the script builds every control via
-    // document.createElement. Host data crosses as a JSON init island and
-    // reaches the DOM via .textContent / element props (injection-proof).
-    const body = `<div id="root"></div>`;
-
-    const initJson = JSON.stringify({
+    const init: IResetDialogInit = {
       shortHash: this._target.hash.substring(0, 8),
       subject: this._target.subject,
       disabledModes: [...disabledSet],
       effectiveDefault,
       protectedTooltip: 'Protected branch — remove from intellig.protectedBranches to enable',
-    }).replace(/</g, '\\u003c');
-
-    const script = `
-      (function() {
-        const vscode = acquireVsCodeApi();
-        const INIT = ${initJson};
-        const root = document.getElementById('root');
-        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-
-        // ── Target (hash + subject) ────────────────────────────────────────
-        const target = el('div', { className: 'target' });
-        target.append(
-          el('span', { className: 'hash', textContent: INIT.shortHash }),
-          el('span', { className: 'subject', textContent: INIT.subject })
-        );
-
-        // ── Reset-mode radios ──────────────────────────────────────────────
-        const MODES = [
-          { mode: 'soft', label: 'Soft', desc: 'Keep changes staged', warn: false },
-          { mode: 'mixed', label: 'Mixed', desc: 'Keep changes unstaged (default)', warn: false },
-          { mode: 'hard', label: 'Hard', desc: 'Discard all changes', warn: true },
-          { mode: 'keep', label: 'Keep', desc: 'Discard committed, keep local', warn: true },
-        ];
-        const modesBox = el('div', { className: 'modes' });
-        modesBox.setAttribute('role', 'radiogroup');
-        modesBox.setAttribute('aria-label', 'Reset mode');
-        for (const m of MODES) {
-          const disabled = INIT.disabledModes.includes(m.mode);
-          const label = el('label', { className: 'mode' });
-          label.setAttribute('data-mode', m.mode);
-          if (disabled) {
-            label.setAttribute('title', INIT.protectedTooltip);
-          }
-          const input = el('input', { type: 'radio', name: 'reset-mode', value: m.mode });
-          input.checked = m.mode === INIT.effectiveDefault;
-          input.disabled = disabled;
-          const text = el('span', { className: 'label-text' });
-          text.append(
-            el('span', { className: 'title-line' + (m.warn ? ' warn' : ''), textContent: m.label }),
-            el('span', { className: 'desc', textContent: m.desc })
-          );
-          label.append(input, text);
-          modesBox.append(label);
-        }
-
-        // ── Actions ────────────────────────────────────────────────────────
-        const actions = el('div', { className: 'actions' });
-        actions.append(
-          el('button', { id: 'cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' }),
-          el('button', { id: 'reset-btn', type: 'button', textContent: 'Reset' })
-        );
-
-        root.append(target, modesBox, actions);
-
-        const submit = () => {
-          const checked = document.querySelector('input[name="reset-mode"]:checked');
-          const mode = checked ? checked.value : 'mixed';
-          vscode.postMessage({ type: 'reset', mode });
-        };
-        const cancel = () => {
-          vscode.postMessage({ type: 'cancel' });
-        };
-        document.getElementById('reset-btn').addEventListener('click', submit);
-        document.getElementById('cancel-btn').addEventListener('click', cancel);
-
-        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
-        //   Cmd+Enter / Ctrl+Enter → primary action (Reset)
-        //   Esc                    → cancel
-        // Destructive Hard/Keep still routes through the modal confirm in
-        // the message handler, so Cmd+Enter never bypasses the safety prompt.
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancel();
-          }
-        });
-      })();
-    `;
-
-    return { body, script };
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Override the base renderer entirely so we can emit the interactive
-   * script with the CSP nonce. We pass body+script as an explicit
-   * tuple from `_getBodyParts()` instead of regex-extracting the script
-   * from the serialized body (which would break on nested `</script>`
-   * substrings inside string literals).
+   * Override the base renderer so the body ships with an EXTERNAL bundle tag
+   * (media/webview/resetDialog.js) instead of the base's empty sentinel. The
+   * interactive logic lives in the bundled entry (src/ui-shell/webview/resetDialog.ts),
+   * which reads its init from the body island.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -466,7 +369,9 @@ export class ResetDialog extends BaseWebviewPanel<ResetDialogOutbound> {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const styleBlock = styles.length > 0 ? `<style>${styles}</style>` : '';
-    const { body, script } = this._getBodyParts();
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'resetDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -478,8 +383,8 @@ export class ResetDialog extends BaseWebviewPanel<ResetDialogOutbound> {
   ${styleBlock}
 </head>
 <body>
-${body}
-<script nonce="${nonce}">${script}</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }

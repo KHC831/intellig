@@ -21,8 +21,10 @@ import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { assertNever } from '../utils/assertNever';
 import {
   asCommitMessageDialogInbound,
+  type ICommitMessageDialogInit,
   type CommitMessageDialogOutbound,
 } from './commitMessageDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { escapeHtml } from '../utils/escapeHtml';
 
 /** Presentation + identity for one dialog instance. */
@@ -175,19 +177,9 @@ export class CommitMessageDialog extends BaseWebviewPanel<CommitMessageDialogOut
     const nonce = this._getNonce();
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
-    // Cross host→script data as a JSON island read by the script. JSON.stringify
-    // alone does not escape `<`, so a seed containing `</script>` would close the
-    // inline script tag early (the HTML parser ignores JS string context) and
-    // inject the trailing markup. Unicode-escape `<`; the JS string decodes it
-    // back to `<`, so the values are unchanged. Every dynamic value reaches the
-    // DOM via `.value` / `.textContent` (injection-proof) — never HTML markup.
-    const initJson = JSON.stringify({
-      seedMessage: this._seedMessage,
-      heading: this._heading,
-      submitLabel: this._submitLabel,
-      submitVerb: this._submitVerb,
-      isMac: onMacOS(),
-    }).replace(/</g, '\\u003c');
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'commitMessageDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -199,93 +191,23 @@ export class CommitMessageDialog extends BaseWebviewPanel<CommitMessageDialogOut
   <style>${styles}</style>
 </head>
 <body>
-  <div id="root"></div>
-  <script nonce="${nonce}">
-    (function() {
-      const vscode = acquireVsCodeApi();
-      const INIT = ${initJson};
-      const root = document.getElementById('root');
-
-      const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-
-      const heading = el('h2', { textContent: INIT.heading });
-
-      // Helper line with two <kbd> hints. Built from text nodes + elements so
-      // no markup interpolation is needed.
-      const helper = el('p', { className: 'helper' });
-      helper.append(
-        'Edit the commit message below. Press ',
-        el('kbd', { textContent: (INIT.isMac ? 'Cmd' : 'Ctrl') + '+Enter' }),
-        ' to ' + INIT.submitVerb + ', or ',
-        el('kbd', { textContent: 'Esc' }),
-        ' to cancel.'
-      );
-
-      const msgEl = el('textarea', { id: 'msg', spellcheck: false });
-      msgEl.value = INIT.seedMessage;
-
-      const actions = el('div', { className: 'actions' });
-      const cancelBtn = el('button', {
-        id: 'cancel-btn',
-        type: 'button',
-        className: 'secondary',
-        textContent: 'Cancel',
-      });
-      const submitBtn = el('button', {
-        id: 'submit-btn',
-        type: 'button',
-        textContent: INIT.submitLabel,
-      });
-      actions.append(cancelBtn, submitBtn);
-
-      root.append(heading, helper, msgEl, actions);
-
-      // Place caret at the end of the seed so the user can keep typing.
-      msgEl.setSelectionRange(msgEl.value.length, msgEl.value.length);
-      msgEl.focus();
-
-      const submit = () => {
-        vscode.postMessage({ type: 'submit', message: msgEl.value });
-      };
-      const cancel = () => {
-        vscode.postMessage({ type: 'cancel' });
-      };
-
-      submitBtn.addEventListener('click', submit);
-      cancelBtn.addEventListener('click', cancel);
-
-      // Keyboard shortcuts:
-      //   Cmd+Enter / Ctrl+Enter → submit (IntelliJ + git commit-template parity)
-      //   Esc                    → cancel
-      // Plain Enter inserts a newline (textarea default) so multi-line
-      // composition works naturally.
-      msgEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          submit();
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          cancel();
-        }
-      });
-      // Esc anywhere on the page also cancels.
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && document.activeElement !== msgEl) {
-          e.preventDefault();
-          cancel();
-        }
-      });
-    })();
-  </script>
+  ${this._getBodyHtml()}
+  <script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
 
-  // BaseWebviewPanel requires _getBodyHtml even though we override
-  // _render. Return an empty body — _render builds the full document
-  // directly so this is dead code in practice.
+  // The body carries an empty mount point + the init island the bundled entry
+  // (src/commits/webview/commitMessageDialog.ts) reads on boot.
   protected _getBodyHtml(): string {
-    return '';
+    const init: ICommitMessageDialogInit = {
+      seedMessage: this._seedMessage,
+      heading: this._heading,
+      submitLabel: this._submitLabel,
+      submitVerb: this._submitVerb,
+      isMac: onMacOS(),
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   protected _onMessage(raw: unknown): void {

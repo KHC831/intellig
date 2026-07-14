@@ -66,6 +66,11 @@ const DEFAULT_ENTRIES = [
   'shelf/webview/main.ts',
   'branches/webview/main.ts',
   'conflicts/webview/main.ts',
+  'commits/webview/commitMessageDialog.ts',
+  'ui-shell/webview/resetDialog.ts',
+  'rebase/webview/rebaseDialog.ts',
+  'patches/webview/applyPatchDialog.ts',
+  'conflicts/webview/resolveConflictsDialog.ts',
 ];
 const ALLOWLIST_FILE = path.join(repoRoot, 'scripts', 'dead-exports-allowlist.txt');
 

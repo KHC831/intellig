@@ -28,7 +28,8 @@
 
 import * as assert from 'assert';
 import { okAsync } from 'neverthrow';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -248,6 +249,27 @@ function makeMockGitService(): IGitService & {
   return svc;
 }
 
+// Boot the bundled Resolve Conflicts entry against the host body (incl. the
+// data-init island) — the Phase-5 successor to eval'ing the inline script.
+const _rcdHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_rcdHarnesses.length > 0) {
+    _rcdHarnesses.pop()?.dispose();
+  }
+});
+
+function bootRcd(dialog: ResolveConflictsDialog): Document {
+  const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
+  const bodyHtml = extractWebviewScript(html).bodyHtml;
+  assert.ok(
+    !/class="file-row"/.test(bodyHtml),
+    'rows must not be pre-baked in host markup — the entry builds the DOM'
+  );
+  const h = bootWebviewEntry('conflicts/webview/resolveConflictsDialog', { bodyHtml });
+  _rcdHarnesses.push(h);
+  return h.document;
+}
+
 describe('ResolveConflictsDialog', () => {
   let ctx: vscode.ExtensionContext;
   let gitService: ReturnType<typeof makeMockGitService>;
@@ -287,25 +309,7 @@ describe('ResolveConflictsDialog', () => {
      * the script BUILDS the body via document.createElement — the host markup
      * ships an empty root, not pre-baked rows/buttons.
      */
-    function renderDoc(d: ResolveConflictsDialog): Document {
-      const html = (d as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      const dom = new JSDOM(html, { runScripts: 'outside-only' });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      assert.strictEqual(
-        window.document.querySelector('.file-row'),
-        null,
-        'rows must not be pre-baked in host markup — the script builds the DOM'
-      );
-      const scriptEl = window.document.querySelector('script[nonce]');
-      assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-      window.eval(scriptEl.textContent ?? '');
-      return window.document as unknown as Document;
-    }
+    const renderDoc = (d: ResolveConflictsDialog): Document => bootRcd(d);
 
     it('renders a row per conflict file', () => {
       dialog = new ResolveConflictsDialog(
@@ -1828,20 +1832,12 @@ describe('ConflictResolutionService — (a) additions', () => {
         mergeView,
         gitService
       );
-      const html = (unresolved as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      const dom = new JSDOM(html, { runScripts: 'outside-only' });
-      const w = dom.window;
-      (w as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      w.eval(w.document.querySelector('script[nonce]')?.textContent ?? '');
+      const w = bootRcd(unresolved);
       assert.ok(
-        w.document.querySelector('[data-action="acceptAllYours"]'),
+        w.querySelector('[data-action="acceptAllYours"]'),
         'Accept Yours (all) button renders while unresolved'
       );
-      assert.ok(w.document.querySelector('[data-action="acceptAllTheirs"]'));
+      assert.ok(w.querySelector('[data-action="acceptAllTheirs"]'));
       unresolved.dispose();
 
       // All resolved → buttons gone.
@@ -1854,17 +1850,9 @@ describe('ConflictResolutionService — (a) additions', () => {
         mergeView,
         gitService
       );
-      const html2 = (resolved as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      const dom2 = new JSDOM(html2, { runScripts: 'outside-only' });
-      const w2 = dom2.window;
-      (w2 as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      w2.eval(w2.document.querySelector('script[nonce]')?.textContent ?? '');
+      const w2 = bootRcd(resolved);
       assert.strictEqual(
-        w2.document.querySelector('[data-action="acceptAllYours"]'),
+        w2.querySelector('[data-action="acceptAllYours"]'),
         null,
         'no bulk buttons once everything is resolved'
       );

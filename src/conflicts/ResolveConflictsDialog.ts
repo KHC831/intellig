@@ -21,6 +21,15 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import {
+  asResolveConflictsDialogInbound,
+  type ConflictFileStatus,
+  type IResolveConflictsDialogInit,
+  type ResolveConflictsDialogOutbound,
+} from './resolveConflictsDialog.protocol';
+export type { ConflictFileStatus } from './resolveConflictsDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { sanitizeGitError } from '../git-core/gitError';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { escapeHtml } from '../utils/escapeHtml';
@@ -38,34 +47,6 @@ import { acceptLabels } from './conflictSideNames';
  * module itself (the canonical home is the service interface).
  */
 export { IConflictOpContext } from './interfaces/IConflictResolutionService';
-
-/**
- * Status of a single file row in the dialog.
- */
-export type ConflictFileStatus = 'unresolved' | 'resolved';
-
-/**
- * Message protocol: webview → host.
- */
-type IncomingMessage =
-  | { type: 'acceptYours'; path: string }
-  | { type: 'acceptTheirs'; path: string }
-  | { type: 'openMergeView'; path: string }
-  /** Take the user's ("Yours") side for every remaining unresolved file. */
-  | { type: 'acceptAllYours' }
-  /** Take the incoming ("Theirs") side for every remaining unresolved file. */
-  | { type: 'acceptAllTheirs' }
-  | { type: 'abort' }
-  | { type: 'continue' }
-  /** Skip This Commit — rebase-only; drops the conflicting commit. */
-  | { type: 'skip' };
-
-/**
- * Message protocol: host → webview.
- */
-type OutgoingMessage =
-  | { type: 'updateFileStatus'; path: string; status: ConflictFileStatus }
-  | { type: 'closeDialog'; reason: 'completed' | 'aborted' | 'cancelled' };
 
 /**
  * Human-readable label per operation — used for the title bar and the Abort
@@ -194,7 +175,7 @@ body {
  * The dialog delegates per-file actions to `IConflictResolutionService` and
  * `IMergeView` — it does NOT duplicate conflict-mutation logic.
  */
-export class ResolveConflictsDialog extends BaseWebviewPanel {
+export class ResolveConflictsDialog extends BaseWebviewPanel<ResolveConflictsDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _opContext: IConflictOpContext;
   private readonly _conflictResolutionService: IConflictResolutionService;
@@ -294,7 +275,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       return;
     }
     this._statuses.set(path, status);
-    void this.postMessage({ type: 'updateFileStatus', path, status } as OutgoingMessage);
+    void this.postMessage({ type: 'updateFileStatus', path, status });
   }
 
   /**
@@ -366,16 +347,32 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    * block is appended in `_render()`.
    */
   protected _getBodyHtml(): string {
-    // Body ships an empty root; the script builds the header, file rows,
-    // bulk-row, and footer via document.createElement from a JSON init island.
-    return `<div id="root"></div>`;
+    const init: IResolveConflictsDialogInit = {
+      headerText: ResolveConflictsDialog.describeOp(this._opContext),
+      opLabel: OP_LABELS[this._opContext.operation],
+      files: Array.from(this._statuses.entries()).map(([path, status]) => ({ path, status })),
+      canAbort: this._opContext.canAbort,
+      // Skip This Commit — only meaningful during a LIVE rebase. Its precondition
+      // is identical to Continue's (a rebase in progress), so it is gated on
+      // `canContinue` too; a post-completion autostash-pop conflict
+      // (operation:'rebase' but canContinue:false) would dead-end on "no rebase
+      // in progress".
+      skipVisible: this._opContext.operation === 'rebase' && this._opContext.canContinue === true,
+      continueVisible: this._opContext.canContinue,
+      allResolved: this.allResolved(),
+      hasUnresolved: !this.allResolved(),
+      yoursLabel: this._acceptButtonLabel('yours'),
+      theirsLabel: this._acceptButtonLabel('theirs'),
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Override the base renderer so we can embed a real (non-sentinel) script
-   * carrying the CSP nonce. The script builds the body via createElement from a
-   * JSON init island, then handles click dispatch and incremental DOM updates
-   * on host-originated postMessages.
+   * Override the base renderer so the body ships with an EXTERNAL bundle tag
+   * (media/webview/resolveConflictsDialog.js) instead of the base's empty
+   * sentinel. The interactive logic lives in the bundled entry
+   * (src/conflicts/webview/resolveConflictsDialog.ts), which reads its init from
+   * the body island and applies host updateFileStatus patches.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -386,30 +383,14 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const title = `Resolve Conflicts — ${ResolveConflictsDialog.describeOp(this._opContext)}`;
-
-    // Host data crosses as a JSON init island; every dynamic value reaches the
-    // DOM via .textContent / element props (injection-proof) — never markup.
-    const initJson = JSON.stringify({
-      headerText: ResolveConflictsDialog.describeOp(this._opContext),
-      opLabel: OP_LABELS[this._opContext.operation],
-      files: Array.from(this._statuses.entries()).map(([path, status]) => ({ path, status })),
-      canAbort: this._opContext.canAbort,
-      // Skip This Commit — only meaningful during a LIVE rebase. Skip's
-      // precondition is identical to Continue's (a rebase in progress), so it
-      // is gated on `canContinue` too; a post-completion autostash-pop conflict
-      // (operation:'rebase' but canContinue:false) would dead-end on "no rebase
-      // in progress".
-      skipVisible: this._opContext.operation === 'rebase' && this._opContext.canContinue === true,
-      continueVisible: this._opContext.canContinue,
-      allResolved: this.allResolved(),
-      // Whether any row is still unresolved — gates the bulk "Accept … for All"
-      // buttons (no point offering them once everything is resolved).
-      hasUnresolved: !this.allResolved(),
-      // "Accept from {branch}" labels when a name resolved for the side; the
-      // generic "Accept Yours/Theirs" otherwise.
-      yoursLabel: this._acceptButtonLabel('yours'),
-      theirsLabel: this._acceptButtonLabel('theirs'),
-    }).replace(/</g, '\\u003c');
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(
+        this._context.extensionUri,
+        'media',
+        'webview',
+        'resolveConflictsDialog.js'
+      )
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -421,157 +402,8 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   <style>${styles}</style>
 </head>
 <body>
-<div id="root"></div>
-<script nonce="${nonce}">
-(function() {
-  const vscode = acquireVsCodeApi();
-  const INIT = ${initJson};
-  const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-
-  // ── Build the body ────────────────────────────────────────────────────────
-  const root = document.getElementById('root');
-  root.append(el('div', { className: 'header', textContent: INIT.headerText }));
-
-  const fileList = el('div', { className: 'file-list' });
-  fileList.setAttribute('data-role', 'file-list');
-  const buildRow = (path, status) => {
-    const row = el('div', { className: 'file-row' });
-    row.setAttribute('data-row-path', path);
-    row.append(
-      el('span', { className: 'file-status ' + status, textContent: status === 'resolved' ? '✓' : '⚠' }),
-      el('span', { className: 'file-path', textContent: path })
-    );
-    const actions = el('span', { className: 'file-actions' });
-    if (status === 'resolved') {
-      actions.append(el('span', { className: 'resolved-label', textContent: 'resolved' }));
-    } else {
-      const btn = (cls, action, text, title) => {
-        const b = el('button', { className: 'btn' + (cls ? ' ' + cls : ''), textContent: text });
-        b.setAttribute('data-action', action);
-        b.setAttribute('data-path', path);
-        if (title) b.setAttribute('title', title);
-        return b;
-      };
-      actions.append(
-        btn('secondary', 'acceptYours', INIT.yoursLabel),
-        btn('secondary', 'acceptTheirs', INIT.theirsLabel),
-        btn('', 'openMergeView', 'Merge…')
-      );
-    }
-    row.append(actions);
-    return row;
-  };
-  if (INIT.files.length > 0) {
-    for (const f of INIT.files) fileList.append(buildRow(f.path, f.status));
-  } else {
-    const empty = el('div', { className: 'file-row' });
-    empty.append(
-      el('span', {
-        className: 'file-path',
-        textContent: INIT.continueVisible
-          ? 'All conflicts resolved — click Continue to finish.'
-          : 'No conflicted files.',
-      })
-    );
-    fileList.append(empty);
-  }
-  root.append(fileList);
-
-  if (INIT.hasUnresolved) {
-    const bulkActions = el('div', { className: 'bulk-actions' });
-    const bulkBtn = (action, text, title) => {
-      const b = el('button', { className: 'btn secondary', textContent: text });
-      b.setAttribute('data-action', action);
-      b.setAttribute('title', title);
-      return b;
-    };
-    bulkActions.append(
-      el('span', { textContent: 'For all remaining files:' }),
-      bulkBtn('acceptAllYours', INIT.yoursLabel, 'Take your side for every unresolved file'),
-      bulkBtn('acceptAllTheirs', INIT.theirsLabel, 'Take the incoming side for every unresolved file')
-    );
-    root.append(bulkActions);
-  }
-
-  const footer = el('div', { className: 'footer' });
-  if (INIT.canAbort) {
-    const b = el('button', { className: 'btn secondary', textContent: 'Abort ' + INIT.opLabel });
-    b.setAttribute('data-action', 'abort');
-    footer.append(b);
-  }
-  if (INIT.skipVisible) {
-    const b = el('button', { className: 'btn secondary', textContent: 'Skip This Commit' });
-    b.setAttribute('data-action', 'skip');
-    b.setAttribute('title', "Drop the current commit and move on to the next one in the rebase sequence. The commit's changes will NOT be applied.");
-    footer.append(b);
-  }
-  if (INIT.continueVisible) {
-    const b = el('button', { className: 'btn', textContent: 'Continue' });
-    b.setAttribute('data-action', 'continue');
-    if (!INIT.allResolved) b.setAttribute('disabled', 'disabled');
-    footer.append(b);
-  }
-  root.append(footer);
-
-  function send(msg) { vscode.postMessage(msg); }
-
-  document.addEventListener('click', function(e) {
-    const t = e.target;
-    if (!(t instanceof HTMLElement)) return;
-    const action = t.getAttribute('data-action');
-    if (!action) return;
-    const path = t.getAttribute('data-path') || undefined;
-    switch (action) {
-      case 'acceptYours':
-      case 'acceptTheirs':
-      case 'openMergeView':
-        if (path) send({ type: action, path: path });
-        break;
-      case 'acceptAllYours':
-      case 'acceptAllTheirs':
-      case 'abort':
-      case 'continue':
-      case 'skip':
-        send({ type: action });
-        break;
-    }
-  });
-
-  window.addEventListener('message', function(event) {
-    const msg = event.data;
-    if (!msg) return;
-    if (msg.type === 'updateFileStatus') {
-      const row = document.querySelector('[data-row-path="' + CSS.escape(msg.path) + '"]');
-      if (!row) return;
-      const statusEl = row.querySelector('.file-status');
-      if (statusEl) {
-        statusEl.classList.remove('unresolved', 'resolved');
-        statusEl.classList.add(msg.status);
-        statusEl.textContent = msg.status === 'resolved' ? '✓' : '⚠';
-      }
-      const actionsEl = row.querySelector('.file-actions');
-      if (actionsEl && msg.status === 'resolved') {
-        actionsEl.textContent = '';
-        const lbl = document.createElement('span');
-        lbl.className = 'resolved-label';
-        lbl.textContent = 'resolved';
-        actionsEl.appendChild(lbl);
-      }
-      const rows = document.querySelectorAll('[data-row-path]');
-      let allResolved = rows.length > 0;
-      rows.forEach(function(r) {
-        const s = r.querySelector('.file-status');
-        if (!s || !s.classList.contains('resolved')) allResolved = false;
-      });
-      const continueBtn = document.querySelector('[data-action="continue"]');
-      if (continueBtn) {
-        if (allResolved) continueBtn.removeAttribute('disabled');
-        else continueBtn.setAttribute('disabled', 'disabled');
-      }
-    }
-  });
-})();
-</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
@@ -584,10 +416,12 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    * `resolveConflictsDialogRouter.property.test.ts`).
    */
   protected async _onMessage(message: unknown): Promise<void> {
-    if (!message || typeof message !== 'object') {
+    const msg = asResolveConflictsDialogInbound(message);
+    if (!msg) {
+      // Unknown / malformed message — silently drop. The router property test
+      // confirms no valid message is rejected here.
       return;
     }
-    const msg = message as IncomingMessage;
 
     switch (msg.type) {
       case 'acceptYours':
@@ -619,9 +453,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         await this._runExclusive(() => this._handleSkip());
         break;
       default:
-        // Unknown message — silently drop. The router property test confirms
-        // no valid message reaches this branch.
-        break;
+        assertNever(msg);
     }
   }
 
@@ -1027,7 +859,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       return;
     }
     this._closeReason = reason;
-    void this.postMessage({ type: 'closeDialog', reason } as OutgoingMessage);
+    void this.postMessage({ type: 'closeDialog', reason });
     this._onDidClose.fire(reason);
     this.dispose();
   }

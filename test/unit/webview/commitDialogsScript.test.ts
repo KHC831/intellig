@@ -18,6 +18,7 @@ import { CommitMessageDialog } from '../../../src/commits/CommitMessageDialog';
 import type { IGitService } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
@@ -29,7 +30,7 @@ const GARBAGE_MESSAGES: unknown[] = [
 ];
 
 describe('webview: commit-flow dialog scripts (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewHarness | IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -81,9 +82,14 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('commits/webview/commitMessageDialog', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the message textarea seeded with the squash message', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -94,8 +100,7 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }
@@ -120,9 +125,14 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('commits/webview/commitMessageDialog', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('builds the textarea seeded with the multi-line message and a save-labelled submit', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -135,8 +145,7 @@ describe('webview: commit-flow dialog scripts (jsdom)', () => {
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }

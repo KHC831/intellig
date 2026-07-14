@@ -67,19 +67,30 @@ interface DialogUnderAudit {
 const DIALOGS: DialogUnderAudit[] = [
   {
     // SquashMessageDialog + the reword edit dialog are presets of this base,
-    // which carries the shared inline script + keyboard contract.
+    // which carries the shared keyboard contract in its bundled entry.
     name: 'CommitMessageDialog',
     file: 'src/commits/CommitMessageDialog.ts',
+    entryFile: 'src/commits/webview/commitMessageDialog.ts',
     keyboardContract: true,
   },
-  { name: 'ApplyPatchDialog', file: 'src/patches/ApplyPatchDialog.ts', keyboardContract: true },
+  {
+    name: 'ApplyPatchDialog',
+    file: 'src/patches/ApplyPatchDialog.ts',
+    entryFile: 'src/patches/webview/applyPatchDialog.ts',
+    keyboardContract: true,
+  },
   {
     name: 'MergeDialog',
     file: 'src/conflicts/MergeDialog.ts',
     entryFile: 'src/conflicts/webview/main.ts',
     keyboardContract: true,
   },
-  { name: 'ResetDialog', file: 'src/ui-shell/ResetDialog.ts', keyboardContract: true },
+  {
+    name: 'ResetDialog',
+    file: 'src/ui-shell/ResetDialog.ts',
+    entryFile: 'src/ui-shell/webview/resetDialog.ts',
+    keyboardContract: true,
+  },
   {
     name: 'NewBranchDialog',
     file: 'src/branches/NewBranchDialog.ts',
@@ -90,6 +101,7 @@ const DIALOGS: DialogUnderAudit[] = [
   {
     name: 'ResolveConflictsDialog',
     file: 'src/conflicts/ResolveConflictsDialog.ts',
+    entryFile: 'src/conflicts/webview/resolveConflictsDialog.ts',
     keyboardContract: false,
   },
 ];
@@ -143,11 +155,12 @@ describe('Dialog-framework conventions audit (spec 5.1)', () => {
         );
       });
 
-      if (dialog.keyboardContract) {
-        // The keyboard contract lives wherever the interactive script does: the
-        // host string for inline dialogs, the bundled entry for Phase-5 ports.
-        const scriptOf = (): string => (dialog.entryFile ? read(dialog.entryFile) : source);
+      // The interactive script lives in the host string for inline dialogs, or
+      // the bundled entry for Phase-5 ports. The keyboard/abort contracts are
+      // asserted against whichever holds it.
+      const scriptOf = (): string => (dialog.entryFile ? read(dialog.entryFile) : source);
 
+      if (dialog.keyboardContract) {
         it('binds Cmd+Enter / Ctrl+Enter to the primary action', () => {
           // The canonical guard expression in every dialog's keydown
           // handler. metaKey covers macOS Cmd, ctrlKey covers Win/Linux.
@@ -174,9 +187,10 @@ describe('Dialog-framework conventions audit (spec 5.1)', () => {
           // `data-action="abort"` markup attribute, or the createElement form
           // `setAttribute('data-action', 'abort')` used after the string→DOM
           // migration.
+          const scriptText = scriptOf();
           const hasAbortAction =
-            /data-action="abort"/.test(source) ||
-            /setAttribute\(\s*['"]data-action['"]\s*,\s*['"]abort['"]\s*\)/.test(source);
+            /data-action="abort"/.test(scriptText) ||
+            /setAttribute\(\s*['"]data-action['"]\s*,\s*['"]abort['"]\s*\)/.test(scriptText);
           assert.ok(
             hasAbortAction,
             `${dialog.name} is the keyboard-contract exception because its only ` +

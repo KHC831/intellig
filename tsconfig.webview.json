@@ -18,6 +18,6 @@
     "exactOptionalPropertyTypes": false,
     "noImplicitOverride": true
   },
-  "include": ["src/**/webview/main.ts"],
+  "include": ["src/**/webview/*.ts"],
   "exclude": ["node_modules", "out", ".vscode-test"]
 }

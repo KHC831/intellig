@@ -1,8 +1,18 @@
 /**
- * Wire protocol for the Reset dialog. NO runtime vscode import (the ResetMode
- * type-only import is erased). Frozen wire; the dialog posts nothing back.
+ * Wire protocol for the Reset dialog. NO vscode import — ResetMode comes from
+ * the vscode-free resetMode module so the webview entry can import this. Frozen
+ * wire; the dialog posts nothing back.
  */
-import type { ResetMode } from '../git-core/interfaces/IGitService';
+import type { ResetMode } from '../git-core/interfaces/resetMode';
+
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IResetDialogInit {
+  shortHash: string;
+  subject: string;
+  disabledModes: ResetMode[];
+  effectiveDefault: ResetMode;
+  protectedTooltip: string;
+}
 
 export type ResetDialogInbound = { type: 'reset'; mode?: ResetMode } | { type: 'cancel' };
 

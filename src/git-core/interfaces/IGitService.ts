@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ResultAsync } from 'neverthrow';
+import type { ResetMode } from './resetMode';
 
 import type { GitCli } from '../gitCli';
 import type { GitError } from '../errors';
@@ -914,7 +915,7 @@ export interface IRevertResult {
  * - `keep`: move HEAD and reset the index; keep local working-tree changes,
  *   abort if any local change would be overwritten.
  */
-export type ResetMode = 'soft' | 'mixed' | 'hard' | 'keep';
+export type { ResetMode } from './resetMode';
 
 /**
  * A single file that differs between two refs (or between a ref and the working tree).

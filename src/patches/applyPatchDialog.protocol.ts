@@ -2,6 +2,12 @@
  * Wire protocol for the Apply Patch dialog. NO vscode import. Frozen wire.
  */
 
+/** Initial state the host bakes into the body island; the entry reads it on boot. */
+export interface IApplyPatchDialogInit {
+  patchPath: string;
+  previewLineCap: number;
+}
+
 /** Webview → host messages. */
 export type ApplyPatchDialogInbound =
   | { type: 'cancel' }

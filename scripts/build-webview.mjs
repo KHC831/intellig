@@ -33,6 +33,14 @@ const PANEL_ENTRIES = [
   { in: join(root, 'src/shelf/webview/main.ts'), out: 'shelveDialog' },
   { in: join(root, 'src/branches/webview/main.ts'), out: 'newBranchDialog' },
   { in: join(root, 'src/conflicts/webview/main.ts'), out: 'mergeDialog' },
+  { in: join(root, 'src/commits/webview/commitMessageDialog.ts'), out: 'commitMessageDialog' },
+  { in: join(root, 'src/ui-shell/webview/resetDialog.ts'), out: 'resetDialog' },
+  { in: join(root, 'src/rebase/webview/rebaseDialog.ts'), out: 'rebaseDialog' },
+  { in: join(root, 'src/patches/webview/applyPatchDialog.ts'), out: 'applyPatchDialog' },
+  {
+    in: join(root, 'src/conflicts/webview/resolveConflictsDialog.ts'),
+    out: 'resolveConflictsDialog',
+  },
 ];
 
 const configs = [

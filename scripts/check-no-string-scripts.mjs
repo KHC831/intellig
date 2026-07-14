@@ -54,18 +54,13 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
  */
 const STRING_SCRIPT_ALLOWLIST_DEFAULT = [
   join('commits', 'CommitDialog.ts'),
-  join('commits', 'CommitMessageDialog.ts'),
   join('commits', 'CommitToolWindow.ts'),
-  join('conflicts', 'ResolveConflictsDialog.ts'),
   join('git-core', 'gitToolWindow', 'GitToolWindowProvider.ts'),
   join('git-core', 'gitToolWindow', 'html', 'commonHtml.ts'),
   join('git-core', 'gitToolWindow', 'provider', 'htmlBuilders.ts'),
-  join('patches', 'ApplyPatchDialog.ts'),
-  join('rebase', 'RebaseDialog.ts'),
   join('rebase', 'RebaseEditor.ts'),
   join('rebase', 'RebaseProgressView.ts'),
   join('sync', 'PushDialog.ts'),
-  join('ui-shell', 'ResetDialog.ts'),
   // The Base view wraps each subclass's `${script}` in an inline tag; it comes
   // off the ratchet when its last subclass is ported and it emits an external
   // bundle tag (Round 4 — the tool window).

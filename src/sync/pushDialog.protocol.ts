@@ -1,14 +1,27 @@
 /**
- * Wire protocol for the Push dialog. NO runtime vscode import — the data-type
- * imports below are type-only (erased). Frozen wire.
+ * Wire protocol for the Push dialog. NO vscode import — the wire data types live
+ * here (vscode-free) so both the host and the webview entry import them from one
+ * place. Frozen wire.
  */
-import type { PushAction, IPushRow, IPushOverflowState } from './PushDialog';
+
+/** Which push variant the primary button performs. */
+export type PushAction = 'push' | 'forceWithLease' | 'force';
+
+/** Gear overflow state (wire-serialized). */
+export interface IPushOverflowState {
+  /** `--no-verify`. */
+  noVerify: boolean;
+  /** Include tags in the push. When false, tag scope is ignored. */
+  pushTags: boolean;
+  /** When pushTags = true: 'all' → --tags, 'follow' → --follow-tags. */
+  tagScope: 'all' | 'follow';
+}
 
 /** Fields shared across the inbound variants (all optional, as on the wire). */
 type PushInboundFields = {
   action?: PushAction;
   rowId?: string;
-  rowPatch?: Partial<Pick<IPushRow, 'selected' | 'targetBranch'>>;
+  rowPatch?: { selected?: boolean; targetBranch?: string };
   overflow?: IPushOverflowState;
 };
 

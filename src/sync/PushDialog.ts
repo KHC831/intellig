@@ -32,7 +32,13 @@
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { assertNever } from '../utils/assertNever';
-import { asPushDialogInbound, type PushDialogOutbound } from './pushDialog.protocol';
+import {
+  asPushDialogInbound,
+  type PushAction,
+  type IPushOverflowState,
+  type PushDialogOutbound,
+} from './pushDialog.protocol';
+export type { PushAction, IPushOverflowState } from './pushDialog.protocol';
 import { sanitizeGitError } from '../git-core/gitError';
 import {
   IGitService,
@@ -45,19 +51,8 @@ import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
 
 // ─── Action + state types ────────────────────────────────────────────────────
-
-/** The three actions available in the primary-button dropdown. */
-export type PushAction = 'push' | 'forceWithLease' | 'force';
-
-/** Gear overflow state. */
-export interface IPushOverflowState {
-  /** `--no-verify`. */
-  noVerify: boolean;
-  /** Include tags in the push. When false, tag scope is ignored. */
-  pushTags: boolean;
-  /** When pushTags = true: 'all' → --tags, 'follow' → --follow-tags. */
-  tagScope: 'all' | 'follow';
-}
+// PushAction + IPushOverflowState are the wire data types; they live in
+// pushDialog.protocol (vscode-free) and are re-exported above.
 
 /**
  * Initial gear-overflow state. `tagScope` defaults to 'all' (--tags) to match
