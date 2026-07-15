@@ -274,9 +274,11 @@ describe('Git CLI Utilities', () => {
       assert.ok(result.isOk());
       const root = result._unsafeUnwrap();
       assert.ok(root, 'expected a root path');
-      // macOS routes os.tmpdir() through the /var → /private/var symlink, so
-      // compare realpaths rather than raw strings.
-      assert.strictEqual(fs.realpathSync(root), fs.realpathSync(tmpRoot));
+      // macOS routes os.tmpdir() through the /var → /private/var symlink, and
+      // Windows temp paths surface as 8.3 short names (RUNNER~1) that git
+      // expands to the long form — realpathSync.native resolves both, so
+      // compare native realpaths rather than raw strings.
+      assert.strictEqual(fs.realpathSync.native(root), fs.realpathSync.native(tmpRoot));
     });
 
     it('returns Ok(undefined) for a real directory that is NOT a repo (domain absence)', async () => {

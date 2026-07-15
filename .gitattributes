@@ -1,0 +1,6 @@
+# The codebase is LF-only (see CLAUDE.md; the diff-engine and merge-model text
+# is strictly LF, EOL handling lives at the host boundary). Force LF on checkout
+# on every platform so a Windows runner never hands CRLF-normalized source to
+# the LF-assuming engines or the source-scanning tests. git auto-detects binary
+# files and leaves them byte-for-byte untouched.
+* text=auto eol=lf

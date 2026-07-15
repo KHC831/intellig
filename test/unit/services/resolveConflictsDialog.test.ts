@@ -1393,44 +1393,51 @@ describe('ConflictResolutionService — (a) additions', () => {
     assert.strictEqual(openDialog.getFileStatuses().get('b.ts'), 'unresolved');
   });
 
-  it('in-progress probe surfaces a non-ENOENT fs fault instead of masking it as "absent"', async () => {
-    // Point the resolved gitdir at a regular FILE so the state-file / rebase-dir
-    // existence probes hit ENOTDIR (a real fs fault) rather than ENOENT. The
-    // probe must LOG the non-ENOENT fault — the prior code swallowed every errno
-    // as "absent". (`resolveGitDir` follows the `.git`-file pointer, so the fault
-    // has to live under the resolved path, not on the `.git` file itself.)
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-rc-enotdir-'));
-    const gitDirIsAFile = path.join(root, 'resolved-gitdir');
-    fs.writeFileSync(gitDirIsAFile, 'not a directory\n');
-    fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDirIsAFile}\n`);
-    const badRepo = {
-      rootUri: vscode.Uri.file(root),
-      state: 'idle',
-      remotes: [],
-      submodules: [],
-    } as unknown as IRepository;
+  // POSIX-only: induces the non-ENOENT fault via a file-standing-in-for-a-dir
+  // (ENOTDIR), which Windows surfaces as ENOENT — so the fault can't be
+  // reproduced there. The classification behavior itself is platform-independent.
+  (process.platform === 'win32' ? it.skip : it)(
+    'in-progress probe surfaces a non-ENOENT fs fault instead of masking it as "absent"',
+    async () => {
+      // Point the resolved gitdir at a regular FILE so the state-file / rebase-dir
+      // existence probes hit ENOTDIR (a real fs fault) rather than ENOENT. The
+      // probe must LOG the non-ENOENT fault — the prior code swallowed every errno
+      // as "absent". (`resolveGitDir` follows the `.git`-file pointer, so the fault
+      // has to live under the resolved path, not on the `.git` file itself.)
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-rc-enotdir-'));
+      const gitDirIsAFile = path.join(root, 'resolved-gitdir');
+      fs.writeFileSync(gitDirIsAFile, 'not a directory\n');
+      fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDirIsAFile}\n`);
+      const badRepo = {
+        rootUri: vscode.Uri.file(root),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
 
-    const debugMessages: string[] = [];
-    (conflictService as unknown as { _coordinator: { _logger: unknown } })._coordinator._logger = {
-      debug: (msg: string): void => void debugMessages.push(msg),
-      info: (): void => {},
-      warn: (): void => {},
-      error: (): void => {},
-      trace: (): void => {},
-      child(): unknown {
-        return this;
-      },
-    };
+      const debugMessages: string[] = [];
+      (conflictService as unknown as { _coordinator: { _logger: unknown } })._coordinator._logger =
+        {
+          debug: (msg: string): void => void debugMessages.push(msg),
+          info: (): void => {},
+          warn: (): void => {},
+          error: (): void => {},
+          trace: (): void => {},
+          child(): unknown {
+            return this;
+          },
+        };
 
-    const active = await conflictService.runStateFileCheck(badRepo);
-    assert.strictEqual(active, false, 'degrades to "no operation in progress"');
-    assert.ok(
-      debugMessages.some((m) => /probe failed/i.test(m)),
-      'a non-ENOENT fs fault must be logged, not silently masked'
-    );
+      const active = await conflictService.runStateFileCheck(badRepo);
+      assert.strictEqual(active, false, 'degrades to "no operation in progress"');
+      assert.ok(
+        debugMessages.some((m) => /probe failed/i.test(m)),
+        'a non-ENOENT fs fault must be logged, not silently masked'
+      );
 
-    fs.rmSync(root, { recursive: true, force: true });
-  });
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  );
 
   it('in-progress probe stays silent for the normal ENOENT (absent) case', async () => {
     // gitDir exists with no state files → ENOENT on every probe → no fault log.
