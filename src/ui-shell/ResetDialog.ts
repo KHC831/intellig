@@ -298,6 +298,12 @@ export class ResetDialog extends BaseWebviewPanel<ResetDialogOutbound> {
         opacity: 0.55;
         cursor: not-allowed;
       }
+      /* A disabled radio swallows pointer events, so hovering the greyed circle
+         never reaches the label and its protected-branch title never shows. Let
+         events fall through to the label so the whole row surfaces the tooltip. */
+      label.mode input[disabled] {
+        pointer-events: none;
+      }
       label.mode .label-text {
         display: flex;
         flex-direction: column;
