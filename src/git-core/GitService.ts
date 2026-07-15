@@ -230,6 +230,14 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   private _repoScanFs: IRepoScanFs = defaultRepoScanFs;
 
   /**
+   * Path-impl injection seam paired with {@link _repoScanFs}. Production uses the
+   * host `path` (win32 on Windows); unit tests that drive `_repoScanFs` with
+   * POSIX literal paths overwrite this with `path.posix` so the discovery joins
+   * and prefix checks stay consistent with those fixtures on any runner.
+   */
+  private _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'> = path;
+
+  /**
    * Watchers that fire when a NEW `.git/` directory is created mid-session
    * (e.g. user runs `git init` in a workspace subfolder). Keyed by
    * workspace-folder path so we can dispose them when the folder is
@@ -733,6 +741,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       maxDepth,
       ignoredFolders,
       fs: this._repoScanFs,
+      path: this._repoScanPath,
       resolveRepoRoot: (p): Promise<string | undefined> =>
         this._gitCli.getRepositoryRoot(p).match(
           (root) => root,

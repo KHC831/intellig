@@ -26,7 +26,15 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { scanFolderForGitRepos, IRepoScanFs } from '../../../src/git-core/repoScan';
+
+// The scanner joins child paths with the host `path`; these fixtures use POSIX
+// literals, so inject path.posix so they match on a Windows runner too.
+const scanForTest = (
+  root: string,
+  opts: Omit<Parameters<typeof scanFolderForGitRepos>[1], 'path'>
+): Promise<string[]> => scanFolderForGitRepos(root, { ...opts, path: path.posix });
 
 interface IFsState {
   dirs: Map<string, string[]>;
@@ -87,7 +95,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       ]),
       symlinks: new Set(),
     });
-    const result = await scanFolderForGitRepos('/work', {
+    const result = await scanForTest('/work', {
       maxDepth: 2,
       ignoredFolders: [],
       fs,
@@ -113,7 +121,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       ]),
       symlinks: new Set(),
     });
-    const result = await scanFolderForGitRepos('/work', {
+    const result = await scanForTest('/work', {
       maxDepth: 2,
       ignoredFolders: [],
       fs,
@@ -140,7 +148,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       symlinks: new Set(),
     });
     const seen: string[] = [];
-    await scanFolderForGitRepos('/work', {
+    await scanForTest('/work', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,
@@ -173,7 +181,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       symlinks: new Set(),
     });
     const seen: string[] = [];
-    await scanFolderForGitRepos('/work/repo', {
+    await scanForTest('/work/repo', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,
@@ -194,7 +202,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       symlinks: new Set(),
     });
     const seen: string[] = [];
-    await scanFolderForGitRepos('/work', {
+    await scanForTest('/work', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,
@@ -220,7 +228,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       symlinks: new Set(),
     });
     const seen: string[] = [];
-    await scanFolderForGitRepos('/work', {
+    await scanForTest('/work', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,
@@ -247,7 +255,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       dirs: new Map([['/work', ['projectA', 'MyBuild']]]),
       symlinks: new Set(),
     });
-    const result = await scanFolderForGitRepos('/work', {
+    const result = await scanForTest('/work', {
       maxDepth: 1,
       ignoredFolders: ['mybuild'], // lowercase user config
       fs,
@@ -274,7 +282,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
       dirs: new Map([['/work', ['projectA', 'mybuild']]]),
       symlinks: new Set(),
     });
-    const result = await scanFolderForGitRepos('/work', {
+    const result = await scanForTest('/work', {
       maxDepth: 1,
       ignoredFolders: ['MYBUILD'], // uppercase user config
       fs,

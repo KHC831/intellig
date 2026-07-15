@@ -18,6 +18,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { GitError } from '../../../src/git-core/errors';
@@ -58,6 +59,7 @@ interface ConfigRescanSurface {
   setupRepositoryWatcher: (root: string) => void;
   discoverRepository: (path: string) => Promise<void>;
   _repoScanFs: IRepoScanFs;
+  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
 }
 
 function makeFsStub(tree: Record<string, string[]>): IRepoScanFs {
@@ -146,6 +148,9 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
     loadCalls = [];
 
     const surface = gitService as unknown as ConfigRescanSurface;
+    // Fixtures use POSIX literal paths; pin the scanner's path impl so its joins
+    // match them on a Windows runner (no-op on POSIX).
+    surface._repoScanPath = path.posix;
     surface._gitCli = stubCli;
     // Record which roots get loaded, but delegate to the REAL `loadRepository`
     // funnel (StubGitCli `exec` returns benign empty output, so no real git

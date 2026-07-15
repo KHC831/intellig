@@ -23,6 +23,13 @@ import * as assert from 'assert';
 import * as path from 'path';
 import { scanFolderForGitRepos, IRepoScanFs } from '../../../src/git-core/repoScan';
 
+// The scanner joins child paths with the host `path`; these fixtures use POSIX
+// literals, so inject path.posix so they match on a Windows runner too.
+const scanForTest = (
+  root: string,
+  opts: Omit<Parameters<typeof scanFolderForGitRepos>[1], 'path'>
+): Promise<string[]> => scanFolderForGitRepos(root, { ...opts, path: path.posix });
+
 interface IFsState {
   /** path → list of child names (each child is a directory unless listed in `files`). */
   dirs: Map<string, string[]>;
@@ -49,7 +56,7 @@ function makeFsWithFiles(state: IFsState): IRepoScanFs {
         return [];
       }
       return children.map((name) => {
-        const fullPath = path.join(dirPath, name);
+        const fullPath = path.posix.join(dirPath, name);
         const isFileFlag = state.files.has(fullPath);
         const isSymlinkFlag = state.symlinks.has(fullPath);
         return {
@@ -83,7 +90,7 @@ describe('scanFolderForGitRepos — .git as FILE (TL-87 / #212)', () => {
       files: new Set(['/work/wt1/.git']),
       symlinks: new Set(),
     });
-    const result = await scanFolderForGitRepos('/work/wt1', {
+    const result = await scanForTest('/work/wt1', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,
@@ -109,7 +116,7 @@ describe('scanFolderForGitRepos — .git as FILE (TL-87 / #212)', () => {
       files: new Set(['/work/wt1/.git']),
       symlinks: new Set(),
     });
-    const result = await scanFolderForGitRepos('/work', {
+    const result = await scanForTest('/work', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,
@@ -138,7 +145,7 @@ describe('scanFolderForGitRepos — .git as FILE (TL-87 / #212)', () => {
       symlinks: new Set(),
     });
     const seen: string[] = [];
-    await scanFolderForGitRepos('/work/repo', {
+    await scanForTest('/work/repo', {
       maxDepth: 1,
       ignoredFolders: [],
       fs,

@@ -16,6 +16,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { GitError } from '../../../src/git-core/errors';
@@ -64,6 +65,7 @@ interface DiscoverTestSurface {
   setupRepositoryWatcher: (root: string) => void;
   discoverRepository: (path: string) => Promise<void>;
   _repoScanFs: IRepoScanFs;
+  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
 }
 
 /**
@@ -134,6 +136,7 @@ describe('GitService — nested-repo discovery (Wave 10 / task #204)', () => {
 
     const surface = gitService as unknown as DiscoverTestSurface;
     surface._gitCli = stubCli;
+    surface._repoScanPath = path.posix;
     // Exercise the REAL `loadRepository` funnel (StubGitCliForDiscovery `exec`
     // returns benign empty output, so no real git subprocess runs) — it owns
     // registering the repo into `_repositories` AND firing onDidChangeRepository
@@ -316,6 +319,7 @@ describe('GitService — setupRepositoryWatcher idempotency (Wave 10 R2 / TL-83)
     // during loadRepository doesn't spawn real subprocesses.
     const surface = gitService as unknown as DiscoverTestSurface;
     surface._gitCli = stubCli;
+    surface._repoScanPath = path.posix;
   });
 
   afterEach(() => {

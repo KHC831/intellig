@@ -23,6 +23,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { GitError } from '../../../src/git-core/errors';
@@ -62,6 +63,7 @@ interface DeletionSurface {
   discoverRepository: (path: string) => Promise<void>;
   setupNewRepoWatcher: (folderPath: string) => void;
   _repoScanFs: IRepoScanFs;
+  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
   _fileWatchers: Map<string, unknown[]>;
   _repositories: Map<string, unknown>;
 }
@@ -86,13 +88,17 @@ interface IFireableWatcher {
  * RelativePattern whose `base` ends in `.git` and whose `pattern` is
  * exactly `HEAD`.
  */
+// Compare watcher bases separator-agnostically: the production gitDir is built
+// with the host path.join (backslash on Windows) while these fixtures use POSIX
+// paths, so normalize both sides before matching.
 function findHeadWatcher(rootPath: string): IFireableWatcher {
   const watchers = getCreatedFileSystemWatchers();
-  const expectedBase = `${rootPath}/.git`;
+  const norm = (p: string): string => p.replace(/\\/g, '/');
+  const expectedBase = norm(`${rootPath}/.git`);
   const match = watchers.find((w) => {
     const pat = w._pattern;
     if (pat instanceof RelativePattern) {
-      return pat.pattern === 'HEAD' && pat.base === expectedBase;
+      return pat.pattern === 'HEAD' && norm(pat.base) === expectedBase;
     }
     return false;
   });
@@ -102,7 +108,7 @@ function findHeadWatcher(rootPath: string): IFireableWatcher {
         `available patterns: ${watchers
           .map((w) =>
             w._pattern instanceof RelativePattern
-              ? `${w._pattern.base}/${w._pattern.pattern}`
+              ? `${norm(w._pattern.base)}/${w._pattern.pattern}`
               : 'string'
           )
           .join(', ')}`
@@ -121,6 +127,7 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
 
     const surface = gitService as unknown as DeletionSurface;
     surface._gitCli = stubCli;
+    surface._repoScanPath = path.posix;
     // Stub loadRepository so discovery registers a fake repo without real git
     // subprocesses. It must fulfill the real `loadRepository` contract that the
     // first-insertion funnel relies on: register the repo AND install its

@@ -24,6 +24,14 @@ import {
   INTERNAL_IGNORED_FOLDERS,
 } from '../../../src/git-core/repoScan';
 
+// The scanner joins child paths with the host `path` (win32 on a Windows
+// runner); these fixtures use POSIX literals, so inject path.posix to keep the
+// joined paths matching the fixtures on any OS. Production uses the host path.
+const scanForTest = (
+  root: string,
+  opts: Omit<Parameters<typeof scanFolderForGitRepos>[1], 'path'>
+): Promise<string[]> => scanFolderForGitRepos(root, { ...opts, path: path.posix });
+
 /**
  * In-memory fs stub. Caller pre-populates a `dirs` map (path → child names)
  * and a `realpaths` map (path → realpath; defaults to identity) and a
@@ -62,7 +70,9 @@ function makeFs(state: IFsState): IRepoScanFs {
         return [];
       }
       return children.map((name) => {
-        const fullPath = path.join(dirPath, name);
+        // POSIX-join to match the scanner's injected path.posix (fixtures use
+        // POSIX literal paths), so symlink lookups match on a Windows runner.
+        const fullPath = path.posix.join(dirPath, name);
         const isSymlink = state.symlinks.has(fullPath);
         return {
           name,
@@ -122,7 +132,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(),
         realpaths: new Map(),
       });
-      const result = await scanFolderForGitRepos('/work/projectA', {
+      const result = await scanForTest('/work/projectA', {
         maxDepth: 1,
         ignoredFolders: [],
         fs,
@@ -142,7 +152,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(),
         realpaths: new Map(),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: 0,
         ignoredFolders: [],
         fs,
@@ -161,7 +171,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(),
         realpaths: new Map(),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: 1,
         ignoredFolders: [],
         fs,
@@ -189,7 +199,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         realpaths: new Map(),
       });
       const seen: string[] = [];
-      await scanFolderForGitRepos('/work', {
+      await scanForTest('/work', {
         maxDepth: 1,
         ignoredFolders: [],
         fs,
@@ -218,7 +228,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(),
         realpaths: new Map(),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: 1,
         ignoredFolders: ['mybuild'],
         fs,
@@ -249,7 +259,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(),
         realpaths: new Map(),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: 2,
         ignoredFolders: [],
         fs,
@@ -280,7 +290,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         realpaths: new Map(),
       });
       const seen: string[] = [];
-      await scanFolderForGitRepos('/work', {
+      await scanForTest('/work', {
         maxDepth: 1,
         ignoredFolders: [],
         fs,
@@ -313,7 +323,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
           ['/work/loop', '/work'], // cycle: loop -> work
         ]),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: -1,
         ignoredFolders: [],
         fs,
@@ -337,7 +347,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(['/work/linked']),
         realpaths: new Map([['/work/linked', '/mnt/target']]),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: -1,
         ignoredFolders: [],
         fs,
@@ -358,7 +368,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(['/work/link']),
         realpaths: new Map([['/work/link', '/work']]), // link -> root
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: -1,
         ignoredFolders: [],
         fs,
@@ -378,7 +388,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinkFileTargets: new Set(['/work/filelink']),
       });
       const seen: string[] = [];
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: -1,
         ignoredFolders: [],
         fs,
@@ -409,7 +419,7 @@ describe('scanFolderForGitRepos (Wave 10 — task #204)', () => {
         symlinks: new Set(),
         realpaths: new Map(),
       });
-      const result = await scanFolderForGitRepos('/work', {
+      const result = await scanForTest('/work', {
         maxDepth: 1,
         ignoredFolders: [],
         fs,
