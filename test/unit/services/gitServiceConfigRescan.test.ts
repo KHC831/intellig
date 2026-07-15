@@ -115,6 +115,26 @@ async function flushMicrotasks(): Promise<void> {
   }
 }
 
+/**
+ * Poll until `predicate` holds, yielding across event-loop turns, up to a
+ * generous cap. The config listener fires rediscovery fire-and-forget, so a
+ * fixed number of yields (flushMicrotasks) can under-wait when the async scan
+ * tail is scheduled behind other work on a loaded CI runner. Waiting on the
+ * observable end-state instead is deterministic: it returns the instant
+ * discovery settles and only throws on a genuine hang.
+ */
+async function waitUntil(predicate: () => boolean, label: string): Promise<void> {
+  for (let i = 0; i < 500; i++) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+  assert.ok(predicate(), `timed out waiting for: ${label}`);
+}
+
 describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
   let gitService: GitService;
   let stubCli: StubGitCli;
@@ -176,7 +196,10 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
     // User flips the setting: depth=1. The configuration listener must
     // re-run discovery and pick up /work/a, /work/b.
     await workspace.getConfiguration('intellig').update('repositoryScanMaxDepth', 1);
-    await flushMicrotasks();
+    await waitUntil(
+      () => gitService.getRepositories().length === 2,
+      'both nested repos discovered after maxDepth 0 → 1'
+    );
 
     const roots = gitService.getRepositories().map((r) => r.rootUri.fsPath);
     assert.deepStrictEqual(
@@ -208,7 +231,10 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
 
     // User clears the ignoredFolders list. Both repos should be discovered.
     await workspace.getConfiguration('intellig').update('repositoryScanIgnoredFolders', []);
-    await flushMicrotasks();
+    await waitUntil(
+      () => gitService.getRepositories().length === 2,
+      'both nested repos discovered after ignoredFolders cleared'
+    );
 
     const roots = gitService.getRepositories().map((r) => r.rootUri.fsPath);
     assert.deepStrictEqual(
