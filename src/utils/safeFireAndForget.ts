@@ -66,8 +66,8 @@
  * The following `void this.X()` call classes are intentionally NOT routed
  * through this helper:
  *
- * 1. **`void this._panel.webview.postMessage(...)` /
- *    `void this._view.webview.postMessage(...)` / `void this.postMessage(...)`** —
+ * 1. **`void this._panel.webview.postMessage …` /
+ *    `void this._view.webview.postMessage …` / `void this.postMessage …`** —
  *    The underlying `Thenable<boolean>` resolves `false` when the webview
  *    is already disposed; there's no reject path we need to observe. Seen
  *    in CommitToolWindow, GitToolWindowProvider (×5), MergeView, PushDialog (×2),

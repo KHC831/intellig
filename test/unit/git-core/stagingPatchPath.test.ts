@@ -193,55 +193,61 @@ describe('StagingOps — hunk patch path quoting (Item 1)', () => {
     });
   });
 
-  describe('round-trips real git apply on hostile filenames', () => {
-    let tmp: string;
-    let realCli: GitCli;
+  // POSIX-only: these seed real on-disk files whose names contain a tab or a
+  // newline, which NTFS forbids — the scenario cannot exist on Windows. The
+  // patch-header quoting for such names is covered as strings above.
+  (process.platform === 'win32' ? describe.skip : describe)(
+    'round-trips real git apply on hostile filenames',
+    () => {
+      let tmp: string;
+      let realCli: GitCli;
 
-    function git(cwd: string, ...args: string[]): string {
-      return execFileSync('git', args, { cwd, encoding: 'utf8' });
+      function git(cwd: string, ...args: string[]): string {
+        return execFileSync('git', args, { cwd, encoding: 'utf8' });
+      }
+
+      function seed(fileName: string): void {
+        git(tmp, 'init', '-q');
+        git(tmp, 'config', 'user.email', 'a@b.c');
+        git(tmp, 'config', 'user.name', 't');
+        fs.writeFileSync(path.join(tmp, fileName), 'line1\nline2\n');
+        git(tmp, 'add', '-A');
+        git(tmp, 'commit', '-qm', 'init');
+        fs.writeFileSync(path.join(tmp, fileName), 'line1\nMODIFIED\n');
+      }
+
+      beforeEach(() => {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-staging-patch-'));
+      });
+
+      afterEach(() => {
+        realCli?.dispose();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      });
+
+      it('stages the correct bytes for a filename containing a tab', async () => {
+        const fileName = 'tab\tname.txt';
+        seed(fileName);
+        const { ops, cli } = makeRealOps();
+        realCli = cli;
+        await ops.stageHunk(repo(tmp), fileName, modifyHunk());
+        // `git show :<path>` reads the staged (index) blob — must be the modified
+        // content, proving git apply parsed the quoted header to the right file.
+        const staged = git(tmp, 'show', `:${fileName}`);
+        assert.strictEqual(staged, 'line1\nMODIFIED\n');
+      });
+
+      it('stages the correct bytes for a filename containing a newline', async () => {
+        const fileName = 'ab\ncd.txt';
+        seed(fileName);
+        const { ops, cli } = makeRealOps();
+        realCli = cli;
+        await ops.stageHunk(repo(tmp), fileName, modifyHunk());
+        const staged = git(tmp, 'show', `:${fileName}`);
+        assert.strictEqual(staged, 'line1\nMODIFIED\n');
+      });
     }
-
-    function seed(fileName: string): void {
-      git(tmp, 'init', '-q');
-      git(tmp, 'config', 'user.email', 'a@b.c');
-      git(tmp, 'config', 'user.name', 't');
-      fs.writeFileSync(path.join(tmp, fileName), 'line1\nline2\n');
-      git(tmp, 'add', '-A');
-      git(tmp, 'commit', '-qm', 'init');
-      fs.writeFileSync(path.join(tmp, fileName), 'line1\nMODIFIED\n');
-    }
-
-    beforeEach(() => {
-      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-staging-patch-'));
-    });
-
-    afterEach(() => {
-      realCli?.dispose();
-      fs.rmSync(tmp, { recursive: true, force: true });
-    });
-
-    it('stages the correct bytes for a filename containing a tab', async () => {
-      const fileName = 'tab\tname.txt';
-      seed(fileName);
-      const { ops, cli } = makeRealOps();
-      realCli = cli;
-      await ops.stageHunk(repo(tmp), fileName, modifyHunk());
-      // `git show :<path>` reads the staged (index) blob — must be the modified
-      // content, proving git apply parsed the quoted header to the right file.
-      const staged = git(tmp, 'show', `:${fileName}`);
-      assert.strictEqual(staged, 'line1\nMODIFIED\n');
-    });
-
-    it('stages the correct bytes for a filename containing a newline', async () => {
-      const fileName = 'ab\ncd.txt';
-      seed(fileName);
-      const { ops, cli } = makeRealOps();
-      realCli = cli;
-      await ops.stageHunk(repo(tmp), fileName, modifyHunk());
-      const staged = git(tmp, 'show', `:${fileName}`);
-      assert.strictEqual(staged, 'line1\nMODIFIED\n');
-    });
-  });
+  );
 });
 
 /**

@@ -334,7 +334,7 @@ describe('ShelfView', () => {
 
   describe('unshelveSilent', () => {
     it('passes removeFromShelf:true + config.removeAppliedFiles to unshelve', async () => {
-      setMockConfigValue('intellig.shelve', 'removeAppliedFiles', true);
+      setMockConfigValue('intellig', 'shelve.removeAppliedFiles', true);
 
       svc._items.push({
         id: 'a',

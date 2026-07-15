@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -1729,8 +1730,7 @@ export class CommitContextMenuCommands {
    * Read `intellig.protectedBranches` from configuration.
    */
   private _readProtectedBranches(): string[] {
-    const cfg = vscode.workspace.getConfiguration('intellig');
-    const value = cfg.get<string[]>('protectedBranches', ['main', 'master']);
+    const value = readConfig('protectedBranches');
     return Array.isArray(value) ? value.filter((s) => typeof s === 'string') : [];
   }
 

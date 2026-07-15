@@ -3,8 +3,8 @@
  *
  * `buildFileTree` turns the flat `IChangedFile[]` that the Details Panel
  * already has into a sorted, compacted directory forest matching IntelliJ's
- * folder nesting. The webview's `buildDetailsPanelDom` (scriptBuilder) walks an
- * annotated form of that forest to build the nested Changed Files DOM.
+ * folder nesting. The webview's `buildDetailsPanelDom` (webview/detailsPanelDom)
+ * walks an annotated form of that forest to build the nested Changed Files DOM.
  *
  * Everything here is pure — no `this`, no DOM, no I/O — so it is directly
  * unit- and property-testable and can be shared by both the single-commit

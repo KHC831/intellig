@@ -21,7 +21,8 @@ import '../../setup';
 import { okAsync, ResultAsync } from 'neverthrow';
 import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import type * as vscode from 'vscode';
 import { Uri as MockUri } from '../../mocks/vscode';
 import {
@@ -281,24 +282,22 @@ function makeDialog(opts: MakeDialogOpts = {}): {
  * the script BUILDS the body via document.createElement — the host markup
  * ships an empty root, not pre-baked radios.
  */
+const _entryHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_entryHarnesses.length > 0) {
+    _entryHarnesses.pop()?.dispose();
+  }
+});
+
 function runResetScript(dialog: TestResetDialog): { document: Document } {
-  const html = dialog.renderedHtml();
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const window = dom.window;
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (): void => {},
-    getState: (): void => {},
-    setState: (): void => {},
-  });
-  assert.strictEqual(
-    window.document.querySelector('input[name="reset-mode"]'),
-    null,
-    'radios must not be pre-baked in host markup — the script builds the DOM'
+  const bodyHtml = extractWebviewScript(dialog.renderedHtml()).bodyHtml;
+  assert.ok(
+    !/name="reset-mode"/.test(bodyHtml),
+    'radios must not be pre-baked in host markup — the entry builds the DOM'
   );
-  const scriptEl = window.document.querySelector('script[nonce]');
-  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-  window.eval(scriptEl.textContent ?? '');
-  return { document: window.document as unknown as Document };
+  const h = bootWebviewEntry('ui-shell/webview/resetDialog', { bodyHtml });
+  _entryHarnesses.push(h);
+  return { document: h.document };
 }
 
 function radio(document: Document, mode: string): HTMLInputElement {
@@ -352,11 +351,12 @@ describe('ResetDialog', () => {
           '<script>alert(1)</script>',
           'the subject is set as literal text via textContent'
         );
-        // The only <script> on the page is the nonce'd bootstrap — the subject
-        // string did not spawn one.
+        // The client code is an external bundle (no inline script in the body),
+        // so a subject string that reaches the DOM via textContent spawns zero
+        // <script> elements.
         assert.strictEqual(
           document.querySelectorAll('script').length,
-          1,
+          0,
           'subject text cannot inject a script element'
         );
       } finally {
@@ -385,14 +385,16 @@ describe('ResetDialog', () => {
       }
     });
 
-    it('renders the inline script inside a nonced <script> tag (CSP-safe)', () => {
+    it('loads its bundle from a nonced external <script> tag (CSP-safe)', () => {
       const { dialog } = makeDialog();
       const html = dialog.renderedHtml();
       try {
-        // SR-6: nonces are now base64url-encoded 16 random bytes (22 chars).
-        const match = html.match(/<script nonce="[A-Za-z0-9_-]{22}">/);
-        assert.ok(match, 'inline script has a 22-char base64url nonce');
-        assert.ok(html.includes('acquireVsCodeApi'), 'webview bootstrap present');
+        // Phase 5: the client code is a bundled entry loaded via an external
+        // nonced tag; the nonce is a base64url-encoded 16 random bytes (22 chars).
+        const match = html.match(
+          /<script nonce="[A-Za-z0-9_-]{22}" src="[^"]*resetDialog\.js"><\/script>/
+        );
+        assert.ok(match, 'external bundle tag has a 22-char base64url nonce + resetDialog.js src');
       } finally {
         dialog.dispose();
       }

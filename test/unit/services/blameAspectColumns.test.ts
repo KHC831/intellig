@@ -81,21 +81,21 @@ describe('blame aspect columns + name format', () => {
     });
 
     it('omits the author column when the author aspect is hidden', () => {
-      setMockConfigValue('intellig.blame', 'showAuthor', false);
+      setMockConfigValue('intellig', 'blame.showAuthor', false);
       const out = text();
       assert.ok(!out.includes('Smith'), `author omitted; got: ${out}`);
       assert.ok(out.includes('abc1234'), `hash still shown; got: ${out}`);
     });
 
     it('omits the short hash when the revision aspect is hidden', () => {
-      setMockConfigValue('intellig.blame', 'showRevision', false);
+      setMockConfigValue('intellig', 'blame.showRevision', false);
       const out = text();
       assert.ok(!out.includes('abc1234'), `hash omitted; got: ${out}`);
       assert.ok(out.includes('John Smith'), `author still shown; got: ${out}`);
     });
 
     it('renders the author per the selected name format', () => {
-      setMockConfigValue('intellig.blame', 'authorNameFormat', 'lastname');
+      setMockConfigValue('intellig', 'blame.authorNameFormat', 'lastname');
       const out = text();
       assert.ok(out.includes('Smith'), `last name shown; got: ${out}`);
       assert.ok(!out.includes('John Smith'), `full name suppressed; got: ${out}`);
@@ -114,20 +114,20 @@ describe('blame aspect columns + name format', () => {
     });
 
     it('omits the author when the author aspect is hidden', () => {
-      setMockConfigValue('intellig.blame', 'showAuthor', false);
+      setMockConfigValue('intellig', 'blame.showAuthor', false);
       const out = text();
       assert.ok(!out.includes('Smith'), `author omitted; got: ${out}`);
       assert.ok(out.includes('fix: a thing'), `message still shown; got: ${out}`);
     });
 
     it('prepends the short hash when the revision aspect is shown', () => {
-      setMockConfigValue('intellig.blame', 'showRevision', true);
+      setMockConfigValue('intellig', 'blame.showRevision', true);
       const out = text();
       assert.ok(out.includes('abc1234'), `short hash shown; got: ${out}`);
     });
 
     it('renders the author per the selected name format', () => {
-      setMockConfigValue('intellig.blame', 'authorNameFormat', 'initials');
+      setMockConfigValue('intellig', 'blame.authorNameFormat', 'initials');
       const out = text();
       assert.ok(out.includes('JS'), `initials shown; got: ${out}`);
     });

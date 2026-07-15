@@ -20,18 +20,16 @@
  * non-log messages to stub handlers that display "Coming soon" placeholders.
  */
 
-import * as vscode from 'vscode';
+import { CONTEXT_KEYS, setContextKey } from '../../utils/contextKeys';
+import { TAB_IDS, isTabId, type TabId } from './tabIds';
 
-export const TAB_IDS = ['log', 'console', 'incoming', 'updateInfo', 'history'] as const;
-
-/** Union of valid tab IDs. */
-export type TabId = (typeof TAB_IDS)[number];
+export { TAB_IDS, isTabId, type TabId };
 
 /** Default tab — preserves pre-refactor behavior (Log panel is what users see today). */
 export const DEFAULT_TAB: TabId = 'log';
 
 /** Name of the VS Code context key that reflects the currently active tab. */
-export const ACTIVE_TAB_CONTEXT_KEY = 'intellig.toolWindow.activeTab';
+export const ACTIVE_TAB_CONTEXT_KEY = CONTEXT_KEYS.toolWindowActiveTab;
 
 /**
  * Shape of the messages the router recognises. Non-router messages (everything
@@ -102,11 +100,6 @@ export function inferTabForMessage(message: IWebviewTabMessage, activeTab: TabId
   // Fall back to the active tab so stray malformed-but-type-less messages
   // land somewhere sensible.
   return activeTab;
-}
-
-/** Type guard for {@link TabId}. */
-export function isTabId(value: unknown): value is TabId {
-  return typeof value === 'string' && (TAB_IDS as readonly string[]).includes(value);
 }
 
 /**
@@ -196,12 +189,6 @@ export class TabRouter {
       await this._hooks.setContext(ACTIVE_TAB_CONTEXT_KEY, tab);
       return;
     }
-    try {
-      await vscode.commands.executeCommand('setContext', ACTIVE_TAB_CONTEXT_KEY, tab);
-      // eslint-disable-next-line no-restricted-syntax -- setContext is a non-essential UI context key; a failure (e.g. unit tests where the commands API is a no-op mock) is non-fatal.
-    } catch {
-      // setContext failures are non-fatal (e.g. in unit tests where the
-      // commands API is a no-op mock).
-    }
+    await setContextKey(CONTEXT_KEYS.toolWindowActiveTab, tab);
   }
 }

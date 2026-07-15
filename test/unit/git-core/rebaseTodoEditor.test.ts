@@ -70,7 +70,7 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
     // resolved git dir (a relative `.git/…` would break in a linked worktree).
     assert.match(
       todoContent,
-      /exec git commit --amend -F '\/[^']*\.intellig-reword-aaaaaaa\.txt' --no-edit\n$/
+      /exec git commit --amend -F '(?:[A-Za-z]:)?\/[^']*\.intellig-reword-aaaaaaa\.txt' --no-edit\n$/
     );
 
     // Message file must exist with the new message content.
@@ -115,7 +115,7 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
     assert.match(todoContent, /fixup bbbbbbb to squash/);
     assert.match(
       todoContent,
-      /exec git commit --amend -F '\/[^']*\.intellig-reword-bbbbbbb\.txt' --no-edit/
+      /exec git commit --amend -F '(?:[A-Za-z]:)?\/[^']*\.intellig-reword-bbbbbbb\.txt' --no-edit/
     );
 
     const msgFile = path.join(gitDir, '.intellig-reword-bbbbbbb.txt');

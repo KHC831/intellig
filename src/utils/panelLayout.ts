@@ -5,6 +5,7 @@
  */
 
 import * as vscode from 'vscode';
+import { loadPersisted, savePersisted, type PersistedSlot } from './persistedState';
 
 /** Minimum width in pixels for any single panel. */
 const MIN_PANEL_WIDTH = 100;
@@ -130,9 +131,6 @@ function redistributeDeficit(result: [number, number], deficit: number): void {
   }
 }
 
-/** Workspace state key for persisted panel widths. */
-const PANEL_WIDTHS_KEY = 'intellig.panelWidths';
-
 /** Default panel width ratios: [Graph 60%, Details 40%]. */
 export const DEFAULT_PANEL_WIDTHS: [number, number] = [60, 40];
 
@@ -212,6 +210,13 @@ function isValidPanelWidths(value: unknown): value is [number, number] {
   return true;
 }
 
+/** Persisted slot for the 2-panel width ratios. */
+export const PANEL_WIDTHS_SLOT: PersistedSlot<[number, number]> = {
+  key: 'intellig.panelWidths',
+  version: 1,
+  validate: (raw) => (isValidPanelWidths(raw) ? [raw[0], raw[1]] : undefined),
+};
+
 /**
  * Saves panel width ratios to VS Code workspace state.
  *
@@ -219,7 +224,7 @@ function isValidPanelWidths(value: unknown): value is [number, number] {
  * @param widths - The panel width ratios as percentages, e.g. [60, 40].
  */
 export function savePanelWidths(state: vscode.Memento, widths: [number, number]): void {
-  void state.update(PANEL_WIDTHS_KEY, widths);
+  void savePersisted(state, PANEL_WIDTHS_SLOT, widths);
 }
 
 /**
@@ -235,11 +240,5 @@ export function savePanelWidths(state: vscode.Memento, widths: [number, number])
  * @returns A valid panel width ratio tuple.
  */
 export function loadPanelWidths(state: vscode.Memento): [number, number] {
-  const stored = state.get<unknown>(PANEL_WIDTHS_KEY);
-
-  if (isValidPanelWidths(stored)) {
-    return [stored[0], stored[1]];
-  }
-
-  return [...DEFAULT_PANEL_WIDTHS];
+  return loadPersisted(state, PANEL_WIDTHS_SLOT) ?? [...DEFAULT_PANEL_WIDTHS];
 }

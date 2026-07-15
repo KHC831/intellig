@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BaseWebviewPanel } from '../../utils/BaseWebviewPanel';
+import { assertNever } from '../../utils/assertNever';
+import { asMergeWindowInbound, type MergeWindowOutbound } from './mergeWindow.protocol';
 import { IGitService, IRepository } from '../../git-core/interfaces/IGitService';
 import { GitCli } from '../../git-core/gitCli';
 import { sanitizeGitError } from '../../git-core/gitError';
@@ -23,7 +26,7 @@ import { detectEol, normalizeToLf, restoreEol } from './mergeWindowText';
  * Opened by MergeView.show() only when `intellig.mergeWindow.enabled` is on —
  * the VS Code merge editor remains the default path.
  */
-export class MergeWindowPanel extends BaseWebviewPanel {
+export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
   private _eol: '\n' | '\r\n' = '\n';
   private _modified = false;
 
@@ -50,14 +53,13 @@ export class MergeWindowPanel extends BaseWebviewPanel {
   }
 
   protected override async _onMessage(message: unknown): Promise<void> {
-    const msg = message as Partial<{
-      type: string;
-      resultText: string;
-      modified: boolean;
-      level: string;
-      text: string;
-      unresolved: number;
-    }>;
+    const msg = asMergeWindowInbound(message);
+    if (!msg) {
+      getLogger()
+        .child({ component: 'MergeWindowPanel' })
+        .warn('merge window posted an unknown message type; ignoring');
+      return;
+    }
     switch (msg.type) {
       case 'ready':
         await this._sendInit();
@@ -89,6 +91,8 @@ export class MergeWindowPanel extends BaseWebviewPanel {
         }
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 
@@ -124,9 +128,7 @@ export class MergeWindowPanel extends BaseWebviewPanel {
         fileName: path.basename(absolutePath),
         // IntelliJ's "Automatically apply non-conflicting changes" (opt-in,
         // off by default there too).
-        autoApplyNonConflicting: vscode.workspace
-          .getConfiguration('intellig')
-          .get<boolean>('mergeWindow.autoApplyNonConflicting', false),
+        autoApplyNonConflicting: readConfig('mergeWindow.autoApplyNonConflicting'),
       });
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
@@ -224,6 +226,7 @@ export class MergeWindowPanel extends BaseWebviewPanel {
 ${body}
 <script nonce="${nonce}" src="${vsUri.toString()}/loader.js"></script>
 <script nonce="${nonce}" src="${bundleUri.toString()}"></script>
+<!-- no-string-script-exempt: Monaco's AMD require(['vs/...']) boot deferral is irreducible inline (Monaco-specific, needs the loaded --global-name); the merge window is the ported template, not a ratchet item -->
 <script nonce="${nonce}">
   require.config({ paths: { vs: '${vsUri.toString()}' } });
   window.MonacoEnvironment = { getWorker: function () { throw new Error('workers disabled in webview'); } };

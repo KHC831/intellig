@@ -25,19 +25,14 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
-import { Uri, Webview } from '../mocks/vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
-function createMockWebview(): Webview {
-  return {
-    html: '',
-    options: {},
-    cspSource: 'https://mock.csp.source',
-    onDidReceiveMessage: () => ({ dispose: () => {} }),
-    postMessage: () => Promise.resolve(true),
-    asWebviewUri: (uri: Uri) => uri,
-  } as unknown as Webview;
-}
+/** Source of the bundled Git tool-window client entry (the scroll handlers live here). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 /**
  * Extract a brace-matched block beginning at the first `{` after the header
@@ -67,32 +62,18 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
   return null;
 }
 
-describe('GitToolWindowProvider - inline selectGraphRow scroll visibility guard', () => {
-  let provider: GitToolWindowProvider;
-  let mockWebview: Webview;
-  let html: string;
+describe('GitToolWindowProvider - client selectGraphRow scroll visibility guard', () => {
   let handlerBlock: string;
   let helperBlock: string;
 
   beforeEach(() => {
-    const extensionUri = Uri.file('/test/extension');
-    provider = new GitToolWindowProvider(extensionUri);
-    mockWebview = createMockWebview();
-    html = provider._getThreePanelHtmlContent(
-      mockWebview as unknown as import('vscode').Webview,
-      []
-    );
-    const hBlock = extractBlockAfter(html, /message\.type === 'selectGraphRow'/);
-    assert.ok(hBlock, 'rendered inline script must contain a selectGraphRow handler block');
+    const hBlock = extractBlockAfter(ENTRY_SOURCE, /message\.type === 'selectGraphRow'/);
+    assert.ok(hBlock, 'rendered client entry must contain a selectGraphRow handler block');
     handlerBlock = hBlock;
 
-    const helper = extractBlockAfter(html, /function scrollRowIntoViewIfNeeded\s*\(/);
-    assert.ok(helper, 'rendered inline script must contain a scrollRowIntoViewIfNeeded helper');
+    const helper = extractBlockAfter(ENTRY_SOURCE, /function scrollRowIntoViewIfNeeded\s*\(/);
+    assert.ok(helper, 'rendered client entry must contain a scrollRowIntoViewIfNeeded helper');
     helperBlock = helper;
-  });
-
-  afterEach(() => {
-    provider.dispose();
   });
 
   it('handler delegates scroll to the shared scrollRowIntoViewIfNeeded helper', () => {

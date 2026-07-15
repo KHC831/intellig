@@ -1,5 +1,9 @@
 import * as assert from 'assert';
-import { RebaseService, createRebaseService } from '../../../src/git-core/RebaseService';
+import {
+  RebaseService,
+  createRebaseService,
+  buildSequenceEditorScript,
+} from '../../../src/git-core/RebaseService';
 import {
   IRebaseSession,
   IRebaseAction,
@@ -79,6 +83,43 @@ function createMockRepository(rootPath: string = '/test/repo'): IRepository {
     submodules: [],
   };
 }
+
+describe('buildSequenceEditorScript (GIT_SEQUENCE_EDITOR shim paths)', () => {
+  it('forward-slashes every path git’s sh sees for Windows-style inputs', () => {
+    const { scriptPath, scriptBody } = buildSequenceEditorScript({
+      gitDir: 'C:\\repo\\.git',
+      nodeBin: 'C:\\Program Files\\node\\node.exe',
+      editorJsPath: 'C:\\ext\\dist\\rebaseTodoEditor.js',
+    });
+    // git hands this path to sh; a backslash path there is mangled (C:\a → C:a).
+    assert.strictEqual(scriptPath, 'C:/repo/.git/rebase-todo-script.sh');
+    assert.ok(
+      !scriptBody.includes('\\'),
+      `no backslash may survive in the shim; got: ${scriptBody}`
+    );
+    assert.ok(
+      scriptBody.includes("'C:/Program Files/node/node.exe'"),
+      `nodeBin must be forward-slashed + quoted; got: ${scriptBody}`
+    );
+    assert.ok(
+      scriptBody.includes("'C:/ext/dist/rebaseTodoEditor.js'"),
+      `editorJs must be forward-slashed + quoted; got: ${scriptBody}`
+    );
+  });
+
+  it('leaves POSIX paths byte-identical (no-op on macOS/Linux)', () => {
+    const { scriptPath, scriptBody } = buildSequenceEditorScript({
+      gitDir: '/repo/.git',
+      nodeBin: '/usr/bin/node',
+      editorJsPath: '/ext/dist/rebaseTodoEditor.js',
+    });
+    assert.strictEqual(scriptPath, '/repo/.git/rebase-todo-script.sh');
+    assert.strictEqual(
+      scriptBody,
+      "#!/bin/sh\nELECTRON_RUN_AS_NODE=1 '/usr/bin/node' '/ext/dist/rebaseTodoEditor.js' \"$1\"\n"
+    );
+  });
+});
 
 describe('RebaseService', () => {
   let mockGitCli: MockGitCli;

@@ -44,6 +44,7 @@ import {
   ILineSelection,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
+import { readConfig } from '../config/configKeys';
 import { createStatusLane } from './statusLane';
 import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
 import {
@@ -227,6 +228,14 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    * touching the disk.
    */
   private _repoScanFs: IRepoScanFs = defaultRepoScanFs;
+
+  /**
+   * Path-impl injection seam paired with {@link _repoScanFs}. Production uses the
+   * host `path` (win32 on Windows); unit tests that drive `_repoScanFs` with
+   * POSIX literal paths overwrite this with `path.posix` so the discovery joins
+   * and prefix checks stay consistent with those fixtures on any runner.
+   */
+  private _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'> = path;
 
   /**
    * Watchers that fire when a NEW `.git/` directory is created mid-session
@@ -725,14 +734,14 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     // `path.normalize` is platform-aware and cheap; on macOS/Linux it's
     // an idempotent no-op for already-canonical paths.
     const folderPath = path.normalize(rawFolderPath);
-    const config = vscode.workspace.getConfiguration('intellig');
-    const maxDepth = config.get<number>('repositoryScanMaxDepth', 1);
-    const ignoredFolders = config.get<string[]>('repositoryScanIgnoredFolders', []);
+    const maxDepth = readConfig('repositoryScanMaxDepth');
+    const ignoredFolders = readConfig('repositoryScanIgnoredFolders');
 
     const repoRoots = await scanFolderForGitRepos(folderPath, {
       maxDepth,
       ignoredFolders,
       fs: this._repoScanFs,
+      path: this._repoScanPath,
       resolveRepoRoot: (p): Promise<string | undefined> =>
         this._gitCli.getRepositoryRoot(p).match(
           (root) => root,
@@ -828,8 +837,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       // since `discoverRepository` ran. The path-topology filter (outside-
       // folder defense + ancestor-segment ignore match) lives in the
       // stateless RepositoryDiscovery helper.
-      const config = vscode.workspace.getConfiguration('intellig');
-      const userIgnored = config.get<string[]>('repositoryScanIgnoredFolders', []);
+      const userIgnored = readConfig('repositoryScanIgnoredFolders');
       if (isNewRepoPathIgnored(folderPath, repoParentDir, userIgnored)) {
         return;
       }
@@ -837,7 +845,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       // bound, so without this a repo created at any depth (e.g. a test-run
       // scratch repo) registers live even though a window reload would never
       // discover it.
-      const maxDepth = config.get<number>('repositoryScanMaxDepth', 1);
+      const maxDepth = readConfig('repositoryScanMaxDepth');
       if (isNewRepoBeyondScanDepth(folderPath, repoParentDir, maxDepth)) {
         return;
       }
@@ -1441,9 +1449,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       if (GitService.DOT_GIT_PATH_RE.test(uri.path)) {
         return;
       }
-      const autorefresh = vscode.workspace
-        .getConfiguration('intellig')
-        .get<boolean>('autorefresh', true);
+      const autorefresh = readConfig('autorefresh');
       if (!autorefresh) {
         return;
       }

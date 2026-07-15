@@ -30,12 +30,20 @@
 import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
   type LogContextAction,
 } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
+
+/** Source of the bundled Git tool-window client entry (keyboard/select handlers live here). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 import {
   computeMenuState,
   computeMenuVisibility,
@@ -368,7 +376,7 @@ describe('provider integration', () => {
   describe('R1 Step 4 C-1 — .menu-multi-hidden CSS rule present', () => {
     it('inline <style> block contains a display:none rule for .menu-multi-hidden', () => {
       const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as vscode.Webview,
+        { cspSource: 'test:', asWebviewUri: (u: unknown) => u } as unknown as vscode.Webview,
         []
       );
       assert.ok(
@@ -554,10 +562,7 @@ describe('provider integration', () => {
   // ─── Keyboard range-select ────────────────────────────────────────
   describe('keyboard range-select inline-script', () => {
     it('inline script handles ArrowDown for next-row single-select', () => {
-      const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as vscode.Webview,
-        []
-      );
+      const html = ENTRY_SOURCE;
       // The keyboard handler must include an arrow-key arm. We assert
       // structurally; the behavioural witness for the apply-loop is the
       // host-side selection tests above.
@@ -566,10 +571,7 @@ describe('provider integration', () => {
     });
 
     it('inline script differentiates Shift+Arrow (range) from plain Arrow (move)', () => {
-      const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as vscode.Webview,
-        []
-      );
+      const html = ENTRY_SOURCE;
       // Pattern: the arrow-key block must reference shiftKey and post a
       // rangeSelectCommit/addRangeSelectCommit when shift is held.
       assert.ok(
@@ -582,10 +584,7 @@ describe('provider integration', () => {
   // ───: details panel data-selected-count ──────────────────────
   describe('R1 Step 7 L-1 — refreshSelectedCount touches the details panel too', () => {
     it('inline script updates data-selected-count on .multi-commit-details when present', () => {
-      const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as vscode.Webview,
-        []
-      );
+      const html = ENTRY_SOURCE;
       // Look for a refreshSelectedCount body that addresses the multi-commit details element.
       assert.ok(
         /refreshSelectedCount[\s\S]{0,800}multi-commit-details/.test(html),

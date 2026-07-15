@@ -34,7 +34,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-matches=$(git grep -nE '\.replace\((repoRoot|rootFsPath|[A-Za-z_$][A-Za-z0-9_$]*\.rootUri\.fsPath)' -- 'src/**/*.ts' \
+matches=$(git grep --untracked -nE '\.replace\((repoRoot|rootFsPath|[A-Za-z_$][A-Za-z0-9_$]*\.rootUri\.fsPath)' -- 'src/**/*.ts' \
   | grep -v 'path-replace-exempt:' || true)
 
 if [ -n "$matches" ]; then

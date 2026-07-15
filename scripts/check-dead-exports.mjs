@@ -12,10 +12,11 @@
  *    accreting silently.
  *
  * 2. Heuristic + how it scales: build a MODULE-level reachability set over the
- *    src/ import graph starting from the three real bundle entry points
- *    (src/extension.ts, src/git-core/rebaseTodoEditor.ts,
- *    src/conflicts/merge-window/webview/main.ts — see package.json esbuild
- *    invocations). Follow every static `import … from`, side-effect `import`,
+ *    src/ import graph starting from the real bundle entry points
+ *    (src/extension.ts, src/git-core/rebaseTodoEditor.ts, and every webview
+ *    entry esbuild bundles — the merge window + the media/webview/*.js panel
+ *    entries; see package.json + scripts/build-webview.mjs). Follow every static
+ *    `import … from`, side-effect `import`,
  *    re-export `export … from`, and dynamic `import(...)` edge that resolves to
  *    a file under src/. Any src `.ts` (non-`.d.ts`) with ZERO path from an
  *    entry point is dead and fails the gate. Scales linearly with the module
@@ -59,6 +60,23 @@ const DEFAULT_ENTRIES = [
   'extension.ts',
   'git-core/rebaseTodoEditor.ts',
   'conflicts/merge-window/webview/main.ts',
+  // Bundled webview panel entries (esbuild multi-entry → media/webview/*.js;
+  // referenced by their host via asWebviewUri, not an import). Keep in sync with
+  // scripts/build-webview.mjs PANEL_ENTRIES.
+  'shelf/webview/main.ts',
+  'branches/webview/main.ts',
+  'conflicts/webview/main.ts',
+  'commits/webview/commitMessageDialog.ts',
+  'ui-shell/webview/resetDialog.ts',
+  'rebase/webview/rebaseDialog.ts',
+  'patches/webview/applyPatchDialog.ts',
+  'conflicts/webview/resolveConflictsDialog.ts',
+  'sync/webview/pushDialog.ts',
+  'rebase/webview/rebaseProgressView.ts',
+  'rebase/webview/rebaseEditor.ts',
+  'commits/webview/commitDialog.ts',
+  'commits/webview/commitToolWindow.ts',
+  'git-core/gitToolWindow/webview/gitToolWindow.ts',
 ];
 const ALLOWLIST_FILE = path.join(repoRoot, 'scripts', 'dead-exports-allowlist.txt');
 

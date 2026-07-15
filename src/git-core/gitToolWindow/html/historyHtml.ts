@@ -51,8 +51,8 @@ function renderLoadedState(state: IHistoryTabState): string {
   const error = state.error ? renderError(state.error) : '';
   const list = renderCommitList(state);
   // The commit-details panel reuses the Log page's renderer: it ships empty and
-  // is filled client-side by buildDetailsPanelDom from window.__intelligHistoryDetails
-  // (single source of truth for the commit-details format + changed-files tree).
+  // is filled client-side by buildDetailsPanelDom from the bundled entry's init
+  // island (single source of truth for the commit-details format + changed-files tree).
   return `
     <div class="history-tab">
       ${header}
@@ -257,108 +257,5 @@ export function historyTabStyles(): string {
     .history-main { display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
     .history-list-panel { display: flex; flex-direction: column; flex: 3 1 0; min-width: 0; overflow: hidden; }
     .history-main > #history-details-panel { flex: 2 1 0; min-width: 0; overflow: auto; border-left: 1px solid var(--vscode-panel-border, #3c3c3c); }
-  `;
-}
-
-/**
- * Behaviour script for the History tab. Binds clicks on the commit list,
- * toolbar toggles, and dropdown changes to postMessage calls.
- */
-export function historyTabBehaviorScript(): string {
-  return `
-    (function () {
-      // Share the one VS Code API handle across the document's inline scripts:
-      // reuse the handle memoised on \`window\`, or acquire it here if this
-      // script runs first. \`acquireVsCodeApi\` throws if called more than once.
-      const vscode = window.__intelligVscodeApi || (typeof acquireVsCodeApi === 'function' ? (window.__intelligVscodeApi = acquireVsCodeApi()) : undefined);
-      if (!vscode) return;
-
-      document.querySelectorAll('.history-commit-row').forEach(function (row) {
-        row.addEventListener('click', function (event) {
-          const rev = row.getAttribute('data-rev');
-          if (!rev) return;
-          vscode.postMessage({
-            type: 'history.selectRevision',
-            rev: rev,
-            additive: Boolean(event.ctrlKey || event.metaKey),
-          });
-        });
-        row.addEventListener('dblclick', function () {
-          const rev = row.getAttribute('data-rev');
-          if (!rev) return;
-          vscode.postMessage({ type: 'history.openAtRevision', rev: rev });
-        });
-      });
-
-      const followChk = document.querySelector('.history-follow-chk');
-      if (followChk) {
-        followChk.addEventListener('change', function () {
-          vscode.postMessage({
-            type: 'history.toggleFollowRenames',
-            value: followChk.checked,
-          });
-        });
-      }
-
-      const branchSel = document.querySelector('.history-branch-select');
-      if (branchSel) {
-        branchSel.addEventListener('change', function () {
-          const value = branchSel.value;
-          vscode.postMessage({
-            type: 'history.setBranchFilter',
-            branch: value || undefined,
-          });
-        });
-      }
-
-      const getVersionBtn = document.querySelector('.history-btn-get-version');
-      if (getVersionBtn) {
-        getVersionBtn.addEventListener('click', function () {
-          const selected = document.querySelector('.history-commit-row.history-selected');
-          const rev = selected ? selected.getAttribute('data-rev') : null;
-          if (rev) {
-            vscode.postMessage({ type: 'history.getVersion', rev: rev });
-          }
-        });
-      }
-
-      const compareLocalBtn = document.querySelector('.history-btn-compare-local');
-      if (compareLocalBtn) {
-        compareLocalBtn.addEventListener('click', function () {
-          const selected = document.querySelector('.history-commit-row.history-selected');
-          const rev = selected ? selected.getAttribute('data-rev') : null;
-          if (rev) {
-            vscode.postMessage({ type: 'history.compareWithLocal', rev: rev });
-          }
-        });
-      }
-
-      const copyBtn = document.querySelector('.history-details-copy');
-      if (copyBtn) {
-        copyBtn.addEventListener('click', function () {
-          const hash = copyBtn.getAttribute('data-copy-hash');
-          if (hash && navigator.clipboard) {
-            navigator.clipboard.writeText(hash);
-          }
-        });
-      }
-
-      const diffTwoBtn = document.querySelector('.history-btn-diff-two');
-      if (diffTwoBtn) {
-        diffTwoBtn.addEventListener('click', function () {
-          const selected = document.querySelector('.history-commit-row.history-selected');
-          const compare = document.querySelector('.history-commit-row.history-compare');
-          const to = selected ? selected.getAttribute('data-rev') : null;
-          const from = compare ? compare.getAttribute('data-rev') : null;
-          if (from && to) {
-            vscode.postMessage({
-              type: 'history.compareWith',
-              from: from,
-              to: to,
-            });
-          }
-        });
-      }
-    })();
   `;
 }

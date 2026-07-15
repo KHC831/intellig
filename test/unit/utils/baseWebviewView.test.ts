@@ -5,8 +5,9 @@
  * - Nonce uniqueness, length, and base64url charset.
  * - CSP construction — contains every directive the panel base emits, in the
  *   same nonce-bound shape.
- * - `_wrapHtml` composes `{body, script}` correctly (body appears, script
- *   lives inside the one and only `<script nonce="…">…</script>` tag).
+ * - `_wrapHtml` composes `{ body }` correctly (body appears; the end-of-body
+ *   script tag is an empty nonced sentinel, or an external bundle `src` tag when
+ *   the subclass sets a bundle name — never an inline script body).
  * - `_render()` is idempotent and no-ops before resolve / after dispose.
  * - Disposal idempotency + clears `_view`.
  *
@@ -23,19 +24,23 @@ import { EventEmitter, Uri } from '../../mocks/vscode';
 
 /**
  * Concrete subclass for testing. Exposes protected hooks via public wrappers
- * and lets tests swap the `{body, script}` tuple between render calls.
+ * and lets tests swap the `{ body }` between render calls. `bundleName` drives
+ * {@link _getBundleName}: left `undefined` the base emits the empty sentinel;
+ * set, it emits the external `<script src>` bundle tag.
  */
 class TestView extends BaseWebviewView {
-  public bodyParts: { body: string; script: string } = {
-    body: '<div>hello</div>',
-    script: 'console.log("ok")',
-  };
+  public bodyParts: { body: string } = { body: '<div>hello</div>' };
+  public bundleName: string | undefined = undefined;
   public messagesReceived: unknown[] = [];
   public onResolveInvocations = 0;
   public perResolveDrains = 0;
 
-  protected override _getBodyParts(): { body: string; script: string } {
+  protected override _getBodyParts(): { body: string } {
     return this.bodyParts;
+  }
+
+  protected override _getBundleName(): string | undefined {
+    return this.bundleName;
   }
 
   protected _handleMessage(message: unknown): void {
@@ -63,8 +68,8 @@ class TestView extends BaseWebviewView {
     return this._buildCsp(nonce);
   }
 
-  public callWrapHtml(body: string, script: string): string {
-    return this._wrapHtml(body, script);
+  public callWrapHtml(body: string): string {
+    return this._wrapHtml(body);
   }
 
   public callRender(): void {
@@ -220,11 +225,11 @@ describe('BaseWebviewView', () => {
   });
 
   describe('_wrapHtml / _render', () => {
-    it('composes body + script with exactly one nonced <script> tag', () => {
+    it('composes body + exactly one nonced <script> tag (empty sentinel, no inline body)', () => {
       const view = new TestView(Uri.file('/ext'));
       try {
-        const html = view.callWrapHtml('<p>body</p>', 'console.log("s")');
-        const scriptMatches = html.match(/<script nonce="[^"]+">/g);
+        const html = view.callWrapHtml('<p>body</p>');
+        const scriptMatches = html.match(/<script nonce="[^"]+"[^>]*>/g);
         assert.ok(scriptMatches, 'HTML should contain a nonced <script> tag');
         assert.strictEqual(
           scriptMatches.length,
@@ -232,7 +237,30 @@ describe('BaseWebviewView', () => {
           `expected exactly one nonced <script>, got ${scriptMatches.length}`
         );
         assert.ok(html.includes('<p>body</p>'), 'HTML should include the body fragment');
-        assert.ok(html.includes('console.log("s")'), 'HTML should include the script body');
+        // No bundle → empty sentinel, never an inline body / src.
+        assert.ok(/<script nonce="[^"]+"><\/script>/.test(html), 'empty sentinel tag emitted');
+        assert.ok(!/<script[^>]*\ssrc=/.test(html), 'no external src without a bundle name');
+      } finally {
+        view.dispose();
+      }
+    });
+
+    it('emits an external bundle <script src> tag when the subclass sets a bundle name', () => {
+      const view = new TestView(Uri.file('/ext'));
+      view.bundleName = 'testView.js';
+      const fake = makeFakeView();
+      view.resolveWebviewView(
+        fake as unknown as vscode.WebviewView,
+        {} as vscode.WebviewViewResolveContext,
+        {} as vscode.CancellationToken
+      );
+      try {
+        const html = view.callWrapHtml('<p>body</p>');
+        assert.ok(
+          /<script nonce="[^"]+" src="[^"]*media\/webview\/testView\.js"><\/script>/.test(html),
+          `expected the external bundle tag; got: ${html}`
+        );
+        assert.ok(!/<script nonce="[^"]+">[^<]/.test(html), 'must not emit an inline script body');
       } finally {
         view.dispose();
       }
@@ -241,7 +269,7 @@ describe('BaseWebviewView', () => {
     it('binds the CSP meta nonce to the same nonce on the <script> tag', () => {
       const view = new TestView(Uri.file('/ext'));
       try {
-        const html = view.callWrapHtml('<p>b</p>', 's');
+        const html = view.callWrapHtml('<p>b</p>');
         const cspMatch = html.match(/'nonce-([A-Za-z0-9_-]{22})'/);
         assert.ok(cspMatch, 'CSP meta should contain a 22-char base64url nonce');
         const nonce = cspMatch[1];
@@ -256,7 +284,7 @@ describe('BaseWebviewView', () => {
 
     it('_getBodyParts() return is composed into the rendered document', () => {
       const view = new TestView(Uri.file('/ext'));
-      view.bodyParts = { body: '<main>stuff</main>', script: 'var x=1;' };
+      view.bodyParts = { body: '<main>stuff</main>' };
 
       const fake = makeFakeView();
       view.resolveWebviewView(
@@ -271,7 +299,6 @@ describe('BaseWebviewView', () => {
           rendered.includes('<main>stuff</main>'),
           'body should be composed into the document'
         );
-        assert.ok(rendered.includes('var x=1;'), 'script should be composed into the document');
       } finally {
         view.dispose();
       }
@@ -324,7 +351,7 @@ describe('BaseWebviewView', () => {
       // renders must be a no-op. Change bodyParts so any accidental render
       // would stamp the difference onto `fake.webview.html`.
       const beforeSecondRender = fake.webview.html;
-      view.bodyParts = { body: '<p>LATER</p>', script: '' };
+      view.bodyParts = { body: '<p>LATER</p>' };
       assert.doesNotThrow(() => view.callRender());
       assert.strictEqual(fake.webview.html, beforeSecondRender);
       assert.ok(!fake.webview.html.includes('LATER'));

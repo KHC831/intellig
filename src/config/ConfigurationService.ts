@@ -1,13 +1,13 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import * as vscode from 'vscode';
+import { IConfigurationService, IExtensionConfiguration } from './interfaces/IConfigurationService';
 import {
-  IConfigurationService,
-  IExtensionConfiguration,
-  GitToolWindowTab,
-  BlameAnnotationStyle,
-  KeymapPresetName,
-} from './interfaces/IConfigurationService';
-import { getLogger, type Logger, type LogThreshold } from '../utils/logger';
+  readConfig,
+  inspectConfig,
+  updateConfig,
+  type ConfigKey,
+  type ConfigValues,
+} from './configKeys';
+import { getLogger, type Logger } from '../utils/logger';
 
 /**
  * Configuration namespace for the extension settings
@@ -15,59 +15,21 @@ import { getLogger, type Logger, type LogThreshold } from '../utils/logger';
 const CONFIGURATION_SECTION = 'intellig';
 
 /**
- * Default configuration values
+ * Map each snapshot field to its `intellig.*` setting name. All but the two
+ * `log.*` fields share their name with the setting; the switch is the sole
+ * translation point (and a compile-time guard — a new IExtensionConfiguration
+ * field that is not a ConfigKey fails the `default` branch).
  */
-const DEFAULT_CONFIGURATION: IExtensionConfiguration = {
-  // Commit settings
-  defaultCommitSignOff: false,
-  commitMessageTemplate: '',
-
-  // Pull settings
-  pullRebase: false,
-  autoFetchEnabled: true,
-  autoFetchInterval: 180,
-
-  // UI settings
-  defaultToolWindowTab: 'local-changes',
-  blameAnnotationStyle: 'inline',
-  showStatusBarBranch: true,
-
-  // Keyboard shortcuts
-  keymapPreset: 'default',
-
-  // Colors
-  modifiedFileColor: '#6897BB',
-  addedFileColor: '#629755',
-  deletedFileColor: '#6C6C6C',
-  ignoredFileColor: '#848504',
-  conflictFileColor: '#FF0000',
-
-  // Logging settings
-  logLevel: 'info',
-  logConsole: false,
-};
-
-/**
- * Mapping from configuration keys to VS Code setting names
- */
-const CONFIG_KEY_MAP: Record<keyof IExtensionConfiguration, string> = {
-  defaultCommitSignOff: 'defaultCommitSignOff',
-  commitMessageTemplate: 'commitMessageTemplate',
-  pullRebase: 'pullRebase',
-  autoFetchEnabled: 'autoFetchEnabled',
-  autoFetchInterval: 'autoFetchInterval',
-  defaultToolWindowTab: 'defaultToolWindowTab',
-  blameAnnotationStyle: 'blameAnnotationStyle',
-  showStatusBarBranch: 'showStatusBarBranch',
-  keymapPreset: 'keymapPreset',
-  modifiedFileColor: 'modifiedFileColor',
-  addedFileColor: 'addedFileColor',
-  deletedFileColor: 'deletedFileColor',
-  ignoredFileColor: 'ignoredFileColor',
-  conflictFileColor: 'conflictFileColor',
-  logLevel: 'log.level',
-  logConsole: 'log.console',
-};
+function settingNameOf(key: keyof IExtensionConfiguration): ConfigKey {
+  switch (key) {
+    case 'logLevel':
+      return 'log.level';
+    case 'logConsole':
+      return 'log.console';
+    default:
+      return key;
+  }
+}
 
 /**
  * Configuration Service implementation.
@@ -135,11 +97,9 @@ export class ConfigurationService implements IConfigurationService {
   }
 
   /**
-   * Typed delegate to
-   * `vscode.workspace.getConfiguration('intellig').inspect<T>(key)`.
-   * Lets migrations and services distinguish "user wrote at user
-   * scope" / "user wrote at workspace scope" / "schema default"
-   * without bypassing this service.
+   * Typed delegate to `inspectConfig` from the config seam. Lets migrations and
+   * services distinguish "user wrote at user scope" / "user wrote at workspace
+   * scope" / "schema default" without bypassing this service.
    */
   inspect<K extends keyof IExtensionConfiguration>(
     key: K
@@ -150,16 +110,14 @@ export class ConfigurationService implements IConfigurationService {
         defaultValue?: IExtensionConfiguration[K];
       }
     | undefined {
-    const settingName = CONFIG_KEY_MAP[key];
-    const config = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
-    const inspected = config.inspect<IExtensionConfiguration[K]>(settingName);
+    const inspected = inspectConfig(settingNameOf(key));
     if (!inspected) {
       return undefined;
     }
     return {
-      globalValue: inspected.globalValue,
-      workspaceValue: inspected.workspaceValue,
-      defaultValue: inspected.defaultValue,
+      globalValue: inspected.globalValue as IExtensionConfiguration[K],
+      workspaceValue: inspected.workspaceValue as IExtensionConfiguration[K],
+      defaultValue: inspected.defaultValue as IExtensionConfiguration[K],
     };
   }
 
@@ -176,10 +134,7 @@ export class ConfigurationService implements IConfigurationService {
     value: IExtensionConfiguration[K] | undefined,
     target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global
   ): Promise<void> {
-    const settingName = CONFIG_KEY_MAP[key];
-    const config = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
-
-    await config.update(settingName, value, target);
+    await updateConfig(settingNameOf(key), value as ConfigValues[ConfigKey], target);
   }
 
   /**
@@ -187,131 +142,43 @@ export class ConfigurationService implements IConfigurationService {
    */
   dispose(): void {
     this._onDidChangeConfiguration.dispose();
-    this._disposables.forEach((d) => d.dispose());
+    this._disposables.forEach((d) => {
+      d.dispose();
+    });
     this._disposables = [];
     this._cachedConfiguration = undefined;
   }
 
   /**
-   * Load configuration from VS Code settings.
-   * Workspace-specific settings automatically override user settings
-   * through VS Code's configuration API.
+   * Load configuration from VS Code settings via the typed config seam.
+   * Workspace-specific settings automatically override user settings through
+   * VS Code's configuration API; unset keys resolve to the schema default.
    *
    * @returns The loaded configuration
    */
   private loadConfiguration(): IExtensionConfiguration {
-    const config = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
-
     return {
-      // Commit settings
-      defaultCommitSignOff: this.getConfigValue(
-        config,
-        'defaultCommitSignOff',
-        DEFAULT_CONFIGURATION.defaultCommitSignOff
-      ),
-      commitMessageTemplate: this.getConfigValue(
-        config,
-        'commitMessageTemplate',
-        DEFAULT_CONFIGURATION.commitMessageTemplate
-      ),
-
       // Pull settings
-      pullRebase: this.getConfigValue(config, 'pullRebase', DEFAULT_CONFIGURATION.pullRebase),
-      autoFetchEnabled: this.getConfigValue(
-        config,
-        'autoFetchEnabled',
-        DEFAULT_CONFIGURATION.autoFetchEnabled
-      ),
-      autoFetchInterval: this.getConfigValue(
-        config,
-        'autoFetchInterval',
-        DEFAULT_CONFIGURATION.autoFetchInterval
-      ),
+      pullRebase: readConfig('pullRebase'),
+      autoFetchEnabled: readConfig('autoFetchEnabled'),
+      autoFetchInterval: readConfig('autoFetchInterval'),
 
       // UI settings
-      defaultToolWindowTab: this.getConfigValue<GitToolWindowTab>(
-        config,
-        'defaultToolWindowTab',
-        DEFAULT_CONFIGURATION.defaultToolWindowTab
-      ),
-      blameAnnotationStyle: this.getConfigValue<BlameAnnotationStyle>(
-        config,
-        'blameAnnotationStyle',
-        DEFAULT_CONFIGURATION.blameAnnotationStyle
-      ),
-      showStatusBarBranch: this.getConfigValue(
-        config,
-        'showStatusBarBranch',
-        DEFAULT_CONFIGURATION.showStatusBarBranch
-      ),
+      blameAnnotationStyle: readConfig('blameAnnotationStyle'),
 
       // Keyboard shortcuts
-      keymapPreset: this.getConfigValue<KeymapPresetName>(
-        config,
-        'keymapPreset',
-        DEFAULT_CONFIGURATION.keymapPreset
-      ),
+      keymapPreset: readConfig('keymapPreset'),
 
-      // Colors
-      modifiedFileColor: this.getConfigValue(
-        config,
-        'modifiedFileColor',
-        DEFAULT_CONFIGURATION.modifiedFileColor
-      ),
-      addedFileColor: this.getConfigValue(
-        config,
-        'addedFileColor',
-        DEFAULT_CONFIGURATION.addedFileColor
-      ),
-      deletedFileColor: this.getConfigValue(
-        config,
-        'deletedFileColor',
-        DEFAULT_CONFIGURATION.deletedFileColor
-      ),
-      ignoredFileColor: this.getConfigValue(
-        config,
-        'ignoredFileColor',
-        DEFAULT_CONFIGURATION.ignoredFileColor
-      ),
-      conflictFileColor: this.getConfigValue(
-        config,
-        'conflictFileColor',
-        DEFAULT_CONFIGURATION.conflictFileColor
-      ),
-
-      // Logging settings. The Logger's own
-      // `LogLevelResolver` reads these settings directly via
-      // `vscode.workspace.getConfiguration` to avoid a bootstrap
-      // circular (the Logger must be ready before
-      // `ConfigurationService` is constructed). This typed
-      // projection exists so other services that consume
-      // `IConfigurationService` see the same schema as everything
-      // else and so the change-event diff in
-      // `handleConfigurationChange` can name the changed log keys.
-      logLevel: this.getConfigValue<LogThreshold>(
-        config,
-        'log.level',
-        DEFAULT_CONFIGURATION.logLevel
-      ),
-      logConsole: this.getConfigValue(config, 'log.console', DEFAULT_CONFIGURATION.logConsole),
+      // Logging settings. The Logger's own `LogLevelResolver` reads these
+      // settings directly (via the same seam) to avoid a bootstrap circular —
+      // the Logger must be ready before `ConfigurationService` is constructed.
+      // This typed projection exists so other services that consume
+      // `IConfigurationService` see the same schema as everything else and so
+      // the change-event diff in `handleConfigurationChange` can name the
+      // changed log keys.
+      logLevel: readConfig('log.level'),
+      logConsole: readConfig('log.console'),
     };
-  }
-
-  /**
-   * Get a configuration value with type safety and default fallback.
-   *
-   * @param config - The VS Code configuration object
-   * @param key - The setting key
-   * @param defaultValue - The default value if not set
-   * @returns The configuration value
-   */
-  private getConfigValue<T>(
-    config: vscode.WorkspaceConfiguration,
-    key: string,
-    defaultValue: T
-  ): T {
-    const value = config.get<T>(key);
-    return value !== undefined ? value : defaultValue;
   }
 
   /**
@@ -321,7 +188,7 @@ export class ConfigurationService implements IConfigurationService {
    * Emit one debug-level Logger record naming the
    * `intellig.*` keys whose effective values changed in this
    * snapshot. Values are deliberately omitted —
-   * settings such as `commitMessageTemplate` may contain user content
+   * settings such as `commitAuthor` may contain user content
    * and are not safe to log unconditionally. Computing the diff here
    * (rather than re-deriving it from `e.affectsConfiguration` per
    * key) ensures the record reflects the *effective* change at the
@@ -331,19 +198,21 @@ export class ConfigurationService implements IConfigurationService {
     const oldConfig = this._cachedConfiguration;
     this._cachedConfiguration = this.loadConfiguration();
 
-    // Diff old vs new typed snapshots to compute the changed keys.
-    // We iterate `DEFAULT_CONFIGURATION` (rather than `oldConfig` /
-    // `newConfig`) so the key set is fixed and exhaustive even when
-    // `oldConfig` is undefined (first-time path).
+    // Diff old vs new typed snapshots to compute the changed keys. We iterate
+    // the freshly-built snapshot's keys so the set is fixed and exhaustive even
+    // when `oldConfig` is undefined (first-time path).
+    const snapshotKeys = Object.keys(
+      this._cachedConfiguration
+    ) as (keyof IExtensionConfiguration)[];
     const changedKeys: (keyof IExtensionConfiguration)[] = [];
     if (oldConfig === undefined) {
       // No prior snapshot — treat every key as "changed" so the log
       // record still names the surface that just became observable.
-      for (const k of Object.keys(DEFAULT_CONFIGURATION) as (keyof IExtensionConfiguration)[]) {
+      for (const k of snapshotKeys) {
         changedKeys.push(k);
       }
     } else {
-      for (const k of Object.keys(DEFAULT_CONFIGURATION) as (keyof IExtensionConfiguration)[]) {
+      for (const k of snapshotKeys) {
         if (oldConfig[k] !== this._cachedConfiguration[k]) {
           changedKeys.push(k);
         }
@@ -374,19 +243,29 @@ export class ConfigurationService implements IConfigurationService {
       return a === b;
     }
 
-    const keys = Object.keys(DEFAULT_CONFIGURATION) as (keyof IExtensionConfiguration)[];
+    const keys = Object.keys(b) as (keyof IExtensionConfiguration)[];
     return keys.every((key) => a[key] === b[key]);
   }
 }
 
 /**
- * Get the default configuration values.
- * Useful for testing and resetting to defaults.
+ * Get the default configuration values (schema defaults, read once from the
+ * registered settings schema). Useful for testing and resetting to defaults.
  *
  * @returns The default configuration
  */
 export function getDefaultConfiguration(): IExtensionConfiguration {
-  return { ...DEFAULT_CONFIGURATION };
+  const schemaDefault = <K extends ConfigKey>(key: K): ConfigValues[K] =>
+    inspectConfig(key)?.defaultValue as ConfigValues[K];
+  return {
+    pullRebase: schemaDefault('pullRebase'),
+    autoFetchEnabled: schemaDefault('autoFetchEnabled'),
+    autoFetchInterval: schemaDefault('autoFetchInterval'),
+    blameAnnotationStyle: schemaDefault('blameAnnotationStyle'),
+    keymapPreset: schemaDefault('keymapPreset'),
+    logLevel: schemaDefault('log.level'),
+    logConsole: schemaDefault('log.console'),
+  };
 }
 
 /**

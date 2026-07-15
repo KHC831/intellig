@@ -345,7 +345,9 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok(fs.existsSync(path.join(target, 'file.txt')), 'committed file should be checked out');
 
     const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
-    const added = entries.find((e) => fs.realpathSync(e.path) === fs.realpathSync(target));
+    const added = entries.find(
+      (e) => fs.realpathSync.native(e.path) === fs.realpathSync.native(target)
+    );
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/feature');
     assert.strictEqual(added.isMain, false);
@@ -364,7 +366,9 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok(fs.existsSync(target), 'worktree directory should exist on disk');
 
     const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
-    const added = entries.find((e) => fs.realpathSync(e.path) === fs.realpathSync(target));
+    const added = entries.find(
+      (e) => fs.realpathSync.native(e.path) === fs.realpathSync.native(target)
+    );
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/spawned');
   });

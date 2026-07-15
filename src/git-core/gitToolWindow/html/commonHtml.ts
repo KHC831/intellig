@@ -22,9 +22,9 @@ const TAB_LABELS: Record<TabId, string> = {
 };
 
 /**
- * Render the horizontal tab strip. Returns raw HTML; the caller is responsible
- * for placing it inside the <body> and for binding click → `tabChange` in the
- * page script (see {@link tabStripBehaviorScript}).
+ * Render the horizontal tab strip. Returns raw HTML; the caller places it in
+ * the <body>. The click → `tabChange` wiring is owned by the bundled
+ * `gitToolWindow.js` entry (it delegates off `.intellig-tab-strip`).
  */
 export function renderTabStrip(activeTab: TabId): string {
   const tabs = TAB_IDS.map((tab) => {
@@ -76,15 +76,15 @@ export function renderTabPanels(input: {
 }
 
 /**
- * Wrap a Log body + stub bodies into the full tabbed layout, including the
- * click wiring script.
+ * Wrap a Log body + stub bodies into the full tabbed layout. The tab-strip
+ * click wiring (posts `tabChange`) lives in the bundled `gitToolWindow.js`
+ * entry, so this only emits the strip + panel markup.
  *
  * @param input.logBodyHtml        HTML for the Log tab's <body>-content (no
  *                                 outer <body> wrapper — the caller already
  *                                 emits the document-level shell).
  * @param input.stubBodies         Bodies for the four non-Log tabs.
  * @param input.activeTab          Currently active tab.
- * @param input.nonce              CSP nonce for the wiring script.
  */
 export function wrapTabbedBody(input: {
   activeTab: TabId;
@@ -93,39 +93,10 @@ export function wrapTabbedBody(input: {
   incomingBodyHtml: string;
   updateInfoBodyHtml: string;
   historyBodyHtml: string;
-  nonce: string;
 }): string {
   const strip = renderTabStrip(input.activeTab);
   const panels = renderTabPanels(input);
-  return `${strip}${panels}<script nonce="${input.nonce}">${tabStripBehaviorScript()}</script>`;
-}
-
-/**
- * Inline script: clicks on the tab strip post a `tabChange` message.
- *
- * The provider receives `tabChange` via the existing `onDidReceiveMessage` and
- * routes it through `TabRouter.dispatch` which re-renders the HTML. Because
- * inactive panels are `display:none`, focus jumps back to the fresh active
- * panel on re-render; no DOM recycling.
- */
-export function tabStripBehaviorScript(): string {
-  return `
-    (function () {
-      // Share the one VS Code API handle across the document's inline scripts:
-      // reuse the handle memoised on \`window\`, or acquire it here if this
-      // script runs first. \`acquireVsCodeApi\` throws if called more than once.
-      const vscode = window.__intelligVscodeApi || (typeof acquireVsCodeApi === 'function' ? (window.__intelligVscodeApi = acquireVsCodeApi()) : undefined);
-      const strip = document.querySelector('.intellig-tab-strip');
-      if (!strip || !vscode) return;
-      strip.addEventListener('click', function (event) {
-        const btn = event.target && event.target.closest ? event.target.closest('[data-tab]') : null;
-        if (!btn) return;
-        const tab = btn.getAttribute('data-tab');
-        if (!tab) return;
-        vscode.postMessage({ type: 'tabChange', tab: tab });
-      });
-    })();
-  `;
+  return `${strip}${panels}`;
 }
 
 /** CSS for the tab strip. Emitted alongside the existing provider styles. */

@@ -58,8 +58,13 @@ describe('Squash Commits combined message (real git)', () => {
     onto: string,
     plan: ReturnType<typeof buildSquashRebasePlan>
   ): Promise<{ exitCode: number; combined: string }> {
-    const seqEditor = path.join(repoPath, 'seq-editor.sh');
-    fs.writeFileSync(seqEditor, `#!/bin/sh\nnode "${COMPILED_EDITOR}" "$1"\n`, { mode: 0o755 });
+    // git runs GIT_SEQUENCE_EDITOR (and the paths inside the shim) through sh on
+    // every platform, so forward-slash them or Windows backslashes get mangled
+    // (C:\a → C:a). No-op on POSIX.
+    const seqEditor = path.join(repoPath, 'seq-editor.sh').replace(/\\/g, '/');
+    fs.writeFileSync(seqEditor, `#!/bin/sh\nnode "${COMPILED_EDITOR.replace(/\\/g, '/')}" "$1"\n`, {
+      mode: 0o755,
+    });
     const r = await gitCli.exec(['rebase', '-i', '--end-of-options', onto], {
       cwd: repoPath,
       env: {

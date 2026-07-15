@@ -44,7 +44,6 @@ import {
   buildTagActionMenu,
   detectIndentablePrefixes,
   formatBranchLabel,
-  readLegacyFavorites,
   readBranchPopupSettings,
   updateFavoritesList,
   updateRecentLru,
@@ -901,49 +900,6 @@ describe('BranchPopup — updateFavoritesList', () => {
     const next = updateFavoritesList(input, 'c', true);
     assert.notStrictEqual(next, input);
     assert.deepStrictEqual(input, ['a', 'b']);
-  });
-});
-
-describe('BranchPopup — readLegacyFavorites', () => {
-  function mkMemento(initial?: unknown): vscode.Memento {
-    const store = new Map<string, unknown>();
-    if (initial !== undefined) {
-      store.set(FAVORITE_BRANCHES_STATE_KEY, initial);
-    }
-    return {
-      get<T>(key: string, defaultValue?: T): T | undefined {
-        return store.has(key) ? (store.get(key) as T) : defaultValue;
-      },
-      update: async (k: string, v: unknown): Promise<void> => {
-        if (v === undefined) {
-          store.delete(k);
-        } else {
-          store.set(k, v);
-        }
-      },
-      keys: () => Array.from(store.keys()),
-    } as unknown as vscode.Memento;
-  }
-
-  it('returns an empty array when no favorites are stored', () => {
-    assert.deepStrictEqual(readLegacyFavorites(mkMemento()), []);
-  });
-
-  it('returns a copy (not the stored reference)', () => {
-    const mem = mkMemento(['main']);
-    const first = readLegacyFavorites(mem);
-    first.push('tampered');
-    const second = readLegacyFavorites(mem);
-    assert.deepStrictEqual(second, ['main']);
-  });
-
-  it('returns [] when the stored value is not an array (defensive)', () => {
-    const mem = mkMemento({ not: 'an array' });
-    assert.deepStrictEqual(readLegacyFavorites(mem), []);
-  });
-
-  it('returns [] when no workspaceState is provided', () => {
-    assert.deepStrictEqual(readLegacyFavorites(undefined), []);
   });
 });
 

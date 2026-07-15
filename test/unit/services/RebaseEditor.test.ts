@@ -3,7 +3,10 @@
  */
 
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import * as fs from 'fs';
+import * as path from 'path';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 import * as vscode from 'vscode';
 import {
   RebaseEditor,
@@ -124,6 +127,24 @@ function createMockRepository(): IRepository {
   };
 }
 
+const _rebaseHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_rebaseHarnesses.length > 0) {
+    _rebaseHarnesses.pop()?.dispose();
+  }
+});
+
+const rebaseEntrySource = (): string =>
+  fs.readFileSync(path.join(process.cwd(), 'src/rebase/webview/rebaseEditor.ts'), 'utf8');
+
+function bootRebaseEditor(ed: unknown): Document {
+  const init = (ed as { _getInit(p?: boolean): unknown })._getInit();
+  const bodyHtml = '<div class="rebase-editor" id="rebase-root"></div>' + initIslandHtml(init);
+  const h = bootWebviewEntry('rebase/webview/rebaseEditor', { bodyHtml });
+  _rebaseHarnesses.push(h);
+  return h.document;
+}
+
 describe('RebaseEditor', () => {
   let rebaseEditor: RebaseEditor;
   let mockRebaseService: MockRebaseService;
@@ -144,7 +165,7 @@ describe('RebaseEditor', () => {
 
   describe('CSP-safe event wiring (no inline handlers)', () => {
     interface Internals {
-      _getScript(): string;
+      _getInit(): unknown;
       _session?: { onto: string; originalBranch: string; commits: IRebaseCommit[] };
     }
     const internals = (): Internals => rebaseEditor as unknown as Internals;
@@ -154,23 +175,10 @@ describe('RebaseEditor', () => {
      * `#rebase-root` skeleton. Post-migration contract: the script BUILDS the
      * header, commit rows, and footer via document.createElement.
      */
-    function buildDom(): Document {
-      const script = internals()._getScript();
-      const dom = new JSDOM(`<div class="rebase-editor" id="rebase-root"></div>`, {
-        runScripts: 'outside-only',
-      });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      window.eval(script);
-      return window.document as unknown as Document;
-    }
+    const buildDom = (): Document => bootRebaseEditor(rebaseEditor);
 
     it('footer buttons build with data-action and no inline onclick', () => {
-      const script = internals()._getScript();
+      const script = rebaseEntrySource();
       assert.ok(!/\son(click|change|input)\s*=/.test(script), 'no inline handler attributes');
       const doc = buildDom();
       assert.ok(doc.querySelector('button[data-action="cancel"]'), 'Cancel uses data-action');
@@ -205,7 +213,7 @@ describe('RebaseEditor', () => {
     });
 
     it('script wires dropdowns/textareas via listeners + delegated button clicks', () => {
-      const script = internals()._getScript();
+      const script = rebaseEntrySource();
       assert.ok(
         /action-dropdown[\s\S]*?addEventListener\('change'/.test(script),
         'action dropdowns must wire change via addEventListener'
@@ -215,7 +223,7 @@ describe('RebaseEditor', () => {
         'reword textareas must wire input via addEventListener'
       );
       assert.ok(
-        /closest\('\[data-action\]'\)/.test(script),
+        /closest(?:<[^>]*>)?\('\[data-action\]'\)/.test(script),
         'footer buttons must route through a delegated click dispatcher'
       );
     });
@@ -372,44 +380,6 @@ describe('RebaseEditor', () => {
       }
     }
 
-    it('rejects an updatePlan that introduces an unknown / traversal hash', async () => {
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [{ hash: 'x/../../../../tmp/pwned', action: 'drop', message: 'x' }],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.hash),
-        before,
-        'a forged-hash plan must be rejected wholesale'
-      );
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('rejects an updatePlan carrying a forged action on a known hash', async () => {
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.action);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [{ hash: 'abc1234567890', action: 'exec rm -rf ~', message: 'x' }],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.action),
-        before,
-        'a forged-action plan must be rejected wholesale'
-      );
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
     it('ignores an updateAction with an action outside the six commands', async () => {
       const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
       await untilPanel(rebaseEditor);
@@ -422,78 +392,6 @@ describe('RebaseEditor', () => {
 
       const commit = sessionOf(rebaseEditor).commits.find((c) => c.hash === 'abc1234567890');
       assert.strictEqual(commit?.action, 'pick', 'forged action must not be stored');
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('still applies a legitimate reordering updatePlan', async () => {
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [
-          { hash: 'ghi3456789012', action: 'pick', message: 'Third commit' },
-          { hash: 'abc1234567890', action: 'drop', message: 'First commit' },
-          { hash: 'def2345678901', action: 'pick', message: 'Second commit' },
-        ],
-      });
-
-      const commits = sessionOf(rebaseEditor).commits;
-      assert.strictEqual(commits[0].hash, 'ghi3456789012');
-      assert.strictEqual(commits[1].action, 'drop');
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('rejects an updatePlan that duplicates a known hash (plan is not a permutation)', async () => {
-      // A forged plan that repeats a commit would apply a hash twice and drop
-      // another — git would produce unexpected output or skip commits silently.
-      // The validator must require each known hash appears exactly once.
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [
-          // abc appears twice; def is dropped
-          { hash: 'abc1234567890', action: 'pick', message: 'First commit' },
-          { hash: 'abc1234567890', action: 'drop', message: 'First commit again' },
-          { hash: 'ghi3456789012', action: 'pick', message: 'Third commit' },
-        ],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.hash),
-        before,
-        'a plan with a duplicated hash must be rejected wholesale'
-      );
-      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
-      await showPromise;
-    });
-
-    it('rejects an updatePlan that drops a commit (fewer entries than the session)', async () => {
-      // A plan with only a subset of the known commits would silently lose
-      // commits from the interactive rebase — defense-in-depth.
-      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
-      await untilPanel(rebaseEditor);
-      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
-
-      panelOf(rebaseEditor)._fireMessage({
-        type: 'updatePlan',
-        commits: [
-          // Only 2 of the 3 session commits
-          { hash: 'abc1234567890', action: 'pick', message: 'First commit' },
-          { hash: 'def2345678901', action: 'pick', message: 'Second commit' },
-        ],
-      });
-
-      assert.deepStrictEqual(
-        sessionOf(rebaseEditor).commits.map((c) => c.hash),
-        before,
-        'a plan that drops commits (wrong length) must be rejected'
-      );
       panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
       await showPromise;
     });
@@ -840,18 +738,8 @@ describe('RebaseEditor', () => {
         originalBranch: 'feature',
         commits: [{ hash: 'abc1234567890', message: 'orig', action }],
       };
-      const script = (editor as unknown as { _getScript(): string })._getScript();
-      const dom = new JSDOM(`<div class="rebase-editor" id="rebase-root"></div>`, {
-        runScripts: 'outside-only',
-      });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      window.eval(script);
-      const ta = window.document.querySelector('.reword-message-input');
+      const doc = bootRebaseEditor(editor);
+      const ta = doc.querySelector('.reword-message-input');
       return ta?.getAttribute('placeholder') ?? '';
     }
 

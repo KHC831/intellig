@@ -22,8 +22,9 @@
 import '../../setup';
 import { okAsync, errAsync, ResultAsync } from 'neverthrow';
 import { SpawnFailedError } from '../../../src/git-core/errors';
-import { JSDOM } from 'jsdom';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   performCommit,
@@ -45,6 +46,8 @@ import type {
   ICommitOptions,
 } from '../../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
+import { bootWebviewEntry } from '../../helpers/bootWebviewEntry';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -454,8 +457,8 @@ describe('CommitDialog — recent messages + author + gear', () => {
           }
         )._handleCommit({ type: 'commit', message: 'feat: hello' });
 
-        const lru = mem.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
-        assert.deepStrictEqual(lru, ['feat: hello']);
+        const lru = mem.get(RECENT_MESSAGES_STATE_KEY);
+        assert.deepStrictEqual(lru, { v: 1, data: ['feat: hello'] });
       } finally {
         dialog.dispose();
       }
@@ -553,13 +556,13 @@ describe('CommitDialog — recent messages + author + gear', () => {
           await (
             dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
           )._handleOpenGearMenu();
-          assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), true);
+          assert.deepStrictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), { v: 1, data: true });
 
           // Toggle again → off.
           await (
             dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
           )._handleOpenGearMenu();
-          assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), false);
+          assert.deepStrictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), { v: 1, data: false });
         } finally {
           (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = originalPick;
         }
@@ -645,8 +648,8 @@ describe('CommitDialog — recent messages + author + gear', () => {
         assert.strictEqual(opts.author, 'Kit <k@e.com>');
         assert.strictEqual(opts.noVerify, true);
 
-        const lru = mem.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
-        assert.deepStrictEqual(lru, ['feat: wire']);
+        const lru = mem.get(RECENT_MESSAGES_STATE_KEY);
+        assert.deepStrictEqual(lru, { v: 1, data: ['feat: wire'] });
       } finally {
         dialog.dispose();
       }
@@ -910,10 +913,23 @@ describe('CommitDialog — recent messages + author + gear', () => {
   });
 
   describe('CSP-safe event wiring (no inline handlers)', () => {
+    // Host HTML: body + init island + external nonced bundle tag (no inline
+    // script). asWebviewUri is stubbed identity so the bundle src resolves.
     function renderHtml(dialog: CommitDialog): string {
-      const webviewStub = { cspSource: 'vscode-resource:' } as unknown as vscode.Webview;
+      const webviewStub = {
+        cspSource: 'vscode-resource:',
+        asWebviewUri: (u: vscode.Uri) => u,
+      } as unknown as vscode.Webview;
       return (dialog as unknown as { _getHtmlContent(w: vscode.Webview): string })._getHtmlContent(
         webviewStub
+      );
+    }
+
+    // The interactive wiring lives in the bundled entry now, not the host string.
+    function entrySource(): string {
+      return fs.readFileSync(
+        path.join(__dirname, '../../../src/commits/webview/commitDialog.ts'),
+        'utf-8'
       );
     }
 
@@ -934,18 +950,14 @@ describe('CommitDialog — recent messages + author + gear', () => {
 
     it('wires the Commit/Cancel buttons + gear/recent/refresh via data-action delegation', () => {
       const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
+      const init = (dialog as unknown as { _getInit(): unknown })._getInit();
+      dialog.dispose();
+      // Boot the bundled entry against the init island and assert the
+      // [data-action] elements exist on the built DOM.
+      const h = bootWebviewEntry('commits/webview/commitDialog', {
+        bodyHtml: '<div class="commit-dialog" id="root"></div>' + initIslandHtml(init),
+      });
       try {
-        // Body is built by the inline script via createElement; run it in jsdom
-        // and assert the [data-action] elements exist on the built DOM.
-        const html = renderHtml(dialog);
-        const dom = new JSDOM(html, { runScripts: 'outside-only' });
-        (dom.window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-          postMessage: (): void => {},
-          getState: (): void => {},
-          setState: (): void => {},
-        });
-        const scriptEl = dom.window.document.querySelector('script[nonce]');
-        dom.window.eval(scriptEl?.textContent ?? '');
         for (const action of [
           'commit',
           'cancel',
@@ -954,38 +966,33 @@ describe('CommitDialog — recent messages + author + gear', () => {
           'refresh',
         ]) {
           assert.ok(
-            dom.window.document.querySelector(`[data-action="${action}"]`),
+            h.document.querySelector(`[data-action="${action}"]`),
             `${action} must be wired via data-action delegation`
           );
         }
       } finally {
-        dialog.dispose();
+        h.dispose();
       }
     });
 
     it('wires the message/author inputs + amend/sign-off checkboxes via addEventListener', () => {
-      const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
-      try {
-        const html = renderHtml(dialog);
-        assert.ok(
-          /getElementById\('commit-message'\)[\s\S]*addEventListener\('input'/.test(html),
-          'commit-message must wire input via addEventListener'
-        );
-        assert.ok(
-          /getElementById\('commit-author'\)[\s\S]*addEventListener\('input'/.test(html),
-          'commit-author must wire input via addEventListener'
-        );
-        assert.ok(
-          /getElementById\('amend-checkbox'\)[\s\S]*addEventListener\('change'/.test(html),
-          'amend-checkbox must wire change via addEventListener'
-        );
-        assert.ok(
-          /getElementById\('signoff-checkbox'\)[\s\S]*addEventListener\('change'/.test(html),
-          'signoff-checkbox must wire change via addEventListener'
-        );
-      } finally {
-        dialog.dispose();
-      }
+      const source = entrySource();
+      assert.ok(
+        /getElementById\('commit-message'\)[\s\S]*addEventListener\('input'/.test(source),
+        'commit-message must wire input via addEventListener'
+      );
+      assert.ok(
+        /getElementById\('commit-author'\)[\s\S]*addEventListener\('input'/.test(source),
+        'commit-author must wire input via addEventListener'
+      );
+      assert.ok(
+        /getElementById\('amend-checkbox'\)[\s\S]*addEventListener\('change'/.test(source),
+        'amend-checkbox must wire change via addEventListener'
+      );
+      assert.ok(
+        /getElementById\('signoff-checkbox'\)[\s\S]*addEventListener\('change'/.test(source),
+        'signoff-checkbox must wire change via addEventListener'
+      );
     });
   });
 });

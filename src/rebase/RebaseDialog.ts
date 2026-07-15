@@ -29,12 +29,25 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import {
+  asRebaseDialogInbound,
+  type IRebaseDialogInit,
+  type RebaseDialogOutbound,
+} from './rebaseDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { IGitService, IRepository, IRebaseOptions } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { RebaseEditor } from './RebaseEditor';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
+import {
+  loadPersisted,
+  savePersisted,
+  type MementoLike,
+  type PersistedSlot,
+} from '../utils/persistedState';
 
 /** Options for constructing a {@link RebaseDialog}. */
 export interface IRebaseDialogOptions {
@@ -69,18 +82,6 @@ export interface IRebaseDialogPreselect {
 }
 
 /** Webview → extension message shape. */
-interface IRebaseDialogMessage {
-  type: 'rebase' | 'cancel';
-  onto?: string;
-  /** Optional `--onto <newbase>` target; '' / absent means rebase onto upstream. */
-  newBase?: string;
-  interactive?: boolean;
-  rebaseMerges?: boolean;
-  keepEmpty?: boolean;
-  updateRefs?: boolean;
-  autosquash?: boolean;
-  root?: boolean;
-}
 
 /**
  * The non-interactive rebase options surfaced as checkboxes, in git4idea's
@@ -144,10 +145,7 @@ export interface IPersistedRebaseOptions {
 }
 
 /** Memento subset (ExtensionContext.globalState shape) for option persistence. */
-export interface IRebaseOptionsStore {
-  get<T>(key: string, defaultValue: T): T;
-  update(key: string, value: unknown): Thenable<void>;
-}
+export type IRebaseOptionsStore = MementoLike;
 
 const REBASE_OPTIONS_DEFAULT: IPersistedRebaseOptions = {
   rebaseMerges: false,
@@ -157,24 +155,32 @@ const REBASE_OPTIONS_DEFAULT: IPersistedRebaseOptions = {
   root: false,
 };
 
+/** Persisted slot for the last-used rebase options (each field coerced to boolean). */
+export const REBASE_OPTIONS_SLOT: PersistedSlot<IPersistedRebaseOptions> = {
+  key: REBASE_OPTIONS_STATE_KEY,
+  version: 1,
+  validate: (raw) => {
+    if (!raw || typeof raw !== 'object') {
+      return undefined;
+    }
+    const obj = raw as Record<string, unknown>;
+    return {
+      rebaseMerges: Boolean(obj.rebaseMerges),
+      keepEmpty: Boolean(obj.keepEmpty),
+      updateRefs: Boolean(obj.updateRefs),
+      autosquash: Boolean(obj.autosquash),
+      root: Boolean(obj.root),
+    };
+  },
+};
+
 /**
  * Load the user's last-used rebase options (IntelliJ GitRebaseSettings
  * parity). Coerces each field to a boolean and defaults any missing/invalid
  * key to false; returns all-false when nothing valid is stored.
  */
 export function loadRebaseOptions(store: IRebaseOptionsStore): IPersistedRebaseOptions {
-  const raw = store.get<unknown>(REBASE_OPTIONS_STATE_KEY, undefined);
-  if (!raw || typeof raw !== 'object') {
-    return { ...REBASE_OPTIONS_DEFAULT };
-  }
-  const obj = raw as Record<string, unknown>;
-  return {
-    rebaseMerges: Boolean(obj.rebaseMerges),
-    keepEmpty: Boolean(obj.keepEmpty),
-    updateRefs: Boolean(obj.updateRefs),
-    autosquash: Boolean(obj.autosquash),
-    root: Boolean(obj.root),
-  };
+  return loadPersisted(store, REBASE_OPTIONS_SLOT) ?? { ...REBASE_OPTIONS_DEFAULT };
 }
 
 /** Persist the chosen rebase options so the next dialog pre-checks them. */
@@ -182,10 +188,10 @@ export function saveRebaseOptions(
   store: IRebaseOptionsStore,
   options: IPersistedRebaseOptions
 ): Thenable<void> {
-  return store.update(REBASE_OPTIONS_STATE_KEY, options);
+  return savePersisted(store, REBASE_OPTIONS_SLOT, options);
 }
 
-export class RebaseDialog extends BaseWebviewPanel {
+export class RebaseDialog extends BaseWebviewPanel<RebaseDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _onto: string;
   private readonly _branchChoices: string[];
@@ -287,26 +293,10 @@ export class RebaseDialog extends BaseWebviewPanel {
   }
 
   protected _getBodyHtml(): string {
-    return this._getBodyParts().body;
-  }
-
-  /**
-   * Emit the body HTML and the interactive script separately so `_render`
-   * can splice the script into a nonced `<script>` block without
-   * regex-extracting it (nested `</script>` inside a string literal would
-   * break that). Mirrors {@link MergeDialog}.
-   */
-  private _getBodyParts(): { body: string; script: string } {
     // Pre-check the option boxes from the user's last-used rebase options
     // (IntelliJ GitRebaseSettings persists these per project).
     const persistedOptions = loadRebaseOptions(this._context.globalState);
-
-    // Body ships an empty root; the script builds every control via
-    // document.createElement. Host data crosses as a JSON init island and
-    // reaches the DOM via element props / .textContent (injection-proof).
-    const body = `<div id="root"></div>`;
-
-    const initJson = JSON.stringify({
+    const init: IRebaseDialogInit = {
       currentBranch: this._currentBranch,
       branchChoices: this._branchChoices,
       onto: this._onto,
@@ -319,151 +309,15 @@ export class RebaseDialog extends BaseWebviewPanel {
         desc: o.desc,
         checked: persistedOptions[o.id],
       })),
-    }).replace(/</g, '\\u003c');
-
-    const script = `
-      (function() {
-        const vscode = acquireVsCodeApi();
-        const INIT = ${initJson};
-        const root = document.getElementById('root');
-        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-        const optionIds = INIT.optionCheckboxes.map((o) => o.id);
-
-        // ── Summary (current branch) ───────────────────────────────────────
-        const summary = el('div', { className: 'summary' });
-        const summaryRow = el('div');
-        summaryRow.append(
-          el('span', { className: 'label', textContent: 'Branch:' }),
-          INIT.currentBranch + ' (current)'
-        );
-        summary.append(summaryRow);
-
-        // ── Onto select ────────────────────────────────────────────────────
-        const ontoField = el('div', { className: 'field' });
-        const ontoLabel = el('label', { className: 'field-label', htmlFor: 'onto-select', textContent: 'Rebase onto:' });
-        const ontoSelectEl = el('select', { id: 'onto-select' });
-        ontoSelectEl.disabled = INIT.rootDisablesOnto;
-        for (const name of INIT.branchChoices) {
-          const opt = el('option', { value: name, textContent: name });
-          opt.selected = name === INIT.onto;
-          ontoSelectEl.append(opt);
-        }
-        ontoField.append(ontoLabel, ontoSelectEl);
-
-        // ── New base (--onto) select ───────────────────────────────────────
-        const newbaseField = el('div', { className: 'field' });
-        const newbaseLabel = el('label', { className: 'field-label', htmlFor: 'newbase-select', textContent: 'New base (--onto):' });
-        const newbaseSelectEl = el('select', { id: 'newbase-select' });
-        newbaseSelectEl.append(el('option', { value: '', textContent: '(none — rebase onto upstream)' }));
-        for (const name of INIT.branchChoices) {
-          newbaseSelectEl.append(el('option', { value: name, textContent: name }));
-        }
-        newbaseField.append(newbaseLabel, newbaseSelectEl);
-
-        // ── Interactive flag ───────────────────────────────────────────────
-        const interactiveLabel = el('label', { className: 'flag' });
-        interactiveLabel.setAttribute('data-flag', 'interactive');
-        const interactiveInput = el('input', { type: 'checkbox', id: 'flag-interactive' });
-        interactiveInput.checked = INIT.interactiveDefault;
-        const interactiveText = el('span', { className: 'label-text' });
-        interactiveText.append(
-          el('span', { className: 'title-line', textContent: 'Interactive' }),
-          el('span', { className: 'desc', textContent: 'Open the rebase todo editor to reorder, squash, edit, or drop commits.' })
-        );
-        interactiveLabel.append(interactiveInput, interactiveText);
-
-        // ── Options fieldset ───────────────────────────────────────────────
-        const fieldset = el('fieldset', { id: 'rebase-options', className: 'rebase-options' });
-        fieldset.append(el('legend', { className: 'rebase-options-legend', textContent: 'Options' }));
-        for (const o of INIT.optionCheckboxes) {
-          const label = el('label', { className: 'flag' });
-          label.setAttribute('data-flag', o.id);
-          const input = el('input', { type: 'checkbox', id: 'flag-' + o.id });
-          input.checked = o.checked;
-          const text = el('span', { className: 'label-text' });
-          const titleLine = el('span', { className: 'title-line', textContent: o.title + ' ' });
-          titleLine.append(el('code', { textContent: o.flag }));
-          text.append(titleLine, el('span', { className: 'desc', textContent: o.desc }));
-          label.append(input, text);
-          fieldset.append(label);
-        }
-
-        // ── Actions ────────────────────────────────────────────────────────
-        const actions = el('div', { className: 'actions' });
-        actions.append(
-          el('button', { id: 'cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' }),
-          el('button', { id: 'rebase-btn', type: 'button', textContent: 'Rebase' })
-        );
-
-        root.append(summary, ontoField, newbaseField, interactiveLabel, fieldset, actions);
-
-        const interactiveBox = document.getElementById('flag-interactive');
-        const optionsFieldset = document.getElementById('rebase-options');
-        const ontoSelect = document.getElementById('onto-select');
-        const newbaseSelect = document.getElementById('newbase-select');
-        const rootBox = document.getElementById('flag-root');
-        // The flag options + the --onto newbase apply to the non-interactive
-        // rebase only; the interactive path hands off to the todo editor.
-        // Disable them while Interactive is checked so the UI never implies
-        // they'd take effect.
-        const syncOptionsEnabled = () => {
-          const disabled = interactiveBox.checked;
-          optionsFieldset.classList.toggle('disabled', disabled);
-          newbaseSelect.disabled = disabled;
-          for (const id of optionIds) {
-            document.getElementById('flag-' + id).disabled = disabled;
-          }
-          // root disables the onto select independently; re-sync after
-          // interactive toggle changes the root checkbox's disabled state.
-          syncOntoEnabled();
-        };
-        // When --root is checked the onto target is irrelevant; disable the
-        // selector to match IntelliJ's behavior (git4idea disables that field).
-        const syncOntoEnabled = () => {
-          ontoSelect.disabled = rootBox.checked && !interactiveBox.checked;
-        };
-        rootBox.addEventListener('change', syncOntoEnabled);
-        interactiveBox.addEventListener('change', syncOptionsEnabled);
-        syncOptionsEnabled();
-        const submit = () => {
-          const msg = {
-            type: 'rebase',
-            onto: document.getElementById('onto-select').value,
-            newBase: newbaseSelect.value,
-            interactive: interactiveBox.checked,
-          };
-          for (const id of optionIds) {
-            msg[id] = document.getElementById('flag-' + id).checked;
-          }
-          vscode.postMessage(msg);
-        };
-        const cancel = () => {
-          vscode.postMessage({ type: 'cancel' });
-        };
-        document.getElementById('rebase-btn').addEventListener('click', submit);
-        document.getElementById('cancel-btn').addEventListener('click', cancel);
-
-        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
-        //   Cmd+Enter / Ctrl+Enter → primary action (Rebase)
-        //   Esc                    → cancel
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancel();
-          }
-        });
-      })();
-    `;
-
-    return { body, script };
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Override the base renderer so the interactive script carries the CSP
-   * nonce. Mirrors {@link MergeDialog._render}.
+   * Override the base renderer so the body ships with an EXTERNAL bundle tag
+   * (media/webview/rebaseDialog.js) instead of the base's empty sentinel. The
+   * interactive logic lives in the bundled entry (src/rebase/webview/rebaseDialog.ts),
+   * which reads its init from the body island.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -474,7 +328,9 @@ export class RebaseDialog extends BaseWebviewPanel {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const styleBlock = styles.length > 0 ? `<style>${styles}</style>` : '';
-    const { body, script } = this._getBodyParts();
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'rebaseDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -486,8 +342,8 @@ export class RebaseDialog extends BaseWebviewPanel {
   ${styleBlock}
 </head>
 <body>
-${body}
-<script nonce="${nonce}">${script}</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
@@ -496,8 +352,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as IRebaseDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asRebaseDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -540,6 +396,8 @@ ${body}
         }
         return;
       }
+      default:
+        assertNever(msg);
     }
   }
 

@@ -19,7 +19,8 @@
  */
 
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -109,6 +110,13 @@ function makeGitServiceScripted(
   svc._gitCli = mockCli;
   return { gitService: svc as unknown as IGitService, calls };
 }
+
+const _skipHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_skipHarnesses.length > 0) {
+    _skipHarnesses.pop()?.dispose();
+  }
+});
 
 describe('GitService.rebaseSkip', () => {
   let repo: IRepository;
@@ -243,16 +251,10 @@ describe('ResolveConflictsDialog Skip button', () => {
     // run it in jsdom and assert the resulting DOM.
     const hasSkipButton = (dialog: unknown): boolean => {
       const html = (dialog as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      const dom = new JSDOM(html, { runScripts: 'outside-only' });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      const scriptEl = window.document.querySelector('script[nonce]');
-      window.eval(scriptEl?.textContent ?? '');
-      return window.document.querySelector('[data-action="skip"]') !== null;
+      const bodyHtml = extractWebviewScript(html).bodyHtml;
+      const h = bootWebviewEntry('conflicts/webview/resolveConflictsDialog', { bodyHtml });
+      _skipHarnesses.push(h);
+      return h.document.querySelector('[data-action="skip"]') !== null;
     };
 
     const rebaseEnv = buildEnv({ operation: 'rebase', canAbort: true, canContinue: true });

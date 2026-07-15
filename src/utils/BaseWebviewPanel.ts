@@ -24,7 +24,7 @@ import { buildWebviewCsp } from './webviewCsp';
  * }
  * ```
  */
-export abstract class BaseWebviewPanel {
+export abstract class BaseWebviewPanel<TOutbound = unknown> {
   protected readonly _panel: vscode.WebviewPanel;
   protected readonly _disposables: vscode.Disposable[] = [];
   protected readonly _title: string;
@@ -97,9 +97,11 @@ export abstract class BaseWebviewPanel {
   }
 
   /**
-   * Post a message to the webview.
+   * Post a message to the webview. Typed to the panel's declared outbound union
+   * (`TOutbound`) so the host can only send on-contract messages; subclasses
+   * that have not yet declared a protocol default to `unknown`.
    */
-  postMessage(message: unknown): Thenable<boolean> {
+  postMessage(message: TOutbound): Thenable<boolean> {
     return this._panel.webview.postMessage(message);
   }
 

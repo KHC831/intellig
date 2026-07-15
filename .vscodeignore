@@ -49,6 +49,7 @@ scripts/**
 .gitignore
 tsconfig.json
 tsconfig.test.json
+tsconfig.webview.json
 package-lock.json
 CONTRIBUTING.md
 CLAUDE.md

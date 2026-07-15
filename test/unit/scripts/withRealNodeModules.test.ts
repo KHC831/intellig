@@ -214,44 +214,49 @@ describe('scripts/lib/with-real-node-modules.sh — symlink-tolerant node_module
     assert.deepStrictEqual(strayArtefacts(repo), []);
   });
 
-  it('restores the symlink when the wrapped command is killed by SIGTERM mid-run', async function () {
-    // Core safety claim: a signal interrupt restores the symlink. Spawn
-    // the helper detached (its own process group) wrapping a long sleep,
-    // wait until the swap has happened, then SIGTERM the whole group.
-    this.timeout(20000);
-    const { repo, target } = symlinkedRepo();
-    const nm = path.join(repo, 'node_modules');
+  // POSIX-only: uses SIGTERM process-group signalling (`process.kill(-pid)`),
+  // which Windows does not support, and asserts POSIX symlink/file-lock cleanup.
+  (process.platform === 'win32' ? it.skip : it)(
+    'restores the symlink when the wrapped command is killed by SIGTERM mid-run',
+    async function () {
+      // Core safety claim: a signal interrupt restores the symlink. Spawn
+      // the helper detached (its own process group) wrapping a long sleep,
+      // wait until the swap has happened, then SIGTERM the whole group.
+      this.timeout(20000);
+      const { repo, target } = symlinkedRepo();
+      const nm = path.join(repo, 'node_modules');
 
-    const child = spawn('bash', [SCRIPT, 'sleep', '30'], {
-      cwd: repo,
-      detached: true,
-      stdio: 'ignore',
-    });
-    const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
+      const child = spawn('bash', [SCRIPT, 'sleep', '30'], {
+        cwd: repo,
+        detached: true,
+        stdio: 'ignore',
+      });
+      const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
 
-    // Wait until the helper has swapped a real clone into place.
-    await waitUntil(() => !fs.lstatSync(nm).isSymbolicLink());
+      // Wait until the helper has swapped a real clone into place.
+      await waitUntil(() => !fs.lstatSync(nm).isSymbolicLink());
 
-    // SIGTERM the process group (negative pid) so the sleep dies and the
-    // helper's trap runs.
-    process.kill(-child.pid!, 'SIGTERM');
-    await exited;
+      // SIGTERM the process group (negative pid) so the sleep dies and the
+      // helper's trap runs.
+      process.kill(-child.pid!, 'SIGTERM');
+      await exited;
 
-    assert.ok(
-      fs.lstatSync(nm).isSymbolicLink(),
-      'node_modules must be a symlink again after SIGTERM'
-    );
-    assert.strictEqual(
-      fs.realpathSync(nm),
-      fs.realpathSync(target),
-      'symlink must point back at the target'
-    );
-    assert.deepStrictEqual(
-      strayArtefacts(repo),
-      [],
-      'no transient clone/backup/lock left after a signal'
-    );
-  });
+      assert.ok(
+        fs.lstatSync(nm).isSymbolicLink(),
+        'node_modules must be a symlink again after SIGTERM'
+      );
+      assert.strictEqual(
+        fs.realpathSync(nm),
+        fs.realpathSync(target),
+        'symlink must point back at the target'
+      );
+      assert.deepStrictEqual(
+        strayArtefacts(repo),
+        [],
+        'no transient clone/backup/lock left after a signal'
+      );
+    }
+  );
 
   it('self-heals a crashed prior swap: restores the symlink from an orphaned backup', () => {
     // Reproduce the post-SIGKILL fingerprint: node_modules is a detached

@@ -28,6 +28,8 @@ function makeAddAddRepo(): { root: string; cleanup: () => void } {
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
   git(root, 'config', 'commit.gpgsign', 'false');
+  // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+  git(root, 'config', 'core.autocrlf', 'false');
 
   fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
   git(root, 'add', 'seed.txt');
@@ -58,6 +60,8 @@ function makeModifyModifyRepo(): { root: string; cleanup: () => void } {
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
   git(root, 'config', 'commit.gpgsign', 'false');
+  // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+  git(root, 'config', 'core.autocrlf', 'false');
 
   fs.writeFileSync(path.join(root, 'f.txt'), 'a\nb\nc\n');
   git(root, 'add', 'f.txt');

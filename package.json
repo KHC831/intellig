@@ -1494,12 +1494,6 @@
             "description": "Repository basename or absolute path to use by default in multi-root workspaces. When empty, IntelliG uses the repo containing the active editor when unambiguous, otherwise prompts.",
             "order": 1
           },
-          "intellig.showStatusBarBranch": {
-            "type": "boolean",
-            "default": true,
-            "description": "Show current branch in status bar",
-            "order": 2
-          },
           "intellig.keymapPreset": {
             "type": "string",
             "enum": [
@@ -1543,18 +1537,6 @@
             "default": true,
             "description": "Show the Commit tool window (Local Changes + Shelf tabs, directory grouping, Unversioned Files node, diff preview, before-commit checks) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog instead.",
             "order": 1
-          },
-          "intellig.defaultCommitSignOff": {
-            "type": "boolean",
-            "default": false,
-            "description": "Add Signed-off-by line to commit messages by default",
-            "order": 2
-          },
-          "intellig.commitMessageTemplate": {
-            "type": "string",
-            "default": "",
-            "description": "Default commit message template",
-            "order": 3
           },
           "intellig.commitAuthor": {
             "type": "string",
@@ -1833,42 +1815,6 @@
         }
       },
       {
-        "title": "File Colors",
-        "order": 10,
-        "properties": {
-          "intellig.modifiedFileColor": {
-            "type": "string",
-            "default": "#6897BB",
-            "description": "Color for modified files in IntelliG views",
-            "order": 1
-          },
-          "intellig.addedFileColor": {
-            "type": "string",
-            "default": "#629755",
-            "description": "Color for added files in IntelliG views",
-            "order": 2
-          },
-          "intellig.deletedFileColor": {
-            "type": "string",
-            "default": "#6C6C6C",
-            "description": "Color for deleted files in IntelliG views",
-            "order": 3
-          },
-          "intellig.ignoredFileColor": {
-            "type": "string",
-            "default": "#848504",
-            "description": "Color for ignored files",
-            "order": 4
-          },
-          "intellig.conflictFileColor": {
-            "type": "string",
-            "default": "#FF0000",
-            "description": "Color for conflicted files in IntelliG views",
-            "order": 5
-          }
-        }
-      },
-      {
         "title": "Repository Discovery",
         "order": 11,
         "properties": {
@@ -2045,9 +1991,9 @@
   "scripts": {
     "vscode:prepublish": "npm run prepublish:guard && npm run check:config-coherence && npm run check:100-gate && npm run compile && npm run minify:js",
     "prepublish:guard": "node scripts/prepublish-guard.mjs",
-    "compile": "tsc -p ./ && npm run build:extension && npm run build:sequence-editor && npm run build:webview && node scripts/copy-monaco-assets.mjs",
+    "compile": "tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && npm run build:extension && npm run build:sequence-editor && npm run build:webview && node scripts/copy-monaco-assets.mjs",
     "minify:js": "bash scripts/minify-js.sh",
-    "build:webview": "esbuild src/conflicts/merge-window/webview/main.ts --bundle --outfile=media/mergeWindow.js --format=iife --global-name=intelligMergeWindow --platform=browser --target=es2020 --log-level=warning",
+    "build:webview": "node scripts/build-webview.mjs",
     "watch": "tsc -watch -p ./",
     "watch:webview": "npm run build:webview -- --watch",
     "lint": "eslint src test --ext ts",
@@ -2056,8 +2002,8 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "npm run lint -- --max-warnings 0 && npm run compile && npm run check:all && npm run test:unit && npm run test:property",
     "gate:full": "npm test && npm run test:ext-host && npm run test:e2e",
-    "test:unit": "mocha --require ts-node/register 'test/unit/**/*.test.ts'",
-    "test:property": "mocha --require ts-node/register --timeout 60000 'test/property/**/*.property.test.ts'",
+    "test:unit": "mocha --require ts-node/register \"test/unit/**/*.test.ts\"",
+    "test:property": "mocha --require ts-node/register --timeout 60000 \"test/property/**/*.property.test.ts\"",
     "test:property:stress": "node scripts/propertyStress.mjs",
     "check:quickpick-state": "bash scripts/check-quickpick-state-no-error.sh",
     "check:action-toasts": "bash scripts/check-action-toasts-sanitized.sh",
@@ -2090,14 +2036,19 @@
     "check:rev-parse-verified": "bash scripts/check-rev-parse-verified.sh",
     "check:webview-keybinding-panelid": "node scripts/check-webview-keybinding-panelid.mjs",
     "check:webview-csp": "node scripts/check-webview-csp.mjs",
-    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp",
+    "check:context-keys": "node scripts/check-context-keys.mjs",
+    "check:config-keys": "node scripts/check-config-keys.mjs",
+    "check:persisted-state": "node scripts/check-persisted-state.mjs",
+    "check:typed-messages": "node scripts/check-typed-messages.mjs",
+    "check:no-string-scripts": "node scripts/check-no-string-scripts.mjs",
+    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp && npm run check:context-keys && npm run check:config-keys && npm run check:persisted-state && npm run check:typed-messages && npm run check:no-string-scripts",
     "package:dogfood": "INTELLIG_ALLOW_PLACEHOLDERS=1 INTELLIG_DOGFOOD_BUILD=1 INTELLIG_DOGFOOD_INVOCATION=1 npx --yes @vscode/vsce@2.24.0 package --out intellig-${npm_package_version}-dogfood.vsix",
     "release": "bash scripts/publish.sh",
     "release:dry": "bash scripts/publish.sh --dry-run",
     "test:ext-host": "npm run compile && tsc -p tsconfig.test.json && node ./out-test/test/ext-host/runTests.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node ./out-test/test/e2e/runTests.js",
     "prepare": "husky",
-    "coverage": "c8 --reporter=json --reporter=text-summary --src src --include 'src/**/*.ts' --exclude 'src/**/*.d.ts' --report-dir=coverage mocha --require ts-node/register 'test/unit/**/*.test.ts'",
+    "coverage": "npm run compile && c8 --reporter=json --reporter=text-summary --src src --include \"src/**/*.ts\" --exclude \"src/**/*.d.ts\" --report-dir=coverage mocha --require ts-node/register \"test/unit/**/*.test.ts\"",
     "check:patch-coverage": "node scripts/check-patch-coverage.mjs",
     "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=cjs --target=node18 --sourcemap --log-level=warning",
     "build:sequence-editor": "esbuild src/git-core/rebaseTodoEditor.ts --bundle --outfile=dist/rebaseTodoEditor.js --platform=node --format=cjs --target=node18 --sourcemap --log-level=warning"

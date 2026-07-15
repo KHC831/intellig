@@ -23,8 +23,9 @@ import {
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
 import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
-import { createCommandTitleProvider } from '../commits/CommandTitleProvider';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
+import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
+import { readConfig } from '../config/configKeys';
 import { getOutputChannel } from '../utils/outputChannel';
 import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
@@ -617,10 +618,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       if (!ctx.gitToolWindowProvider) {
         return;
       }
-      const flagOn =
-        vscode.workspace
-          .getConfiguration('intellig.log')
-          .get<boolean>('highlightCherryPicked', true) ?? true;
+      const flagOn = readConfig('log.highlightCherryPicked');
       if (!flagOn) {
         ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
         return;
@@ -1132,9 +1130,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
   if (ctx.services) {
     const gitService = ctx.services.gitService;
 
-    // Create BranchTreeProvider and tree view for context menu support
-    // The tree view is used by CommandTitleProvider to listen for selection changes
-    // and dynamically update command titles with branch names.
+    // Create BranchTreeProvider and tree view for context menu support.
+    // The tree view drives speed-search and the graph-navigation selection
+    // listener below.
     // Inject the shared favorites store so the tree and the branch popup star
     // the same set (git4idea parity: one GitRepositoryModel.favoriteRefs;
     // globalState-backed, so favorites persist across sessions).
@@ -1158,7 +1156,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       branchTreeProvider.setSearchQuery(query);
       const active = branchTreeProvider.getSearchQuery();
       branchTreeView.description = active ? `Search: ${active}` : undefined;
-      void vscode.commands.executeCommand('setContext', 'intellig.branchSearchActive', !!active);
+      void setContextKey(CONTEXT_KEYS.branchSearchActive, !!active);
     };
     const branchSearchCommand = vscode.commands.registerCommand(
       'intellig.branch.search',
@@ -1258,11 +1256,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       );
       ctx.context.subscriptions.push(focusOnGraphCommand);
     }
-
-    // Create and register CommandTitleProvider for dynamic label resolution
-    const commandTitleProvider = createCommandTitleProvider(gitService, branchTreeProvider);
-    commandTitleProvider.register(ctx.context, branchTreeView);
-    ctx.context.subscriptions.push(commandTitleProvider);
 
     // Register branch context menu commands for the native BRANCHES tree view.
     // These are the actual VS Code command handlers invoked by the tree view context menus.

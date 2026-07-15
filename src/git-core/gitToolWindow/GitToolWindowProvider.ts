@@ -5,6 +5,7 @@
  */
 
 import * as vscode from 'vscode';
+import { readConfig } from '../../config/configKeys';
 import * as path from 'path';
 import { abbreviateHomePath } from '../../utils/displayPath';
 import {
@@ -40,23 +41,23 @@ import {
   DEFAULT_COLUMN_WIDTHS,
 } from '../../utils/columnLayout';
 import { TabRouter, type TabId } from './tabRouter';
+import type {
+  IWebviewMessage,
+  IWebviewLogFilter,
+  IBranchFilterGroups,
+} from './gitToolWindow.wireTypes';
 import { isTabbedGitToolWindowEnabled } from './config';
 import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
 import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
 import { renderIncomingTabBody } from './html/incomingHtml';
 import { renderUpdateInfoTabBody, updateInfoTabStyles } from './html/updateInfoHtml';
-import {
-  renderHistoryTabBody,
-  historyTabStyles,
-  historyTabBehaviorScript,
-} from './html/historyHtml';
+import { renderHistoryTabBody, historyTabStyles } from './html/historyHtml';
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
 import { createUpdateInfoTabHandler, UpdateInfoTab } from './tabs/UpdateInfoTab';
 import type { IUpdateInfoSummary } from '../../sync/updateProject';
 import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
-import { buildInlineScript } from './provider/scriptBuilder';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
 import {
@@ -74,6 +75,7 @@ import {
   getFileStatusColor,
 } from './provider/htmlBuilders';
 import { buildWebviewCsp } from '../../utils/webviewCsp';
+import { initIslandHtml } from '../../utils/webviewInit';
 import {
   buildDetailsPanelModel,
   buildDetailsPanelPlaceholderModel,
@@ -81,6 +83,9 @@ import {
   commitNodeToBaseDetails,
   type DetailsPanelModel,
 } from './provider/detailsPanelModel';
+import { assertNever } from '../../utils/assertNever';
+import { asGitToolWindowInbound, type GitToolWindowOutbound } from './gitToolWindow.protocol';
+import { asGitToolWindowTabsInbound } from './gitToolWindowTabs.protocol';
 import {
   handleLoadMoreCommits,
   handlePanelResize,
@@ -689,12 +694,6 @@ export class GitToolWindowProvider
   private readonly _onDidRequestRefresh = new vscode.EventEmitter<void>();
 
   /**
-   * Event emitter that fires when the user selects a different repository
-   * from the repository selector in the webview.
-   */
-  private readonly _onDidSelectRepository = new vscode.EventEmitter<IRepository>();
-
-  /**
    * Event emitter that fires whenever the repository SCOPE changes — either to
    * a specific repository or to the merged "all repositories" view. Drives the
    * dual log + branches wiring (see `wireRepositorySelection`).
@@ -726,12 +725,6 @@ export class GitToolWindowProvider
    * Event fired when the repository changes and all panels should be refreshed.
    */
   public readonly onDidRequestRefresh = this._onDidRequestRefresh.event;
-
-  /**
-   * Event fired when the user selects a different repository from the
-   * repository selector in the webview.
-   */
-  public readonly onDidSelectRepository = this._onDidSelectRepository.event;
 
   /**
    * Event fired when the repository scope changes (a specific repo or the
@@ -775,7 +768,6 @@ export class GitToolWindowProvider
       this._onDidRequestLoadMoreCommits,
       this._onDidRequestInitialData,
       this._onDidRequestRefresh,
-      this._onDidSelectRepository,
       this._onDidChangeRepositoryScope
     );
 
@@ -1631,7 +1623,8 @@ export class GitToolWindowProvider
     return this._followerWebview !== undefined;
   }
 
-  postToWebview(msg: unknown): void {
+  postToWebview(msg: GitToolWindowOutbound): void {
+    // typed-messages-exempt: the single typed send wrapper for the follower webview (docked view or undocked panel); msg is on-contract (GitToolWindowOutbound)
     void this._followerWebview?.postMessage(msg);
   }
 
@@ -1667,6 +1660,7 @@ export class GitToolWindowProvider
       localResourceRoots: [this._extensionUri],
     };
     this._panelDisposables.push(
+      // typed-messages-exempt: second raw panel of the undocked window — same guarded pipeline as the docked view
       panel.webview.onDidReceiveMessage((message: unknown) => {
         this._guardedHandleMessage(message);
       }),
@@ -2055,7 +2049,18 @@ export class GitToolWindowProvider
     if (this._routeIfNonLog(message)) {
       return;
     }
-    switch (message.type) {
+    // Runtime-reject an unknown/old type (storm-attribution log preserved);
+    // assertNever below is the compile-time exhaustiveness gate over the union.
+    const msg = asGitToolWindowInbound(message);
+    if (!msg) {
+      getLogger()
+        .child({ component: 'GitToolWindowProvider' })
+        .warn('unknown webview message type', {
+          messageType: typeof message.type === 'string' ? message.type : '<non-string>',
+        });
+      return;
+    }
+    switch (msg.type) {
       case 'refresh':
         this.refresh();
         break;
@@ -2064,13 +2069,13 @@ export class GitToolWindowProvider
         void this.revealLogHost();
         break;
       case 'selectCommit':
-        if (message.commitHash) {
-          this._handleCommitSelection(message.commitHash);
+        if (msg.commitHash) {
+          this._handleCommitSelection(msg.commitHash);
         }
         break;
       case 'toggleCommitSelection':
-        if (message.commitHash) {
-          this.toggleCommitSelection(message.commitHash);
+        if (msg.commitHash) {
+          this.toggleCommitSelection(msg.commitHash);
         }
         break;
       case 'rangeSelectCommit':
@@ -2082,28 +2087,28 @@ export class GitToolWindowProvider
         // Real type narrow — accept string|null only,
         // ignore wrong-type fields (a rogue / bug-mutated webview can't
         // poison the host state).
-        if (message.commitHash) {
-          if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
-            this._extendedLogState.anchorHash = message.anchorHash;
+        if (msg.commitHash) {
+          if (typeof msg.anchorHash === 'string' || msg.anchorHash === null) {
+            this._extendedLogState.anchorHash = msg.anchorHash;
           }
-          this.rangeSelectCommit(message.commitHash);
+          this.rangeSelectCommit(msg.commitHash);
         }
         break;
       case 'addRangeSelectCommit':
         // shift+ctrl+click: ADD [anchor..click] to existing selection.
         // Same message-anchor-wins contract as rangeSelectCommit.
         // Same type narrow.
-        if (message.commitHash) {
-          if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
-            this._extendedLogState.anchorHash = message.anchorHash;
+        if (msg.commitHash) {
+          if (typeof msg.anchorHash === 'string' || msg.anchorHash === null) {
+            this._extendedLogState.anchorHash = msg.anchorHash;
           }
-          this.addRangeSelectCommit(message.commitHash);
+          this.addRangeSelectCommit(msg.commitHash);
         }
         break;
       case 'selectIfNotSelected':
         // right-click on a non-selected commit.
-        if (message.commitHash) {
-          this.selectIfNotSelected(message.commitHash);
+        if (msg.commitHash) {
+          this.selectIfNotSelected(msg.commitHash);
         }
         break;
       case 'initRepository':
@@ -2117,25 +2122,20 @@ export class GitToolWindowProvider
         // desynced message carrying a non-array commitHashes, which would
         // throw inside _handleCommitContextMenu's .filter() call and abort
         // dispatch. The sibling `selectRepositories` handler uses the same pattern.
-        if (isLogContextAction(message.action) && Array.isArray(message.commitHashes)) {
-          this._handleCommitContextMenu(message.action, message.commitHashes);
+        if (isLogContextAction(msg.action) && Array.isArray(msg.commitHashes)) {
+          this._handleCommitContextMenu(msg.action, msg.commitHashes);
         }
         break;
       case 'doubleClickFile':
         // The only emitter is the `.changed-file-item` dblclick delegation,
         // which always carries both commitHash and path.
-        if (message.commitHash && message.path) {
+        if (msg.commitHash && msg.path) {
           // opens a VS Code diff view for that file at the selected commit.
-          this._handleCommitFileDoubleClick(message.commitHash, message.path);
-        }
-        break;
-      case 'doubleClickCommitFile':
-        if (message.commitHash && message.path) {
-          this._handleCommitFileDoubleClick(message.commitHash, message.path);
+          this._handleCommitFileDoubleClick(msg.commitHash, msg.path);
         }
         break;
       case 'applyLogFilter':
-        this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
+        this._handleApplyLogFilter(msg.filter as IWebviewLogFilter | null);
         break;
       case 'requestLogFilterOptions':
         // Defense-in-depth: the handler swallows per-root failures internally,
@@ -2156,53 +2156,26 @@ export class GitToolWindowProvider
         this._handleApplyLogFilter(null);
         break;
       case 'branchClick':
-        if (message.branchName) {
-          this._handleBranchClick(message.branchName);
+        if (msg.branchName) {
+          this._handleBranchClick(msg.branchName);
         }
         break;
       case 'loadMoreCommits':
         this._handleLoadMoreCommits();
         break;
       case 'panelResize':
-        if (message.widths) {
-          this._handlePanelResize(message.widths);
+        if (msg.widths) {
+          this._handlePanelResize(msg.widths);
         }
         break;
       case 'columnResize':
-        if (message.widths) {
-          this._handleColumnResize(message.widths);
-        }
-        break;
-      case 'selectRepository':
-        if (message.repositoryIndex !== undefined) {
-          this._handleRepositorySelection(message.repositoryIndex);
+        if (msg.widths) {
+          this._handleColumnResize(msg.widths);
         }
         break;
       case 'selectRepositories':
-        if (Array.isArray(message.roots)) {
-          this._handleVisibleRepositoriesSelection(message.roots);
-        }
-        break;
-      case 'focusBranchOnGraph':
-        // Webview asked to focus the graph on a branch.
-        // The bridge is async (getMergeBase + scroll); fire-and-forget.
-        //
-        // (security) — the branchName arrives
-        // from the webview, which is untrusted; combined with the
-        // `git merge-base <refA> <refB>` argv shape this can become a
-        // git-option-injection if a string like `--upload-pack=evil`
-        // is passed in. Validate against the *current* host-known
-        // branch list before propagating; on mismatch, drop silently.
-        // The argv hardening (`--end-of-options` separator) lives in
-        // GitService.getMergeBase.
-        if (message.branchName === null) {
-          void this.setFocusedBranch(null);
-        } else if (typeof message.branchName === 'string') {
-          const known = this._collectKnownBranchNames();
-          if (known.has(message.branchName)) {
-            void this.setFocusedBranch(message.branchName);
-          }
-          // else: silently drop — webview is desync'd or compromised.
+        if (Array.isArray(msg.roots)) {
+          this._handleVisibleRepositoriesSelection(msg.roots);
         }
         break;
       case 'jumpToFixupTarget': {
@@ -2210,19 +2183,14 @@ export class GitToolWindowProvider
         // target commit (the one whose subject matches the text after the
         // prefix).  Uses the same scrollToCommit path as jump-to-hash so
         // the webview selection + scroll behaviour is identical.
-        const targetSubject =
-          typeof message.targetSubject === 'string' ? message.targetSubject : undefined;
+        const targetSubject = typeof msg.targetSubject === 'string' ? msg.targetSubject : undefined;
         if (targetSubject) {
           this._handleJumpToFixupTarget(targetSubject);
         }
         break;
       }
       default:
-        getLogger()
-          .child({ component: 'GitToolWindowProvider' })
-          .warn('unknown webview message type', {
-            messageType: typeof message.type === 'string' ? message.type : '<non-string>',
-          });
+        assertNever(msg);
     }
   }
 
@@ -2256,10 +2224,18 @@ export class GitToolWindowProvider
       // Unreachable — dispatch is noexcept, but belt-and-suspenders.
       return false;
     }
-    const type = typeof message.type === 'string' ? message.type : '';
-    if (type === 'tabChange') {
+    // Typed tab-channel messages the webview entry posts (tabChange + the
+    // History-tab actions) are recognized here. This guard is a typed
+    // RECOGNIZER, not the drift fence: the fence is send-side — the entry's
+    // typed `post()` (+ the Rule-D array tie) makes a new webview-posted
+    // history.X fail to compile until it joins the union — so the prefix
+    // fallback below is intentional, not a hole. The prefix checks also carry
+    // the stub tabs and host-dispatched history messages that are NOT part of
+    // the webview contract (e.g. `history.loadFile` from openFileHistory).
+    if (asGitToolWindowTabsInbound(message)) {
       return true;
     }
+    const type = typeof message.type === 'string' ? message.type : '';
     if (
       type.startsWith('console.') ||
       type.startsWith('incoming.') ||
@@ -3249,8 +3225,7 @@ export class GitToolWindowProvider
    *
    * Accepts either the `'all'` sentinel (merged multi-root view) or a numeric
    * repository index. Numeric indices are clamped to the valid range with a
-   * warning. Fires {@link onDidChangeRepositoryScope} for both cases (and the
-   * legacy {@link onDidSelectRepository} for the specific-repo case) so the
+   * warning. Fires {@link onDidChangeRepositoryScope} for both cases so the
    * extension host can re-route the log and branches in lockstep.
    *
    * @param selection - The repository index, or `'all'`, selected by the user
@@ -3298,7 +3273,6 @@ export class GitToolWindowProvider
     this._onDidChangeState.fire();
 
     const selectedRepo = this._availableRepositories[clampedIndex];
-    this._onDidSelectRepository.fire(selectedRepo);
     this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: selectedRepo });
   }
 
@@ -3645,12 +3619,7 @@ export class GitToolWindowProvider
           consoleBodyHtml: renderConsoleTabBody(this._consoleEntries),
           incomingBodyHtml: renderIncomingTabBody(incomingState),
           updateInfoBodyHtml: renderUpdateInfoTabBody(this._updateInfoTab?.getState()),
-          historyBodyHtml:
-            renderHistoryTabBody(historyState) +
-            (historyActive
-              ? `<script nonce="${nonce}">${historyTabBehaviorScript()}</script>`
-              : ''),
-          nonce,
+          historyBodyHtml: renderHistoryTabBody(historyState),
         })
       : logBody;
 
@@ -3683,14 +3652,9 @@ export class GitToolWindowProvider
 </head>
 <body>
 ${bodyMarkup}
+${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDetailsModel })}
 
-  <script nonce="${nonce}">
-    window.__intelligInitialDetails = ${JSON.stringify(detailsPanelModel).replace(/</g, '\\u003c')};
-    window.__intelligHistoryDetails = ${JSON.stringify(historyDetailsModel).replace(/</g, '\\u003c')};
-    ${this._getInlineScript()}
-    ${this._getDividerDragScript()}
-    ${this._getColumnResizeScript()}
-  </script>
+  <script nonce="${nonce}" src="${this.getWebviewBundleUri(webview)}"></script>
 </body>
 </html>`;
   }
@@ -3703,6 +3667,12 @@ ${bodyMarkup}
 
   getInlineStyles(): string {
     return this._getInlineStyles();
+  }
+
+  getWebviewBundleUri(webview: vscode.Webview): string {
+    return webview
+      .asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'gitToolWindow.js'))
+      .toString();
   }
 
   /**
@@ -3738,254 +3708,6 @@ ${bodyMarkup}
    */
   private _getThreePanelStyles(): string {
     return buildThreePanelStyles();
-  }
-
-  /**
-   * Get the inline JavaScript for draggable panel dividers.
-   *
-   * Handles:
-   * - Mouse down/move/up events on dividers for drag resizing
-   * - Posting panelResize messages to the extension host
-   * - JS-based width check for vertical stacking at < 500px
-   * - Keyboard arrow key support for divider repositioning
-   *
-   * @returns JavaScript string for divider drag functionality
-   */
-  private _getDividerDragScript(): string {
-    return `
-      (function() {
-        const layout = document.querySelector('.three-panel-layout');
-        if (!layout) return;
-
-        const panels = layout.querySelectorAll('.panel');
-        const dividers = layout.querySelectorAll('.panel-divider');
-        let activeDivider = null;
-        let startX = 0;
-        let startWidths = [];
-        const MIN_PANEL_PX = 100;
-
-        // JS-based vertical stacking check
-        function checkVerticalLayout() {
-          if (!layout) return;
-          const width = layout.getBoundingClientRect().width;
-          if (width < 500) {
-            layout.classList.add('vertical-layout');
-          } else {
-            layout.classList.remove('vertical-layout');
-          }
-        }
-
-        // Check on load and on resize
-        checkVerticalLayout();
-        window.addEventListener('resize', checkVerticalLayout);
-
-        // Observe layout size changes
-        if (typeof ResizeObserver !== 'undefined') {
-          const resizeObserver = new ResizeObserver(function() {
-            checkVerticalLayout();
-          });
-          resizeObserver.observe(layout);
-        }
-
-        dividers.forEach(function(divider) {
-          divider.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            activeDivider = divider;
-            startX = e.clientX;
-
-            // Capture current widths of all panels in pixels
-            startWidths = Array.from(panels).map(function(p) {
-              return p.getBoundingClientRect().width;
-            });
-
-            document.body.classList.add('resizing');
-            divider.classList.add('dragging');
-          });
-
-          // Keyboard support for divider
-          divider.addEventListener('keydown', function(e) {
-            const dividerIndex = parseInt(divider.getAttribute('data-divider'), 10);
-            const leftPanel = panels[dividerIndex];
-            const rightPanel = panels[dividerIndex + 1];
-            if (!leftPanel || !rightPanel) return;
-
-            const step = 10; // pixels per key press
-            let delta = 0;
-
-            switch (e.key) {
-              case 'ArrowLeft':
-                delta = -step;
-                e.preventDefault();
-                break;
-              case 'ArrowRight':
-                delta = step;
-                e.preventDefault();
-                break;
-              default:
-                return;
-            }
-
-            const leftWidth = leftPanel.getBoundingClientRect().width + delta;
-            const rightWidth = rightPanel.getBoundingClientRect().width - delta;
-
-            if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
-              const totalWidth = layout.getBoundingClientRect().width;
-              const leftPct = (leftWidth / totalWidth) * 100;
-              const rightPct = (rightWidth / totalWidth) * 100;
-
-              leftPanel.style.width = leftPct + '%';
-              rightPanel.style.width = rightPct + '%';
-
-              // Post resize message
-              const widths = Array.from(panels).map(function(p) {
-                return parseFloat(p.style.width) || 0;
-              });
-              vscode.postMessage({ type: 'panelResize', widths: widths });
-            }
-          });
-        });
-
-        document.addEventListener('mousemove', function(e) {
-          if (!activeDivider) return;
-
-          const dividerIndex = parseInt(activeDivider.getAttribute('data-divider'), 10);
-          const delta = e.clientX - startX;
-
-          const leftWidth = startWidths[dividerIndex] + delta;
-          const rightWidth = startWidths[dividerIndex + 1] - delta;
-
-          // Enforce minimum widths
-          if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
-            const totalWidth = layout.getBoundingClientRect().width;
-            const leftPct = (leftWidth / totalWidth) * 100;
-            const rightPct = (rightWidth / totalWidth) * 100;
-
-            panels[dividerIndex].style.width = leftPct + '%';
-            panels[dividerIndex + 1].style.width = rightPct + '%';
-          }
-        });
-
-        document.addEventListener('mouseup', function() {
-          if (!activeDivider) return;
-
-          document.body.classList.remove('resizing');
-          activeDivider.classList.remove('dragging');
-          activeDivider = null;
-
-          // Post the final panel widths as percentages
-          const widths = Array.from(panels).map(function(p) {
-            return parseFloat(p.style.width) || 0;
-          });
-          vscode.postMessage({ type: 'panelResize', widths: widths });
-        });
-      })();
-    `;
-  }
-
-  /**
-   * Inline JavaScript for drag-to-resize on the log column headers.
-   *
-   * Handles:
-   * - Mouse down/move/up on the `data-column-resize` handles to resize the
-   *   fixed Author and Date columns live by writing the panel's
-   *   `--col-author-width` / `--col-date-width` custom properties.
-   * - Min/max pixel clamps so a column can never be dragged to zero (or so
-   *   wide it crowds out the flexible Title column). The clamp mirrors the
-   *   host-side `clampColumnWidths` bounds.
-   * - Keyboard arrow support on a focused handle (10px steps).
-   * - Posting a `columnResize` message so the new widths persist across
-   *   re-renders.
-   *
-   * Re-binds on every render via event delegation on `document`, so the
-   * handlers survive the webview's full-HTML refresh without per-element
-   * listener bookkeeping.
-   *
-   * @returns JavaScript string for column-resize functionality.
-   */
-  private _getColumnResizeScript(): string {
-    return `
-      (function() {
-        const MIN_COL = 40;
-        const MAX_COL = 600;
-        // CSS custom property each handle drives, keyed by data-column-resize.
-        const VAR_BY_COLUMN = { author: '--col-author-width', date: '--col-date-width' };
-
-        function panelFor(el) {
-          return el.closest('.graph-panel');
-        }
-        function currentWidth(panel, column) {
-          const raw = getComputedStyle(panel).getPropertyValue(VAR_BY_COLUMN[column]);
-          const n = parseFloat(raw);
-          return isFinite(n) ? n : (column === 'author' ? 120 : 145);
-        }
-        function clamp(px) {
-          return Math.round(Math.min(MAX_COL, Math.max(MIN_COL, px)));
-        }
-        function applyAndPost(panel, column, px) {
-          const clamped = clamp(px);
-          panel.style.setProperty(VAR_BY_COLUMN[column], clamped + 'px');
-          vscode.postMessage({
-            type: 'columnResize',
-            widths: [currentWidth(panel, 'author'), currentWidth(panel, 'date')],
-          });
-          return clamped;
-        }
-
-        let active = null;     // the handle element being dragged
-        let activePanel = null;
-        let activeColumn = null;
-        let startX = 0;
-        let startWidth = 0;
-
-        document.addEventListener('mousedown', function(e) {
-          const handle = e.target.closest && e.target.closest('.log-column-resize-handle');
-          if (!handle) return;
-          const panel = panelFor(handle);
-          if (!panel) return;
-          e.preventDefault();
-          active = handle;
-          activePanel = panel;
-          activeColumn = handle.getAttribute('data-column-resize');
-          startX = e.clientX;
-          startWidth = currentWidth(panel, activeColumn);
-          document.body.classList.add('resizing-column');
-          handle.classList.add('dragging');
-        });
-
-        // Each handle sits on the LEFT edge of the column it resizes (the
-        // fixed columns are right-anchored), so moving the pointer LEFT widens
-        // the column and moving RIGHT shrinks it — the delta is subtracted.
-        document.addEventListener('mousemove', function(e) {
-          if (!active) return;
-          const delta = e.clientX - startX;
-          applyAndPost(activePanel, activeColumn, startWidth - delta);
-        });
-
-        document.addEventListener('mouseup', function() {
-          if (!active) return;
-          document.body.classList.remove('resizing-column');
-          active.classList.remove('dragging');
-          active = null;
-          activePanel = null;
-          activeColumn = null;
-        });
-
-        // Keyboard support: arrow keys nudge a focused handle by 10px.
-        document.addEventListener('keydown', function(e) {
-          const handle = e.target.closest && e.target.closest('.log-column-resize-handle');
-          if (!handle) return;
-          let step = 0;
-          if (e.key === 'ArrowLeft') step = -10;
-          else if (e.key === 'ArrowRight') step = 10;
-          else return;
-          e.preventDefault();
-          const panel = panelFor(handle);
-          if (!panel) return;
-          const column = handle.getAttribute('data-column-resize');
-          applyAndPost(panel, column, currentWidth(panel, column) + step);
-        });
-      })();
-    `;
   }
 
   /**
@@ -4820,17 +4542,6 @@ ${bodyMarkup}
   }
 
   /**
-   * Inline `<script>` source for the webview.
-   *
-   * Thin forwarder to {@link buildInlineScript} (in provider/scriptBuilder.ts),
-   * kept as an instance method because a test reaches it by name on the
-   * provider instance.
-   */
-  private _getInlineScript(): string {
-    return buildInlineScript();
-  }
-
-  /**
    * Escape HTML special characters.
    *
    * Thin forwarder to {@link escapeHtml} (in provider/htmlBuilders.ts), kept
@@ -4849,8 +4560,7 @@ ${bodyMarkup}
    */
   private _isIssueLinkingEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('commitMessageIssueLinks', true);
+      return readConfig('commitMessageIssueLinks');
     } catch {
       // Getting configuration shouldn't throw in practice, but if it does
       // we prefer to keep the flag on so the feature stays visible.
@@ -4866,8 +4576,7 @@ ${bodyMarkup}
    */
   private _isShowGpgColumnEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showGpgColumn', false);
+      return readConfig('log.showGpgColumn');
     } catch {
       return false;
     }
@@ -4881,8 +4590,7 @@ ${bodyMarkup}
    */
   private _isShowLongEdgesEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showLongEdges', false);
+      return readConfig('log.showLongEdges');
     } catch {
       return false;
     }
@@ -4896,8 +4604,7 @@ ${bodyMarkup}
    */
   private _isShowRootNamesEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showRootNames', false);
+      return readConfig('log.showRootNames');
     } catch {
       return false;
     }
@@ -4924,8 +4631,7 @@ ${bodyMarkup}
    */
   private _isShowAllRootsConfigEnabled(): boolean {
     try {
-      const config = vscode.workspace.getConfiguration('intellig');
-      return config.get<boolean>('log.showAllRoots', true);
+      return readConfig('log.showAllRoots');
     } catch {
       // Defensive: on a config-read failure, degrade to single-repo scope.
       return false;
@@ -4997,40 +4703,6 @@ ${bodyMarkup}
 }
 
 /**
- * Branch options for the Branch popup, grouped IntelliJ-style: local branches
- * plus one group per remote (e.g. `origin`). Posted in `logFilterOptionsReady`.
- */
-interface IBranchFilterGroups {
-  local: string[];
-  remotes: Array<{ remote: string; branches: string[] }>;
-}
-
-/**
- * Log filter from webview (with string dates)
- */
-interface IWebviewLogFilter {
-  branch?: string;
-  branches?: string[];
-  /** Every branch checkbox unchecked → show no commits (distinct from "all"). */
-  branchesNone?: boolean;
-  searchText?: string;
-  author?: string;
-  path?: string;
-  paths?: string[];
-  since?: string | null;
-  until?: string | null;
-  searchRegex?: boolean;
-  searchCaseSensitive?: boolean;
-}
-
-/**
- * Message types from the webview.
- *
- * The optional `tab` field is used for per-tab routing. Legacy
- * messages (selectCommit, panelResize, applyLogFilter, etc.) omit `tab`
- * and are treated as implicit `tab: 'log'` by {@link TabRouter}.
- */
-/**
  * Typed envelopes for the new wire types.
  * Included as a separate union (rather than a refactor of the legacy
  * flat `IWebviewMessage` shape) to keep the scope tight: can
@@ -5069,50 +4741,7 @@ export type WaveAOutboundMessage =
       selectedHashes: string[];
     };
 
-interface IWebviewMessage {
-  type: string;
-  path?: string;
-  changelistId?: string;
-  commitHash?: string;
-  commitHashes?: string[];
-  action?: string;
-  files?: string[];
-  targetChangelistId?: string;
-  filter?: IWebviewLogFilter | null;
-  /**
-   * Branch name carried by `branchClick` and `focusBranchOnGraph`.
-   * `null` is allowed for the focus message to clear the
-   * current focus.
-   */
-  branchName?: string | null;
-  branchType?: 'local' | 'remote';
-  widths?: [number, number];
-  /**
-   * Carried by `selectRepository`: a numeric repository index, or the `'all'`
-   * sentinel for the merged "all repositories" scope.
-   */
-  repositoryIndex?: number | 'all';
-  /**
-   * Carried by `selectRepositories`: the fsPaths of the repository roots the
-   * user checked in the multi-select "Repository" filter. An empty array (or one
-   * covering every root) means "show all".
-   */
-  roots?: string[];
-  /**
-   * Click anchor that travels with
-   * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no
-   * prior anchor" (first click after a render). Authoritative for the
-   * single message it carries; see {@link WaveAInboundMessage}.
-   */
-  anchorHash?: string | null;
-  /** Optional tab discriminator for tab routing. */
-  tab?: TabId;
-  /**
-   * Carried by `jumpToFixupTarget` (G6): the commit subject text that the
-   * fixup!/squash! link's target commit must match.
-   */
-  targetSubject?: string;
-}
+export type { IWebviewMessage, IBranchFilterGroups } from './gitToolWindow.wireTypes';
 
 // Nonce generation is owned by `BaseWebviewView._getNonce()`, which
 // delegates to the shared `generateNonce()` helper in `utils/webviewNonce.ts`

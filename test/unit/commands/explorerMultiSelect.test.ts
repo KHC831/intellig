@@ -204,6 +204,25 @@ describe('explorer commands — multi-select handling', () => {
       `single-file toast names the file; got: ${infos.join(' | ')}`
     );
   });
+
+  it('reverts the selected file even when the status read comes back empty', async () => {
+    // getStatus absorbs git faults to [] (the passive-view contract), so an
+    // empty status is ambiguous: a genuinely clean tree OR a swallowed
+    // status-read failure. The precheck must not read that ambiguity as
+    // "nothing to revert" and silently drop the file the user explicitly chose
+    // — revertFile is the source of truth (a clean file reverts as a no-op).
+    const { ctx, revertCalls } = makeCtx({ getStatus: async () => [] });
+    win.showWarningMessage = async (): Promise<string> => 'Revert';
+    registerExplorerCommands(ctx);
+
+    await handlers.get('intellig.explorer.revert')!(uris[0], [uris[0]]);
+
+    assert.deepStrictEqual(
+      revertCalls,
+      ['a.ts'],
+      'an empty/unreadable status must not silently skip the revert'
+    );
+  });
 });
 
 describe('explorer commands — multi-select (commit file staging)', () => {

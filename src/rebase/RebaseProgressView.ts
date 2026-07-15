@@ -15,14 +15,18 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
 import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
+import { assertNever } from '../utils/assertNever';
+import { dispatchGuardedWebviewMessage } from '../utils/webviewMessageGuard';
+import {
+  asRebaseProgressViewInbound,
+  type IRebaseProgressDetail,
+  type IRebaseProgressViewInit,
+} from './rebaseProgressView.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 
 /**
  * Message types from webview to extension
  */
-interface IWebviewMessage {
-  type: string;
-  message?: string;
-}
 
 /**
  * Rebase Progress View class.
@@ -98,9 +102,20 @@ export class RebaseProgressView implements vscode.Disposable {
         this._disposables
       );
 
-      // Handle messages from webview
+      // Handle messages from webview. Standalone panel (no Base envelope), so
+      // the guarded-dispatch wrapper is applied here directly.
+      // typed-messages-exempt: permanently standalone — this view has a lazy,
+      // re-showable lifecycle (creates its panel on show(), recreates after
+      // dispose, and is an activation-time singleton), incompatible with
+      // BaseWebviewPanel's eager one-shot constructor creation.
       this._panel.webview.onDidReceiveMessage(
-        (message: IWebviewMessage) => this._handleMessage(message),
+        (message: unknown) =>
+          dispatchGuardedWebviewMessage(() => this._handleMessage(message), {
+            component: 'RebaseProgressView',
+            rejectionLabel:
+              'RebaseProgressView.onDidReceiveMessage: async _handleMessage rejection',
+            syncThrowMessage: '_handleMessage threw synchronously',
+          }),
         null,
         this._disposables
       );
@@ -142,8 +157,12 @@ export class RebaseProgressView implements vscode.Disposable {
   /**
    * Handle messages from the webview.
    */
-  private async _handleMessage(message: IWebviewMessage): Promise<void> {
+  private async _handleMessage(raw: unknown): Promise<void> {
     if (!this._repository) {
+      return;
+    }
+    const message = asRebaseProgressViewInbound(raw);
+    if (!message) {
       return;
     }
 
@@ -157,14 +176,11 @@ export class RebaseProgressView implements vscode.Disposable {
       case 'skip':
         await this._handleSkip();
         break;
-      case 'provideRewordMessage':
-        if (message.message) {
-          await this._handleProvideRewordMessage(message.message);
-        }
-        break;
       case 'refresh':
         this.refresh();
         break;
+      default:
+        assertNever(message);
     }
   }
 
@@ -251,25 +267,6 @@ export class RebaseProgressView implements vscode.Disposable {
   }
 
   /**
-   * Handle provide reword message action.
-   */
-  private async _handleProvideRewordMessage(message: string): Promise<void> {
-    if (!this._repository) {
-      return;
-    }
-
-    try {
-      const result = await this._rebaseService.provideRewordMessage(this._repository, message);
-      this._handleRebaseResult(result);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to update commit message: ${sanitizeGitError(errorMessage)}`
-      );
-    }
-  }
-
-  /**
    * Handle the result of a rebase operation.
    */
   private _handleRebaseResult(result: IRebaseResult): void {
@@ -330,6 +327,9 @@ export class RebaseProgressView implements vscode.Disposable {
    */
   private _getHtmlContent(webview: vscode.Webview): string {
     const nonce = this._getNonce();
+    const bundleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', 'rebaseProgressView.js')
+    );
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -344,9 +344,8 @@ export class RebaseProgressView implements vscode.Disposable {
 </head>
 <body>
   <div class="rebase-progress" id="progress-root"></div>
-  <script nonce="${nonce}">
-    ${this._getScript()}
-  </script>
+  ${initIslandHtml(this._getInit())}
+  <script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
@@ -394,14 +393,14 @@ export class RebaseProgressView implements vscode.Disposable {
   }
 
   /**
-   * Serialize the host-side rebase progress state into the JSON init island the
-   * inline script reads to build the DOM. Every dynamic value reaches the DOM
-   * via .textContent / element props (injection-proof) — never markup.
+   * Build the host-side rebase progress state the bundled entry reads from the
+   * body's `data-init` island to build the DOM. Every dynamic value reaches the
+   * DOM via .textContent / element props (injection-proof) — never markup.
    */
-  private _getInitJson(): string {
+  private _getInit(): IRebaseProgressViewInit {
     const status = this._session?.status || 'unknown';
 
-    let progress: unknown = null;
+    let progress: IRebaseProgressDetail | null = null;
     if (this._session) {
       const { commits, currentStep, onto, originalBranch } = this._session;
       const totalSteps = commits.length;
@@ -436,7 +435,7 @@ export class RebaseProgressView implements vscode.Disposable {
     // the files instead.
     const continuable = this._rebaseInProgress;
 
-    return JSON.stringify({
+    return {
       statusText: this._getStatusText(status),
       statusClass: this._getStatusClass(status),
       hasSession: !!this._session,
@@ -447,7 +446,7 @@ export class RebaseProgressView implements vscode.Disposable {
       showContinue: (isConflict || isPaused) && continuable,
       showSkip: isConflict && continuable,
       showAbort: (isConflict || isPaused || isInProgress) && continuable,
-    }).replace(/</g, '\\u003c');
+    };
   }
 
   /**
@@ -881,199 +880,6 @@ export class RebaseProgressView implements vscode.Disposable {
       .refresh-button:hover {
         background-color: var(--vscode-button-secondaryHoverBackground);
       }
-    `;
-  }
-
-  /**
-   * Get the JavaScript for the webview.
-   */
-  private _getScript(): string {
-    return `
-      const vscode = acquireVsCodeApi();
-      const INIT = ${this._getInitJson()};
-      const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-
-      // ── Build the body via createElement (no HTML-string injection) ────────
-      (function buildBody() {
-        const root = document.getElementById('progress-root');
-        if (!root) return;
-
-        // Header
-        const header = el('div', { className: 'header' });
-        header.append(el('h2', { textContent: 'Rebase in Progress' }));
-        header.append(el('div', { className: 'status-badge ' + INIT.statusClass, textContent: INIT.statusText }));
-        root.append(header);
-
-        // Progress
-        const progressSection = el('div', { className: 'progress-section' });
-        if (!INIT.hasSession) {
-          progressSection.append(el('p', { className: 'no-session', textContent: 'No active rebase session found.' }));
-        } else {
-          const p = INIT.progress;
-          const info = el('div', { className: 'rebase-info' });
-          const infoRow = (label, value) => {
-            const row = el('div', { className: 'info-row' });
-            row.append(
-              el('span', { className: 'info-label', textContent: label }),
-              el('span', { className: 'info-value branch-name', textContent: value })
-            );
-            return row;
-          };
-          info.append(infoRow('Rebasing:', p.originalBranch), infoRow('Onto:', p.onto));
-          progressSection.append(info);
-
-          const barContainer = el('div', { className: 'progress-bar-container' });
-          barContainer.append(el('div', { className: 'progress-label', textContent: 'Step ' + (p.currentStep + 1) + ' of ' + p.totalSteps }));
-          const bar = el('div', { className: 'progress-bar' });
-          const fill = el('div', { className: 'progress-fill' });
-          fill.style.width = p.progressPercent + '%';
-          bar.append(fill);
-          barContainer.append(bar, el('div', { className: 'progress-percent', textContent: p.progressPercent + '%' }));
-          progressSection.append(barContainer);
-
-          const commitInfo = (c, extraClass) => {
-            const info2 = el('div', { className: 'commit-info' });
-            info2.append(
-              el('span', { className: 'commit-hash', textContent: c.shortHash }),
-              el('span', { className: 'commit-action action-' + c.action, textContent: c.action }),
-              el('span', { className: 'commit-message', textContent: c.message })
-            );
-            return info2;
-          };
-          if (p.currentCommit) {
-            const cur = el('div', { className: 'current-commit' });
-            cur.append(el('div', { className: 'commit-label', textContent: 'Current Commit:' }), commitInfo(p.currentCommit));
-            progressSection.append(cur);
-          }
-
-          const commitsList = el('div', { className: 'commits-list' });
-          commitsList.append(el('div', { className: 'commits-header', textContent: 'Commits to Rebase:' }));
-          if (p.commits.length === 0) {
-            commitsList.append(el('p', { className: 'empty-commits', textContent: 'No commits' }));
-          } else {
-            for (const c of p.commits) {
-              const item = el('div', { className: 'commit-item ' + c.statusClass });
-              item.append(
-                el('span', { className: 'commit-status', textContent: c.statusIcon }),
-                el('span', { className: 'commit-hash', textContent: c.shortHash }),
-                el('span', { className: 'commit-action action-' + c.action, textContent: c.action }),
-                el('span', { className: 'commit-message', textContent: c.message })
-              );
-              commitsList.append(item);
-            }
-          }
-          progressSection.append(commitsList);
-        }
-        root.append(progressSection);
-
-        // Conflict
-        if (INIT.isConflict) {
-          const section = el('div', { className: 'conflict-section' });
-          const ch = el('div', { className: 'conflict-header' });
-          ch.append(
-            el('span', { className: 'conflict-warning-icon', textContent: '⚠️' }),
-            el('span', { className: 'conflict-title', textContent: 'Conflicts Detected' })
-          );
-          section.append(ch);
-          const instr = el('div', { className: 'conflict-instructions' });
-          instr.append(el('p', { textContent: 'The following files have conflicts that need to be resolved:' }));
-          section.append(instr);
-          const files = el('div', { className: 'conflict-files' });
-          if (INIT.conflictFiles.length === 0) {
-            files.append(el('p', { className: 'no-conflicts', textContent: 'No specific files listed' }));
-          } else {
-            for (const f of INIT.conflictFiles) {
-              const cf = el('div', { className: 'conflict-file' });
-              cf.append(
-                el('span', { className: 'conflict-icon', textContent: '⚠' }),
-                el('span', { className: 'conflict-path', textContent: f })
-              );
-              files.append(cf);
-            }
-          }
-          section.append(files);
-
-          const help = el('div', { className: 'conflict-help' });
-          const li = (text) => el('li', { textContent: text });
-          const strongP = (parts) => { const p2 = el('p'); p2.append(...parts); return p2; };
-          if (INIT.rebaseInProgress) {
-            help.append(strongP([el('strong', { textContent: 'To resolve conflicts:' })]));
-            const ol = el('ol');
-            const li2 = el('li'); li2.append('Stage the resolved files using ', el('code', { textContent: 'git add' }));
-            const li3 = el('li'); li3.append('Click ', el('strong', { textContent: 'Continue' }), ' to proceed with the rebase');
-            ol.append(li('Open each conflicted file and resolve the merge conflicts'), li2, li3);
-            help.append(ol);
-            const alt = el('p');
-            alt.append('Alternatively, click ', el('strong', { textContent: 'Skip' }), ' to skip this commit or ', el('strong', { textContent: 'Abort' }), ' to cancel the rebase.');
-            help.append(alt);
-          } else {
-            const lead = el('p');
-            lead.append(el('strong', { textContent: 'The rebase already completed' }), ', but re-applying your stashed changes conflicted. To resolve:');
-            help.append(lead);
-            const ol = el('ol');
-            const li2 = el('li'); li2.append('Stage the resolved files using ', el('code', { textContent: 'git add' }));
-            ol.append(li('Open each conflicted file and resolve the merge conflicts'), li2);
-            help.append(ol);
-            help.append(el('p', { textContent: 'Do not continue or abort — there is no rebase in progress.' }));
-          }
-          section.append(help);
-          root.append(section);
-        }
-
-        // Actions
-        const actionsSection = el('div', { className: 'actions-section' });
-        const buttonRow = el('div', { className: 'button-row' });
-        const actionBtn = (cls, action, title, text) => {
-          const b = el('button', { className: 'button ' + cls, title: title, textContent: text });
-          b.setAttribute('data-action', action);
-          return b;
-        };
-        if (INIT.showAbort) buttonRow.append(actionBtn('abort-button', 'abort', 'Abort the rebase and restore the repository to its pre-rebase state', 'Abort Rebase'));
-        if (INIT.showSkip) buttonRow.append(actionBtn('skip-button', 'skip', 'Skip this commit and continue with the next one', 'Skip Commit'));
-        if (INIT.showContinue) buttonRow.append(actionBtn('continue-button', 'continueRebase', 'Continue the rebase after resolving conflicts', 'Continue'));
-        actionsSection.append(buttonRow);
-        const refreshRow = el('div', { className: 'refresh-row' });
-        refreshRow.append(actionBtn('refresh-button', 'refresh', 'Refresh the rebase status', '↻ Refresh'));
-        actionsSection.append(refreshRow);
-        root.append(actionsSection);
-      })();
-
-      function continueRebase() {
-        vscode.postMessage({ type: 'continue' });
-      }
-
-      function abort() {
-        vscode.postMessage({ type: 'abort' });
-      }
-
-      function skip() {
-        vscode.postMessage({ type: 'skip' });
-      }
-
-      function refresh() {
-        vscode.postMessage({ type: 'refresh' });
-      }
-
-      function provideRewordMessage(message) {
-        vscode.postMessage({ type: 'provideRewordMessage', message: message });
-      }
-
-      // Delegated click dispatcher. The action buttons were inline onclick
-      // handlers, which the nonce-only CSP (no 'unsafe-inline') blocks —
-      // leaving Abort / Skip / Continue / Refresh dead. Route them through a
-      // single delegated listener instead.
-      document.addEventListener('click', (e) => {
-        const target = e.target.closest('[data-action]');
-        if (!target) return;
-        const handlers = {
-          abort: abort,
-          skip: skip,
-          continueRebase: continueRebase,
-          refresh: refresh,
-        };
-        const handler = handlers[target.dataset.action];
-        if (handler) handler();
-      });
     `;
   }
 

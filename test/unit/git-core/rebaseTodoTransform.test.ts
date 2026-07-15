@@ -50,6 +50,24 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
     );
   });
 
+  it('emits a forward-slash reword path even for a Windows-style gitDir', () => {
+    // The `exec … --amend -F <path>` line runs through git's sh; an OS-native
+    // backslash path is mangled there (C:\a\.git → C:a.git). The reword-file
+    // path must be POSIX-normalized so git's shell accepts it on Windows.
+    const original = 'pick aaaaaaa first commit';
+    const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: 'reworded' }];
+
+    const out = transformRebaseTodo(original, plan, 'C:\\repo\\.git');
+
+    assert.ok(
+      out.includes(
+        "exec git commit --amend -F 'C:/repo/.git/.intellig-reword-aaaaaaa.txt' --no-edit"
+      ),
+      `reword path must be forward-slashed; got: ${out}`
+    );
+    assert.ok(!out.includes('\\'), `no backslash may survive in the todo; got: ${out}`);
+  });
+
   it('preserves an update-ref line trailing its commit (rebase.updateRefs)', () => {
     const original = [
       'pick aaaaaaa first commit',

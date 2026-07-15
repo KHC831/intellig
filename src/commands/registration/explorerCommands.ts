@@ -231,11 +231,20 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       // Nothing-to-revert pre-check: untracked or clean files must not be
       // walked through a "cannot be undone" confirm into a no-op "Reverted"
       // toast. Selections that mix both keep only the revertable files.
+      //
+      // getStatus absorbs git faults to an empty list (its passive-view
+      // contract), so an empty result is ambiguous — a genuinely clean tree OR a
+      // swallowed status-read failure. Treating that as "nothing to revert"
+      // would silently drop the file the user explicitly chose. Only apply the
+      // precheck when the read returned data; on an empty status, honor the
+      // request and let revertFile be the source of truth (a clean file reverts
+      // as a harmless no-op).
       const statuses = await gitService.getStatus(repo);
+      const canClassify = statuses.length > 0;
       const revertable: string[] = [];
       const skippedMsgs: string[] = [];
       for (const p of paths) {
-        const msg = revertPrecheck(fileStatusFor(statuses, p), p);
+        const msg = canClassify ? revertPrecheck(fileStatusFor(statuses, p), p) : undefined;
         if (msg) {
           skippedMsgs.push(msg);
         } else {

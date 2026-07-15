@@ -61,9 +61,9 @@ describe('BlameOptionsSource', () => {
     });
 
     it('reflects config overrides for each flag', () => {
-      setMockConfigValue('intellig.blame', 'ignoreWhitespace', true);
-      setMockConfigValue('intellig.blame', 'detectMovementsWithinFile', true);
-      setMockConfigValue('intellig.blame', 'detectMovementsAcrossFiles', true);
+      setMockConfigValue('intellig', 'blame.ignoreWhitespace', true);
+      setMockConfigValue('intellig', 'blame.detectMovementsWithinFile', true);
+      setMockConfigValue('intellig', 'blame.detectMovementsAcrossFiles', true);
       const snap = source!.snapshot();
       assert.strictEqual(snap.ignoreWhitespace, true);
       assert.strictEqual(snap.detectMovementsWithinFile, true);
@@ -71,7 +71,7 @@ describe('BlameOptionsSource', () => {
     });
 
     it('asBlameOptions() projects the three flags only', () => {
-      setMockConfigValue('intellig.blame', 'ignoreWhitespace', true);
+      setMockConfigValue('intellig', 'blame.ignoreWhitespace', true);
       const opts = source!.asBlameOptions();
       assert.strictEqual(opts.ignoreWhitespace, true);
       assert.strictEqual(opts.detectMovementsWithinFile, false);
@@ -94,7 +94,7 @@ describe('BlameOptionsSource', () => {
       const sha = 'abcdefabcdefabcdefabcdefabcdefabcdefabcd';
       await source!.hideRevision(sha);
       assert.strictEqual(source!.isHidden(sha), true);
-      assert.deepStrictEqual(memento.get<string[]>('intellig.blame.hiddenRevisions'), [sha]);
+      assert.deepStrictEqual(memento.get('intellig.blame.hiddenRevisions'), { v: 1, data: [sha] });
     });
 
     it('ignores the all-zero sentinel SHA and empty strings', async () => {
@@ -117,7 +117,7 @@ describe('BlameOptionsSource', () => {
       await source!.hideRevision(sha);
       await source!.showRevision(sha);
       assert.strictEqual(source!.isHidden(sha), false);
-      assert.deepStrictEqual(memento.get<string[]>('intellig.blame.hiddenRevisions'), []);
+      assert.deepStrictEqual(memento.get('intellig.blame.hiddenRevisions'), { v: 1, data: [] });
     });
 
     it('clearHiddenRevisions wipes the set and persists', async () => {
@@ -137,7 +137,7 @@ describe('BlameOptionsSource', () => {
     });
 
     it('reflects a hidden aspect from config', () => {
-      setMockConfigValue('intellig.blame', 'showDate', false);
+      setMockConfigValue('intellig', 'blame.showDate', false);
       assert.strictEqual(source!.snapshot().aspects.date, false);
     });
 
@@ -162,12 +162,12 @@ describe('BlameOptionsSource', () => {
     });
 
     it('reflects a valid format from config', () => {
-      setMockConfigValue('intellig.blame', 'authorNameFormat', 'initials');
+      setMockConfigValue('intellig', 'blame.authorNameFormat', 'initials');
       assert.strictEqual(source!.snapshot().authorNameFormat, 'initials');
     });
 
     it('falls back to full for an unrecognized format', () => {
-      setMockConfigValue('intellig.blame', 'authorNameFormat', 'bogus');
+      setMockConfigValue('intellig', 'blame.authorNameFormat', 'bogus');
       assert.strictEqual(source!.snapshot().authorNameFormat, 'full');
     });
 

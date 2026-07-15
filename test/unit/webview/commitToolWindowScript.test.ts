@@ -1,11 +1,11 @@
 /**
- * Webview client-script test for the Commit Tool Window (CommitToolWindow.ts).
+ * Webview client-entry test for the Commit Tool Window.
  *
- * The host ships an empty `#ctw-root` plus an INIT island; the inline script
- * (`commitToolWindowBehaviorScript`) builds every panel via createElement. We
- * run that real script under jsdom for both the localChanges and shelf tabs and
- * assert it loads, builds the root, and tolerates messages — the renderer-only
- * regression class no other lane sees.
+ * The host ships an empty `#ctw-root` plus a `#intellig-init` island; the
+ * bundled entry (`src/commits/webview/commitToolWindow.ts`) builds every panel
+ * via createElement. We boot that real entry under jsdom for both the
+ * localChanges and shelf tabs and assert it loads, builds the root, and
+ * tolerates messages — the renderer-only regression class no other lane sees.
  */
 
 import '../../setup';
@@ -15,7 +15,7 @@ import type {
   IChangelist,
   IFileChange,
 } from '../../../src/changelists/interfaces/IChangelistService';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 
 const GARBAGE_MESSAGES: unknown[] = [
   { type: 'totally-unknown-message' },
@@ -38,8 +38,8 @@ function makeChangelist(): IChangelist {
   };
 }
 
-describe('webview: Commit Tool Window inline script (jsdom)', () => {
-  let h: IWebviewHarness;
+describe('webview: Commit Tool Window entry (jsdom)', () => {
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -48,14 +48,14 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
   });
 
   it('loads the localChanges tab without throwing and builds the root', () => {
-    const { body, script } = buildCommitToolWindowBodyParts({
+    const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',
       changelists: [makeChangelist()],
       shelfItems: [],
       composer: { message: 'wip', amend: false, signOff: false },
       activeChangelistId: 'default',
     });
-    h = runWebviewScript(script, { bodyHtml: body });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
       []
@@ -65,13 +65,13 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
   });
 
   it('loads the shelf tab without throwing', () => {
-    const { body, script } = buildCommitToolWindowBodyParts({
+    const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'shelf',
       changelists: [],
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
     });
-    h = runWebviewScript(script, { bodyHtml: body });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
       []
@@ -80,7 +80,7 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
 
   it('syncs the checkbox for a path containing a backslash (POSIX-legal filename)', () => {
     const weird = 'weird\\name.txt'; // a single backslash — legal on POSIX
-    const { body, script } = buildCommitToolWindowBodyParts({
+    const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',
       changelists: [
         {
@@ -95,7 +95,7 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
       composer: { message: '', amend: false, signOff: false },
       activeChangelistId: 'default',
     });
-    h = runWebviewScript(script, { bodyHtml: body });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
 
     const box = Array.from(h.document.querySelectorAll('.ctw-file-check')).find(
       (c) => c.getAttribute('data-path') === weird
@@ -117,14 +117,14 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
   });
 
   it('syncs the checkbox for a plain path (unchanged behavior)', () => {
-    const { body, script } = buildCommitToolWindowBodyParts({
+    const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',
       changelists: [makeChangelist()],
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
       activeChangelistId: 'default',
     });
-    h = runWebviewScript(script, { bodyHtml: body });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
 
     const box = Array.from(h.document.querySelectorAll('.ctw-file-check')).find(
       (c) => c.getAttribute('data-path') === 'src/a.ts'
@@ -136,13 +136,13 @@ describe('webview: Commit Tool Window inline script (jsdom)', () => {
   });
 
   it('tolerates representative and garbage messages without throwing', () => {
-    const { body, script } = buildCommitToolWindowBodyParts({
+    const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',
       changelists: [makeChangelist()],
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
     });
-    h = runWebviewScript(script, { bodyHtml: body });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
     h.post({ type: 'update', changelists: [], shelfItems: [] });
     for (const msg of GARBAGE_MESSAGES) {
       h.post(msg);

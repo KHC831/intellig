@@ -21,6 +21,7 @@
 // connectors.
 
 import type * as Monaco from 'monaco-editor';
+import type { MergeWindowInitMessage, MergeWindowInbound } from '../mergeWindow.protocol';
 import { ComparisonPolicy } from '../../../diff-engine/comparison/ComparisonPolicy';
 import { MergeConflictTypeKind } from '../../../diff-engine/util/MergeConflictType';
 import { Side } from '../../../diff-engine/util/Side';
@@ -45,21 +46,14 @@ const INNER_DIFF_MAX_CHUNK = 10000;
 declare const monaco: typeof Monaco;
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 
-interface IInitMessage {
-  readonly type: 'init';
-  readonly left: string;
-  readonly base: string;
-  readonly right: string;
-  readonly leftLabel: string;
-  readonly rightLabel: string;
-  readonly fileName: string;
-  /** IntelliJ's "Automatically apply non-conflicting changes" (opt-in). */
-  readonly autoApplyNonConflicting?: boolean;
-}
+// The init shape is the shared host↔webview contract (no more duplication).
+type IInitMessage = MergeWindowInitMessage;
 
 const vscodeApi = acquireVsCodeApi();
 
-function post(message: unknown): void {
+// Send path is on-contract too: the helper narrows to the union of what the
+// webview may post, so a renamed field breaks compile in BOTH directions.
+function post(message: MergeWindowInbound): void {
   vscodeApi.postMessage(message);
 }
 

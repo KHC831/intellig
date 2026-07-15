@@ -25,6 +25,14 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import {
+  asApplyPatchDialogInbound,
+  type IApplyPatchDialogInit,
+  type ApplyPatchDialogInbound,
+  type ApplyPatchDialogOutbound,
+} from './applyPatchDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { escapeHtml } from '../utils/escapeHtml';
 import { IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
@@ -58,26 +66,6 @@ export interface IApplyPatchDialogOptions {
   initialPatchPath?: string;
 }
 
-/** Incoming message shapes from webview → extension. */
-type IncomingMessage =
-  | { type: 'cancel' }
-  | { type: 'browse' }
-  | { type: 'preview'; patchPath?: string; useClipboard?: boolean }
-  | {
-      type: 'apply';
-      patchPath?: string;
-      useClipboard?: boolean;
-      useAm?: boolean;
-      stripLevel?: number;
-      baseDir?: string;
-    };
-
-/** Outgoing message shapes from extension → webview. */
-type OutgoingMessage =
-  | { type: 'patchPathChosen'; patchPath: string }
-  | { type: 'preview'; content: string }
-  | { type: 'error'; message: string };
-
 const VIEW_TYPE = 'intellig.applyPatchDialog';
 const TITLE = 'Apply Patch';
 
@@ -87,7 +75,7 @@ const TITLE = 'Apply Patch';
  */
 const PREVIEW_LINE_CAP = 500;
 
-export class ApplyPatchDialog extends BaseWebviewPanel {
+export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _patchService: IPatchService;
   private readonly _conflictResolutionService: IConflictResolutionService | undefined;
@@ -202,216 +190,19 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
   }
 
   protected _getBodyHtml(): string {
-    return this._getBodyParts().body;
-  }
-
-  /**
-   * Emit the body HTML and the interactive script separately so `_render()`
-   * can splice the script into a nonced `<script>` block without fragile
-   * regex extraction — nested `</script>` inside any future string literal
-   * would break a regex-based extractor.
-   */
-  private _getBodyParts(): { body: string; script: string } {
-    // Body ships an empty root; the script builds every control via
-    // document.createElement. Host data crosses as a JSON init island and
-    // reaches the DOM via .value / .textContent (injection-proof).
-    const body = `<div id="root"></div>`;
-
-    const initJson = JSON.stringify({
+    const init: IApplyPatchDialogInit = {
       patchPath: this._patchPath ?? '',
       previewLineCap: PREVIEW_LINE_CAP,
-    }).replace(/</g, '\\u003c');
-
-    const script = `
-      (function() {
-        const vscode = acquireVsCodeApi();
-        const INIT = ${initJson};
-        const root = document.getElementById('root');
-        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-        const radioLabel = (value, text, checked) => {
-          const label = el('label');
-          const input = el('input', { type: 'radio', name: 'source', value: value });
-          input.checked = checked;
-          label.append(input, ' ' + text);
-          return label;
-        };
-        const row = (children, cls) => {
-          const div = el('div', { className: cls || 'row' });
-          div.append(...children);
-          return div;
-        };
-
-        root.append(el('h3', { textContent: 'Apply Patch' }));
-
-        // ── Source radios ──────────────────────────────────────────────────
-        root.append(
-          row(
-            [radioLabel('file', 'From file', true), radioLabel('clipboard', 'From clipboard', false)],
-            'source-row'
-          )
-        );
-
-        // ── File row ───────────────────────────────────────────────────────
-        const fileRow = el('div', { className: 'row' });
-        fileRow.setAttribute('data-row', 'file');
-        const patchPathInput = el('input', {
-          type: 'text',
-          id: 'patchPath',
-          readOnly: true,
-          placeholder: '(none selected)',
-          value: INIT.patchPath,
-        });
-        fileRow.append(
-          el('label', { className: 'block', textContent: 'Patch file:' }),
-          patchPathInput,
-          el('button', { id: 'browseBtn', className: 'secondary', type: 'button', textContent: 'Browse…' })
-        );
-        root.append(fileRow);
-
-        // ── Strip level ────────────────────────────────────────────────────
-        const stripInput = el('input', { type: 'number', id: 'stripLevel', min: '0', max: '10', value: '1' });
-        root.append(
-          row([
-            el('label', { className: 'block', htmlFor: 'stripLevel', textContent: 'Strip level (-p):' }),
-            stripInput,
-            el('span', { className: 'hint', textContent: 'Leading path components to strip.' }),
-          ])
-        );
-
-        // ── Base directory ─────────────────────────────────────────────────
-        root.append(
-          row([
-            el('label', { className: 'block', htmlFor: 'baseDir', textContent: 'Base directory:' }),
-            el('input', { type: 'text', id: 'baseDir', placeholder: '(repository root)' }),
-          ])
-        );
-
-        // ── Use git am ─────────────────────────────────────────────────────
-        const amLabel = el('label');
-        const amInput = el('input', { type: 'checkbox', id: 'useAm' });
-        amLabel.append(amInput, ' Use ', el('code', { textContent: 'git am' }), ' (preserve author)');
-        root.append(row([amLabel]));
-
-        // ── Preview button ─────────────────────────────────────────────────
-        root.append(
-          row([
-            el('button', { id: 'previewBtn', className: 'secondary', type: 'button', textContent: 'Preview…' }),
-            el('span', { className: 'hint', textContent: 'Shows the first ' + INIT.previewLineCap + ' lines of the patch.' }),
-          ])
-        );
-
-        // ── Preview pane ───────────────────────────────────────────────────
-        const previewPane = el('div', { className: 'preview', id: 'preview' });
-        previewPane.append(
-          el('span', { className: 'placeholder', textContent: 'No preview yet. Click “Preview…” to inspect the patch body.' })
-        );
-        root.append(previewPane);
-
-        // ── Actions ────────────────────────────────────────────────────────
-        root.append(
-          row(
-            [
-              el('button', { id: 'cancelBtn', className: 'secondary', type: 'button', textContent: 'Cancel' }),
-              el('button', { id: 'applyBtn', type: 'button', textContent: 'Apply' }),
-            ],
-            'actions'
-          )
-        );
-
-        function source() {
-          const sel = document.querySelector('input[name="source"]:checked');
-          return sel ? sel.value : 'file';
-        }
-        function patchPath() {
-          const el = document.getElementById('patchPath');
-          return el && el.value ? el.value : undefined;
-        }
-        function basePayload() {
-          const src = source();
-          return {
-            patchPath: src === 'file' ? patchPath() : undefined,
-            useClipboard: src === 'clipboard',
-          };
-        }
-
-        document.getElementById('browseBtn').addEventListener('click', () => {
-          vscode.postMessage({ type: 'browse' });
-        });
-
-        const cancel = () => {
-          vscode.postMessage({ type: 'cancel' });
-        };
-        const apply = () => {
-          const stripLevelEl = document.getElementById('stripLevel');
-          const baseDirEl = document.getElementById('baseDir');
-          const useAmEl = document.getElementById('useAm');
-          const payload = Object.assign({ type: 'apply' }, basePayload(), {
-            useAm: !!(useAmEl && useAmEl.checked),
-            stripLevel: stripLevelEl && stripLevelEl.value ? parseInt(stripLevelEl.value, 10) : 1,
-            baseDir: baseDirEl && baseDirEl.value ? baseDirEl.value : undefined,
-          });
-          vscode.postMessage(payload);
-        };
-
-        document.getElementById('cancelBtn').addEventListener('click', cancel);
-
-        document.getElementById('previewBtn').addEventListener('click', () => {
-          vscode.postMessage(Object.assign({ type: 'preview' }, basePayload()));
-        });
-
-        document.getElementById('applyBtn').addEventListener('click', apply);
-
-        // Dialog keyboard contract (shared across all dialogs):
-        //   Cmd+Enter / Ctrl+Enter → primary action (Apply)
-        //   Esc                    → cancel
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            apply();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancel();
-          }
-        });
-
-        // Source radio toggles the file row's enabled state.
-        document.querySelectorAll('input[name="source"]').forEach((r) => {
-          r.addEventListener('change', () => {
-            const fileRow = document.querySelector('[data-row="file"]');
-            if (!fileRow) return;
-            const input = fileRow.querySelector('input[type="text"]');
-            const browse = document.getElementById('browseBtn');
-            const disabled = source() !== 'file';
-            if (input) input.disabled = disabled;
-            if (browse) browse.disabled = disabled;
-          });
-        });
-
-        // Host-sent message handling.
-        window.addEventListener('message', (ev) => {
-          const msg = ev.data;
-          if (!msg) return;
-          if (msg.type === 'patchPathChosen') {
-            const el = document.getElementById('patchPath');
-            if (el) el.value = msg.patchPath;
-          } else if (msg.type === 'preview') {
-            const el = document.getElementById('preview');
-            if (el) el.textContent = msg.content;
-          } else if (msg.type === 'error') {
-            const el = document.getElementById('preview');
-            if (el) el.textContent = '⚠ ' + msg.message;
-          }
-        });
-      })();
-    `;
-
-    return { body, script };
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Override the base renderer entirely so we emit the interactive script
-   * with the CSP nonce. Receives body + script as an explicit tuple from
-   * `_getBodyParts()` instead of regex-extracting the script block.
+   * Override the base renderer so the body ships with an EXTERNAL bundle tag
+   * (media/webview/applyPatchDialog.js) instead of the base's empty sentinel.
+   * The interactive logic lives in the bundled entry
+   * (src/patches/webview/applyPatchDialog.ts), which reads its init from the
+   * body island.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -422,7 +213,9 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const styleBlock = styles.length > 0 ? `<style>${styles}</style>` : '';
-    const { body, script } = this._getBodyParts();
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'applyPatchDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -434,22 +227,22 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
   ${styleBlock}
 </head>
 <body>
-${body}
-<script nonce="${nonce}">${script}</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
 
   /**
-   * Route incoming webview messages. See IncomingMessage for the full
+   * Route incoming webview messages. See ApplyPatchDialogInbound for the full
    * discriminated union.
    */
   protected async _onMessage(raw: unknown): Promise<void> {
     if (this._disposed) {
       return;
     }
-    const msg = raw as IncomingMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asApplyPatchDialogInbound(raw);
+    if (!msg) {
       return;
     }
 
@@ -474,6 +267,8 @@ ${body}
           this._busy = false;
         }
         return;
+      default:
+        assertNever(msg);
     }
   }
 
@@ -499,13 +294,15 @@ ${body}
     await this.postMessage({
       type: 'patchPathChosen',
       patchPath: this._patchPath,
-    } as OutgoingMessage);
+    });
   }
 
   /**
    * Load the patch contents for preview. Capped at PREVIEW_LINE_CAP lines.
    */
-  private async _handlePreview(msg: Extract<IncomingMessage, { type: 'preview' }>): Promise<void> {
+  private async _handlePreview(
+    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>
+  ): Promise<void> {
     try {
       const text = await this._readPatchContent(msg.patchPath, msg.useClipboard);
       const lines = text.split('\n');
@@ -515,13 +312,13 @@ ${body}
           ? lines.slice(0, PREVIEW_LINE_CAP).join('\n') +
             `\n\n… (${overflow} more ${overflow === 1 ? 'line' : 'lines'} truncated)`
           : text;
-      await this.postMessage({ type: 'preview', content: capped } as OutgoingMessage);
+      await this.postMessage({ type: 'preview', content: capped });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       await this.postMessage({
         type: 'error',
         message: `Preview failed: ${errMsg}`,
-      } as OutgoingMessage);
+      });
     }
   }
 
@@ -530,7 +327,9 @@ ${body}
    * and invoke the PatchService. Handles success, conflict, and hard-error
    * paths.
    */
-  private async _handleApply(msg: Extract<IncomingMessage, { type: 'apply' }>): Promise<void> {
+  private async _handleApply(
+    msg: Extract<ApplyPatchDialogInbound, { type: 'apply' }>
+  ): Promise<void> {
     let applyOptions: IApplyPatchOptions;
     try {
       applyOptions = await this._buildApplyOptions(msg);
@@ -674,7 +473,7 @@ ${body}
    * supplied.
    */
   private async _buildApplyOptions(
-    msg: Extract<IncomingMessage, { type: 'apply' }>
+    msg: Extract<ApplyPatchDialogInbound, { type: 'apply' }>
   ): Promise<IApplyPatchOptions> {
     // Validate at the webview boundary as defense-in-depth. The
     // webview sends `parseInt(..., 10)` which returns NaN on non-numeric

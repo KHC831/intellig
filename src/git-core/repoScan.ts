@@ -200,6 +200,13 @@ export interface IScanRepoOptions {
    */
   fs?: IRepoScanFs;
   /**
+   * Path-join seam for unit tests. Production uses the host `path` (win32 on
+   * Windows, posix elsewhere); a test that mocks `fs`/`resolveRepoRoot` with
+   * POSIX literals injects `path.posix` so the joined child paths match its
+   * fixtures on any runner. Defaults to the host `path`.
+   */
+  path?: Pick<typeof path, 'join'>;
+  /**
    * Resolves a directory to its repo root (typically via
    * `git rev-parse --show-toplevel`). Returns `undefined` if the path is
    * not inside any repository.
@@ -333,7 +340,7 @@ export async function scanFolderForGitRepos(
         continue;
       }
 
-      const childPath = path.join(dir, entry.name);
+      const childPath = (opts.path ?? path).join(dir, entry.name);
 
       if (entry.isSymbolicLink()) {
         // Finite depth → never follow symlinks.

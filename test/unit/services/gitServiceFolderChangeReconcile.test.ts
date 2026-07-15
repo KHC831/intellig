@@ -13,6 +13,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { GitError } from '../../../src/git-core/errors';
@@ -44,6 +45,7 @@ interface Surface {
   setupRepositoryWatcher: (root: string) => void;
   discoverRepository: (path: string) => Promise<void>;
   _repoScanFs: IRepoScanFs;
+  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
 }
 
 function makeFsStub(): IRepoScanFs {
@@ -84,6 +86,7 @@ describe('GitService — workspace-folder change reconciles against live folder 
     gitService = new GitService();
     const surface = gitService as unknown as Surface;
     surface._gitCli = stubCli;
+    surface._repoScanPath = path.posix;
     surface._repoScanFs = makeFsStub();
     surface.setupRepositoryWatcher = (): void => {};
     // Records into _repositories and clears the tombstone the way the real

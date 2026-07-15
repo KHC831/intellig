@@ -21,7 +21,7 @@ import type {
 } from '../../../src/conflicts/interfaces/IConflictResolutionService';
 import type { IMergeView } from '../../../src/conflicts/interfaces/IMergeView';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
@@ -41,7 +41,7 @@ function stubMergeView(): IMergeView {
 }
 
 describe('webview: conflict dialog scripts (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -60,9 +60,14 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('conflicts/webview/main', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the strategy flag controls', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -72,8 +77,7 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }
@@ -109,9 +113,14 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('conflicts/webview/resolveConflictsDialog', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds a row per conflicted file', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -124,8 +133,7 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
     });
 
     it('applies a fileResolved status update without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       h.post({ type: 'fileResolved', path: 'src/a.ts' });
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);

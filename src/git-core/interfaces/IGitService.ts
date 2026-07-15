@@ -1,8 +1,16 @@
 import * as vscode from 'vscode';
 import type { ResultAsync } from 'neverthrow';
+import type { ResetMode } from './resetMode';
+import type { FileStatus, IHunk, IDiff } from './gitModels';
 
 import type { GitCli } from '../gitCli';
 import type { GitError } from '../errors';
+
+// The diff data models live in the vscode-free `./gitModels` module so the
+// commit tool window's webview entry can type-import `IDiff` without pulling
+// this vscode-importing file into the DOM-only program. Re-exported here so
+// every existing `from './IGitService'` importer is unchanged.
+export type { FileStatus, DiffLineType, IDiffLine, IHunk, IDiff } from './gitModels';
 
 /**
  * Repository state enumeration
@@ -45,16 +53,6 @@ export type StatusCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?' | '!' | ' ';
 /**
  * File status type
  */
-export type FileStatus =
-  | 'modified'
-  | 'added'
-  | 'deleted'
-  | 'renamed'
-  | 'copied'
-  | 'untracked'
-  | 'ignored'
-  | 'conflicted';
-
 /**
  * Branch type enumeration
  */
@@ -93,11 +91,6 @@ export interface IRollbackOptions {
    */
   deleteAddedFiles?: boolean;
 }
-
-/**
- * Diff line type
- */
-export type DiffLineType = 'context' | 'add' | 'delete';
 
 /**
  * Author information
@@ -206,35 +199,6 @@ export interface ICommit {
 }
 
 /**
- * Diff line model
- */
-export interface IDiffLine {
-  type: DiffLineType;
-  content: string;
-  oldLineNumber?: number;
-  newLineNumber?: number;
-  /**
-   * True when git emitted `\ No newline at end of file` immediately after this
-   * line — i.e. this line's side (old for delete/context, new for add/context)
-   * has no trailing newline. Any patch rebuilt from this hunk must re-emit the
-   * marker, or `git apply` rejects the patch / silently re-adds the newline.
-   */
-  noNewline?: boolean;
-}
-
-/**
- * Hunk model - a contiguous block of changed lines
- */
-export interface IHunk {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  header: string;
-  lines: IDiffLine[];
-}
-
-/**
  * Disambiguated line selection for partial staging.
  *
  * Add-line selections are keyed by newLineNumber; delete-line selections are
@@ -245,17 +209,6 @@ export interface IHunk {
 export interface ILineSelection {
   readonly addLines: ReadonlySet<number>;
   readonly deleteLines: ReadonlySet<number>;
-}
-
-/**
- * Diff model
- */
-export interface IDiff {
-  path: string;
-  oldPath?: string;
-  status: FileStatus;
-  hunks: IHunk[];
-  binary: boolean;
 }
 
 /**
@@ -914,7 +867,7 @@ export interface IRevertResult {
  * - `keep`: move HEAD and reset the index; keep local working-tree changes,
  *   abort if any local change would be overwritten.
  */
-export type ResetMode = 'soft' | 'mixed' | 'hard' | 'keep';
+export type { ResetMode } from './resetMode';
 
 /**
  * A single file that differs between two refs (or between a ref and the working tree).

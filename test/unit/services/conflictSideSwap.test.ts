@@ -38,6 +38,8 @@ function makeRebaseConflictRepo(): { root: string; cleanup: () => void } {
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
   git(root, 'config', 'commit.gpgsign', 'false');
+  // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+  git(root, 'config', 'core.autocrlf', 'false');
 
   fs.writeFileSync(path.join(root, 'f.txt'), 'base\n');
   git(root, 'add', 'f.txt');
@@ -259,6 +261,8 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
       git(root, 'config', 'user.email', 'test@example.com');
       git(root, 'config', 'user.name', 'Test');
       git(root, 'config', 'commit.gpgsign', 'false');
+      // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+      git(root, 'config', 'core.autocrlf', 'false');
       fs.writeFileSync(path.join(root, 'f.txt'), 'base\n');
       git(root, 'add', 'f.txt');
       git(root, 'commit', '-q', '-m', 'base');
@@ -308,6 +312,8 @@ describe('ConflictResolutionService ours/theirs swap — real git rebase', () =>
     git(root, 'config', 'user.email', 'test@example.com');
     git(root, 'config', 'user.name', 'Test');
     git(root, 'config', 'commit.gpgsign', 'false');
+    // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+    git(root, 'config', 'core.autocrlf', 'false');
 
     fs.writeFileSync(path.join(root, 'f.txt'), 'l1\nl2\nl3\n');
     git(root, 'add', 'f.txt');

@@ -275,8 +275,8 @@ export function computeMenuVisibility(
  * the current selection state. Hidden items still get a definitive answer
  * here — callers apply visibility first, then this enable map. Returning
  * a complete record (rather than a partial) keeps the consumer code in
- * `_getInlineScript` a single shape-check away from a TypeScript error
- * on missing actions.
+ * the gitToolWindow entry's applyMenuEnableMap a single shape-check away
+ * from a TypeScript error on missing actions.
  *
  * Rules (spec, A3):
  *   - editCommitMessage:    N=1

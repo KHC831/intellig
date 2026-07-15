@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { resolveGitDir, REBASE_STATE_DIRS } from '../git-core/gitDirMarkers';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
+import { readConfig } from '../config/configKeys';
 import { getLogger, type Logger } from '../utils/logger';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { IMergeView } from './interfaces/IMergeView';
@@ -12,9 +14,7 @@ import {
   IConflictedFile,
 } from './interfaces/IConflictResolutionService';
 
-const CONTEXT_KEY_CONFLICTS_ACTIVE = 'intellig.conflicts.active';
 const STATE_FILE_DEBOUNCE_MS = 300;
-const CONFIG_AUTO_OPEN_KEY = 'autoOpenResolveConflictsDialog';
 
 /**
  * The resolution backend the coordinator drives: the headless Layer-3 resolver
@@ -89,9 +89,7 @@ export class ConflictUiCoordinator {
     // The config only gates AUTOMATIC opening after a conflict-producing op. An
     // explicit user action (status-bar prompt / VCS menu) always opens —
     // otherwise the opt-out turns that entry point into a dead-end.
-    const autoOpen =
-      options?.explicit === true ||
-      vscode.workspace.getConfiguration('intellig').get<boolean>(CONFIG_AUTO_OPEN_KEY, true);
+    const autoOpen = options?.explicit === true || readConfig('autoOpenResolveConflictsDialog');
 
     if (!autoOpen) {
       // Feature flag off: surface context key only so the status-bar prompt
@@ -299,16 +297,7 @@ export class ConflictUiCoordinator {
       return;
     }
     this._conflictsActiveAggregate = nextAggregate;
-    try {
-      await vscode.commands.executeCommand(
-        'setContext',
-        CONTEXT_KEY_CONFLICTS_ACTIVE,
-        nextAggregate
-      );
-      // eslint-disable-next-line no-restricted-syntax -- setContext is a non-essential UI context key; a failure (e.g. unit tests that don't mock it) is non-fatal.
-    } catch {
-      // setContext isn't available in non-test extension-host builds; swallow.
-    }
+    await setContextKey(CONTEXT_KEYS.conflictsActive, nextAggregate);
   }
 
   /** Compute the aggregate — any repo conflicted ⇒ true. */

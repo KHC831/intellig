@@ -28,8 +28,9 @@
 #    only where the path is provably present in HEAD (so a fatal is impossible)
 #    or a caller already has its own HEAD-absent fallback. The guard runs in
 #    two modes:
-#      * DEFAULT (no path args — the real gate): `git grep` over git-TRACKED
-#        files under `src`, excluding `src/test` and the writer.
+#      * DEFAULT (no path args — the real gate): `git grep --untracked` over
+#        tracked AND new-but-uncommitted files under `src` (gitignored scratch
+#        stays out), excluding `src/test` and the writer.
 #      * EXPLICIT PATHS (used by the companion spec): plain recursive
 #        `grep -rnIE` over the given paths (temp fixtures are not git dirs).
 #
@@ -58,7 +59,7 @@ PATTERN="['\"]checkout['\"],[[:space:]]*['\"]HEAD['\"],[[:space:]]*['\"]--['\"]"
 MARKER='checkout-head-exempt:'
 
 if [ "$#" -eq 0 ]; then
-  raw=$(git grep -nIE "$PATTERN" -- 'src' ':!src/test' \
+  raw=$(git grep --untracked -nIE "$PATTERN" -- 'src' ':!src/test' \
     ':!src/git-core/worktree/restoreToHead.ts' 2>/dev/null || true)
 else
   raw=$(grep -rnIE --include='*.ts' "$PATTERN" "$@" 2>/dev/null || true)

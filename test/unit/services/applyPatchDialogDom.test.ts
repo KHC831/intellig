@@ -8,7 +8,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import * as vscode from 'vscode';
 import { ApplyPatchDialog } from '../../../src/patches/ApplyPatchDialog';
 import { IPatchService } from '../../../src/patches/interfaces/IPatchService';
@@ -33,27 +34,23 @@ function makeDialog(initialPatchPath?: string): ApplyPatchDialog {
  * Run the dialog's inline nonce'd script in jsdom and return the built DOM.
  * Asserts the pre-eval host markup does NOT pre-bake the controls.
  */
+const _entryHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_entryHarnesses.length > 0) {
+    _entryHarnesses.pop()?.dispose();
+  }
+});
+
 function renderDoc(dialog: ApplyPatchDialog): { document: Document; posted: unknown[] } {
   const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const window = dom.window;
-  const posted: unknown[] = [];
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (m: unknown): void => {
-      posted.push(m);
-    },
-    getState: (): void => {},
-    setState: (): void => {},
-  });
-  assert.strictEqual(
-    window.document.querySelector('#patchPath'),
-    null,
-    'controls must not be pre-baked in host markup — the script builds the DOM'
+  const bodyHtml = extractWebviewScript(html).bodyHtml;
+  assert.ok(
+    !/id="patchPath"/.test(bodyHtml),
+    'controls must not be pre-baked in host markup — the entry builds the DOM'
   );
-  const scriptEl = window.document.querySelector('script[nonce]');
-  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-  window.eval(scriptEl.textContent ?? '');
-  return { document: window.document as unknown as Document, posted };
+  const h = bootWebviewEntry('patches/webview/applyPatchDialog', { bodyHtml });
+  _entryHarnesses.push(h);
+  return { document: h.document, posted: h.posted };
 }
 
 describe('ApplyPatchDialog — rendered DOM (script-built)', () => {

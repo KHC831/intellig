@@ -68,6 +68,7 @@
 import '../../setup';
 
 import * as assert from 'assert';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { okAsync, errAsync, ResultAsync } from 'neverthrow';
@@ -341,6 +342,7 @@ interface GitServiceWaypointSurface {
   loadRepository: (root: string) => Promise<IRepository>;
   setupRepositoryWatcher: (root: string) => void;
   _repoScanFs: IRepoScanFs;
+  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
   discoverRepository: (path: string) => Promise<void>;
   _performDebouncedRefresh: (root: string) => Promise<void>;
 }
@@ -447,6 +449,7 @@ describe('GitService — Logger waypoint integration', () => {
       const service = new GitService();
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
+        surface._repoScanPath = path.posix;
         surface._gitCli = stubCli;
         // Exercise the REAL `loadRepository` (its StubGitCli `exec` returns
         // benign empty output, so no real git subprocess runs) — the discovery
@@ -491,6 +494,7 @@ describe('GitService — Logger waypoint integration', () => {
       const service = new GitService();
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
+        surface._repoScanPath = path.posix;
         surface._gitCli = stubCli;
         // Exercise the REAL `loadRepository` funnel (StubGitCli `exec` returns
         // benign empty output) so the per-repo discovery waypoint fires from its
@@ -544,6 +548,7 @@ describe('GitService — Logger waypoint integration', () => {
       const service = new GitService();
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
+        surface._repoScanPath = path.posix;
         surface._gitCli = stubCli;
 
         const repo = makeFakeRepo('/repo/root');
@@ -593,6 +598,7 @@ describe('GitService — Logger waypoint integration', () => {
       const service = new GitService();
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
+        surface._repoScanPath = path.posix;
         surface._gitCli = stubCli;
 
         const repo = makeFakeRepo('/repo/failing');
@@ -641,6 +647,7 @@ describe('GitService — Logger waypoint integration', () => {
       const service = new GitService();
       try {
         const surface = service as unknown as GitServiceWaypointSurface;
+        surface._repoScanPath = path.posix;
         surface._gitCli = stubCli;
 
         const failureMessage = 'synthetic watcher reload failure';
@@ -697,6 +704,7 @@ describe('GitService — Logger waypoint integration', () => {
       // captured but the relevant assertion targets only the
       // disposal record we look up by message.
       const surface = service as unknown as GitServiceWaypointSurface;
+      surface._repoScanPath = path.posix;
       surface._gitCli = stubCli;
 
       // Don't dispose inside try/finally — we ARE testing dispose().
@@ -764,6 +772,7 @@ describe('GitService — Logger waypoint integration', () => {
         // so a duplicate registration is faithful to the production
         // path.
         const surface = service as unknown as GitServiceWaypointSurface;
+        surface._repoScanPath = path.posix;
         surface._gitCli = stubCli;
 
         // Re-attach the same listener the constructor installs.
@@ -822,6 +831,7 @@ describe('GitService — Logger waypoint integration', () => {
 
       const service = new GitService();
       const surface = service as unknown as GitServiceWaypointSurface;
+      surface._repoScanPath = path.posix;
       surface._gitCli = new ErringRootGitCli();
       try {
         // A file URI for an unknown, uncached path forces the getRepositoryRoot

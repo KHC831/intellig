@@ -193,24 +193,6 @@ describe('Branch focus on graph (D2 + D3)', () => {
     );
   });
 
-  it('webview focusBranchOnGraph message routes through to setFocusedBranch', () => {
-    const internals = provider as unknown as FocusInternals;
-    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
-    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
-    provider.updateLogState([mkCommit('aaa')], branchMap);
-
-    internals._handleWebviewMessage({
-      type: 'focusBranchOnGraph',
-      branchName: 'feature',
-    });
-
-    // setFocusedBranch is async (Promise), but the focused-branch-name
-    // mutation happens synchronously after the resolveBranchTipHash
-    // lookup; the async lookup is only the merge-base call which we
-    // don't have a service for here. State should already be set.
-    assert.strictEqual(internals._extendedLogState.focusedBranchName, 'feature');
-  });
-
   it('getMergeBase stub drives the focused path set (D3)', async () => {
     const internals = provider as unknown as FocusInternals;
     // Stub IGitService with just getMergeBase — the path the BFS walks.

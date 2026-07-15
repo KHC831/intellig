@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import * as path from 'path';
 import * as fs from 'fs';
 import { IMergeView, IMergeState } from './interfaces/IMergeView';
@@ -182,10 +183,7 @@ export class MergeView implements IMergeView {
   }
 
   private _isMergeWindowEnabled(): boolean {
-    return (
-      vscode.workspace.getConfiguration('intellig').get<boolean>('mergeWindow.enabled', true) ===
-      true
-    );
+    return readConfig('mergeWindow.enabled') === true;
   }
 
   /**

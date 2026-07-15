@@ -294,22 +294,28 @@ describe('badFilenameCheckinHandler', () => {
 // ─── sampleFileFacts (fs sampling for the CRLF + size checks) ────────────────
 
 describe('sampleFileFacts', () => {
-  const fakeFs = (byPath: Record<string, { size?: number; chunk?: string; fail?: boolean }>) => ({
-    stat: async (p: string) => {
-      const e = byPath[p];
-      if (!e || e.fail) {
-        throw new Error('ENOENT');
-      }
-      return { size: e.size ?? 0 };
-    },
-    readChunk: async (p: string) => {
-      const e = byPath[p];
-      if (!e || e.fail || e.chunk === undefined) {
-        throw new Error('ENOENT');
-      }
-      return Buffer.from(e.chunk, 'binary');
-    },
-  });
+  const fakeFs = (byPath: Record<string, { size?: number; chunk?: string; fail?: boolean }>) => {
+    // sampleFileFacts joins the POSIX-literal root + path with the host `path`
+    // (backslashes on Windows); look up on the forward-slash-normalized key so
+    // these fixtures resolve on any runner.
+    const lookup = (p: string) => byPath[p.replace(/\\/g, '/')];
+    return {
+      stat: async (p: string) => {
+        const e = lookup(p);
+        if (!e || e.fail) {
+          throw new Error('ENOENT');
+        }
+        return { size: e.size ?? 0 };
+      },
+      readChunk: async (p: string) => {
+        const e = lookup(p);
+        if (!e || e.fail || e.chunk === undefined) {
+          throw new Error('ENOENT');
+        }
+        return Buffer.from(e.chunk, 'binary');
+      },
+    };
+  };
 
   it('flags CRLF content and reports the size', async () => {
     const files = [{ path: 'a.ts', status: 'modified' as const }];

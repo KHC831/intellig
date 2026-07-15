@@ -3,11 +3,6 @@ import * as vscode from 'vscode';
 import type { LogThreshold } from '../../utils/logger';
 
 /**
- * Git Tool Window tab types
- */
-export type GitToolWindowTab = 'local-changes' | 'log' | 'console';
-
-/**
  * Blame annotation style options.
  * `off` disables all blame annotations without removing the toggle state.
  */
@@ -24,19 +19,13 @@ export type KeymapPresetName = 'default' | 'intellij';
  * Extension configuration model
  */
 export interface IExtensionConfiguration {
-  // Commit settings
-  defaultCommitSignOff: boolean;
-  commitMessageTemplate: string;
-
   // Pull settings
   pullRebase: boolean;
   autoFetchEnabled: boolean;
   autoFetchInterval: number;
 
   // UI settings
-  defaultToolWindowTab: GitToolWindowTab;
   blameAnnotationStyle: BlameAnnotationStyle;
-  showStatusBarBranch: boolean;
 
   // Keyboard shortcuts
   /**
@@ -44,13 +33,6 @@ export interface IExtensionConfiguration {
    * clauses (`config.intellig.keymapPreset == 'intellij'`).
    */
   keymapPreset: KeymapPresetName;
-
-  // Colors
-  modifiedFileColor: string;
-  addedFileColor: string;
-  deletedFileColor: string;
-  ignoredFileColor: string;
-  conflictFileColor: string;
 
   // Logging settings (typed projection of `intellig.log.*`)
   /**

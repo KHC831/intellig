@@ -16,12 +16,15 @@
  */
 
 import * as vscode from 'vscode';
-import { IBlameOptions } from './interfaces/IBlameService';
+import { readConfig, updateConfig } from '../config/configKeys';
 import {
-  AuthorNameFormat,
-  DEFAULT_AUTHOR_NAME_FORMAT,
-  normalizeAuthorNameFormat,
-} from './authorNameFormat';
+  loadPersisted,
+  savePersisted,
+  readStringArray,
+  type PersistedSlot,
+} from '../utils/persistedState';
+import { IBlameOptions } from './interfaces/IBlameService';
+import { AuthorNameFormat, normalizeAuthorNameFormat } from './authorNameFormat';
 
 /** Config keys (namespaced under `intellig.blame.*`). */
 const CONFIG_SECTION = 'intellig.blame';
@@ -50,14 +53,18 @@ export interface IBlameAspectVisibility {
 }
 
 /** Maps each aspect onto its backing config key. */
-const ASPECT_CONFIG_KEY: Readonly<Record<BlameAspectId, string>> = {
+const ASPECT_CONFIG_KEY = {
   author: CONFIG_SHOW_AUTHOR,
   date: CONFIG_SHOW_DATE,
   revision: CONFIG_SHOW_REVISION,
-};
+} as const satisfies Record<BlameAspectId, string>;
 
-/** Workspace-state key for the hidden-revision set. */
-const WS_STATE_HIDDEN = 'intellig.blame.hiddenRevisions';
+/** Persisted slot for the hidden-revision set. */
+export const HIDDEN_REVISIONS_SLOT: PersistedSlot<string[]> = {
+  key: 'intellig.blame.hiddenRevisions',
+  version: 1,
+  validate: readStringArray,
+};
 
 /**
  * Blame annotation background color mode. Mirrors IntelliJ's
@@ -101,7 +108,9 @@ export class BlameOptionsSource {
   private readonly _disposables: vscode.Disposable[] = [];
 
   constructor(private readonly _workspaceState?: vscode.Memento) {
-    const stored = _workspaceState?.get<string[]>(WS_STATE_HIDDEN, []) ?? [];
+    const stored = _workspaceState
+      ? (loadPersisted(_workspaceState, HIDDEN_REVISIONS_SLOT) ?? [])
+      : [];
     this._hidden = new Set(stored);
 
     // Re-fire whenever the relevant config keys flip so subscribers can
@@ -130,21 +139,18 @@ export class BlameOptionsSource {
    * `getConfiguration` is memoized internally by VS Code.
    */
   snapshot(): IBlameOptionsSnapshot {
-    const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
     return {
-      ignoreWhitespace: cfg.get<boolean>(CONFIG_IGNORE_WS, false),
-      detectMovementsWithinFile: cfg.get<boolean>(CONFIG_DETECT_WITHIN, false),
-      detectMovementsAcrossFiles: cfg.get<boolean>(CONFIG_DETECT_ACROSS, false),
+      ignoreWhitespace: readConfig('blame.ignoreWhitespace'),
+      detectMovementsWithinFile: readConfig('blame.detectMovementsWithinFile'),
+      detectMovementsAcrossFiles: readConfig('blame.detectMovementsAcrossFiles'),
       hiddenRevisions: new Set(this._hidden),
-      colorMode: normalizeColorMode(cfg.get<string>(CONFIG_COLOR_MODE, DEFAULT_COLOR_MODE)),
+      colorMode: normalizeColorMode(readConfig('blame.colorMode')),
       aspects: {
-        author: cfg.get<boolean>(CONFIG_SHOW_AUTHOR, true),
-        date: cfg.get<boolean>(CONFIG_SHOW_DATE, true),
-        revision: cfg.get<boolean>(CONFIG_SHOW_REVISION, true),
+        author: readConfig('blame.showAuthor'),
+        date: readConfig('blame.showDate'),
+        revision: readConfig('blame.showRevision'),
       },
-      authorNameFormat: normalizeAuthorNameFormat(
-        cfg.get<string>(CONFIG_AUTHOR_NAME_FORMAT, DEFAULT_AUTHOR_NAME_FORMAT)
-      ),
+      authorNameFormat: normalizeAuthorNameFormat(readConfig('blame.authorNameFormat')),
     };
   }
 
@@ -168,15 +174,13 @@ export class BlameOptionsSource {
   async toggleFlag(
     key: 'ignoreWhitespace' | 'detectMovementsWithinFile' | 'detectMovementsAcrossFiles'
   ): Promise<boolean> {
-    const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
-    const current = cfg.get<boolean>(key, false);
-    const next = !current;
+    const next = !readConfig(`blame.${key}`);
     // Prefer Workspace target so per-project preference sticks; falls back to
     // Global if there's no open workspace.
     const target = vscode.workspace.workspaceFolders
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
-    await cfg.update(key, next, target);
+    await updateConfig(`blame.${key}`, next, target);
     return next;
   }
 
@@ -187,13 +191,12 @@ export class BlameOptionsSource {
    * @returns the aspect's new visibility.
    */
   async toggleAspect(aspect: BlameAspectId): Promise<boolean> {
-    const key = ASPECT_CONFIG_KEY[aspect];
-    const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
-    const next = !cfg.get<boolean>(key, true);
+    const key = `blame.${ASPECT_CONFIG_KEY[aspect]}` as const;
+    const next = !readConfig(key);
     const target = vscode.workspace.workspaceFolders
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
-    await cfg.update(key, next, target);
+    await updateConfig(key, next, target);
     return next;
   }
 
@@ -264,6 +267,6 @@ export class BlameOptionsSource {
     if (!this._workspaceState) {
       return;
     }
-    await this._workspaceState.update(WS_STATE_HIDDEN, Array.from(this._hidden));
+    await savePersisted(this._workspaceState, HIDDEN_REVISIONS_SLOT, Array.from(this._hidden));
   }
 }

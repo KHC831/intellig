@@ -22,12 +22,20 @@
 
 import '../../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
 } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 import { renderDetailsPanelHtml } from '../../../helpers/detailsPanelDom';
+
+/** Source of the bundled Git tool-window client entry (applyMenuEnableMap lives here). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 interface MultiSelectInternals {
   _extendedLogState: IExtendedLogState;
@@ -83,10 +91,7 @@ describe('provider integration', () => {
       // The `editMsgItem.classList.add('disabled')` call must be guarded by
       // `!isSingleCommit` (or equivalent), so it is conditional, not
       // free-standing.
-      const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as import('vscode').Webview,
-        []
-      );
+      const html = ENTRY_SOURCE;
 
       // Match a bare `editMsgItem.classList.add('disabled')` top-level
       // statement (not inside an `if (!...)` block) and assert NO occurrence
@@ -108,10 +113,7 @@ describe('provider integration', () => {
     });
 
     it('inline script applies a host-precomputed enable map (no JS-side rule mirror)', () => {
-      const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as import('vscode').Webview,
-        []
-      );
+      const html = ENTRY_SOURCE;
       // The inline-script no longer mirrors the rules; it applies
       // the host-precomputed `menuEnableMap` per-action via `applyMenuEnableMap`.
       // Direct check: the apply-loop function exists and references `menuEnableMap`.
@@ -132,10 +134,7 @@ describe('provider integration', () => {
     });
 
     it('inline script no longer hard-disables editCommitMessage with a bare classList.add line', () => {
-      const html = provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as import('vscode').Webview,
-        []
-      );
+      const html = ENTRY_SOURCE;
       // The bug was a single statement
       // `editMsgItem.classList.add('disabled');` on its own line. After
       // the legacy `editMsgItem` reference must be gone — the loop body

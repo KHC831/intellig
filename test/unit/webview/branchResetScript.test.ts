@@ -14,7 +14,7 @@ import * as assert from 'assert';
 import { NewBranchDialog } from '../../../src/branches/NewBranchDialog';
 import { ResetDialog } from '../../../src/ui-shell/ResetDialog';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { makeExtensionContext, panelHtml } from '../../helpers/mockWebviewContext';
 
@@ -26,7 +26,7 @@ const GARBAGE_MESSAGES: unknown[] = [
 ];
 
 describe('webview: branch + reset dialog scripts (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewEntryHarness;
 
   afterEach(() => {
     if (h) {
@@ -45,9 +45,14 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
       return panelHtml(dialog);
     }
 
+    function boot(): IWebviewEntryHarness {
+      return bootWebviewEntry('branches/webview/main', {
+        bodyHtml: extractWebviewScript(html()).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the branch-name input + create button', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -57,15 +62,13 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
     });
 
     it('posts cancel when the cancel button is clicked', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       h.document.getElementById('cancel-btn')?.click();
       assert.deepEqual(h.posted.at(-1), { type: 'cancel' });
     });
 
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }
@@ -77,21 +80,26 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
   });
 
   describe('ResetDialog', () => {
-    function html(): string {
+    function html(protectedBranches: string[] = []): string {
       const repo = attachedRepo();
       const dialog = new ResetDialog(makeExtensionContext(), {
         repo,
         target: { hash: 'a'.repeat(40), subject: 'Initial commit' },
         currentBranch: 'main',
-        protectedBranches: [],
+        protectedBranches,
         gitService: createMockGitService(repo),
       });
       return panelHtml(dialog);
     }
 
+    function boot(protectedBranches: string[] = []): IWebviewEntryHarness {
+      return bootWebviewEntry('ui-shell/webview/resetDialog', {
+        bodyHtml: extractWebviewScript(html(protectedBranches)).bodyHtml,
+      });
+    }
+
     it('loads without throwing and builds the reset-mode radios + reset button', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       assert.deepStrictEqual(
         h.errors.map((e) => e.message),
         []
@@ -101,15 +109,30 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
     });
 
     it('posts cancel when the cancel button is clicked', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       h.document.getElementById('cancel-btn')?.click();
       assert.deepEqual(h.posted.at(-1), { type: 'cancel' });
     });
 
+    // The harness builds the dialog with `protectedBranches: []`, so all four
+    // radios are enabled and selectable; the entry must post whichever mode is
+    // checked. (The protected-branch disabling of Hard/Keep is a host concern,
+    // covered in resetDialog.test.ts.)
+    for (const mode of ['soft', 'mixed', 'hard', 'keep'] as const) {
+      it(`posts reset with mode '${mode}' when the Reset button is clicked`, () => {
+        h = boot();
+        const radio = h.document.querySelector<HTMLInputElement>(
+          `input[name="reset-mode"][value="${mode}"]`
+        );
+        assert.ok(radio, `${mode} radio present`);
+        radio.checked = true;
+        h.document.getElementById('reset-btn')?.click();
+        assert.deepEqual(h.posted.at(-1), { type: 'reset', mode });
+      });
+    }
+
     it('tolerates garbage messages without throwing', () => {
-      const { script, bodyHtml } = extractWebviewScript(html());
-      h = runWebviewScript(script, { bodyHtml });
+      h = boot();
       for (const msg of GARBAGE_MESSAGES) {
         h.post(msg);
       }
@@ -117,6 +140,27 @@ describe('webview: branch + reset dialog scripts (jsdom)', () => {
         h.errors.map((e) => e.message),
         []
       );
+    });
+
+    it('on a protected branch, disables Hard/Keep and carries the tooltip on those rows', () => {
+      h = boot(['main']);
+      const rowFor = (mode: string): HTMLLabelElement | null =>
+        h.document.querySelector<HTMLLabelElement>(`label.mode[data-mode="${mode}"]`);
+      const inputFor = (mode: string): HTMLInputElement | null =>
+        h.document.querySelector<HTMLInputElement>(`input[name="reset-mode"][value="${mode}"]`);
+
+      for (const mode of ['hard', 'keep']) {
+        assert.strictEqual(inputFor(mode)?.disabled, true, `${mode} radio disabled`);
+        assert.match(
+          rowFor(mode)?.getAttribute('title') ?? '',
+          /protected branch/i,
+          `${mode} row carries the protected-branch tooltip`
+        );
+      }
+      for (const mode of ['soft', 'mixed']) {
+        assert.strictEqual(inputFor(mode)?.disabled, false, `${mode} radio enabled`);
+        assert.strictEqual(rowFor(mode)?.getAttribute('title'), null, `${mode} row has no tooltip`);
+      }
     });
   });
 });

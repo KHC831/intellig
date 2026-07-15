@@ -20,6 +20,13 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
+import { assertNever } from '../utils/assertNever';
+import {
+  asNewBranchDialogInbound,
+  type INewBranchDialogInit,
+  type NewBranchDialogOutbound,
+} from './newBranchDialog.protocol';
+import { initIslandHtml } from '../utils/webviewInit';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { isHexObjectId } from '../git-core/gitDirMarkers';
@@ -118,19 +125,10 @@ export function isTrackableStartPoint(
   return !isHexObjectId(startPoint, { allowPrefix: true });
 }
 
-/** Webview → extension message shape. */
-interface INewBranchDialogMessage {
-  type: 'create' | 'cancel';
-  name?: string;
-  track?: boolean;
-  overwrite?: boolean;
-  checkout?: boolean;
-}
-
 const VIEW_TYPE = 'intellig.newBranchDialog';
 const TITLE = 'Create New Branch';
 
-export class NewBranchDialog extends BaseWebviewPanel {
+export class NewBranchDialog extends BaseWebviewPanel<NewBranchDialogOutbound> {
   private readonly _repo: IRepository;
   private readonly _gitService: IGitService;
   private readonly _startPoint: string | undefined;
@@ -278,22 +276,7 @@ export class NewBranchDialog extends BaseWebviewPanel {
   }
 
   protected _getBodyHtml(): string {
-    return this._getBodyParts().body;
-  }
-
-  /**
-   * Emit the body HTML and the interactive script separately. Used by
-   * `_render` so it can splice the script into a nonced `<script>` block
-   * without regex-extracting it from the body (nested `</script>`
-   * inside a string literal would break the old regex).
-   */
-  private _getBodyParts(): { body: string; script: string } {
-    // Body ships an empty root; the script builds every control via
-    // document.createElement. Host data crosses as a JSON init island and
-    // reaches the DOM via .value / .textContent (injection-proof).
-    const body = `<div id="root"></div>`;
-
-    const initJson = JSON.stringify({
+    const init: INewBranchDialogInit = {
       startPointLabel: this._startPointLabel,
       defaultName: this._defaultName,
       defaultTrack: this._defaultTrack,
@@ -301,200 +284,16 @@ export class NewBranchDialog extends BaseWebviewPanel {
       // a commit-hash start point; the conflicts message refines it once the
       // branch list loads.
       trackVisible: isTrackableStartPoint(this._startPoint),
-    }).replace(/</g, '\\u003c');
-
-    const script = `
-      (function() {
-        const vscode = acquireVsCodeApi();
-        const INIT = ${initJson};
-        const root = document.getElementById('root');
-        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
-
-        // ── Summary (start point) ──────────────────────────────────────────
-        const summary = el('div', { className: 'summary' });
-        summary.append(
-          el('span', { className: 'label', textContent: 'Start point:' }),
-          INIT.startPointLabel
-        );
-
-        // ── Name field ─────────────────────────────────────────────────────
-        const field = el('div', { className: 'field' });
-        const nameLabel = el('label', { className: 'top', htmlFor: 'branch-name', textContent: 'New branch name:' });
-        const nameInput = el('input', {
-          type: 'text',
-          id: 'branch-name',
-          placeholder: 'feature/my-new-branch',
-          value: INIT.defaultName,
-        });
-        const nameErr = el('div', { id: 'name-error', className: 'error' });
-        field.append(nameLabel, nameInput, nameErr);
-
-        // ── Option checkboxes ──────────────────────────────────────────────
-        const flagsBox = el('div', { className: 'flags' });
-        const flagRow = (id, checked, parts) => {
-          const label = el('label', { className: 'flag' });
-          const input = el('input', { type: 'checkbox', id: id });
-          input.checked = checked;
-          label.append(input, ...parts);
-          return label;
-        };
-        const trackRow = flagRow('flag-track', INIT.defaultTrack, ['Track remote (', el('code', { textContent: '--track' }), ')']);
-        trackRow.id = 'track-row';
-        // Tracking only works when the start point is a branch; a commit hash
-        // never qualifies, so the row starts hidden and the conflicts message
-        // (loaded branch list) gives the final answer below.
-        trackRow.hidden = !INIT.trackVisible;
-        flagsBox.append(
-          trackRow,
-          flagRow('flag-overwrite', false, [
-            'Overwrite if exists (',
-            el('code', { textContent: '-f' }),
-            ' / ',
-            el('code', { textContent: '-B' }),
-            ')',
-          ]),
-          flagRow('flag-checkout', true, ['Checkout after create'])
-        );
-
-        // ── Actions ────────────────────────────────────────────────────────
-        const actions = el('div', { className: 'actions' });
-        actions.append(
-          el('button', { id: 'cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' }),
-          el('button', { id: 'create-btn', type: 'button', textContent: 'Create' })
-        );
-
-        root.append(summary, field, flagsBox, actions);
-        nameInput.focus();
-
-        const nameEl = document.getElementById('branch-name');
-        const errorEl = document.getElementById('name-error');
-        const createBtn = document.getElementById('create-btn');
-        const overwriteEl = document.getElementById('flag-overwrite');
-
-        // Existing-branch conflict sources, pushed from the extension once the
-        // branch list loads (see NewBranchDialog._postConflictContext).
-        let conflicts = { localBranches: [], remoteBranches: [], currentBranch: '' };
-
-        // Mirror of branchNameValidator.isValidRefNameFormat (git check-ref-format).
-        const validFormat = (name) => {
-          if (!name || name.trim().length === 0) return false;
-          if (/[\\u0000-\\u001F\\u007F]/.test(name) || /\\s/.test(name)) return false;
-          if (/[~^:?*[\\\\"]/.test(name) || name.indexOf('@{') !== -1) return false;
-          if (name.indexOf('..') !== -1 || name.indexOf('//') !== -1) return false;
-          if (/^[.\\-/]/.test(name)) return false;
-          if (/[./]$/.test(name) || name.slice(-5) === '.lock') return false;
-          if (name.indexOf('./') !== -1 || name.indexOf('/.') !== -1) return false;
-          return true;
-        };
-
-        const dirClash = (name) => conflicts.localBranches.some(
-          (b) => b !== name && (b.indexOf(name + '/') === 0 || name.indexOf(b + '/') === 0)
-        );
-
-        // Mirror of branchNameValidator.validateBranchName.
-        const validate = () => {
-          const raw = nameEl.value;
-          const v = raw.trim();
-          if (v.length === 0) return 'Branch name cannot be empty';
-          if (v.toUpperCase() === 'HEAD') return "Branch name cannot be 'HEAD'";
-          if (!validFormat(raw)) return "Branch name '" + raw + "' is invalid";
-          if (conflicts.remoteBranches.indexOf(v) !== -1)
-            return "Branch name '" + v + "' clashes with an existing remote branch";
-          if (dirClash(v))
-            return "Branch name '" + v + "' clashes with an existing branch directory";
-          if (!overwriteEl.checked) {
-            if (conflicts.currentBranch && v === conflicts.currentBranch)
-              return "Branch '" + v + "' is the current branch";
-            if (conflicts.localBranches.indexOf(v) !== -1)
-              return "Branch '" + v + "' already exists";
-          }
-          return '';
-        };
-
-        const refresh = () => {
-          const err = validate();
-          errorEl.textContent = err;
-          createBtn.disabled = !!err;
-        };
-
-        nameEl.addEventListener('input', refresh);
-        overwriteEl.addEventListener('change', refresh);
-
-        window.addEventListener('message', (e) => {
-          const m = e.data;
-          if (m && m.type === 'conflicts') {
-            conflicts = {
-              localBranches: m.localBranches || [],
-              remoteBranches: m.remoteBranches || [],
-              currentBranch: m.currentBranch || '',
-            };
-            if (m.startPointTrackable === false) {
-              const row = document.getElementById('track-row');
-              const box = document.getElementById('flag-track');
-              row.hidden = true;
-              box.checked = false;
-            } else if (m.startPointTrackable === true) {
-              document.getElementById('track-row').hidden = false;
-            }
-            refresh();
-          }
-        });
-
-        createBtn.addEventListener('click', () => {
-          const err = validate();
-          if (err) {
-            errorEl.textContent = err;
-            createBtn.disabled = true;
-            nameEl.focus();
-            return;
-          }
-          vscode.postMessage({
-            type: 'create',
-            name: nameEl.value.trim(),
-            track: document.getElementById('flag-track').checked,
-            overwrite: overwriteEl.checked,
-            checkout: document.getElementById('flag-checkout').checked,
-          });
-        });
-        document.getElementById('cancel-btn').addEventListener('click', () => {
-          vscode.postMessage({ type: 'cancel' });
-        });
-        nameEl.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            createBtn.click();
-          }
-        });
-
-        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
-        //   Cmd+Enter / Ctrl+Enter → primary action (Create)
-        //   Esc                    → cancel
-        // Plain Enter on the single-line name field already submits (above);
-        // this adds the modified-Enter alias and the page-wide Esc handler.
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            document.getElementById('create-btn').click();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            document.getElementById('cancel-btn').click();
-          }
-        });
-
-        // Reflect the initial name's validity (disables Create on empty/default).
-        refresh();
-      })();
-    `;
-
-    return { body, script };
+    };
+    return `<div id="root"></div>${initIslandHtml(init)}`;
   }
 
   /**
-   * Override the base renderer entirely so we can emit the interactive
-   * script with the CSP nonce. We pass body+script as an explicit
-   * tuple from `_getBodyParts()` instead of regex-extracting the script
-   * from the serialized body (which would break on nested `</script>`
-   * substrings inside string literals).
+   * Override the base renderer so the body ships with an EXTERNAL bundle tag
+   * (media/webview/newBranchDialog.js) instead of the base's empty sentinel.
+   * The interactive logic lives in the bundled TS entry
+   * (src/branches/webview/main.ts), which reads its init from the body island
+   * and refines itself from the host's `conflicts` message.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -505,7 +304,9 @@ export class NewBranchDialog extends BaseWebviewPanel {
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
     const styleBlock = styles.length > 0 ? `<style>${styles}</style>` : '';
-    const { body, script } = this._getBodyParts();
+    const bundleUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'webview', 'newBranchDialog.js')
+    );
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -517,8 +318,8 @@ export class NewBranchDialog extends BaseWebviewPanel {
   ${styleBlock}
 </head>
 <body>
-${body}
-<script nonce="${nonce}">${script}</script>
+${this._getBodyHtml()}
+<script nonce="${nonce}" src="${bundleUri.toString()}"></script>
 </body>
 </html>`;
   }
@@ -527,8 +328,8 @@ ${body}
     if (this._busy || this._disposed) {
       return;
     }
-    const msg = raw as INewBranchDialogMessage | undefined;
-    if (!msg || typeof msg !== 'object') {
+    const msg = asNewBranchDialogInbound(raw);
+    if (!msg) {
       return;
     }
     switch (msg.type) {
@@ -543,6 +344,8 @@ ${body}
           checkout: msg.checkout === true,
         });
         return;
+      default:
+        assertNever(msg);
     }
   }
 

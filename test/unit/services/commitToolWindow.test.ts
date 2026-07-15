@@ -24,7 +24,6 @@ import '../../setup';
 import * as assert from 'assert';
 import { okAsync } from 'neverthrow';
 import * as vscode from 'vscode';
-import { JSDOM } from 'jsdom';
 import {
   CommitToolWindow,
   changelistContextMenuLabels,
@@ -32,32 +31,30 @@ import {
   gearMenuItems,
   sortChangelistsForDisplay,
   updateRecentMessagesLru,
-  renderCommitToolWindowHtml,
+  buildCommitToolWindowBodyParts,
   COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY,
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY,
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_MAX as RECENT_MESSAGES_MAX,
 } from '../../../src/services';
 import type { IRenderInput } from '../../../src/services';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 
-/**
- * Render the tool window, eval its inline nonce'd script in jsdom, and return
- * the built document. The body ships as an empty `#ctw-root`; the script builds
- * every panel via createElement from the INIT island, so the DOM is the
- * assertion surface.
- */
-function buildCtwDoc(input: Omit<IRenderInput, 'cspSource'>): Document {
-  const html = renderCommitToolWindowHtml({ cspSource: 'vscode-webview://mock', ...input });
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const { window } = dom;
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (): void => {},
-    getState: (): undefined => undefined,
-    setState: (): void => {},
-  });
-  const script = window.document.querySelector('script[nonce]');
-  assert.ok(script && script.textContent, 'rendered html must carry a nonce script');
-  window.eval(script.textContent);
-  return window.document as unknown as Document;
+// Boot the bundled Commit Tool Window entry against the host body (empty
+// `#ctw-root` + the `#intellig-init` island) and return the built document; the
+// entry builds every panel via createElement, so the DOM is the assertion
+// surface. Harnesses are disposed after each test so jsdom globals don't leak.
+const _ctwHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_ctwHarnesses.length > 0) {
+    _ctwHarnesses.pop()?.dispose();
+  }
+});
+
+function buildCtwDoc(input: IRenderInput): Document {
+  const { body } = buildCommitToolWindowBodyParts(input);
+  const h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+  _ctwHarnesses.push(h);
+  return h.document;
 }
 import type {
   IChangelist,
@@ -79,6 +76,7 @@ import { writableCommands, writableWindow } from '../../typed/windowStub';
 interface CommitToolWindowTestSurface {
   _changelists: IChangelist[];
   _handleWebviewMessage: (message: unknown) => Promise<void>;
+  _reloadState: () => Promise<void>;
 }
 function asTestSurface(tw: CommitToolWindow): CommitToolWindowTestSurface {
   return tw as unknown as CommitToolWindowTestSurface;
@@ -234,9 +232,9 @@ describe('CommitToolWindow — gearMenuItems', () => {
   });
 });
 
-// ─── renderCommitToolWindowHtml ───────────────────────────────────────────────
+// ─── rendered DOM (built by the bundled entry) ────────────────────────────────
 
-describe('CommitToolWindow — rendered DOM (built via script)', () => {
+describe('CommitToolWindow — rendered DOM (built via entry)', () => {
   it('renders both tab buttons and marks the active one', () => {
     const doc = buildCtwDoc({
       activeTab: 'shelf',
@@ -336,6 +334,10 @@ describe('CommitToolWindow — host behavior', () => {
     changelistService: IChangelistService;
     shelfService: IShelfService;
     calls: Array<{ method: string; args: unknown[] }>;
+    /** Fire to simulate an external changelist change (staging elsewhere, a git op). */
+    clChange: EventEmitter<IChangelist[]>;
+    /** Fire to simulate an external shelf change. */
+    shelfChange: EventEmitter<IShelfItem[]>;
   }
 
   /**
@@ -522,6 +524,8 @@ describe('CommitToolWindow — host behavior', () => {
       changelistService,
       shelfService,
       calls,
+      clChange,
+      shelfChange,
     };
   }
 
@@ -550,16 +554,19 @@ describe('CommitToolWindow — host behavior', () => {
     );
 
     await asTestSurface(tw)._handleWebviewMessage({ type: 'tabChange', tab: 'shelf' });
-    assert.strictEqual(
+    assert.deepStrictEqual(
       memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY),
-      'shelf',
+      { v: 1, data: 'shelf' },
       `expected active tab stored under ${COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY}, got ${JSON.stringify(Object.fromEntries(memento.store))}`
     );
     assert.strictEqual(tw.getActiveTab(), 'shelf');
 
     // Switch back
     await asTestSurface(tw)._handleWebviewMessage({ type: 'tabChange', tab: 'localChanges' });
-    assert.strictEqual(memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY), 'localChanges');
+    assert.deepStrictEqual(memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY), {
+      v: 1,
+      data: 'localChanges',
+    });
     tw.dispose();
   });
 
@@ -700,7 +707,11 @@ describe('CommitToolWindow — host behavior', () => {
         files: ['src/a.ts'],
       });
     }
-    const stored = memento.store.get(COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY) as string[];
+    const envelope = memento.store.get(COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY) as {
+      v: number;
+      data: string[];
+    };
+    const stored = envelope.data;
     assert.ok(Array.isArray(stored), 'recent messages should be persisted as an array');
     assert.strictEqual(stored.length, RECENT_MESSAGES_MAX);
     assert.strictEqual(stored[0], 'msg 24');
@@ -1083,6 +1094,151 @@ describe('CommitToolWindow — host behavior', () => {
 
     // No commit, stage, or unstage should have been called.
     assert.strictEqual(services.calls.length, 0);
+    tw.dispose();
+  });
+
+  it('re-renders the view with the freshly-loaded changelists on reload (first open / post-commit)', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      {
+        id: 'cl1',
+        name: 'ReloadRendersChangelist',
+        isDefault: true,
+        isActive: true,
+        files: [{ path: 'src/loaded.ts', status: 'modified', staged: false }],
+      },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+
+    // A resolved view that captures the html the class renders into it.
+    let html = '';
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        get html(): string {
+          return html;
+        },
+        set html(v: string) {
+          html = v;
+        },
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: () => Promise.resolve(true),
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    // Reload is the sole render in this direct-injection path. Before the fix
+    // it posted a `fullRender` message the webview never handled and never
+    // touched `webview.html`, so the loaded changelist stayed invisible until a
+    // structural interaction (empty/stale on first open).
+    await asTestSurface(tw)._reloadState();
+
+    assert.ok(
+      html.includes('ReloadRendersChangelist'),
+      'the reload must re-render the view with the freshly-loaded changelists'
+    );
+
+    tw.dispose();
+  });
+
+  // A resolved view whose webview captures the last html the class renders.
+  function injectHtmlCapturingView(tw: CommitToolWindow): { get(): string } {
+    let html = '';
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        get html(): string {
+          return html;
+        },
+        set html(v: string) {
+          html = v;
+        },
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: () => Promise.resolve(true),
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    return { get: () => html };
+  }
+
+  it('re-renders when changelists change externally (staging elsewhere / a git op)', () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const view = injectHtmlCapturingView(tw);
+
+    // Fire the service's change event as if a file were staged from another
+    // view. Before the fix the handler only cached the changelists and never
+    // re-rendered, so the Local Changes tree stayed stale until an unrelated
+    // interaction forced a full regen.
+    services.clChange.fire([
+      {
+        id: 'cl1',
+        name: 'ExternallyChangedChangelist',
+        isDefault: true,
+        isActive: true,
+        files: [{ path: 'src/elsewhere.ts', status: 'modified', staged: false }],
+      },
+    ]);
+
+    assert.ok(
+      view.get().includes('ExternallyChangedChangelist'),
+      'an external changelist change must re-render the view, not leave it stale'
+    );
+
+    tw.dispose();
+  });
+
+  it('re-renders when shelf items change externally', () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const view = injectHtmlCapturingView(tw);
+
+    services.shelfChange.fire([
+      {
+        id: 'shelf1',
+        name: 'ExternallyChangedShelf',
+        timestamp: new Date(),
+        files: [{ path: 'src/shelved.ts', diff: '' }],
+      },
+    ]);
+
+    assert.ok(
+      view.get().includes('ExternallyChangedShelf'),
+      'an external shelf change must re-render the view, not leave it stale'
+    );
+
     tw.dispose();
   });
 });

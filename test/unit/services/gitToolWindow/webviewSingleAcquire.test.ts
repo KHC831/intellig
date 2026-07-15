@@ -1,28 +1,47 @@
 /**
  * Regression: the tabbed Git tool window must call `acquireVsCodeApi()` exactly
- * ONCE across all of its inline scripts.
+ * ONCE across its whole client surface.
  *
  * `acquireVsCodeApi()` throws "An instance of the VS Code API has already been
- * acquired" on every call after the first. With the tabbed layout on (the
- * default), three inline scripts coexist in one document — the main script, the
- * tab-strip wiring, and the History behaviour. When each acquired its own
- * instance, the second and third scripts threw and never attached their
- * listeners, so (depending on render order) commit selection, tab switching,
- * and History navigation all silently died. The fix memoises the API on
- * `window` so the first script acquires and the rest reuse it.
+ * acquired" on every call after the first. The tool window used to ship three
+ * coexisting inline client scripts (main + tab strip + History behaviour), each
+ * acquiring its own handle — the second and third threw and silently died. The
+ * fix consolidates all three into the single bundled `gitToolWindow.js` entry,
+ * so the document has exactly one client script and one acquire. This test
+ * fences against a future edit reintroducing a sibling inline script (or a
+ * second acquire inside the entry).
  */
 import '../../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
-import { buildInlineScript } from '../../../../src/git-core/gitToolWindow/provider/scriptBuilder';
-import { tabStripBehaviorScript } from '../../../../src/git-core/gitToolWindow/html/commonHtml';
-import { historyTabBehaviorScript } from '../../../../src/git-core/gitToolWindow/html/historyHtml';
+import * as fs from 'fs';
+import * as path from 'path';
+import { JSDOM, VirtualConsole } from 'jsdom';
 
-function runTabbedDocumentScripts(): {
+const ENTRY_ABS = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'src',
+  'git-core',
+  'gitToolWindow',
+  'webview',
+  'gitToolWindow'
+);
+const HTML_DIR = path.join(ENTRY_ABS, '..', '..', 'html');
+
+/**
+ * Boot the bundled entry in a jsdom realm with a single counting
+ * `acquireVsCodeApi`, over a body carrying the tab strip + a History row, and
+ * report how many times it was called plus what it posted.
+ */
+function bootEntryCountingAcquire(): {
   acquireCount: number;
   doubleAcquireAttempted: boolean;
   posted: unknown[];
 } {
+  const virtualConsole = new VirtualConsole();
   const dom = new JSDOM(
     `<!DOCTYPE html><body>
       <div class="intellig-tab-strip" role="tablist">
@@ -34,14 +53,14 @@ function runTabbedDocumentScripts(): {
       </div>
       <div class="log-filter-row" data-f-branch="" data-f-author="" data-f-path="" data-f-since="" data-f-until=""></div>
     </body>`,
-    { runScripts: 'outside-only' }
+    { runScripts: 'outside-only', virtualConsole }
   );
   const { window } = dom;
 
   const posted: unknown[] = [];
   let acquireCount = 0;
   let doubleAcquireAttempted = false;
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => {
+  const acquire = (): unknown => {
     acquireCount += 1;
     if (acquireCount > 1) {
       doubleAcquireAttempted = true;
@@ -54,73 +73,96 @@ function runTabbedDocumentScripts(): {
     };
   };
 
-  const scripts = [historyTabBehaviorScript(), tabStripBehaviorScript(), buildInlineScript()];
-  for (const src of scripts) {
-    try {
-      window.eval(src);
-    } catch {
-      // Non-acquire DOM gaps are irrelevant; the acquire counter + flag carry the invariant.
-    }
-  }
+  const g = global as Record<string, unknown>;
+  const saved = {
+    window: g.window,
+    document: g.document,
+    MutationObserver: g.MutationObserver,
+    Element: g.Element,
+    Node: g.Node,
+    HTMLElement: g.HTMLElement,
+    acquireVsCodeApi: g.acquireVsCodeApi,
+  };
+  g.window = window;
+  g.document = window.document;
+  g.MutationObserver = window.MutationObserver;
+  g.Element = window.Element;
+  g.Node = window.Node;
+  g.HTMLElement = window.HTMLElement;
+  g.acquireVsCodeApi = acquire;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = acquire;
 
-  const historyTab = window.document.querySelector('[data-tab="history"]');
-  historyTab?.dispatchEvent(new window.Event('click', { bubbles: true }));
+  try {
+    delete require.cache[require.resolve(ENTRY_ABS)];
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require(ENTRY_ABS);
+
+    const historyTab = window.document.querySelector('[data-tab="history"]');
+    historyTab?.dispatchEvent(new window.Event('click', { bubbles: true }));
+  } catch {
+    // Non-acquire DOM gaps are irrelevant; the acquire counter carries the invariant.
+  } finally {
+    g.window = saved.window;
+    g.document = saved.document;
+    g.MutationObserver = saved.MutationObserver;
+    g.Element = saved.Element;
+    g.Node = saved.Node;
+    g.HTMLElement = saved.HTMLElement;
+    g.acquireVsCodeApi = saved.acquireVsCodeApi;
+    window.close();
+  }
 
   return { acquireCount, doubleAcquireAttempted, posted };
 }
 
 describe('tabbed webview acquires the VS Code API exactly once', () => {
-  it('no inline script calls acquireVsCodeApi a second time', () => {
-    const { acquireCount, doubleAcquireAttempted } = runTabbedDocumentScripts();
-    assert.strictEqual(
-      acquireCount,
-      1,
-      'the main, tab-strip, and History scripts must share one acquireVsCodeApi() call'
-    );
+  it('the bundled entry calls acquireVsCodeApi exactly once', () => {
+    const { acquireCount, doubleAcquireAttempted } = bootEntryCountingAcquire();
+    assert.strictEqual(acquireCount, 1, 'the tool window ships one client script → one acquire');
     assert.ok(
       !doubleAcquireAttempted,
-      'a second acquireVsCodeApi() throws and kills that inline script (dead tabs / commit details)'
+      'a second acquireVsCodeApi() throws and kills its script (dead tabs / commit details)'
     );
   });
 
-  it('the tab strip stays interactive (click posts tabChange) once scripts coexist', () => {
-    const { posted } = runTabbedDocumentScripts();
+  it('the tab strip stays interactive (click posts tabChange) from the single bundle', () => {
+    const { posted } = bootEntryCountingAcquire();
     assert.ok(
       posted.some((m) => (m as { type?: string }).type === 'tabChange'),
-      'clicking a tab must still post tabChange — proves the strip script survived'
+      'clicking a tab must post tabChange — proves the folded tab-strip wiring survived'
     );
   });
 
   /**
-   * Structural backstop: every executable `acquireVsCodeApi(` call across the
-   * three coexisting builder outputs must be the memoised form that assigns
-   * into `window.__intelligVscodeApi`. A bare re-acquire would throw and kill
-   * its script, so this guards against a future edit reintroducing one.
-   * Comments are stripped first so the check tracks code, not prose wording.
+   * Structural backstop: the entry has exactly ONE executable
+   * `acquireVsCodeApi(` call, carries no `window.__intelligVscodeApi` memo (the
+   * multi-script workaround is gone), and the former sibling builders no longer
+   * acquire — so a future edit can't quietly reintroduce a second client script.
+   * Comments are stripped first so the check tracks code, not prose.
    */
-  it('every acquireVsCodeApi call site memoises onto window.__intelligVscodeApi', () => {
-    const concatenated = [
-      buildInlineScript(),
-      tabStripBehaviorScript(),
-      historyTabBehaviorScript(),
-    ].join('\n');
+  it('the entry is the sole acquire site and the sibling builders acquire none', () => {
+    const strip = (s: string): string =>
+      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
-    // None of these builder strings carry `//` inside a string literal, so the
-    // line/block comment strip below only removes genuine comments.
-    const code = concatenated.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-
-    const callSites = code.match(/acquireVsCodeApi\s*\(/g) ?? [];
-    assert.ok(
-      callSites.length >= 3,
-      'expected each of the three builders to call acquireVsCodeApi'
-    );
-
-    const memoisedAssignments =
-      code.match(/__intelligVscodeApi\s*=\s*acquireVsCodeApi\s*\(/g) ?? [];
+    const entrySource = strip(fs.readFileSync(ENTRY_ABS + '.ts', 'utf8'));
+    const callSites = entrySource.match(/acquireVsCodeApi\s*\(/g) ?? [];
+    const declarations = entrySource.match(/declare function acquireVsCodeApi\s*\(/g) ?? [];
     assert.strictEqual(
-      memoisedAssignments.length,
-      callSites.length,
-      'every executable acquireVsCodeApi() must be the `window.__intelligVscodeApi = acquireVsCodeApi()` memo-set form'
+      callSites.length - declarations.length,
+      1,
+      'the entry must have exactly one executable acquireVsCodeApi() call'
     );
+    assert.ok(
+      !entrySource.includes('__intelligVscodeApi'),
+      'the window.__intelligVscodeApi memo is obsolete once the entry is the sole script'
+    );
+
+    for (const name of ['commonHtml.ts', 'historyHtml.ts']) {
+      const src = strip(fs.readFileSync(path.join(HTML_DIR, name), 'utf8'));
+      assert.ok(
+        !/acquireVsCodeApi\s*\(/.test(src),
+        `${name} must no longer acquire a webview API — its client script folded into the bundle`
+      );
+    }
   });
 });

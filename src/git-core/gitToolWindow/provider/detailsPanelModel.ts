@@ -3,8 +3,8 @@
  *
  * Part of the string→DOM webview migration: instead of the host building a
  * Details-Panel HTML string and the webview assigning it via `innerHTML`, the
- * host precomputes a plain JSON model and the inline script builds the DOM via
- * createElement (see `scriptBuilder.buildDetailsPanelDom`). Everything a
+ * host precomputes a plain JSON model and the webview entry builds the DOM via
+ * createElement (see `webview/detailsPanelDom.buildDetailsPanelDom`). Everything a
  * hostile commit message / path / author could carry crosses as data
  * (postMessage structured clone + textContent / element props), so the panel is
  * injection-proof without a host-side escape pass.
@@ -16,77 +16,19 @@
 
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
-import type { FileStatus } from '../../interfaces/IGitService';
 import type { ICommitNode } from '../../commitGraph';
 import { buildFileTree, type FileTreeNode } from '../html/fileTree';
 import { getFileStatusColor, getFileName, mergeChangedFiles } from './htmlBuilders';
 import { findIssueReferences, issueUrl } from '../../../utils/hostingLinks';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
+import type {
+  MessageToken,
+  DetailsTreeNode,
+  DetailsPanelModel,
+  IDetailsProject,
+} from './detailsPanelModel.types';
 
-/** One run of a commit message: inert text, or an issue/PR link. */
-export type MessageToken =
-  | { t: 'text'; v: string }
-  | { t: 'link'; text: string; href: string; title: string };
-
-/** A presentation-annotated file-tree node (JSON-serializable). */
-export type DetailsTreeNode =
-  | { kind: 'directory'; name: string; children: DetailsTreeNode[] }
-  | {
-      kind: 'file';
-      path: string;
-      status: FileStatus;
-      statusColor: string;
-      fileName: string;
-      oldPath?: string;
-      /** Lines added / deleted (from the diff); omitted for binary or no-line-change files. */
-      additions?: number;
-      deletions?: number;
-    };
-
-/** Details Panel render-model. The `kind` discriminator drives the builder. */
-export type DetailsPanelModel =
-  | { kind: 'placeholder' }
-  | {
-      kind: 'single';
-      messageTokens: MessageToken[];
-      bodyTokens: MessageToken[] | null;
-      hash: string;
-      authorName: string;
-      authorEmail: string;
-      dateStr: string;
-      parents: Array<{ full: string; short: string }>;
-      changedFilesError?: string;
-      changedFilesCount: number;
-      fileTree: DetailsTreeNode[];
-      /** Owning repository display name (root basename) for the files heading. */
-      projectName?: string;
-      /** Owning repository path (home abbreviated to `~`) for the files heading. */
-      projectPath?: string;
-      /**
-       * Branches containing this commit: `null` while still loading, `[]` when
-       * the commit is in no branch, else the alphabetically-sorted names.
-       */
-      containingBranches: string[] | null;
-      /** Collapse the list past this many names behind a "Show all" toggle. */
-      branchCollapseThreshold: number;
-    }
-  | {
-      kind: 'multi';
-      count: number;
-      commits: Array<{ shortHash: string; summary: string }>;
-      changedFilesCount: number;
-      fileTree: DetailsTreeNode[];
-      /** Owning repository display name (root basename) for the files heading. */
-      projectName?: string;
-      /** Owning repository path (home abbreviated to `~`) for the files heading. */
-      projectPath?: string;
-    };
-
-/** Repository identity shown in the changed-files heading. */
-export interface IDetailsProject {
-  name: string;
-  path: string;
-}
+export type { MessageToken, DetailsTreeNode, DetailsPanelModel, IDetailsProject };
 
 /**
  * Collapse threshold for the "Contained in branches" list. Past this many

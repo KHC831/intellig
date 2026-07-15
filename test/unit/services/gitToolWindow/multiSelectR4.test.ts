@@ -20,10 +20,17 @@
 
 import '../../../setup';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GitToolWindowProvider } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 import { computeMenuState } from '../../../../src/git-core/gitToolWindow/multiSelect';
+
+/** Source of the bundled Git tool-window client entry (applyMenuEnableMap lives here). */
+const ENTRY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  'utf8'
+);
 
 function mkCommit(
   hash: string,
@@ -78,7 +85,7 @@ function recordingWebview(provider: GitToolWindowProvider): {
       return Promise.resolve(true);
     },
     cspSource: 'test:',
-    asWebviewUri: (u: vscode.Uri) => u,
+    asWebviewUri: (u: unknown) => u,
   };
   (provider as unknown as { _view: unknown })._view = {
     webview,
@@ -112,10 +119,7 @@ describe('Wave A R4 — review fixes', () => {
   // payload and asserts the `title` attribute lands on the row.
   describe('R4-1 (HIGH) — applyMenuEnableMap pipes entry.reason → title attribute', () => {
     function getInlineScript(): string {
-      return provider._getThreePanelHtmlContent(
-        { cspSource: 'test:' } as unknown as vscode.Webview,
-        []
-      );
+      return ENTRY_SOURCE;
     }
 
     it('inline script reads entry.reason from menuEnableMap', () => {

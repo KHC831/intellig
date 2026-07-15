@@ -75,7 +75,7 @@ export function drainDisposables(disposables: vscode.Disposable[]): void {
  * {@link _onResolve}; super's `resolveWebviewView` will call it after the
  * standard wiring.
  */
-export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
+export abstract class BaseWebviewView<TOutbound = unknown> implements vscode.WebviewViewProvider {
   /** Current webview view handle, or `undefined` when not resolved / disposed. */
   protected _view: vscode.WebviewView | undefined;
 
@@ -191,20 +191,21 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Subclass hook: return the current `{body, script}` tuple. The base class
-   * wraps both in the authoritative CSP + nonce template. `body` is the
-   * `<body>` inner HTML (subclasses may include their own `<style>` blocks
-   * inside it); `script` is the inline JS body, injected as
-   * `<script nonce="…">${script}</script>` at end-of-body.
+   * Subclass hook: return the current `{ body }`. The base class wraps it in the
+   * authoritative CSP + nonce template and appends the end-of-body script tag —
+   * an external bundle tag when {@link _getBundleName} is set, else an empty
+   * sentinel. `body` is the `<body>` inner HTML (subclasses may include their
+   * own `<style>` blocks and the bundle's init island inside it). Client JS
+   * ships as the bundled entry, never as an inline body.
    *
    * Subclasses that instead produce a full `<!DOCTYPE html>…</html>` document
    * on their own (for tests that assert against the complete envelope — see
    * {@link import('../services/gitToolWindow/GitToolWindowProvider').GitToolWindowProvider._getThreePanelHtmlContent})
    * may override {@link _render} directly and leave `_getBodyParts` unused.
-   * The default returns an empty `{body, script}` to satisfy the contract.
+   * The default returns an empty `{ body }` to satisfy the contract.
    */
-  protected _getBodyParts(): { body: string; script: string } {
-    return { body: '', script: '' };
+  protected _getBodyParts(): { body: string } {
+    return { body: '' };
   }
 
   /**
@@ -218,12 +219,35 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
   protected abstract _handleMessage(message: unknown): void | Promise<void>;
 
   /**
+   * Subclass hook: when a bundle file name is returned, the view renders an
+   * EXTERNAL `<script nonce src=media/webview/<name>>` tag (paired with an init
+   * island the subclass bakes into its `body`) instead of the inline
+   * `${script}` block. Ported views return their bundle basename (e.g.
+   * `commitToolWindow.js`); legacy inline-script views leave the default
+   * `undefined`. A view that overrides {@link _render} directly (e.g. the git
+   * tool window provider, which builds its own document) is unaffected.
+   */
+  protected _getBundleName(): string | undefined {
+    return undefined;
+  }
+
+  /**
    * Subclass hook: the `<title>` for the wrapper document. Most views leave
    * this as the default — the browser-style title is invisible for views
    * (VS Code owns the view's display title via the view contribution).
    */
   protected _getDocumentTitle(): string {
     return 'IntelliG';
+  }
+
+  /**
+   * Post a message to the resolved webview. Typed to the view's declared
+   * outbound union (`TOutbound`) so the host can only send on-contract messages;
+   * subclasses that have not yet declared a protocol default to `unknown`. No-op
+   * when the view is unresolved / disposed.
+   */
+  protected postMessage(message: TOutbound): void {
+    void this._view?.webview.postMessage(message);
   }
 
   /**
@@ -238,8 +262,8 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
     if (!view) {
       return;
     }
-    const { body, script } = this._getBodyParts();
-    view.webview.html = this._wrapHtml(body, script);
+    const { body } = this._getBodyParts();
+    view.webview.html = this._wrapHtml(body);
   }
 
   /**
@@ -260,12 +284,12 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Authoritative HTML document template. Emits the CSP meta tag, binds the
-   * caller-supplied `script` to the nonce, and wraps `body` as-is. Subclasses
-   * must not re-template the document — they produce `{body, script}` via
-   * {@link _getBodyParts} and let this method stamp the envelope.
+   * Authoritative HTML document template. Emits the CSP meta tag, wraps `body`
+   * as-is, and appends the nonced end-of-body script tag (external bundle or
+   * empty sentinel). Subclasses must not re-template the document — they produce
+   * `{ body }` via {@link _getBodyParts} and let this method stamp the envelope.
    */
-  protected _wrapHtml(body: string, script: string): string {
+  protected _wrapHtml(body: string): string {
     const nonce = this._getNonce();
     const csp = this._buildCsp(nonce);
     const title = this._getDocumentTitle();
@@ -280,9 +304,27 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
 </head>
 <body>
 ${body}
-<script nonce="${nonce}">${script}</script>
+${this._buildScriptTag(nonce)}
 </body>
 </html>`;
+  }
+
+  /**
+   * The end-of-body script tag. An external bundle tag when
+   * {@link _getBundleName} is set (the nonce authorizes the external `src`
+   * exactly as it would an inline block, so no CSP change is needed); otherwise
+   * an empty nonced sentinel. Every IntelliG view now ships its client code as a
+   * bundled TS entry, so this base class never emits an inline script body.
+   */
+  private _buildScriptTag(nonce: string): string {
+    const bundle = this._getBundleName();
+    if (bundle !== undefined) {
+      const uri = this._view?.webview.asWebviewUri(
+        vscode.Uri.joinPath(this._extensionUri, 'media', 'webview', bundle)
+      );
+      return `<script nonce="${nonce}" src="${uri?.toString() ?? ''}"></script>`;
+    }
+    return `<script nonce="${nonce}"></script>`;
   }
 
   /**

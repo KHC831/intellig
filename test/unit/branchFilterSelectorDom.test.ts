@@ -1,88 +1,61 @@
 /**
- * Behavioral test for the inline `logFilterOptionsReady` handler populating the
- * Branch popup as a NESTED checkbox tree (multi-select). The handler must build
+ * Behavioral test for the `logFilterOptionsReady` handler populating the Branch
+ * popup as a NESTED checkbox tree (multi-select). The handler must build
  * everything via createElement (injection-proof — textContent/data-branch cross
  * as data), render an "All branches" reset + IntelliJ's grouped layout (Local +
  * per-remote), nest branch names by "/" into folders, put a data-branch checkbox
  * on each leaf, and pre-check the leaves the filter already holds.
+ *
+ * The tri-state (all / none / subset) is driven by the `.log-filter-row`'s
+ * `data-f-*` attributes, which the entry's `setupLogFilterRow` reads at boot to
+ * seed the real `filterBridge` the handler consults.
  */
 
 import '../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
-import { buildInlineScript } from '../../src/git-core/gitToolWindow/provider/scriptBuilder';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../helpers/bootWebviewEntry';
 
-/** Brace-match the `{ … }` body that follows a header regex match. */
-function extractBlockAfter(body: string, headerPattern: RegExp): string {
-  const match = headerPattern.exec(body);
-  assert.ok(match, 'header not found in inline script');
-  const open = body.indexOf('{', match.index);
-  let depth = 0;
-  for (let i = open; i < body.length; i++) {
-    if (body[i] === '{') {
-      depth++;
-    } else if (body[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        return body.substring(open, i + 1);
-      }
-    }
-  }
-  throw new Error('unbalanced braces');
-}
+const ENTRY = 'git-core/gitToolWindow/webview/gitToolWindow';
 
-/** Run the logFilterOptionsReady block in jsdom against a seeded document. */
-function runOptionsReady(dom: JSDOM, message: unknown): void {
-  const block = extractBlockAfter(buildInlineScript(), /message\.type === 'logFilterOptionsReady'/);
-  const { window } = dom;
-  (window as unknown as { message: unknown }).message = message;
-  (window as unknown as { eval: (s: string) => void }).eval(
-    'var message = window.message; ' + block
-  );
-}
+const groups = {
+  local: ['dev', 'feature/foo', 'feature/bar'],
+  remotes: [{ remote: 'origin', branches: ['origin/main'] }],
+};
 
 describe('Branch popup — client population on logFilterOptionsReady', () => {
-  // Build a DOM whose __intelligFilter bridge emulates the real tri-state:
-  // 'all' (every leaf checked), 'none' (none), or 'subset' (the given refs).
-  function makeDom(mode: 'all' | 'none' | 'subset', checked: string[] = []): JSDOM {
-    const dom = new JSDOM(
-      `<!DOCTYPE html><html><body>
-        <div class="log-filter-popup-list" id="filter-branch-list"></div>
-      </body></html>`,
-      { runScripts: 'outside-only' }
-    );
-    (dom.window as unknown as { __intelligFilter: unknown }).__intelligFilter = {
-      isBranchChecked: (name: string) =>
-        mode === 'all' ? true : mode === 'none' ? false : checked.indexOf(name) !== -1,
-      branchState: () => mode,
-      // Mirror the real syncBranchFolderChecks: reconcile folder + master from leaves.
-      syncBranchTree: () => {
-        const list = dom.window.document.getElementById('filter-branch-list');
-        if (!list) {
-          return;
-        }
-        list.querySelectorAll('input[data-action="toggleBranchFolder"]').forEach((folder) => {
-          const wrap = folder.closest('.log-filter-tree-node');
-          const leaves = wrap ? Array.from(wrap.querySelectorAll('input[data-branch]')) : [];
-          const on = leaves.filter((l) => (l as HTMLInputElement).checked).length;
-          (folder as HTMLInputElement).checked = leaves.length > 0 && on === leaves.length;
-          (folder as HTMLInputElement).indeterminate = on > 0 && on < leaves.length;
-        });
-        const master = list.querySelector('input[data-action="toggleAllBranches"]');
-        if (master) {
-          (master as HTMLInputElement).checked = mode === 'all';
-          (master as HTMLInputElement).indeterminate = mode === 'subset';
-        }
-      },
-      getAuthor: () => '',
-    };
-    return dom;
-  }
+  const booted: IWebviewEntryHarness[] = [];
 
-  const groups = {
-    local: ['dev', 'feature/foo', 'feature/bar'],
-    remotes: [{ remote: 'origin', branches: ['origin/main'] }],
-  };
+  afterEach(() => {
+    while (booted.length) {
+      booted.pop()!.dispose();
+    }
+  });
+
+  /**
+   * Boot the entry with a `.log-filter-row` whose data attributes yield the
+   * requested tri-state, plus an empty branch list, then deliver the branch
+   * options. Returns the resulting document.
+   */
+  function render(
+    mode: 'all' | 'none' | 'subset',
+    checked: string[] = [],
+    branchGroups: unknown = groups
+  ): Document {
+    const rowAttrs =
+      mode === 'none'
+        ? ' data-f-branches-none="true"'
+        : mode === 'subset'
+          ? ` data-f-branches='${JSON.stringify(checked)}'`
+          : '';
+    const h = bootWebviewEntry(ENTRY, {
+      bodyHtml:
+        `<div class="log-filter-row"${rowAttrs}></div>` +
+        `<div class="log-filter-popup-list" id="filter-branch-list"></div>`,
+    });
+    booted.push(h);
+    h.post({ type: 'logFilterOptionsReady', branchGroups });
+    return h.document;
+  }
 
   /** data-branch values of the leaf checkboxes, in document order. */
   function leafRefs(list: Element): string[] {
@@ -92,9 +65,8 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
   }
 
   it('renders a master All-branches checkbox + Local/remote sections + a checkbox per leaf', () => {
-    const dom = makeDom('all');
-    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
-    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const document = render('all');
+    const list = document.getElementById('filter-branch-list')!;
     const sections = Array.from(list.querySelectorAll('.log-filter-popup-section')).map(
       (s) => s.textContent
     );
@@ -114,9 +86,8 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
   });
 
   it('nests names by "/" into folders (feature/ holds foo + bar)', () => {
-    const dom = makeDom('all');
-    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
-    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const document = render('all');
+    const list = document.getElementById('filter-branch-list')!;
     const folders = Array.from(list.querySelectorAll('.log-filter-tree-folder')).map(
       (f) => f.textContent
     );
@@ -134,9 +105,8 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
   });
 
   it('keeps the full remote ref in data-branch while showing the short name', () => {
-    const dom = makeDom('all');
-    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
-    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const document = render('all');
+    const list = document.getElementById('filter-branch-list')!;
     const leaf = Array.from(list.querySelectorAll('input[data-branch]')).find(
       (cb) => cb.getAttribute('data-branch') === 'origin/main'
     )!;
@@ -145,9 +115,8 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
   });
 
   it('pre-checks only the leaves the subset holds, master unchecked + indeterminate', () => {
-    const dom = makeDom('subset', ['feature/foo', 'origin/main']);
-    runOptionsReady(dom, { type: 'logFilterOptionsReady', branchGroups: groups });
-    const list = dom.window.document.getElementById('filter-branch-list')!;
+    const document = render('subset', ['feature/foo', 'origin/main']);
+    const list = document.getElementById('filter-branch-list')!;
     const checkedRefs = Array.from(list.querySelectorAll('input[data-branch]'))
       .filter((cb) => (cb as HTMLInputElement).checked)
       .map((cb) => cb.getAttribute('data-branch'));
@@ -158,34 +127,30 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
   });
 
   it('checks the master only in the all state (unchecked for none)', () => {
-    const all = makeDom('all');
-    runOptionsReady(all, { type: 'logFilterOptionsReady', branchGroups: groups });
-    const allMaster = all.window.document.querySelector(
+    const allDoc = render('all');
+    const allMaster = allDoc.querySelector(
       'input[data-action="toggleAllBranches"]'
     ) as HTMLInputElement;
     assert.strictEqual(allMaster.checked, true, 'master checked when all');
 
-    const none = makeDom('none');
-    runOptionsReady(none, { type: 'logFilterOptionsReady', branchGroups: groups });
-    const noneMaster = none.window.document.querySelector(
+    const noneDoc = render('none');
+    const noneMaster = noneDoc.querySelector(
       'input[data-action="toggleAllBranches"]'
     ) as HTMLInputElement;
     assert.strictEqual(noneMaster.checked, false, 'master unchecked when none');
-    const anyLeafChecked = Array.from(
-      none.window.document.querySelectorAll('input[data-branch]')
-    ).some((cb) => (cb as HTMLInputElement).checked);
+    const anyLeafChecked = Array.from(noneDoc.querySelectorAll('input[data-branch]')).some(
+      (cb) => (cb as HTMLInputElement).checked
+    );
     assert.strictEqual(anyLeafChecked, false, 'no leaves checked in the none state');
   });
 
   it('builds rows as inert text (no markup injection)', () => {
-    const dom = makeDom('all');
-    runOptionsReady(dom, {
-      type: 'logFilterOptionsReady',
-      branchGroups: { local: ['<img src=x onerror=alert(1)>'], remotes: [] },
+    const document = render('all', [], {
+      local: ['<img src=x onerror=alert(1)>'],
+      remotes: [],
     });
-    const doc = dom.window.document;
-    assert.strictEqual(doc.querySelector('img'), null, 'no element injected');
-    const list = doc.getElementById('filter-branch-list')!;
+    assert.strictEqual(document.querySelector('img'), null, 'no element injected');
+    const list = document.getElementById('filter-branch-list')!;
     const leaf = Array.from(list.querySelectorAll('input[data-branch]')).find(
       (cb) => cb.getAttribute('data-branch') === '<img src=x onerror=alert(1)>'
     )!;

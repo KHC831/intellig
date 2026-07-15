@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import { IGitService } from '../git-core/interfaces/IGitService';
 import { computeLineStatusRanges, LineStatusKind, ILineStatusRange } from './lineStatusDiff';
 import { fetchHeadContent } from './lineStatusHead';
@@ -97,7 +98,7 @@ export class LineStatusTracker implements vscode.Disposable {
 
   /** Whether the live changed-line gutter is enabled by configuration. */
   private isEnabled(): boolean {
-    return vscode.workspace.getConfiguration('intellig').get<boolean>('lineStatus.enabled', true);
+    return readConfig('lineStatus.enabled');
   }
 
   /** Debounce updates so rapid keystrokes don't spawn a git call per character. */

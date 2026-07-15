@@ -211,16 +211,16 @@ describe('savePanelWidths', () => {
   it('should store widths in workspace state under the correct key', () => {
     const memento = createMockMemento();
     savePanelWidths(memento, [55, 45]);
-    const stored = memento.get<[number, number]>('intellig.panelWidths');
-    assert.deepStrictEqual(stored, [55, 45]);
+    const stored = memento.get('intellig.panelWidths');
+    assert.deepStrictEqual(stored, { v: 1, data: [55, 45] });
   });
 
   it('should overwrite previously stored widths', () => {
     const memento = createMockMemento();
     savePanelWidths(memento, [60, 40]);
     savePanelWidths(memento, [70, 30]);
-    const stored = memento.get<[number, number]>('intellig.panelWidths');
-    assert.deepStrictEqual(stored, [70, 30]);
+    const stored = memento.get('intellig.panelWidths');
+    assert.deepStrictEqual(stored, { v: 1, data: [70, 30] });
   });
 });
 

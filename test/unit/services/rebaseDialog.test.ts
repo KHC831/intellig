@@ -22,7 +22,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import * as vscode from 'vscode';
 import {
   RebaseDialog,
@@ -207,23 +208,23 @@ class TestRebaseDialog extends RebaseDialog {
  * the script BUILDS the body via document.createElement — the host markup
  * ships an empty root, not pre-baked controls.
  */
+const _entryHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_entryHarnesses.length > 0) {
+    _entryHarnesses.pop()?.dispose();
+  }
+});
+
+/** Boot the bundled rebase entry against the host body (incl. init island). */
 function renderRebaseDoc(dialog: TestRebaseDialog): Document {
-  const dom = new JSDOM(dialog.renderedHtml(), { runScripts: 'outside-only' });
-  const window = dom.window;
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (): void => {},
-    getState: (): void => {},
-    setState: (): void => {},
-  });
-  assert.strictEqual(
-    window.document.querySelector('#onto-select'),
-    null,
-    'controls must not be pre-baked in host markup — the script builds the DOM'
+  const bodyHtml = extractWebviewScript(dialog.renderedHtml()).bodyHtml;
+  assert.ok(
+    !/id="onto-select"/.test(bodyHtml),
+    'controls must not be pre-baked in host markup — the entry builds the DOM'
   );
-  const scriptEl = window.document.querySelector('script[nonce]');
-  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-  window.eval(scriptEl.textContent ?? '');
-  return window.document as unknown as Document;
+  const h = bootWebviewEntry('rebase/webview/rebaseDialog', { bodyHtml });
+  _entryHarnesses.push(h);
+  return h.document;
 }
 
 function makeDialog(overrides: Partial<IRebaseDialogOptions> = {}): {

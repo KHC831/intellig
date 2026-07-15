@@ -27,8 +27,9 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { GitService } from '../../../src/git-core/GitService';
 import {
   MergeDialog,
@@ -476,34 +477,31 @@ describe('MergeDialog — lifecycle', () => {
  * body via `document.createElement` — the host markup ships an empty root, not
  * pre-baked controls. Returns the live document + the posted messages.
  */
+// Boot the real bundled entry against the host body (incl. the data-init
+// island), the Phase-5 successor to eval'ing the old inline script.
+const _entryHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_entryHarnesses.length > 0) {
+    _entryHarnesses.pop()?.dispose();
+  }
+});
+
 function runMergeDialogScript(dialog: MergeDialog): {
   document: Document;
   posted: unknown[];
 } {
   const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const window = dom.window;
-  const posted: unknown[] = [];
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (m: unknown): void => {
-      posted.push(m);
-    },
-    getState: (): void => {},
-    setState: (): void => {},
-  });
+  const bodyHtml = extractWebviewScript(html).bodyHtml;
 
   // Migration contract: controls are NOT pre-baked into the host markup.
-  assert.strictEqual(
-    window.document.querySelector('input[type="checkbox"]'),
-    null,
-    'flag checkboxes must not be pre-baked in host markup — the script builds the DOM'
+  assert.ok(
+    !/type="checkbox"/.test(bodyHtml),
+    'flag checkboxes must not be pre-baked in host markup — the entry builds the DOM'
   );
 
-  const scriptEl = window.document.querySelector('script[nonce]');
-  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-  window.eval(scriptEl.textContent ?? '');
-
-  return { document: window.document as unknown as Document, posted };
+  const h = bootWebviewEntry('conflicts/webview/main', { bodyHtml });
+  _entryHarnesses.push(h);
+  return { document: h.document, posted: h.posted };
 }
 
 describe('MergeDialog — rendered DOM (script-built)', () => {

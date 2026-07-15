@@ -55,6 +55,8 @@ describe('accept side with an absent index stage (real git)', () => {
     await gitCli.exec(['-c', 'init.defaultBranch=main', 'init'], { cwd: repoPath });
     await git('config', 'user.email', 'test@example.com');
     await git('config', 'user.name', 'Test User');
+    // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+    await git('config', 'core.autocrlf', 'false');
     gitService = new GitService();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     (gitService as any)._gitCli = gitCli;

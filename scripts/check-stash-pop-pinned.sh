@@ -29,8 +29,9 @@
 #    `[^,)]+` (not a bare identifier) so a PROPERTY-ACCESS receiver such as
 #    `stashPop(this._repo, 0)` is caught too — a narrower `[A-Za-z_$…]*`
 #    pattern let that exact shape (ResetDialog Smart Reset) slip the gate.
-#    The guard runs in two modes: DEFAULT (no args) `git grep` over tracked
-#    `src`; EXPLICIT PATHS (companion spec) `grep -rnE` over the given dirs.
+#    The guard runs in two modes: DEFAULT (no args) `git grep --untracked` over
+#    tracked AND new-but-uncommitted `src` (gitignored scratch stays out);
+#    EXPLICIT PATHS (companion spec) `grep -rnE` over the given dirs.
 #
 # 3. Known false-positive cases
 #    A legitimate immediate push→pop pair with no interleaving await could
@@ -43,7 +44,7 @@ cd "$(dirname "$0")/.."
 PATTERN='\.stashPop\([^,)]+, *0[,)]'
 
 if [ "$#" -eq 0 ]; then
-  raw=$(git grep -nE "$PATTERN" -- 'src/**/*.ts' || true)
+  raw=$(git grep --untracked -nE "$PATTERN" -- 'src/**/*.ts' || true)
 else
   raw=$(grep -rnIE --include='*.ts' "$PATTERN" "$@" 2>/dev/null || true)
 fi

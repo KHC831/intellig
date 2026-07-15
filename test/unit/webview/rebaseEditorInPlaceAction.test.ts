@@ -25,7 +25,8 @@ import type {
   RebaseAction,
 } from '../../../src/git-core/interfaces/IRebaseService';
 import { Uri } from '../../mocks/vscode';
-import { runWebviewScript, IWebviewHarness } from '../../helpers/webviewHarness';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 
 function stubRebaseService(): IRebaseService {
   const emitter = new vscode.EventEmitter<IRebaseSession | undefined>();
@@ -35,7 +36,7 @@ function stubRebaseService(): IRebaseService {
   } as unknown as IRebaseService;
 }
 
-function scriptWithCommits(actions: RebaseAction[]): string {
+function initWithCommits(actions: RebaseAction[]): unknown {
   const commits = actions.map((action, i) => ({
     hash: String(i + 1).padStart(40, '0'),
     message: `commit ${i + 1}`,
@@ -49,16 +50,16 @@ function scriptWithCommits(actions: RebaseAction[]): string {
     currentStep: 0,
     status: 'planning',
   };
-  return (editor as unknown as { _getScript(p?: boolean): string })._getScript();
+  return (editor as unknown as { _getInit(p?: boolean): unknown })._getInit();
 }
 
-function boot(actions: RebaseAction[]): IWebviewHarness {
-  return runWebviewScript(scriptWithCommits(actions), {
-    bodyHtml: '<div class="rebase-editor" id="rebase-root"></div>',
-  });
+function boot(actions: RebaseAction[]): IWebviewEntryHarness {
+  const bodyHtml =
+    '<div class="rebase-editor" id="rebase-root"></div>' + initIslandHtml(initWithCommits(actions));
+  return bootWebviewEntry('rebase/webview/rebaseEditor', { bodyHtml });
 }
 
-function changeDropdown(h: IWebviewHarness, index: number, value: RebaseAction): HTMLElement {
+function changeDropdown(h: IWebviewEntryHarness, index: number, value: RebaseAction): HTMLElement {
   const selects = h.document.querySelectorAll('.action-dropdown');
   const select = selects[index] as HTMLSelectElement;
   (select as unknown as { value: string }).value = value;
@@ -67,7 +68,7 @@ function changeDropdown(h: IWebviewHarness, index: number, value: RebaseAction):
 }
 
 describe('webview: rebase editor in-place action change (jsdom)', () => {
-  let h: IWebviewHarness;
+  let h: IWebviewEntryHarness;
   afterEach(() => h && h.dispose());
 
   it('swaps the row action color class in place on a dropdown change', () => {

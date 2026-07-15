@@ -16,15 +16,15 @@ import {
 } from '../../../src/rebase/RebaseDialog';
 
 function makeStore(initial?: Record<string, unknown>): {
-  get<T>(key: string, fallback: T): T;
+  get<T>(key: string, fallback?: T): T | undefined;
   update(key: string, value: unknown): Thenable<void>;
   _data: Record<string, unknown>;
 } {
   const data: Record<string, unknown> = { ...initial };
   return {
     _data: data,
-    get<T>(key: string, fallback: T): T {
-      return (key in data ? data[key] : fallback) as T;
+    get<T>(key: string, fallback?: T): T | undefined {
+      return (key in data ? data[key] : fallback) as T | undefined;
     },
     update(key: string, value: unknown): Thenable<void> {
       data[key] = value;

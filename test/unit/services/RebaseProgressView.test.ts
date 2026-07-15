@@ -1,5 +1,8 @@
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import * as fs from 'fs';
+import * as path from 'path';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { initIslandHtml } from '../../../src/utils/webviewInit';
 import * as vscode from 'vscode';
 import {
   RebaseProgressView,
@@ -424,10 +427,13 @@ describe('RebaseProgressView', () => {
     // inspect the rendered actions HTML directly.
     interface RebaseProgressViewInternals {
       _handleRebaseResult(result: IRebaseResult): void;
-      _getScript(): string;
+      _getInit(): unknown;
     }
     const internals = (): RebaseProgressViewInternals =>
       rebaseProgressView as unknown as RebaseProgressViewInternals;
+
+    const entrySource = (): string =>
+      fs.readFileSync(path.join(process.cwd(), 'src/rebase/webview/rebaseProgressView.ts'), 'utf8');
 
     /**
      * Run the view's inline nonce'd script in jsdom against an empty
@@ -435,19 +441,20 @@ describe('RebaseProgressView', () => {
      * conflict, and action sections via document.createElement from a JSON
      * init island serialized off the current view state.
      */
+    const _harnesses: IWebviewEntryHarness[] = [];
+    afterEach(() => {
+      while (_harnesses.length > 0) {
+        _harnesses.pop()?.dispose();
+      }
+    });
+
     function buildDom(): Document {
-      const script = internals()._getScript();
-      const dom = new JSDOM(`<div class="rebase-progress" id="progress-root"></div>`, {
-        runScripts: 'outside-only',
-      });
-      const window = dom.window;
-      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-        postMessage: (): void => {},
-        getState: (): void => {},
-        setState: (): void => {},
-      });
-      window.eval(script);
-      return window.document as unknown as Document;
+      const bodyHtml =
+        '<div class="rebase-progress" id="progress-root"></div>' +
+        initIslandHtml(internals()._getInit());
+      const h = bootWebviewEntry('rebase/webview/rebaseProgressView', { bodyHtml });
+      _harnesses.push(h);
+      return h.document;
     }
 
     it('offers continue/abort/skip for a continuable conflict (rebaseInProgress:true)', async () => {
@@ -539,7 +546,7 @@ describe('RebaseProgressView', () => {
         rebaseInProgress: true,
       });
 
-      const script = internals()._getScript();
+      const script = entrySource();
       assert.ok(
         !/\son(click|change|input)\s*=/.test(script),
         'inline handler attributes are blocked by the nonce-only CSP; use data-action delegation'
@@ -647,17 +654,6 @@ describe('RebaseProgressView', () => {
     });
   });
 
-  describe('Provide Reword Message', () => {
-    it('should call provideRewordMessage on the service', async () => {
-      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
-
-      await mockRebaseService.provideRewordMessage(mockRepository, 'New commit message');
-
-      assert.strictEqual(mockRebaseService.provideRewordMessageCalled, true);
-      assert.strictEqual(mockRebaseService.lastRewordMessage, 'New commit message');
-    });
-  });
-
   describe('Integration: Control Operations Workflow', () => {
     it('should handle continue -> conflict -> skip workflow', async () => {
       await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
@@ -721,8 +717,8 @@ describe('RebaseProgressView', () => {
   });
 
   // Every RebaseProgressView action-path catch block must run the raw git
-  // stderr through `sanitizeGitError` before the toast is rendered. The four
-  // handlers (continue/abort/skip/provideRewordMessage) all surface git
+  // stderr through `sanitizeGitError` before the toast is rendered. The three
+  // handlers (continue/abort/skip) all surface git
   // stderr directly, which can carry credentialed remote URLs and POSIX home
   // paths into the user's notification history.
   describe('error toast sanitization', () => {
@@ -805,22 +801,6 @@ describe('RebaseProgressView', () => {
         assertSanitized(errors[0], 'Failed to skip commit');
       } finally {
         (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = oWarn;
-        restore();
-      }
-    });
-
-    it('_handleProvideRewordMessage failure toast sanitizes credentialed URL + home path', async () => {
-      mockRebaseService.provideRewordMessage = (): Promise<never> => Promise.reject(new Error(RAW));
-      const { errors, restore } = captureErrorToasts();
-      try {
-        await (
-          rebaseProgressView as unknown as {
-            _handleProvideRewordMessage: (m: string) => Promise<void>;
-          }
-        )._handleProvideRewordMessage('new commit message');
-        assert.strictEqual(errors.length, 1, 'expected one error toast');
-        assertSanitized(errors[0], 'Failed to update commit message');
-      } finally {
         restore();
       }
     });

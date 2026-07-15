@@ -42,14 +42,21 @@ describe('repoRelativePath (explorer git pathspec derivation)', () => {
     assert.strictEqual(repoRelativePath('/ws/repo', '/ws/repo/file0.txt'), 'file0.txt');
   });
 
+  // The absolute-fallback output IS a host path, so these pin the POSIX shape
+  // through the explicit path impl (the win32 fallback is covered by the
+  // `toRepoRelativePosix` (path.win32) cases below) — host-independent, so they
+  // pass on a Windows runner too.
   it('falls back to the absolute fsPath when the file is outside the repo', () => {
     // A bogus `../` pathspec would be silently wrong; handing git the absolute
     // path makes it surface a clear "outside repository" error instead.
-    assert.strictEqual(repoRelativePath('/repo', '/elsewhere/file.txt'), '/elsewhere/file.txt');
+    assert.strictEqual(
+      toRepoRelativePosix('/repo', '/elsewhere/file.txt', path.posix),
+      '/elsewhere/file.txt'
+    );
   });
 
   it('falls back to the absolute fsPath when asked for the repo root itself', () => {
-    assert.strictEqual(repoRelativePath('/repo', '/repo'), '/repo');
+    assert.strictEqual(toRepoRelativePosix('/repo', '/repo', path.posix), '/repo');
   });
 
   it('tolerates a trailing separator on the repo root', () => {

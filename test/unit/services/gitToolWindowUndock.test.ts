@@ -147,10 +147,10 @@ describe('GitToolWindowProvider undock to editor panel', () => {
 
     view.webview._posted.length = 0;
     panel.webview._posted.length = 0;
-    provider.postToWebview({ type: 'probe' });
+    provider.postToWebview({ type: 'commitsLoaded' });
 
     assert.strictEqual(panel.webview._posted.length, 1);
-    assert.deepStrictEqual(panel.webview._posted[0], { type: 'probe' });
+    assert.deepStrictEqual(panel.webview._posted[0], { type: 'commitsLoaded' });
     assert.strictEqual(view.webview._posted.length, 0);
   });
 
@@ -183,7 +183,7 @@ describe('GitToolWindowProvider undock to editor panel', () => {
     );
 
     view.webview._posted.length = 0;
-    provider.postToWebview({ type: 'probe' });
+    provider.postToWebview({ type: 'commitsLoaded' });
     assert.strictEqual(view.webview._posted.length, 1);
   });
 
@@ -207,7 +207,7 @@ describe('GitToolWindowProvider undock to editor panel', () => {
     assert.ok(panel.webview.html.startsWith('<!DOCTYPE html>'));
 
     panel.webview._posted.length = 0;
-    provider.postToWebview({ type: 'probe' });
+    provider.postToWebview({ type: 'commitsLoaded' });
     assert.strictEqual(panel.webview._posted.length, 1);
   });
 
@@ -416,7 +416,7 @@ describe('GitToolWindowProvider undock to editor panel', () => {
     assert.ok(first._disposeCallCount > 0, 'the replaced panel must be closed, not orphaned');
 
     second.webview._posted.length = 0;
-    provider.postToWebview({ type: 'probe' });
+    provider.postToWebview({ type: 'commitsLoaded' });
     assert.strictEqual(second.webview._posted.length, 1);
   });
 

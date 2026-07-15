@@ -39,19 +39,10 @@ describe('ConfigurationService', () => {
     it('should return all expected configuration keys', () => {
       const config = service.getConfiguration();
       const expectedKeys: (keyof IExtensionConfiguration)[] = [
-        'defaultCommitSignOff',
-        'commitMessageTemplate',
         'pullRebase',
         'autoFetchEnabled',
         'autoFetchInterval',
-        'defaultToolWindowTab',
         'blameAnnotationStyle',
-        'showStatusBarBranch',
-        'modifiedFileColor',
-        'addedFileColor',
-        'deletedFileColor',
-        'ignoredFileColor',
-        'conflictFileColor',
       ];
 
       for (const key of expectedKeys) {
@@ -68,37 +59,16 @@ describe('ConfigurationService', () => {
 
   describe('get', () => {
     it('should return boolean values for boolean settings', () => {
-      const defaultCommitSignOff = service.get('defaultCommitSignOff');
-      assert.strictEqual(typeof defaultCommitSignOff, 'boolean');
-
       const pullRebase = service.get('pullRebase');
       assert.strictEqual(typeof pullRebase, 'boolean');
 
       const autoFetchEnabled = service.get('autoFetchEnabled');
       assert.strictEqual(typeof autoFetchEnabled, 'boolean');
-
-      const showStatusBarBranch = service.get('showStatusBarBranch');
-      assert.strictEqual(typeof showStatusBarBranch, 'boolean');
     });
 
     it('should return string values for string settings', () => {
-      const commitMessageTemplate = service.get('commitMessageTemplate');
-      assert.strictEqual(typeof commitMessageTemplate, 'string');
-
-      const modifiedFileColor = service.get('modifiedFileColor');
-      assert.strictEqual(typeof modifiedFileColor, 'string');
-
-      const addedFileColor = service.get('addedFileColor');
-      assert.strictEqual(typeof addedFileColor, 'string');
-
-      const deletedFileColor = service.get('deletedFileColor');
-      assert.strictEqual(typeof deletedFileColor, 'string');
-
-      const ignoredFileColor = service.get('ignoredFileColor');
-      assert.strictEqual(typeof ignoredFileColor, 'string');
-
-      const conflictFileColor = service.get('conflictFileColor');
-      assert.strictEqual(typeof conflictFileColor, 'string');
+      const keymapPreset = service.get('keymapPreset');
+      assert.strictEqual(typeof keymapPreset, 'string');
     });
 
     it('should return number values for number settings', () => {
@@ -107,12 +77,6 @@ describe('ConfigurationService', () => {
     });
 
     it('should return valid enum values for enum settings', () => {
-      const defaultToolWindowTab = service.get('defaultToolWindowTab');
-      assert.ok(
-        ['local-changes', 'log', 'console'].includes(defaultToolWindowTab),
-        `Invalid defaultToolWindowTab: ${defaultToolWindowTab}`
-      );
-
       const blameAnnotationStyle = service.get('blameAnnotationStyle');
       assert.ok(
         ['inline', 'gutter', 'both', 'off'].includes(blameAnnotationStyle),
@@ -207,7 +171,7 @@ describe('ConfigurationService', () => {
       // Note: This test may fail in a non-VS Code environment
       // because vscode.workspace.getConfiguration is not available
       // In a real VS Code test environment, this would work
-      const result = service.update('defaultCommitSignOff', true);
+      const result = service.update('pullRebase', true);
       assert.ok(result instanceof Promise);
     });
   });
@@ -257,29 +221,16 @@ describe('getDefaultConfiguration', () => {
   it('should return expected default values', () => {
     const defaults = getDefaultConfiguration();
 
-    // Commit settings
-    assert.strictEqual(defaults.defaultCommitSignOff, false);
-    assert.strictEqual(defaults.commitMessageTemplate, '');
-
     // Pull settings
     assert.strictEqual(defaults.pullRebase, false);
     assert.strictEqual(defaults.autoFetchEnabled, true);
     assert.strictEqual(defaults.autoFetchInterval, 180);
 
     // UI settings
-    assert.strictEqual(defaults.defaultToolWindowTab, 'local-changes');
     assert.strictEqual(defaults.blameAnnotationStyle, 'inline');
-    assert.strictEqual(defaults.showStatusBarBranch, true);
 
     // Keyboard shortcuts
     assert.strictEqual(defaults.keymapPreset, 'default');
-
-    // Colors (IntelliJ-style)
-    assert.strictEqual(defaults.modifiedFileColor, '#6897BB');
-    assert.strictEqual(defaults.addedFileColor, '#629755');
-    assert.strictEqual(defaults.deletedFileColor, '#6C6C6C');
-    assert.strictEqual(defaults.ignoredFileColor, '#848504');
-    assert.strictEqual(defaults.conflictFileColor, '#FF0000');
   });
 
   it('should return a copy (not the same reference)', () => {

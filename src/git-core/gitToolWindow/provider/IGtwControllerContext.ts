@@ -2,10 +2,12 @@
 // at compile time, so the provider importing this interface while this file
 // imports the provider's type is NOT a runtime cycle — both directions must
 // stay `import type` to keep it erasable.
+import type * as vscode from 'vscode';
 import type { ICommitDetails } from '../../../services/interfaces';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
 import type { DetailsPanelModel } from './detailsPanelModel';
+import type { GitToolWindowOutbound } from '../gitToolWindow.protocol';
 
 /**
  * The slice of the Git tool window provider that extracted builder and
@@ -23,6 +25,14 @@ export interface IGtwControllerContext {
   getNonce(): string;
   /** The shared inline CSS injected into every webview HTML document. */
   getInlineStyles(): string;
+  /**
+   * `asWebviewUri` of the bundled `media/webview/gitToolWindow.js` entry for the
+   * given webview, as a string. The pre-graph documents (loading / no-repo /
+   * undocked) load the same bundle so the tool window ships one client script;
+   * the entry no-ops on the panels those documents lack and wires their action
+   * buttons (init-repo / focus-undocked).
+   */
+  getWebviewBundleUri(webview: vscode.Webview): string;
   /**
    * Fire the "load more commits" request event. Exposes only the fire
    * capability — the EventEmitter itself stays private to the provider so
@@ -87,7 +97,7 @@ export interface IGtwControllerContext {
    * webview reference stays encapsulated on the provider while the payload
    * shape stays at the call site.
    */
-  postToWebview(msg: unknown): void;
+  postToWebview(msg: GitToolWindowOutbound): void;
   /**
    * Fire the onDidSelectCommit event with the single-selected hash. Exposes
    * only the fire capability so handlers can announce the click-driven

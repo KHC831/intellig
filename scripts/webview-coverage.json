@@ -2,77 +2,65 @@
   "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer \u2014 invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' \u2014 the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet \u2014 printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
   "statuses": ["tested", "backlog"],
   "files": {
-    "src/git-core/gitToolWindow/provider/scriptBuilder.ts": {
+    "src/git-core/gitToolWindow/webview/gitToolWindow.ts": {
       "status": "tested",
-      "note": "buildInlineScript run in jsdom (toolWindowScript.test.ts)"
-    },
-    "src/git-core/gitToolWindow/html/commonHtml.ts": {
-      "status": "tested",
-      "note": "tabStripBehaviorScript run in jsdom over rendered tab strip (toolWindowHtmlPieces.test.ts)"
-    },
-    "src/git-core/gitToolWindow/html/historyHtml.ts": {
-      "status": "tested",
-      "note": "historyTabBehaviorScript run in jsdom over rendered loaded/empty history body (toolWindowHtmlPieces.test.ts)"
-    },
-    "src/git-core/gitToolWindow/provider/htmlBuilders.ts": {
-      "status": "tested",
-      "note": "buildNoRepositoryHtml inline init-repo script run in jsdom (toolWindowHtmlPieces.test.ts)"
+      "note": "bundled Git tool-window entry booted in jsdom over the three-panel body + #intellig-init island; log-filter popups, commit-row select/range-select, menu enable-map, scroll/load-more, commit + ref context menus, updateDetailsPanel, plus the folded tab-strip switch, History-tab actions, and panel-divider / column-resize persistence (toolWindowScript.test.ts, gitToolWindowProviderScript.test.ts, historyTabIntegration.test.ts, toolWindowHtmlPieces.test.ts, branchFilterSelectorDom + graph* + refPopup + branchFocus/multiSelect suites)"
     },
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
       "status": "tested",
       "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom \u2014 no behavior script (toolWindowHtmlPieces.test.ts)"
     },
-    "src/commits/CommitToolWindow.ts": {
+    "src/commits/webview/commitToolWindow.ts": {
       "status": "tested",
-      "note": "commitToolWindowBehaviorScript (localChanges + shelf tabs) run in jsdom (commitToolWindowScript.test.ts)"
+      "note": "bundled Commit Tool Window entry booted in jsdom over #ctw-root island; localChanges + shelf tabs, file/diff/composer wiring, updateFileCheckbox sync (commitToolWindowScript.test.ts, commitToolWindow.test.ts, commitToolWindow.shelfTab.test.ts, commitToolWindowGrouping.test.ts)"
     },
-    "src/commits/CommitDialog.ts": {
+    "src/commits/webview/commitDialog.ts": {
       "status": "tested",
-      "note": "_getScript inline createElement builder run in jsdom (commitDialogsScript.test.ts)"
+      "note": "bundled Commit dialog entry booted in jsdom over #root island; message/files/diff sections + partial-staging hunks/lines + data-action delegation (commitDialogsScript.test.ts, CommitDialog.test.ts, commitDialog.fixes.test.ts)"
     },
-    "src/commits/CommitMessageDialog.ts": {
+    "src/commits/webview/commitMessageDialog.ts": {
       "status": "tested",
-      "note": "base dialog that owns the inline script (SquashMessageDialog + the reword edit dialog are presets); rendered script run in jsdom (commitDialogsScript.test.ts)"
+      "note": "bundled Commit Message entry (SquashMessageDialog + reword preset share it) booted in jsdom (commitDialogsScript.test.ts)"
     },
-    "src/branches/NewBranchDialog.ts": {
+    "src/branches/webview/main.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds form + cancel wiring (branchResetScript.test.ts)"
+      "note": "bundled New Branch entry booted in jsdom; builds form + live validation + cancel wiring (branchResetScript.test.ts, newBranchDialog.test.ts)"
     },
-    "src/conflicts/MergeDialog.ts": {
+    "src/conflicts/webview/main.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds strategy flags (conflictDialogsScript.test.ts)"
+      "note": "bundled Merge dialog entry booted in jsdom; builds strategy flags + mutex + submit/cancel (conflictDialogsScript.test.ts, mergeDialog.test.ts)"
     },
-    "src/conflicts/ResolveConflictsDialog.ts": {
+    "src/conflicts/webview/resolveConflictsDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds per-file rows + handles fileResolved update (conflictDialogsScript.test.ts)"
+      "note": "bundled Resolve Conflicts entry booted in jsdom; builds per-file rows + handles updateFileStatus (conflictDialogsScript.test.ts)"
     },
-    "src/ui-shell/ResetDialog.ts": {
+    "src/ui-shell/webview/resetDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts)"
+      "note": "bundled Reset entry booted in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts, resetDialog.test.ts)"
     },
-    "src/shelf/ShelveDialog.ts": {
+    "src/shelf/webview/main.ts": {
       "status": "tested",
-      "note": "rendered shelve dialog script run in jsdom; checkbox file list + name field + shelve/cancel wiring (shelveDialogScript.test.ts)"
+      "note": "bundled Shelve dialog entry booted in jsdom; checkbox file list + name field + shelve/cancel wiring (shelveDialogScript.test.ts)"
     },
-    "src/sync/PushDialog.ts": {
+    "src/sync/webview/pushDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds push/cancel + cancel wiring (syncPatchScript.test.ts)"
+      "note": "bundled Push entry booted in jsdom; repo table + overflow + action bar + patchRow/patchOverflow (syncPatchScript.test.ts, pushDialog.test.ts)"
     },
-    "src/patches/ApplyPatchDialog.ts": {
+    "src/patches/webview/applyPatchDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds patch inputs + cancel wiring (syncPatchScript.test.ts)"
+      "note": "bundled Apply Patch entry booted in jsdom; builds patch inputs + apply/cancel + host-message handling (syncPatchScript.test.ts, applyPatchDialogDom.test.ts)"
     },
-    "src/rebase/RebaseDialog.ts": {
+    "src/rebase/webview/rebaseDialog.ts": {
       "status": "tested",
-      "note": "rendered dialog script run in jsdom; builds onto select + cancel wiring (rebaseViewsScript.test.ts)"
+      "note": "bundled Rebase entry booted in jsdom; builds onto/newbase selects + options + cancel wiring (rebaseViewsScript.test.ts, rebaseDialog.test.ts)"
     },
-    "src/rebase/RebaseEditor.ts": {
+    "src/rebase/webview/rebaseEditor.ts": {
       "status": "tested",
-      "note": "_getScript run in jsdom over #rebase-root skeleton (rebaseViewsScript.test.ts)"
+      "note": "bundled Rebase Editor entry booted in jsdom over #rebase-root island; drag-drop + action selects + reword editors (rebaseViewsScript.test.ts, RebaseEditor.test.ts)"
     },
-    "src/rebase/RebaseProgressView.ts": {
+    "src/rebase/webview/rebaseProgressView.ts": {
       "status": "tested",
-      "note": "_getScript run in jsdom over #progress-root skeleton (rebaseViewsScript.test.ts)"
+      "note": "bundled Rebase Progress entry booted in jsdom over #progress-root island (rebaseViewsScript.test.ts)"
     },
     "src/conflicts/merge-window/webview/main.ts": {
       "status": "tested",

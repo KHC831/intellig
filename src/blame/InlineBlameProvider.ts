@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from '../config/configKeys';
 import { IInlineBlameProvider } from './interfaces/IInlineBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine, IRepository } from '../git-core/interfaces/IGitService';
@@ -304,9 +305,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
    * test-seam pattern used elsewhere in this codebase.
    */
   isAnnotationStyleEnabled(): boolean {
-    const style = vscode.workspace
-      .getConfiguration('intellig')
-      .get<string>('blameAnnotationStyle', 'inline');
+    const style = readConfig('blameAnnotationStyle');
     return style === 'inline' || style === 'both';
   }
 

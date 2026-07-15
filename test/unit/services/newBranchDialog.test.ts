@@ -25,8 +25,9 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import { okAsync, errAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { CommandFailedError } from '../../../src/git-core/errors';
@@ -488,37 +489,33 @@ describe('NewBranchDialog — lifecycle', () => {
  * the script BUILDS the body via document.createElement — the host markup
  * ships an empty root, not pre-baked controls.
  */
+// Boot the real bundled entry against the host body (incl. the data-init
+// island), the Phase-5 successor to eval'ing the old inline script.
+const _entryHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_entryHarnesses.length > 0) {
+    _entryHarnesses.pop()?.dispose();
+  }
+});
+
 function runNewBranchScript(dialog: NewBranchDialog): {
   document: Document;
   window: typeof globalThis;
   posted: unknown[];
 } {
   const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const window = dom.window;
-  const posted: unknown[] = [];
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (m: unknown): void => {
-      posted.push(m);
-    },
-    getState: (): void => {},
-    setState: (): void => {},
-  });
-
-  assert.strictEqual(
-    window.document.querySelector('input#branch-name'),
-    null,
-    'controls must not be pre-baked in host markup — the script builds the DOM'
+  const bodyHtml = extractWebviewScript(html).bodyHtml;
+  assert.ok(
+    !/id="branch-name"/.test(bodyHtml),
+    'controls must not be pre-baked in host markup — the entry builds the DOM'
   );
 
-  const scriptEl = window.document.querySelector('script[nonce]');
-  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-  window.eval(scriptEl.textContent ?? '');
-
+  const h = bootWebviewEntry('branches/webview/main', { bodyHtml });
+  _entryHarnesses.push(h);
   return {
-    document: window.document as unknown as Document,
-    window: window as unknown as typeof globalThis,
-    posted,
+    document: h.document,
+    window: h.window as unknown as typeof globalThis,
+    posted: h.posted,
   };
 }
 

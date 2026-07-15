@@ -16,6 +16,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
 import { okAsync, ResultAsync } from 'neverthrow';
 import { GitService } from '../../../src/git-core/GitService';
 import { GitError } from '../../../src/git-core/errors';
@@ -54,6 +55,7 @@ interface NewRepoWatcherSurface {
   setupRepositoryWatcher: (root: string) => void;
   discoverRepository: (path: string) => Promise<void>;
   _repoScanFs: IRepoScanFs;
+  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
 }
 
 function makeFsStub(tree: Record<string, string[]>): IRepoScanFs {
@@ -109,6 +111,7 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
 
     const surface = gitService as unknown as NewRepoWatcherSurface;
     surface._gitCli = stubCli;
+    surface._repoScanPath = path.posix;
     // Stub loadRepository to record + register repo cache entries.
     surface.loadRepository = async (root: string): Promise<unknown> => {
       const fakeRepo = {
@@ -148,7 +151,9 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
       (w) =>
         w._pattern instanceof RelativePattern &&
         w._pattern.pattern === '**/.git' &&
-        w._pattern.base === folderPath
+        // Separator-agnostic: production builds the base with the host path
+        // (backslash on Windows); these fixtures use POSIX folder paths.
+        w._pattern.base.replace(/\\/g, '/') === folderPath.replace(/\\/g, '/')
     );
   }
 
@@ -269,7 +274,7 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
       (c) =>
         c.pattern instanceof RelativePattern &&
         c.pattern.pattern === '**/.git' &&
-        c.pattern.base === folderPath
+        c.pattern.base.replace(/\\/g, '/') === folderPath.replace(/\\/g, '/')
     );
     assert.ok(newRepoEntry, 'a `**/.git` watcher must be created');
     assert.strictEqual(
@@ -556,6 +561,7 @@ describe('GitService — workspace-folder removal lifecycle (Wave 10 R2 senior H
     gitService = new GitService();
     const surface = gitService as unknown as NewRepoWatcherSurface;
     surface._gitCli = stubCli;
+    surface._repoScanPath = path.posix;
   });
 
   afterEach(() => {

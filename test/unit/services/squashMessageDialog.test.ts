@@ -18,7 +18,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { extractWebviewScript } from '../../helpers/webviewHtml';
 import * as vscode from 'vscode';
 import { SquashMessageDialog } from '../../../src/commits/SquashMessageDialog';
 
@@ -69,36 +70,27 @@ function getHtml(dialog: SquashMessageDialog): string {
  * pre-baked controls. So this harness asserts the controls are absent
  * before the script runs, then present after.
  */
+const _entryHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_entryHarnesses.length > 0) {
+    _entryHarnesses.pop()?.dispose();
+  }
+});
+
 function runDialogScript(dialog: SquashMessageDialog): {
   document: Document;
   posted: unknown[];
 } {
-  const html = getHtml(dialog);
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const window = dom.window;
-  const posted: unknown[] = [];
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (m: unknown): void => {
-      posted.push(m);
-    },
-    getState: (): void => {},
-    setState: (): void => {},
-  });
-
-  // Migration contract: controls are NOT pre-baked into the host markup —
-  // the script constructs them. (Pre-migration this fails: the textarea
-  // ships in the body string.)
-  assert.strictEqual(
-    window.document.querySelector('textarea'),
-    null,
-    'controls must not be pre-baked in host markup — the script builds the DOM'
+  const bodyHtml = extractWebviewScript(getHtml(dialog)).bodyHtml;
+  // Migration contract: controls are NOT pre-baked into the host markup — the
+  // bundled entry constructs them from the init island.
+  assert.ok(
+    !/<textarea/.test(bodyHtml),
+    'controls must not be pre-baked in host markup — the entry builds the DOM'
   );
-
-  const scriptEl = window.document.querySelector('script[nonce]');
-  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
-  window.eval(scriptEl.textContent ?? '');
-
-  return { document: window.document as unknown as Document, posted };
+  const h = bootWebviewEntry('commits/webview/commitMessageDialog', { bodyHtml });
+  _entryHarnesses.push(h);
+  return { document: h.document, posted: h.posted };
 }
 
 describe('SquashMessageDialog', () => {
@@ -217,7 +209,7 @@ describe('SquashMessageDialog', () => {
       dialog.dispose();
     });
 
-    it('unicode-escapes "<" in the embedded seed so a "</script>" cannot break out', async () => {
+    it('HTML-escapes "<" in the seed island so a "</script>" cannot break out', async () => {
       const seedMessage = '</script><img src=x onerror=alert(1)> done';
       const dialog = new SquashMessageDialog(makeContext(), {
         seedMessage,
@@ -226,18 +218,15 @@ describe('SquashMessageDialog', () => {
       void dialog.prompt();
 
       const html = getHtml(dialog);
-      // The seed's literal "</script>" must NOT survive into the markup — it
-      // would close the inline <script> early and inject the trailing markup.
+      // The seed rides in a `data-init` attribute island, not an inline script.
+      // Its literal "</script>" must NOT survive raw into the markup; the island
+      // helper HTML-escapes `<`/`>` so the browser decodes it back losslessly.
+      assert.ok(!html.includes('</script><img'), 'seed must not survive raw into the markup');
       assert.ok(
-        !html.includes('</script><img'),
-        'seed must not be able to break out of the inline script'
+        html.includes('&lt;/script&gt;&lt;img'),
+        'the seed "<"/">" must be HTML-escaped in the init island'
       );
-      // It is escaped to <, which the JS string decodes back to "<".
-      assert.ok(
-        html.includes('\\u003c/script>'),
-        'the seed "<" must be unicode-escaped in the embedded JSON'
-      );
-      // And it round-trips intact into the textarea after the script runs.
+      // And it round-trips intact into the textarea after the entry boots.
       const { document } = runDialogScript(dialog);
       const textarea = document.querySelector('textarea#msg') as HTMLTextAreaElement;
       assert.strictEqual(textarea.value, seedMessage, 'the seed is assigned to the textarea');

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readConfig } from './config/configKeys';
 import {
   getExtensionServices,
   resetExtensionServices,
@@ -719,9 +720,7 @@ export function _openPushDialog(preselect?: IPushPreselect): PushDialog | undefi
     void vscode.window.showErrorMessage('No Git repository found in workspace');
     return undefined;
   }
-  const protectedBranches = vscode.workspace
-    .getConfiguration('intellig')
-    .get<string[]>('protectedBranches', []);
+  const protectedBranches = readConfig('protectedBranches');
 
   return showPushDialog(extensionContext, {
     repos,

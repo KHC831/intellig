@@ -9,41 +9,41 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { JSDOM } from 'jsdom';
 import {
   groupFilesByDirectory,
   partitionUnversionedFiles,
   isChangesGroupingMode,
-  renderCommitToolWindowHtml,
+  buildCommitToolWindowBodyParts,
 } from '../../../src/commits/CommitToolWindow';
 import type { IRenderInput } from '../../../src/commits/CommitToolWindow';
 import type {
   IChangelist,
   IFileChange,
 } from '../../../src/changelists/interfaces/IChangelistService';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 
 function file(path: string, status: IFileChange['status'] = 'modified'): IFileChange {
   return { path, status, staged: false };
 }
 
 /**
- * Render the tool window, eval its inline script in jsdom, and return the built
- * document. The Local Changes tree is now built client-side via createElement
- * from the INIT island, so the DOM is the assertion surface.
+ * Boot the bundled Commit Tool Window entry against the host body and return
+ * the built document. The Local Changes tree is built client-side via
+ * createElement from the `#intellig-init` island, so the DOM is the assertion
+ * surface. Harnesses are disposed after each test so jsdom globals don't leak.
  */
-function buildCtwDoc(input: Omit<IRenderInput, 'cspSource'>): Document {
-  const html = renderCommitToolWindowHtml({ cspSource: 'vscode-webview://mock', ...input });
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
-  const { window } = dom;
-  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
-    postMessage: (): void => {},
-    getState: (): undefined => undefined,
-    setState: (): void => {},
-  });
-  const script = window.document.querySelector('script[nonce]');
-  assert.ok(script && script.textContent, 'rendered html must carry a nonce script');
-  window.eval(script.textContent);
-  return window.document as unknown as Document;
+const _ctwHarnesses: IWebviewEntryHarness[] = [];
+afterEach(() => {
+  while (_ctwHarnesses.length > 0) {
+    _ctwHarnesses.pop()?.dispose();
+  }
+});
+
+function buildCtwDoc(input: IRenderInput): Document {
+  const { body } = buildCommitToolWindowBodyParts(input);
+  const h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+  _ctwHarnesses.push(h);
+  return h.document;
 }
 
 describe('groupFilesByDirectory', () => {
