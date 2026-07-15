@@ -18,7 +18,10 @@ export const INIT_ELEMENT_ID = 'intellig-init';
 
 /** Host side: the hidden island element carrying the JSON init payload. */
 export function initIslandHtml(init: unknown): string {
-  const escaped = JSON.stringify(init)
+  // JSON.stringify returns `undefined` (not a string) for `undefined`, a
+  // function, or a symbol — serialize those as `null` so a panel with an absent
+  // init degrades gracefully instead of throwing a TypeError here.
+  const escaped = (JSON.stringify(init) ?? 'null')
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')

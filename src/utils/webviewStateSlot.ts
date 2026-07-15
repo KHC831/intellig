@@ -31,6 +31,21 @@ interface IStateEnvelope {
   data: unknown;
 }
 
+/**
+ * True only for our own `{ v:number, data }` envelope — strict so a legacy bare
+ * value (a raw number/string/object the pre-envelope inline scripts wrote) is
+ * never mistaken for one and falls to the back-compat path below.
+ */
+function isStateEnvelope(v: unknown): v is IStateEnvelope {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    !Array.isArray(v) &&
+    typeof (v as Record<string, unknown>).v === 'number' &&
+    'data' in (v as Record<string, unknown>)
+  );
+}
+
 /** Read + validate a slot; `undefined` on absent / version-mismatch / invalid. */
 export function loadWebviewState<T>(
   api: IWebviewStateApi,
@@ -40,15 +55,20 @@ export function loadWebviewState<T>(
   if (typeof all !== 'object' || all === null) {
     return undefined;
   }
-  const env = (all as Record<string, unknown>)[slot.key];
-  if (typeof env !== 'object' || env === null) {
+  const stored = (all as Record<string, unknown>)[slot.key];
+  if (stored === undefined) {
     return undefined;
   }
-  const { v, data } = env as IStateEnvelope;
-  if (v !== slot.version) {
-    return undefined;
+  if (isStateEnvelope(stored)) {
+    if (stored.v !== slot.version) {
+      return undefined; // shape changed → drop
+    }
+    return slot.validate(stored.data);
   }
-  return slot.validate(data);
+  // Legacy bare value (pre-envelope inline scripts wrote the raw value directly
+  // onto the state object) — validate as the current version so an existing
+  // scroll/popup slot survives the upgrade instead of resetting to default.
+  return slot.validate(stored);
 }
 
 /** Write a slot's value under a versioned envelope, preserving other slots. */

@@ -123,8 +123,9 @@ export function readDate(v: unknown): Date | undefined {
 }
 
 /**
- * A record whose every value is a non-empty string array, else undefined.
- * Empty object is valid (no entries). Used by the recent-branches slot.
+ * A record whose every value is a string array (empty arrays allowed), else
+ * undefined. The empty object is valid (no entries). Used by the recent-branches
+ * slot.
  */
 export function readRecordOfStringArrays(v: unknown): Record<string, string[]> | undefined {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
