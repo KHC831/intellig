@@ -10,6 +10,19 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.4.2] - 2026-07-15
+
+### Fixed
+
+- The commit tool window now populates on first open and refreshes after you commit or roll back changes.
+- Ctrl/Cmd+C on a selected commit copies its hash again.
+- Panel dividers and column widths in the git log now stick across reloads instead of resetting on every drag.
+- The commit tool window's Stashes tab actions (apply, pop, drop, and the rest) work again instead of failing "Stash not found".
+
+### Removed
+
+- Dropped eight settings that no longer did anything, and the non-working recent-messages button in the commit tool window.
+
 ## [0.4.1] - 2026-07-13
 
 ### Fixed
