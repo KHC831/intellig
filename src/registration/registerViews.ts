@@ -83,6 +83,53 @@ export function selectBoundShelfRepo(
   return provider?.getSelectedRepository?.() ?? repositories[0];
 }
 
+/** Minimal view surface the Shelf/Stash tab binds and refreshes before an action. */
+interface IShelfTabBindableView {
+  setRepository(repo: IRepository): void;
+  refresh(): Promise<{ error?: string }>;
+}
+
+/**
+ * Bind BOTH the shelf and stash views to the tool window's selected repo and
+ * refresh them before a Shelf/Stash tab action runs. Both views back the one
+ * tab — the shelf view owns shelf rows, the stash view owns stash rows — so
+ * BOTH must carry current state. Refreshing only one leaves the other's action
+ * indexing into an empty/stale list: a stash action against an unrefreshed
+ * stash view fails "Stash not found: stash@{n}" even though the tab renders the
+ * stash (the tool window renders the list from its own `stashList` call, a
+ * separate source from the stash view's action-backing state).
+ *
+ * Returns the bound repo, or `undefined` when no repository is open. Refresh
+ * errors are reported through `logRefreshError` rather than thrown — a
+ * bind-time refresh failure is usually a transient FS race and must not block
+ * the subsequent action. Pure so the both-views-refreshed contract is
+ * unit-testable without the full view wiring.
+ */
+export async function bindShelfTabRepo(
+  provider: { getSelectedRepository?(): IRepository | undefined } | undefined,
+  repositories: readonly IRepository[],
+  shelfView: IShelfTabBindableView,
+  stashView: IShelfTabBindableView,
+  logRefreshError: (view: 'shelf' | 'stash', error: string) => void
+): Promise<IRepository | undefined> {
+  const repo = selectBoundShelfRepo(provider, repositories);
+  if (!repo) {
+    return undefined;
+  }
+  // Bind via the views' public no-side-effect seam (no QuickPick, unlike
+  // `show()`).
+  shelfView.setRepository(repo);
+  stashView.setRepository(repo);
+  const [shelfResult, stashResult] = await Promise.all([shelfView.refresh(), stashView.refresh()]);
+  if (shelfResult.error) {
+    logRefreshError('shelf', shelfResult.error);
+  }
+  if (stashResult.error) {
+    logRefreshError('stash', stashResult.error);
+  }
+  return repo;
+}
+
 /**
  * Wire the provider's initial-data request to the coalesced loader, clearing
  * the provider's cold-start latch if the load rejects. The provider latches
@@ -212,31 +259,22 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // had `.show()` called, so their internal `_repository` is `undefined`.
     // Controller methods assert `_repository` — delegate to an async helper
     // that binds it on first use from the active repo.
-    const bindShelfRepo = async (): Promise<IRepository | undefined> => {
-      // Target the tool window's SELECTED repo (the same selector the graph +
-      // log use), not an arbitrary first repo — otherwise unshelve/apply-stash
-      // can hit the wrong repository in a multi-root workspace.
-      const repo = selectBoundShelfRepo(ctx.gitToolWindowProvider, gs.getRepositories());
-      if (!repo) {
-        return undefined;
-      }
-      // Bind via the views' public no-side-effect seam (no QuickPick, unlike
-      // `show()`), replacing the former private `_repository` field poke.
-      shelfViewRef.setRepository(repo);
-      stashViewRef.setRepository(repo);
-      // refresh() returns { error? }; a bind-time refresh failure is
-      // usually a transient FS race and won't block the caller from
-      // running the subsequent unshelve/view/delete — but we mirror it
-      // into the shared OutputChannel so a persistent breakage is
-      // debuggable from `Output → IntelliG` in a shipped user's host.
-      const refreshResult = await shelfViewRef.refresh();
-      if (refreshResult.error) {
-        getOutputChannel().appendLine(
-          `[${new Date().toISOString()}] [intellig] extension.bindShelfRepo: refresh failed: ${sanitizeGitError(refreshResult.error)}`
-        );
-      }
-      return repo;
-    };
+    // Target the tool window's SELECTED repo (the same selector the graph +
+    // log use), not an arbitrary first repo — otherwise unshelve/apply-stash
+    // can hit the wrong repository in a multi-root workspace. Refresh failures
+    // are mirrored into the shared OutputChannel so a persistent breakage is
+    // debuggable from `Output → IntelliG` in a shipped user's host.
+    const bindShelfRepo = (): Promise<IRepository | undefined> =>
+      bindShelfTabRepo(
+        ctx.gitToolWindowProvider,
+        gs.getRepositories(),
+        shelfViewRef,
+        stashViewRef,
+        (view, error) =>
+          getOutputChannel().appendLine(
+            `[${new Date().toISOString()}] [intellig] extension.bindShelfTabRepo: ${view} refresh failed: ${sanitizeGitError(error)}`
+          )
+      );
 
     ctx.commitToolWindow.setShelfTabControllers(
       {
