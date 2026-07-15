@@ -439,13 +439,19 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       this._changesGrouping = persistedGrouping;
     }
 
-    // Track the underlying services' state so the next full render reflects it.
+    // Cache the underlying services' state and re-render so an external change
+    // (staging from another view, a completed git op) is reflected live rather
+    // than left stale until an unrelated interaction. `_render` is a no-op until
+    // the view resolves. Full regen is the view's only host→webview refresh path
+    // (structural change → full regen); incremental tree patching is a follow-up.
     this._disposables.push(
       this._changelistService.onDidChangeChangelists((changelists) => {
         this._changelists = changelists;
+        this._render();
       }),
       this._shelfService.onDidChangeShelf((items) => {
         this._shelfItems = items;
+        this._render();
       }),
       this._onDidCommit
     );

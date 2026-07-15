@@ -334,6 +334,10 @@ describe('CommitToolWindow — host behavior', () => {
     changelistService: IChangelistService;
     shelfService: IShelfService;
     calls: Array<{ method: string; args: unknown[] }>;
+    /** Fire to simulate an external changelist change (staging elsewhere, a git op). */
+    clChange: EventEmitter<IChangelist[]>;
+    /** Fire to simulate an external shelf change. */
+    shelfChange: EventEmitter<IShelfItem[]>;
   }
 
   /**
@@ -520,6 +524,8 @@ describe('CommitToolWindow — host behavior', () => {
       changelistService,
       shelfService,
       calls,
+      clChange,
+      shelfChange,
     };
   }
 
@@ -1142,6 +1148,95 @@ describe('CommitToolWindow — host behavior', () => {
     assert.ok(
       html.includes('ReloadRendersChangelist'),
       'the reload must re-render the view with the freshly-loaded changelists'
+    );
+
+    tw.dispose();
+  });
+
+  // A resolved view whose webview captures the last html the class renders.
+  function injectHtmlCapturingView(tw: CommitToolWindow): { get(): string } {
+    let html = '';
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        get html(): string {
+          return html;
+        },
+        set html(v: string) {
+          html = v;
+        },
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: () => Promise.resolve(true),
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    return { get: () => html };
+  }
+
+  it('re-renders when changelists change externally (staging elsewhere / a git op)', () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const view = injectHtmlCapturingView(tw);
+
+    // Fire the service's change event as if a file were staged from another
+    // view. Before the fix the handler only cached the changelists and never
+    // re-rendered, so the Local Changes tree stayed stale until an unrelated
+    // interaction forced a full regen.
+    services.clChange.fire([
+      {
+        id: 'cl1',
+        name: 'ExternallyChangedChangelist',
+        isDefault: true,
+        isActive: true,
+        files: [{ path: 'src/elsewhere.ts', status: 'modified', staged: false }],
+      },
+    ]);
+
+    assert.ok(
+      view.get().includes('ExternallyChangedChangelist'),
+      'an external changelist change must re-render the view, not leave it stale'
+    );
+
+    tw.dispose();
+  });
+
+  it('re-renders when shelf items change externally', () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const view = injectHtmlCapturingView(tw);
+
+    services.shelfChange.fire([
+      {
+        id: 'shelf1',
+        name: 'ExternallyChangedShelf',
+        timestamp: new Date(),
+        files: [{ path: 'src/shelved.ts', diff: '' }],
+      },
+    ]);
+
+    assert.ok(
+      view.get().includes('ExternallyChangedShelf'),
+      'an external shelf change must re-render the view, not leave it stale'
     );
 
     tw.dispose();
