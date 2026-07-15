@@ -26,6 +26,8 @@ describe('ShelfService.getShelvedFileContent', () => {
     await gitCli.exec(['init'], { cwd: testRepoPath });
     await gitCli.exec(['config', 'user.email', 'test@example.com'], { cwd: testRepoPath });
     await gitCli.exec(['config', 'user.name', 'Test User'], { cwd: testRepoPath });
+    // Pin LF so checkouts don't come back CRLF under Windows' default autocrlf.
+    await gitCli.exec(['config', 'core.autocrlf', 'false'], { cwd: testRepoPath });
 
     const testFile = path.join(testRepoPath, 'test.txt');
     fs.writeFileSync(testFile, 'line1\nline2\nline3\n');
