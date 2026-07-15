@@ -280,7 +280,12 @@ export function transformRebaseTodo(
     }
     consumed.add(group);
     const subjectSuffix = group.subject ? ` ${group.subject}` : '';
-    const overridePath = shellQuote(path.join(gitDir, messageOverrideFileName(entry.hash)));
+    // Forward-slash the path: this exec line is run by git's sh, which mangles
+    // OS-native backslash paths on Windows (C:\a\.git → C:a.git). git accepts
+    // forward slashes on every platform, and the conversion is a no-op on POSIX.
+    const overridePath = shellQuote(
+      path.join(gitDir, messageOverrideFileName(entry.hash)).replace(/\\/g, '/')
+    );
     const amendExec = `exec git commit --amend -F ${overridePath} --no-edit`;
     if (hasRewordOverride(entry)) {
       // User pre-typed a message in the planning UI (H1 parity). Emit 'pick'

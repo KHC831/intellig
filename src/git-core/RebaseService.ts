@@ -44,6 +44,36 @@ interface IGitServiceWithCli {
   gitCli: GitCli;
 }
 
+/** POSIX-normalize a path so git's sh accepts it on Windows (no-op on POSIX). */
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/** Single-quote a value for a `/bin/sh` command line. */
+function shellQuoteSh(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Build the GIT_SEQUENCE_EDITOR shim: a `#!/bin/sh` script that runs our Node
+ * editor entry on git's todo file. git invokes the sequence editor THROUGH sh on
+ * every platform, so both the script path git is handed and the nodeBin /
+ * editorJs paths inside it must be forward-slash — an OS-native backslash path
+ * is mangled by sh on Windows (C:\a\.git → C:a.git → "command not found").
+ * Forward-slashing is a no-op on POSIX, so macOS/Linux output is unchanged.
+ */
+export function buildSequenceEditorScript(args: {
+  gitDir: string;
+  nodeBin: string;
+  editorJsPath: string;
+}): { scriptPath: string; scriptBody: string } {
+  const scriptPath = toPosixPath(path.join(args.gitDir, 'rebase-todo-script.sh'));
+  const scriptBody = `#!/bin/sh
+ELECTRON_RUN_AS_NODE=1 ${shellQuoteSh(toPosixPath(args.nodeBin))} ${shellQuoteSh(toPosixPath(args.editorJsPath))} "$1"
+`;
+  return { scriptPath, scriptBody };
+}
+
 export class RebaseService implements IRebaseService {
   private _gitCli: GitCli;
   /**
@@ -463,12 +493,11 @@ export class RebaseService implements IRebaseService {
     // The editor is its OWN esbuild bundle (`npm run build:sequence-editor`)
     // emitted next to dist/extension.js, so the __dirname sibling resolves in
     // the shipped layout; check:vsix-clean pins it in the runtime manifest.
-    const todoScriptPath = path.join(this.gitDir(repo), 'rebase-todo-script.sh');
-    const editorJsPath = path.join(__dirname, 'rebaseTodoEditor.js');
-    const nodeBin = process.execPath;
-    const todoScript = `#!/bin/sh
-ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPath)} "$1"
-`;
+    const { scriptPath: todoScriptPath, scriptBody: todoScript } = buildSequenceEditorScript({
+      gitDir: this.gitDir(repo),
+      nodeBin: process.execPath,
+      editorJsPath: path.join(__dirname, 'rebaseTodoEditor.js'),
+    });
 
     // Write the script file atomically (write-to-temp + rename).
     // Preserves mode 0o755 so git can exec the sequence editor. See
@@ -519,10 +548,6 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
    * (handles spaces and shell metacharacters in install paths). Embedded
    * single quotes are escaped via the standard `'\''` idiom.
    */
-  private shellQuote(value: string): string {
-    return `'${value.replace(/'/g, `'\\''`)}'`;
-  }
-
   /**
    * Handle the result of a rebase operation.
    * Detects paused states for edit/reword actions and conflict states.
