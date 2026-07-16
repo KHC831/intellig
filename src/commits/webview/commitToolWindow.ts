@@ -766,6 +766,13 @@ function wireControls(): void {
       if (doneField) {
         doneField.value = '';
       }
+      // Mirror the host's post-commit composer reset: the commit payload reads
+      // this checkbox from the DOM, so a stuck box would silently amend the
+      // commit that was just made. Sign-off is a sticky preference and stays.
+      const amendChk = document.querySelector<HTMLInputElement>('.ctw-chk-amend');
+      if (amendChk) {
+        amendChk.checked = false;
+      }
     }
   });
 }

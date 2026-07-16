@@ -294,4 +294,41 @@ describe('webview: Commit Tool Window live updates (jsdom)', () => {
     h.post(updateModelMessage(['src/a.ts', 'src/b.ts'], []));
     assert.strictEqual(ta.value, 'undone msg', 'a live update must never write the composer (I7)');
   });
+
+  it('T17: a successful commitDone clears the amend checkbox but keeps sign-off', () => {
+    boot(['src/a.ts']);
+    const doc = h.document;
+    const ta = doc.querySelector<HTMLTextAreaElement>('.ctw-composer-msg');
+    const amend = doc.querySelector<HTMLInputElement>('.ctw-chk-amend');
+    const signOff = doc.querySelector<HTMLInputElement>('.ctw-chk-signoff');
+    assert.ok(ta && amend && signOff, 'composer controls present after boot');
+    ta.value = 'amended msg';
+    amend.checked = true;
+    signOff.checked = true;
+
+    h.post({ type: 'commitDone', success: true });
+
+    assert.strictEqual(ta.value, '', 'message clears after a successful commit');
+    assert.strictEqual(
+      amend.checked,
+      false,
+      'amend clears after every successful commit (the host reset must reach the DOM the payload reads — a stuck box silently amends the commit just made)'
+    );
+    assert.strictEqual(signOff.checked, true, 'sign-off is a sticky preference and persists');
+  });
+
+  it('T17b: a failed commitDone leaves the composer state untouched', () => {
+    boot(['src/a.ts']);
+    const doc = h.document;
+    const ta = doc.querySelector<HTMLTextAreaElement>('.ctw-composer-msg');
+    const amend = doc.querySelector<HTMLInputElement>('.ctw-chk-amend');
+    assert.ok(ta && amend);
+    ta.value = 'still mine';
+    amend.checked = true;
+
+    h.post({ type: 'commitDone', success: false });
+
+    assert.strictEqual(ta.value, 'still mine', 'a failed commit must not clear the message');
+    assert.strictEqual(amend.checked, true, 'a failed commit must not reset amend');
+  });
 });
