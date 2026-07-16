@@ -15,6 +15,7 @@ import {
   IRebaseSession,
   IRebaseAction,
   IRebaseResult,
+  REBASE_ROOT,
 } from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
@@ -24,7 +25,7 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
-import { isHexObjectId } from '../git-core/gitDirMarkers';
+import { findBlockingOperation, isHexObjectId, resolveGitDir } from '../git-core/gitDirMarkers';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import {
   isSelectionContiguous,
@@ -35,6 +36,7 @@ import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
 import { CommitMessageDialog } from './CommitMessageDialog';
+import { CommitDialog } from './CommitDialog';
 import { buildSquashRebasePlan } from './squashPlan';
 import {
   detectLocalChanges,
@@ -100,6 +102,17 @@ export class CommitContextMenuCommands {
   private _gitCli: GitCli;
   private _conflictResolutionService: IConflictResolutionService | undefined;
   private _commitComposer?: { prefillComposerMessage(message: string): void };
+
+  /**
+   * Late-bound changelist seam for Undo Commit's target-changelist chooser
+   * (IntelliJ GitUncommitAction's ChangeListChooser). Optional — without it
+   * the uncommitted changes land in the current default changelist.
+   */
+  private _changelistService?: {
+    getChangelists(repo: IRepository): { id: string; name: string; isDefault?: boolean }[];
+    createChangelist(repo: IRepository, name: string): { id: string; name: string };
+    moveToChangelist(repo: IRepository, files: string[], changelistId: string): void;
+  };
   // late-bound by extension.ts via {@link setRebaseEditorOpener}; opens the
   // interactive-rebase plan editor (RebaseEditor singleton) for a repo onto
   // a base commit.
@@ -154,6 +167,13 @@ export class CommitContextMenuCommands {
    */
   setCommitComposer(composer: { prefillComposerMessage(message: string): void }): void {
     this._commitComposer = composer;
+  }
+
+  /** Late-bind the changelist service (see {@link _changelistService}). */
+  setChangelistService(
+    service: NonNullable<CommitContextMenuCommands['_changelistService']>
+  ): void {
+    this._changelistService = service;
   }
 
   /**
@@ -570,10 +590,11 @@ export class CommitContextMenuCommands {
     const cwd = repo.rootUri.fsPath;
     const shortHash = hash.substring(0, 8);
 
-    // 1. Safety: must be the HEAD commit. Dropping selected changes from
-    //    an ancestor requires interactive rebase with a scripted editor,
-    //    which is out of scope right now. Surface an explanatory toast
-    //    so the user knows this is intentional.
+    // 1. HEAD probe — selects the strategy, not a gate: HEAD rewrites via
+    //    the soft-reset + re-commit fast path (no rebase); any other commit
+    //    rides the history-rewrite runner with an `edit` pause (reference:
+    //    the rebase-based GitDropSelectedChangesOperation works on ANY
+    //    commit).
     let isHead = false;
     try {
       const headResult = await this._gitCli.exec(['rev-parse', 'HEAD'], { cwd });
@@ -581,28 +602,25 @@ export class CommitContextMenuCommands {
         isHead = headResult.stdout.trim() === hash;
       }
     } catch (error) {
-      // Treat unknown state as "not HEAD" — safer default. Log the probe
-      // fault so it stays visible behind the user-facing toast.
+      // Treat unknown state as "not HEAD" — the rebase path handles any
+      // commit. Log the probe fault so it stays visible.
       getLogger()
         .child({ component: 'CommitContextMenuCommands' })
         .debug('dropSelectedChanges: HEAD probe failed', {
           err: error instanceof Error ? error.message : String(error),
         });
     }
-    if (!isHead) {
-      void vscode.window.showErrorMessage(
-        `Drop Selected Changes is only supported on the most recent commit in this release. ` +
-          `${shortHash} is not HEAD.`
-      );
+
+    // 2. Safety: refuse while a rebase/sequencer is live (IntelliJ Prohibit
+    //    policy) — a soft-reset mid-rebase corrupts the detached-HEAD state.
+    if (!(await this._isNoOperationInProgress(repo, 'Drop selected changes'))) {
       return;
     }
 
-    // 2. Safety: refuse on pushed commits (force-push territory).
-    if (await this._isCommitPushed(cwd, hash)) {
-      void vscode.window.showErrorMessage(
-        `${shortHash} has already been pushed. Drop Selected Changes would rewrite published ` +
-          `history — use the reset/force-push workflow instead.`
-      );
+    // 2b. Safety: refuse on commits published to a protected branch. (The
+    //    reference blocks the protected list only — findProtectedRemoteBranch
+    //    — not pushed-anywhere; unprotected published history stays editable.)
+    if (!(await this._isNotOnProtectedBranch(cwd, hash, 'Drop Selected Changes'))) {
       return;
     }
 
@@ -615,6 +633,12 @@ export class CommitContextMenuCommands {
         `${shortHash} is a merge commit. Drop Selected Changes cannot run on a merge — ` +
           `use Reset to a non-merge ancestor instead.`
       );
+      return;
+    }
+
+    // 3b. Non-HEAD rides a `hash~1..HEAD` rebase — same containment
+    //     requirement as every other history-rewriting flow.
+    if (!isHead && !(await this._isOldestInCurrentBranch(repo, hash))) {
       return;
     }
 
@@ -649,7 +673,17 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // 4. Single destructive-op confirm (safety policy).
+    // 4a. All-files selection removes the whole commit — the arm the
+    //     reference DISABLES (GitDropSelectedChangesAction: "use Drop
+    //     Commit"). Refuse with the same redirect.
+    if (dropPicks.length === diffs.length) {
+      void vscode.window.showErrorMessage(
+        `Dropping every file removes commit ${shortHash} entirely — use Drop Commit instead.`
+      );
+      return;
+    }
+
+    // 4b. Single destructive-op confirm (safety policy).
     const confirm = await vscode.window.showWarningMessage(
       `Drop ${dropPicks.length} file(s) from commit ${shortHash}? This rewrites history.`,
       { modal: true },
@@ -661,7 +695,14 @@ export class CommitContextMenuCommands {
     }
 
     const droppedPaths = dropPicks.map((p) => p.path);
-    const keptPaths = diffs.map((d) => d.path).filter((p) => !droppedPaths.includes(p));
+    const diffByPath = new Map(diffs.map((d) => [d.path, d]));
+
+    // Non-HEAD: ride the shared runner with an edit-pause rewrite; the fast
+    // path below is HEAD-only (soft reset needs HEAD to be the target).
+    if (!isHead) {
+      await this._dropSelectedChangesViaRebase(repo, hash, droppedPaths, diffByPath);
+      return;
+    }
 
     // Map each dropped file to a restore-to-HEAD request for the shared
     // writer (which owns the added/renamed/tracked partition): an ADDED file
@@ -670,7 +711,6 @@ export class CommitContextMenuCommands {
     // source is what gets restored; modified/deleted restore in place. At
     // apply time HEAD IS the parent (post soft-reset), so `inHead` is decided
     // against the parent tree.
-    const diffByPath = new Map(diffs.map((d) => [d.path, d]));
     const restoreRequests: IRestoreToHeadRequest[] = droppedPaths.map((p) => {
       const diff = diffByPath.get(p);
       const status = diff?.status;
@@ -745,19 +785,13 @@ export class CommitContextMenuCommands {
             ? `; ${addedDropped.length} file(s) new in this commit remain on disk as untracked: ${addedDropped.join(', ')}`
             : '';
 
-        if (keptPaths.length > 0) {
-          // Re-commit with original author + message from the saved hash.
-          await this._gitCli.exec(['commit', '-C', hash], { cwd, throwOnError: true });
-          void vscode.window.showInformationMessage(
-            `Dropped ${droppedPaths.length} file(s) from ${shortHash}${untrackedNote}`
-          );
-        } else {
-          // Every file dropped → the commit effectively disappears. HEAD
-          // is already at the parent after the soft-reset.
-          void vscode.window.showInformationMessage(
-            `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped)${untrackedNote}.`
-          );
-        }
+        // Re-commit with original author + message from the saved hash. At
+        // least one file is always kept — the all-files selection was
+        // refused above (Drop Commit's job).
+        await this._gitCli.exec(['commit', '-C', hash], { cwd, throwOnError: true });
+        void vscode.window.showInformationMessage(
+          `Dropped ${droppedPaths.length} file(s) from ${shortHash}${untrackedNote}`
+        );
       } catch (innerError) {
         // Something failed after the soft-reset removed the commit from HEAD.
         // Restore the original commit pointer (best-effort). Note: soft-reset
@@ -802,13 +836,106 @@ export class CommitContextMenuCommands {
   }
 
   /**
+   * Drop selected files from a NON-HEAD commit by riding the shared
+   * history-rewrite runner: the target pauses at an `edit` step (HEAD is
+   * then the target itself), the dropped changes are unwound in place —
+   * paths the commit ADDED are removed (index + worktree, so descendant
+   * replays that re-touch them apply cleanly), everything else restores
+   * from the parent (`HEAD^`, always present there) — the commit is amended
+   * preserving its message + author, and the rebase continues. Descendant
+   * replays that conflict pause into the resolve dialog like every other
+   * runner flow. Reference: the rebase-based
+   * GitDropSelectedChangesOperation (git4idea
+   * rebase/log/changes/GitDropSelectedChangesAction.kt).
+   */
+  private async _dropSelectedChangesViaRebase(
+    repo: IRepository,
+    hash: string,
+    droppedPaths: string[],
+    diffByPath: Map<string, { status: string; oldPath?: string }>
+  ): Promise<void> {
+    const cwd = repo.rootUri.fsPath;
+    const shortHash = hash.substring(0, 8);
+    try {
+      await this._runHistoryRewrite(repo, {
+        onto: `${hash}~1`,
+        oldest: hash,
+        opLabel: 'Drop selected changes',
+        target: 'drop',
+        successToast: `Dropped ${droppedPaths.length} file(s) from ${shortHash}`,
+        buildPlan: (session) => {
+          const targetCommit = session.commits.find(
+            (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
+          );
+          if (!targetCommit) {
+            void vscode.window.showErrorMessage(`Commit ${shortHash} not found in rebase session.`);
+            return 'stale';
+          }
+          return session.commits.map((c) =>
+            c.hash === targetCommit.hash
+              ? { hash: c.hash, action: 'edit' as const }
+              : { hash: c.hash, action: c.action }
+          );
+        },
+        drivePaused: async (first) => {
+          if (!(first.success && first.status === 'paused')) {
+            // Conflict / cleared-stale before the edit step — the runner's
+            // outcome switch owns it.
+            return first;
+          }
+          for (const p of droppedPaths) {
+            const diff = diffByPath.get(p);
+            const status = diff?.status;
+            if (status === 'added' || status === 'renamed' || status === 'copied') {
+              await this._gitCli.exec(['rm', '-f', '--', p], { cwd, throwOnError: true });
+              if ((status === 'renamed' || status === 'copied') && diff?.oldPath) {
+                await this._gitCli.exec(['checkout', 'HEAD^', '--', diff.oldPath], {
+                  cwd,
+                  throwOnError: true,
+                });
+              }
+            } else {
+              await this._gitCli.exec(['checkout', 'HEAD^', '--', p], {
+                cwd,
+                throwOnError: true,
+              });
+            }
+          }
+          await this._gitCli.exec(['commit', '--amend', '-C', 'HEAD'], {
+            cwd,
+            throwOnError: true,
+          });
+          return this._rebaseService.continueRebase(repo);
+        },
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to drop changes from ${shortHash}: ${sanitizeGitError(errorMessage)}. ` +
+          `A rebase may be paused — use the Rebase Progress panel to continue or abort.`
+      );
+      await this._gitService.reloadRepository(repo);
+      this._gitToolWindowProvider.refresh();
+    }
+  }
+
+  /**
    * Return true when the given commit is reachable from any remote-tracking
    * branch — i.e., someone has already pushed it somewhere.
    *
    * Uses `git branch --contains <hash> --remotes`. An empty output means
    * no remote branch contains the commit, so it's safe to rewrite.
+   *
+   * Probe failures resolve to `probeFailureMeansPushed` (default `true`):
+   * rewrite guards stay conservative (assume pushed, block the rewrite),
+   * while the cherry-pick `-x` suffix passes `false` — provenance is
+   * annotated only for commits KNOWN to be published.
    */
-  private async _isCommitPushed(cwd: string, hash: string): Promise<boolean> {
+  private async _isCommitPushed(
+    cwd: string,
+    hash: string,
+    probeFailureMeansPushed = true
+  ): Promise<boolean> {
     // `hash` is passed positionally to `git branch --contains <hash>`, which has
     // no `--end-of-options`. It is always a git SHA in practice; reject anything
     // that is not a valid hex object name before exec as a defensive guard.
@@ -821,14 +948,89 @@ export class CommitContextMenuCommands {
     try {
       const res = await this._gitCli.exec(['branch', '--remotes', '--contains', hash], { cwd });
       if (res.exitCode !== 0) {
-        // Be conservative — if the query failed, assume pushed so we don't
-        // rewrite anything the user might regret.
-        return true;
+        return probeFailureMeansPushed;
       }
       return res.stdout.trim().length > 0;
     } catch {
+      return probeFailureMeansPushed;
+    }
+  }
+
+  /**
+   * Name of the first remote branch that both contains `hash` and matches an
+   * `intellig.protectedBranches` entry, or `undefined` when none does.
+   *
+   * `git branch --remotes --contains` lists names like `origin/main`; a
+   * branch matches when its remote-stripped name (`main`) or its full name
+   * equals a configured entry. Fails OPEN on probe failure (logged): the
+   * gate is a parity guard on top of each flow's own confirms, and a broken
+   * probe must not block every rewrite.
+   */
+  private async _findProtectedRemoteBranch(cwd: string, hash: string): Promise<string | undefined> {
+    const protectedBranches = new Set(this._readProtectedBranches());
+    if (protectedBranches.size === 0 || !isHexObjectId(hash, { allowPrefix: true })) {
+      return undefined;
+    }
+    try {
+      const res = await this._gitCli.exec(['branch', '--remotes', '--contains', hash], { cwd });
+      if (res.exitCode !== 0) {
+        getLogger()
+          .child({ component: 'CommitContextMenuCommands' })
+          .debug('protected-branch probe failed; gate degrades open', {
+            exitCode: res.exitCode,
+          });
+        return undefined;
+      }
+      const names = res.stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        // `origin/HEAD -> origin/main` symref lines: keep the left-hand name.
+        .map((l) => l.split(/\s+/)[0]);
+      for (const name of names) {
+        const short = name.includes('/') ? name.slice(name.indexOf('/') + 1) : name;
+        if (protectedBranches.has(short) || protectedBranches.has(name)) {
+          return name;
+        }
+      }
+      return undefined;
+    } catch (error) {
+      getLogger()
+        .child({ component: 'CommitContextMenuCommands' })
+        .debug('protected-branch probe failed; gate degrades open', {
+          err: error instanceof Error ? error.message : String(error),
+        });
+      return undefined;
+    }
+  }
+
+  /**
+   * Protected-branch gate shared by every history-rewriting flow (the
+   * rewrite runner, undo commit, drop selected changes): a commit contained
+   * in a remote branch matching `intellig.protectedBranches` must not be
+   * rewritten — IntelliJ blocks every commit-editing action on such commits
+   * (GitCommitEditingActionBase.kt checkCommitsCanBeEdited /
+   * lastCheckCommitsEditingAvailability, findProtectedRemoteBranch).
+   * Checking one commit — the OLDEST being rewritten — suffices: a rewritten
+   * descendant on a protected branch implies its ancestors are on it too.
+   *
+   * Returns `true` to proceed; toasts the refusal naming the branch otherwise.
+   */
+  private async _isNotOnProtectedBranch(
+    cwd: string,
+    hash: string,
+    opLabel: string
+  ): Promise<boolean> {
+    const protectedBranch = await this._findProtectedRemoteBranch(cwd, hash);
+    if (protectedBranch === undefined) {
       return true;
     }
+    void vscode.window.showErrorMessage(
+      `${opLabel} refused: commit ${hash.substring(0, 8)} is already on protected branch ` +
+        `'${protectedBranch}'. Rewriting protected published history is blocked ` +
+        `(intellig.protectedBranches).`
+    );
+    return false;
   }
 
   /**
@@ -894,13 +1096,33 @@ export class CommitContextMenuCommands {
       // mainline). If the probe fails (e.g. network/bad hash), fall back to no
       // mainline — git will surface its own "is a merge" error in that edge case.
       const hasMerge = await this._anyIsMergeCommit(repo, replayOrder).catch(() => false);
-      let cherryOptions: { mainline: number } | undefined;
+      let cherryOptions: { mainline?: number; addCherryPickedFrom?: boolean } | undefined;
       if (hasMerge) {
         const picked = await this._pickMainlineParent(repo, replayOrder);
         if (picked.cancelled) {
           return;
         }
         cherryOptions = { mainline: picked.mainline };
+      }
+
+      // "(cherry picked from commit <hash>)" suffix for published commits —
+      // IntelliJ applies `-x` per commit when the setting is on and the commit
+      // is published (CherryPickProcess.kt shouldAddSuffix). Our single git
+      // invocation annotates all-or-none, so require EVERY picked commit to be
+      // published: the newest picked commit publishes its ancestors, but a
+      // multi-select need not be one chain, so probe each.
+      if (readConfig('addCherryPickedFromSuffix')) {
+        const cwd = repo.rootUri.fsPath;
+        let allPublished = true;
+        for (const h of replayOrder) {
+          if (!(await this._isCommitPushed(cwd, h, /* probeFailureMeansPushed */ false))) {
+            allPublished = false;
+            break;
+          }
+        }
+        if (allPublished) {
+          cherryOptions = { ...cherryOptions, addCherryPickedFrom: true };
+        }
       }
 
       const result = await this._gitService.cherryPick(repo, replayOrder, cherryOptions).match(
@@ -2184,6 +2406,13 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // Protected-branch gate: IntelliJ's GitUncommitAction rides the shared
+    // commit-editing base gates, which block a commit contained in a
+    // protected remote branch.
+    if (!(await this._isNotOnProtectedBranch(repo.rootUri.fsPath, hash, 'Undo commit'))) {
+      return;
+    }
+
     // Capture the message BEFORE the reset so it can be restored to the
     // composer afterward (IntelliJ repopulates the message on uncommit).
     let undoneMessage = '';
@@ -2193,12 +2422,65 @@ export class CommitContextMenuCommands {
       undoneMessage = '';
     }
 
+    // Target-changelist chooser (IntelliJ GitUncommitAction.java:60-68):
+    // when changelists are available, the user picks where the uncommitted
+    // changes land — an existing list or a new one suggested from the
+    // commit subject. Cancel cancels the undo. Resolved BEFORE the reset so
+    // a cancel has no side effects.
+    let moveFilesTo: string | undefined;
+    if (this._changelistService) {
+      const subject = undoneMessage.split('\n')[0].slice(0, 60).trim();
+      interface IChooserItem extends vscode.QuickPickItem {
+        changelistId?: string;
+        createNamed?: string;
+      }
+      const items: IChooserItem[] = [];
+      if (subject) {
+        items.push({
+          label: `$(add) New changelist: '${subject}'`,
+          createNamed: subject,
+        });
+      }
+      for (const list of this._changelistService.getChangelists(repo)) {
+        items.push({
+          label: list.name,
+          description: list.isDefault ? 'default' : undefined,
+          changelistId: list.id,
+        });
+      }
+      const picked = await vscode.window.showQuickPick(items, {
+        title: 'Undo Commit — move changes to changelist',
+        placeHolder: 'Where should the uncommitted changes land?',
+      });
+      if (!picked) {
+        return;
+      }
+      if (picked.createNamed !== undefined) {
+        moveFilesTo = this._changelistService.createChangelist(repo, picked.createNamed).id;
+      } else {
+        moveFilesTo = picked.changelistId;
+      }
+    }
+
+    // The commit's file list, captured pre-reset for the changelist move.
+    let undoneFiles: string[] = [];
+    if (moveFilesTo !== undefined) {
+      try {
+        undoneFiles = (await this._gitService.getCommitDiff(repo, hash)).map((d) => d.path);
+      } catch {
+        undoneFiles = [];
+      }
+    }
+
     try {
       await this._gitCli.exec(['reset', '--soft', 'HEAD~1'], {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       });
 
+      if (moveFilesTo !== undefined && undoneFiles.length > 0) {
+        this._changelistService?.moveToChangelist(repo, undoneFiles, moveFilesTo);
+      }
       if (undoneMessage) {
         this._commitComposer?.prefillComposerMessage(undoneMessage);
       }
@@ -2283,6 +2565,12 @@ export class CommitContextMenuCommands {
       /** Rebase base, e.g. `${hash}~1`. */
       onto: string;
       /**
+       * Oldest commit being rewritten (the child of `onto`). The
+       * protected-branch gate probes its remote containment — one commit
+       * suffices, see {@link _isNotOnProtectedBranch}.
+       */
+      oldest: string;
+      /**
        * Turn the planning session into a plan. Returning `'stale'` refuses
        * the operation (the body surfaces its own stale/not-found toast).
        */
@@ -2303,10 +2591,34 @@ export class CommitContextMenuCommands {
     // its own oldest hash BEFORE calling the runner — the runner only receives
     // the prepared `onto` base and cannot know which commit is oldest.
     const cwd = repo.rootUri.fsPath;
+
+    // In-progress pre-flight — refuse while a rebase or a cherry-pick/revert
+    // sequencer is live (see _isNoOperationInProgress). Runs FIRST: a rebase
+    // paused at an `edit` step has a clean tree, so the unmerged probe below
+    // would let it through into a "rebase-merge already exists" failure that
+    // handleRebaseResult misreads as OUR paused rebase.
+    if (!(await this._isNoOperationInProgress(repo, opts.opLabel))) {
+      return;
+    }
+
     if ((await detectLocalChanges(this._gitCli, cwd)) === 'blocked-unmerged') {
       void vscode.window.showErrorMessage(
         `Cannot ${opts.opLabel.toLowerCase()} while you have unmerged files. Please resolve conflicts first.`
       );
+      return;
+    }
+
+    // Merge-flattening gate — refuse BEFORE any git mutation when the range
+    // carries merges (see _isRangeMergeFree). The menu enable-state mirrors
+    // this refusal; the runner owns it for palette / scripted entry points.
+    if (!(await this._isRangeMergeFree(repo, opts.onto, opts.opLabel))) {
+      return;
+    }
+
+    // Protected-branch gate — a rewrite touching history already on a
+    // protected remote branch is refused outright (see
+    // _isNotOnProtectedBranch).
+    if (!(await this._isNotOnProtectedBranch(cwd, opts.oldest, opts.opLabel))) {
       return;
     }
 
@@ -2371,29 +2683,13 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // hash-format validation and initial-commit
-    // guards apply to BOTH the single- and multi-commit drop paths. Lift
-    // them above the N>=2 routing so palette / scripted entry points
-    // hitting either branch get the same defence-in-depth.
+    // hash-format validation applies to BOTH the single- and multi-commit
+    // drop paths. Lifted above the N>=2 routing so palette / scripted entry
+    // points hitting either branch get the same defence-in-depth. (The
+    // initial-commit arm is handled per-path via _resolveRewriteBase — warn
+    // then `--root`, per the reference.)
     if (!allHashesValid(commitHashes)) {
       return;
-    }
-    // Initial-commit edge: dropping the initial commit means
-    // `<hash>~1` (single) or `<oldest>^` (multi) doesn't resolve.
-    // Check the oldest selected (last in newest-first display order).
-    if (commitNodes.length > 0) {
-      const indices = commitHashes
-        .map((h) => commitNodes.findIndex((n) => n.hash === h))
-        .filter((i) => i >= 0);
-      if (indices.length > 0) {
-        const oldestIdx = Math.max(...indices);
-        if (commitNodes[oldestIdx].parentCount === 0) {
-          void vscode.window.showErrorMessage(
-            'Cannot drop the initial commit — use `git update-ref -d HEAD` to reset the branch instead.'
-          );
-          return;
-        }
-      }
     }
 
     // N>=2 routes to the multi-commit drop flow. Single
@@ -2429,6 +2725,12 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // Initial-commit arm: warn-and-proceed via --root (reference parity).
+    const onto = await this._resolveRewriteBase(hash, dropTargetParents === 0, 'Drop');
+    if (onto === undefined) {
+      return;
+    }
+
     // Confirm modal — dropping a commit rewrites history. The multi-drop
     // sibling (_handleDropCommitMulti) confirms; the single path must match
     // (feedback_data_loss_confirms minimal-confirm policy). Show the
@@ -2456,7 +2758,8 @@ export class CommitContextMenuCommands {
 
     try {
       await this._runHistoryRewrite(repo, {
-        onto: `${hash}~1`,
+        onto,
+        oldest: hash,
         opLabel: 'Drop',
         target: 'drop',
         successToast: `Dropped commit ${hash.substring(0, 8)}`,
@@ -2559,19 +2862,21 @@ export class CommitContextMenuCommands {
     const oldestIdx = indices[indices.length - 1];
     const oldestHash = commitNodes[oldestIdx].hash;
 
-    // 4. Initial-commit edge — `oldest^` cannot resolve.
-    const oldestParents = commitNodes[oldestIdx].parentCount;
-    if (oldestParents === 0) {
-      void vscode.window.showErrorMessage(
-        'Cannot drop the initial commit — use `git update-ref -d HEAD` to reset the branch instead.'
-      );
-      return;
-    }
-
-    // 4b. HEAD-containment gate (before any confirm / stash / rebase): if the
+    // 4. HEAD-containment gate (before any confirm / stash / rebase): if the
     // oldest selected commit isn't reachable from HEAD, the `oldest^..HEAD`
     // rebase would rewrite and move the checked-out branch instead.
     if (!(await this._isOldestInCurrentBranch(repo, oldestHash))) {
+      return;
+    }
+
+    // 4b. Initial-commit arm — `oldest^` cannot resolve; warn-and-proceed
+    // via --root (reference parity).
+    const onto = await this._resolveRewriteBase(
+      oldestHash,
+      commitNodes[oldestIdx].parentCount === 0,
+      'Drop'
+    );
+    if (onto === undefined) {
       return;
     }
 
@@ -2627,7 +2932,8 @@ export class CommitContextMenuCommands {
       // including non-selected commits that must stay), pause on conflict,
       // hand off to the resolve dialog.
       await this._runHistoryRewrite(repo, {
-        onto: `${oldestHash}^`,
+        onto,
+        oldest: oldestHash,
         opLabel: 'Drop',
         target: 'drop',
         successToast: `Dropped ${commitHashes.length} commits successfully.`,
@@ -2674,9 +2980,8 @@ export class CommitContextMenuCommands {
    *   1. Validate hashes; in-order guard; defence-in-depth contiguity +
    *      no-merge checks (UI gates them in `computeMenuEnableState`).
    *   2. Determine the oldest selected commit (largest index in newest-
-   *      first display order). Drop the parent-count check at this
-   *      site — the squash UI gate already requires no merge commits,
-   *      and a non-merge always has a parent.
+   *      first display order). An oldest with no parent (the initial
+   *      commit) warns and proceeds via `--root`.
    *   3. Fetch each selected commit's full message via `getCommit`. Join
    *      with `\n\n` to seed the message editor.
    *   4. Open the squash-message dialog with the seed value. On cancel
@@ -2804,6 +3109,17 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // 2c. Initial-commit arm — the root is a non-merge commit with no parent,
+    // so `oldest^` cannot resolve; warn-and-proceed via --root.
+    const onto = await this._resolveRewriteBase(
+      oldestHash,
+      commitNodes[oldestIdx].parentCount === 0,
+      mode === 'fixup' ? 'Fixup' : 'Squash'
+    );
+    if (onto === undefined) {
+      return;
+    }
+
     // 3. Fetch each selected commit's full message and join in oldest-
     // first order (chronological: oldest commit's message comes first
     // in the seed). commitHashes is newest-first; oldest-first =
@@ -2872,7 +3188,8 @@ export class CommitContextMenuCommands {
       // resolve dialog opens (operation:'rebase', target:'squash').
       const verb = mode === 'fixup' ? 'Fixup' : 'Squash';
       await this._runHistoryRewrite(repo, {
-        onto: `${oldestHash}^`,
+        onto,
+        oldest: oldestHash,
         opLabel: verb,
         target: 'squash',
         successToast: `${mode === 'fixup' ? "Fixup'd" : 'Squashed'} ${commitHashes.length} commits successfully.`,
@@ -3045,6 +3362,15 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // Protected-branch gate BEFORE the message dialog, mirroring IntelliJ's
+    // perform-time check ordering (lastCheckCommitsEditingAvailability runs
+    // before the reword dialog). Applies to BOTH arms: the HEAD amend
+    // rewrites protected published history just like the non-HEAD rebase
+    // (which the runner would also gate, later).
+    if (!(await this._isNotOnProtectedBranch(cwd, hash, 'Edit message'))) {
+      return;
+    }
+
     try {
       // Fetch the full commit message
       let fullMessage = '';
@@ -3097,26 +3423,6 @@ export class CommitContextMenuCommands {
       const isHead =
         headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
 
-      // Parity with IntelliJ's GitCommitEditingActionBase.checkCommitsCanBeEdited,
-      // which gates reword on the commit's containing branches and refuses when
-      // it is published to a protected branch — regardless of whether the
-      // commit is the topmost one. We have no protected-branch config, so we
-      // confirm instead: rewording a commit that already exists on a remote
-      // rewrites published history and will require a force-push to land. This
-      // applies to both the HEAD amend and the non-HEAD rebase paths below;
-      // skip the prompt only when the commit is local-only.
-      if (await this._isCommitPushed(cwd, hash)) {
-        const shortHash = hash.substring(0, 8);
-        const choice = await vscode.window.showWarningMessage(
-          `Commit ${shortHash} has already been pushed. Rewording it rewrites published history and will need a force-push. Continue?`,
-          { modal: true },
-          'Reword Anyway'
-        );
-        if (choice !== 'Reword Anyway') {
-          return;
-        }
-      }
-
       if (isHead) {
         // HEAD amend: git commit --amend -m only rewrites the commit message.
         // It doesn't touch the working tree or index, so it works even with
@@ -3135,6 +3441,7 @@ export class CommitContextMenuCommands {
         // Non-HEAD: reword via the shared history-rewrite runner.
         await this._runHistoryRewrite(repo, {
           onto: `${hash}~1`,
+          oldest: hash,
           opLabel: 'Edit message',
           target: 'reword',
           successToast: `Updated commit message for ${hash.substring(0, 8)}`,
@@ -3200,6 +3507,12 @@ export class CommitContextMenuCommands {
 
     const hash = commitHashes[0];
 
+    // In-progress pre-flight (IntelliJ Prohibit-during-rebase policy): the
+    // editor's execute would collide with the live rebase's state directory.
+    if (!(await this._isNoOperationInProgress(repo, 'Start an interactive rebase'))) {
+      return;
+    }
+
     // HEAD-containment gate (before opening the editor): rebasing onto the
     // clicked commit's parent rewrites `clicked^..HEAD` — for a commit HEAD
     // doesn't contain that would transplant / move the checked-out branch.
@@ -3224,10 +3537,24 @@ export class CommitContextMenuCommands {
       // Pre-flight: a base on a merged side branch renders visually adjacent
       // to HEAD, but `<onto>..HEAD` spans everything the mainline gained since
       // that branch forked, and a plain interactive rebase FLATTENS every
-      // merge in the range. Warn with the real numbers before opening the
-      // editor; a merge-free range (the common linear case) stays silent, and
-      // a failed analysis degrades to no warning rather than blocking.
-      if (!(await this._confirmMergeFlattening(repo, hash, onto))) {
+      // merge in the range. Refuse before opening the editor; a merge-free
+      // range (the common linear case) stays silent. The refusal hint keys
+      // off the CLICKED commit, not the rebase base (its parent): for the
+      // first commit of a merged branch — the whole branch, in the common
+      // single-commit case — the parent is the mainline fork point, so a
+      // base-side check would stay silent exactly where the hint matters most.
+      const refused = !(await this._isRangeMergeFree(repo, onto, 'Interactive rebase', async () => {
+        const clickedOnMainline = await isFirstParentAncestor(
+          this._gitCli,
+          repo.rootUri.fsPath,
+          hash
+        );
+        return clickedOnMainline
+          ? ''
+          : ` '${hash.substring(0, 8)}' is on a merged branch, not the main line — to edit ` +
+              `recent commits, pick a commit on the main line instead.`;
+      }));
+      if (refused) {
         return;
       }
       const result = await this._openRebaseEditor(repo, onto);
@@ -3245,43 +3572,89 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Warn when the rebase from `hash` (onto its parent) would flatten merge
-   * commits, and let the user back out. Returns `true` to proceed: the range
-   * carries no merges, the user confirmed, or the analysis itself failed
-   * (advisory only — a probe failure must not block a rebase the user could
-   * run before this warning existed).
+   * Resolve the rebase base for a rewrite whose oldest commit is `oldestHash`:
+   * `<oldest>~1` normally; for the INITIAL commit (no parent) IntelliJ warns
+   * and proceeds with a full-history rebase
+   * (GitCommitEditingActionBase.kt:202-210,266-275 → `--root`), so a
+   * confirmed warning returns {@link REBASE_ROOT} and a dismissal returns
+   * `undefined` (caller cancels cleanly).
    */
-  private async _confirmMergeFlattening(
+  private async _resolveRewriteBase(
+    oldestHash: string,
+    isInitialCommit: boolean,
+    opLabel: string
+  ): Promise<string | undefined> {
+    if (!isInitialCommit) {
+      return `${oldestHash}~1`;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `${opLabel} includes the initial commit — the entire history will be rewritten ` +
+        `(git rebase --root). Continue?`,
+      { modal: true },
+      'Continue'
+    );
+    return choice === 'Continue' ? REBASE_ROOT : undefined;
+  }
+
+  /**
+   * In-progress pre-flight shared by the history-rewrite entry points: a new
+   * interactive rebase cannot start while a rebase or a cherry-pick/revert
+   * sequencer is mid-flight. Without this gate, `git rebase -i` fails
+   * ("rebase-merge already exists") and `handleRebaseResult` sees the
+   * PRE-EXISTING pause, reporting the new operation "partially complete" —
+   * untrue (nothing started) with dangerous advice ('continue' drives the
+   * OTHER operation). IntelliJ prohibits commit editing during an unfinished
+   * operation (GitRewordAction.kt:14-16, GitInteractiveRebaseAction /
+   * GitDropSelectedChangesAction prohibit policies).
+   *
+   * Reads the FRESH on-disk markers (`repo.state` can be stale between
+   * reloads). Returns `true` to proceed; toasts the refusal naming the
+   * blocking operation otherwise.
+   */
+  private async _isNoOperationInProgress(repo: IRepository, opLabel: string): Promise<boolean> {
+    const gitDir = await resolveGitDir(repo.rootUri.fsPath);
+    const blocking = await findBlockingOperation(gitDir);
+    if (blocking === undefined) {
+      return true;
+    }
+    void vscode.window.showErrorMessage(
+      `Cannot ${opLabel.toLowerCase()}: a ${blocking} is in progress — finish or abort it first.`
+    );
+    return false;
+  }
+
+  /**
+   * Merge-flattening gate shared by every history-rewrite entry point: a
+   * plain interactive rebase of `<onto>..HEAD` FLATTENS every merge in the
+   * range (the merge commits vanish and their branch topology is lost), so
+   * refuse when the range carries any — IntelliJ errors out before any git
+   * mutation when no merge-free path exists between HEAD and the oldest
+   * selected commit (GitCommitEditingActionBase.kt checkHeadLinearHistory).
+   *
+   * Returns `true` to proceed: the range carries no merges, or the analysis
+   * itself failed (a probe failure must not block a rebase the user could
+   * run before this gate existed; the rebase surfaces real errors itself).
+   * `refusalHint` is resolved only on refusal and appended to the toast —
+   * the interactive-rebase entry point adds a merged-branch pointer.
+   */
+  private async _isRangeMergeFree(
     repo: IRepository,
-    hash: string,
-    onto: string
+    onto: string,
+    opLabel: string,
+    refusalHint?: () => Promise<string>
   ): Promise<boolean> {
     const analysis = await analyzeRebaseRange(this._gitCli, repo.rootUri.fsPath, onto);
     if (!analysis || analysis.mergeCommits === 0) {
       return true;
     }
-    const merges = `${analysis.mergeCommits} merge${analysis.mergeCommits === 1 ? '' : 's'}`;
-    // The hint keys off the CLICKED commit, not the rebase base (its parent):
-    // for the first commit of a merged branch — the whole branch, in the
-    // common single-commit case — the parent is the mainline fork point, so a
-    // base-side check would stay silent exactly where the hint matters most.
-    const clickedOnMainline = await isFirstParentAncestor(this._gitCli, repo.rootUri.fsPath, hash);
-    const sideBranchHint = clickedOnMainline
-      ? ''
-      : `\n\n'${hash.substring(0, 8)}' is on a merged branch, not the main line — its visual ` +
-        `distance from HEAD is much smaller than this range. To edit recent commits, pick a ` +
-        `commit on the main line instead.`;
-    const choice = await vscode.window.showWarningMessage(
-      `Rebasing from here replays ${analysis.todoCommits} commits and flattens ${merges}.`,
-      {
-        modal: true,
-        detail:
-          `Every replayed commit gets a new hash, and the ${merges} in the range ` +
-          `disappear from history (their branch topology is lost).${sideBranchHint}`,
-      },
-      'Rebase Anyway'
+    const merges = `${analysis.mergeCommits} merge commit${analysis.mergeCommits === 1 ? '' : 's'}`;
+    const hint = refusalHint ? await refusalHint() : '';
+    void vscode.window.showErrorMessage(
+      `${opLabel} refused: it would flatten ${merges} between the selection and HEAD ` +
+        `(their branch topology would be lost). To rebase across merges, use the Rebase ` +
+        `dialog with the --rebase-merges option.${hint}`
     );
-    return choice === 'Rebase Anyway';
+    return false;
   }
 
   /**
@@ -3371,9 +3744,14 @@ export class CommitContextMenuCommands {
    * Handle "Fixup…" / "Squash Into…" — IntelliJ's Git.Fixup.To.Commit /
    * Git.Squash.Into.Commit (parity).
    *
-   * Commits the currently-staged changes as a `fixup!`/`squash!` of the
-   * selected commit via `GitService.commitFixup`. Distinct from the
-   * with-previous rewrites, which rebase the selected commit into its parent.
+   * Reference (GitAutoSquashCommitAction.kt:29-61): opens the COMMIT DIALOG
+   * seeded `fixup!/squash! <subject>` and offers a commit-and-rebase
+   * executor. Adapted to our paradigm: the seeded {@link CommitDialog}
+   * reviews the staged changes first; a successful commit then offers a
+   * `Rebase Now` toast that folds the new commit into its target via the
+   * shared runner (see {@link _runAutosquashNow}). Callers without an
+   * extension context (scripted entry points that never ran `register()`)
+   * fall back to the immediate `GitService.commitFixup` commit.
    */
   private async _handleCommitFixup(
     commitHashes: string[],
@@ -3394,6 +3772,36 @@ export class CommitContextMenuCommands {
 
     const shortHash = hash.substring(0, 8);
     const verb = mode === 'fixup' ? 'fixup' : 'squash';
+
+    if (this._context) {
+      // Seed the dialog from the target's subject, reference-style.
+      let subject = '';
+      try {
+        subject = (await this._gitService.getCommit(repo, hash)).message.split('\n')[0];
+      } catch {
+        subject = shortHash;
+      }
+      const dialog = new CommitDialog(
+        this._context.extensionUri,
+        this._gitService,
+        this._context.workspaceState
+      );
+      const result = await dialog.show(repo, { initialMessage: `${mode}! ${subject}` });
+      if (!result.committed) {
+        return;
+      }
+      await this._gitService.reloadRepository(repo);
+      this._gitToolWindowProvider.refresh();
+      const choice = await vscode.window.showInformationMessage(
+        `Created ${verb}! commit for ${shortHash}.`,
+        'Rebase Now'
+      );
+      if (choice === 'Rebase Now') {
+        await this._runAutosquashNow(repo, hash, mode);
+      }
+      return;
+    }
+
     try {
       const result = await this._gitService.commitFixup(repo, hash, mode).match(
         (r) => r,
@@ -3424,6 +3832,93 @@ export class CommitContextMenuCommands {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to ${verb} into ${shortHash}: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * "Rebase Now" leg of Fixup / Squash Into: fold the just-created HEAD
+   * `fixup!/squash!` commit into `targetHash` via the shared runner — the
+   * plan moves it right after the target as a `fixup` line (git-autosquash
+   * equivalent for a single commit). Squash mode combines messages the way
+   * autosquash editing would: the target message plus the squash! commit's
+   * body (its `squash! <subject>` marker line dropped), delivered through a
+   * non-interactive reword override on the target.
+   */
+  private async _runAutosquashNow(
+    repo: IRepository,
+    targetHash: string,
+    mode: 'fixup' | 'squash'
+  ): Promise<void> {
+    const verb = mode === 'fixup' ? 'Fixup' : 'Squash';
+    try {
+      if (!(await this._isOldestInCurrentBranch(repo, targetHash))) {
+        return;
+      }
+      // The dialog committed onto HEAD — that IS the fixup!/squash! commit.
+      const created = await this._gitService.getCommit(repo, 'HEAD');
+      let combinedMessage: string | undefined;
+      if (mode === 'squash') {
+        const target = await this._gitService.getCommit(repo, targetHash);
+        const extra = created.message
+          .split('\n')
+          .filter((line, i) => !(i === 0 && line.startsWith('squash!')))
+          .join('\n')
+          .trim();
+        combinedMessage = extra.length > 0 ? `${target.message.trim()}\n\n${extra}` : undefined;
+      }
+
+      const node = this._dispatchNodes.find((n) => n.hash === targetHash);
+      const onto = await this._resolveRewriteBase(targetHash, node?.parentCount === 0, verb);
+      if (onto === undefined) {
+        return;
+      }
+
+      await this._runHistoryRewrite(repo, {
+        onto,
+        oldest: targetHash,
+        opLabel: verb,
+        target: 'squash',
+        successToast: `${verb} applied to ${targetHash.substring(0, 8)}.`,
+        buildPlan: (session) => {
+          const target = session.commits.find(
+            (c) =>
+              c.hash === targetHash ||
+              c.hash.startsWith(targetHash) ||
+              targetHash.startsWith(c.hash)
+          );
+          const createdEntry = session.commits.find(
+            (c) => c.hash === created.hash || created.hash.startsWith(c.hash)
+          );
+          if (!target || !createdEntry || target.hash === createdEntry.hash) {
+            void vscode.window.showErrorMessage(
+              `Commit ${targetHash.substring(0, 8)} not found in rebase session.`
+            );
+            return 'stale';
+          }
+          const plan: IRebaseAction[] = [];
+          for (const c of session.commits) {
+            if (c.hash === createdEntry.hash) {
+              continue;
+            }
+            if (c.hash === target.hash) {
+              plan.push(
+                combinedMessage !== undefined
+                  ? { hash: c.hash, action: 'reword', newMessage: combinedMessage }
+                  : { hash: c.hash, action: c.action }
+              );
+              plan.push({ hash: createdEntry.hash, action: 'fixup' });
+            } else {
+              plan.push({ hash: c.hash, action: c.action });
+            }
+          }
+          return plan;
+        },
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to rebase the ${verb.toLowerCase()}! commit: ${sanitizeGitError(errorMessage)}`
       );
     }
   }

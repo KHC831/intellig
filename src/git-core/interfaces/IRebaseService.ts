@@ -45,9 +45,19 @@ export interface IRebaseAction {
 }
 
 /**
+ * Sentinel `onto` value for a full-history rebase: the initial commit has no
+ * parent to rebase onto, so an edit that includes it runs `git rebase -i
+ * --root` (no positional base). Deliberately not a valid revision or flag —
+ * an accidental splice into a positional argv fails loudly instead of acting
+ * as either.
+ */
+export const REBASE_ROOT = '<root>';
+
+/**
  * Rebase session state
  */
 export interface IRebaseSession {
+  /** Rebase base revision, or {@link REBASE_ROOT} for a `--root` rebase. */
   onto: string;
   originalBranch: string;
   commits: IRebaseCommit[];

@@ -308,12 +308,192 @@ describe('e2e — drop commit replay conflict pauses the rebase', function () {
     assert.ok(unmerged.trim().length > 0, 'f.txt must be unmerged at the pause');
   });
 
-  it('squash/fixup conflict (flattened merge in the window) pauses the rebase', async () => {
-    // A squash of commits BELOW a merge flattens that merge out of the todo
-    // and replays its side branch, which can conflict with the resolved
-    // content — the realistic conflict source for squash on linear-looking
-    // logs. Fixup mode is driven directly (same body, same runner) because
-    // the squash-message webview dialog cannot be answered headlessly.
+  it('dropping the INITIAL commit warns and proceeds via git rebase --root', async () => {
+    // The root commit has no parent to rebase onto; the reference warns and
+    // runs a full-history rebase (--root). The fixture's root ('commit 0')
+    // adds file0.txt; two descendants add f.txt and g.txt and must survive
+    // as the new history.
+    fix = await createFixtureRepo({ commits: 1 });
+    const shaRoot = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
+
+    fs.writeFileSync(path.join(fix.rootPath, 'f.txt'), 'f\n');
+    await execGit(fix.rootPath, ['add', 'f.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'A: add f.txt']);
+    fs.writeFileSync(path.join(fix.rootPath, 'g.txt'), 'g\n');
+    await execGit(fix.rootPath, ['add', 'g.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'B: add g.txt']);
+
+    const log = await execGit(fix.rootPath, ['log', '--pretty=format:%H %P']);
+    const nodes: IMenuStateNode[] = log.stdout
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((line) => {
+        const [hash, ...parents] = line.trim().split(/\s+/);
+        return { hash, parentCount: parents.length, parents };
+      });
+
+    await useFixtureWorkspace(fix.rootPath);
+    stubs = stubPrompts({
+      // Answer the --root warning (Continue) and the drop confirm (Drop).
+      warningMessage: (_msg, _opts, ...items) =>
+        (items.find((i) => i === 'Continue' || i === 'Drop') as string) ?? undefined,
+    });
+    const menu = getCommitContextMenuCommands();
+    assert.ok(menu, 'CommitContextMenuCommands not initialised');
+    await menu._handleAction('dropCommit', [shaRoot], nodes);
+
+    const errs = stubs.errorMessageCalls.map((c) => c.message);
+    assert.ok(
+      stubs.warningMessageCalls.some((c) => /initial commit/i.test(c.message)),
+      `expected the initial-commit warning; warn=${JSON.stringify(
+        stubs.warningMessageCalls.map((c) => c.message)
+      )}`
+    );
+    assert.ok(
+      !fs.existsSync(path.join(fix.rootPath, '.git', 'rebase-merge')),
+      `the --root rebase must run to completion; err=${JSON.stringify(errs)}`
+    );
+    const subjects = (await execGit(fix.rootPath, ['log', '--pretty=format:%s'])).stdout;
+    assert.ok(!subjects.includes('commit 0'), 'the root commit must be dropped');
+    assert.ok(subjects.includes('A: add f.txt'), 'A must survive');
+    assert.ok(subjects.includes('B: add g.txt'), 'B must survive');
+    assert.ok(!fs.existsSync(path.join(fix.rootPath, 'file0.txt')), "the root's file goes with it");
+    assert.ok(fs.existsSync(path.join(fix.rootPath, 'f.txt')), 'descendant content survives');
+  });
+
+  it('drop selected changes from a NON-HEAD commit rewrites it in place and replays descendants', async () => {
+    // Target commit T (non-HEAD) modifies f.txt and adds t.txt; commit B on
+    // top adds h.txt. Dropping only T's f.txt change must ride the rebase
+    // path: pause at T's edit step, restore f.txt from T's parent, amend
+    // keeping T's message + t.txt, then replay B cleanly.
+    fix = await createFixtureRepo({ commits: 1 });
+    const f = path.join(fix.rootPath, 'f.txt');
+
+    fs.writeFileSync(f, 'base\n');
+    await execGit(fix.rootPath, ['add', 'f.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'add f.txt']);
+
+    fs.writeFileSync(f, 'target change\n');
+    fs.writeFileSync(path.join(fix.rootPath, 't.txt'), 'target file\n');
+    await execGit(fix.rootPath, ['add', 'f.txt', 't.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'T: modify f, add t']);
+    const shaT = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
+
+    fs.writeFileSync(path.join(fix.rootPath, 'h.txt'), 'later\n');
+    await execGit(fix.rootPath, ['add', 'h.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'B: add h.txt']);
+
+    await useFixtureWorkspace(fix.rootPath);
+    stubs = stubPrompts({
+      quickPick: (items) => (items as { path: string }[]).filter((i) => i.path === 'f.txt'),
+      warningMessage: (_msg, _opts, ...items) =>
+        (items.find((i) => i === 'Drop') as string) ?? undefined,
+    });
+    const menu = getCommitContextMenuCommands();
+    assert.ok(menu, 'CommitContextMenuCommands not initialised');
+    await (
+      menu as unknown as { dropSelectedChangesFromCommit(hash: string): Promise<void> }
+    ).dropSelectedChangesFromCommit(shaT);
+
+    const errs = stubs.errorMessageCalls.map((c) => c.message);
+    assert.ok(
+      !fs.existsSync(path.join(fix.rootPath, '.git', 'rebase-merge')),
+      `the rebase must run to completion; err=${JSON.stringify(errs)}`
+    );
+    assert.strictEqual(
+      fs.readFileSync(f, 'utf8'),
+      'base\n',
+      "T's f.txt change must be dropped (parent content restored)"
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(fix.rootPath, 't.txt'), 'utf8'),
+      'target file\n',
+      "T's kept file must survive the rewrite"
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(fix.rootPath, 'h.txt'), 'utf8'),
+      'later\n',
+      'the descendant commit must replay'
+    );
+    const subjects = (await execGit(fix.rootPath, ['log', '--pretty=format:%s'])).stdout;
+    assert.ok(subjects.includes('T: modify f, add t'), "T's message must be preserved");
+    assert.ok(subjects.includes('B: add h.txt'), 'B must survive as a replayed commit');
+    // The rewritten T no longer touches f.txt: its diff lists only t.txt.
+    const newT = (
+      await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--grep', 'T: modify f'])
+    ).stdout.trim();
+    assert.notStrictEqual(newT, shaT, 'T must have been rewritten');
+    const tFiles = (
+      await execGit(fix.rootPath, ['show', '--name-only', '--pretty=format:', newT])
+    ).stdout.trim();
+    assert.strictEqual(tFiles, 't.txt', `rewritten T must contain only t.txt, got: ${tFiles}`);
+  });
+
+  it("fixup 'Rebase Now' folds a fixup! commit into its target and replays descendants", async () => {
+    // The commit-dialog leg cannot run headlessly; this drives the rebase
+    // machinery behind the 'Rebase Now' toast on a real fixup! commit.
+    fix = await createFixtureRepo({ commits: 1 });
+    const f = path.join(fix.rootPath, 'f.txt');
+
+    fs.writeFileSync(f, 'target content\n');
+    await execGit(fix.rootPath, ['add', 'f.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'T: add f.txt']);
+    const shaT = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
+
+    fs.writeFileSync(path.join(fix.rootPath, 'g.txt'), 'later\n');
+    await execGit(fix.rootPath, ['add', 'g.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'B: add g.txt']);
+
+    // The fixup! commit the seeded dialog would have created.
+    fs.writeFileSync(f, 'target content\nfixed up\n');
+    await execGit(fix.rootPath, ['add', 'f.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'fixup! T: add f.txt']);
+
+    const repo = await useFixtureWorkspace(fix.rootPath);
+    stubs = stubPrompts({});
+    const menu = getCommitContextMenuCommands();
+    assert.ok(menu, 'CommitContextMenuCommands not initialised');
+    await (
+      menu as unknown as {
+        _runAutosquashNow(
+          repo: unknown,
+          targetHash: string,
+          mode: 'fixup' | 'squash'
+        ): Promise<void>;
+      }
+    )._runAutosquashNow(repo, shaT, 'fixup');
+
+    const errs = stubs.errorMessageCalls.map((c) => c.message);
+    assert.ok(
+      !fs.existsSync(path.join(fix.rootPath, '.git', 'rebase-merge')),
+      `the fold must run to completion; err=${JSON.stringify(errs)}`
+    );
+    const subjects = (await execGit(fix.rootPath, ['log', '--pretty=format:%s'])).stdout;
+    assert.ok(!/fixup!/.test(subjects), 'the fixup! commit must be folded away');
+    assert.ok(subjects.includes('T: add f.txt'), 'the target keeps its message');
+    assert.ok(subjects.includes('B: add g.txt'), 'the descendant survives');
+    assert.strictEqual(
+      fs.readFileSync(f, 'utf8'),
+      'target content\nfixed up\n',
+      "the fixup's change must land in the final tree"
+    );
+    // The rewritten target itself carries the folded change.
+    const newT = (
+      await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--grep', 'T: add f.txt'])
+    ).stdout.trim();
+    const tContent = (await execGit(fix.rootPath, ['show', `${newT}:f.txt`])).stdout;
+    assert.strictEqual(tContent, 'target content\nfixed up\n');
+  });
+
+  it('squash/fixup below a merge is REFUSED before any rebase starts (merge-flattening gate)', async () => {
+    // A squash of commits BELOW a merge would flatten that merge out of the
+    // todo and replay its side branch — a silent topology rewrite. IntelliJ
+    // refuses every commit-editing action when no merge-free path exists
+    // between HEAD and the oldest selected commit
+    // (GitCommitEditingActionBase.kt checkHeadLinearHistory); the runner's
+    // pre-flight probe mirrors that refusal. Fixup mode is driven directly
+    // (same body, same runner) because the squash-message webview dialog
+    // cannot be answered headlessly.
     fix = await createFixtureRepo({ commits: 1 });
     const f = path.join(fix.rootPath, 'f.txt');
     const g = path.join(fix.rootPath, 'g2.txt');
@@ -353,6 +533,7 @@ describe('e2e — drop commit replay conflict pauses the rebase', function () {
       });
 
     await useFixtureWorkspace(fix.rootPath);
+    const preHead = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
     stubs = stubPrompts({});
     const menu = getCommitContextMenuCommands();
     assert.ok(menu, 'CommitContextMenuCommands not initialised');
@@ -366,13 +547,25 @@ describe('e2e — drop commit replay conflict pauses the rebase', function () {
       }
     )._handleSquashCommits([shaY, shaP], nodes, { mode: 'fixup' });
 
+    const errs = stubs.errorMessageCalls.map((c) => c.message);
+    // 1. Refusal, not execution: no rebase may have started.
     assert.ok(
-      fs.existsSync(path.join(fix.rootPath, '.git', 'rebase-merge')),
-      `squash conflict must stay paused; err=${JSON.stringify(
-        stubs.errorMessageCalls.map((c) => c.message)
+      !fs.existsSync(path.join(fix.rootPath, '.git', 'rebase-merge')),
+      `the merge-flattening gate must refuse before any rebase starts; err=${JSON.stringify(
+        errs
       )} warn=${JSON.stringify(stubs.warningMessageCalls.map((c) => c.message))}`
     );
-    const unmerged = (await execGit(fix.rootPath, ['ls-files', '-u', '--', 'f.txt'])).stdout;
-    assert.ok(unmerged.trim().length > 0, 'f.txt must be unmerged at the pause');
+    // 2. The refusal toast names the flatten hazard and the sanctioned escape.
+    assert.ok(
+      errs.some((m) => /merge/i.test(m) && /--rebase-merges/.test(m)),
+      `expected a refusal toast pointing at the Rebase dialog + --rebase-merges; got ${JSON.stringify(errs)}`
+    );
+    // 3. History untouched: HEAD unchanged, the merge and both squash targets survive.
+    const head = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
+    assert.strictEqual(head, preHead, 'HEAD must be untouched after the refusal');
+    const subjects = (await execGit(fix.rootPath, ['log', '--pretty=format:%s'])).stdout;
+    for (const subject of ['M: merge side', 'P: add g2.txt', 'Y: main modifies f.txt']) {
+      assert.ok(subjects.includes(subject), `'${subject}' must survive the refused operation`);
+    }
   });
 });

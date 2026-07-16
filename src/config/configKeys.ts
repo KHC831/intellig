@@ -13,6 +13,7 @@ export const CONFIG_KEYS = {
   keymapPreset: 'keymapPreset',
   protectedBranches: 'protectedBranches',
   autorefresh: 'autorefresh',
+  addCherryPickedFromSuffix: 'addCherryPickedFromSuffix',
   useCommitToolWindow: 'useCommitToolWindow',
   commitAuthor: 'commitAuthor',
   commitMessageIssueLinks: 'commitMessageIssueLinks',
@@ -61,6 +62,7 @@ export type ConfigValues = {
   keymapPreset: 'default' | 'intellij';
   protectedBranches: string[];
   autorefresh: boolean;
+  addCherryPickedFromSuffix: boolean;
   useCommitToolWindow: boolean;
   commitAuthor: string;
   commitMessageIssueLinks: boolean;

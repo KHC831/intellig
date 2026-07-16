@@ -407,7 +407,11 @@ describe('Rebase-driven multi-commit ops', () => {
         NODES_4
       );
 
-      assert.strictEqual(tracker.startedOnto, `${HASH_MID}^`, 'onto must be oldest^');
+      assert.strictEqual(
+        tracker.startedOnto,
+        `${HASH_MID}~1`,
+        "onto must be the oldest commit's first parent"
+      );
       assert.ok(tracker.lastPlan, 'updateRebasePlan must be called');
       // Both selected commits must be drop; non-selected stays pick.
       const planByHash = new Map(tracker.lastPlan.map((a) => [a.hash, a.action]));
@@ -443,7 +447,7 @@ describe('Rebase-driven multi-commit ops', () => {
         NODES_4
       );
 
-      assert.strictEqual(tracker.startedOnto, `${HASH_OLDEST}^`);
+      assert.strictEqual(tracker.startedOnto, `${HASH_OLDEST}~1`);
       const planByHash = new Map(tracker.lastPlan!.map((a) => [a.hash, a.action]));
       assert.strictEqual(planByHash.get(HASH_NEWEST), 'drop');
       assert.strictEqual(planByHash.get(HASH_OLDEST), 'drop');
@@ -503,15 +507,30 @@ describe('Rebase-driven multi-commit ops', () => {
       assert.strictEqual(tracker.executeCalls, 0);
     });
 
-    it('aborts when oldest selected is the initial commit (parentCount=0)', async () => {
+    it('warns and proceeds via --root when oldest selected is the initial commit', async () => {
+      // IntelliJ warns (Continue/Cancel) and then runs the rebase with
+      // --root (GitCommitEditingActionBase.kt:202-210,266-275); the old
+      // hard refusal is gone. '<root>' is the REBASE_ROOT sentinel the
+      // runner hands to RebaseService in place of `<oldest>^`.
       const tracker = blankRebaseTracker();
       const rebaseService = createMockRebaseService(tracker);
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
       const gitCli = createMockGitCli();
       const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
-      captureMessages();
-      // No need to stub showWarningMessage — we abort before reaching it.
+      tracker.sessionCommits = [
+        { hash: HASH_OLDEST, message: 'oldest', action: 'pick' },
+        { hash: HASH_NEWEST, message: 'newest', action: 'pick' },
+      ];
+      const messages = captureMessages();
+      // Answer BOTH modals: the initial-commit warning (Continue) and the
+      // destructive-op confirm (Drop).
+      const w = writableWindow();
+      w.showWarningMessage = ((message: string, ...items: unknown[]) => {
+        const stringItems = items.filter((i): i is string => typeof i === 'string');
+        messages.warning.push({ message, items: stringItems });
+        return Promise.resolve(stringItems[0]);
+      }) as typeof w.showWarningMessage;
 
       const nodes: IMenuStateNode[] = [
         { hash: HASH_NEWEST, parentCount: 1 },
@@ -523,12 +542,35 @@ describe('Rebase-driven multi-commit ops', () => {
         nodes
       );
 
-      assert.strictEqual(tracker.executeCalls, 0);
-      assert.strictEqual(
-        tracker.startedOnto,
-        undefined,
-        'rebase must not start on initial-commit edge'
+      assert.ok(
+        messages.warning.some((wm) => /initial commit/i.test(wm.message)),
+        `expected the initial-commit warning; got ${JSON.stringify(messages.warning)}`
       );
+      assert.strictEqual(tracker.startedOnto, '<root>', 'the rebase must run with --root');
+      assert.strictEqual(tracker.executeCalls, 1);
+    });
+
+    it('cancelling the initial-commit warning runs nothing', async () => {
+      const tracker = blankRebaseTracker();
+      const rebaseService = createMockRebaseService(tracker);
+      const gitService = createMockGitService(repo);
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
+      captureMessages(); // warning stub resolves undefined = dismissed
+
+      const nodes: IMenuStateNode[] = [
+        { hash: HASH_NEWEST, parentCount: 1 },
+        { hash: HASH_OLDEST, parentCount: 0 },
+      ];
+      await (cmds as unknown as CommandsInternal)._handleAction(
+        'dropCommit',
+        [HASH_NEWEST, HASH_OLDEST],
+        nodes
+      );
+
+      assert.strictEqual(tracker.startedOnto, undefined, 'a dismissed warning must not rebase');
+      assert.strictEqual(tracker.executeCalls, 0);
     });
 
     it('rejects merge-commit selections at handler entry (defence-in-depth)', async () => {
@@ -762,7 +804,11 @@ describe('Rebase-driven multi-commit ops', () => {
         (e) => e.simulateSave('combined squash message')
       );
 
-      assert.strictEqual(tracker.startedOnto, `${HASH_MID}^`, 'onto must be oldest^');
+      assert.strictEqual(
+        tracker.startedOnto,
+        `${HASH_MID}~1`,
+        "onto must be the oldest commit's first parent"
+      );
       // The combined message is delivered deterministically through the plan
       // (a reword override on the squash target). git never pauses under
       // GIT_EDITOR=true, so a classic squash with a post-rebase message step

@@ -33,9 +33,17 @@ function checkSource(src: string): number | null {
   }
 }
 
+// A well-formed runner: carries BOTH pre-flight gates (merge-flattening +
+// protected-branch) before its execute call.
 const RUNNER_WITH_EXECUTE = [
   'class C {',
   '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {',
+  '    if (!(await this._isRangeMergeFree(repo, opts.onto, opts.opLabel))) {',
+  '      return;',
+  '    }',
+  '    if (!(await this._isNotOnProtectedBranch(cwd, opts.oldest, opts.opLabel))) {',
+  '      return;',
+  '    }',
   '    const result = await this._rebaseService.executeRebase(repo);',
   '  }',
   '}',
@@ -119,6 +127,55 @@ describe('check-rebase-conflict-flow guard', () => {
       ),
       1,
       'the runner scope must not leak past the next member'
+    );
+  });
+
+  it('fails when the runner lacks the merge-flattening pre-flight gate', () => {
+    assert.strictEqual(
+      checkSource(
+        'class C {\n' +
+          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
+          '    if (!(await this._isNotOnProtectedBranch(cwd, opts.oldest, opts.opLabel))) {\n' +
+          '      return;\n' +
+          '    }\n' +
+          '    const result = await this._rebaseService.executeRebase(repo);\n' +
+          '  }\n' +
+          '}\n'
+      ),
+      1,
+      'a runner without _isRangeMergeFree( silently flattens merge topology'
+    );
+  });
+
+  it('fails when the runner lacks the protected-branch pre-flight gate', () => {
+    assert.strictEqual(
+      checkSource(
+        'class C {\n' +
+          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
+          '    if (!(await this._isRangeMergeFree(repo, opts.onto, opts.opLabel))) {\n' +
+          '      return;\n' +
+          '    }\n' +
+          '    const result = await this._rebaseService.executeRebase(repo);\n' +
+          '  }\n' +
+          '}\n'
+      ),
+      1,
+      'a runner without _isNotOnProtectedBranch( rewrites protected published history'
+    );
+  });
+
+  it('honours the runner-gate-exempt marker on the runner signature line', () => {
+    assert.strictEqual(
+      checkSource(
+        'class C {\n' +
+          '  // runner-gate-exempt: fixture runner exercising an unrelated invariant\n' +
+          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
+          '    const result = await this._rebaseService.executeRebase(repo);\n' +
+          '  }\n' +
+          '}\n'
+      ),
+      0,
+      'a justified gate-free runner must be allowed'
     );
   });
 

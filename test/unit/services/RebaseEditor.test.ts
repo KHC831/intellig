@@ -654,6 +654,98 @@ describe('RebaseEditor', () => {
     });
   });
 
+  // Conflict handoff — the SAME GitRebaseProcess conflict loop serves
+  // IntelliJ's interactive rebase: a conflict opens the conflict resolver
+  // dialog immediately (git4idea GitRebaseProcess.java:317-319). The editor
+  // must hand the executed-plan conflict to the resolve dialog with the
+  // rebaseInProgress flag mapped verbatim onto the continue/abort
+  // affordances, exactly like _runHistoryRewrite's outcome switch.
+  describe('conflict handoff — resolve dialog opens', () => {
+    interface DialogCall {
+      conflicts: { path: string; resolved: boolean }[];
+      options: { operation: string; canAbort?: boolean; canContinue?: boolean };
+    }
+
+    function makeConflictHarness(executeResult: IRebaseResult): {
+      editor: RebaseEditor;
+      dialogCalls: DialogCall[];
+      run: () => Promise<void>;
+    } {
+      const dialogCalls: DialogCall[] = [];
+      const conflictSvc = {
+        openResolveConflictsDialog: async (
+          _repo: IRepository,
+          conflicts: { path: string; resolved: boolean }[],
+          options: { operation: string; canAbort?: boolean; canContinue?: boolean }
+        ): Promise<void> => {
+          dialogCalls.push({ conflicts, options });
+        },
+      };
+      const editor = createRebaseEditor(
+        extensionUri,
+        mockRebaseService,
+        undefined,
+        conflictSvc as never
+      );
+      mockRebaseService.executeResult = executeResult;
+      (editor as unknown as { _repository: IRepository })._repository = mockRepository;
+      (editor as unknown as { _session: IRebaseSession })._session = {
+        onto: 'main',
+        originalBranch: 'feature',
+        commits: [...mockRebaseService.mockCommits],
+        currentStep: 0,
+        status: 'planning',
+      };
+      (editor as unknown as { _resolvePromise: unknown })._resolvePromise = (): void => undefined;
+      return {
+        editor,
+        dialogCalls,
+        run: () => (editor as unknown as { _handleExecute: () => Promise<void> })._handleExecute(),
+      };
+    }
+
+    it('a live conflict opens the dialog with Continue/Abort affordances', async () => {
+      const h = makeConflictHarness({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts', 'src/b.ts'],
+        rebaseInProgress: true,
+      });
+      try {
+        await h.run();
+      } finally {
+        h.editor.dispose();
+      }
+
+      assert.strictEqual(h.dialogCalls.length, 1, 'the resolve dialog must open');
+      assert.strictEqual(h.dialogCalls[0].options.operation, 'rebase');
+      assert.strictEqual(h.dialogCalls[0].options.canContinue, true);
+      assert.strictEqual(h.dialogCalls[0].options.canAbort, true);
+      assert.deepStrictEqual(
+        h.dialogCalls[0].conflicts.map((c) => c.path),
+        ['src/a.ts', 'src/b.ts']
+      );
+    });
+
+    it('a terminal autostash-pop conflict renders resolve-only (no continue/abort)', async () => {
+      const h = makeConflictHarness({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: false,
+      });
+      try {
+        await h.run();
+      } finally {
+        h.editor.dispose();
+      }
+
+      assert.strictEqual(h.dialogCalls.length, 1);
+      assert.strictEqual(h.dialogCalls[0].options.canContinue, false);
+      assert.strictEqual(h.dialogCalls[0].options.canAbort, false);
+    });
+  });
+
   // Both action-path catch blocks in RebaseEditor must run the raw git
   // stderr through `sanitizeGitError` before pushing it into the
   // showErrorMessage toast. The two failure paths (startInteractiveRebase

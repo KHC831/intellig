@@ -10,6 +10,7 @@ import {
   IRebaseResult,
   RebaseAction,
   RebaseStatus,
+  REBASE_ROOT,
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
 import { GitCli, createGitCli, IGitCommandResult, buildGitArgs } from './gitCli';
@@ -545,7 +546,13 @@ export class RebaseService implements IRebaseService {
       // interferes with the custom sequence editor while still letting an
       // interactive rebase start from a dirty tree.
       const result = await this._gitCli.exec(
-        buildGitArgs('rebase', ['-i', '--autostash'], [session.onto]),
+        // REBASE_ROOT swaps the positional base for `--root`: the initial
+        // commit has no parent to rebase onto.
+        buildGitArgs(
+          'rebase',
+          session.onto === REBASE_ROOT ? ['-i', '--autostash', '--root'] : ['-i', '--autostash'],
+          session.onto === REBASE_ROOT ? [] : [session.onto]
+        ),
         {
           cwd,
           env: {
@@ -893,7 +900,12 @@ export class RebaseService implements IRebaseService {
     // transformRebaseTodo would throw ("references commit not in todo"),
     // aborting the rebase over any merge history.
     const result = await this._gitCli.exec(
-      buildGitArgs('log', ['--reverse', '--no-merges', '--format=%H%x00%s'], [`${onto}..HEAD`]),
+      buildGitArgs(
+        'log',
+        ['--reverse', '--no-merges', '--format=%H%x00%s'],
+        // A --root rebase replays the ENTIRE history reachable from HEAD.
+        [onto === REBASE_ROOT ? 'HEAD' : `${onto}..HEAD`]
+      ),
       { cwd }
     );
 

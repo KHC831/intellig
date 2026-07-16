@@ -32,13 +32,14 @@ import {
   LogContextAction,
 } from '../../../src/ui-shell/GitToolWindowProvider';
 import type { BranchComparisonView } from '../../../src/branches/BranchComparisonView';
-import { EventEmitter, Uri } from '../../mocks/vscode';
+import { EventEmitter, Uri, setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
 import { writableWindow, writableEnv, writableCommands } from '../../typed/windowStub';
 import {
   installMessageEditorStubs,
   type MessageEditorTracker,
 } from '../../typed/messageEditorStub';
 import { CommitMessageDialog } from '../../../src/commits/CommitMessageDialog';
+import { CommitDialog } from '../../../src/commits/CommitDialog';
 import { makeExtensionContext } from '../../helpers/mockWebviewContext';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
@@ -442,6 +443,98 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('cherry-pick failed'));
+    });
+
+    // ─── "(cherry picked from ...)" suffix (IntelliJ -x for published commits,
+    //     CherryPickProcess.kt shouldAddSuffix: setting && isCommitPublished) ──
+
+    /** GitCli whose remote-containment probe reports the given branches. */
+    function makeContainmentGitCli(remoteBranches: string): MockGitCli {
+      return createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (
+            cmdArgs[0] === 'branch' &&
+            cmdArgs.includes('--remotes') &&
+            cmdArgs.includes('--contains')
+          ) {
+            return { exitCode: 0, stdout: remoteBranches, stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+    }
+
+    describe('cherry-picked-from suffix (published commits only, default on)', () => {
+      afterEach(() => resetMockConfiguration());
+
+      it('passes addCherryPickedFrom for a published commit (schema default on)', async () => {
+        createMessageTrackers();
+        const repo = createMockRepo();
+        const gitService = createMockGitService(repo);
+        const commands = new CommitContextMenuCommands(
+          gitService,
+          createMockRebaseService(),
+          createMockProvider(),
+          makeContainmentGitCli('  origin/feature\n')
+        );
+
+        await commands._handleAction('cherryPick', [testHash]);
+
+        const call = gitService.calls.find((c) => c.method === 'cherryPick');
+        assert.ok(call, 'cherryPick should have been called');
+        const options = call.args[2] as { addCherryPickedFrom?: boolean } | undefined;
+        assert.strictEqual(
+          options?.addCherryPickedFrom,
+          true,
+          `a published commit must carry the -x suffix by default; got options ${JSON.stringify(options)}`
+        );
+      });
+
+      it('omits the suffix for an unpublished commit', async () => {
+        createMessageTrackers();
+        const repo = createMockRepo();
+        const gitService = createMockGitService(repo);
+        const commands = new CommitContextMenuCommands(
+          gitService,
+          createMockRebaseService(),
+          createMockProvider(),
+          makeContainmentGitCli('')
+        );
+
+        await commands._handleAction('cherryPick', [testHash]);
+
+        const call = gitService.calls.find((c) => c.method === 'cherryPick');
+        assert.ok(call, 'cherryPick should have been called');
+        const options = call.args[2] as { addCherryPickedFrom?: boolean } | undefined;
+        assert.ok(
+          !options?.addCherryPickedFrom,
+          `an unpublished commit must not be annotated; got options ${JSON.stringify(options)}`
+        );
+      });
+
+      it('omits the suffix when intellig.addCherryPickedFromSuffix is off', async () => {
+        createMessageTrackers();
+        setMockConfigValue('intellig', 'addCherryPickedFromSuffix', false);
+        const repo = createMockRepo();
+        const gitService = createMockGitService(repo);
+        const commands = new CommitContextMenuCommands(
+          gitService,
+          createMockRebaseService(),
+          createMockProvider(),
+          makeContainmentGitCli('  origin/feature\n')
+        );
+
+        await commands._handleAction('cherryPick', [testHash]);
+
+        const call = gitService.calls.find((c) => c.method === 'cherryPick');
+        assert.ok(call, 'cherryPick should have been called');
+        const options = call.args[2] as { addCherryPickedFrom?: boolean } | undefined;
+        assert.ok(
+          !options?.addCherryPickedFrom,
+          `the setting must gate the suffix; got options ${JSON.stringify(options)}`
+        );
+      });
     });
   });
 
@@ -1023,8 +1116,11 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('undoCommit', [testHash]);
 
-      const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
-      assert.ok(call, 'gitCli.exec should have been called');
+      // The protected-branch probe runs first; find the reset itself.
+      const call = gitCli.calls.find(
+        (c: CallTracker) => c.method === 'exec' && (c.args[0] as string[])[0] === 'reset'
+      );
+      assert.ok(call, 'git reset should have been called');
       const args = call.args[0] as string[];
       assert.deepStrictEqual(args, ['reset', '--soft', 'HEAD~1']);
       assert.strictEqual(provider.refreshCallCount, 1);
@@ -1080,6 +1176,196 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(messages.error[0].message.includes('reset failed'));
     });
 
+    it('refuses undoing a HEAD commit contained in a protected remote branch', async () => {
+      // IntelliJ's GitUncommitAction rides the same base gates as the other
+      // commit-editing actions — a commit on a protected remote branch
+      // (findProtectedRemoteBranch) cannot be uncommitted. The refusal names
+      // the branch and runs no reset.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (
+            cmdArgs[0] === 'branch' &&
+            cmdArgs.includes('--remotes') &&
+            cmdArgs.includes('--contains')
+          ) {
+            return { exitCode: 0, stdout: '  origin/main\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('undoCommit', [testHash]);
+
+      assert.ok(
+        messages.error.some((e) => e.message.includes('origin/main')),
+        `expected a refusal naming the protected branch; got ${JSON.stringify(
+          messages.error.map((e) => e.message)
+        )}`
+      );
+      const resetCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'reset';
+      });
+      assert.ok(!resetCall, 'git reset must NOT run for a protected commit');
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a refused undo');
+    });
+
+    it('undoes a HEAD commit that is pushed only to an unprotected remote branch', async () => {
+      createMessageTrackers();
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (
+            cmdArgs[0] === 'branch' &&
+            cmdArgs.includes('--remotes') &&
+            cmdArgs.includes('--contains')
+          ) {
+            return { exitCode: 0, stdout: '  origin/feature\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('undoCommit', [testHash]);
+
+      const resetCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'reset';
+      });
+      assert.ok(resetCall, 'git reset --soft must run for an unprotected commit');
+    });
+
+    // ─── target-changelist chooser (IntelliJ GitUncommitAction.java:60-68:
+    //     a ChangeListChooser with the commit subject as the suggested name
+    //     picks where the uncommitted changes land) ────────────────────────
+    describe('target-changelist chooser', () => {
+      interface ChangelistCalls {
+        created: string[];
+        moved: { files: string[]; changelistId: string }[];
+      }
+
+      function makeChangelistService(calls: ChangelistCalls): unknown {
+        return {
+          getChangelists: () => [
+            { id: 'default-id', name: 'Changes', isDefault: true, isActive: true, files: [] },
+            { id: 'other-id', name: 'Other work', isDefault: false, isActive: false, files: [] },
+          ],
+          createChangelist: (_repo: IRepository, name: string) => {
+            calls.created.push(name);
+            return { id: `new-${name}`, name, isDefault: false, isActive: false, files: [] };
+          },
+          moveToChangelist: (_repo: IRepository, files: string[], changelistId: string) => {
+            calls.moved.push({ files, changelistId });
+          },
+        };
+      }
+
+      function makeUndoHarness(picker: (items: unknown[]) => unknown): {
+        commands: CommitContextMenuCommands;
+        gitCli: MockGitCli;
+        calls: ChangelistCalls;
+      } {
+        const repo = createMockRepo(testHash);
+        const gitService = createMockGitService(repo, {
+          getCommit: async () => ({
+            hash: testHash,
+            shortHash: testHash.substring(0, 7),
+            message: 'Fix the widget\n\nlonger body',
+            author: { name: 'a', email: 'a@x' },
+            committer: { name: 'a', email: 'a@x' },
+            parents: [],
+            authorDate: new Date(0),
+            commitDate: new Date(0),
+          }),
+          getCommitDiff: async () => [
+            { path: 'w.ts', status: 'modified' as const, hunks: [], binary: false },
+            { path: 'x.ts', status: 'added' as const, hunks: [], binary: false },
+          ],
+        });
+        const gitCli = createMockGitCli();
+        const commands = new CommitContextMenuCommands(
+          gitService,
+          createMockRebaseService(),
+          createMockProvider(),
+          gitCli
+        );
+        const calls: ChangelistCalls = { created: [], moved: [] };
+        (commands as unknown as { setChangelistService(svc: unknown): void }).setChangelistService(
+          makeChangelistService(calls)
+        );
+        writableWindow().showQuickPick = ((items: unknown[]) =>
+          Promise.resolve(picker(items))) as never;
+        return { commands, gitCli, calls };
+      }
+
+      it("offers a new changelist suggested from the commit subject; picking it creates + moves the commit's files", async () => {
+        createMessageTrackers();
+        const { commands, gitCli, calls } = makeUndoHarness((items) =>
+          (items as { label: string }[]).find((i) => i.label.includes('Fix the widget'))
+        );
+
+        await commands._handleAction('undoCommit', [testHash]);
+
+        const resetCall = gitCli.calls.find(
+          (c: CallTracker) => c.method === 'exec' && (c.args[0] as string[])[0] === 'reset'
+        );
+        assert.ok(resetCall, 'the soft reset must run after the chooser');
+        assert.deepStrictEqual(
+          calls.created,
+          ['Fix the widget'],
+          'new changelist named after the subject'
+        );
+        assert.strictEqual(calls.moved.length, 1);
+        assert.deepStrictEqual(calls.moved[0].files.sort(), ['w.ts', 'x.ts']);
+        assert.strictEqual(calls.moved[0].changelistId, 'new-Fix the widget');
+      });
+
+      it('picking an existing changelist moves the files there without creating one', async () => {
+        createMessageTrackers();
+        const { commands, gitCli, calls } = makeUndoHarness((items) =>
+          (items as { label: string }[]).find((i) => i.label.includes('Other work'))
+        );
+
+        await commands._handleAction('undoCommit', [testHash]);
+
+        const resetCall = gitCli.calls.find(
+          (c: CallTracker) => c.method === 'exec' && (c.args[0] as string[])[0] === 'reset'
+        );
+        assert.ok(resetCall, 'the soft reset must run');
+        assert.deepStrictEqual(calls.created, [], 'no new changelist');
+        assert.strictEqual(calls.moved.length, 1);
+        assert.strictEqual(calls.moved[0].changelistId, 'other-id');
+      });
+
+      it('cancelling the chooser cancels the undo (no reset)', async () => {
+        createMessageTrackers();
+        const { commands, gitCli, calls } = makeUndoHarness(() => undefined);
+
+        await commands._handleAction('undoCommit', [testHash]);
+
+        const resetCall = gitCli.calls.find(
+          (c: CallTracker) => c.method === 'exec' && (c.args[0] as string[])[0] === 'reset'
+        );
+        assert.ok(!resetCall, 'a cancelled chooser must not reset');
+        assert.deepStrictEqual(calls.created, []);
+        assert.deepStrictEqual(calls.moved, []);
+      });
+    });
+
     it('accepts an abbreviated hash that is a prefix of the full HEAD hash (prefix-match parity)', async () => {
       // Regression: the old exact-equality check `hash !== headHash` silently
       // rejected abbreviated 7-char hashes even when they matched HEAD.
@@ -1097,7 +1383,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('undoCommit', [abbrevHash]);
 
-      const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
+      const call = gitCli.calls.find(
+        (c: CallTracker) => c.method === 'exec' && (c.args[0] as string[])[0] === 'reset'
+      );
       assert.ok(call, 'git reset must be called when abbreviated hash matches HEAD via prefix');
       const args = call.args[0] as string[];
       assert.deepStrictEqual(args, ['reset', '--soft', 'HEAD~1']);
@@ -1470,14 +1758,24 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       simulate: (e: MessageEditorTracker) => void
     ): Promise<MessageEditorTracker> {
       const editor = installMessageEditorStubs();
+      let handlerDone = false;
       const handlerPromise = (
         commands as unknown as { _handleAction(a: string, h: string[]): Promise<void> }
-      )._handleAction('editCommitMessage', [hash]);
+      )
+        ._handleAction('editCommitMessage', [hash])
+        .finally(() => {
+          handlerDone = true;
+        });
       const deadline = Date.now() + 2000;
-      while (editor.openCalls === 0 && Date.now() < deadline) {
+      while (!handlerDone && editor.openCalls === 0 && Date.now() < deadline) {
         await new Promise<void>((r) => setImmediate(r));
       }
-      simulate(editor);
+      try {
+        simulate(editor);
+      } catch {
+        // A pre-dialog gate refused the reword — the editor never opened, so
+        // there is nothing to save. Refusal cases assert the refusal toast.
+      }
       await handlerPromise;
       return editor;
     }
@@ -1661,16 +1959,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
-    it('warns before rewording an already-pushed non-HEAD commit and aborts when the user declines', async () => {
-      // IntelliJ's GitSingleCommitEditingAction.lastCheckCommitsEditingAvailability
-      // blocks reword on a commit pushed to a protected branch. We have no
-      // protected-branch config, so the parity-flavoured guard is a
-      // confirmation: rewording a commit that already exists on a remote
-      // rewrites published history. Declining the confirm must NOT start a
-      // rebase.
-      // createMessageTrackers installs a showWarningMessage that records the
-      // call and returns undefined — i.e. the user dismissed the modal
-      // (declined). The decline path must abort the reword.
+    it('refuses rewording a non-HEAD commit contained in a protected remote branch', async () => {
+      // IntelliJ's GitCommitEditingActionBase.lastCheckCommitsEditingAvailability
+      // blocks reword outright when the commit is contained in a protected
+      // remote branch (findProtectedRemoteBranch). intellig.protectedBranches
+      // defaults to ['main', 'master']; a commit on origin/main is refused —
+      // no confirm, no dialog, no rebase.
       const messages = createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
@@ -1701,38 +1995,30 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await runReword(commands, testHash, (e) => e.simulateSave('rewritten message'));
 
-      // A history-rewrite warning was surfaced.
+      // The refusal is an error toast NAMING the branch — not a confirm.
       assert.strictEqual(
         messages.warning.length,
-        1,
-        `expected exactly one warning, got ${messages.warning.length}`
+        0,
+        `no confirm may be offered for a protected commit; got ${JSON.stringify(
+          messages.warning.map((w) => w.message)
+        )}`
       );
       assert.ok(
-        /push/i.test(messages.warning[0].message),
-        `warning should mention the commit was pushed, got: "${messages.warning[0].message}"`
+        messages.error.some((e) => e.message.includes('origin/main')),
+        `expected a refusal naming the protected branch; got ${JSON.stringify(
+          messages.error.map((e) => e.message)
+        )}`
       );
-
-      // Declining must NOT rewrite history.
       const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
-      assert.ok(
-        !startCall,
-        'startInteractiveRebase must NOT run when the user declines the pushed-commit warning'
-      );
-      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a cancelled reword');
+      assert.ok(!startCall, 'startInteractiveRebase must NOT run for a protected commit');
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a refused reword');
     });
 
-    it('proceeds with reword of an already-pushed commit when the user confirms', async () => {
-      createMessageTrackers();
-      // User confirms the history-rewrite warning. Record invocations so we
-      // can assert the warning was actually surfaced before proceeding.
-      let warningCount = 0;
-      writableWindow().showWarningMessage = (
-        _message: string,
-        ..._items: unknown[]
-      ): Promise<string | undefined> => {
-        warningCount++;
-        return Promise.resolve('Reword Anyway');
-      };
+    it('proceeds without any confirm when the pushed commit is NOT on a protected branch', async () => {
+      // The old guard confirmed on pushed-ANYWHERE (stricter trigger, weaker
+      // response). Reference-correct is the protected list: a commit only on
+      // origin/feature rewords straight through.
+      const messages = createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
@@ -1749,7 +2035,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
             cmdArgs.includes('--remotes') &&
             cmdArgs.includes('--contains')
           ) {
-            return { exitCode: 0, stdout: '  origin/main\n', stderr: '', combined: '' };
+            return { exitCode: 0, stdout: '  origin/feature\n', stderr: '', combined: '' };
           }
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
             return { exitCode: 0, stdout: '', stderr: '', combined: '' };
@@ -1761,10 +2047,15 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await runReword(commands, testHash, (e) => e.simulateSave('rewritten message'));
 
-      // Warning shown but confirmed → the rebase proceeds.
-      assert.strictEqual(warningCount, 1, 'the warning is still shown before confirming');
+      assert.strictEqual(
+        messages.warning.length,
+        0,
+        `unprotected published history rewords without a confirm; got ${JSON.stringify(
+          messages.warning.map((w) => w.message)
+        )}`
+      );
       const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
-      assert.ok(startCall, 'startInteractiveRebase should run after the user confirms');
+      assert.ok(startCall, 'startInteractiveRebase should run without any prompt');
     });
 
     it('_isCommitPushed returns false for a non-hex hash without invoking git', async () => {
@@ -1810,13 +2101,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(typeof result, 'boolean');
     });
 
-    it('warns before rewording an already-pushed HEAD commit and aborts the amend when declined', async () => {
+    it('refuses amending a HEAD commit contained in a protected remote branch', async () => {
       // IntelliJ's GitCommitEditingActionBase.checkCommitsCanBeEdited gates
       // reword on the commit's containing branches regardless of whether it is
-      // the topmost commit — amending a pushed HEAD commit also rewrites
-      // published history and needs a force-push. The parity-flavoured guard
-      // must therefore fire on the HEAD (git commit --amend) path too, not
-      // only on the non-HEAD rebase path. Declining must NOT amend.
+      // the topmost commit — amending a protected HEAD commit also rewrites
+      // published protected history. The gate must therefore fire on the HEAD
+      // (git commit --amend) path too, not only on the non-HEAD rebase path.
       const messages = createMessageTrackers();
       const repo = createMockRepo(testHash); // HEAD === selected commit
       const gitService = createMockGitService(repo);
@@ -1846,19 +2136,23 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(
         messages.warning.length,
-        1,
-        `expected exactly one warning, got ${messages.warning.length}`
+        0,
+        `no confirm may be offered for a protected commit; got ${JSON.stringify(
+          messages.warning.map((w) => w.message)
+        )}`
       );
       assert.ok(
-        /push/i.test(messages.warning[0].message),
-        `warning should mention the commit was pushed, got: "${messages.warning[0].message}"`
+        messages.error.some((e) => e.message.includes('origin/main')),
+        `expected a refusal naming the protected branch; got ${JSON.stringify(
+          messages.error.map((e) => e.message)
+        )}`
       );
       const amendCall = gitCli.calls.find((c: CallTracker) => {
         const a = c.args[0] as string[];
         return a[0] === 'commit' && a.includes('--amend');
       });
-      assert.ok(!amendCall, 'git commit --amend must NOT run when the user declines the warning');
-      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a cancelled reword');
+      assert.ok(!amendCall, 'git commit --amend must NOT run for a protected commit');
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a refused reword');
     });
 
     it('routes through provideRewordMessage when executeRebase pauses (regression: was leaving HEAD detached)', async () => {
@@ -2330,12 +2624,15 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(messages.error[0].message.includes('rebase failed'));
     });
 
-    // ─── merge-flattening pre-flight warning ────────────────────────────────
+    // ─── merge-flattening pre-flight refusal ────────────────────────────────
     //
     // A commit graph draws a merged branch's commits right beneath the merge,
     // so a base that LOOKS a few rows below HEAD can span weeks of mainline.
-    // When `<onto>..HEAD` contains merges, the handler must warn with the real
-    // numbers before opening the editor; a merge-free range stays silent.
+    // When `<onto>..HEAD` contains merges, the handler must REFUSE before
+    // opening the editor (IntelliJ GitCommitEditingActionBase
+    // checkHeadLinearHistory errors out; there is no proceed affordance),
+    // pointing at the Rebase dialog's --rebase-merges option. A merge-free
+    // range stays silent.
 
     /** GitCli whose exec serves the range-analysis probes from a fixture. */
     function createAnalysisGitCli(fixture: {
@@ -2376,8 +2673,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       } as unknown as GitCli;
     }
 
-    it('warns before a merge-flattening rebase and blocks when dismissed', async () => {
-      const messages = createMessageTrackers(); // showWarningMessage → undefined (dismiss)
+    it('refuses a merge-flattening rebase before opening the editor', async () => {
+      const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
@@ -2397,25 +2694,22 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
 
-      assert.strictEqual(opened.length, 0, 'dismissing the warning must not open the editor');
-      assert.strictEqual(messages.warning.length, 1, 'exactly one pre-flight warning');
-      assert.ok(messages.warning[0].message.includes('200'), 'names the replay count');
-      assert.ok(messages.warning[0].message.includes('80'), 'names the flattened-merge count');
-      assert.ok(messages.warning[0].items.includes('Rebase Anyway'));
+      assert.strictEqual(opened.length, 0, 'the editor must not open over a merge-bearing range');
+      assert.strictEqual(messages.error.length, 1, 'exactly one refusal toast');
+      assert.ok(messages.error[0].message.includes('80'), 'names the flattened-merge count');
+      assert.ok(
+        messages.error[0].message.includes('--rebase-merges'),
+        'points at the Rebase dialog escape hatch'
+      );
+      assert.strictEqual(
+        messages.warning.length,
+        0,
+        'no warn-and-proceed affordance may remain (the reference refuses outright)'
+      );
     });
 
     it('mentions the merged-branch hint when the base is off the mainline', async () => {
-      createMessageTrackers();
-      // Capture the raw showWarningMessage args: the hint lives in the modal
-      // OPTIONS `detail`, which the shared tracker's string-only filter drops.
-      const rawWarningArgs: unknown[][] = [];
-      writableWindow().showWarningMessage = (
-        message: string,
-        ...items: unknown[]
-      ): Promise<string | undefined> => {
-        rawWarningArgs.push([message, ...items]);
-        return Promise.resolve(undefined);
-      };
+      const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
@@ -2431,14 +2725,16 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
 
-      assert.strictEqual(rawWarningArgs.length, 1);
+      assert.strictEqual(messages.error.length, 1);
       assert.ok(
-        /merged branch/i.test(JSON.stringify(rawWarningArgs[0])),
-        'off-mainline base gets the merged-branch hint in the modal detail'
+        /merged branch/i.test(messages.error[0].message),
+        'off-mainline base gets the merged-branch hint in the refusal copy'
       );
     });
 
-    it('proceeds to the editor on Rebase Anyway', async () => {
+    it('offers no proceed affordance even when a confirm would be answered', async () => {
+      // Regression guard on the removed warn-then-allow arm: a stub that
+      // answers ANY confirm affirmatively still must not reach the editor.
       createMessageTrackers();
       writableWindow().showWarningMessage = (): Promise<string | undefined> =>
         Promise.resolve('Rebase Anyway');
@@ -2461,7 +2757,48 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
 
-      assert.deepStrictEqual(opened, [parentHash], 'confirming opens the editor as before');
+      assert.strictEqual(opened.length, 0, 'refusal must be unconditional');
+    });
+
+    it('refuses to open the editor while a rebase is already in progress', async () => {
+      // IntelliJ GitInteractiveRebaseAction is Prohibited during rebase. A
+      // real on-disk rebase-merge/ marker must refuse before the editor opens.
+      const tmpBase = path.join(process.cwd(), 'workspace-notes', 'tmp');
+      fs.mkdirSync(tmpBase, { recursive: true });
+      const tmpRoot = fs.mkdtempSync(path.join(tmpBase, 'irebase-inprogress-'));
+      fs.mkdirSync(path.join(tmpRoot, '.git', 'rebase-merge'), { recursive: true });
+      try {
+        const messages = createMessageTrackers();
+        const repo = {
+          rootUri: Uri.file(tmpRoot),
+          state: 'rebasing',
+          head: { name: 'refs/heads/main', commit: undefined, ahead: 0, behind: 0 },
+          remotes: [],
+          submodules: [],
+        } as unknown as IRepository;
+        const gitService = createMockGitService(repo);
+        const rebaseService = createMockRebaseService();
+        const provider = createMockProvider();
+        const gitCli = createMockGitCli();
+        const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+        const opened: string[] = [];
+        commands.setRebaseEditorOpener(async (_r, onto) => {
+          opened.push(onto);
+          return { executed: true };
+        });
+
+        await commands._handleAction('interactiveRebase', [testHash], [clickedRow]);
+
+        assert.strictEqual(opened.length, 0, 'the editor must not open mid-rebase');
+        assert.ok(
+          messages.error.some((e) => /rebase is in progress/i.test(e.message)),
+          `expected an in-progress refusal; got ${JSON.stringify(
+            messages.error.map((e) => e.message)
+          )}`
+        );
+      } finally {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      }
     });
 
     it('stays silent for a merge-free range', async () => {
@@ -2903,6 +3240,210 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
   // ─── fixup / squashInto (Git.Fixup.To.Commit / Git.Squash.Into.Commit) ──────
 
+  // ─── fixup / squashInto via the seeded Commit dialog (IntelliJ
+  //     GitAutoSquashCommitAction.kt:29-61: opens the COMMIT DIALOG seeded
+  //     `fixup!/squash! <subject>` and offers a commit-and-rebase executor;
+  //     adapted: dialog first, then a 'Rebase Now' toast affordance) ────────
+  describe('fixup / squashInto — seeded commit dialog + Rebase Now', () => {
+    const targetHash = 'f'.repeat(40);
+    const createdHash = 'e'.repeat(40);
+
+    interface FixupHarness {
+      commands: CommitContextMenuCommands;
+      tracker: {
+        startedOnto: string | undefined;
+        lastPlan: IRebaseAction[] | undefined;
+        executeCalls: number;
+      };
+      shownOptions: Array<{ initialMessage?: string } | undefined>;
+      restoreDialog: () => void;
+      messages: ReturnType<typeof createMessageTrackers>;
+    }
+
+    function makeFixupHarness(opts: {
+      dialogResult: { committed: boolean; message?: string };
+      infoAnswer?: string;
+    }): FixupHarness {
+      const messages = createMessageTrackers();
+      writableWindow().showInformationMessage = ((message: string, ...items: string[]) => {
+        messages.info.push({ message, items });
+        return Promise.resolve(items.includes(opts.infoAnswer ?? '') ? opts.infoAnswer : undefined);
+      }) as never;
+
+      const repo = createMockRepo('head_hash');
+      const gitService = createMockGitService(repo, {
+        getCommit: async (_r: IRepository, hash: string) => ({
+          hash: hash === 'HEAD' ? createdHash : hash,
+          shortHash: hash.substring(0, 7),
+          message:
+            hash === 'HEAD'
+              ? 'squash! Fix the widget\n\nextra detail'
+              : 'Fix the widget\n\ntarget body',
+          author: { name: 'a', email: 'a@x' },
+          committer: { name: 'a', email: 'a@x' },
+          parents: ['0'.repeat(40)],
+          authorDate: new Date(0),
+          commitDate: new Date(0),
+        }),
+        getMergeBase: async (_r: IRepository, a: string) => a,
+      } as unknown as Partial<IGitService>);
+
+      const tracker: FixupHarness['tracker'] = {
+        startedOnto: undefined,
+        lastPlan: undefined,
+        executeCalls: 0,
+      };
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async (_r: IRepository, onto: string) => {
+          tracker.startedOnto = onto;
+          return {
+            onto,
+            originalBranch: 'main',
+            commits: [
+              { hash: '9'.repeat(40), message: 'older', action: 'pick' as const },
+              { hash: targetHash, message: 'Fix the widget', action: 'pick' as const },
+              { hash: '8'.repeat(40), message: 'later', action: 'pick' as const },
+              { hash: createdHash, message: 'squash! Fix the widget', action: 'pick' as const },
+            ],
+            currentStep: 0,
+            status: 'planning' as const,
+          };
+        },
+        updateRebasePlan: (_r: IRepository, plan: IRebaseAction[]) => {
+          tracker.lastPlan = plan.map((a) => ({ ...a }));
+        },
+        executeRebase: async () => {
+          tracker.executeCalls++;
+          return { success: true, status: 'completed' as const };
+        },
+      });
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        createMockProvider(),
+        createMockGitCli()
+      );
+      (commands as unknown as { _context: unknown })._context = makeExtensionContext();
+
+      const shownOptions: FixupHarness['shownOptions'] = [];
+      const origShow = CommitDialog.prototype.show;
+      CommitDialog.prototype.show = function (
+        this: CommitDialog,
+        _repo: IRepository,
+        options?: { initialMessage?: string }
+      ): Promise<{ committed: boolean; message?: string }> {
+        shownOptions.push(options);
+        (this as unknown as { dispose(): void }).dispose();
+        return Promise.resolve(opts.dialogResult);
+      } as typeof CommitDialog.prototype.show;
+
+      return {
+        commands,
+        tracker,
+        shownOptions,
+        restoreDialog: () => {
+          CommitDialog.prototype.show = origShow;
+        },
+        messages,
+      };
+    }
+
+    it('fixup opens the commit dialog seeded "fixup! <subject>"', async () => {
+      const h = makeFixupHarness({ dialogResult: { committed: true } });
+      try {
+        await h.commands._handleAction('fixup', [targetHash]);
+      } finally {
+        h.restoreDialog();
+      }
+
+      assert.strictEqual(h.shownOptions.length, 1, 'the commit dialog must open');
+      assert.strictEqual(h.shownOptions[0]?.initialMessage, 'fixup! Fix the widget');
+    });
+
+    it('a committed dialog offers a Rebase Now toast; declining runs no rebase', async () => {
+      const h = makeFixupHarness({ dialogResult: { committed: true } });
+      try {
+        await h.commands._handleAction('fixup', [targetHash]);
+      } finally {
+        h.restoreDialog();
+      }
+
+      assert.ok(
+        h.messages.info.some((m) => m.items.includes('Rebase Now')),
+        `expected a Rebase Now affordance; got ${JSON.stringify(h.messages.info)}`
+      );
+      assert.strictEqual(h.tracker.executeCalls, 0, 'declining must not rebase');
+    });
+
+    it('Rebase Now folds the fixup! commit into the target via the shared runner', async () => {
+      const h = makeFixupHarness({ dialogResult: { committed: true }, infoAnswer: 'Rebase Now' });
+      try {
+        await h.commands._handleAction('fixup', [targetHash]);
+      } finally {
+        h.restoreDialog();
+      }
+
+      assert.strictEqual(h.tracker.startedOnto, `${targetHash}~1`);
+      assert.strictEqual(h.tracker.executeCalls, 1);
+      const plan = h.tracker.lastPlan;
+      assert.ok(plan, 'a plan must be applied');
+      const targetIdx = plan.findIndex((p) => p.hash === targetHash);
+      const createdIdx = plan.findIndex((p) => p.hash === createdHash);
+      assert.strictEqual(
+        createdIdx,
+        targetIdx + 1,
+        `the fixup! commit must move right after the target; plan ${JSON.stringify(plan)}`
+      );
+      assert.strictEqual(plan[createdIdx].action, 'fixup', 'folded without touching the message');
+      assert.strictEqual(plan[targetIdx].action, 'pick', 'fixup keeps the target message');
+    });
+
+    it("squashInto seeds 'squash!' and Rebase Now combines the messages via a reword override", async () => {
+      const h = makeFixupHarness({
+        dialogResult: { committed: true, message: 'squash! Fix the widget\n\nextra detail' },
+        infoAnswer: 'Rebase Now',
+      });
+      try {
+        await h.commands._handleAction('squashInto', [targetHash]);
+      } finally {
+        h.restoreDialog();
+      }
+
+      assert.strictEqual(h.shownOptions[0]?.initialMessage, 'squash! Fix the widget');
+      const plan = h.tracker.lastPlan;
+      assert.ok(plan, 'a plan must be applied');
+      const target = plan.find((p) => p.hash === targetHash);
+      assert.strictEqual(target?.action, 'reword', 'squash combines messages on the target');
+      assert.ok(
+        target?.newMessage?.includes('target body') && target.newMessage.includes('extra detail'),
+        `combined message must carry both bodies; got ${JSON.stringify(target?.newMessage)}`
+      );
+      assert.ok(
+        !target?.newMessage?.includes('squash!'),
+        `the squash! marker line must not leak into the message; got ${JSON.stringify(
+          target?.newMessage
+        )}`
+      );
+      const created = plan.find((p) => p.hash === createdHash);
+      assert.strictEqual(created?.action, 'fixup', 'the squash! commit folds in');
+    });
+
+    it('a cancelled dialog commits nothing and offers no rebase', async () => {
+      const h = makeFixupHarness({ dialogResult: { committed: false } });
+      try {
+        await h.commands._handleAction('fixup', [targetHash]);
+      } finally {
+        h.restoreDialog();
+      }
+
+      assert.strictEqual(h.tracker.executeCalls, 0);
+      assert.ok(
+        !h.messages.info.some((m) => m.items.includes('Rebase Now')),
+        'no Rebase Now affordance on cancel'
+      );
+    });
+  });
+
   describe('_handleAction fixup / squashInto', () => {
     function makeServiceWithFixup(
       fixupResult: { success: boolean; reason?: string } = { success: true }
@@ -3234,6 +3775,135 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       );
     });
 
+    it('refuses while a rebase is in progress (Prohibit policy parity)', async () => {
+      // IntelliJ GitDropSelectedChangesAction is Prohibited during rebase; a
+      // soft-reset mid-rebase would corrupt the detached-HEAD rebase state.
+      const tmpBase = path.join(process.cwd(), 'workspace-notes', 'tmp');
+      fs.mkdirSync(tmpBase, { recursive: true });
+      const tmpRoot = fs.mkdtempSync(path.join(tmpBase, 'dsc-inprogress-'));
+      fs.mkdirSync(path.join(tmpRoot, '.git', 'rebase-merge'), { recursive: true });
+      try {
+        const messages = createMessageTrackers();
+        const repo = {
+          rootUri: Uri.file(tmpRoot),
+          state: 'rebasing',
+          head: { name: 'refs/heads/main', commit: dscHash, ahead: 0, behind: 0 },
+          remotes: [],
+          submodules: [],
+        } as unknown as IRepository;
+        const gitService = makeDscGitService(repo, [{ path: 'f.ts', status: 'modified' as const }]);
+        const commands = new CommitContextMenuCommands(
+          gitService,
+          createMockRebaseService(),
+          createMockProvider(),
+          makeDscGitCli(),
+          undefined,
+          async () => repo
+        );
+
+        await commands.dropSelectedChangesFromCommit(dscHash);
+
+        assert.ok(
+          messages.error.some((e) => /rebase is in progress/i.test(e.message)),
+          `expected an in-progress refusal; got ${JSON.stringify(
+            messages.error.map((e) => e.message)
+          )}`
+        );
+        assert.strictEqual(messages.info.length, 0, 'no success toast may fire');
+      } finally {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses when the commit is contained in a protected remote branch (naming it)', async () => {
+      // IntelliJ's GitDropSelectedChangesAction rides the shared commit-editing
+      // gates: a commit on a protected remote branch is blocked
+      // (findProtectedRemoteBranch). Ours previously refused on pushed-ANYWHERE;
+      // reference-correct is the protected list.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(dscHash);
+      const gitService = makeDscGitService(repo, [{ path: 'f.ts', status: 'modified' as const }]);
+      const gitCli = makeDscGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'HEAD') {
+            return { exitCode: 0, stdout: dscHash, stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'branch' && cmdArgs.includes('--remotes')) {
+            return { exitCode: 0, stdout: '  origin/main\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        gitCli,
+        undefined,
+        async () => repo
+      );
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      assert.ok(
+        messages.error.some((e) => e.message.includes('origin/main')),
+        `expected a refusal naming the protected branch; got ${JSON.stringify(
+          messages.error.map((e) => e.message)
+        )}`
+      );
+      assert.strictEqual(messages.info.length, 0, 'no success toast on a refusal');
+    });
+
+    it('proceeds when the commit is pushed only to an unprotected remote branch', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(dscHash);
+      const gitService = makeDscGitService(repo, [
+        { path: 'f.ts', status: 'modified' as const },
+        { path: 'kept.ts', status: 'modified' as const },
+      ]);
+      const gitCli = makeDscGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'rev-parse' && cmdArgs[1] === 'HEAD') {
+            return { exitCode: 0, stdout: dscHash, stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'branch' && cmdArgs.includes('--remotes')) {
+            return { exitCode: 0, stdout: '  origin/feature\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        gitCli,
+        undefined,
+        async () => repo
+      );
+
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> =>
+        Promise.resolve([
+          (items as { label: string; path: string }[]).find((i) => i.path === 'f.ts'),
+        ]);
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Drop');
+
+      await commands.dropSelectedChangesFromCommit(dscHash);
+
+      assert.strictEqual(
+        messages.error.length,
+        0,
+        `unprotected published history is editable; got ${JSON.stringify(
+          messages.error.map((e) => e.message)
+        )}`
+      );
+      assert.strictEqual(messages.info.length, 1, 'the drop completes with a success toast');
+    });
+
     it('does NOT add the untracked note when no newly-added files were dropped', async () => {
       // Only modified files were dropped — checkout HEAD restores them from the
       // parent, so no untracked files remain. Toast must stay simple.
@@ -3458,6 +4128,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         }),
         getCommitDiff: async () => [
           { path: 'new-file.ts', status: 'added' as const, hunks: [], binary: false },
+          // A kept file keeps the selection partial — all-files is refused.
+          { path: 'kept.ts', status: 'modified' as const, hunks: [], binary: false },
         ],
       });
       const gitCli = createMockGitCli({
@@ -3527,6 +4199,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         }),
         getCommitDiff: async () => [
           { path: 'new-file.ts', status: 'added' as const, hunks: [], binary: false },
+          // A kept file keeps the selection partial — all-files is refused.
+          { path: 'kept.ts', status: 'modified' as const, hunks: [], binary: false },
         ],
       });
       const gitCli = createMockGitCli({

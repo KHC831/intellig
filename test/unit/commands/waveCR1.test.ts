@@ -124,13 +124,13 @@ describe('Wave C R1 — review fixes', () => {
       );
     });
 
-    it('_handleDropCommit checks parentCount === 0 (initial commit) before routing', () => {
+    it('_handleDropCommit resolves the rebase base through _resolveRewriteBase (initial-commit arm)', () => {
       const dropIdx = src.indexOf('private async _handleDropCommit(');
       const multiIdx = src.indexOf('private async _handleDropCommitMulti', dropIdx);
       const dropBody = src.substring(dropIdx, multiIdx > 0 ? multiIdx : dropIdx + 4000);
       assert.ok(
-        /parentCount\s*===\s*0/.test(dropBody),
-        '_handleDropCommit must guard against the initial-commit edge'
+        /_resolveRewriteBase\s*\(/.test(dropBody),
+        '_handleDropCommit must resolve its base via _resolveRewriteBase (warn-then---root for the initial commit)'
       );
     });
   });

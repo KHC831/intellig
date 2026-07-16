@@ -1373,6 +1373,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       if (ctx.commitToolWindow) {
         ctx.commitContextMenuCommands.setCommitComposer(ctx.commitToolWindow);
       }
+      // Late-bind the changelist service so Undo Commit offers the
+      // target-changelist chooser.
+      ctx.commitContextMenuCommands.setChangelistService(ctx.services.changelistService);
     }
 
     // Initialize Status Bar Service

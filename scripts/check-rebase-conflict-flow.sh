@@ -42,6 +42,17 @@
 #         flow is forced through the runner. Escape hatch:
 #         `// history-rewrite-exempt: <reason>` on the same or preceding
 #         line.
+#      c. Every `_runHistoryRewrite` scope must contain BOTH pre-flight
+#         gates: `_isRangeMergeFree(` (a plain rebase of a merge-bearing
+#         range silently flattens topology — refused, IntelliJ
+#         checkHeadLinearHistory) and `_isNotOnProtectedBranch(` (a commit
+#         on an intellig.protectedBranches remote branch must not be
+#         rewritten — refused, IntelliJ findProtectedRemoteBranch). With
+#         check (b) forcing every flow through the runner, this closes the
+#         gate-deletion drift: a refactor that drops either gate fails
+#         here, not in review. Escape hatch:
+#         `// runner-gate-exempt: <reason>` on the signature or preceding
+#         line.
 #    The guard runs in two modes: DEFAULT (no args) over the tracked tree;
 #    EXPLICIT PATHS (companion spec) over the given dirs, where every file is
 #    treated as non-allow-listed so fixtures exercise the teeth.
@@ -138,6 +149,45 @@ for f in $exec_files; do
     echo "preceding line."
     echo
     echo "$exec_hits"
+    fail=1
+  fi
+done
+
+# ── c. The runner keeps its pre-flight gates ────────────────────────────────
+for f in $exec_files; do
+  gate_hits=$(awk '
+    {
+      if ($0 ~ /private async _runHistoryRewrite\(/ \
+          && $0 !~ /runner-gate-exempt:/ && prev !~ /runner-gate-exempt:/) {
+        inrunner = 1; merge = 0; prot = 0; startline = FNR
+      } else if (inrunner && $0 ~ /^  [A-Za-z_$]/) {
+        inrunner = 0
+        if (!merge || !prot) {
+          printf "%s:%d: _runHistoryRewrite missing gate(s):%s%s\n", FILENAME, startline, \
+            (merge ? "" : " _isRangeMergeFree("), (prot ? "" : " _isNotOnProtectedBranch(")
+        }
+      }
+      if (inrunner) {
+        if ($0 ~ /_isRangeMergeFree\(/) { merge = 1 }
+        if ($0 ~ /_isNotOnProtectedBranch\(/) { prot = 1 }
+      }
+      prev = $0
+    }
+    END {
+      if (inrunner && (!merge || !prot)) {
+        printf "%s:%d: _runHistoryRewrite missing gate(s):%s%s\n", FILENAME, startline, \
+          (merge ? "" : " _isRangeMergeFree("), (prot ? "" : " _isNotOnProtectedBranch(")
+      }
+    }
+  ' "$f")
+  if [ -n "$gate_hits" ]; then
+    echo "check-rebase-conflict-flow: _runHistoryRewrite lost a pre-flight gate."
+    echo "The runner owns the merge-flattening refusal (_isRangeMergeFree) and the"
+    echo "protected-branch refusal (_isNotOnProtectedBranch) for every history-"
+    echo "rewrite flow riding it. Restore the gate, or justify with"
+    echo "'// runner-gate-exempt: <reason>' on the signature or preceding line."
+    echo
+    echo "$gate_hits"
     fail=1
   fi
 done

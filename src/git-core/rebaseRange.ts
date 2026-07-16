@@ -12,6 +12,7 @@
  */
 
 import { GitCli, buildGitArgs, revParseVerified } from './gitCli';
+import { REBASE_ROOT } from './interfaces/IRebaseService';
 import { getLogger } from '../utils/logger';
 
 /** What `git rebase -i <onto>` would do to `<onto>..HEAD`. */
@@ -22,7 +23,11 @@ export interface IRebaseRangeAnalysis {
   mergeCommits: number;
 }
 
-/** `git rev-list --count <flags> <rev>..HEAD`, throwing on any probe failure. */
+/**
+ * `git rev-list --count <flags> <rev>..HEAD`, throwing on any probe failure.
+ * {@link REBASE_ROOT} counts the FULL history (`HEAD`) — a `--root` rebase
+ * replays everything reachable.
+ */
 async function countRange(
   gitCli: GitCli,
   cwd: string,
@@ -30,7 +35,11 @@ async function countRange(
   flags: string[]
 ): Promise<number> {
   const result = await gitCli.exec(
-    buildGitArgs('rev-list', ['--count', ...flags], [`${rev}..HEAD`]),
+    buildGitArgs(
+      'rev-list',
+      ['--count', ...flags],
+      [rev === REBASE_ROOT ? 'HEAD' : `${rev}..HEAD`]
+    ),
     { cwd }
   );
   if (result.exitCode !== 0) {

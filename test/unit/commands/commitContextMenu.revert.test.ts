@@ -545,31 +545,38 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
     return { commands, cli, gitService, provider };
   }
 
-  it('refuses when the commit is not HEAD', async () => {
+  it('a non-HEAD commit is not refused — it proceeds to the file picker', async () => {
+    // Reference parity: GitDropSelectedChangesAction operates on ANY commit
+    // (rebase-based GitDropSelectedChangesOperation); the HEAD-only refusal
+    // is gone. With no diffs, the flow reaches the empty-commit info toast —
+    // proof it got past where the old gate refused.
     const { commands, cli } = makeHarness();
     cli.setResponse('rev-parse HEAD', { exitCode: 0, stdout: 'differentHash\n', stderr: '' });
 
     const { trackers, restore } = installWindowStubs(() => undefined);
     try {
       await commands.dropSelectedChangesFromCommit(testHash);
-      assert.strictEqual(trackers.error.length, 1);
-      assert.ok(
-        trackers.error[0].includes('not HEAD') || trackers.error[0].includes('most recent commit')
+      assert.strictEqual(
+        trackers.error.length,
+        0,
+        `no refusal may fire for a non-HEAD commit; got ${JSON.stringify(trackers.error)}`
       );
-      // No destructive CLI ops — only the safety queries.
-      const destructive = cli.executed
-        .map((e) => e.args.join(' '))
-        .filter(
-          (c) =>
-            c.startsWith('reset --soft') || c.startsWith('commit ') || c === `revert ${testHash}`
-        );
-      assert.strictEqual(destructive.length, 0);
+      assert.ok(
+        trackers.info.some((m) => m.includes('no files to drop')),
+        `expected the empty-commit toast (flow got past the old HEAD gate); got ${JSON.stringify(
+          trackers.info
+        )}`
+      );
     } finally {
       restore();
     }
   });
 
-  it('refuses on pushed commits (remote branch contains the hash)', async () => {
+  it('refuses on commits published to a protected branch, naming it', async () => {
+    // Reference parity: the commit-editing base gates block a commit
+    // contained in a PROTECTED remote branch (findProtectedRemoteBranch) —
+    // not pushed-anywhere. origin/main matches the schema-default
+    // intellig.protectedBranches.
     const { commands, cli } = makeHarness([
       { path: 'a.ts', status: 'modified', hunks: [], binary: false },
     ]);
@@ -585,8 +592,8 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
       await commands.dropSelectedChangesFromCommit(testHash);
       assert.strictEqual(trackers.error.length, 1);
       assert.ok(
-        trackers.error[0].toLowerCase().includes('pushed'),
-        `expected "pushed" in the error, got "${trackers.error[0]}"`
+        trackers.error[0].includes('origin/main'),
+        `expected the refusal to name the protected branch, got "${trackers.error[0]}"`
       );
     } finally {
       restore();
@@ -697,7 +704,10 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
     }
   });
 
-  it('drop ALL files: no re-commit (the original commit disappears)', async () => {
+  it('drop ALL files: refused with a redirect to Drop Commit (reference disables this arm)', async () => {
+    // GitDropSelectedChangesAction disables itself when every change is
+    // selected — the operation would remove the commit entirely, which is
+    // Drop Commit's job.
     const { commands, cli } = makeHarness([
       { path: 'a.ts', status: 'modified', hunks: [], binary: false },
       { path: 'b.ts', status: 'added', hunks: [], binary: false },
@@ -716,15 +726,15 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
     try {
       await commands.dropSelectedChangesFromCommit(testHash);
       const joined = cli.executed.map((e) => e.args.join(' '));
-      assert.ok(joined.some((c) => c === 'reset --soft HEAD^'));
-      // Modified files use checkout HEAD; added files use rm --cached.
       assert.ok(
-        joined.some((c) => c.startsWith('checkout HEAD -- ') || /^rm --cached/.test(c)),
-        `expected checkout or rm --cached, got: ${joined.join(' | ')}`
+        !joined.some((c) => c.startsWith('reset --soft')),
+        `no git mutation may run on the refused all-files arm, got: ${joined.join(' | ')}`
       );
-      // No re-commit should have happened.
-      assert.ok(!joined.some((c) => c.startsWith('commit -C')));
-      assert.ok(trackers.info.some((m) => m.includes('Removed commit')));
+      assert.ok(
+        trackers.error.some((m) => /Drop Commit/i.test(m)),
+        `expected a refusal redirecting to Drop Commit; got ${JSON.stringify(trackers.error)}`
+      );
+      assert.ok(!trackers.info.some((m) => m.includes('Removed commit')));
     } finally {
       restore();
     }
@@ -768,9 +778,12 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
   it('rolls back via git reset --soft <originalHash> when the post-soft-reset step fails', async () => {
     // If any step after 'git reset --soft HEAD^' throws, the handler must
     // run 'git reset --soft <originalHash>' to restore the original commit
-    // so the repo is not left in a half-rewritten state.
+    // so the repo is not left in a half-rewritten state. A second (kept)
+    // file keeps the selection partial — an all-files selection is refused
+    // before any git mutation.
     const { commands, cli } = makeHarness([
       { path: 'new.ts', status: 'added', hunks: [], binary: false },
+      { path: 'kept.ts', status: 'modified', hunks: [], binary: false },
     ]);
     cli.setResponse('rev-parse HEAD', { exitCode: 0, stdout: `${testHash}\n`, stderr: '' });
     cli.setResponse(new RegExp(`^branch --remotes --contains ${testHash}$`), {
@@ -782,7 +795,7 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
     cli.setResponse(/^rm --cached/, { exitCode: 1, stdout: '', stderr: 'index error' });
 
     const { trackers, restore } = installWindowStubs(
-      (items) => [...items], // drop new.ts
+      (items) => [items[0]], // drop only new.ts
       () => 'Drop'
     );
     try {

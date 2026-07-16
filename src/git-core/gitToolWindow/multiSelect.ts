@@ -43,6 +43,16 @@
  */
 const NOT_IN_CURRENT_BRANCH_REASON = 'Commit is not in the current branch.';
 
+/**
+ * Disabled-tooltip text for a history-rewriting action whose rebased range
+ * (`oldest^..HEAD`) contains a merge commit — a plain interactive rebase
+ * would flatten it. Mirrors IntelliJ's checkHeadLinearHistory refusal
+ * (GitCommitEditingActionBase.kt).
+ */
+const MERGE_IN_RANGE_REASON =
+  'History between the selection and HEAD contains merge commits — rewriting would flatten them. ' +
+  'Use the Rebase dialog with the --rebase-merges option.';
+
 export type MultiSelectMenuAction =
   | 'copyHash'
   | 'createPatch'
@@ -112,6 +122,18 @@ export interface IMultiSelectMenuInputs {
    * {@link isContiguousFirstParentChain}.
    */
   isFirstParentChain?: boolean;
+  /**
+   * `true` when the rebased range (`oldest^..HEAD`) contains a merge commit,
+   * which a plain interactive rebase would FLATTEN. Gates every history-
+   * rewriting action (dropCommit / squashCommits / editCommitMessage /
+   * interactiveRebase), mirroring IntelliJ's checkHeadLinearHistory refusal
+   * (GitCommitEditingActionBase.kt). One exception rides in the rule itself:
+   * editCommitMessage of HEAD amends in place (no rebase), so it stays
+   * enabled via {@link isHeadInSelection} even when HEAD is a merge.
+   * Optional, defaulting `false`, so fixtures exercising other rules stay
+   * permissive.
+   */
+  hasMergeInRewriteRange?: boolean;
 }
 
 /**
@@ -278,8 +300,10 @@ export function computeMenuVisibility(
  * the gitToolWindow entry's applyMenuEnableMap a single shape-check away
  * from a TypeScript error on missing actions.
  *
- * Rules (spec, A3):
- *   - editCommitMessage:    N=1
+ * Rules (spec, A3; the history-rewriting entries additionally require the
+ * selection in the current branch and a merge-free `oldest^..HEAD` range —
+ * see {@link IMultiSelectMenuInputs}):
+ *   - editCommitMessage:    N=1 (HEAD selection bypasses the range gate)
  *   - undoCommit:           N=1 AND HEAD
  *   - dropCommit:           N≥1
  *   - revert:               N≥1
@@ -302,6 +326,7 @@ export function computeMenuEnableState(
     isSelectedInCurrentBranch,
   } = inputs;
   const isFirstParentChain = inputs.isFirstParentChain ?? true;
+  const hasMergeInRewriteRange = inputs.hasMergeInRewriteRange ?? false;
   const isSingle = selectedCount === 1;
   const isAtLeastOne = selectedCount >= 1;
   const isAtLeastTwo = selectedCount >= 2;
@@ -316,24 +341,34 @@ export function computeMenuEnableState(
     // flattening (a multi-parent commit dropped via interactive rebase
     // loses one parent's reachable history without warning) is a
     // footgun. Gate at the UI surface and again at the handler entry
-    // (defence in depth).
-    dropCommit: isAtLeastOne && !hasMergeCommitInSelection && isSelectedInCurrentBranch,
-    // N=1 actions (resetToHere added here)
-    editCommitMessage: isSingle && isSelectedInCurrentBranch,
+    // (defence in depth). The range gate extends the same refusal to a
+    // merge anywhere between the selection and HEAD.
+    dropCommit:
+      isAtLeastOne &&
+      !hasMergeCommitInSelection &&
+      isSelectedInCurrentBranch &&
+      !hasMergeInRewriteRange,
+    // N=1 actions (resetToHere added here). Rewording HEAD amends in place
+    // (no rebase), so a HEAD selection bypasses the range gate — matching
+    // GitRewordAction.kt, which allows merge reword only when HEAD.
+    editCommitMessage:
+      isSingle && isSelectedInCurrentBranch && (isHeadInSelection || !hasMergeInRewriteRange),
     checkoutRevision: isSingle,
     showRepoAtRevision: isSingle,
     compareWithLocal: isSingle,
-    interactiveRebase: isSingle && isSelectedInCurrentBranch,
+    interactiveRebase: isSingle && isSelectedInCurrentBranch && !hasMergeInRewriteRange,
     resetToHere: isSingle,
     // N=1 + HEAD
     undoCommit: isSingle && isHeadInSelection,
-    // N≥2 + contiguous + single first-parent chain + no merges, all in HEAD
+    // N≥2 + contiguous + single first-parent chain + no merges (selected or
+    // anywhere in the rebased range), all in HEAD
     squashCommits:
       isAtLeastTwo &&
       isContiguous &&
       isFirstParentChain &&
       !hasMergeCommitInSelection &&
-      isSelectedInCurrentBranch,
+      isSelectedInCurrentBranch &&
+      !hasMergeInRewriteRange,
     // N=2
     compareVersions: selectedCount === 2,
     // single-only IntelliJ-parity entries (Git.Fixup.To.Commit /
@@ -422,37 +457,67 @@ export function computeMenuState(
     }
   }
 
-  // "Contained in the current branch": is EVERY selected commit an ancestor of
-  // HEAD (inclusive)? Walk HEAD's ancestors over the loaded window following
-  // parent hashes. The log window is a topo-ordered prefix, so every descendant
-  // of an in-window commit is also in-window — making this walk EXACT for any
-  // right-clickable (in-window) commit. Defaults `true` when HEAD is unknown or
-  // off the loaded window (merged scope / far-detached) so we never falsely grey
-  // an editable commit.
-  let isSelectedInCurrentBranch = true;
-  if (selectedCount >= 1 && headHash !== '' && indexByHash.has(headHash)) {
-    const reachable = new Set<string>();
-    const stack = [headHash];
+  // Ancestor walk over the loaded window following parent hashes. The log
+  // window is a topo-ordered prefix, so every descendant of an in-window
+  // commit is also in-window — making the walk EXACT for any right-clickable
+  // (in-window) commit; a parent scrolled off-window is a harmless dead-end.
+  const walkAncestors = (start: string): ReadonlySet<string> => {
+    const seen = new Set<string>();
+    const stack = [start];
     while (stack.length > 0) {
       const h = stack.pop()!;
-      if (reachable.has(h)) {
+      if (seen.has(h)) {
         continue;
       }
-      reachable.add(h);
+      seen.add(h);
       const idx = indexByHash.get(h);
       if (idx === undefined) {
-        continue; // parent scrolled off-window — a harmless dead-end
+        continue;
       }
       const parents = commitNodes[idx].parents;
       if (parents) {
         for (const p of parents) {
-          if (!reachable.has(p)) {
+          if (!seen.has(p)) {
             stack.push(p);
           }
         }
       }
     }
+    return seen;
+  };
+
+  // "Contained in the current branch": is EVERY selected commit an ancestor of
+  // HEAD (inclusive)? Defaults `true` when HEAD is unknown or off the loaded
+  // window (merged scope / far-detached) so we never falsely grey an editable
+  // commit.
+  let isSelectedInCurrentBranch = true;
+  // Merge-flattening mirror: does the rebased range (`oldest^..HEAD` — HEAD's
+  // ancestors minus the oldest selection's first-parent ancestors) contain a
+  // merge commit? Only meaningful for an in-branch selection; defaults `false`
+  // (permissive) when parent hashes aren't threaded — the perform-time probe
+  // in the handlers is the backstop.
+  let hasMergeInRewriteRange = false;
+  if (selectedCount >= 1 && headHash !== '' && indexByHash.has(headHash)) {
+    const reachable = walkAncestors(headHash);
     isSelectedInCurrentBranch = knownSelected.every((h) => reachable.has(h));
+    if (isSelectedInCurrentBranch) {
+      const oldestIdx = Math.max(...knownSelected.map((h) => indexByHash.get(h)!));
+      const oldestNode = commitNodes[oldestIdx];
+      const firstParent = oldestNode.parents?.[0];
+      if (firstParent !== undefined || oldestNode.parentCount === 0) {
+        const outside = firstParent !== undefined ? walkAncestors(firstParent) : new Set<string>();
+        for (const h of reachable) {
+          if (outside.has(h)) {
+            continue;
+          }
+          const idx = indexByHash.get(h);
+          if (idx !== undefined && commitNodes[idx].parentCount >= 2) {
+            hasMergeInRewriteRange = true;
+            break;
+          }
+        }
+      }
+    }
   }
 
   const visibility = computeMenuVisibility(selectedCount);
@@ -463,6 +528,7 @@ export function computeMenuState(
     hasMergeCommitInSelection,
     isSelectedInCurrentBranch,
     isFirstParentChain,
+    hasMergeInRewriteRange,
   });
 
   // Derive a human-readable disabled reason for the
@@ -491,19 +557,26 @@ export function computeMenuState(
     if (!isSelectedInCurrentBranch) {
       return NOT_IN_CURRENT_BRANCH_REASON;
     }
+    if (hasMergeInRewriteRange) {
+      return MERGE_IN_RANGE_REASON;
+    }
     return undefined;
   })();
 
-  // Explain why drop is disabled: a merge commit in the selection, or a commit
-  // that isn't in the current branch. Only populated when visible+disabled
-  // (narrowing in the apply loop below); other dropCommit disables (N=0) hide
-  // the row entirely so no reason is needed.
+  // Explain why drop is disabled: a merge commit in the selection (or in the
+  // rebased range), or a commit that isn't in the current branch. Only
+  // populated when visible+disabled (narrowing in the apply loop below);
+  // other dropCommit disables (N=0) hide the row entirely so no reason is
+  // needed.
   const dropReason = ((): string | undefined => {
     if (hasMergeCommitInSelection) {
       return 'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.';
     }
     if (!isSelectedInCurrentBranch) {
       return NOT_IN_CURRENT_BRANCH_REASON;
+    }
+    if (hasMergeInRewriteRange) {
+      return MERGE_IN_RANGE_REASON;
     }
     return undefined;
   })();
@@ -520,9 +593,28 @@ export function computeMenuState(
     return undefined;
   })();
 
-  // editCommitMessage / interactiveRebase are single-only; their only
-  // non-trivial visible-disabled cause is a target outside the current branch.
-  const rewriteReason = !isSelectedInCurrentBranch ? NOT_IN_CURRENT_BRANCH_REASON : undefined;
+  // editCommitMessage / interactiveRebase are single-only; visible-disabled
+  // causes: a target outside the current branch, or a merge in the rebased
+  // range. Reword of HEAD amends in place, so the range gate skips a HEAD
+  // selection for editCommitMessage (matching its enable rule).
+  const editMessageReason = ((): string | undefined => {
+    if (!isSelectedInCurrentBranch) {
+      return NOT_IN_CURRENT_BRANCH_REASON;
+    }
+    if (!isHeadInSelection && hasMergeInRewriteRange) {
+      return MERGE_IN_RANGE_REASON;
+    }
+    return undefined;
+  })();
+  const interactiveRebaseReason = ((): string | undefined => {
+    if (!isSelectedInCurrentBranch) {
+      return NOT_IN_CURRENT_BRANCH_REASON;
+    }
+    if (hasMergeInRewriteRange) {
+      return MERGE_IN_RANGE_REASON;
+    }
+    return undefined;
+  })();
 
   // Walk all action keys via the visibility record so the result is
   // statically guaranteed to cover every MultiSelectMenuAction.
@@ -545,9 +637,10 @@ export function computeMenuState(
         reason = dropReason;
       } else if (action === 'fixup' || action === 'squashInto') {
         reason = commitEditReason;
-      } else if (action === 'editCommitMessage' || action === 'interactiveRebase') {
-        // Current-branch gate (their only non-trivial visible-disabled cause).
-        reason = rewriteReason;
+      } else if (action === 'editCommitMessage') {
+        reason = editMessageReason;
+      } else if (action === 'interactiveRebase') {
+        reason = interactiveRebaseReason;
       }
       // compareVersions has no visible+disabled state by
       // construction, so no branch here. Other actions have trivial

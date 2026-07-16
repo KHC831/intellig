@@ -63,6 +63,37 @@ export async function readRebaseMarker(
 }
 
 /**
+ * Name of the live operation that would make a new interactive rebase fail
+ * ("rebase-merge already exists" / sequencer conflicts), or `undefined` when
+ * none is in flight: a rebase (either {@link REBASE_STATE_DIRS} directory)
+ * or a cherry-pick / revert sequencer (`CHERRY_PICK_HEAD` / `REVERT_HEAD`).
+ * A `MERGE_HEAD` alone is NOT reported — a conflicted merge is caught by the
+ * unmerged-files gate, and a resolved-but-uncommitted merge fails loudly in
+ * git itself. Pure marker reads; never throws (missing gitDir → undefined).
+ */
+export async function findBlockingOperation(
+  gitDir: string
+): Promise<'rebase' | 'cherry-pick' | 'revert' | undefined> {
+  for (const dir of REBASE_STATE_DIRS) {
+    try {
+      if ((await fs.stat(path.join(gitDir, dir))).isDirectory()) {
+        return 'rebase';
+      }
+      // eslint-disable-next-line no-restricted-syntax -- ENOENT is the expected idle case: the marker directory simply doesn't exist.
+    } catch {
+      // Marker absent — keep probing.
+    }
+  }
+  if ((await tryReadGitFile(path.join(gitDir, 'CHERRY_PICK_HEAD'))) !== undefined) {
+    return 'cherry-pick';
+  }
+  if ((await tryReadGitFile(path.join(gitDir, 'REVERT_HEAD'))) !== undefined) {
+    return 'revert';
+  }
+  return undefined;
+}
+
+/**
  * Resolve a repo root's real `.git` directory. For a normal checkout `<root>/.git`
  * is a directory and is returned as-is. For a linked worktree or a submodule
  * `<root>/.git` is instead a FILE holding `gitdir: <path>` (that path is where the

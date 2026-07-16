@@ -13,6 +13,7 @@ import {
   RebaseAction,
 } from '../git-core/interfaces/IRebaseService';
 import { IRepository } from '../git-core/interfaces/IGitService';
+import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { generateNonce } from '../utils/webviewNonce';
 import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -109,10 +110,18 @@ export class RebaseEditor {
    */
   private _getProgressView: (() => IRebasePausedView | undefined) | undefined;
 
+  /**
+   * Resolve-dialog seam for the executed-plan conflict arm. Optional — when
+   * absent (older wiring / narrow tests) the arm degrades to the warning
+   * toast alone.
+   */
+  private readonly _conflictResolutionService: IConflictResolutionService | undefined;
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
     rebaseService: IRebaseService,
-    progressView?: IRebasePausedView | (() => IRebasePausedView | undefined)
+    progressView?: IRebasePausedView | (() => IRebasePausedView | undefined),
+    conflictResolutionService?: IConflictResolutionService
   ) {
     this._rebaseService = rebaseService;
     if (typeof progressView === 'function') {
@@ -120,6 +129,7 @@ export class RebaseEditor {
     } else if (progressView) {
       this._getProgressView = (): IRebasePausedView => progressView;
     }
+    this._conflictResolutionService = conflictResolutionService;
   }
 
   /**
@@ -313,6 +323,25 @@ export class RebaseEditor {
       } else {
         if (result.status === 'conflict') {
           void vscode.window.showWarningMessage(this._conflictMessage(result));
+          // Reference parity: the same GitRebaseProcess conflict loop serves
+          // interactive rebase — a conflict opens the conflict resolver
+          // dialog immediately (git4idea GitRebaseProcess.java:317-319).
+          // `rebaseInProgress` maps verbatim onto the continue/abort
+          // affordances, exactly like _runHistoryRewrite's outcome switch: a
+          // terminal autostash-pop conflict (rebase already finished) renders
+          // resolve-only.
+          if (this._conflictResolutionService && (result.conflictedFiles?.length ?? 0) > 0) {
+            const continuable = result.rebaseInProgress !== false;
+            await this._conflictResolutionService.openResolveConflictsDialog(
+              this._repository,
+              result.conflictedFiles.map((p) => ({ path: p, resolved: false })),
+              {
+                operation: 'rebase',
+                canAbort: continuable,
+                canContinue: continuable,
+              }
+            );
+          }
         } else {
           void vscode.window.showErrorMessage('Rebase failed');
         }
@@ -910,7 +939,8 @@ export class RebaseEditor {
 export function createRebaseEditor(
   extensionUri: vscode.Uri,
   rebaseService: IRebaseService,
-  progressView?: IRebasePausedView | (() => IRebasePausedView | undefined)
+  progressView?: IRebasePausedView | (() => IRebasePausedView | undefined),
+  conflictResolutionService?: IConflictResolutionService
 ): RebaseEditor {
-  return new RebaseEditor(extensionUri, rebaseService, progressView);
+  return new RebaseEditor(extensionUri, rebaseService, progressView, conflictResolutionService);
 }

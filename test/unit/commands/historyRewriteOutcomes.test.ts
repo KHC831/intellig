@@ -16,6 +16,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fsModule from 'fs';
+import * as pathModule from 'path';
 import { okAsync } from 'neverthrow';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
@@ -53,6 +55,7 @@ interface RebaseTracker {
   lastPlan: IRebaseAction[] | undefined;
   executeCalls: number;
   abortCalls: number;
+  continueCalls: number;
   clearSessionCalls: number;
   sessionCommits: { hash: string; message: string; action: 'pick' }[];
   executeResult: IRebaseResult;
@@ -65,6 +68,7 @@ function blankTracker(): RebaseTracker {
     lastPlan: undefined,
     executeCalls: 0,
     abortCalls: 0,
+    continueCalls: 0,
     clearSessionCalls: 0,
     sessionCommits: [
       { hash: HASH_OLDEST, message: 'oldest', action: 'pick' },
@@ -102,7 +106,10 @@ function makeRebaseService(tracker: RebaseTracker): IRebaseService {
       tracker.executeCalls++;
       return tracker.executeResult;
     },
-    continueRebase: async () => ({ success: true, status: 'completed' as const }),
+    continueRebase: async () => {
+      tracker.continueCalls++;
+      return { success: true, status: 'completed' as const };
+    },
     abortRebase: async () => {
       tracker.abortCalls++;
     },
@@ -127,9 +134,33 @@ interface Harness {
   messages: { info: string[]; warning: string[]; error: string[] };
 }
 
-function makeHarness(tracker: RebaseTracker): Harness {
+interface HarnessOpts {
+  /**
+   * Served to the runner's merge-flattening pre-flight (`rev-list --count`
+   * over `<onto>..HEAD`): total commits and non-merge commits in the range.
+   * Omitted → the probe returns empty output and fails, which the gate
+   * treats as fail-open (proceed) — existing cases stay on that path.
+   */
+  rangeCounts?: { total: number; nonMerges: number };
+  /**
+   * Served to the protected-branch pre-flight (`branch --remotes
+   * --contains`): the remote branches containing the probed commit, one per
+   * line. Omitted → empty output (contained nowhere) — existing cases stay
+   * ungated.
+   */
+  remoteContains?: string;
+  /**
+   * Repository root for the harness repo. The in-progress pre-flight reads
+   * REAL on-disk markers under `<root>/.git`; cases exercising it point this
+   * at a tmp fixture. Omitted → the non-existent '/test-repo' (no markers —
+   * probe finds nothing, existing cases stay ungated).
+   */
+  repoRoot?: string;
+}
+
+function makeHarness(tracker: RebaseTracker, opts: HarnessOpts = {}): Harness {
   const repo = {
-    rootUri: Uri.file('/test-repo'),
+    rootUri: Uri.file(opts.repoRoot ?? '/test-repo'),
     state: { HEAD: { name: 'main', commit: HASH_NEWEST, type: 0 as const } },
     head: { name: 'main', commit: HASH_NEWEST },
     inputBox: { value: '' },
@@ -155,6 +186,10 @@ function makeHarness(tracker: RebaseTracker): Harness {
       commitDate: new Date(0),
     }),
     getMergeBase: async (_r: IRepository, a: string) => a,
+    getCommitDiff: async () => [
+      { path: 'dropme.ts', status: 'modified', hunks: [], binary: false },
+      { path: 'kept.ts', status: 'modified', hunks: [], binary: false },
+    ],
     getStatus: async () => [],
     reloadRepository: async () => {
       harness.reloadCalls++;
@@ -176,6 +211,25 @@ function makeHarness(tracker: RebaseTracker): Harness {
       gitCliCalls.push([...args]);
       if (args[0] === 'log') {
         return { exitCode: 0, stdout: 'subject\n', stderr: '', combined: 'subject\n' };
+      }
+      if (args[0] === 'rev-list' && args.includes('--count') && opts.rangeCounts) {
+        const n = args.includes('--no-merges')
+          ? opts.rangeCounts.nonMerges
+          : opts.rangeCounts.total;
+        return { exitCode: 0, stdout: `${n}\n`, stderr: '', combined: `${n}\n` };
+      }
+      if (
+        args[0] === 'branch' &&
+        args.includes('--remotes') &&
+        args.includes('--contains') &&
+        opts.remoteContains !== undefined
+      ) {
+        return {
+          exitCode: 0,
+          stdout: opts.remoteContains,
+          stderr: '',
+          combined: opts.remoteContains,
+        };
       }
       // `status --porcelain -z` (the pre-flight) reports a clean tree.
       return { exitCode: 0, stdout: '', stderr: '', combined: '' };
@@ -239,6 +293,7 @@ function restoreWindow(): void {
   w.showErrorMessage = () => Promise.resolve(undefined);
   w.showWarningMessage = () => Promise.resolve(undefined);
   w.showInputBox = (opts?: import('vscode').InputBoxOptions) => Promise.resolve(opts?.value);
+  w.showQuickPick = (() => Promise.resolve(undefined)) as typeof w.showQuickPick;
 }
 
 interface CommandsInternal {
@@ -269,7 +324,13 @@ async function runWithEditor(
   const editorTracker = installMessageEditorStubs();
   const handler = action();
   await flushMacroTasks();
-  simulate(editorTracker);
+  try {
+    simulate(editorTracker);
+  } catch {
+    // A flow refused by a pre-dialog gate never opens the editor — nothing
+    // to save. Cases that REQUIRE the editor assert its downstream effects
+    // (plan contents, toasts), so a masked save failure still fails there.
+  }
   await handler;
 }
 
@@ -383,7 +444,33 @@ const reword: BodyCase = {
   },
 };
 
-const BODIES: BodyCase[] = [dropSingle, dropMulti, squash, fixup, reword];
+const dropSelected: BodyCase = {
+  name: 'drop selected changes, non-HEAD (_handleDropSelectedChanges)',
+  target: 'drop',
+  successFragment: /Dropped 1 file/,
+  run: async (h) => {
+    // HASH_MID is not the harness HEAD (HASH_NEWEST), so the flow must ride
+    // the shared runner. Pick the first file ('dropme.ts'); the confirm
+    // modal is auto-accepted by the harness warning stub.
+    const w = writableWindow();
+    w.showQuickPick = ((items: unknown) =>
+      Promise.resolve(Array.isArray(items) ? [items[0]] : undefined)) as typeof w.showQuickPick;
+    await (
+      h.cmds as unknown as { dropSelectedChangesFromCommit(hash: string): Promise<void> }
+    ).dropSelectedChangesFromCommit(HASH_MID);
+  },
+  staleRun: async (h) => {
+    h.tracker.sessionCommits = [{ hash: HASH_NEWEST, message: 'newest', action: 'pick' }];
+    const w = writableWindow();
+    w.showQuickPick = ((items: unknown) =>
+      Promise.resolve(Array.isArray(items) ? [items[0]] : undefined)) as typeof w.showQuickPick;
+    await (
+      h.cmds as unknown as { dropSelectedChangesFromCommit(hash: string): Promise<void> }
+    ).dropSelectedChangesFromCommit(HASH_MID);
+  },
+};
+
+const BODIES: BodyCase[] = [dropSingle, dropMulti, squash, fixup, reword, dropSelected];
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
@@ -502,6 +589,237 @@ describe('history-rewrite outcome contract (shared runner invariants)', () => {
       }
     });
   }
+
+  describe('merge-flattening gate (refuse when <onto>..HEAD contains merges)', () => {
+    // IntelliJ refuses every commit-editing action when no merge-free path
+    // exists between HEAD and the oldest selected commit
+    // (GitCommitEditingActionBase.kt checkHeadLinearHistory) — a plain
+    // `rebase -i` would flatten every merge in the range. The runner's
+    // pre-flight probe mirrors that refusal for all bodies riding it.
+    for (const body of BODIES) {
+      it(`${body.name}: merge in range → refused before any rebase starts`, async () => {
+        const tracker = blankTracker();
+        const h = makeHarness(tracker, { rangeCounts: { total: 3, nonMerges: 2 } });
+
+        await body.run(h);
+
+        assert.strictEqual(
+          tracker.startedOnto,
+          undefined,
+          'no planning session may start once the range is known to contain merges'
+        );
+        assert.strictEqual(tracker.executeCalls, 0, 'no rebase may execute');
+        assert.strictEqual(h.dialogCalls.length, 0, 'no resolve dialog');
+        assert.ok(
+          h.messages.error.some((m) => /merge/i.test(m) && /--rebase-merges/.test(m)),
+          `expected a refusal naming the flatten hazard + --rebase-merges; got ${JSON.stringify(
+            h.messages.error
+          )}`
+        );
+        assert.ok(
+          !h.messages.info.some((m) => body.successFragment.test(m)),
+          'must not claim success'
+        );
+      });
+
+      it(`${body.name}: merge-free range proceeds`, async () => {
+        const tracker = blankTracker();
+        const h = makeHarness(tracker, { rangeCounts: { total: 2, nonMerges: 2 } });
+
+        await body.run(h);
+
+        assert.strictEqual(tracker.executeCalls, 1, 'a linear range must not be blocked');
+        assert.ok(
+          h.messages.info.some((m) => body.successFragment.test(m)),
+          `expected the success toast; got ${JSON.stringify(h.messages.info)}`
+        );
+      });
+    }
+
+    it('probe failure fails OPEN (proceeds), matching the pre-gate contract', async () => {
+      // rangeCounts omitted → the probe returns unparseable output and the
+      // analysis degrades to undefined; the gate must not block a rebase the
+      // user could run before it existed (the rebase itself surfaces real
+      // errors).
+      const tracker = blankTracker();
+      const h = makeHarness(tracker);
+
+      await dropSingle.run(h);
+
+      assert.strictEqual(tracker.executeCalls, 1);
+    });
+  });
+
+  describe('protected-branch gate (refuse when the oldest commit is on a protected remote branch)', () => {
+    // IntelliJ blocks every commit-editing action when the commit is
+    // contained in a protected remote branch
+    // (GitCommitEditingActionBase.kt checkCommitsCanBeEdited /
+    // lastCheckCommitsEditingAvailability, findProtectedRemoteBranch).
+    // Checking the OLDEST rewritten commit suffices: if any rewritten commit
+    // is published to a protected branch, so are its ancestors. The unit
+    // config mock serves the schema default intellig.protectedBranches =
+    // ['main', 'master'].
+    for (const body of BODIES) {
+      it(`${body.name}: oldest commit on origin/main → refused before any rebase`, async () => {
+        const tracker = blankTracker();
+        const h = makeHarness(tracker, { remoteContains: '  origin/main\n' });
+
+        await body.run(h);
+
+        assert.strictEqual(tracker.startedOnto, undefined, 'no planning session may start');
+        assert.strictEqual(tracker.executeCalls, 0, 'no rebase may execute');
+        assert.ok(
+          h.messages.error.some((m) => m.includes('origin/main')),
+          `expected a refusal NAMING the protected branch; got ${JSON.stringify(h.messages.error)}`
+        );
+        assert.ok(
+          !h.messages.info.some((m) => body.successFragment.test(m)),
+          'must not claim success'
+        );
+      });
+
+      it(`${body.name}: commit on a NON-protected remote branch proceeds without a confirm`, async () => {
+        const tracker = blankTracker();
+        const h = makeHarness(tracker, { remoteContains: '  origin/feature\n' });
+
+        await body.run(h);
+
+        assert.strictEqual(
+          tracker.executeCalls,
+          1,
+          'published-but-unprotected history is editable (protected list, not pushed-anywhere)'
+        );
+        assert.ok(
+          h.messages.info.some((m) => body.successFragment.test(m)),
+          `expected the success toast; got ${JSON.stringify(h.messages.info)}`
+        );
+      });
+    }
+  });
+
+  describe('in-progress pre-flight (refuse while a rebase/sequencer is live)', () => {
+    // With a rebase paused at an `edit` step (clean tree — the unmerged-files
+    // probe passes), `git rebase -i` fails ("rebase-merge already exists")
+    // but handleRebaseResult sees the PRE-EXISTING pause and the runner
+    // toasted "<Op> partially complete — resume via 'git rebase --continue'"
+    // — untrue (nothing started) and dangerous ('continue' drives the OTHER
+    // rebase). IntelliJ prohibits commit editing during an unfinished
+    // operation (GitRewordAction.kt:14-16, GitInteractiveRebaseAction
+    // prohibit policies). The runner must refuse up front, on FRESH on-disk
+    // markers.
+    function makeMarkerRepo(marker: 'rebase-merge' | 'CHERRY_PICK_HEAD'): string {
+      const tmpBase = pathModule.join(process.cwd(), 'workspace-notes', 'tmp');
+      fsModule.mkdirSync(tmpBase, { recursive: true });
+      const root = fsModule.mkdtempSync(pathModule.join(tmpBase, 'inprogress-'));
+      const gitDir = pathModule.join(root, '.git');
+      fsModule.mkdirSync(gitDir, { recursive: true });
+      if (marker === 'rebase-merge') {
+        fsModule.mkdirSync(pathModule.join(gitDir, 'rebase-merge'));
+      } else {
+        fsModule.writeFileSync(pathModule.join(gitDir, marker), 'a'.repeat(40) + '\n');
+      }
+      cleanupRoots.push(root);
+      return root;
+    }
+    const cleanupRoots: string[] = [];
+    after(() => {
+      for (const root of cleanupRoots) {
+        fsModule.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    for (const body of BODIES) {
+      it(`${body.name}: live rebase-merge marker → refused, no rebase started`, async () => {
+        const tracker = blankTracker();
+        const h = makeHarness(tracker, { repoRoot: makeMarkerRepo('rebase-merge') });
+
+        await body.run(h);
+
+        assert.strictEqual(tracker.startedOnto, undefined, 'no planning session may start');
+        assert.strictEqual(tracker.executeCalls, 0, 'no rebase may execute');
+        assert.ok(
+          h.messages.error.some((m) => /rebase is in progress/i.test(m)),
+          `expected an in-progress refusal; got ${JSON.stringify(h.messages.error)}`
+        );
+        assert.ok(
+          !h.messages.warning.some((m) => /partially complete/i.test(m)),
+          `the false partially-complete toast must be dead; got ${JSON.stringify(
+            h.messages.warning
+          )}`
+        );
+      });
+    }
+
+    it('a live cherry-pick sequencer marker refuses too, naming the operation', async () => {
+      const tracker = blankTracker();
+      const h = makeHarness(tracker, { repoRoot: makeMarkerRepo('CHERRY_PICK_HEAD') });
+
+      await dropSingle.run(h);
+
+      assert.strictEqual(tracker.executeCalls, 0);
+      assert.ok(
+        h.messages.error.some((m) => /cherry-pick is in progress/i.test(m)),
+        `expected the refusal to name the cherry-pick; got ${JSON.stringify(h.messages.error)}`
+      );
+    });
+  });
+
+  describe('drop selected changes — non-HEAD edit-pause surgery', () => {
+    it('plans the target as `edit`; the paused drive restores the file from the parent, amends, continues', async () => {
+      const tracker = blankTracker();
+      // The rebase pauses at the target's edit step.
+      tracker.executeResult = { success: true, status: 'paused' };
+      const h = makeHarness(tracker);
+
+      await dropSelected.run(h);
+
+      // The plan keeps everything `pick` except the target, which pauses.
+      const planned = tracker.lastPlan?.find((p) => p.hash === HASH_MID);
+      assert.strictEqual(planned?.action, 'edit', 'the target commit must pause at an edit step');
+      // At the pause: dropped path restored from the parent, then amend
+      // preserving message + author, then continue.
+      assert.ok(
+        h.gitCliCalls.some(
+          (c) => c[0] === 'checkout' && c.includes('HEAD^') && c.includes('dropme.ts')
+        ),
+        `the dropped file must restore from the commit's parent; calls: ${JSON.stringify(
+          h.gitCliCalls
+        )}`
+      );
+      assert.ok(
+        h.gitCliCalls.some((c) => c[0] === 'commit' && c.includes('--amend') && c.includes('-C')),
+        `the rewritten commit must amend with its own metadata; calls: ${JSON.stringify(
+          h.gitCliCalls
+        )}`
+      );
+      assert.strictEqual(tracker.continueCalls, 1, 'the rebase must continue after the amend');
+      assert.ok(
+        h.messages.info.some((m) => /Dropped 1 file/.test(m)),
+        `expected the success toast; got ${JSON.stringify(h.messages.info)}`
+      );
+      assert.strictEqual(tracker.abortCalls, 0);
+    });
+
+    it('refuses when EVERY file is selected (use Drop Commit instead)', async () => {
+      const tracker = blankTracker();
+      const h = makeHarness(tracker);
+      const w = writableWindow();
+      w.showQuickPick = ((items: unknown) =>
+        Promise.resolve(Array.isArray(items) ? [...(items as unknown[])] : undefined)) as never;
+
+      await (
+        h.cmds as unknown as { dropSelectedChangesFromCommit(hash: string): Promise<void> }
+      ).dropSelectedChangesFromCommit(HASH_MID);
+
+      assert.strictEqual(tracker.executeCalls, 0, 'no rebase may run');
+      assert.ok(
+        h.messages.error.some((m) => /Drop Commit/i.test(m)),
+        `an all-files selection must redirect to Drop Commit; got ${JSON.stringify(
+          h.messages.error
+        )}`
+      );
+    });
+  });
 
   describe('reword paused drive', () => {
     it('conflict surfaced INSIDE the paused-reword loop routes through the same switch (no abort)', async () => {

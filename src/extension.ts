@@ -272,7 +272,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         rebaseEditor = createRebaseEditor(
           context.extensionUri,
           extensionServices!.rebaseService,
-          () => rebaseProgressView
+          () => rebaseProgressView,
+          extensionServices!.conflictResolutionService
         );
       }
       return rebaseEditor.show(repo, { onto });
@@ -838,6 +839,7 @@ export async function _openRebaseDialog(
   }
   const gitService = extensionServices.gitService;
   const rebaseService = extensionServices.rebaseService;
+  const conflictResolutionService = extensionServices.conflictResolutionService;
   const branches = await gitService.getBranches(preselect.repo);
   const branchChoices = branches.filter((b) => !b.isHead).map((b) => b.name);
 
@@ -864,12 +866,13 @@ export async function _openRebaseDialog(
         rebaseEditor = createRebaseEditor(
           extensionContext!.extensionUri,
           rebaseService,
-          () => rebaseProgressView
+          () => rebaseProgressView,
+          conflictResolutionService
         );
       }
       return rebaseEditor;
     },
-    conflictResolutionService: extensionServices.conflictResolutionService,
+    conflictResolutionService,
     onComplete: () => {
       // Reload before refresh so the panel sees fresh `repo.head.commit`
       // after the rebase moves HEAD (mirrors the merge opener).

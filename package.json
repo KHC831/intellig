@@ -1525,6 +1525,12 @@
             "default": true,
             "description": "Automatically refresh the Git views (Local Changes, status bar) when files change in the working tree. Turn off to only refresh on Git operations and manual reloads.",
             "order": 5
+          },
+          "intellig.addCherryPickedFromSuffix": {
+            "type": "boolean",
+            "default": true,
+            "description": "Append '(cherry picked from commit <hash>)' to the message when cherry-picking an already-published commit (git cherry-pick -x). Commits not yet on any remote are never annotated.",
+            "order": 6
           }
         }
       },
