@@ -262,6 +262,25 @@ describe('CommitToolWindow — live updates (host seam)', () => {
     return { tw, services };
   }
 
+  it('selectFile records the row for the F4 / Jump to Source fallback', async () => {
+    timers = installFakeTimers();
+    const repo = makeRepo('/test-repo');
+    const { tw } = makeWindow([repo]);
+    resolveView(tw);
+    timers.tick(300);
+    await settle();
+
+    const before = tw.lastSelectedFileUri;
+    assert.strictEqual(before, undefined, 'no selection tracked before any selectFile');
+    await asLiveSurface(tw)._handleWebviewMessage({ type: 'selectFile', path: 'src/a.ts' });
+    const after = tw.lastSelectedFileUri;
+    assert.strictEqual(
+      after?.fsPath,
+      '/test-repo/src/a.ts',
+      'selectFile must record the absolute URI of the selected row'
+    );
+  });
+
   it('T1: a changelist event posts one updateModel and never reassigns webview.html after resolve', async () => {
     timers = installFakeTimers();
     const repo = makeRepo('/test-repo');

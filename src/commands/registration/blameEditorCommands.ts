@@ -142,7 +142,13 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
   const localChangesOpenFileCommand = registerLoggedCommand(
     'intellig.localChanges.openFile',
     async (arg?: vscode.Uri | string) => {
-      const target = resolveLocalChangesOpenFileTarget(arg, undefined);
+      // No-arg (the F4 keybinding) falls back to the Commit Tool Window's
+      // host-tracked last selection — the webview's selection itself is
+      // unreachable from a keybinding.
+      const target = resolveLocalChangesOpenFileTarget(
+        arg,
+        ctx.commitToolWindow?.lastSelectedFileUri?.fsPath
+      );
       if (target) {
         await vscode.commands.executeCommand('vscode.open', target);
         return;

@@ -85,10 +85,10 @@ describe('KeymapService', () => {
       assert.strictEqual(typeof keymap.displayName, 'string');
     });
 
-    it('should return keymap with keybindings array', () => {
+    it('should return keymap with an (empty) keybindings array — default preset binds nothing', () => {
       const keymap = keymapService.getKeymapDefinition();
       assert.ok(Array.isArray(keymap.keybindings));
-      assert.ok(keymap.keybindings.length > 0);
+      assert.strictEqual(keymap.keybindings.length, 0);
     });
 
     it('should return default keymap when no preset is set', () => {
@@ -140,10 +140,9 @@ describe('KeymapService', () => {
   });
 
   describe('getKeybindingForCommand', () => {
-    it('should return keybinding for existing command', () => {
+    it('returns undefined under the default preset (no IntelliG chords bind)', () => {
       const keybinding = keymapService.getKeybindingForCommand('intellig.commit');
-      assert.ok(keybinding);
-      assert.strictEqual(keybinding.command, 'intellig.commit');
+      assert.strictEqual(keybinding, undefined);
     });
 
     it('should return undefined for non-existing command', () => {
@@ -151,18 +150,12 @@ describe('KeymapService', () => {
       assert.strictEqual(keybinding, undefined);
     });
 
-    it('should return keybinding with key property', () => {
-      const keybinding = keymapService.getKeybindingForCommand('intellig.commit');
+    it('resolves commit with key + mac from the intellij preset definition', () => {
+      const keymap = keymapService.getKeymapDefinitionForPreset('intellij');
+      const keybinding = keymap.keybindings.find((kb) => kb.command === 'intellig.commit');
       assert.ok(keybinding);
-      assert.ok(keybinding.key);
-      assert.strictEqual(typeof keybinding.key, 'string');
-    });
-
-    it('should return keybinding with mac property for commit command', () => {
-      const keybinding = keymapService.getKeybindingForCommand('intellig.commit');
-      assert.ok(keybinding);
-      assert.ok(keybinding.mac);
-      assert.strictEqual(typeof keybinding.mac, 'string');
+      assert.strictEqual(keybinding.key, 'ctrl+k');
+      assert.strictEqual(keybinding.mac, 'cmd+k');
     });
   });
 
@@ -225,40 +218,13 @@ describe('getDefaultKeymap', () => {
     assert.strictEqual(keymap.displayName, 'Default');
   });
 
-  it('should return keymap with keybindings', () => {
+  it('binds NO chords — the default preset promises stock VS Code keybindings', () => {
     const keymap = getDefaultKeymap();
-    assert.ok(Array.isArray(keymap.keybindings));
-    assert.ok(keymap.keybindings.length > 0);
-  });
-
-  it('should include commit keybinding', () => {
-    const keymap = getDefaultKeymap();
-    const commitBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.commit'
+    assert.deepStrictEqual(
+      keymap.keybindings,
+      [],
+      'every IntelliG chord is gated behind the intellij preset'
     );
-    assert.ok(commitBinding);
-    assert.strictEqual(commitBinding.key, 'ctrl+k');
-    assert.strictEqual(commitBinding.mac, 'cmd+k');
-  });
-
-  it('should include push keybinding', () => {
-    const keymap = getDefaultKeymap();
-    const pushBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.push'
-    );
-    assert.ok(pushBinding);
-    assert.strictEqual(pushBinding.key, 'ctrl+shift+k');
-    assert.strictEqual(pushBinding.mac, 'cmd+shift+k');
-  });
-
-  it('should bind Ctrl+T to Update Project (IntelliJ Vcs.UpdateProject)', () => {
-    const keymap = getDefaultKeymap();
-    const updateBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.updateProject'
-    );
-    assert.ok(updateBinding);
-    assert.strictEqual(updateBinding.key, 'ctrl+t');
-    assert.strictEqual(updateBinding.mac, 'cmd+t');
   });
 
   it('should return a copy (not the same reference)', () => {
@@ -320,13 +286,19 @@ describe('getIntelliJKeymap', () => {
     assert.strictEqual(historyBinding.key, 'ctrl+h');
   });
 
-  it('should include Compare with Branch keybinding with Ctrl+D', () => {
+  it('should bind Ctrl+D to the active-file diff (Diff.ShowDiff class)', () => {
     const keymap = getIntelliJKeymap();
     const compareBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.branch.compareWithCurrent'
+      (kb: IKeybinding) => kb.command === 'intellig.explorer.compareWithRepoVersion'
     );
     assert.ok(compareBinding);
     assert.strictEqual(compareBinding.key, 'ctrl+d');
+    assert.ok(
+      !keymap.keybindings.some(
+        (kb: IKeybinding) => kb.command === 'intellig.branch.compareWithCurrent'
+      ),
+      'the tree-item compare must not be keyboard-bound (no arg from a keybinding)'
+    );
   });
 
   it('should include Rollback (Revert) keybinding with Ctrl+Alt+Z', () => {
@@ -378,52 +350,15 @@ describe('getAllKeymaps', () => {
 });
 
 describe('IntelliJ Keymap Keybindings', () => {
-  it('should have same commit keybinding as default (Ctrl+K)', () => {
-    const defaultKeymap = getDefaultKeymap();
+  it('carries the core git chords the default preset deliberately omits', () => {
     const intellijKeymap = getIntelliJKeymap();
-
-    const defaultCommit = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.commit'
+    const byCommand = new Map(
+      intellijKeymap.keybindings.map((kb: IKeybinding) => [kb.command, kb])
     );
-    const intellijCommit = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.commit'
-    );
-
-    assert.ok(defaultCommit);
-    assert.ok(intellijCommit);
-    assert.strictEqual(defaultCommit.key, intellijCommit.key);
-  });
-
-  it('should have same push keybinding as default (Ctrl+Shift+K)', () => {
-    const defaultKeymap = getDefaultKeymap();
-    const intellijKeymap = getIntelliJKeymap();
-
-    const defaultPush = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.push'
-    );
-    const intellijPush = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.push'
-    );
-
-    assert.ok(defaultPush);
-    assert.ok(intellijPush);
-    assert.strictEqual(defaultPush.key, intellijPush.key);
-  });
-
-  it('should have same Update Project keybinding as default (Ctrl+T)', () => {
-    const defaultKeymap = getDefaultKeymap();
-    const intellijKeymap = getIntelliJKeymap();
-
-    const defaultUpdate = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.updateProject'
-    );
-    const intellijUpdate = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.updateProject'
-    );
-
-    assert.ok(defaultUpdate);
-    assert.ok(intellijUpdate);
-    assert.strictEqual(defaultUpdate.key, intellijUpdate.key);
+    assert.strictEqual(byCommand.get('intellig.commit')?.key, 'ctrl+k');
+    assert.strictEqual(byCommand.get('intellig.push')?.key, 'ctrl+shift+k');
+    assert.strictEqual(byCommand.get('intellig.updateProject')?.key, 'ctrl+t');
+    assert.strictEqual(getDefaultKeymap().keybindings.length, 0);
   });
 
   it('should keep the branch popup (Ctrl+Shift+`) distinct from the VCS Operations Popup (Alt+`)', () => {

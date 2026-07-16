@@ -17,11 +17,16 @@ fresh empty `[Unreleased]` block is added on top.
 
 ### Changed
 
+- IntelliG no longer binds keyboard shortcuts out of the box: set `intellig.keymapPreset` to `intellij` for the IntelliJ-style chords. The old always-on bindings shadowed VS Code defaults like Delete Line, Go to Symbol, New Terminal, and the Ctrl+K chord leader.
+- Under the `intellij` preset: Move to Another Changelist is Alt+Shift+M (IntelliJ's current gesture, was F6), the VCS popup is Ctrl+V on mac, and the Commit tool window gains Cmd+0 on mac.
 - Blame now ignores whitespace-only changes by default, matching IntelliJ; turn `intellig.blame.ignoreWhitespace` off to get the old attribution.
 - The two moved-line detection settings merged into one: `intellig.blame.detectMovements` (`none`/`within`/`across`). Across-files detection now passes a single `-C` like IntelliJ, and turning it off falls back to within-file detection.
 
 ### Fixed
 
+- Ctrl+D under the `intellij` preset opens the active file's diff; it previously targeted a branch-compare action that can never run from the keyboard.
+- F4 opens the file last selected in the Commit tool window instead of always asking you to select one.
+- Branch favorites are now per-workspace, like IntelliJ's per-project favorites; existing stars carry over once per workspace.
 - Picking a revision in Show Line History opens that revision's diff instead of an info toast.
 - Selecting text in the merge window shows the selection highlight again, including over conflict-colored lines.
 

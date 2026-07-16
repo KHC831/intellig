@@ -3,63 +3,12 @@ import { IKeymapService, KeymapPreset, IKeymap, IKeybinding } from './interfaces
 import { IConfigurationService } from '../config/interfaces/IConfigurationService';
 
 /**
- * Default keymap keybindings
- * These are the standard keybindings registered in package.json
+ * Default keymap keybindings: NONE. The `default` preset promises stock
+ * VS Code keybindings, so every IntelliG chord in package.json is gated
+ * behind `keymapPreset == 'intellij'`. (The log view's in-panel ctrl+f find
+ * is view-scoped wiring, not a keymap-surface binding, so it is not listed.)
  */
-const DEFAULT_KEYBINDINGS: IKeybinding[] = [
-  {
-    command: 'intellig.commit',
-    key: 'ctrl+k',
-    mac: 'cmd+k',
-    when: '!inDebugMode && !terminalFocus',
-  },
-  {
-    command: 'intellig.push',
-    key: 'ctrl+shift+k',
-    mac: 'cmd+shift+k',
-    when: '!inDebugMode && !terminalFocus',
-  },
-  {
-    // Ctrl+T → Update Project (IntelliJ `Vcs.UpdateProject`), not a bare
-    // pull. Fixed in the C-shell keymap-semantics pass.
-    command: 'intellig.updateProject',
-    key: 'ctrl+t',
-    mac: 'cmd+t',
-    when: '!inDebugMode && !terminalFocus',
-  },
-  {
-    command: 'intellig.openGitToolWindow',
-    key: 'alt+9',
-    mac: 'cmd+9',
-    when: '!inDebugMode',
-  },
-  {
-    command: 'intellig.showBranchPopup',
-    key: 'ctrl+shift+`',
-    mac: 'cmd+shift+`',
-    when: '!inDebugMode',
-  },
-  {
-    command: 'intellig.refresh',
-    key: 'ctrl+shift+r',
-    mac: 'cmd+shift+r',
-    when: '!inDebugMode && !terminalFocus',
-  },
-  {
-    command: 'intellig.stageSelected',
-    key: 'ctrl+alt+a',
-    mac: 'cmd+alt+a',
-    when: '!inDebugMode && !terminalFocus',
-  },
-  {
-    // Unstage moved off Ctrl+Alt+Z (reserved for Rollback/Revert) to
-    // Ctrl+Alt+Shift+Z — resolves the double-binding with revertFile.
-    command: 'intellig.unstageSelected',
-    key: 'ctrl+alt+shift+z',
-    mac: 'cmd+alt+shift+z',
-    when: '!inDebugMode && !terminalFocus',
-  },
-];
+const DEFAULT_KEYBINDINGS: IKeybinding[] = [];
 
 /**
  * IntelliJ IDEA keymap keybindings — reference mirror of the IntelliJ-preset
@@ -70,19 +19,24 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [
  * by `KeymapService.packageCoherence.test.ts` (Phase 0c de-drift) so a new or
  * changed IntelliJ-preset binding in package.json can't silently diverge here.
  *
- * IntelliJ Default Git Keybindings mirrored below:
- * - Commit: Ctrl+K (same as default, not preset-gated)
- * - Commit and Push: Ctrl+Alt+K (IntelliJ-gated)
- * - Push: Ctrl+Shift+K (same as default)
- * - Update Project: Ctrl+T (same as default; `Vcs.UpdateProject`)
- * - VCS Operations Popup: Alt+` (backtick) — distinct from the branch popup
- * - Annotate (Blame): Ctrl+Alt+Shift+A
- * - Show History: Ctrl+H
- * - Compare with Branch: Ctrl+D
- * - Rollback (Revert): Ctrl+Alt+Z
- * - Unshelve / Show Shelf: Ctrl+Shift+U
- * - Jump to Source (Open File): F4
- * - Move to Another Changelist: F6
+ * Gestures with a verified reference default ($default.xml / VcsActions.xml /
+ * dvcs + git backend XMLs; mac from `Mac OS X 10.5+.xml`):
+ * - Commit: Ctrl+K (CheckinProject) · Commit and Push: Ctrl+Alt+K
+ * - Push: Ctrl+Shift+K (Vcs.Push) · Update Project: Ctrl+T (Vcs.UpdateProject)
+ * - VCS Operations Popup: Alt+` win/linux, Ctrl+V mac (Vcs.QuickListPopupAction)
+ * - Shelve Silently: Ctrl+Shift+H · Unshelve Silently: Ctrl+Alt+U
+ * - Add/Stage: Ctrl+Alt+A (ChangesView.AddUnversioned)
+ * - Rollback (Revert): Ctrl+Alt+Z (ChangesView.Revert)
+ * - Unshelve dialog: Ctrl+Shift+U · Jump to Source: F4 (EditSource)
+ * - Move to Another Changelist: Alt+Shift+M (ChangesView.Move)
+ * - Tool windows: Alt+9 / meta 9, Alt+0 / meta 0
+ * - Show Diff (active file): Ctrl+D (Diff.ShowDiff class)
+ *
+ * IntelliG conveniences WITHOUT a reference default (the reference keymap
+ * binds nothing for these actions; do not present them as IntelliJ defaults):
+ * - Annotate (Blame): Ctrl+Alt+Shift+A · Show History: Ctrl+H
+ * - Branch popup: Ctrl+Shift+` · Refresh: Ctrl+Shift+R
+ * - Unstage: Ctrl+Alt+Shift+Z (deliberate move off the Rollback chord)
  */
 const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
   // Same as default - Commit: Ctrl+K
@@ -118,7 +72,7 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
   {
     command: 'intellig.vcsOperationsPopup',
     key: 'alt+`',
-    mac: 'alt+`',
+    mac: 'ctrl+v',
     when: '!inDebugMode',
   },
   // Branch popup: Ctrl+Shift+` — same as default. Listed here so the IntelliJ
@@ -130,23 +84,27 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     mac: 'cmd+shift+`',
     when: '!inDebugMode',
   },
-  // Annotate (Blame): Ctrl+Alt+Shift+A
+  // Annotate (Blame): Ctrl+Alt+Shift+A — IntelliG convenience; the
+  // reference Annotate action has no default shortcut.
   {
     command: 'intellig.toggleBlame',
     key: 'ctrl+alt+shift+a',
     mac: 'cmd+alt+shift+a',
     when: 'editorTextFocus',
   },
-  // Show History: Ctrl+H
+  // Show History: Ctrl+H — IntelliG convenience; Vcs.ShowTabbedFileHistory
+  // has no reference default (IntelliJ's own Ctrl+H is Type Hierarchy).
   {
     command: 'intellig.showHistory',
     key: 'ctrl+h',
     mac: 'cmd+h',
     when: '!inDebugMode',
   },
-  // Compare with Branch: Ctrl+D
+  // Show Diff for the active file: Ctrl+D (reference Diff.ShowDiff class —
+  // the old branch.compareWithCurrent target was a tree-item command a
+  // keybinding can never supply an argument to).
   {
-    command: 'intellig.branch.compareWithCurrent',
+    command: 'intellig.explorer.compareWithRepoVersion',
     key: 'ctrl+d',
     mac: 'cmd+d',
     when: '!inDebugMode && !terminalFocus',
@@ -192,11 +150,39 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     key: 'f4',
     when: '!inDebugMode',
   },
-  // Move Files to Another Changelist: F6 — IntelliJ's "Move…" mnemonic.
+  // Move Files to Another Changelist: Alt+Shift+M (ChangesView.Move).
   {
     command: 'intellig.changelist.moveFilesTo',
-    key: 'f6',
+    key: 'alt+shift+m',
     when: '!inDebugMode',
+  },
+  // Shelve Silently: Ctrl+Shift+H (ChangesView.ShelveSilently).
+  {
+    command: 'intellig.shelve.silent',
+    key: 'ctrl+shift+h',
+    mac: 'cmd+shift+h',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Unshelve Silently: Ctrl+Alt+U (ChangesView.UnshelveSilently).
+  {
+    command: 'intellig.unshelve.silent',
+    key: 'ctrl+alt+u',
+    mac: 'cmd+alt+u',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Commit Tool Window: Alt+0 / meta 0 (ActivateCommitToolWindow).
+  {
+    command: 'intellig.showCommitToolWindow',
+    key: 'alt+0',
+    mac: 'cmd+0',
+    when: '!terminalFocus',
+  },
+  // Unstage: Ctrl+Alt+Shift+Z — deliberate move off the Rollback chord.
+  {
+    command: 'intellig.unstageSelected',
+    key: 'ctrl+alt+shift+z',
+    mac: 'cmd+alt+shift+z',
+    when: '!inDebugMode && !terminalFocus',
   },
 ];
 

@@ -1501,8 +1501,8 @@
               "intellij"
             ],
             "enumDescriptions": [
-              "Default VS Code-style keybindings",
-              "IntelliJ IDEA-style keybindings (Alt+` for VCS popup, Ctrl+H for history, etc.)"
+              "Stock VS Code keybindings — IntelliG binds no keyboard shortcuts.",
+              "IntelliJ IDEA-style Git keybindings (Ctrl+K commit, Ctrl+Shift+K push, Alt+` VCS popup, and the rest — see the Keyboard Shortcuts editor). Ctrl+H (history) and Ctrl+Alt+Shift+A (blame) are IntelliG conveniences without an IntelliJ default."
             ],
             "default": "default",
             "markdownDescription": "Keyboard shortcut preset. `intellij` applies IntelliJ IDEA-style Git keybindings — the full table is on the extension's Feature Contributions page and in the Keyboard Shortcuts editor (search `intellig`).\n\n**Note:** with the `intellij` preset on, `Ctrl/Cmd+Alt+Z` performs **Revert File** — a destructive on-disk revert — overriding the default keymap's Unstage Selected on the same chord. To unstage while the preset is on, use the Local Changes context menu or run `IntelliG: Unstage Selected Files` from the command palette.",
@@ -1877,42 +1877,43 @@
         "command": "intellig.commit",
         "key": "ctrl+k",
         "mac": "cmd+k",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.shelve.silent",
         "key": "ctrl+shift+h",
         "mac": "cmd+shift+h",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.unshelve.silent",
         "key": "ctrl+alt+u",
         "mac": "cmd+alt+u",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.showCommitToolWindow",
         "key": "alt+0",
-        "when": "!terminalFocus"
+        "when": "!terminalFocus && config.intellig.keymapPreset == 'intellij'",
+        "mac": "cmd+0"
       },
       {
         "command": "intellig.push",
         "key": "ctrl+shift+k",
         "mac": "cmd+shift+k",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.updateProject",
         "key": "ctrl+t",
         "mac": "cmd+t",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.openGitToolWindow",
         "key": "alt+9",
         "mac": "cmd+9",
-        "when": "!inDebugMode"
+        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.toolWindow.jumpToHash",
@@ -1924,30 +1925,30 @@
         "command": "intellig.showBranchPopup",
         "key": "ctrl+shift+`",
         "mac": "cmd+shift+`",
-        "when": "!inDebugMode"
+        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.refresh",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.stageSelected",
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.unstageSelected",
         "key": "ctrl+alt+shift+z",
         "mac": "cmd+alt+shift+z",
-        "when": "!inDebugMode && !terminalFocus"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.vcsOperationsPopup",
         "key": "alt+`",
-        "mac": "alt+`",
+        "mac": "ctrl+v",
         "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
@@ -1963,7 +1964,7 @@
         "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
-        "command": "intellig.branch.compareWithCurrent",
+        "command": "intellig.explorer.compareWithRepoVersion",
         "key": "ctrl+d",
         "mac": "cmd+d",
         "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
@@ -1987,7 +1988,7 @@
       },
       {
         "command": "intellig.changelist.moveFilesTo",
-        "key": "f6",
+        "key": "alt+shift+m",
         "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
@@ -2028,6 +2029,7 @@
     "check:no-section-symbol": "bash scripts/check-no-section-symbol.sh",
     "check:command-reachability": "node scripts/check-command-reachability.mjs",
     "check:menu-reachability": "node scripts/check-menu-reachability.mjs",
+    "check:keybindings-coherence": "node scripts/check-keybindings-coherence.mjs",
     "check:command-coverage": "node scripts/check-command-coverage.mjs",
     "check:webview-coverage": "node scripts/check-webview-coverage.mjs",
     "check:pathspec-canonicalized": "bash scripts/check-pathspec-canonicalized.sh",
@@ -2056,7 +2058,7 @@
     "check:rebase-conflict-flow": "bash scripts/check-rebase-conflict-flow.sh",
     "check:conflict-toast-handoff": "bash scripts/check-conflict-toast-handoff.sh",
     "check:git-prose-matching": "bash scripts/check-git-prose-matching.sh",
-    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp && npm run check:context-keys && npm run check:config-keys && npm run check:persisted-state && npm run check:typed-messages && npm run check:ctw-render-resolve-only && npm run check:no-string-scripts && npm run check:rebase-conflict-flow && npm run check:conflict-toast-handoff && npm run check:menu-reachability && npm run check:git-prose-matching",
+    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp && npm run check:context-keys && npm run check:config-keys && npm run check:persisted-state && npm run check:typed-messages && npm run check:ctw-render-resolve-only && npm run check:no-string-scripts && npm run check:rebase-conflict-flow && npm run check:conflict-toast-handoff && npm run check:menu-reachability && npm run check:git-prose-matching && npm run check:keybindings-coherence",
     "package:dogfood": "INTELLIG_ALLOW_PLACEHOLDERS=1 INTELLIG_DOGFOOD_BUILD=1 INTELLIG_DOGFOOD_INVOCATION=1 npx --yes @vscode/vsce@2.24.0 package --out intellig-${npm_package_version}-dogfood.vsix",
     "release": "bash scripts/publish.sh",
     "release:dry": "bash scripts/publish.sh --dry-run",

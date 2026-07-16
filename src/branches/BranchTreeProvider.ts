@@ -139,9 +139,10 @@ class InMemoryFavoritesStore extends FavoritesStoreBase {
 
 /**
  * {@link IFavoritesStore} backed by a VS Code {@link vscode.Memento}
- * (the extension's globalState) so favorites persist across sessions —
- * the cross-session analogue of git4idea persisting `favoriteRefs` in
- * the repository model.
+ * (the extension's workspaceState) so favorites persist across sessions
+ * per workspace — the analogue of git4idea persisting `favoriteRefs` in
+ * the PROJECT-level repository model (starring `main` in one project must
+ * not star `main` everywhere).
  */
 class MementoFavoritesStore extends FavoritesStoreBase {
   constructor(private readonly _memento: vscode.Memento) {
@@ -159,11 +160,28 @@ class MementoFavoritesStore extends FavoritesStoreBase {
 /**
  * Build the shared, Memento-backed favorites store — the single source of
  * truth for starred branches across the Branches tree and the branch popup
- * (git4idea parity: one `GitRepositoryModel.favoriteRefs`). Production wires
- * this over the extension's globalState so favorites persist across sessions.
+ * (git4idea parity: one `GitRepositoryModel.favoriteRefs`, project-scoped).
+ * Persists to `workspaceState`. Favorites once lived in globalState; when the
+ * workspace slot has never been written and the legacy global slot has data,
+ * it seeds the workspace once (the legacy slot is left intact so other
+ * workspaces can run the same one-time migration).
  */
-export function createFavoritesStore(memento: vscode.Memento): IFavoritesStore {
-  return new MementoFavoritesStore(memento);
+export function createFavoritesStore(
+  workspaceState: vscode.Memento,
+  legacyGlobalState?: vscode.Memento
+): IFavoritesStore {
+  // "Never written" is a RAW-key check, not loadPersisted: the slot validator
+  // rejects an empty array, so a deliberately un-starred-everything workspace
+  // would otherwise read as unwritten and get re-seeded on every activation.
+  // persisted-state-exempt: presence probe only — no payload is read or written here; the actual reads/writes go through loadPersisted/savePersisted below.
+  const workspaceUntouched = workspaceState.get(FAVORITES_SLOT.key) === undefined;
+  if (legacyGlobalState && workspaceUntouched) {
+    const legacy = loadPersisted(legacyGlobalState, FAVORITES_SLOT);
+    if (legacy !== undefined) {
+      void savePersisted(workspaceState, FAVORITES_SLOT, legacy);
+    }
+  }
+  return new MementoFavoritesStore(workspaceState);
 }
 
 /**

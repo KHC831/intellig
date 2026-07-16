@@ -83,9 +83,9 @@ describe('IntelliJ keymap parity', () => {
       assert.ok(kb.when?.includes("config.intellig.keymapPreset == 'intellij'"));
     });
 
-    it('F6 → intellig.changelist.moveFilesTo with preset gate', () => {
-      const kb = findKb('intellig.changelist.moveFilesTo', 'f6');
-      assert.ok(kb, 'expected f6 → intellig.changelist.moveFilesTo keybinding');
+    it('Alt+Shift+M → intellig.changelist.moveFilesTo with preset gate (ChangesView.Move)', () => {
+      const kb = findKb('intellig.changelist.moveFilesTo', 'alt+shift+m');
+      assert.ok(kb, 'expected alt+shift+m → intellig.changelist.moveFilesTo keybinding');
       assert.ok(kb.when?.includes("config.intellig.keymapPreset == 'intellij'"));
     });
 

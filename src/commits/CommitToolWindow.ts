@@ -273,7 +273,7 @@ export function fileContextMenuLabels(file: IFileChange): Array<{
   const items: Array<{ label: string; action: FileAction; shortcut?: string }> = [
     { label: 'Show Diff', action: 'showDiff', shortcut: 'Ctrl+D' },
     { label: 'Jump to Source', action: 'jumpToSource', shortcut: 'F4' },
-    { label: 'Move to Another Changelist…', action: 'moveToChangelist', shortcut: 'F6' },
+    { label: 'Move to Another Changelist…', action: 'moveToChangelist', shortcut: 'Alt+Shift+M' },
     { label: 'Rollback…', action: 'rollback', shortcut: 'Ctrl+Alt+Z' },
     { label: 'Shelve Changes…', action: 'shelve' },
   ];
@@ -410,6 +410,8 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   /** Local Changes file-grouping mode, persisted to workspaceState. */
   private _changesGrouping: ChangesGroupingMode = 'directory';
   private _selectedFiles: Set<string> = new Set();
+  /** Absolute URI of the last Local-Changes row the user selected (F4 target). */
+  private _lastSelectedFileUri: vscode.Uri | undefined;
 
   private readonly _onDidCommit = new vscode.EventEmitter<{
     repo: IRepository;
@@ -682,6 +684,11 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     await this._pushLiveUpdate();
   }
 
+  /** Last Local-Changes selection, for the F4 / Jump to Source fallback. */
+  get lastSelectedFileUri(): vscode.Uri | undefined {
+    return this._lastSelectedFileUri;
+  }
+
   private async _handleSelectFile(path: string): Promise<void> {
     if (this._activeTab !== 'localChanges') {
       return;
@@ -690,6 +697,10 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     if (!repo) {
       return;
     }
+    // Track the selection for F4 / Jump to Source: the keybinding invokes
+    // localChanges.openFile with no argument and can't read the webview's
+    // selection, so it falls back to this (IntelliJ EditSource semantics).
+    this._lastSelectedFileUri = vscode.Uri.joinPath(repo.rootUri, path);
     try {
       const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
       void this.postMessage({ type: 'updateDiffPreview', path, diff });

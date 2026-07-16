@@ -208,7 +208,7 @@ describe('CommitToolWindow — fileContextMenuLabels', () => {
     const shortcuts = new Map(entries.map((e) => [e.action, e.shortcut]));
     assert.strictEqual(shortcuts.get('showDiff'), 'Ctrl+D');
     assert.strictEqual(shortcuts.get('jumpToSource'), 'F4');
-    assert.strictEqual(shortcuts.get('moveToChangelist'), 'F6');
+    assert.strictEqual(shortcuts.get('moveToChangelist'), 'Alt+Shift+M');
     assert.strictEqual(shortcuts.get('rollback'), 'Ctrl+Alt+Z');
   });
 });

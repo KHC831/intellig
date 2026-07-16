@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+/* eslint-disable */
+// ============================================================
+// check-keybindings-coherence.mjs — keybinding gating + arg-contract guard.
+//
+// Maintenance contract (per ADR-007 section "Guard maintenance contract"):
+//
+// 1. Bug class (two arms, one keybinding fence)
+//    a) SHADOW GATING: `intellig.keymapPreset` defaults to `default`, whose
+//       description promises stock VS Code keybindings. An ungated
+//       contributes.keybindings entry overrides VS Code defaults for every
+//       user regardless of the preset (ctrl+shift+k ate Delete Line, ctrl+k
+//       ate the chord leader). Every binding must carry the preset gate in
+//       its `when` UNLESS the when-clause scopes it to an intellig view or
+//       webview panel (focusedView / activeWebviewPanelId on an intellig id)
+//       — a binding that only fires inside our own surface cannot shadow a
+//       VS Code default anywhere else, and IS the sanctioned shape for
+//       in-view gestures (the log view's ctrl+f find).
+//    b) ARG CONTRACT: a command registered through `registerTreeItemCommand`
+//       resolves its target from the CLICKED TREE ITEM; a keybinding invokes
+//       with no argument, so the handler silently returns — a guaranteed
+//       dead gesture (ctrl+d → branch.compareWithCurrent never did anything
+//       from the keyboard).
+//
+// 2. Heuristic + how it scales
+//    a) Parse contributes.keybindings; every entry's `when` must contain
+//       `keymapPreset == 'intellij'` OR an intellig view/panel scope
+//       (`focusedView == 'intellig.…'` / `activeWebviewPanelId ==
+//       'intellig.…'`). The next scoped in-view binding is legal by
+//       construction; the next global ungated one fails at introduction.
+//    b) Collect every keybinding command id; scan production source for
+//       `registerTreeItemCommand` call blocks and the `id: '<cmd>'` they
+//       register. A keybinding whose command id is registered that way fails.
+//
+// 3. Known false-positive cases
+//    A tree-item command that ALSO registers a keyboard-friendly wrapper
+//    under the same id would false-fail — the codebase has none (ids are
+//    registered exactly once; check-command-coverage pins that elsewhere).
+//
+// 4. Known false-negative cases
+//    (a) the view-scope check is textual: a when-clause that NAMES an
+//    intellig view inside an `||` whose other arm is global would pass while
+//    still firing globally — keymapGating.test.ts pins the exact ungated set
+//    so such a clause is reviewed there. (b) only catches the tree-item
+//    contract; a selection command that dead-ends for other reasons needs
+//    its own test.
+//
+// 5. Retirement criteria
+//    Retire when keybindings are generated from the KeymapService tables
+//    (single typed source), making an ungated or contract-breaking binding
+//    unrepresentable.
+// ============================================================
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+const GATE = "keymapPreset == 'intellij'";
+
+/**
+ * An ungated binding is sanctioned only when its `when` scopes it to one of
+ * our own views/webview panels — it then cannot shadow a VS Code default
+ * outside intellig UI.
+ */
+const INTELLIG_VIEW_SCOPE_RE =
+  /(focusedView|activeWebviewPanelId)\s*==\s*'intellig\./;
+
+function main() {
+  const pkgPath = process.argv[2] ?? 'package.json';
+  const srcDir = process.argv[3] ?? 'src';
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const keybindings = pkg?.contributes?.keybindings ?? [];
+
+  const failures = [];
+
+  // Arm (a): preset gating (or an intellig view/panel scope).
+  let scopedUngated = 0;
+  for (const kb of keybindings) {
+    const when = kb?.when ?? '';
+    if (when.includes(GATE)) continue;
+    if (INTELLIG_VIEW_SCOPE_RE.test(when)) {
+      scopedUngated++;
+      continue;
+    }
+    failures.push(
+      `${kb.command} (${kb.key}) is neither gated behind ${GATE} nor scoped to an intellig view/panel by its when-clause`
+    );
+  }
+
+  // Arm (b): tree-item arg contract.
+  const treeItemIds = collectTreeItemCommandIds(srcDir);
+  for (const kb of keybindings) {
+    if (treeItemIds.has(kb.command)) {
+      failures.push(
+        `${kb.command} (${kb.key}) is registered via registerTreeItemCommand — a keybinding passes no tree item, so the gesture is a guaranteed no-op`
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    console.error(`keybindings-coherence guard FAILED — ${failures.length} problem(s):`);
+    for (const f of failures) console.error(`  ${f}`);
+    process.exit(1);
+  }
+  console.log(
+    `keybindings-coherence guard OK — ${keybindings.length} binding(s) checked (${scopedUngated} view-scoped ungated).`
+  );
+}
+
+/** Every `id: 'intellig.…'` inside a registerTreeItemCommand call block. */
+function collectTreeItemCommandIds(srcDir) {
+  const ids = new Set();
+  const stack = [srcDir];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (e.name === 'test' || e.name === 'node_modules') continue;
+        stack.push(path.join(dir, e.name));
+      } else if (/\.ts$/.test(e.name)) {
+        const text = fs.readFileSync(path.join(dir, e.name), 'utf8');
+        if (!text.includes('registerTreeItemCommand')) continue;
+        // Each call site is followed (within its spec literal) by an
+        // `id: '<cmd>'` — take the first id after each call token.
+        const parts = text.split('registerTreeItemCommand');
+        for (const part of parts.slice(1)) {
+          const m = part.match(/id:\s*'(intellig\.[a-zA-Z0-9.]+)'/);
+          if (m) ids.add(m[1]);
+        }
+      }
+    }
+  }
+  return ids;
+}
+
+main();

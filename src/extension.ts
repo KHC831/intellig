@@ -248,7 +248,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // wire it into the branch popup and the Branches tree (single source of
     // truth for starred branches). This module owns it, so register it for
     // disposal of its change emitter on deactivate.
-    branchFavoritesStore = createFavoritesStore(context.globalState);
+    // Workspace-scoped (git4idea parity: favorites are project-level state);
+    // globalState is passed only as the legacy one-time migration source.
+    branchFavoritesStore = createFavoritesStore(context.workspaceState, context.globalState);
     context.subscriptions.push(branchFavoritesStore);
 
     // Register commands
