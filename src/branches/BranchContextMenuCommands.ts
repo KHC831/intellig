@@ -35,6 +35,11 @@ import {
   TreeItemTarget,
 } from '../commands/registration/commandSpine';
 import type { IWorktreeCapableService, IWorktreeEntry } from '../git-core/ops/WorktreeOps';
+import { buildUpdatePullOptions, resolveUpdateRebase } from '../sync/updateProject';
+import { readConfig } from '../config/configKeys';
+import { isProtectedTarget } from '../sync/PushDialog';
+import { isNotFullyMergedError, proposeDeleteMergedBranch } from './deleteOnMerge';
+import type { BranchComparisonView } from './BranchComparisonView';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
 export type PullDialogAccessor = () => PullDialog | undefined;
@@ -48,11 +53,14 @@ export type PushDialogOpener = (preselect: IPushPreselect) => PushDialog | undef
 
 /**
  * Open a fresh Merge Dialog for `repo` merging `sourceBranch` into
- * the current branch.
+ * the current branch. `proposeDeleteOnMerge` enables the deleteOnMerge
+ * PROPOSE affordance on success (non-protected local branches only —
+ * the caller computes eligibility).
  */
 export type MergeDialogOpener = (preselect: {
   repo: IRepository;
   sourceBranch: string;
+  proposeDeleteOnMerge?: boolean;
 }) => MergeDialog | undefined;
 
 /**
@@ -126,10 +134,12 @@ export interface IAlignLocalPlan {
  * than relying on git to refuse it.
  *
  * Skip reasons:
- * - checked-out current branch — FF into a checked-out ref is refused; the
- *   branch must be advanced via Update/Pull instead (git4idea routes this to
- *   GitUpdateExecutionProcess, which is out of scope for align-local).
  * - no upstream configured.
+ * - checked-out current branch — FF into a checked-out ref is refused. This
+ *   is planner-level defense only: the Update / Update Selected handlers
+ *   route the current branch to a full integration
+ *   (`_updateCurrentBranch`, GitUpdateExecutionProcess parity) before ever
+ *   consulting this planner.
  * - diverged (has outgoing commits) — not a fast-forward.
  *
  * The refspec joins user-controlled ref names; callers MUST splice it through
@@ -139,15 +149,15 @@ export function planAlignLocal(inputs: IAlignLocalBranchInput[]): IAlignLocalPla
   const plan: IAlignLocalPlan = { fetches: [], skipped: [], upToDate: [] };
 
   for (const input of inputs) {
+    if (!input.upstream) {
+      plan.skipped.push({ branch: input.name, reason: 'no upstream configured' });
+      continue;
+    }
     if (input.isCurrent) {
       plan.skipped.push({
         branch: input.name,
         reason: 'checked out — use Update/Pull to advance the current branch',
       });
-      continue;
-    }
-    if (!input.upstream) {
-      plan.skipped.push({ branch: input.name, reason: 'no upstream configured' });
       continue;
     }
     if (input.outgoing > 0) {
@@ -172,6 +182,45 @@ export function planAlignLocal(inputs: IAlignLocalBranchInput[]): IAlignLocalPla
 }
 
 /**
+ * Detect git's "untracked working tree files would be overwritten" refusal
+ * and extract the blocked files. Returns `null` when the message is not that
+ * error (including the TRACKED "Your local changes …" form, which keeps the
+ * smart-checkout offer).
+ *
+ * Mirrors git4idea's GitUntrackedFilesOverwrittenByOperationDetector: the
+ * modern form is a header line followed by tab-indented file lines up to the
+ * "Please move or remove them" hint; the legacy form names a single file
+ * inline. The reference treats this arm as FATAL (file list, no smart
+ * checkout — GitCheckoutOperation.java:187-190): a stash without
+ * `--include-untracked` cannot move untracked files, so a stash-and-retry
+ * would fail on exactly the same files.
+ */
+export function parseUntrackedOverwriteFiles(message: string): string[] | null {
+  const lines = message.split('\n');
+  const headerIdx = lines.findIndex((l) =>
+    /untracked working tree files would be overwritten by/i.test(l)
+  );
+  if (headerIdx >= 0) {
+    const files: string[] = [];
+    for (const line of lines.slice(headerIdx + 1)) {
+      if (/^\s*please move or remove them/i.test(line)) {
+        break;
+      }
+      const file = line.trim();
+      if (file.length > 0) {
+        files.push(file);
+      }
+    }
+    return files;
+  }
+  const legacy = message.match(/untracked working tree file '(.*)' would be overwritten by/i);
+  if (legacy) {
+    return [legacy[1]];
+  }
+  return null;
+}
+
+/**
  * Branch Context Menu Commands class.
  * Registers and handles all branch-related context menu commands.
  */
@@ -184,6 +233,7 @@ export class BranchContextMenuCommands {
   private _mergeDialogOpener?: MergeDialogOpener;
   private _rebaseDialogOpener?: RebaseDialogOpener;
   private _newBranchDialogOpener?: NewBranchDialogOpener;
+  private _branchComparisonView?: BranchComparisonView;
   private _disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -213,6 +263,17 @@ export class BranchContextMenuCommands {
    */
   setConflictResolutionService(service: IConflictResolutionService): void {
     this._conflictResolutionService = service;
+  }
+
+  /**
+   * Late-bind the Branch Comparison View — constructed AFTER this commands
+   * class in the activate() sequence, mirroring
+   * {@link CommitContextMenuCommands.setBranchComparisonView}. Compare With
+   * Current routes through it; without it the summary toast remains as the
+   * fallback.
+   */
+  setBranchComparisonView(view: BranchComparisonView): void {
+    this._branchComparisonView = view;
   }
 
   /**
@@ -682,6 +743,16 @@ export class BranchContextMenuCommands {
         accepts: ['branch'],
         run: async ({ repo, target }) => {
           const currentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
+
+          // GitCompareWithBranchAction opens a comparison surface, not a
+          // notification — route through the Branch Comparison View (shared
+          // with the commit menu's Compare with Branch…). The summary toast
+          // remains only as the no-view fallback (legacy wiring / tests).
+          if (this._branchComparisonView) {
+            await this._branchComparisonView.show(repo, currentBranch, target.branch.name);
+            return;
+          }
+
           const comparison = await this._gitService.compareBranches(
             repo,
             currentBranch,
@@ -1016,12 +1087,16 @@ export class BranchContextMenuCommands {
   /**
    * Handle the outer dirty-working-tree checkout error pattern.
    *
-   * Three cases:
+   * Four cases:
    * - Worktree conflict (git refuses atomically) → shows a targeted error,
    *   returns `null` (caller must not show a second error).
-   * - Dirty tree (`would be overwritten` / `Please commit`) → shows the
-   *   Stash & Switch / Force Checkout / Cancel dialog, returns the user's
-   *   choice or `null` on Cancel.
+   * - UNTRACKED files would be overwritten → fatal error naming the files,
+   *   returns `null`. No Stash & Switch: the stash has no
+   *   `--include-untracked`, so a stash-and-retry fails on the same files
+   *   (git4idea treats this arm as fatal, GitCheckoutOperation.java:187-190).
+   * - TRACKED dirty tree (`would be overwritten` / `Please commit`) → shows
+   *   the Stash & Switch / Force Checkout / Cancel dialog, returns the
+   *   user's choice or `null` on Cancel.
    * - Any other error → shows `fallbackError` and returns `null`.
    *
    * Callers act on the returned choice and provide their own
@@ -1035,6 +1110,14 @@ export class BranchContextMenuCommands {
     const worktreeMessage = worktreeConflictMessage(errorMessage);
     if (worktreeMessage) {
       void vscode.window.showErrorMessage(worktreeMessage);
+      return null;
+    }
+    const untracked = parseUntrackedOverwriteFiles(errorMessage);
+    if (untracked) {
+      void vscode.window.showErrorMessage(
+        `Untracked working tree files would be overwritten: ${untracked.join(', ')}. ` +
+          `Move or remove them, then retry.`
+      );
       return null;
     }
     if (
@@ -1367,12 +1450,20 @@ export class BranchContextMenuCommands {
     repo,
     target,
   }: ITreeItemRunArgs<'branch'>): Promise<void> {
+    // deleteOnMerge = PROPOSE for a non-protected local branch
+    // (GitBranchPopupActions.java:287-291); tags route through
+    // _handleTagMergeIntoCurrent and never propose.
+    const proposeDeleteOnMerge =
+      target.branch.type === 'local' &&
+      !target.branch.isHead &&
+      !isProtectedTarget(target.branch.name, readConfig('protectedBranches'));
+
     // Route through the Merge Dialog when the opener is wired; the
-    // dialog handles options (ff-only / no-ff / squash / no-commit / -m)
-    // and conflict handoff itself. Fallback path (no opener) preserves the
-    // legacy direct-merge behaviour for tests.
+    // dialog handles options (ff-only / no-ff / squash / no-commit / -m),
+    // conflict handoff, and the PROPOSE affordance itself. Fallback path
+    // (no opener) preserves the legacy direct-merge behaviour for tests.
     if (this._mergeDialogOpener) {
-      this._mergeDialogOpener({ repo, sourceBranch: target.branch.name });
+      this._mergeDialogOpener({ repo, sourceBranch: target.branch.name, proposeDeleteOnMerge });
       return;
     }
 
@@ -1380,7 +1471,18 @@ export class BranchContextMenuCommands {
       const result = await this._gitService.mergeBranch(repo, target.branch.name);
 
       if (result.success) {
-        void vscode.window.showInformationMessage(`Merged '${target.branch.name}' successfully`);
+        const successMessage = `Merged '${target.branch.name}' successfully`;
+        if (proposeDeleteOnMerge) {
+          // Fire-and-forget: the PROPOSE toast must not hold the command.
+          void proposeDeleteMergedBranch(
+            { gitService: this._gitService, onDeleted: () => this._branchTreeProvider.refresh() },
+            repo,
+            target.branch.name,
+            successMessage
+          );
+        } else {
+          void vscode.window.showInformationMessage(successMessage);
+        }
       } else if (result.conflicts && result.conflicts.length > 0) {
         // Auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise (legacy callers without the service).
@@ -1584,6 +1686,7 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    const upstream = target.branch.upstream;
     try {
       await this._gitService.deleteBranch(repo, branchName).match(
         () => undefined,
@@ -1594,7 +1697,11 @@ export class BranchContextMenuCommands {
       // Branch list changed; reload so the tree shows the
       // post-deletion ref set deterministically.
       await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Deleted branch '${branchName}'`);
+      // Fire-and-forget: the success toast + optional tracked-branch cascade
+      // must not hold the command pending on the toast.
+      void this._offerDeleteTrackedBranches(`Deleted branch '${branchName}'`, [
+        { repo, name: branchName, upstream },
+      ]);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1616,7 +1723,9 @@ export class BranchContextMenuCommands {
             }
           );
           await this._gitService.reloadRepository(repo);
-          void vscode.window.showInformationMessage(`Force-deleted branch '${branchName}'`);
+          void this._offerDeleteTrackedBranches(`Force-deleted branch '${branchName}'`, [
+            { repo, name: branchName, upstream },
+          ]);
           this._branchTreeProvider.refresh();
         } catch (forceError) {
           const forceMessage = forceError instanceof Error ? forceError.message : 'Unknown error';
@@ -1657,7 +1766,7 @@ export class BranchContextMenuCommands {
     const notMerged: Array<ITreeItemBatchEntry<'branch'>> = [];
     const failures: string[] = [];
     const touchedRepos = new Map<string, IRepository>();
-    let deleted = 0;
+    const deletedEntries: Array<{ repo: IRepository; name: string; upstream?: IUpstream }> = [];
 
     const tryDelete = async (
       entry: ITreeItemBatchEntry<'branch'>,
@@ -1671,7 +1780,7 @@ export class BranchContextMenuCommands {
             throw e;
           }
         );
-        deleted += 1;
+        deletedEntries.push({ repo: entry.repo, name, upstream: entry.target.branch.upstream });
         touchedRepos.set(entry.repo.rootUri.fsPath, entry.repo);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -1705,11 +1814,14 @@ export class BranchContextMenuCommands {
     for (const repo of touchedRepos.values()) {
       await this._gitService.reloadRepository(repo);
     }
-    if (deleted > 0) {
-      void vscode.window.showInformationMessage(
-        deleted === batch.length
-          ? `Deleted ${deleted} branches`
-          : `Deleted ${deleted} of ${batch.length} branches`
+    if (deletedEntries.length > 0) {
+      // Fire-and-forget: the toast + optional tracked-branch cascade must
+      // not hold the command pending on the toast.
+      void this._offerDeleteTrackedBranches(
+        deletedEntries.length === batch.length
+          ? `Deleted ${deletedEntries.length} branches`
+          : `Deleted ${deletedEntries.length} of ${batch.length} branches`,
+        deletedEntries
       );
     }
     if (failures.length > 0) {
@@ -1771,14 +1883,15 @@ export class BranchContextMenuCommands {
   // ============================================
 
   /**
-   * Handle update command for local branches — git4idea updateBranches parity.
+   * Handle update command for local branches — git4idea updateBranches parity
+   * (GitBranchActionsUtil.updateBranches).
    *
-   * A NON-current branch gets a real update: the align-local fast-forward via
-   * a `<remoteRef>:<localRef>` fetch refspec (shared with Update Selected).
-   * The CURRENT branch cannot be fetched into, so it fetches its upstream
-   * remote (with prune) and reports the resulting divergence honestly —
-   * "Fetched … N commit(s) behind" — rather than claiming the branch itself
-   * was updated.
+   * A NON-current branch gets the align-local fast-forward via a
+   * `<remoteRef>:<localRef>` fetch refspec (shared with Update Selected). The
+   * CURRENT branch cannot be fetched into, so it is INTEGRATED — the
+   * reference routes it through GitUpdateExecutionProcess (fetch + merge or
+   * rebase per the update settings); ours mirrors Update Project's per-repo
+   * step in {@link _updateCurrentBranch}.
    */
   private async _handleUpdate({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
     const upstream = target.branch.upstream;
@@ -1794,6 +1907,34 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    await this._updateCurrentBranch(repo, target.branch);
+  }
+
+  /**
+   * Integrate the CURRENT branch with its upstream. git4idea routes Update on
+   * the checked-out branch through `GitUpdateExecutionProcess.update` (fetch +
+   * merge/rebase per the update method, with a local-changes saver;
+   * GitBranchActionsUtil.kt:51-63) — a fetch-plus-toast is not an update.
+   *
+   * Mirrors Update Project's single-repo step: fetch the upstream remote with
+   * prune, probe the incoming count (0 ⇒ up-to-date toast, probe failure ⇒
+   * pull anyway — never claim up-to-date on data we did not read), then pull
+   * with the branch-default strategy (`resolveUpdateRebase` over
+   * `intellig.pullRebase`) + autostash via {@link buildUpdatePullOptions}. A
+   * pull that stops on conflicts routes into the Resolve Conflicts dialog
+   * with the operation matching the strategy, so ours/theirs naming follows
+   * the same reversal inference the pull handlers use.
+   */
+  private async _updateCurrentBranch(repo: IRepository, branch: IBranch): Promise<void> {
+    const upstream = branch.upstream;
+    if (!upstream) {
+      void vscode.window.showInformationMessage(
+        `Branch '${branch.name}' has no upstream configured.`
+      );
+      return;
+    }
+    const rebase = resolveUpdateRebase('branch-default', readConfig('pullRebase'));
+    const strategy = rebase ? 'rebase' : 'merge';
     try {
       await this._gitService.fetch(repo, { remote: upstream.remote, prune: true }).match(
         () => undefined,
@@ -1801,37 +1942,90 @@ export class BranchContextMenuCommands {
           throw e;
         }
       );
-      // Fetch updated remote-tracking refs; reload so ahead/behind
-      // counts on the branch tree match the post-fetch state.
-      await this._gitService.reloadRepository(repo);
-      // Post-fetch divergence report. A probe failure degrades to the bare
-      // fetch confirmation — never to an unverified claim.
       let incoming: number | undefined;
       const fetcher = getIncomingOutgoingFetcher(this._gitService);
       if (fetcher) {
         try {
-          incoming = (await fetcher(repo, target.branch.name)).incoming;
+          incoming = (await fetcher(repo, branch.name)).incoming;
         } catch {
           incoming = undefined;
         }
       }
-      const base = `Fetched '${upstream.remote}'.`;
-      if (incoming === undefined) {
-        void vscode.window.showInformationMessage(base);
-      } else if (incoming === 0) {
-        void vscode.window.showInformationMessage(`${base} '${target.branch.name}' is up to date.`);
-      } else {
+      if (incoming === 0) {
+        // Fetch updated remote-tracking refs; reload so ahead/behind counts
+        // on the branch tree match the post-fetch state.
+        await this._gitService.reloadRepository(repo);
         void vscode.window.showInformationMessage(
-          `${base} '${target.branch.name}' is ${incoming} commit(s) behind — ` +
-            `use Update Project or Pull to integrate.`
+          `Fetched '${upstream.remote}'. '${branch.name}' is up to date.`
         );
+        this._branchTreeProvider.refresh();
+        return;
       }
+      await this._gitService.pull(repo, buildUpdatePullOptions(rebase)).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+      // Pull moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
+      void vscode.window.showInformationMessage(
+        incoming === undefined
+          ? `Updated '${branch.name}' from '${upstream.remote}' using ${strategy}`
+          : `Updated '${branch.name}': integrated ${incoming} commit(s) from ` +
+              `'${upstream.remote}' using ${strategy}`
+      );
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (await this._routePullConflicts(repo, strategy, branch.name)) {
+        return;
+      }
       void vscode.window.showErrorMessage(
         `Failed to update branch: ${sanitizeGitError(errorMessage)}`
       );
+    }
+  }
+
+  /**
+   * After a failed pull, probe the working tree for unresolved conflicts and
+   * hand off to the Resolve Conflicts dialog when any are present. Returns
+   * whether the dialog took over (callers suppress their generic error toast
+   * then). A probe failure is logged and treated as "no conflicts" so it
+   * never swallows the original pull error.
+   */
+  private async _routePullConflicts(
+    repo: IRepository,
+    operation: 'merge' | 'rebase',
+    target: string
+  ): Promise<boolean> {
+    if (!this._conflictResolutionService) {
+      return false;
+    }
+    try {
+      const conflicts = await this._conflictResolutionService.getConflictedFiles(repo);
+      if (conflicts.length === 0) {
+        return false;
+      }
+      await this._openResolveConflictsDialog(
+        repo,
+        conflicts.map((c) => c.path),
+        { operation, target }
+      );
+      // The pull may have partially advanced HEAD before the conflict;
+      // reload so the tree reflects the post-conflict state.
+      await this._gitService.reloadRepository(repo);
+      this._branchTreeProvider.refresh();
+      return true;
+    } catch (probeError) {
+      // Do NOT toast the probe failure itself — the caller's generic error
+      // is the one the user cares about. Keep the probe error in the log.
+      getLogger()
+        .child({ component: 'BranchContextMenuCommands' })
+        .warn('pull conflict probe failed', {
+          probeError: probeError instanceof Error ? probeError.message : String(probeError),
+        });
+      return false;
     }
   }
 
@@ -1842,12 +2036,17 @@ export class BranchContextMenuCommands {
    * git4idea parity: GitBranchActionsUtil.updateBranches advances every
    * non-current tracking branch via a `<remoteRef>:<localRef>` fetch refspec
    * (`GitFetchSpec(repo, remote, "$remoteBranch:$localBranch")`) and only ever
-   * fast-forwards — diverged branches are left untouched. The current branch is
-   * routed to a full update (GitUpdateExecutionProcess) instead; here we skip it
-   * and tell the user to use Update/Pull, since fetching into a checked-out ref
-   * is refused. Surfaced from BranchesDashboardActions.UpdateSelectedBranchAction.
+   * fast-forwards — diverged branches are left untouched. The current branch
+   * is routed to a full integration instead (GitUpdateExecutionProcess in the
+   * reference, {@link _updateCurrentBranch} here), since fetching into a
+   * checked-out ref is refused. Surfaced from
+   * BranchesDashboardActions.UpdateSelectedBranchAction.
    */
   private async _handleUpdateSelected({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
+    if (target.branch.isHead && target.branch.upstream) {
+      await this._updateCurrentBranch(repo, target.branch);
+      return;
+    }
     await this._alignLocalBranch(repo, target.branch);
   }
 
@@ -2413,47 +2612,14 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // Conflict handoff: when the conflict service is wired in (always true
-      // in production via ExtensionServices — see `ConflictResolutionService`
-      // construction in `ExtensionServices.initialize`), probe the working
-      // tree for unresolved conflicts and auto-open the Resolve Conflicts
-      // dialog if any are present. Pull-using-rebase maps to `'rebase'` and
-      // pull-using-merge maps to `'merge'` — conceptually the same
-      // post-conflict states merge / rebase produce directly.
-      // Wrap the probe + dialog handoff in an inner try/catch so
-      // a probe failure (git process crash, transient fs/access issue) does
-      // NOT swallow the original pull error. Before this guard, a throw
-      // from `getConflictedFiles` (or from the dialog wiring) escaped the
-      // outer catch block before the generic `showErrorMessage` ran,
-      // leaving the user with no surface-level feedback on the real pull
-      // failure. We log-and-fall-through: the generic error below still
-      // fires, and the probe error is captured for debugging.
-      if (this._conflictResolutionService) {
-        try {
-          const conflicts = await this._conflictResolutionService.getConflictedFiles(repo);
-          if (conflicts.length > 0) {
-            await this._openResolveConflictsDialog(
-              repo,
-              conflicts.map((c) => c.path),
-              { operation: preset === 'rebase' ? 'rebase' : 'merge', target: target.branch.name }
-            );
-            // Pull may have partially advanced HEAD before the
-            // conflict; reload so the tree reflects the post-conflict state.
-            await this._gitService.reloadRepository(repo);
-            this._branchTreeProvider.refresh();
-            return;
-          }
-        } catch (probeError) {
-          // Do NOT surface a toast for the probe failure itself — the
-          // outer generic error below is the one the user cares about
-          // (it names the pull strategy + the original fatal). Keep the
-          // probe error in the log for debugging.
-          getLogger()
-            .child({ component: 'BranchContextMenuCommands' })
-            .warn('pull-fallback conflict probe failed', {
-              probeError: probeError instanceof Error ? probeError.message : String(probeError),
-            });
-        }
+      // Conflict handoff: probe the working tree and auto-open the Resolve
+      // Conflicts dialog when the pull left unresolved conflicts.
+      // Pull-using-rebase maps to `'rebase'` and pull-using-merge to
+      // `'merge'` — the same post-conflict states merge / rebase produce
+      // directly. A probe failure never swallows the original pull error —
+      // the generic toast below still fires.
+      if (await this._routePullConflicts(repo, preset, target.branch.name)) {
+        return;
       }
       const strategy = preset === 'rebase' ? 'rebase' : 'merge';
       void vscode.window.showErrorMessage(
@@ -2688,49 +2854,204 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Handle delete remote branch command.
+   * Report a local branch deletion and, when the deleted branch's upstream is
+   * now orphaned, offer to delete it on the remote too. Mirrors IntelliJ's
+   * GitDeleteBranchOperation success notification, whose "Delete Tracked
+   * Branch" action appears when the upstream has no other tracking branch
+   * and is not protected (GitDeleteBranchOperation.java:158-165) — and our
+   * own tag cascade ({@link _offerRemoteDeleteForLocalTags}).
    */
-  private async _handleDeleteRemote({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
-    const confirm = await vscode.window.showWarningMessage(
-      `Are you sure you want to delete the remote branch '${target.branch.name}'? This cannot be undone.`,
-      { modal: true },
-      'Delete'
-    );
-
-    if (confirm !== 'Delete') {
-      return;
+  private async _offerDeleteTrackedBranches(
+    summary: string,
+    deleted: ReadonlyArray<{ repo: IRepository; name: string; upstream?: IUpstream }>
+  ): Promise<void> {
+    const protectedBranches = readConfig('protectedBranches');
+    // Eligibility per deleted branch: it tracked an upstream, that upstream
+    // is not protected, and no surviving local still tracks it. The branch
+    // list is read AFTER the deletion, so the deleted branch itself never
+    // counts as a tracker. A branch-list read failure degrades to no offer.
+    const branchesByRepo = new Map<string, IBranch[]>();
+    const eligible: Array<{ repo: IRepository; upstream: IUpstream }> = [];
+    for (const d of deleted) {
+      if (!d.upstream || isProtectedTarget(d.upstream.name, protectedBranches)) {
+        continue;
+      }
+      const key = d.repo.rootUri.fsPath;
+      let branches = branchesByRepo.get(key);
+      if (!branches) {
+        try {
+          branches = await this._gitService.getBranches(d.repo);
+        } catch {
+          branches = [];
+        }
+        branchesByRepo.set(key, branches);
+      }
+      const upstream = d.upstream;
+      const stillTracked = branches.some(
+        (b) =>
+          b.type === 'local' &&
+          b.upstream?.remote === upstream.remote &&
+          b.upstream?.name === upstream.name
+      );
+      if (!stillTracked) {
+        eligible.push({ repo: d.repo, upstream });
+      }
     }
 
+    if (eligible.length === 0) {
+      void vscode.window.showInformationMessage(summary);
+      return;
+    }
+    const label = eligible.length === 1 ? 'Delete Tracked Branch' : 'Delete Tracked Branches';
+    const named =
+      eligible.length === 1
+        ? `'${eligible[0].upstream.remote}/${eligible[0].upstream.name}' is no longer tracked.`
+        : `${eligible.length} upstream branches are no longer tracked.`;
+    const choice = await vscode.window.showInformationMessage(`${summary}. ${named}`, label);
+    if (choice !== label) {
+      return;
+    }
+    let removed = 0;
+    for (const e of eligible) {
+      if (await this._deleteRemoteBranchRef(e.repo, e.upstream.remote, e.upstream.name)) {
+        removed += 1;
+      }
+    }
+    if (removed > 0) {
+      const last = eligible[eligible.length - 1];
+      void vscode.window.showInformationMessage(
+        removed === 1
+          ? `Deleted remote branch '${last.upstream.remote}/${last.upstream.name}'`
+          : `Deleted ${removed} remote branches`
+      );
+      this._branchTreeProvider.refresh();
+    }
+  }
+
+  /**
+   * Delete one branch on `remote` (`git push <remote> :<name>`). Returns
+   * whether it succeeded; a failure is toasted (credentials scrubbed) and
+   * swallowed so a cascade can continue. Confirmation is the caller's job.
+   */
+  private async _deleteRemoteBranchRef(
+    repo: IRepository,
+    remote: string,
+    name: string
+  ): Promise<boolean> {
+    try {
+      await this._gitService.push(repo, { remote, branch: `:${name}` }).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+      // Push :branch removed the remote ref; reload so the tree's
+      // remote-branches list reflects the deletion.
+      await this._gitService.reloadRepository(repo);
+      return true;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to delete remote branch '${remote}/${name}': ${sanitizeGitError(errorMessage)}`
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Handle delete remote branch command.
+   *
+   * IntelliJ parity (GitDeleteRemoteBranchOperation.java:46-72): the confirm
+   * also offers deleting the LOCAL branches tracking the remote one — the
+   * current branch excluded. Accepting deletes the remote ref, then each
+   * tracking local; a not-fully-merged local is force-deleted without a
+   * second prompt, matching the reference's execute() flow (the user already
+   * confirmed deleting exactly these branches).
+   */
+  private async _handleDeleteRemote({ repo, target }: ITreeItemRunArgs<'branch'>): Promise<void> {
     // Parse remote name from branch name
     const parts = target.branch.name.split('/');
     const remoteName = parts[0];
     const branchName = parts.slice(1).join('/');
 
+    // Tracking locals eligible for the cascade (current branch excluded —
+    // "don't propose to remove current branch even if it tracks the remote
+    // branch"). A branch-list read failure degrades to the plain confirm.
+    let trackingLocals: string[] = [];
     try {
-      // Use git push to delete remote branch
-      await this._gitService
-        .push(repo, {
-          remote: remoteName,
-          branch: `:${branchName}`,
-        })
-        .match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-
-      // Push:branch removed remote ref; reload so the tree's
-      // remote-branches list reflects the deletion.
-      await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Deleted remote branch '${target.branch.name}'`);
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to delete remote branch: ${sanitizeGitError(errorMessage)}`
-      );
+      const branches = await this._gitService.getBranches(repo);
+      trackingLocals = branches
+        .filter(
+          (b) =>
+            b.type === 'local' &&
+            !b.isHead &&
+            b.upstream?.remote === remoteName &&
+            b.upstream?.name === branchName
+        )
+        .map((b) => b.name);
+    } catch {
+      trackingLocals = [];
     }
+
+    const DELETE_WITH_LOCALS = 'Delete with Local Branches';
+    const message =
+      trackingLocals.length > 0
+        ? `Are you sure you want to delete the remote branch '${target.branch.name}'? ` +
+          `This cannot be undone. Tracking local branch(es): ${trackingLocals.join(', ')}.`
+        : `Are you sure you want to delete the remote branch '${target.branch.name}'? This cannot be undone.`;
+    const buttons = trackingLocals.length > 0 ? ['Delete', DELETE_WITH_LOCALS] : ['Delete'];
+    const confirm = await vscode.window.showWarningMessage(message, { modal: true }, ...buttons);
+    if (confirm !== 'Delete' && confirm !== DELETE_WITH_LOCALS) {
+      return;
+    }
+
+    if (!(await this._deleteRemoteBranchRef(repo, remoteName, branchName))) {
+      return;
+    }
+
+    const deletedLocals: string[] = [];
+    if (confirm === DELETE_WITH_LOCALS) {
+      for (const local of trackingLocals) {
+        try {
+          try {
+            await this._gitService.deleteBranch(repo, local).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : 'Unknown error';
+            if (!isNotFullyMergedError(msg)) {
+              throw error;
+            }
+            // Auto-force, reference parity: GitDeleteBranchOperation retries
+            // with force when the safe delete reports not-fully-merged; the
+            // confirm above already named this branch.
+            await this._gitService.deleteBranch(repo, local, true).match(
+              () => undefined,
+              (e) => {
+                throw e;
+              }
+            );
+          }
+          deletedLocals.push(local);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to delete local branch '${local}': ${sanitizeGitError(msg)}`
+          );
+        }
+      }
+    }
+
+    await this._gitService.reloadRepository(repo);
+    void vscode.window.showInformationMessage(
+      deletedLocals.length > 0
+        ? `Deleted remote branch '${target.branch.name}' and local ${deletedLocals.join(', ')}`
+        : `Deleted remote branch '${target.branch.name}'`
+    );
+    this._branchTreeProvider.refresh();
   }
 
   /**
@@ -2931,9 +3252,21 @@ export class BranchContextMenuCommands {
           `Cherry-picked tag '${target.tag.name}' successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
+        // Hand off to the Resolve Conflicts dialog like every sibling
+        // cherry-pick path (branch-scoped picker, commit context menu) —
+        // the sequencer is mid-cherry-pick and needs resolve/abort
+        // affordances, not a dead-end toast. Cherry-pick is a forward
+        // operation: no ours/theirs reversal.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'cherryPick',
+            target: target.tag.name,
+          });
+        } else {
+          void vscode.window.showWarningMessage(
+            `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+          );
+        }
       } else {
         // Non-conflict failure: surface the underlying git error.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
@@ -3210,21 +3543,6 @@ export class BranchContextMenuCommands {
     }
     this._disposables = [];
   }
-}
-
-/**
- * Recognise the canonical "not fully merged" stderr emitted by
- * `git branch -d` when the branch's tip is unreachable from any other
- * ref. Used to upgrade the failure path to a "Force delete?" prompt
- * rather than surfacing the raw CLI hint to the user.
- *
- * Matches across git versions and locales by checking for the stable
- * "not fully merged" phrase. The full message is roughly:
- *   error: the branch '<name>' is not fully merged
- *   If you are sure you want to delete it, run 'git branch -D <name>'
- */
-export function isNotFullyMergedError(message: string): boolean {
-  return /not fully merged/i.test(message);
 }
 
 /**

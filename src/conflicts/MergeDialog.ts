@@ -41,6 +41,7 @@ import { IConflictResolutionService } from './interfaces/IConflictResolutionServ
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
+import { proposeDeleteMergedBranch } from '../branches/deleteOnMerge';
 
 /** Options for constructing a {@link MergeDialog}. */
 export interface IMergeDialogOptions {
@@ -52,6 +53,12 @@ export interface IMergeDialogOptions {
   conflictResolutionService?: IConflictResolutionService;
   /** Optional callback fired after a successful merge. */
   onMergeComplete?: () => void;
+  /**
+   * deleteOnMerge PROPOSE (git4idea GitBrancher.DeleteOnMergeOption): when
+   * true, the success toast offers deleting the merged source branch. The
+   * caller computes eligibility — non-protected LOCAL branches only.
+   */
+  proposeDeleteOnMerge?: boolean;
 }
 
 /** Strategy flags that are mutually exclusive. Used by the UI mutex resolver. */
@@ -118,6 +125,7 @@ export class MergeDialog extends BaseWebviewPanel<MergeDialogOutbound> {
   private readonly _gitService: IGitService;
   private readonly _conflictResolutionService?: IConflictResolutionService;
   private readonly _onMergeComplete?: () => void;
+  private readonly _proposeDeleteOnMerge: boolean;
   private _busy = false;
 
   constructor(context: vscode.ExtensionContext, options: IMergeDialogOptions) {
@@ -128,6 +136,7 @@ export class MergeDialog extends BaseWebviewPanel<MergeDialogOutbound> {
     this._gitService = options.gitService;
     this._conflictResolutionService = options.conflictResolutionService;
     this._onMergeComplete = options.onMergeComplete;
+    this._proposeDeleteOnMerge = options.proposeDeleteOnMerge === true;
     this._render();
   }
 
@@ -288,9 +297,20 @@ ${this._getBodyHtml()}
           : options.noCommit
             ? 'Merged (no commit)'
             : 'Merged';
-        void vscode.window.showInformationMessage(
-          `${verb} '${this._sourceBranch}' into '${this._targetBranch}'`
-        );
+        const successMessage = `${verb} '${this._sourceBranch}' into '${this._targetBranch}'`;
+        if (this._proposeDeleteOnMerge) {
+          // deleteOnMerge PROPOSE: the success toast carries a
+          // "Delete <branch>" action. Fire-and-forget — it outlives this
+          // dialog's dispose below.
+          void proposeDeleteMergedBranch(
+            { gitService: this._gitService, onDeleted: this._onMergeComplete },
+            this._repo,
+            this._sourceBranch,
+            successMessage
+          );
+        } else {
+          void vscode.window.showInformationMessage(successMessage);
+        }
         if (this._onMergeComplete) {
           try {
             this._onMergeComplete();

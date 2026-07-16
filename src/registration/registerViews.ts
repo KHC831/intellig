@@ -1401,6 +1401,8 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     if (ctx.commitContextMenuCommands) {
       ctx.commitContextMenuCommands.setBranchComparisonView(ctx.branchComparisonView);
     }
+    // Same late-bind for the branch menu's Compare With Current.
+    branchContextMenuCommands.setBranchComparisonView(ctx.branchComparisonView);
 
     // Initialize Gutter Blame Provider
     ctx.gutterBlameProvider = createGutterBlameProvider(

@@ -784,6 +784,7 @@ export function openPushDialog(preselect?: IPushPreselect): PushDialog | undefin
 export function _openMergeDialog(preselect: {
   repo: IRepository;
   sourceBranch: string;
+  proposeDeleteOnMerge?: boolean;
 }): MergeDialog | undefined {
   if (!extensionServices || !extensionContext) {
     void vscode.window.showErrorMessage('Extension services not initialized');
@@ -793,6 +794,7 @@ export function _openMergeDialog(preselect: {
   return showMergeDialog(extensionContext, {
     repo: preselect.repo,
     sourceBranch: preselect.sourceBranch,
+    proposeDeleteOnMerge: preselect.proposeDeleteOnMerge,
     gitService,
     conflictResolutionService: extensionServices.conflictResolutionService,
     onMergeComplete: () => {
@@ -816,6 +818,7 @@ export function _openMergeDialog(preselect: {
 export function openMergeDialog(preselect: {
   repo: IRepository;
   sourceBranch: string;
+  proposeDeleteOnMerge?: boolean;
 }): MergeDialog | undefined {
   return _openMergeDialog(preselect);
 }

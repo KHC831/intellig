@@ -907,7 +907,7 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
           r !== null &&
           r.component === 'BranchContextMenuCommands' &&
           r.level === 'warn' &&
-          r.message.includes('pull-fallback conflict probe failed')
+          r.message.includes('pull conflict probe failed')
       );
       assert.ok(
         probeRecord,

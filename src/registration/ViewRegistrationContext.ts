@@ -79,7 +79,11 @@ export interface IViewRegistrationContext {
   // behavior.
   getPullDialog(): PullDialog | undefined;
   openPushDialog(preselect?: IPushPreselect): PushDialog | undefined;
-  openMergeDialog(preselect: { repo: IRepository; sourceBranch: string }): MergeDialog | undefined;
+  openMergeDialog(preselect: {
+    repo: IRepository;
+    sourceBranch: string;
+    proposeDeleteOnMerge?: boolean;
+  }): MergeDialog | undefined;
   openRebaseDialog(preselect: IRebaseDialogPreselect): Promise<RebaseDialog | undefined>;
   openNewBranchDialog(preselect: {
     repo: IRepository;

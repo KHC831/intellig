@@ -29,6 +29,7 @@ import {
   IRepository,
   IBranch,
   IFetchOptions,
+  IPullOptions,
 } from '../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import {
@@ -211,6 +212,7 @@ function makeRepo(): IRepository {
  */
 function makeStub(io: IoCounts, fetchImpl?: (options: IFetchOptions) => void) {
   const fetchCalls: IFetchOptions[] = [];
+  const pullCalls: Array<IPullOptions | undefined> = [];
   const service = {
     onDidChangeRepository: new EventEmitter<IRepository>().event,
     getIncomingOutgoingForBranch: async (_repo: IRepository, branch: string) => ({
@@ -226,9 +228,13 @@ function makeStub(io: IoCounts, fetchImpl?: (options: IFetchOptions) => void) {
       fetchImpl?.(opts);
       return okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] });
     },
+    pull: (_repo: IRepository, options?: IPullOptions) => {
+      pullCalls.push(options);
+      return okAsync(undefined);
+    },
     reloadRepository: async (repo: IRepository) => repo,
   } as unknown as IGitService;
-  return { service, fetchCalls };
+  return { service, fetchCalls, pullCalls };
 }
 
 function makeProvider(service: IGitService): BranchTreeProvider {
@@ -343,8 +349,8 @@ describe('Update / Update Selected — honesty contract', () => {
     );
   });
 
-  it('update on the CURRENT branch fetches with prune and reports the divergence honestly', async () => {
-    const { service, fetchCalls } = makeStub({ incoming: 3, outgoing: 0 });
+  it('update on the CURRENT branch integrates: prune fetch + pull (no FF refspec)', async () => {
+    const { service, fetchCalls, pullCalls } = makeStub({ incoming: 3, outgoing: 0 });
     const info = installInfoMessageTracker();
     const cmds = new BranchContextMenuCommands(service, makeProvider(service));
 
@@ -353,14 +359,35 @@ describe('Update / Update Selected — honesty contract', () => {
     assert.strictEqual(fetchCalls.length, 1);
     assert.strictEqual(fetchCalls[0].prune, true, 'current branch keeps the prune fetch');
     assert.strictEqual(fetchCalls[0].refspec, undefined, 'no FF into a checked-out ref');
-    assert.strictEqual(info.calls.length, 1);
-    assert.ok(
-      !/^Updated branch/.test(info.calls[0].message),
-      `must not claim the branch was updated; got: "${info.calls[0].message}"`
+    assert.strictEqual(
+      pullCalls.length,
+      1,
+      'the current branch must be integrated (GitUpdateExecutionProcess parity), not fetch-and-toast'
     );
+    assert.strictEqual(pullCalls[0]?.autostash, true, 'update saves local changes around the pull');
     assert.ok(
-      /3 commit/.test(info.calls[0].message) && /behind/i.test(info.calls[0].message),
-      `should report how far behind the branch is; got: "${info.calls[0].message}"`
+      info.calls.some((c) => /updated/i.test(c.message)),
+      `toast should report the update; got: ${info.calls.map((c) => c.message).join(' | ')}`
+    );
+  });
+
+  it('updateSelected on the CURRENT branch integrates instead of skipping it', async () => {
+    const { service, pullCalls } = makeStub({ incoming: 2, outgoing: 0 });
+    installInfoMessageTracker();
+    const warn = installWarningMessageTracker();
+    const cmds = new BranchContextMenuCommands(service, makeProvider(service));
+
+    await driveBranchMenuCommand(
+      cmds,
+      'intellig.branch.updateSelected',
+      localBranchItem('main', true)
+    );
+
+    assert.strictEqual(pullCalls.length, 1, 'checked-out branch is updated, not skipped');
+    assert.strictEqual(
+      warn.calls.filter((c) => /skipped/i.test(c.message)).length,
+      0,
+      `no skip warning for the current branch; got: ${warn.calls.map((c) => c.message).join(' | ')}`
     );
   });
 });
