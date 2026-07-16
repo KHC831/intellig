@@ -233,6 +233,14 @@ export interface IConflictResolutionService {
   ): Promise<IOperationCompletionResult>;
 
   /**
+   * Continue a paused `git am` session after conflict resolution
+   * (`git am --continue`) — the applyPatch analog of {@link completeRebase}.
+   * Further conflicts (the next mailbox patch collided) come back in
+   * `remainingConflicts`.
+   */
+  continueAmSession(repo: IRepository): Promise<IOperationCompletionResult>;
+
+  /**
    * Abort the current merge operation
    *
    * @param repo - The repository

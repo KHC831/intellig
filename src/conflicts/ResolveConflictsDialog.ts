@@ -790,7 +790,33 @@ ${this._getBodyHtml()}
         case 'unshelve':
         case 'unstash':
         case 'applyPatch': {
-          // Unshelve / unstash / apply-patch already applied the patch;
+          // A patch applied through `git am` PAUSES the session on disk —
+          // Continue is then a real git operation (`git am --continue`), not
+          // the working-tree no-op. Read the state off a RELOADED repo (the
+          // cached object trails the watcher debounce) so a live session is
+          // never missed and completion is never claimed while it persists.
+          if (op === 'applyPatch') {
+            const fresh = (await this._gitService.reloadRepository(this._repo)) ?? this._repo;
+            if (this._conflictResolutionService.getRepositoryState(fresh) === 'applying') {
+              const res = await this._conflictResolutionService.continueAmSession(this._repo);
+              if (!res.success && res.remainingConflicts && res.remainingConflicts.length > 0) {
+                // The next mailbox patch collided — refresh the dialog in
+                // place, mirroring the rebase/cherry-pick continue loops.
+                this.updateConflicts(
+                  res.remainingConflicts.map((p) => ({ path: p, resolved: false }))
+                );
+                void vscode.window.showWarningMessage(
+                  `Additional conflicts in ${res.remainingConflicts.length} file(s). Please resolve.`
+                );
+                return;
+              }
+              if (!res.success) {
+                throw new Error(res.error ?? 'Failed to continue patch apply');
+              }
+              break;
+            }
+          }
+          // Unshelve / unstash (and a plain apply) already applied the patch;
           // continue == commit the now-resolved working tree via the normal
           // user workflow. Nothing extra to dispatch.
           break;

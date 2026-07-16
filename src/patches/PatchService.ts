@@ -21,7 +21,7 @@ import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionServ
 import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
 import { isAmSession, resolveGitDir } from '../git-core/gitDirMarkers';
 import { createWorkingStateSnapshot, type IPreApplyState } from '../git-core/ops/preservedChanges';
-import { NON_INTERACTIVE_GIT_ENV } from '../git-core/gitEnv';
+import { runAmSessionOp } from '../git-core/ops/amSession';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { looksLikePatchConflictText, parseAppliedPatchFiles } from '../git-core/gitProse';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -310,37 +310,27 @@ export class PatchService implements IPatchService {
   }
 
   /**
-   * Run one `git am` session op. Non-zero exit with unmerged files present
-   * (the next mailbox patch collided after a continue/skip) reports them as
-   * `conflicts`; any other failure surfaces a sanitized `failureReason`.
-   * The editor is pinned to a no-op: `am --continue` commits the patch with
-   * its stored message and must not try to open an editor under the non-TTY
-   * spawn.
+   * Run one `git am` session op through the shared implementation
+   * (git-core/ops/amSession — also behind the Resolve Conflicts dialog's
+   * Continue), mapping unmerged paths into the patch-domain conflict shape.
    */
   private async _runAmSessionOp(
     repo: IRepository,
     flag: '--continue' | '--skip' | '--abort'
   ): Promise<IAmSessionOpResult> {
     const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
-    const result = await gitCli.exec(['am', flag], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: false,
-      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
-    });
-    if (result.exitCode === 0) {
+    const outcome = await runAmSessionOp(gitCli, repo.rootUri.fsPath, flag);
+    if (outcome.success) {
       return { success: true };
     }
-    const statusFiles = await this._gitService.getStatus(repo);
-    const conflicts: IConflictedFile[] = statusFiles
-      .filter(isConflictedStatus)
-      .map((f) => ({ path: f.path, resolved: false }));
-    if (conflicts.length > 0) {
+    if (outcome.conflictPaths && outcome.conflictPaths.length > 0) {
+      const conflicts: IConflictedFile[] = outcome.conflictPaths.map((path) => ({
+        path,
+        resolved: false,
+      }));
       return { success: false, conflicts };
     }
-    return {
-      success: false,
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+    return { success: false, failureReason: outcome.failureReason };
   }
 
   dispose(): void {

@@ -25,6 +25,7 @@ import {
   restorePreApplyState as restorePreApplyStateOp,
   type IPreApplyState,
 } from '../git-core/ops/preservedChanges';
+import { runAmSessionOp } from '../git-core/ops/amSession';
 
 /**
  * Interface for accessing GitCli from GitService
@@ -749,6 +750,24 @@ export class ConflictResolutionService implements IConflictResolutionService {
     const conflicts = await this.getConflictedFiles(repo);
     this._onDidChangeConflicts.fire({ repo, conflicts });
     return { success: true };
+  }
+
+  async continueAmSession(repo: IRepository): Promise<IOperationCompletionResult> {
+    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+    const outcome = await runAmSessionOp(gitCli, repo.rootUri.fsPath, '--continue');
+    if (outcome.success) {
+      const conflicts = await this.getConflictedFiles(repo);
+      this._onDidChangeConflicts.fire({ repo, conflicts });
+      return { success: true };
+    }
+    if (outcome.conflictPaths && outcome.conflictPaths.length > 0) {
+      return { success: false, remainingConflicts: outcome.conflictPaths };
+    }
+    return {
+      // sanitize-exempt: pre-sanitized: runAmSessionOp returns sanitizeGitError output
+      success: false,
+      error: `Failed to continue patch apply: ${outcome.failureReason ?? 'unknown error (no output from git)'}`,
+    };
   }
 
   /**

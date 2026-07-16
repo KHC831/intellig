@@ -97,6 +97,15 @@ function makeMockGitService(
         if (!opts?.scriptStashCreate && args[0] === 'stash' && args[1] === 'create') {
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         }
+        if (args[0] === 'status') {
+          // Porcelain -z synthesized from `statusFiles` so the shared am
+          // session op (which reads status through the CLI) sees the same
+          // conflict set as getStatus().
+          const stdout = statusFiles
+            .map((f) => `${f.indexStatus ?? ' '}${f.workTreeStatus ?? ' '} ${f.path}\0`)
+            .join('');
+          return { exitCode: 0, stdout, stderr: '', combined: stdout };
+        }
         const r = responses.shift();
         if (r) {
           return {

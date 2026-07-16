@@ -143,6 +143,7 @@ function makeMockGitService(): IGitService & {
   };
   _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
   _lsTreeStdout: string;
+  _amResult: { exitCode: number; stdout: string; stderr: string };
   _fireRepoChange: (repo: IRepository) => void;
 } {
   const execCalls: string[][] = [];
@@ -184,6 +185,7 @@ function makeMockGitService(): IGitService & {
       svc._rebaseContinueCalls++;
       return svc._rebaseContinueResult;
     },
+    reloadRepository: async (r: IRepository): Promise<IRepository> => r,
     gitCli: {
       exec: async (
         args: string[],
@@ -197,6 +199,17 @@ function makeMockGitService(): IGitService & {
         // 'D'). Records are `<mode> <sha> <stage>\t<path>` NUL-terminated.
         if (args[0] === 'ls-tree') {
           return { exitCode: 0, stdout: svc._lsTreeStdout, stderr: '' };
+        }
+        if (args[0] === 'am') {
+          return svc._amResult;
+        }
+        if (args[0] === 'status') {
+          // Porcelain -z synthesized from `_statuses` (UU rows etc.).
+          let stdout = '';
+          for (const [p, st] of statuses) {
+            stdout += `${st.indexStatus}${st.workTreeStatus} ${p}\0`;
+          }
+          return { exitCode: 0, stdout, stderr: '' };
         }
         if (args[0] === 'ls-files' && args.includes('-u')) {
           const dashDash = args.indexOf('--');
@@ -234,6 +247,12 @@ function makeMockGitService(): IGitService & {
     _statuses: statuses,
     /** Scripted `git ls-tree` stdout (NUL-separated names) for restore tests. */
     _lsTreeStdout: '',
+    /** Scripted `git am --continue` outcome for live-am Continue tests. */
+    _amResult: { exitCode: 0, stdout: '', stderr: '' } as {
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+    },
     _fireRepoChange: (r: IRepository): void => repoChangeEmitter.fire(r),
   } as unknown as IGitService & {
     _execCalls: string[][];
@@ -251,6 +270,7 @@ function makeMockGitService(): IGitService & {
     };
     _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
     _lsTreeStdout: string;
+    _amResult: { exitCode: number; stdout: string; stderr: string };
     _fireRepoChange: (repo: IRepository) => void;
   };
   return svc;
@@ -1193,6 +1213,97 @@ describe('ResolveConflictsDialog', () => {
         ),
         `expected the legacy restore of unresolved paths; execs: ${JSON.stringify(gitService._execCalls)}`
       );
+    });
+  });
+
+  // applyPatch Continue behind a LIVE git-am session: "continue" is a real
+  // git operation (git am --continue), not the plain-apply no-op — the old
+  // arm claimed completion while the session stayed paused on disk.
+  describe('applyPatch Continue — live am session routes to git am --continue', () => {
+    function makeAmDialog(repoState: string): ResolveConflictsDialog {
+      (repo as unknown as { state: string }).state = repoState;
+      return new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'target.ts', resolved: true }],
+        { operation: 'applyPatch', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+    }
+
+    it('runs git am --continue and closes completed on success', async () => {
+      dialog = makeAmDialog('applying');
+      let closeReason: string | undefined;
+      dialog.onDidClose((r) => {
+        closeReason = r;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      assert.ok(
+        gitService._execCalls.some((a) => a[0] === 'am' && a[1] === '--continue'),
+        `expected git am --continue; execs: ${JSON.stringify(gitService._execCalls)}`
+      );
+      assert.strictEqual(closeReason, 'completed');
+    });
+
+    it('further conflicts re-populate the dialog instead of claiming completion', async () => {
+      gitService._amResult = { exitCode: 1, stdout: '', stderr: 'error: Failed to merge' };
+      gitService._statuses.set('next.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+      dialog = makeAmDialog('applying');
+      let closed = false;
+      dialog.onDidClose(() => {
+        closed = true;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      assert.strictEqual(closed, false, 'the dialog must stay open on further conflicts');
+      const statuses = (dialog as unknown as { _statuses: Map<string, string> })._statuses;
+      assert.strictEqual(
+        statuses.get('next.ts'),
+        'unresolved',
+        'the new conflict must appear in the dialog model'
+      );
+    });
+
+    it('a non-conflict am failure surfaces an error and never claims completion', async () => {
+      gitService._amResult = { exitCode: 128, stdout: '', stderr: 'fatal: cannot resume' };
+      dialog = makeAmDialog('applying');
+      let closed = false;
+      dialog.onDidClose(() => {
+        closed = true;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      assert.strictEqual(closed, false, 'the dialog must stay open on a failed continue');
+    });
+
+    it('a plain (non-am) apply keeps the no-op completion arm', async () => {
+      dialog = makeAmDialog('idle');
+      let closeReason: string | undefined;
+      dialog.onDidClose((r) => {
+        closeReason = r;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'am'),
+        'no git am invocation without a live session'
+      );
+      assert.strictEqual(closeReason, 'completed');
     });
   });
 
