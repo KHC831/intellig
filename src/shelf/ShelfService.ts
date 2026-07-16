@@ -22,6 +22,7 @@ interface IGitServiceWithCli {
   gitCli: GitCli;
 }
 import { parseDiff } from '../git-core/gitParser';
+import { looksLikeConflictText } from '../git-core/gitProse';
 import { buildPatchHeader, serializeHunkLines } from '../git-core/patchBuilder';
 import { splitPatchByFile } from '../patches/PatchService';
 import { applyTextPatch } from '../patches/applyTextPatch';
@@ -720,7 +721,7 @@ export class ShelfService implements IShelfService {
 
         if (result.exitCode !== 0) {
           // Check if it's a conflict
-          if (result.stderr.includes('conflict') || result.stderr.includes('CONFLICT')) {
+          if (looksLikeConflictText(result.stderr)) {
             conflicts.push(file.path);
           } else {
             // Try without 3-way merge

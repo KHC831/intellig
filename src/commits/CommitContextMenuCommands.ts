@@ -26,6 +26,7 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { findBlockingOperation, isHexObjectId, resolveGitDir } from '../git-core/gitDirMarkers';
+import { isLocalChangesWouldBeOverwritten } from '../git-core/gitProse';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import {
   isSelectionContiguous,
@@ -1761,10 +1762,7 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (
-        errorMessage.includes('would be overwritten') ||
-        errorMessage.includes('Please commit your changes')
-      ) {
+      if (isLocalChangesWouldBeOverwritten(errorMessage)) {
         const choice = await vscode.window.showWarningMessage(
           `Cannot checkout revision: local changes would be overwritten.`,
           'Stash & Switch',

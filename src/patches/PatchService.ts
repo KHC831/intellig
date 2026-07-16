@@ -19,6 +19,7 @@ import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
 import { isConflictedStatus } from '../git-core/gitParser';
+import { looksLikePatchConflictText } from '../git-core/gitProse';
 import { sanitizeGitError } from '../git-core/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { getLogger, type Logger } from '../utils/logger';
@@ -46,21 +47,6 @@ export class PatchWriteFailed extends Error {
     this.name = 'PatchWriteFailed';
   }
 }
-
-/**
- * Lowercase tokens that indicate git apply / am produced conflict markers
- * rather than a hard error. Covers the standard phrasing emitted by git when
- * `--3way` falls through to merge markers or when `am` pauses mid-patch.
- *
- * Deliberately narrow: `'conflict'` already matches both `CONFLICT (content)`
- * and `Applied patch to '...' with conflicts`, so the broad `'u '` token (which
- * matched any "u " substring — e.g. "you ") and the over-broad
- * `'applied patch to'` (which also fires on a clean "...cleanly" line) are
- * dropped. Unmerged files are detected authoritatively from `git status`
- * (`U` index/worktree), so the text heuristic only gates whether that read
- * happens at all.
- */
-const CONFLICT_PHRASES = ['conflict', 'patch does not apply', 'patch failed', 'needs merge'];
 
 /**
  * Narrow `IGitService` to the surface we actually need (just `.gitCli`).
@@ -348,15 +334,6 @@ export class PatchService implements IPatchService {
   }
 
   /**
-   * Heuristic: does git's error output look like a conflict-markers failure
-   * rather than a hard refusal?
-   */
-  private _looksLikeConflict(stderr: string, stdout: string): boolean {
-    const blob = (stderr + ' ' + stdout).toLowerCase();
-    return CONFLICT_PHRASES.some((phrase) => blob.includes(phrase));
-  }
-
-  /**
    * Derive conflict file list. Strategy:
    *  1. If git stderr/stdout looks conflict-shaped, read `git status` and
    *     collect files with `U` index or worktree status (same signal as
@@ -374,7 +351,7 @@ export class PatchService implements IPatchService {
     stderr: string,
     stdout: string
   ): Promise<IConflictedFile[]> {
-    if (!this._looksLikeConflict(stderr, stdout)) {
+    if (!looksLikePatchConflictText(stderr + ' ' + stdout)) {
       return [];
     }
     const statusFiles = await this._gitService.getStatus(repo);

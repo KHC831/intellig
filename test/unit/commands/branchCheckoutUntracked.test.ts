@@ -13,10 +13,8 @@ import '../../setup';
 import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import { errAsync, okAsync } from 'neverthrow';
 import * as assert from 'assert';
-import {
-  BranchContextMenuCommands,
-  parseUntrackedOverwriteFiles,
-} from '../../../src/branches/BranchContextMenuCommands';
+import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
+import { parseUntrackedOverwriteFiles } from '../../../src/git-core/gitProse';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
 import { IBranch, IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';

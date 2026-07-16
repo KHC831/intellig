@@ -9,11 +9,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import {
-  isLocalChangesOverwriteError,
-  runSmartReset,
-  SmartResetUnstashConflict,
-} from '../../../src/ui-shell/ResetDialog';
+import { runSmartReset, SmartResetUnstashConflict } from '../../../src/ui-shell/ResetDialog';
+import { isLocalChangesOverwriteError } from '../../../src/git-core/gitProse';
 import { ResetMode } from '../../../src/git-core/interfaces/IGitService';
 
 describe('isLocalChangesOverwriteError (#8 smart reset detection)', () => {

@@ -25,6 +25,11 @@ import {
   formatActionFailureToast,
   worktreeConflictMessage,
 } from '../git-core/gitError';
+import {
+  looksLikeConflictText,
+  isLocalChangesWouldBeOverwritten,
+  parseUntrackedOverwriteFiles,
+} from '../git-core/gitProse';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
 import {
@@ -179,45 +184,6 @@ export function planAlignLocal(inputs: IAlignLocalBranchInput[]): IAlignLocalPla
   }
 
   return plan;
-}
-
-/**
- * Detect git's "untracked working tree files would be overwritten" refusal
- * and extract the blocked files. Returns `null` when the message is not that
- * error (including the TRACKED "Your local changes …" form, which keeps the
- * smart-checkout offer).
- *
- * Mirrors git4idea's GitUntrackedFilesOverwrittenByOperationDetector: the
- * modern form is a header line followed by tab-indented file lines up to the
- * "Please move or remove them" hint; the legacy form names a single file
- * inline. The reference treats this arm as FATAL (file list, no smart
- * checkout — GitCheckoutOperation.java:187-190): a stash without
- * `--include-untracked` cannot move untracked files, so a stash-and-retry
- * would fail on exactly the same files.
- */
-export function parseUntrackedOverwriteFiles(message: string): string[] | null {
-  const lines = message.split('\n');
-  const headerIdx = lines.findIndex((l) =>
-    /untracked working tree files would be overwritten by/i.test(l)
-  );
-  if (headerIdx >= 0) {
-    const files: string[] = [];
-    for (const line of lines.slice(headerIdx + 1)) {
-      if (/^\s*please move or remove them/i.test(line)) {
-        break;
-      }
-      const file = line.trim();
-      if (file.length > 0) {
-        files.push(file);
-      }
-    }
-    return files;
-  }
-  const legacy = message.match(/untracked working tree file '(.*)' would be overwritten by/i);
-  if (legacy) {
-    return [legacy[1]];
-  }
-  return null;
 }
 
 /**
@@ -1120,10 +1086,7 @@ export class BranchContextMenuCommands {
       );
       return null;
     }
-    if (
-      errorMessage.includes('would be overwritten') ||
-      errorMessage.includes('Please commit your changes or stash them')
-    ) {
+    if (isLocalChangesWouldBeOverwritten(errorMessage)) {
       const choice = await vscode.window.showWarningMessage(
         dirtyHeader,
         'Stash & Switch',
@@ -1186,7 +1149,7 @@ export class BranchContextMenuCommands {
       return 'restored';
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (this._conflictResolutionService && /conflict|needs merge/i.test(message)) {
+      if (this._conflictResolutionService && looksLikeConflictText(message)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(repo);
         if (conflicts.length > 0) {
           await this._conflictResolutionService.openResolveConflictsDialog(repo, conflicts, {

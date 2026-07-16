@@ -355,9 +355,25 @@ export class GitCli {
       // rebase) needs it. Mandatory index writes are unaffected, so the
       // variable is safe on every spawn. Mirrors git4idea, which applies it
       // to all commands (GitImplBase.doRun; registry
-      // `git.use.no.optional.locks`, default true). A per-call `env` can
-      // still override.
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...env },
+      // `git.use.no.optional.locks`, default true).
+      //
+      // LC_ALL/LANGUAGE: pin git's message locale to English on every spawn
+      // so prose-based output classification (conflict heuristics,
+      // would-be-overwritten detection) matches reliably on localized
+      // systems. Mirrors git4idea, which injects the locale env into every
+      // handler (GitHandler.java:527 getLocaleEnv() → VcsLocaleHelper.kt
+      // createEnvForLocale: LANGUAGE="" + LC_ALL="en_US.UTF-8"). LANGUAGE
+      // outranks LC_ALL for gettext message lookup, so it must be cleared,
+      // not just left inherited.
+      //
+      // A per-call `env` can still override any of these.
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: '0',
+        LC_ALL: 'en_US.UTF-8',
+        LANGUAGE: '',
+        ...env,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     };
 

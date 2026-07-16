@@ -6,6 +6,7 @@ import type {
 } from '../git-core/interfaces/IGitService';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { combinedGitErrorText, sanitizeGitError } from '../git-core/gitError';
+import { looksLikeConflictText } from '../git-core/gitProse';
 
 /**
  * Inputs for the Update Project preflight guard — the subset of repository
@@ -218,7 +219,7 @@ export interface IUpdateGitService {
  * conflicting pull whose stderr carries unrelated hint text.
  */
 export function isUpdateConflict(error: unknown): boolean {
-  return /CONFLICT/i.test(combinedGitErrorText(error));
+  return looksLikeConflictText(combinedGitErrorText(error));
 }
 
 /** Dependencies for {@link runUpdateProject}, kept discrete for testing. */

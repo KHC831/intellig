@@ -21,6 +21,7 @@ import {
 } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError, combinedGitErrorText } from '../git-core/gitError';
+import { looksLikeConflictText } from '../git-core/gitProse';
 
 // ─── Flag-key helpers ────────────────────────────────────────────────────────
 
@@ -302,7 +303,7 @@ export function applyFlagSelection(
  * string) and scans the fullest available output.
  */
 export function isConflictError(error: unknown): boolean {
-  return /CONFLICT/i.test(combinedGitErrorText(error));
+  return looksLikeConflictText(combinedGitErrorText(error));
 }
 
 // ─── Dependency-injected flow ────────────────────────────────────────────────

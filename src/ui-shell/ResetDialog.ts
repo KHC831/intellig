@@ -39,16 +39,7 @@ import {
 } from '../utils/persistedState';
 import { getLogger } from '../utils/logger';
 import { escapeHtml } from '../utils/escapeHtml';
-
-/**
- * git's error when a `reset` (esp. `--keep`/`--merge`) would clobber
- * uncommitted work — the trigger for IntelliJ's Smart Reset proposal.
- */
-export function isLocalChangesOverwriteError(message: string): boolean {
-  return /local changes.*would be overwritten|would be overwritten by (?:checkout|merge|reset)/i.test(
-    message
-  );
-}
+import { isLocalChangesOverwriteError } from '../git-core/gitProse';
 
 /** The user's choice when a reset would overwrite local changes. */
 export type SmartResetChoice = 'stash' | 'force' | 'cancel';

@@ -21,6 +21,7 @@ import {
 } from './interfaces/IStashView';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
+import { looksLikeConflictText } from '../git-core/gitProse';
 import { renderDiffAsText } from './diffText';
 
 /**
@@ -332,7 +333,7 @@ export class StashView implements IStashView {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // On conflict, route to the Resolve Conflicts dialog instead of
       // surfacing a raw error toast.
-      if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
+      if (this._conflictResolutionService && looksLikeConflictText(errorMessage)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(
           this._repository
         );
@@ -355,19 +356,6 @@ export class StashView implements IStashView {
       );
       return { success: false, action: 'apply', stash, error: errorMessage };
     }
-  }
-
-  /**
-   * Heuristic: does this git error look like a conflict? We match on the
-   * standard phrases git emits for `stash apply`/`stash pop` conflicts.
-   */
-  private _looksLikeConflictError(errorMessage: string): boolean {
-    const lower = errorMessage.toLowerCase();
-    return (
-      lower.includes('conflict') ||
-      lower.includes('merge conflict') ||
-      lower.includes('needs merge')
-    );
   }
 
   /**
@@ -421,7 +409,7 @@ export class StashView implements IStashView {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // On conflict, route to the Resolve Conflicts dialog.
-      if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
+      if (this._conflictResolutionService && looksLikeConflictText(errorMessage)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(
           this._repository
         );
@@ -508,7 +496,7 @@ export class StashView implements IStashView {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // Conflicts during apply → Resolve Conflicts dialog.
-      if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
+      if (this._conflictResolutionService && looksLikeConflictText(errorMessage)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(
           this._repository
         );
