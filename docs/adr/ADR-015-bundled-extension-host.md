@@ -65,8 +65,17 @@ Two constraints shaped the design:
   instance. The e2e/ext-host lanes consequently exercise the exact
   artifact users run.
 - Minification happens only at packaging (`minify:js` = the same esbuild
-  bundles rebuilt with `--minify`), replacing the per-file `out/`
-  minifier.
+  bundles rebuilt with `--minify --sourcemap=external`), replacing the
+  per-file `out/` minifier. `external` keeps the map on disk but strips
+  the `//# sourceMappingURL` comment, so a shipped bundle never points at
+  a map: the map embeds `sourcesContent` (every `src/*.ts` verbatim) and
+  is denied from the package by `\.map$`, which left the published
+  bundles advertising a file that resolves to nothing. Dev builds keep
+  the linked map — `outFiles` in launch.json resolves it via the comment.
+  `publish.sh` scans the packed bytes for the comment
+  (`vsix_sourcemap_link_violations`) and refuses to upload if the flag is
+  ever lost; the vendored `media/monaco/**` tree is exempt, since its
+  links are upstream's and carry no IntelliG source.
 
 ## Alternatives considered
 

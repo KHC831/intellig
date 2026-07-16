@@ -11,6 +11,16 @@
 # re-runs three esbuild passes on every `npm test` and leaves dist/ in
 # a minified state for the next run. Real packaging (`vsce package`)
 # never sets the var, so its prepublish minifies exactly as before.
+#
+# `--sourcemap=external` overrides the `--sourcemap` the dev build lines
+# carry (esbuild takes the last flag): the map is still written, but the
+# bundle gets no `//# sourceMappingURL` comment. The map never ships
+# (`\.map$` is denied in .vscodeignore and vsix-rules.sh) and it embeds
+# `sourcesContent` — every src/*.ts verbatim — so a shipped link would
+# advertise the one artifact that must never leave this machine. Dev
+# builds keep the linked map: F5 debugging resolves it via the comment.
+# publish.sh's artifact scan (vsix_sourcemap_link_violations) fails the
+# release if this flag is ever lost.
 # ============================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +30,6 @@ if [ "${INTELLIG_INTERNAL_PREPUBLISH_DRYRUN:-}" = "1" ]; then
   exit 0
 fi
 
-npm run build:extension -- --minify
-npm run build:sequence-editor -- --minify
+npm run build:extension -- --minify --sourcemap=external
+npm run build:sequence-editor -- --minify --sourcemap=external
 npm run build:webview -- --minify

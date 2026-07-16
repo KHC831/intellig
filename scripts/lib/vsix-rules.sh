@@ -9,6 +9,13 @@
 #   - publish.sh scans `unzip -Z1` of the built artifact as a
 #     post-build gate over the actual bytes about to be uploaded.
 #
+# One rule (4, below) reads FILE CONTENT rather than a listing, so
+# only publish.sh can evaluate it: check-vsix-clean has a listing and
+# no bytes, and it runs the prepublish chain with minification
+# skipped, so the bundles it would read are not the ones that ship.
+# The rule lives here anyway to keep every "what may ship" decision in
+# one file.
+#
 # The listing is checked in THREE directions:
 #   1. DENY  — vsix_forbidden_violations: a hand-curated pattern net
 #      for known-bad classes (test JS, source .ts, .map, node_modules/
@@ -23,6 +30,8 @@
 #   3. REQUIRE — vsix_missing_required: the runtime manifest (bundles,
 #      webview assets, icons) must be present, or the package is
 #      activation-dead / visually broken on install.
+#   4. UNLINKED — vsix_sourcemap_link_violations: no first-party bundle
+#      may carry a sourceMappingURL comment (artifact-only; see above).
 #
 # Adding a rule is one line + a one-sentence rationale, per the
 # ADR-007 guard-maintenance contract in check-vsix-clean.sh.
@@ -52,6 +61,14 @@ VSIX_ALLOWED_EXACT=(
   'SECURITY.md'
   'package.json'
 )
+
+# Vendored third-party JS: shipped as prebuilt bytes, not built from
+# src/. Monaco's AMD build links its own maps (loader.js, editor.main.js,
+# the nls.messages.* bundles …); those comments are upstream's business
+# and reveal no IntelliG source, so rule 4 exempts this tree. Everything
+# else is treated as first-party and IS checked — a new bundle is covered
+# the day it ships, without touching this file.
+VSIX_VENDORED_JS_PREFIX='media/monaco/'
 
 # Runtime manifest — every entry MUST appear in the listing. Missing
 # a bundle/asset = activation-dead (0.2.3 class); missing an icon =
@@ -124,6 +141,31 @@ vsix_normalize_zip_entries() {
     case "$line" in
       extension/*) printf '%s\n' "${line#extension/}" ;;
     esac
+  done
+}
+
+# Take a built .vsix path as $1; print each first-party bundle whose
+# bytes carry a sourceMappingURL comment. Empty output = clean.
+#
+# The publish build emits maps with `--sourcemap=external` (map file, no
+# link comment), so a hit here means the minify path lost that flag and
+# the shipped bundle now advertises `<bundle>.js.map` — a file the
+# deny-list keeps out of the package, leaving a comment that resolves to
+# nothing. The map itself is the real prize (esbuild embeds
+# `sourcesContent`, i.e. every src/*.ts file verbatim), so this rule is
+# the second lock behind `\.map$`: the map must not ship AND nothing that
+# ships may point at one.
+vsix_sourcemap_link_violations() {
+  local vsix="$1" rel
+  unzip -Z1 "$vsix" | vsix_normalize_zip_entries | while IFS= read -r rel; do
+    case "$rel" in
+      "$VSIX_VENDORED_JS_PREFIX"*) continue ;;
+      *.js) ;;
+      *) continue ;;
+    esac
+    if unzip -p "$vsix" "extension/$rel" 2>/dev/null | grep -q 'sourceMappingURL'; then
+      printf '%s\n' "$rel"
+    fi
   done
 }
 

@@ -183,8 +183,11 @@ zip_listing="$(unzip -Z1 "$vsix" | vsix_normalize_zip_entries)"
 not_allowed="$(printf '%s\n' "$zip_listing" | vsix_allowlist_violations)"
 forbidden="$(printf '%s\n' "$zip_listing" | vsix_forbidden_violations)"
 missing="$(printf '%s\n' "$zip_listing" | vsix_missing_required)"
+# Content check, not a listing check — reads the packed bytes, so this
+# is the only gate that can run it (check:all skips minification).
+sourcemap_linked="$(vsix_sourcemap_link_violations "$vsix")"
 
-if [[ -n "$not_allowed" || -n "$forbidden" || -n "$missing" ]]; then
+if [[ -n "$not_allowed" || -n "$forbidden" || -n "$missing" || -n "$sourcemap_linked" ]]; then
   echo "✗ built artifact failed the content scan — refusing to publish." >&2
   if [[ -n "$not_allowed" ]]; then
     echo "  files outside the allow-list:" >&2
@@ -198,9 +201,14 @@ if [[ -n "$not_allowed" || -n "$forbidden" || -n "$missing" ]]; then
     echo "  required runtime-manifest entries missing:" >&2
     printf '%s\n' "$missing" | sed 's/^/    - /' >&2
   fi
+  if [[ -n "$sourcemap_linked" ]]; then
+    echo "  bundles linking a source map (would advertise embedded src/*.ts):" >&2
+    printf '%s\n' "$sourcemap_linked" | sed 's/^/    - /' >&2
+    echo "  scripts/minify-js.sh must build these with --sourcemap=external." >&2
+  fi
   exit 1
 fi
-echo "  ✓ artifact contents clean (allow-list + deny-list + manifest)."
+echo "  ✓ artifact contents clean (allow-list + deny-list + manifest + unlinked maps)."
 
 # ─── 6. Inspect the manifest before pushing bytes ─────────────
 
