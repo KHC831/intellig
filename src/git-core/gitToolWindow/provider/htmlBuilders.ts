@@ -248,3 +248,36 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
         <div class="context-menu-item" data-action="goToParent" role="menuitem" tabindex="0">Go to Parent Commit</div>
       </div>`;
 }
+
+/**
+ * Context menu for a changed-file row in the details panel. Entry order
+ * mirrors IntelliJ's `Vcs.RepositoryChangesBrowserMenu` (VcsActions.xml):
+ * Show Diff, Open Repository Version, then Show History for Revision. Each
+ * `data-file-action` relays (via the `fileContextAction` wire message) to the
+ * matching registered `intellig.commit.*` command host-side. Uses its own
+ * `data-file-action` namespace so the commit menu's `data-action` ⊆
+ * MultiSelectMenuAction fence is untouched.
+ */
+export function buildFileContextMenuHtml(): string {
+  return `
+      <div id="file-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Changed file actions">
+        <div class="context-menu-item" data-file-action="showDiff" role="menuitem" tabindex="0">Show Diff</div>
+        <div class="context-menu-item" data-file-action="openRepositoryVersion" role="menuitem" tabindex="0">Open Repository Version</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-file-action="fileHistoryFromHere" role="menuitem" tabindex="0">Show History for Revision</div>
+      </div>`;
+}
+
+/**
+ * Context menu for a History-tab revision row: the compare actions IntelliJ's
+ * file-history context menu offers beyond the toolbar buttons. Each
+ * `data-history-action` posts on the tab channel; the HistoryTab relays to
+ * the registered `intellig.commit.compareWith*` commands.
+ */
+export function buildHistoryContextMenuHtml(): string {
+  return `
+      <div id="history-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Revision actions">
+        <div class="context-menu-item" data-history-action="compareWithHead" role="menuitem" tabindex="0">Compare with HEAD</div>
+        <div class="context-menu-item" data-history-action="compareWithRef" role="menuitem" tabindex="0">Compare With…</div>
+      </div>`;
+}

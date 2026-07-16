@@ -707,40 +707,36 @@ describe('BlameService', () => {
       assert.ok(cmd.args.includes('-w'), `expected -w in argv, got: ${cmd.args.join(' ')}`);
     });
 
-    it('passes -M when detectMovementsWithinFile=true', async () => {
+    it('passes -M when detectMovements=within (matches IntelliJ INNER)', async () => {
       await blameService.getBlame(mockRepo, 'test.ts', undefined, {
-        detectMovementsWithinFile: true,
+        detectMovements: 'within',
       });
       const cmd = mockGitCli.findCommand('blame');
       assert.ok(cmd);
       assert.ok(cmd.args.includes('-M'), `expected -M in argv, got: ${cmd.args.join(' ')}`);
+      assert.ok(!cmd.args.includes('-C'), 'within must not also pass -C');
     });
 
-    it('passes -C -C when detectMovementsAcrossFiles=true (thorough mode)', async () => {
+    it('passes a single -C when detectMovements=across (matches IntelliJ OUTER)', async () => {
       await blameService.getBlame(mockRepo, 'test.ts', undefined, {
-        detectMovementsAcrossFiles: true,
+        detectMovements: 'across',
       });
       const cmd = mockGitCli.findCommand('blame');
       assert.ok(cmd);
       const cCount = cmd.args.filter((a) => a === '-C').length;
-      assert.strictEqual(cCount, 2, `expected -C twice, got ${cCount}: ${cmd.args.join(' ')}`);
+      assert.strictEqual(cCount, 1, `expected -C once, got ${cCount}: ${cmd.args.join(' ')}`);
+      assert.ok(!cmd.args.includes('-M'), 'across must not also pass -M');
     });
 
-    it('combines -w, -M, -C when all flags set', async () => {
+    it('combines -w with movement detection', async () => {
       await blameService.getBlame(mockRepo, 'test.ts', undefined, {
         ignoreWhitespace: true,
-        detectMovementsWithinFile: true,
-        detectMovementsAcrossFiles: true,
+        detectMovements: 'within',
       });
       const cmd = mockGitCli.findCommand('blame');
       assert.ok(cmd);
       assert.ok(cmd.args.includes('-w'));
       assert.ok(cmd.args.includes('-M'));
-      assert.strictEqual(
-        cmd.args.filter((a) => a === '-C').length,
-        2,
-        'expected -C twice for across-files'
-      );
     });
 
     it('omits flags when options are undefined (default behavior unchanged)', async () => {

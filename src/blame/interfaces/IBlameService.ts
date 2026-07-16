@@ -10,6 +10,13 @@ export interface IBlameInfo {
 }
 
 /**
+ * Movement-detection mode for blame. Mirrors IntelliJ's
+ * `AnnotateDetectMovementsOption` enum (NONE / INNER / OUTER): exactly one
+ * movement flag is ever passed to git.
+ */
+export type BlameDetectMovements = 'none' | 'within' | 'across';
+
+/**
  * Per-invocation blame options. Map 1-to-1 onto `git blame` flags.
  *
  * Surfaces IntelliJ's "Options" submenu (Ignore Whitespaces / Detect
@@ -18,10 +25,8 @@ export interface IBlameInfo {
 export interface IBlameOptions {
   /** `-w`: ignore whitespace when comparing parent/child revisions. */
   ignoreWhitespace?: boolean;
-  /** `-M`: detect moved/copied lines **within** the same file. */
-  detectMovementsWithinFile?: boolean;
-  /** `-C`: detect moved/copied lines **across** files (implies `-M`). */
-  detectMovementsAcrossFiles?: boolean;
+  /** `within` → `-M`, `across` → `-C` (implies within-file detection). */
+  detectMovements?: BlameDetectMovements;
 }
 
 /**

@@ -14,6 +14,7 @@ import type { IBranch, ICommit } from '../../interfaces/IGitService';
 import type { IHistoryTabState } from '../tabs/HistoryTab';
 import { generateCommitGraph, getColumnColor, type ICommitNode } from '../../commitGraph';
 import { escapeHtml } from '../../../utils/escapeHtml';
+import { buildHistoryContextMenuHtml } from '../provider/htmlBuilders';
 
 /**
  * Render the History tab body.
@@ -62,6 +63,7 @@ function renderLoadedState(state: IHistoryTabState): string {
         <div class="history-list-panel">${list}</div>
         <div id="history-details-panel" role="region" aria-label="Commit Details"></div>
       </div>
+      ${buildHistoryContextMenuHtml()}
     </div>
   `;
 }

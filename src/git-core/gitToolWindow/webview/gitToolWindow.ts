@@ -1088,6 +1088,14 @@ function main(vscode: IVsCodeApi): void {
 
   document.addEventListener('contextmenu', function (e) {
     const target = e.target instanceof Element ? e.target : null;
+    // Only one context menu at a time: hide all three, then re-show the
+    // matching one below.
+    ['commit-context-menu', 'file-context-menu', 'history-context-menu'].forEach(function (id) {
+      const m = document.getElementById(id);
+      if (m) {
+        m.hidden = true;
+      }
+    });
     const commitRow = target ? target.closest('.commit-row[data-hash]') : null;
     if (commitRow) {
       const hash = commitRow.getAttribute('data-hash');
@@ -1096,6 +1104,80 @@ function main(vscode: IVsCodeApi): void {
         e.stopPropagation();
         showCommitContextMenu(e as MouseEvent, hash);
       }
+      return;
+    }
+    const fileItem = target
+      ? target.closest('.changed-file-item[data-path][data-commit-hash]')
+      : null;
+    if (fileItem) {
+      const commitHash = fileItem.getAttribute('data-commit-hash');
+      const path = fileItem.getAttribute('data-path');
+      const menu = document.getElementById('file-context-menu');
+      if (commitHash && path && menu) {
+        e.preventDefault();
+        e.stopPropagation();
+        fileContextTarget = { commitHash: commitHash, path: path };
+        positionContextMenu(menu, e as MouseEvent);
+      }
+      return;
+    }
+    const historyRow = target ? target.closest('.history-commit-row[data-rev]') : null;
+    if (historyRow) {
+      const rev = historyRow.getAttribute('data-rev');
+      const menu = document.getElementById('history-context-menu');
+      if (rev && menu) {
+        e.preventDefault();
+        e.stopPropagation();
+        historyContextRev = rev;
+        positionContextMenu(menu, e as MouseEvent);
+      }
+    }
+  });
+
+  // Details-panel file context menu → fileContextAction relay; History-tab
+  // revision context menu → history.compareWith* relay. Click-away hides both.
+  let fileContextTarget: { commitHash: string; path: string } | null = null;
+  let historyContextRev: string | null = null;
+
+  document.addEventListener('click', function (e) {
+    const target = e.target instanceof Element ? e.target : null;
+    const fileMenu = document.getElementById('file-context-menu');
+    if (fileMenu && target && !fileMenu.contains(target)) {
+      fileMenu.hidden = true;
+    }
+    const historyMenu = document.getElementById('history-context-menu');
+    if (historyMenu && target && !historyMenu.contains(target)) {
+      historyMenu.hidden = true;
+    }
+
+    const fileEntry = target
+      ? target.closest('#file-context-menu .context-menu-item[data-file-action]')
+      : null;
+    if (fileEntry && fileMenu && fileContextTarget) {
+      const action = fileEntry.getAttribute('data-file-action');
+      if (action) {
+        post({
+          type: 'fileContextAction',
+          action: action,
+          commitHash: fileContextTarget.commitHash,
+          path: fileContextTarget.path,
+        });
+      }
+      fileMenu.hidden = true;
+      return;
+    }
+
+    const historyEntry = target
+      ? target.closest('#history-context-menu .context-menu-item[data-history-action]')
+      : null;
+    if (historyEntry && historyMenu && historyContextRev) {
+      const action = historyEntry.getAttribute('data-history-action');
+      if (action === 'compareWithHead') {
+        post({ type: 'history.compareWithHead', rev: historyContextRev });
+      } else if (action === 'compareWithRef') {
+        post({ type: 'history.compareWithRef', rev: historyContextRev });
+      }
+      historyMenu.hidden = true;
     }
   });
 
@@ -1390,29 +1472,29 @@ function main(vscode: IVsCodeApi): void {
 
     const contextMenu = document.getElementById('commit-context-menu');
     if (contextMenu) {
-      const x = (event as MouseEvent).clientX || 0;
-      const y = (event as MouseEvent).clientY || 0;
-
-      const menuWidth = 220;
-      const menuHeight = 400;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      const left = Math.max(8, x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x);
-      const top = Math.max(
-        8,
-        y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y
-      );
-
-      contextMenu.style.left = left + 'px';
-      contextMenu.style.top = top + 'px';
-      contextMenu.style.maxHeight = viewportHeight - top - 10 + 'px';
-      contextMenu.style.overflowY = 'auto';
-
       applyMenuEnableMap(contextMenu);
-
-      contextMenu.hidden = false;
+      positionContextMenu(contextMenu, event as MouseEvent);
     }
+  }
+
+  /** Clamp a context menu near the pointer, then show it. Shared skeleton. */
+  function positionContextMenu(menu: HTMLElement, event: MouseEvent): void {
+    const x = event.clientX || 0;
+    const y = event.clientY || 0;
+
+    const menuWidth = 220;
+    const menuHeight = 400;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const left = Math.max(8, x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x);
+    const top = Math.max(8, y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y);
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.style.maxHeight = viewportHeight - top - 10 + 'px';
+    menu.style.overflowY = 'auto';
+    menu.hidden = false;
   }
 
   function applyMenuEnableMap(contextMenu: HTMLElement): void {

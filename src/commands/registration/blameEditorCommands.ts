@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
+import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { buildIntelligGitUri, resolveExplorerFileUri } from './explorerCommands';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import {
@@ -221,9 +222,18 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
         });
 
         if (selected) {
-          // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr
-          void vscode.window.showInformationMessage(
-            `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+          // Open the file's diff at the picked revision (vs its parent; a
+          // root commit diffs vs the empty tree via `<hash>~1`) — the block
+          // diff IntelliJ's selection-history dialog shows per revision.
+          const picked = selected.commit;
+          const parentRef = picked.parents[0] ?? `${picked.hash}~1`;
+          await openRevisionDiff(
+            {
+              leftUri: buildIntelligGitUri(filePath, parentRef, repo.rootUri.fsPath),
+              rightUri: buildIntelligGitUri(filePath, picked.hash, repo.rootUri.fsPath),
+              title: `${filePath} (${parentRef.substring(0, 8)} ↔ ${picked.shortHash})`,
+            },
+            'Failed to open line history diff'
           );
         }
       }
@@ -524,7 +534,7 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     id: 'intellig.blame.toggleIgnoreWhitespace',
     failureTitle: 'Failed to toggle Ignore Whitespaces',
     run: async ({ services }) => {
-      const next = await services.blameOptionsSource.toggleFlag('ignoreWhitespace');
+      const next = await services.blameOptionsSource.toggleIgnoreWhitespace();
       void vscode.window.showInformationMessage(
         `Blame: Ignore Whitespaces ${next ? 'enabled' : 'disabled'}.`
       );
@@ -536,9 +546,9 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     id: 'intellig.blame.toggleDetectMovementsWithinFile',
     failureTitle: 'Failed to toggle Detect Movements Within File',
     run: async ({ services }) => {
-      const next = await services.blameOptionsSource.toggleFlag('detectMovementsWithinFile');
+      const next = await services.blameOptionsSource.toggleDetectMovementsWithinFile();
       void vscode.window.showInformationMessage(
-        `Blame: Detect Movements Within File ${next ? 'enabled' : 'disabled'}.`
+        `Blame: Detect Movements Within File ${next === 'within' ? 'enabled' : 'disabled'}.`
       );
     },
   });
@@ -548,9 +558,11 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     id: 'intellig.blame.toggleDetectMovementsAcrossFiles',
     failureTitle: 'Failed to toggle Detect Movements Across Files',
     run: async ({ services }) => {
-      const next = await services.blameOptionsSource.toggleFlag('detectMovementsAcrossFiles');
+      const next = await services.blameOptionsSource.toggleDetectMovementsAcrossFiles();
       void vscode.window.showInformationMessage(
-        `Blame: Detect Movements Across Files ${next ? 'enabled' : 'disabled'}.`
+        next === 'across'
+          ? 'Blame: Detect Movements Across Files enabled.'
+          : 'Blame: Detect Movements Across Files disabled (within-file detection stays on).'
       );
     },
   });

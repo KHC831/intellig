@@ -36,8 +36,7 @@ export const CONFIG_KEYS = {
   blameShowRevision: 'blame.showRevision',
   blameAuthorNameFormat: 'blame.authorNameFormat',
   blameIgnoreWhitespace: 'blame.ignoreWhitespace',
-  blameDetectMovementsWithinFile: 'blame.detectMovementsWithinFile',
-  blameDetectMovementsAcrossFiles: 'blame.detectMovementsAcrossFiles',
+  blameDetectMovements: 'blame.detectMovements',
   diffIgnorePolicy: 'diff.ignorePolicy',
   lineStatusEnabled: 'lineStatus.enabled',
   autoOpenResolveConflictsDialog: 'autoOpenResolveConflictsDialog',
@@ -85,8 +84,7 @@ export type ConfigValues = {
   'blame.showRevision': boolean;
   'blame.authorNameFormat': 'full' | 'firstname' | 'lastname' | 'initials' | 'email';
   'blame.ignoreWhitespace': boolean;
-  'blame.detectMovementsWithinFile': boolean;
-  'blame.detectMovementsAcrossFiles': boolean;
+  'blame.detectMovements': 'none' | 'within' | 'across';
   'diff.ignorePolicy':
     | 'default'
     | 'trim-whitespaces'

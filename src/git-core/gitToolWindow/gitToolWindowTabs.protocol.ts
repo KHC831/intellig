@@ -21,7 +21,9 @@ export type GitToolWindowTabsInbound =
   | { type: 'history.setBranchFilter'; branch?: string }
   | { type: 'history.getVersion'; rev: string }
   | { type: 'history.compareWithLocal'; rev: string }
-  | { type: 'history.compareWith'; from: string; to: string };
+  | { type: 'history.compareWith'; from: string; to: string }
+  | { type: 'history.compareWithHead'; rev: string }
+  | { type: 'history.compareWithRef'; rev: string };
 
 export const GIT_TOOL_WINDOW_TABS_INBOUND_TYPES = [
   'tabChange',
@@ -32,6 +34,8 @@ export const GIT_TOOL_WINDOW_TABS_INBOUND_TYPES = [
   'history.getVersion',
   'history.compareWithLocal',
   'history.compareWith',
+  'history.compareWithHead',
+  'history.compareWithRef',
 ] as const;
 
 export function asGitToolWindowTabsInbound(message: unknown): GitToolWindowTabsInbound | undefined {

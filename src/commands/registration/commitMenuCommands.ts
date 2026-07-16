@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { getLogger } from '../../utils/logger';
 import { sanitizeGitError, worktreeConflictMessage } from '../../git-core/gitError';
 import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
+import { isTabbedGitToolWindowEnabled } from '../../git-core/gitToolWindow/config';
 import { parseRemoteUrl } from '../../utils/remoteUrl';
 import { commitUrl } from '../../utils/hostingLinks';
 import type { IGitService, IRepository } from '../../services';
@@ -282,13 +283,30 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     },
   });
 
-  // File history starting at this commit — delegates to `intellig.showHistory`
-  // with the commit hash as the starting ref arg.
+  // File history starting at this commit. When the caller supplies the file
+  // (the details-panel file context menu), open the History tab for that file
+  // anchored at the revision (reference TabbedShowHistoryForRevisionAction);
+  // otherwise fall back to the active-file history flow.
   const commitFileHistoryFromHereCommand = registerBareCommand(ctx, {
     id: 'intellig.commit.fileHistoryFromHere',
     failureTitle: 'Failed to open file history',
     run: async (_args, commitArg) => {
       const hash = extractCommitHash(commitArg);
+      const path =
+        commitArg &&
+        typeof commitArg === 'object' &&
+        typeof (commitArg as { path?: unknown }).path === 'string'
+          ? (commitArg as { path: string }).path
+          : undefined;
+      if (hash && path && ctx.gitToolWindowProvider && isTabbedGitToolWindowEnabled()) {
+        const repo = await resolveRepoContainingCommit(ctx, hash);
+        if (!repo) {
+          return;
+        }
+        await ctx.gitToolWindowProvider.revealLogHost();
+        await ctx.gitToolWindowProvider.loadFileHistory(path, repo.rootUri.fsPath, hash);
+        return;
+      }
       await vscode.commands.executeCommand(
         'intellig.showHistory',
         hash ? { startRef: hash } : undefined

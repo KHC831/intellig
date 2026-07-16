@@ -3,7 +3,8 @@
  *
  * Covers:
  * - config-backed flag snapshot + `asBlameOptions()` projection.
- * - `toggleFlag()` flips the underlying setting.
+ * - toggle commands' IntelliJ semantics (ignore-whitespace flip; the
+ *   within/across movement toggles' XOR enum transitions).
  * - Hidden-revision add / remove / clear round-trips through workspaceState.
  * - `onDidChange` fires for every state mutation that the providers consume.
  */
@@ -52,40 +53,81 @@ describe('BlameOptionsSource', () => {
   });
 
   describe('snapshot', () => {
-    it('defaults all flags to false and hiddenRevisions empty', () => {
+    it('defaults ignoreWhitespace to true (IntelliJ default), movements off, hiddenRevisions empty', () => {
       const snap = source!.snapshot();
-      assert.strictEqual(snap.ignoreWhitespace, false);
-      assert.strictEqual(snap.detectMovementsWithinFile, false);
-      assert.strictEqual(snap.detectMovementsAcrossFiles, false);
+      assert.strictEqual(snap.ignoreWhitespace, true);
+      assert.strictEqual(snap.detectMovements, 'none');
       assert.strictEqual(snap.hiddenRevisions.size, 0);
     });
 
     it('reflects config overrides for each flag', () => {
-      setMockConfigValue('intellig', 'blame.ignoreWhitespace', true);
-      setMockConfigValue('intellig', 'blame.detectMovementsWithinFile', true);
-      setMockConfigValue('intellig', 'blame.detectMovementsAcrossFiles', true);
+      setMockConfigValue('intellig', 'blame.ignoreWhitespace', false);
+      setMockConfigValue('intellig', 'blame.detectMovements', 'across');
       const snap = source!.snapshot();
-      assert.strictEqual(snap.ignoreWhitespace, true);
-      assert.strictEqual(snap.detectMovementsWithinFile, true);
-      assert.strictEqual(snap.detectMovementsAcrossFiles, true);
+      assert.strictEqual(snap.ignoreWhitespace, false);
+      assert.strictEqual(snap.detectMovements, 'across');
     });
 
-    it('asBlameOptions() projects the three flags only', () => {
-      setMockConfigValue('intellig', 'blame.ignoreWhitespace', true);
+    it('coerces an invalid detectMovements value to none', () => {
+      setMockConfigValue('intellig', 'blame.detectMovements', 'bogus');
+      assert.strictEqual(source!.snapshot().detectMovements, 'none');
+    });
+
+    it('asBlameOptions() projects the blame flags only', () => {
+      setMockConfigValue('intellig', 'blame.detectMovements', 'within');
       const opts = source!.asBlameOptions();
       assert.strictEqual(opts.ignoreWhitespace, true);
-      assert.strictEqual(opts.detectMovementsWithinFile, false);
-      assert.strictEqual(opts.detectMovementsAcrossFiles, false);
+      assert.strictEqual(opts.detectMovements, 'within');
       assert.ok(!('hiddenRevisions' in opts));
     });
   });
 
-  describe('toggleFlag', () => {
-    it('flips a flag and returns the new value', async () => {
-      assert.strictEqual(source!.snapshot().ignoreWhitespace, false);
-      const next = await source!.toggleFlag('ignoreWhitespace');
-      assert.strictEqual(next, true);
+  describe('toggleIgnoreWhitespace', () => {
+    it('flips the flag and returns the new value', async () => {
       assert.strictEqual(source!.snapshot().ignoreWhitespace, true);
+      const next = await source!.toggleIgnoreWhitespace();
+      assert.strictEqual(next, false);
+      assert.strictEqual(source!.snapshot().ignoreWhitespace, false);
+    });
+  });
+
+  // Mirrors GitToggleAnnotationOptionsActionProvider: the within toggle reads
+  // as checked for INNER or OUTER and writes INNER/NONE; the across toggle
+  // reads as checked for OUTER only and disabling falls back to INNER.
+  describe('movement-detection toggles (IntelliJ XOR enum semantics)', () => {
+    it('within toggle: none -> within', async () => {
+      const next = await source!.toggleDetectMovementsWithinFile();
+      assert.strictEqual(next, 'within');
+      assert.strictEqual(source!.snapshot().detectMovements, 'within');
+    });
+
+    it('within toggle: within -> none', async () => {
+      setMockConfigValue('intellig', 'blame.detectMovements', 'within');
+      const next = await source!.toggleDetectMovementsWithinFile();
+      assert.strictEqual(next, 'none');
+    });
+
+    it('within toggle: across -> none (was checked, unchecking clears detection)', async () => {
+      setMockConfigValue('intellig', 'blame.detectMovements', 'across');
+      const next = await source!.toggleDetectMovementsWithinFile();
+      assert.strictEqual(next, 'none');
+    });
+
+    it('across toggle: none -> across', async () => {
+      const next = await source!.toggleDetectMovementsAcrossFiles();
+      assert.strictEqual(next, 'across');
+    });
+
+    it('across toggle: within -> across', async () => {
+      setMockConfigValue('intellig', 'blame.detectMovements', 'within');
+      const next = await source!.toggleDetectMovementsAcrossFiles();
+      assert.strictEqual(next, 'across');
+    });
+
+    it('across toggle: across -> within (falls back to INNER, not NONE)', async () => {
+      setMockConfigValue('intellig', 'blame.detectMovements', 'across');
+      const next = await source!.toggleDetectMovementsAcrossFiles();
+      assert.strictEqual(next, 'within');
     });
   });
 

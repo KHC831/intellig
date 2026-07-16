@@ -79,25 +79,49 @@ describe('e2e — miscellaneous palette commands', function () {
     assert.strictEqual(restored, before, 'restore toggle should return to original');
   });
 
-  it('intellig.blame.toggleDetectMovementsWithinFile — flips the persisted flag', async () => {
+  /** Seed a known movement-detection mode so the toggle tests are order-independent. */
+  async function seedDetectMovements(mode: 'none' | 'within' | 'across'): Promise<void> {
+    await vscode.workspace
+      .getConfiguration('intellig.blame')
+      .update('detectMovements', mode, vscode.ConfigurationTarget.Workspace);
+  }
+
+  it('intellig.blame.toggleDetectMovementsWithinFile — cycles the persisted mode', async () => {
     const services = getServices();
     assert.ok(services);
-    const before = services.blameOptionsSource.snapshot().detectMovementsWithinFile;
+    await seedDetectMovements('none');
+
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsWithinFile');
-    const after = services.blameOptionsSource.snapshot().detectMovementsWithinFile;
-    assert.strictEqual(after, !before, 'detectMovementsWithinFile flag should flip');
-    // Restore.
+    assert.strictEqual(
+      services.blameOptionsSource.snapshot().detectMovements,
+      'within',
+      'within toggle should turn detection on'
+    );
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsWithinFile');
+    assert.strictEqual(
+      services.blameOptionsSource.snapshot().detectMovements,
+      'none',
+      'second within toggle should turn detection back off'
+    );
   });
 
-  it('intellig.blame.toggleDetectMovementsAcrossFiles — flips the persisted flag', async () => {
+  it('intellig.blame.toggleDetectMovementsAcrossFiles — enables across, disable falls back to within', async () => {
     const services = getServices();
     assert.ok(services);
-    const before = services.blameOptionsSource.snapshot().detectMovementsAcrossFiles;
+    await seedDetectMovements('none');
+
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsAcrossFiles');
-    const after = services.blameOptionsSource.snapshot().detectMovementsAcrossFiles;
-    assert.strictEqual(after, !before, 'detectMovementsAcrossFiles flag should flip');
+    assert.strictEqual(
+      services.blameOptionsSource.snapshot().detectMovements,
+      'across',
+      'across toggle should enable across-files detection'
+    );
+    // Disabling falls back to within (IntelliJ OUTER -> INNER), not off.
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsAcrossFiles');
+    assert.strictEqual(services.blameOptionsSource.snapshot().detectMovements, 'within');
+
+    // Leave detection off so later tests see a clean slate.
+    await seedDetectMovements('none');
   });
 
   it('intellig.blame.clearHiddenRevisions — empties the hidden-revisions set without throwing', async () => {

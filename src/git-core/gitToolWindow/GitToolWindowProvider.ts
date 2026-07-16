@@ -71,6 +71,7 @@ import {
   buildNoRepositoryHtml,
   buildUndockedPlaceholderHtml,
   buildCommitContextMenuHtml,
+  buildFileContextMenuHtml,
   escapeHtml,
   getFileStatusColor,
 } from './provider/htmlBuilders';
@@ -2134,6 +2135,23 @@ export class GitToolWindowProvider
           this._handleCommitFileDoubleClick(msg.commitHash, msg.path);
         }
         break;
+      case 'fileContextAction': {
+        // Details-panel changed-file context menu. Each action relays to the
+        // registered command (reference: Vcs.RepositoryChangesBrowserMenu),
+        // so the menu and the palette-hidden command stay one surface.
+        // Allow-list the untrusted action string at the boundary.
+        const commandByFileAction: Record<string, string> = {
+          showDiff: 'intellig.commit.showDiff',
+          openRepositoryVersion: 'intellig.commit.showFileInRevision',
+          fileHistoryFromHere: 'intellig.commit.fileHistoryFromHere',
+        };
+        const command =
+          typeof msg.action === 'string' ? commandByFileAction[msg.action] : undefined;
+        if (command && msg.commitHash) {
+          void vscode.commands.executeCommand(command, { hash: msg.commitHash, path: msg.path });
+        }
+        break;
+      }
       case 'applyLogFilter':
         this._handleApplyLogFilter(msg.filter as IWebviewLogFilter | null);
         break;
@@ -3599,6 +3617,7 @@ export class GitToolWindowProvider
     <div class="panel-divider" data-divider="0" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
     <div id="details-panel" class="panel" style="width: ${detailsWidth}%;" role="region" aria-label="Details Panel"></div>
     ${commitContextMenuHtml}
+    ${buildFileContextMenuHtml()}
     <div id="ref-popup" class="context-menu" hidden role="menu" aria-label="Branches at this commit"></div>
   </div>`;
 

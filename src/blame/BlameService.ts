@@ -169,8 +169,8 @@ export class BlameService implements IBlameService {
     }
     return [
       options.ignoreWhitespace ? 'w' : '',
-      options.detectMovementsWithinFile ? 'M' : '',
-      options.detectMovementsAcrossFiles ? 'C' : '',
+      options.detectMovements === 'within' ? 'M' : '',
+      options.detectMovements === 'across' ? 'C' : '',
     ].join('');
   }
 
@@ -271,14 +271,11 @@ export class BlameService implements IBlameService {
     if (options?.ignoreWhitespace) {
       flags.push('-w');
     }
-    if (options?.detectMovementsWithinFile) {
+    // Exactly one movement flag, mirroring IntelliJ's enum
+    // (GitAnnotationProvider: INNER -> -M, OUTER -> a single -C).
+    if (options?.detectMovements === 'within') {
       flags.push('-M');
-    }
-    if (options?.detectMovementsAcrossFiles) {
-      // Pass `-C` twice so git also detects copies from files that weren't
-      // modified in the same commit. Matches IntelliJ's "across files" mode,
-      // which is the more thorough variant of `-C`.
-      flags.push('-C');
+    } else if (options?.detectMovements === 'across') {
       flags.push('-C');
     }
     if (useContents) {

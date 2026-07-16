@@ -1,13 +1,13 @@
 /**
  * Blame options source.
  *
- * Single source of truth for the three persistent blame flags (Ignore
- * Whitespace / Detect Movements Within File / Detect Movements Across Files)
- * and the set of commits the user has chosen to "Hide Revision" for.
+ * Single source of truth for the persistent blame flags (Ignore Whitespace +
+ * the movement-detection mode) and the set of commits the user has chosen to
+ * "Hide Revision" for.
  *
- * - The three boolean flags live in VS Code settings (`intellig.blame.*`) so
- *   they sync across workspaces and can be controlled via
- *   `editor/lineNumber/context` toggle commands.
+ * - The flags live in VS Code settings (`intellig.blame.*`) so they sync
+ *   across workspaces and can be controlled via `editor/lineNumber/context`
+ *   toggle commands.
  * - The hidden-revision set is workspace-state scoped (per-repo wouldn't add
  *   value here — a given hash only appears in one repo).
  *
@@ -23,14 +23,13 @@ import {
   readStringArray,
   type PersistedSlot,
 } from '../utils/persistedState';
-import { IBlameOptions } from './interfaces/IBlameService';
+import { BlameDetectMovements, IBlameOptions } from './interfaces/IBlameService';
 import { AuthorNameFormat, normalizeAuthorNameFormat } from './authorNameFormat';
 
 /** Config keys (namespaced under `intellig.blame.*`). */
 const CONFIG_SECTION = 'intellig.blame';
 const CONFIG_IGNORE_WS = 'ignoreWhitespace';
-const CONFIG_DETECT_WITHIN = 'detectMovementsWithinFile';
-const CONFIG_DETECT_ACROSS = 'detectMovementsAcrossFiles';
+const CONFIG_DETECT_MOVEMENTS = 'detectMovements';
 const CONFIG_COLOR_MODE = 'colorMode';
 const CONFIG_SHOW_AUTHOR = 'showAuthor';
 const CONFIG_SHOW_DATE = 'showDate';
@@ -81,6 +80,11 @@ function normalizeColorMode(value: string | undefined): BlameColorMode {
   return value === 'author' ? 'author' : DEFAULT_COLOR_MODE;
 }
 
+/** Coerce an arbitrary config string to a valid {@link BlameDetectMovements}. */
+function normalizeDetectMovements(value: string | undefined): BlameDetectMovements {
+  return value === 'within' || value === 'across' ? value : 'none';
+}
+
 /**
  * Snapshot of all persistent blame state.
  */
@@ -120,8 +124,7 @@ export class BlameOptionsSource {
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_IGNORE_WS}`) ||
-          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_WITHIN}`) ||
-          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_ACROSS}`) ||
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_MOVEMENTS}`) ||
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_COLOR_MODE}`) ||
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_SHOW_AUTHOR}`) ||
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_SHOW_DATE}`) ||
@@ -141,8 +144,7 @@ export class BlameOptionsSource {
   snapshot(): IBlameOptionsSnapshot {
     return {
       ignoreWhitespace: readConfig('blame.ignoreWhitespace'),
-      detectMovementsWithinFile: readConfig('blame.detectMovementsWithinFile'),
-      detectMovementsAcrossFiles: readConfig('blame.detectMovementsAcrossFiles'),
+      detectMovements: normalizeDetectMovements(readConfig('blame.detectMovements')),
       hiddenRevisions: new Set(this._hidden),
       colorMode: normalizeColorMode(readConfig('blame.colorMode')),
       aspects: {
@@ -161,27 +163,56 @@ export class BlameOptionsSource {
     const s = this.snapshot();
     return {
       ignoreWhitespace: s.ignoreWhitespace,
-      detectMovementsWithinFile: s.detectMovementsWithinFile,
-      detectMovementsAcrossFiles: s.detectMovementsAcrossFiles,
+      detectMovements: s.detectMovements,
     };
   }
 
   /**
-   * Toggle a single flag, persisting to workspace configuration. Flips the
-   * effective config target based on where the key is already set (defaults
-   * to Workspace).
+   * Toggle the Ignore Whitespaces flag, persisting to workspace configuration.
+   *
+   * @returns the flag's new value.
    */
-  async toggleFlag(
-    key: 'ignoreWhitespace' | 'detectMovementsWithinFile' | 'detectMovementsAcrossFiles'
-  ): Promise<boolean> {
-    const next = !readConfig(`blame.${key}`);
-    // Prefer Workspace target so per-project preference sticks; falls back to
-    // Global if there's no open workspace.
-    const target = vscode.workspace.workspaceFolders
+  async toggleIgnoreWhitespace(): Promise<boolean> {
+    const next = !readConfig('blame.ignoreWhitespace');
+    await updateConfig('blame.ignoreWhitespace', next, this._configTarget());
+    return next;
+  }
+
+  /**
+   * Toggle "Detect Movements Within File". Mirrors IntelliJ's INNER toggle:
+   * it reads as checked while ANY movement detection is on, so enabling sets
+   * `within` and disabling (from `within` or `across`) sets `none`.
+   *
+   * @returns the new movement-detection mode.
+   */
+  async toggleDetectMovementsWithinFile(): Promise<BlameDetectMovements> {
+    const current = this.snapshot().detectMovements;
+    const next: BlameDetectMovements = current === 'none' ? 'within' : 'none';
+    await updateConfig('blame.detectMovements', next, this._configTarget());
+    return next;
+  }
+
+  /**
+   * Toggle "Detect Movements Across Files". Mirrors IntelliJ's OUTER toggle:
+   * enabling sets `across`; disabling falls back to `within` (INNER), not off.
+   *
+   * @returns the new movement-detection mode.
+   */
+  async toggleDetectMovementsAcrossFiles(): Promise<BlameDetectMovements> {
+    const current = this.snapshot().detectMovements;
+    const next: BlameDetectMovements = current === 'across' ? 'within' : 'across';
+    await updateConfig('blame.detectMovements', next, this._configTarget());
+    return next;
+  }
+
+  /**
+   * Prefer Workspace target so per-project preference sticks; falls back to
+   * Global if there's no open workspace.
+   */
+  private _configTarget(): vscode.ConfigurationTarget {
+    return vscode.workspace.workspaceFolders
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
-    await updateConfig(`blame.${key}`, next, target);
-    return next;
   }
 
   /**
@@ -193,10 +224,7 @@ export class BlameOptionsSource {
   async toggleAspect(aspect: BlameAspectId): Promise<boolean> {
     const key = `blame.${ASPECT_CONFIG_KEY[aspect]}` as const;
     const next = !readConfig(key);
-    const target = vscode.workspace.workspaceFolders
-      ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
-    await updateConfig(key, next, target);
+    await updateConfig(key, next, this._configTarget());
     return next;
   }
 

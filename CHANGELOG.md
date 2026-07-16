@@ -10,6 +10,20 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Added
+
+- Right-clicking a changed file in the log's details panel now offers Show Diff, Open Repository Version, and Show History for Revision.
+- Right-clicking a revision in the file-history tab now offers Compare with HEAD and Compare With.
+
+### Changed
+
+- Blame now ignores whitespace-only changes by default, matching IntelliJ; turn `intellig.blame.ignoreWhitespace` off to get the old attribution.
+- The two moved-line detection settings merged into one: `intellig.blame.detectMovements` (`none`/`within`/`across`). Across-files detection now passes a single `-C` like IntelliJ, and turning it off falls back to within-file detection.
+
+### Fixed
+
+- Picking a revision in Show Line History opens that revision's diff instead of an info toast.
+
 ## [0.4.2] - 2026-07-15
 
 ### Fixed

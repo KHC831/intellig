@@ -405,6 +405,23 @@ export class HistoryTab {
         }
         return;
       }
+      // Revision context-menu compare actions relay to the registered
+      // intellig.commit.* commands so the menu and the palette-hidden command
+      // stay one surface.
+      case 'history.compareWithHead': {
+        const rev = typeof message.rev === 'string' ? message.rev : undefined;
+        if (rev) {
+          await vscode.commands.executeCommand('intellig.commit.compareWithHead', { hash: rev });
+        }
+        return;
+      }
+      case 'history.compareWithRef': {
+        const rev = typeof message.rev === 'string' ? message.rev : undefined;
+        if (rev) {
+          await vscode.commands.executeCommand('intellig.commit.compareWith', { hash: rev });
+        }
+        return;
+      }
       default:
         return;
     }

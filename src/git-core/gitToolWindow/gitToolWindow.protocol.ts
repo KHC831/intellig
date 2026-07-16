@@ -27,6 +27,7 @@ export type GitToolWindowInbound =
   | ({ type: 'initRepository' } & Fields)
   | ({ type: 'commitContextMenu' } & Fields)
   | ({ type: 'doubleClickFile' } & Fields)
+  | ({ type: 'fileContextAction' } & Fields)
   | ({ type: 'applyLogFilter' } & Fields)
   | ({ type: 'requestLogFilterOptions' } & Fields)
   | ({ type: 'requestAuthorOptions' } & Fields)
@@ -66,6 +67,7 @@ export const GIT_TOOL_WINDOW_INBOUND_TYPES = [
   'initRepository',
   'commitContextMenu',
   'doubleClickFile',
+  'fileContextAction',
   'applyLogFilter',
   'requestLogFilterOptions',
   'requestAuthorOptions',
