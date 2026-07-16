@@ -198,6 +198,13 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 #bottombar button.primary { background: var(--vscode-button-background, #2f7bd6); color: var(--vscode-button-foreground, #ffffff); }
 #bottombar button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, #3f8be6); }
 #bottombar button:disabled { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-disabledForeground, #888888); opacity: 0.6; cursor: default; }
+/* Monaco paints the selection (SelectionsOverlay) BEFORE line decorations
+   (DecorationsOverlay) inside the same per-line overlay container, so the
+   opaque .merge-* chunk backgrounds below would otherwise cover the selection
+   highlight entirely. Lift the selection divs above their decoration siblings
+   (all .cdr overlays are absolutely positioned, so z-index applies); the
+   selection then paints over chunk fills exactly like IntelliJ's editor. */
+.monaco-editor .view-overlays .selected-text { z-index: 1; }
 .merge-conflict { background: var(--merge-conflict-bg); }
 .merge-modified { background: var(--merge-modified-bg); }
 .merge-inserted { background: var(--merge-inserted-bg); }

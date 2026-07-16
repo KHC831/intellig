@@ -23,6 +23,7 @@ fresh empty `[Unreleased]` block is added on top.
 ### Fixed
 
 - Picking a revision in Show Line History opens that revision's diff instead of an info toast.
+- Selecting text in the merge window shows the selection highlight again, including over conflict-colored lines.
 
 ## [0.4.2] - 2026-07-15
 
