@@ -27,6 +27,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { GitCli } from './gitCli';
 import { resolveWorktreeGitDir } from './repo/RepositoryDiscovery';
+import { REBASE_MERGE_DIR } from './gitDirMarkers';
 import { getLogger } from '../utils/logger';
 
 /** The one warning copy every parked-autostash toast site shares. */
@@ -48,7 +49,7 @@ export interface IAutostashWatchToken {
  */
 export function readAutostashSha(repoRoot: string): string | undefined {
   try {
-    const marker = path.join(resolveWorktreeGitDir(repoRoot), 'rebase-merge', 'autostash');
+    const marker = path.join(resolveWorktreeGitDir(repoRoot), REBASE_MERGE_DIR, 'autostash');
     const content = fs.readFileSync(marker, 'utf8').trim();
     return content.length > 0 ? content : undefined;
     // eslint-disable-next-line no-restricted-syntax -- an absent/unreadable marker file means "no autostash"; absence is the expected common case.

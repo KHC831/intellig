@@ -443,6 +443,53 @@ describe('Multi-commit safe ops', () => {
       assert.ok(oIdx >= 0 && argv[oIdx + 1] === '/tmp/patches');
     });
 
+    it('createPatchToClipboard multi — one combined mailbox via <oldest>^..<newest> --stdout', async () => {
+      const provider = createMockProvider();
+      provider.setCommitOrder([HASH_NEWEST, HASH_MIDDLE, HASH_OLDEST, HASH_FAR]);
+      const gitService = createMockGitService(repo);
+
+      let copiedText = '';
+      writableEnv().clipboard = {
+        writeText: (text: string): Promise<void> => {
+          copiedText = text;
+          return Promise.resolve();
+        },
+        readText: (): Promise<string> => Promise.resolve(''),
+      };
+      const gitCli = createMockGitCli({
+        exec: async () => ({
+          exitCode: 0,
+          stdout: 'From aaaa1111 combined mailbox',
+          stderr: '',
+          combined: '',
+        }),
+      });
+      const commands = makeCommands({ repo, gitService, gitCli, provider });
+      captureMessages();
+
+      await (commands as unknown as CommandsInternal)._handleAction(
+        'createPatchToClipboard',
+        [HASH_NEWEST, HASH_MIDDLE, HASH_OLDEST],
+        provider.getCommitNodes()
+      );
+
+      const call = gitCli.calls.find(
+        (c) =>
+          c.method === 'exec' &&
+          Array.isArray(c.args[0]) &&
+          (c.args[0] as string[])[0] === 'format-patch'
+      );
+      assert.ok(call, 'expected git format-patch invocation');
+      const argv = call.args[0] as string[];
+      assert.ok(
+        argv.some((a) => a === `${HASH_OLDEST}^..${HASH_NEWEST}`),
+        `expected range form in argv; got ${JSON.stringify(argv)}`
+      );
+      assert.ok(argv.includes('--stdout'), 'the clipboard variant streams to stdout');
+      assert.ok(!argv.includes('-o'), 'the clipboard variant writes no files');
+      assert.strictEqual(copiedText, 'From aaaa1111 combined mailbox');
+    });
+
     it('falls back to per-commit args when selection is non-contiguous', async () => {
       const provider = createMockProvider();
       // Display: NEWEST → MIDDLE → OLDEST → FAR

@@ -44,7 +44,9 @@ describe('e2e — local patch / rollback (real git)', function () {
     fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'locally modified\n');
     await vscode.env.clipboard.writeText('SENTINEL-NOT-A-PATCH');
     stubs = stubPrompts({
-      quickPick: (items) => (items as Array<{ id?: string }>).find((i) => i.id === 'clipboard'),
+      // The target pick is a multi-select (destinations + Reverse); answer
+      // with just the clipboard row checked.
+      quickPick: (items) => (items as Array<{ id?: string }>).filter((i) => i.id === 'clipboard'),
     });
 
     await vscode.commands.executeCommand('intellig.patch.createFromLocal');
@@ -54,6 +56,58 @@ describe('e2e — local patch / rollback (real git)', function () {
       clip.includes('file0.txt') && /^(diff --git|---|\+\+\+|@@)/m.test(clip),
       `clipboard should hold a unified diff of the local change; got "${clip.slice(0, 120)}". ` +
         `err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+    );
+  });
+
+  it('intellig.patch.createFromLocal — Reverse pick produces a -R diff that undoes the change', async () => {
+    await setup();
+    fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'locally modified\n');
+    await vscode.env.clipboard.writeText('SENTINEL-NOT-A-PATCH');
+    stubs = stubPrompts({
+      quickPick: (items) =>
+        (items as Array<{ id?: string }>).filter((i) => i.id === 'clipboard' || i.id === 'reverse'),
+    });
+
+    await vscode.commands.executeCommand('intellig.patch.createFromLocal');
+
+    const clip = await vscode.env.clipboard.readText();
+    // A reverse diff removes the local line and restores the committed one.
+    assert.ok(
+      /^-locally modified$/m.test(clip) && /^\+content-0$/m.test(clip),
+      `clipboard should hold the REVERSE diff; got "${clip.slice(0, 200)}". ` +
+        `err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+    );
+    // And applying it (git apply) undoes the local modification.
+    const patchPath = path.join(fix.rootPath, '..', 'reverse.patch');
+    fs.writeFileSync(patchPath, clip);
+    await execGit(fix.rootPath, ['apply', patchPath]);
+    assert.strictEqual(
+      fs.readFileSync(path.join(fix.rootPath, 'file0.txt'), 'utf8'),
+      'content-0\n',
+      'applying the reverse patch must restore the committed content'
+    );
+  });
+
+  it('intellig.patch.createFromLocal — refuses an options-only pick (no destination)', async () => {
+    await setup();
+    fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'locally modified\n');
+    await vscode.env.clipboard.writeText('SENTINEL-NOT-A-PATCH');
+    stubs = stubPrompts({
+      quickPick: (items) => (items as Array<{ id?: string }>).filter((i) => i.id === 'reverse'),
+    });
+
+    await vscode.commands.executeCommand('intellig.patch.createFromLocal');
+
+    assert.ok(
+      stubs.informationMessageCalls.some((c) =>
+        String(c.message).includes('at least one destination')
+      ),
+      `expected the destination refusal toast; info=${JSON.stringify(stubs.informationMessageCalls)}`
+    );
+    assert.strictEqual(
+      await vscode.env.clipboard.readText(),
+      'SENTINEL-NOT-A-PATCH',
+      'no patch must be produced without a destination'
     );
   });
 

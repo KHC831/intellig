@@ -30,6 +30,7 @@ import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { renderDiffAsText } from './diffText';
+import { gatherPatchFiles } from './gatherPatchFiles';
 
 /**
  * URI scheme for the read-only virtual document that holds the reconstructed
@@ -1209,6 +1210,14 @@ export class ShelfView implements IShelfView {
 
   /**
    * Import `.patch`/`.diff` files as new shelf entries. One entry per file.
+   *
+   * Mirrors ImportIntoShelfAction (platform/vcs-impl/.../shelf/
+   * ImportIntoShelfAction.java:49-86): the picker accepts files AND
+   * directories, directories are expanded recursively to patch-type files
+   * ({@link gatherPatchFiles}), a gathered set differing from the raw
+   * selection is confirmed with its count, a patch-free selection gets its
+   * own warning, and a successful import re-opens the shelf list on the
+   * last imported entry.
    */
   async importPatches(): Promise<IShelfActionResult[]> {
     if (!this._repository) {
@@ -1217,7 +1226,7 @@ export class ShelfView implements IShelfView {
     }
     const uris = await vscode.window.showOpenDialog({
       canSelectFiles: true,
-      canSelectFolders: false,
+      canSelectFolders: true,
       canSelectMany: true,
       openLabel: 'Import Patches',
       filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
@@ -1225,12 +1234,37 @@ export class ShelfView implements IShelfView {
     if (!uris || uris.length === 0) {
       return [];
     }
+
+    const rawPaths = uris.map((uri) => uri.fsPath);
+    const patchPaths = await gatherPatchFiles(rawPaths);
+    if (patchPaths.length === 0) {
+      void vscode.window.showWarningMessage('No patch files found in the selection.');
+      return [];
+    }
+    // The gathered set differs from the raw pick (a directory was expanded,
+    // or a non-patch file was dropped) — confirm what will actually be
+    // imported before writing shelf entries.
+    const patchSet = new Set(patchPaths);
+    const sameSet = rawPaths.length === patchPaths.length && rawPaths.every((p) => patchSet.has(p));
+    if (!sameSet) {
+      const message =
+        patchPaths.length === 1
+          ? `Import patch file ${patchPaths[0]}?`
+          : `Import ${patchPaths.length} patch files found in the selection?`;
+      const choice = await vscode.window.showInformationMessage(message, { modal: true }, 'Import');
+      if (choice !== 'Import') {
+        return [];
+      }
+    }
+
     const results: IShelfActionResult[] = [];
-    for (const uri of uris) {
+    let lastImported: IShelfItem | undefined;
+    for (const patchPath of patchPaths) {
       try {
         const item = await this._shelfService.importPatch(this._repository, {
-          patchPath: uri.fsPath,
+          patchPath,
         });
+        lastImported = item;
         results.push({ success: true, shelfItem: item });
       } catch (error) {
         // Sanitize the embedded error — importPatch may surface `git
@@ -1249,7 +1283,7 @@ export class ShelfView implements IShelfView {
         // error on a single line keeps the log greppable without
         // leaking credentials or home paths.
         getOutputChannel().appendLine(
-          `[${new Date().toISOString()}] [intellig] ShelfView.importPatches: ${uri.fsPath}: ${sanitized}`
+          `[${new Date().toISOString()}] [intellig] ShelfView.importPatches: ${patchPath}: ${sanitized}`
         );
         results.push({ success: false, error: sanitized });
       }
@@ -1276,6 +1310,12 @@ export class ShelfView implements IShelfView {
     if (refreshResult.error) {
       // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
       void vscode.window.showWarningMessage(`Shelf list refresh failed: ${refreshResult.error}`);
+    }
+    // Activate the shelf list on the LAST imported entry (the reference
+    // activates the Shelf view on lists.get(lists.size()-1)), so the user
+    // lands on what just arrived instead of a bare toast.
+    if (lastImported) {
+      await this._showShelfList(lastImported.id);
     }
     return results;
   }
@@ -1326,7 +1366,7 @@ export class ShelfView implements IShelfView {
   /**
    * Show the shelf list as a quick pick.
    */
-  private async _showShelfList(): Promise<void> {
+  private async _showShelfList(activeShelfItemId?: string): Promise<void> {
     if (!this._repository) {
       void vscode.window.showErrorMessage('No repository available');
       return;
@@ -1365,6 +1405,12 @@ export class ShelfView implements IShelfView {
     quickPick.title = 'Shelved Changes';
     quickPick.placeholder = 'Select a shelf item to manage...';
     quickPick.items = items;
+    if (activeShelfItemId) {
+      const active = items.find((item) => item.shelfItem?.id === activeShelfItemId);
+      if (active) {
+        quickPick.activeItems = [active];
+      }
+    }
 
     quickPick.onDidAccept(async () => {
       const selected = quickPick.selectedItems[0];
@@ -1378,9 +1424,14 @@ export class ShelfView implements IShelfView {
         // Create new shelf item
         await this.showShelveDialog(this._repository!);
       } else if (selected.isAction && selected.label.includes('Import Patches')) {
-        // Import `.patch`/`.diff` files as shelf entries.
-        await this.importPatches();
-        await this._showShelfList();
+        // Import `.patch`/`.diff` files as shelf entries. A successful
+        // import re-opens the list itself (positioned on the last imported
+        // entry); re-show here only for the cancel/failure paths so the
+        // user lands back on the list either way.
+        const imported = await this.importPatches();
+        if (!imported.some((result) => result.success)) {
+          await this._showShelfList();
+        }
       } else if (selected.isAction && selected.label.includes('Already Unshelved')) {
         // Toggle Already-Unshelved filter and re-show.
         this.setShowAlreadyUnshelved(!this._showAlreadyUnshelved);

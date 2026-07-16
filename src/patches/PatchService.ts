@@ -13,13 +13,17 @@ import {
   IPatchService,
   IApplyPatchOptions,
   IApplyPatchResult,
+  IAmSessionOpResult,
   ICreatePatchOptions,
 } from './interfaces/IPatchService';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
+import { isAmSession, resolveGitDir } from '../git-core/gitDirMarkers';
+import { createWorkingStateSnapshot, type IPreApplyState } from '../git-core/ops/preservedChanges';
+import { NON_INTERACTIVE_GIT_ENV } from '../git-core/gitEnv';
 import { isConflictedStatus } from '../git-core/gitParser';
-import { looksLikePatchConflictText } from '../git-core/gitProse';
+import { looksLikePatchConflictText, parseAppliedPatchFiles } from '../git-core/gitProse';
 import { sanitizeGitError } from '../git-core/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { getLogger, type Logger } from '../utils/logger';
@@ -131,6 +135,22 @@ export class PatchService implements IPatchService {
         throwOnError: false,
       };
 
+      // Snapshot the working state before a PLAIN 3-way apply — the one arm
+      // that can leave partial state behind (conflicted files with markers,
+      // clean siblings fully applied). `git stash create` disturbs neither
+      // the tree nor the stash stack, so success/hard-failure simply drop
+      // the unreferenced snapshot. `git am` needs no bracket (`am --abort`
+      // is its rollback), and check mode mutates nothing.
+      const ranAmPath = options.useAm === true && !options.reverse;
+      const preApplyStashSha =
+        !options.check && !ranAmPath
+          ? await createWorkingStateSnapshot(
+              gitCli,
+              repo.rootUri.fsPath,
+              'IntelliG: before Apply Patch'
+            )
+          : undefined;
+
       // Execute. `throwOnError: false` so we can distinguish conflict
       // from hard error based on the exit code + stderr shape.
       const result: IGitCommandResult = await gitCli.exec(args, execOptions);
@@ -154,13 +174,30 @@ export class PatchService implements IPatchService {
         };
       }
 
+      // A failed `git am` can PAUSE with a live session on disk (a
+      // multi-commit mailbox failing past commit 1). Probe the marker file
+      // so callers can offer the am recovery ops instead of stranding the
+      // session behind a plain error toast. Only when the argv actually ran
+      // `git am` — plain `git apply` creates no repo state, so a stale
+      // marker from an earlier session must not be attributed to it.
+      const amSessionActive =
+        ranAmPath && (await isAmSession(await resolveGitDir(repo.rootUri.fsPath)));
+
       const conflicts = await this._extractConflicts(repo, result.stderr, result.stdout);
       if (conflicts.length > 0) {
+        const touched = this._parseAppliedFiles(result.stdout + '\n' + result.stderr);
+        // The restore token rides only the plain-apply conflict arm; am
+        // conflicts roll back through `git am --abort` instead.
+        const preApplyState: IPreApplyState | undefined = ranAmPath
+          ? undefined
+          : { stashSha: preApplyStashSha, patchPaths: touched };
         return {
           success: false,
-          appliedFiles: this._parseAppliedFiles(result.stdout + '\n' + result.stderr),
+          appliedFiles: touched,
           conflicts,
           stderr: sanitizeGitError(result.stderr || result.stdout),
+          ...(amSessionActive ? { amSessionActive: true } : {}),
+          ...(preApplyState ? { preApplyState } : {}),
         };
       }
 
@@ -168,6 +205,7 @@ export class PatchService implements IPatchService {
         success: false,
         appliedFiles: [],
         stderr: sanitizeGitError(result.stderr || result.stdout || 'git apply failed'),
+        ...(amSessionActive ? { amSessionActive: true } : {}),
       };
     } finally {
       if (tempPath) {
@@ -209,6 +247,9 @@ export class PatchService implements IPatchService {
     const sections: string[] = [];
     for (const args of baseArgs) {
       const argv = [...args];
+      if (options.reverse) {
+        argv.push('-R');
+      }
       if (options.files && options.files.length > 0) {
         argv.push('--', ...options.files);
       }
@@ -254,6 +295,52 @@ export class PatchService implements IPatchService {
     }
 
     return patch;
+  }
+
+  amContinue(repo: IRepository): Promise<IAmSessionOpResult> {
+    return this._runAmSessionOp(repo, '--continue');
+  }
+
+  amSkip(repo: IRepository): Promise<IAmSessionOpResult> {
+    return this._runAmSessionOp(repo, '--skip');
+  }
+
+  amAbort(repo: IRepository): Promise<IAmSessionOpResult> {
+    return this._runAmSessionOp(repo, '--abort');
+  }
+
+  /**
+   * Run one `git am` session op. Non-zero exit with unmerged files present
+   * (the next mailbox patch collided after a continue/skip) reports them as
+   * `conflicts`; any other failure surfaces a sanitized `failureReason`.
+   * The editor is pinned to a no-op: `am --continue` commits the patch with
+   * its stored message and must not try to open an editor under the non-TTY
+   * spawn.
+   */
+  private async _runAmSessionOp(
+    repo: IRepository,
+    flag: '--continue' | '--skip' | '--abort'
+  ): Promise<IAmSessionOpResult> {
+    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+    const result = await gitCli.exec(['am', flag], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: false,
+      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
+    });
+    if (result.exitCode === 0) {
+      return { success: true };
+    }
+    const statusFiles = await this._gitService.getStatus(repo);
+    const conflicts: IConflictedFile[] = statusFiles
+      .filter(isConflictedStatus)
+      .map((f) => ({ path: f.path, resolved: false }));
+    if (conflicts.length > 0) {
+      return { success: false, conflicts };
+    }
+    return {
+      success: false,
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
+    };
   }
 
   dispose(): void {
@@ -306,7 +393,11 @@ export class PatchService implements IPatchService {
     if (options.check) {
       flags.push('--check');
     } else {
-      flags.push('--index', '--3way');
+      // --verbose makes git report EVERY touched file ("Checking patch
+      // <path>..."), not just the 3-way-fallback ones — without it a file
+      // that applies cleanly first-try is silent, so the conflict scoping
+      // and the pre-apply restore token would miss cleanly-applied siblings.
+      flags.push('--index', '--3way', '--verbose');
     }
     if (options.reverse) {
       flags.push('--reverse');
@@ -366,28 +457,12 @@ export class PatchService implements IPatchService {
   }
 
   /**
-   * Parse "Applied patch …" / "Applying: …" / `git apply --verbose` headers
-   * to recover the touched file list. Falls back to [] if no header found.
+   * Recover the touched file list from git's per-file apply output. The
+   * prose shapes live in gitProse (`parseAppliedPatchFiles`) under the
+   * locale-pin contract.
    */
   private _parseAppliedFiles(output: string): string[] {
-    const files = new Set<string>();
-    const lines = output.split('\n');
-    for (const raw of lines) {
-      const line = raw.trim();
-      // `git apply` emits "Applied patch X.diff cleanly" or
-      // "Applying: <subject>" (am) — neither lists files. But with --verbose
-      // or --numstat you get "<file>\t..." or "patching file <path>".
-      const patching = line.match(/^patching file (.+)$/i);
-      if (patching) {
-        files.add(patching[1]);
-        continue;
-      }
-      const checking = line.match(/^Checking patch (.+?)\.\.\.$/);
-      if (checking) {
-        files.add(checking[1]);
-      }
-    }
-    return Array.from(files);
+    return parseAppliedPatchFiles(output);
   }
 }
 

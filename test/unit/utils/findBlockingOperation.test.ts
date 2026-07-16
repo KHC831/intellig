@@ -61,3 +61,39 @@ describe('findBlockingOperation', () => {
     assert.strictEqual(await findBlockingOperation(path.join(tmpDir, 'nonexistent')), undefined);
   });
 });
+
+// F-K1: an am session must be NAMED as a patch apply — the refusal toast
+// interpolates this value, and calling it a rebase points the user at
+// rebase commands git will refuse during an am session.
+describe('findBlockingOperation — git-am session', () => {
+  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+  let amTmp: string;
+  let amGitDir: string;
+
+  beforeEach(() => {
+    fs.mkdirSync(TMP_ROOT, { recursive: true });
+    amTmp = fs.mkdtempSync(path.join(TMP_ROOT, 'intellig-am-block-'));
+    amGitDir = path.join(amTmp, '.git');
+    fs.mkdirSync(amGitDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(amTmp, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  });
+
+  it('names rebase-apply/ WITH the applying marker a patch apply, not a rebase', async () => {
+    const dir = path.join(amGitDir, 'rebase-apply');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'applying'), '', 'utf8');
+    assert.strictEqual(await findBlockingOperation(amGitDir), 'patch apply (git am)');
+  });
+
+  it('still reports rebase-apply/ WITHOUT the applying marker as a rebase', async () => {
+    fs.mkdirSync(path.join(amGitDir, 'rebase-apply'), { recursive: true });
+    assert.strictEqual(await findBlockingOperation(amGitDir), 'rebase');
+  });
+});

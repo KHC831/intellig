@@ -24,6 +24,7 @@ import { analyzeRebaseRange, isFirstParentAncestor } from '../git-core/rebaseRan
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
+import { isCommitPublished } from '../git-core/commitPublished';
 import { sanitizeGitError } from '../git-core/gitError';
 import { findBlockingOperation, isHexObjectId, resolveGitDir } from '../git-core/gitDirMarkers';
 import { isLocalChangesWouldBeOverwritten } from '../git-core/gitProse';
@@ -485,6 +486,9 @@ export class CommitContextMenuCommands {
       case 'createPatch':
         await this._handleCreatePatch(commitHashes, commitNodes);
         break;
+      case 'createPatchToClipboard':
+        await this._handleCreatePatchToClipboard(commitHashes, commitNodes);
+        break;
       case 'showRepoAtRevision':
         await this._handleShowRepoAtRevision(commitHashes);
         break;
@@ -937,24 +941,7 @@ export class CommitContextMenuCommands {
     hash: string,
     probeFailureMeansPushed = true
   ): Promise<boolean> {
-    // `hash` is passed positionally to `git branch --contains <hash>`, which has
-    // no `--end-of-options`. It is always a git SHA in practice; reject anything
-    // that is not a valid hex object name before exec as a defensive guard.
-    // `isHexObjectId` accepts 64-hex too — a 40-cap regex silently skipped the
-    // already-pushed warning in SHA-256 repos (this guard fails OPEN, unlike
-    // the conservative exec-failure path below).
-    if (!isHexObjectId(hash, { allowPrefix: true })) {
-      return false;
-    }
-    try {
-      const res = await this._gitCli.exec(['branch', '--remotes', '--contains', hash], { cwd });
-      if (res.exitCode !== 0) {
-        return probeFailureMeansPushed;
-      }
-      return res.stdout.trim().length > 0;
-    } catch {
-      return probeFailureMeansPushed;
-    }
+    return isCommitPublished(this._gitCli, cwd, hash, probeFailureMeansPushed);
   }
 
   /**
@@ -1999,6 +1986,117 @@ export class CommitContextMenuCommands {
   }
 
   /**
+   * Derive the commit spec a multi-commit `format-patch` run consumes:
+   * the range form `<oldest>^..<newest>` for a contiguous selection whose
+   * oldest commit has a parent (git emits one patch per commit in the range,
+   * numbered topologically), or the positional oldest-first hash list
+   * otherwise (`<oldest>^..` cannot resolve when oldest is the initial
+   * commit; a non-contiguous selection has no range at all). Returns
+   * undefined — after the stale-selection toast — when any hash is missing
+   * from the dispatched display order.
+   */
+  private _deriveFormatPatchCommitSpec(
+    commitHashes: readonly string[],
+    commitNodes: readonly IMenuStateNode[]
+  ): string[] | undefined {
+    const displayOrder = commitNodes.map((n) => n.hash);
+
+    // Every commitHash MUST be in displayOrder. The host already validates
+    // against commitNodes; this is the belt-and-suspenders mirror at the
+    // handler boundary.
+    const inOrder = new Set(displayOrder);
+    const stale = commitHashes.filter((h) => !inOrder.has(h));
+    if (stale.length > 0) {
+      void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
+      return undefined;
+    }
+
+    // Project to display indices for contiguity + range-form bounds.
+    const indexByHash = new Map<string, number>();
+    for (let i = 0; i < displayOrder.length; i++) {
+      indexByHash.set(displayOrder[i], i);
+    }
+    const indices = commitHashes
+      .map((h) => indexByHash.get(h))
+      .filter((i): i is number => i !== undefined)
+      .slice()
+      .sort((a, b) => a - b);
+    // Display order (newest-first): smallest index = newest commit.
+    const newestHash = displayOrder[indices[0]];
+    const oldestHash = displayOrder[indices[indices.length - 1]];
+
+    const isContiguous = isSelectionContiguous(new Set(commitHashes), displayOrder);
+    const oldestParents = commitNodes.find((n) => n.hash === oldestHash)?.parentCount ?? 1;
+    if (isContiguous && oldestParents > 0) {
+      return [`${oldestHash}^..${newestHash}`];
+    }
+    // Sort descending by display index → oldest-first replay order
+    // (newest-first display means larger index = older).
+    return [...commitHashes]
+      .filter((h) => indexByHash.has(h))
+      .sort((a, b) => (indexByHash.get(b) ?? 0) - (indexByHash.get(a) ?? 0));
+  }
+
+  /**
+   * Silent clipboard variant of Create Patch — IntelliJ
+   * CreatePatchFromChangesAction.Clipboard parity. Streams the combined
+   * `format-patch --stdout` mailbox (one commit or the multi-commit
+   * range/positional spec) straight to the clipboard; no dialogs.
+   */
+  private async _handleCreatePatchToClipboard(
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
+    if (!repo || commitHashes.length === 0) {
+      return;
+    }
+    // defence-in-depth hash regex.
+    if (!allHashesValid(commitHashes)) {
+      return;
+    }
+
+    let spec: string[];
+    if (commitHashes.length >= 2) {
+      const derived = this._deriveFormatPatchCommitSpec(commitHashes, commitNodes);
+      if (!derived) {
+        return;
+      }
+      spec = derived;
+    } else {
+      spec = ['-1', commitHashes[0]];
+    }
+
+    try {
+      const result = await this._gitCli.exec(['format-patch', '--stdout', ...spec], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      });
+      // Fail closed on a capped stream: the captured stdout is a prefix of
+      // the real mailbox, so copying it would hand the user a corrupt patch.
+      if (result.truncated) {
+        void vscode.window.showErrorMessage(
+          'Failed to create patch: diff exceeds the capture limit; patch not copied'
+        );
+        return;
+      }
+      await vscode.env.clipboard.writeText(result.stdout);
+      const n = commitHashes.length;
+      void vscode.window.showInformationMessage(
+        n === 1 ? 'Patch copied to clipboard.' : `Patch for ${n} commits copied to clipboard.`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to create patch: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
    * Multi-commit `format-patch` driver. See
    * {@link _handleCreatePatch} for the contract.
    *
@@ -2027,44 +2125,10 @@ export class CommitContextMenuCommands {
     commitHashes: readonly string[],
     commitNodes: readonly IMenuStateNode[]
   ): Promise<void> {
-    // Derive `displayOrder` from the typed nodes.
-    const displayOrder = commitNodes.map((n) => n.hash);
-
-    // Every commitHash MUST be in displayOrder. The
-    // host already validates against commitNodes; this is the
-    // belt-and-suspenders mirror at the handler boundary.
-    const inOrder = new Set(displayOrder);
-    const stale = commitHashes.filter((h) => !inOrder.has(h));
-    if (stale.length > 0) {
-      void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
+    const spec = this._deriveFormatPatchCommitSpec(commitHashes, commitNodes);
+    if (!spec) {
       return;
     }
-
-    // Project to display indices for contiguity + range-form bounds.
-    const indexByHash = new Map<string, number>();
-    for (let i = 0; i < displayOrder.length; i++) {
-      indexByHash.set(displayOrder[i], i);
-    }
-    const indices = commitHashes
-      .map((h) => indexByHash.get(h))
-      .filter((i): i is number => i !== undefined)
-      .slice()
-      .sort((a, b) => a - b);
-    // Display order (newest-first): smallest index = newest commit.
-    const newestIdx = indices[0];
-    const oldestIdx = indices[indices.length - 1];
-    const newestHash = displayOrder[newestIdx];
-    const oldestHash = displayOrder[oldestIdx];
-
-    // Delegate contiguity to the multiSelect helper.
-    const isContiguous = isSelectionContiguous(new Set(commitHashes), displayOrder);
-
-    // `<oldest>^..` fails when oldest is the initial
-    // commit (no parent → `oldest^` doesn't resolve). Detect via the
-    // event-supplied commitNodes and fall through to the positional
-    // form, which uses each hash standalone and tolerates initial-commit.
-    const oldestParents = commitNodes.find((n) => n.hash === oldestHash)?.parentCount ?? 1;
-    const useRangeForm = isContiguous && oldestParents > 0;
 
     // Ask the user once for the destination directory.
     const dirChoice = await vscode.window.showOpenDialog({
@@ -2082,22 +2146,7 @@ export class CommitContextMenuCommands {
 
     // Build the format-patch argv. Output flag first so range / positional
     // code paths share the same prefix.
-    const argv = ['format-patch', '-o', outDir];
-    if (useRangeForm) {
-      // <oldest>^..<newest> emits one .patch per commit in the range,
-      // numbered topologically (oldest-first). `^..` = "from oldest's
-      // parent up to newest inclusive."
-      argv.push(`${oldestHash}^..${newestHash}`);
-    } else {
-      // Declarative one-liner replaces the earlier
-      // walk-through comment block. Sort descending by display index
-      // → oldest-first replay order (newest-first display means
-      // larger index = older).
-      const positional = [...commitHashes]
-        .filter((h) => indexByHash.has(h))
-        .sort((a, b) => (indexByHash.get(b) ?? 0) - (indexByHash.get(a) ?? 0));
-      argv.push(...positional);
-    }
+    const argv = ['format-patch', '-o', outDir, ...spec];
 
     try {
       const result = await this._gitCli.exec(argv, {

@@ -20,9 +20,11 @@
  * strings) so callers own the toasts and the module stays unit-testable.
  */
 
-import { GitCli } from '../gitCli';
+import { GitCli, buildGitArgs } from '../gitCli';
+import { FULL_SHA_RE } from '../gitDirMarkers';
 import { parseStatus, isConflictedStatus } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
+import { restorePathsToHead } from '../worktree/restoreToHead';
 import { getLogger } from '../../utils/logger';
 
 /** Outcome of {@link saveLocalChanges}. */
@@ -138,6 +140,111 @@ export async function restoreLocalChanges(
       status: 'failed',
       detail: sanitizeGitError((res.stderr || res.stdout).trim() || 'stash pop failed'),
     };
+  } catch (error) {
+    return {
+      status: 'failed',
+      detail: sanitizeGitError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+/**
+ * Pre-apply restore token for a partially-applied patch: the working-state
+ * snapshot pinned by SHA (absent when the tree was clean — pre-apply state is
+ * then HEAD) plus the on-disk paths the patch touched. Produced by
+ * PatchService before a plain 3-way apply; consumed by the Resolve Conflicts
+ * dialog's Abort for `operation: 'applyPatch'`.
+ */
+export interface IPreApplyState {
+  /** `git stash create` snapshot of the pre-apply working state, when dirty. */
+  stashSha?: string;
+  /** Repo-relative paths the patch touched (cleanly-applied siblings included). */
+  patchPaths: string[];
+}
+
+/**
+ * Snapshot the current working state WITHOUT disturbing the tree or the stash
+ * stack: `git stash create` writes the stash-shaped commit and returns its
+ * SHA, but stores no ref — so a bracket that is never restored leaves nothing
+ * behind (git4idea's rollback label analog; a `stash push` here would change
+ * what the operation applies onto). Returns undefined when the tree is clean
+ * or the snapshot fails (callers degrade to HEAD as the restore source).
+ */
+export async function createWorkingStateSnapshot(
+  gitCli: GitCli,
+  cwd: string,
+  label: string
+): Promise<string | undefined> {
+  try {
+    const res = await gitCli.exec(['stash', 'create', label], { cwd, throwOnError: false });
+    if (res.exitCode !== 0) {
+      return undefined;
+    }
+    const sha = res.stdout.trim();
+    return FULL_SHA_RE.test(sha) ? sha : undefined;
+  } catch (error) {
+    getLogger().debug('createWorkingStateSnapshot failed (degrading to HEAD source)', {
+      cwd,
+      err: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
+/**
+ * Restore the patch-touched paths to their pre-apply state:
+ *  - paths present in the snapshot (or HEAD when the tree was clean) are
+ *    checked out from that tree — content AND index entry, which also
+ *    resolves any unmerged stages the 3-way apply left behind;
+ *  - paths absent from it were CREATED by the patch (a pre-apply untracked
+ *    file would have made `git apply` refuse outright) — they are unindexed
+ *    and removed through the sanctioned restore-to-HEAD writer.
+ * Untouched paths (local changes outside the patch) are never visited.
+ *
+ * Index-fidelity note: a restored path's index entry gets the snapshot's
+ * WORKTREE content (`git stash create`'s primary tree), so a pre-apply
+ * unstaged modification comes back staged. Worktree bytes are exact — the
+ * same contract as the reference's local-history rollback, which restores
+ * file content only (PatchApplier.java:287-310).
+ *
+ * Never throws: a failed restore reports the sanitized reason for the caller
+ * to surface, leaving whatever state git got to (no destructive retry).
+ */
+export async function restorePreApplyState(
+  gitCli: GitCli,
+  cwd: string,
+  state: IPreApplyState
+): Promise<RestoreLocalChangesResult> {
+  if (state.patchPaths.length === 0) {
+    return {
+      status: 'failed',
+      detail: 'the patch reported no touched files, so there is nothing to restore safely',
+    };
+  }
+  try {
+    const source = state.stashSha ?? 'HEAD';
+    const lsRes = await gitCli.exec(
+      buildGitArgs('ls-tree', ['-r', '-z', '--name-only'], [source], state.patchPaths),
+      { cwd, throwOnError: true }
+    );
+    const present = new Set(lsRes.stdout.split('\0').filter((p) => p.length > 0));
+    const restorePaths = state.patchPaths.filter((p) => present.has(p));
+    const createdPaths = state.patchPaths.filter((p) => !present.has(p));
+
+    if (restorePaths.length > 0) {
+      await gitCli.exec(buildGitArgs('checkout', [], [source], restorePaths), {
+        cwd,
+        throwOnError: true,
+      });
+    }
+    if (createdPaths.length > 0) {
+      await restorePathsToHead(
+        gitCli,
+        cwd,
+        createdPaths.map((path) => ({ path, removeFromDiskIfAbsentFromHead: true }))
+      );
+    }
+    return { status: 'restored' };
   } catch (error) {
     return {
       status: 'failed',

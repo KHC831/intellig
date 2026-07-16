@@ -61,6 +61,10 @@ describe('inferReopenOperation', () => {
     const cases: Array<[ConflictRepoState, Op]> = [
       ['merging', 'merge'],
       ['rebasing', 'rebase'],
+      // A git-am 3way conflict is a forward apply like cherry-pick: ours =
+      // the current branch. Mapping it to a reversed op would flip the
+      // Accept Yours/Theirs sides on every am conflict.
+      ['applying', 'applyPatch'],
       ['cherry-picking', 'cherryPick'],
       ['reverting', 'revert'],
     ];

@@ -58,6 +58,8 @@ import {
   firstShaToken,
   abbreviateSha,
   readRebaseMarker,
+  isAmSession,
+  readAmMarker,
 } from './gitDirMarkers';
 
 /**
@@ -104,6 +106,20 @@ export async function readInProgressOperation(
  * head-name is missing (legacy `rebase-apply` writes a SHA there).
  */
 async function readRebaseInProgress(gitDir: string): Promise<IInProgressOperation | undefined> {
+  // A `git am` session also lives in rebase-apply/ but writes the `applying`
+  // flag (and no head-name) — git's own status check reads exactly this file
+  // (wt-status.c show_rebase_information). It must never surface as a rebase:
+  // the rebase recovery affordances are refused by git during am. Label with
+  // the patch progress from next/last when present ("2/5").
+  if (await isAmSession(gitDir)) {
+    const next = (await readAmMarker(gitDir, 'next'))?.trim();
+    const last = (await readAmMarker(gitDir, 'last'))?.trim();
+    const result: IInProgressOperation = { kind: 'applying' };
+    if (next && last && /^\d+$/.test(next) && /^\d+$/.test(last)) {
+      result.target = `${next}/${last}`;
+    }
+    return result;
+  }
   const headName = await readRebaseMarker(gitDir, 'head-name');
   const onto = await readRebaseMarker(gitDir, 'onto');
   if (headName === undefined && onto === undefined) {

@@ -72,7 +72,16 @@ interface MockGitResult {
  */
 function makeMockGitService(
   scriptedResponses: MockGitResult[] = [],
-  statusFiles: IFileStatus[] = []
+  statusFiles: IFileStatus[] = [],
+  opts?: {
+    /**
+     * By default the pre-apply `git stash create` snapshot answers "clean
+     * tree" WITHOUT consuming a scripted response, so apply-focused tests
+     * script only the apply exec. Bracket-focused tests set this to script
+     * the snapshot row explicitly.
+     */
+    scriptStashCreate?: boolean;
+  }
 ): IGitService & { _exec: RecordedExec[]; _pushResponse: (r: MockGitResult) => void } {
   const execLog: RecordedExec[] = [];
   const responses = [...scriptedResponses];
@@ -85,6 +94,9 @@ function makeMockGitService(
     gitCli: {
       exec: async (args: string[], options: unknown): Promise<MockGitResult> => {
         execLog.push({ args: [...args], options: options as RecordedExec['options'] });
+        if (!opts?.scriptStashCreate && args[0] === 'stash' && args[1] === 'create') {
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        }
         const r = responses.shift();
         if (r) {
           return {
@@ -119,12 +131,30 @@ function makeRepo(rootPath?: string): IRepository {
   } as unknown as IRepository;
 }
 
+/**
+ * The recorded execs minus the pre-apply `git stash create` snapshot, so
+ * apply-focused assertions can keep indexing from 0.
+ */
+function applyCalls(git: { _exec: RecordedExec[] }): RecordedExec[] {
+  return git._exec.filter((c) => c.args[0] !== 'stash');
+}
+
 function makeContext(): vscode.ExtensionContext {
   return {
     subscriptions: [],
     extensionUri: vscode.Uri.file('/tmp/ext'),
   } as unknown as vscode.ExtensionContext;
 }
+
+/**
+ * No-op am session ops for dialog stubs whose test doesn't exercise the am
+ * recovery arm. Spread into the stub literal to satisfy IPatchService.
+ */
+const stubAmOps = {
+  amContinue: async (): Promise<{ success: boolean }> => ({ success: true }),
+  amSkip: async (): Promise<{ success: boolean }> => ({ success: true }),
+  amAbort: async (): Promise<{ success: boolean }> => ({ success: true }),
+};
 
 describe('PatchService.createPatchFromLocalChanges — truncation fail-closed', () => {
   const TMP = path.join(path.resolve(__dirname, '../../..'), 'workspace-notes', 'tmp');
@@ -164,10 +194,11 @@ describe('PatchService.applyPatch', () => {
       baseDir: 'subdir',
     });
     assert.strictEqual(res.success, true);
-    assert.deepStrictEqual(git._exec[0].args, [
+    assert.deepStrictEqual(applyCalls(git)[0].args, [
       'apply',
       '--index',
       '--3way',
+      '--verbose',
       '-p2',
       '--directory',
       'subdir',
@@ -183,9 +214,9 @@ describe('PatchService.applyPatch', () => {
     const repo = makeRepo();
 
     await svc.applyPatch(repo, { patchPath: '/tmp/x.patch', useAm: true });
-    assert.strictEqual(git._exec[0].args[0], 'am');
-    assert.ok(git._exec[0].args.includes('--3way'));
-    assert.strictEqual(git._exec[0].args[git._exec[0].args.length - 1], '/tmp/x.patch');
+    assert.strictEqual(applyCalls(git)[0].args[0], 'am');
+    assert.ok(applyCalls(git)[0].args.includes('--3way'));
+    assert.strictEqual(applyCalls(git)[0].args[applyCalls(git)[0].args.length - 1], '/tmp/x.patch');
   });
 
   it('falls back to `git apply --reverse` when useAm + reverse (git am has no --reverse)', async () => {
@@ -194,8 +225,8 @@ describe('PatchService.applyPatch', () => {
     const repo = makeRepo();
 
     await svc.applyPatch(repo, { patchPath: '/tmp/x.patch', useAm: true, reverse: true });
-    assert.strictEqual(git._exec[0].args[0], 'apply');
-    assert.ok(git._exec[0].args.includes('--reverse'));
+    assert.strictEqual(applyCalls(git)[0].args[0], 'apply');
+    assert.ok(applyCalls(git)[0].args.includes('--reverse'));
   });
 
   it('adds --check in check mode and does not extract conflicts', async () => {
@@ -208,7 +239,7 @@ describe('PatchService.applyPatch', () => {
     const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch', check: true });
     assert.strictEqual(res.success, false);
     assert.strictEqual(res.conflicts, undefined);
-    assert.ok(git._exec[0].args.includes('--check'));
+    assert.ok(applyCalls(git)[0].args.includes('--check'));
   });
 
   it('stderr with CONFLICT phrasing + unmerged files → returns conflicts array', async () => {
@@ -284,7 +315,7 @@ describe('PatchService.applyPatch', () => {
     const res = await svc.applyPatch(repo, { patchContent: 'diff --git a/f.ts b/f.ts\n' });
     assert.strictEqual(res.success, true);
     // The temp file path ended up as the last arg; it was created then deleted.
-    const lastArg = git._exec[0].args[git._exec[0].args.length - 1];
+    const lastArg = applyCalls(git)[0].args[applyCalls(git)[0].args.length - 1];
     assert.ok(lastArg.includes('intellig-patch-') && lastArg.endsWith('patch.diff'));
     assert.strictEqual(fs.existsSync(lastArg), false, 'temp file should be unlinked');
   });
@@ -295,7 +326,7 @@ describe('PatchService.applyPatch', () => {
     const repo = makeRepo();
 
     await svc.applyPatch(repo, { patchContent: 'diff --git a/f.ts b/f.ts\n' });
-    const lastArg = git._exec[0].args[git._exec[0].args.length - 1];
+    const lastArg = applyCalls(git)[0].args[applyCalls(git)[0].args.length - 1];
     const tempDir = path.dirname(lastArg);
     assert.ok(
       path.basename(tempDir).startsWith('intellig-patch-'),
@@ -310,7 +341,7 @@ describe('PatchService.applyPatch', () => {
     const repo = makeRepo();
 
     await svc.applyPatch(repo, { patchPath: '-leading.patch', stripLevel: 1 });
-    const args = git._exec[0].args;
+    const args = applyCalls(git)[0].args;
     const sep = args.indexOf('--');
     assert.notStrictEqual(sep, -1, 'argv must contain a -- end-of-options separator');
     assert.strictEqual(
@@ -327,7 +358,7 @@ describe('PatchService.applyPatch', () => {
     const repo = makeRepo();
 
     await svc.applyPatch(repo, { patchPath: '-leading.patch', useAm: true });
-    const args = git._exec[0].args;
+    const args = applyCalls(git)[0].args;
     assert.strictEqual(args[0], 'am');
     const sep = args.indexOf('--');
     assert.notStrictEqual(sep, -1, 'am argv must contain a -- separator');
@@ -438,8 +469,8 @@ describe('PatchService.applyPatch', () => {
         baseDir: 'subdir/inner',
       });
       assert.strictEqual(res.success, true);
-      assert.strictEqual(git._exec.length, 1);
-      assert.ok(git._exec[0].args.includes('--directory'));
+      assert.strictEqual(applyCalls(git).length, 1);
+      assert.ok(applyCalls(git)[0].args.includes('--directory'));
     });
 
     it('rejects NaN stripLevel (defense against webview parseInt)', async () => {
@@ -491,7 +522,7 @@ describe('PatchService.applyPatch', () => {
           stripLevel: lvl,
         });
         assert.strictEqual(res.success, true, `stripLevel=${lvl} should pass`);
-        assert.ok(git._exec[0].args.includes(`-p${lvl}`));
+        assert.ok(applyCalls(git)[0].args.includes(`-p${lvl}`));
       }
     });
   });
@@ -735,6 +766,7 @@ describe('ApplyPatchDialog', () => {
         return { success: true, appliedFiles: ['a.ts'] };
       },
       createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
       dispose: (): void => {},
     };
 
@@ -770,6 +802,7 @@ describe('ApplyPatchDialog', () => {
     const stubSvc = {
       applyPatch: async () => ({ success: false, appliedFiles: [], conflicts }),
       createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
       dispose: (): void => {},
     };
 
@@ -816,6 +849,7 @@ describe('ApplyPatchDialog', () => {
         return { success: true, appliedFiles: [] };
       },
       createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
       dispose: (): void => {},
     };
 
@@ -840,6 +874,7 @@ describe('ApplyPatchDialog', () => {
         return { success: true, appliedFiles: [] };
       },
       createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
       dispose: (): void => {},
     };
 
@@ -1016,6 +1051,7 @@ describe('ApplyPatchDialog per-file selection (E-7)', () => {
         return { success: true, appliedFiles: ['a.ts'] };
       },
       createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
       dispose: (): void => {},
     };
     (vscode.env.clipboard as unknown as { readText: () => Promise<string> }).readText = async () =>
@@ -1048,6 +1084,7 @@ describe('ApplyPatchDialog per-file selection (E-7)', () => {
         return { success: true, appliedFiles: [] };
       },
       createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
       dispose: (): void => {},
     };
     (vscode.env.clipboard as unknown as { readText: () => Promise<string> }).readText = async () =>
@@ -1062,5 +1099,630 @@ describe('ApplyPatchDialog per-file selection (E-7)', () => {
     });
 
     assert.strictEqual(applyCalled, false);
+  });
+});
+
+describe('PatchService.applyPatch — conflict scoping against real git output shapes', () => {
+  // Real `git apply --index --3way` reports a conflicted file as
+  // "Applied patch to '<path>' with conflicts." (and a clean 3way fallback as
+  // "... cleanly."). The touched-file parse must recognise that shape, or the
+  // conflict scoping silently degrades to ALL unmerged files and a
+  // pre-existing unrelated conflict is mis-attributed to the patch.
+  it('scopes conflicts using the "Applied patch to \'<path>\' with conflicts." shape', async () => {
+    const git = makeMockGitService(
+      [
+        {
+          exitCode: 1,
+          stdout: '',
+          stderr: "Applied patch to 'target.txt' with conflicts.\nU target.txt",
+        },
+      ],
+      [
+        { path: 'other.txt', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+        { path: 'target.txt', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+      ]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts);
+    assert.deepStrictEqual(
+      res.conflicts.map((c) => c.path),
+      ['target.txt'],
+      'the pre-existing unrelated UU file must NOT be attributed to the patch'
+    );
+  });
+
+  it('counts a cleanly 3way-merged file ("Applied patch to \'<path>\' cleanly.") as touched', async () => {
+    const git = makeMockGitService([
+      {
+        exitCode: 0,
+        stdout: '',
+        stderr: "Applied patch to 'a.ts' cleanly.",
+      },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.strictEqual(res.success, true);
+    assert.deepStrictEqual(res.appliedFiles, ['a.ts']);
+  });
+});
+
+describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
+  it('adds -R to both diff legs when reverse is set', async () => {
+    const git = makeMockGitService([
+      { exitCode: 0, stdout: 'diff-a', stderr: '' },
+      { exitCode: 0, stdout: 'diff-b', stderr: '' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.createPatchFromLocalChanges(repo, { reverse: true });
+
+    assert.deepStrictEqual(git._exec[0].args, ['diff', '-R']);
+    assert.deepStrictEqual(git._exec[1].args, ['diff', '--cached', '-R']);
+  });
+
+  it('adds -R to the cached leg in stagedOnly mode', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'diff', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.createPatchFromLocalChanges(repo, { stagedOnly: true, reverse: true });
+
+    assert.deepStrictEqual(git._exec[0].args, ['diff', '--cached', '-R']);
+  });
+
+  it('keeps -R ahead of the file scope separator', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: '', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.createPatchFromLocalChanges(repo, {
+      stagedOnly: true,
+      reverse: true,
+      files: ['a.ts'],
+    });
+
+    assert.deepStrictEqual(git._exec[0].args, ['diff', '--cached', '-R', '--', 'a.ts']);
+  });
+});
+
+describe('PatchService.applyPatch — pre-apply bracket (rollback token)', () => {
+  it('snapshots the working state before a plain apply and threads it into a conflict result', async () => {
+    const STASH_SHA = 'ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12';
+    const git = makeMockGitService(
+      [
+        // git stash create → snapshot sha (dirty tree)
+        { exitCode: 0, stdout: `${STASH_SHA}\n`, stderr: '' },
+        // git apply → 3way conflict, one clean sibling + one conflicted file
+        {
+          exitCode: 1,
+          stdout: '',
+          stderr:
+            'Checking patch sib.ts...\n' +
+            "Applied patch to 'sib.ts' cleanly.\n" +
+            'Checking patch target.ts...\n' +
+            "Applied patch to 'target.ts' with conflicts.\nU target.ts",
+        },
+      ],
+      [{ path: 'target.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus],
+      { scriptStashCreate: true }
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+
+    assert.strictEqual(res.success, false);
+    assert.deepStrictEqual(git._exec[0].args, ['stash', 'create', 'IntelliG: before Apply Patch']);
+    assert.ok(res.preApplyState, 'a conflict result must carry the pre-apply restore token');
+    assert.strictEqual(res.preApplyState.stashSha, STASH_SHA);
+    assert.deepStrictEqual(
+      res.preApplyState.patchPaths.sort(),
+      ['sib.ts', 'target.ts'],
+      'the token must name every touched file, including the cleanly-applied sibling'
+    );
+  });
+
+  it('adds --verbose to the plain apply argv so silent clean files are still reported', async () => {
+    const git = makeMockGitService([
+      { exitCode: 0, stdout: '', stderr: '' }, // stash create (clean tree → empty)
+      { exitCode: 0, stdout: 'Checking patch a.ts...\n', stderr: '' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+
+    assert.strictEqual(res.success, true);
+    assert.deepStrictEqual(git._exec[1].args, [
+      'apply',
+      '--index',
+      '--3way',
+      '--verbose',
+      '--',
+      '/tmp/x.patch',
+    ]);
+  });
+
+  it('a clean pre-apply tree yields a token without a stash sha', async () => {
+    const git = makeMockGitService(
+      [
+        { exitCode: 0, stdout: '\n', stderr: '' }, // stash create → empty = clean
+        {
+          exitCode: 1,
+          stdout: '',
+          stderr: "Applied patch to 'target.ts' with conflicts.",
+        },
+      ],
+      [{ path: 'target.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus],
+      { scriptStashCreate: true }
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+
+    assert.ok(res.preApplyState);
+    assert.strictEqual(res.preApplyState.stashSha, undefined);
+  });
+
+  it('hard failure and check mode carry NO restore token', async () => {
+    const hard = makeMockGitService(
+      [
+        { exitCode: 0, stdout: '', stderr: '' },
+        { exitCode: 1, stdout: '', stderr: 'error: corrupt patch at line 3' },
+      ],
+      [],
+      { scriptStashCreate: true }
+    );
+    const svc = new PatchService(hard);
+    const repo = makeRepo();
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.preApplyState, undefined, 'hard failure is atomic — nothing to restore');
+
+    const check = makeMockGitService([
+      { exitCode: 1, stdout: '', stderr: 'error: patch does not apply' },
+    ]);
+    const svc2 = new PatchService(check);
+    const res2 = await svc2.applyPatch(repo, { patchPath: '/tmp/x.patch', check: true });
+    assert.strictEqual(res2.preApplyState, undefined);
+    assert.ok(
+      !check._exec.some((c) => c.args[0] === 'stash'),
+      'check mode must not snapshot the working state'
+    );
+  });
+
+  it('the am path takes no bracket (git am --abort is its rollback)', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'Applying: x\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.applyPatch(repo, { patchPath: '/tmp/x.patch', useAm: true });
+
+    assert.ok(
+      !git._exec.some((c) => c.args[0] === 'stash'),
+      'useAm must not snapshot the working state'
+    );
+  });
+});
+
+describe('PatchService am session ops (paused git-am recovery)', () => {
+  it('amContinue issues `git am --continue` in the repo root', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'Applying: two\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amContinue(repo);
+    assert.strictEqual(res.success, true);
+    assert.deepStrictEqual(git._exec[0].args, ['am', '--continue']);
+    assert.strictEqual(git._exec[0].options?.cwd, repo.rootUri.fsPath);
+  });
+
+  it('amSkip issues `git am --skip`', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: '', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amSkip(repo);
+    assert.strictEqual(res.success, true);
+    assert.deepStrictEqual(git._exec[0].args, ['am', '--skip']);
+  });
+
+  it('amAbort issues `git am --abort`', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: '', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amAbort(repo);
+    assert.strictEqual(res.success, true);
+    assert.deepStrictEqual(git._exec[0].args, ['am', '--abort']);
+  });
+
+  it('amContinue failure with unmerged files reports them as conflicts', async () => {
+    const git = makeMockGitService(
+      [{ exitCode: 1, stdout: '', stderr: 'error: Failed to merge in the changes.' }],
+      [{ path: 'a.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amContinue(repo);
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts, 'expected conflicts to be reported');
+    assert.strictEqual(res.conflicts.length, 1);
+    assert.strictEqual(res.conflicts[0].path, 'a.ts');
+    assert.strictEqual(res.conflicts[0].resolved, false);
+  });
+
+  it('amSkip failure with unmerged files reports them as conflicts (next patch collides)', async () => {
+    const git = makeMockGitService(
+      [{ exitCode: 1, stdout: '', stderr: 'error: Failed to merge in the changes.' }],
+      [{ path: 'b.ts', indexStatus: 'A', workTreeStatus: 'A' } as IFileStatus]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amSkip(repo);
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts);
+    assert.strictEqual(res.conflicts[0].path, 'b.ts');
+  });
+
+  it('amContinue non-conflict failure surfaces a sanitized failureReason', async () => {
+    const git = makeMockGitService([
+      {
+        exitCode: 128,
+        stdout: '',
+        stderr: 'fatal: cannot resume: https://user:secret@host/repo unavailable',
+      },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amContinue(repo);
+    assert.strictEqual(res.success, false);
+    assert.ok(!res.conflicts || res.conflicts.length === 0);
+    assert.ok(res.failureReason, 'expected a failure reason');
+    assert.ok(!res.failureReason.includes('secret'), 'credentials must be scrubbed');
+  });
+
+  it('amAbort non-conflict failure surfaces a failureReason', async () => {
+    const git = makeMockGitService([
+      { exitCode: 128, stdout: '', stderr: 'fatal: no am session in progress' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.amAbort(repo);
+    assert.strictEqual(res.success, false);
+    assert.ok(res.failureReason?.includes('no am session'));
+  });
+});
+
+describe('PatchService.applyPatch — paused am session detection', () => {
+  const TMP = path.join(path.resolve(__dirname, '../../..'), 'workspace-notes', 'tmp');
+  let root: string;
+
+  beforeEach(() => {
+    fs.mkdirSync(TMP, { recursive: true });
+    root = fs.mkdtempSync(path.join(TMP, 'am-session-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function seedAmSession(): void {
+    fs.mkdirSync(path.join(root, '.git', 'rebase-apply'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.git', 'rebase-apply', 'applying'), '');
+  }
+
+  it('useAm failure with rebase-apply/applying on disk → amSessionActive', async () => {
+    seedAmSession();
+    const git = makeMockGitService([
+      { exitCode: 128, stdout: '', stderr: 'error: could not build fake ancestor' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo(root);
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/two.patch', useAm: true });
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.amSessionActive, true);
+  });
+
+  it('useAm conflict failure with the marker on disk → conflicts AND amSessionActive', async () => {
+    seedAmSession();
+    const git = makeMockGitService(
+      [{ exitCode: 1, stdout: '', stderr: 'CONFLICT (content): Merge conflict in a.ts' }],
+      [{ path: 'a.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo(root);
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/two.patch', useAm: true });
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts && res.conflicts.length === 1);
+    assert.strictEqual(res.amSessionActive, true);
+  });
+
+  it('useAm failure without the marker → amSessionActive not set', async () => {
+    fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+    const git = makeMockGitService([
+      { exitCode: 128, stdout: '', stderr: 'error: patch does not apply' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo(root);
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/two.patch', useAm: true });
+    assert.strictEqual(res.success, false);
+    assert.ok(!res.amSessionActive, 'no marker on disk must not claim a live am session');
+  });
+
+  it('plain apply failure (no useAm) never claims an am session, even with a stale marker', async () => {
+    // A leftover session from an earlier am must not be attributed to a
+    // plain `git apply` failure — the plain path never creates repo state.
+    seedAmSession();
+    const git = makeMockGitService([
+      { exitCode: 1, stdout: '', stderr: 'error: patch does not apply' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo(root);
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/one.patch' });
+    assert.strictEqual(res.success, false);
+    assert.ok(!res.amSessionActive);
+  });
+});
+
+describe('ApplyPatchDialog — paused am session failure arm', () => {
+  let ctx: vscode.ExtensionContext;
+  let repo: IRepository;
+  let dialog: ApplyPatchDialog | undefined;
+  let errorCalls: Array<{ message: string; items: string[] }>;
+  let warningCalls: Array<{ message: string; items: unknown[] }>;
+  let infoCalls: string[];
+  let errorAnswers: Array<string | undefined>;
+  let warningAnswer: string | undefined;
+  const originalError = vscode.window.showErrorMessage;
+  const originalWarning = vscode.window.showWarningMessage;
+  const originalInfo = vscode.window.showInformationMessage;
+
+  beforeEach(() => {
+    ctx = makeContext();
+    repo = makeRepo();
+    errorCalls = [];
+    warningCalls = [];
+    infoCalls = [];
+    errorAnswers = [];
+    warningAnswer = undefined;
+    (vscode.window as { showErrorMessage: unknown }).showErrorMessage = async (
+      message: string,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      errorCalls.push({ message, items });
+      return errorAnswers.shift();
+    };
+    (vscode.window as { showWarningMessage: unknown }).showWarningMessage = async (
+      message: string,
+      ...items: unknown[]
+    ): Promise<string | undefined> => {
+      warningCalls.push({ message, items });
+      return warningAnswer;
+    };
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async (
+      message: string
+    ): Promise<string | undefined> => {
+      infoCalls.push(message);
+      return undefined;
+    };
+  });
+
+  afterEach(() => {
+    (vscode.window as { showErrorMessage: unknown }).showErrorMessage = originalError;
+    (vscode.window as { showWarningMessage: unknown }).showWarningMessage = originalWarning;
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
+    if (dialog) {
+      dialog.dispose();
+      dialog = undefined;
+    }
+  });
+
+  interface AmStubOptions {
+    amContinueResult?: { success: boolean; conflicts?: IConflictedFile[]; failureReason?: string };
+  }
+
+  function makeAmStubService(calls: string[], options?: AmStubOptions) {
+    return {
+      applyPatch: async () => ({
+        success: false,
+        appliedFiles: [],
+        stderr: 'error: could not build fake ancestor',
+        amSessionActive: true,
+      }),
+      createPatchFromLocalChanges: async () => '',
+      amContinue: async () => {
+        calls.push('continue');
+        return options?.amContinueResult ?? { success: true };
+      },
+      amSkip: async () => {
+        calls.push('skip');
+        return { success: true };
+      },
+      amAbort: async () => {
+        calls.push('abort');
+        return { success: true };
+      },
+      dispose: (): void => {},
+    };
+  }
+
+  async function fireApply(): Promise<void> {
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'apply',
+      patchPath: '/tmp/two.patch',
+      useAm: true,
+    });
+  }
+
+  it('hard failure with a live am session offers Continue / Skip Patch / Abort', async () => {
+    const calls: string[] = [];
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: makeAmStubService(calls),
+      initialPatchPath: '/tmp/two.patch',
+    });
+
+    await fireApply();
+
+    assert.strictEqual(errorCalls.length, 1, 'one failure toast expected');
+    assert.deepStrictEqual(
+      errorCalls[0].items,
+      ['Continue', 'Skip Patch', 'Abort'],
+      'the failure toast must offer the am recovery actions'
+    );
+    assert.ok(
+      !/rebase/i.test(errorCalls[0].message),
+      `am failure toast must never claim a rebase, got: "${errorCalls[0].message}"`
+    );
+  });
+
+  it('hard failure WITHOUT a live am session keeps the plain error toast', async () => {
+    const stubSvc = {
+      applyPatch: async () => ({
+        success: false,
+        appliedFiles: [],
+        stderr: 'error: patch does not apply',
+      }),
+      createPatchFromLocalChanges: async () => '',
+      amContinue: async () => ({ success: true }),
+      amSkip: async () => ({ success: true }),
+      amAbort: async () => ({ success: true }),
+      dispose: (): void => {},
+    };
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: stubSvc,
+      initialPatchPath: '/tmp/one.patch',
+    });
+
+    await fireApply();
+
+    assert.strictEqual(errorCalls.length, 1);
+    assert.deepStrictEqual(errorCalls[0].items, [], 'no recovery buttons without an am session');
+  });
+
+  it('Abort choice → modal confirm → amAbort invoked', async () => {
+    const calls: string[] = [];
+    errorAnswers = ['Abort'];
+    warningAnswer = 'Abort';
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: makeAmStubService(calls),
+      initialPatchPath: '/tmp/two.patch',
+    });
+
+    await fireApply();
+
+    assert.strictEqual(warningCalls.length, 1, 'abort must confirm first');
+    assert.deepStrictEqual(calls, ['abort']);
+    assert.ok(
+      infoCalls.some((m) => m.toLowerCase().includes('abort')),
+      `expected an aborted toast, got: ${JSON.stringify(infoCalls)}`
+    );
+  });
+
+  it('Abort confirm declined → amAbort NOT invoked', async () => {
+    const calls: string[] = [];
+    errorAnswers = ['Abort'];
+    warningAnswer = undefined;
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: makeAmStubService(calls),
+      initialPatchPath: '/tmp/two.patch',
+    });
+
+    await fireApply();
+
+    assert.deepStrictEqual(calls, [], 'declining the confirm must not abort');
+  });
+
+  it('Continue choice → amContinue; success completes the apply', async () => {
+    const calls: string[] = [];
+    let completed = 0;
+    errorAnswers = ['Continue'];
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: makeAmStubService(calls),
+      initialPatchPath: '/tmp/two.patch',
+      onApplyComplete: () => {
+        completed++;
+      },
+    });
+
+    await fireApply();
+
+    assert.deepStrictEqual(calls, ['continue']);
+    assert.strictEqual(completed, 1, 'onApplyComplete must fire after a successful continue');
+    assert.ok(
+      infoCalls.some((m) => m.toLowerCase().includes('applied')),
+      `expected an applied toast, got: ${JSON.stringify(infoCalls)}`
+    );
+  });
+
+  it('Continue with further conflicts → Resolve Conflicts handoff (operation applyPatch)', async () => {
+    const calls: string[] = [];
+    errorAnswers = ['Continue'];
+    const recordedOpen: Array<{ conflicts: IConflictedFile[]; opContext: IConflictOpContext }> = [];
+    const stubConflictSvc = {
+      openResolveConflictsDialog: async (
+        _r: IRepository,
+        c: IConflictedFile[],
+        ctxArg: IConflictOpContext
+      ) => {
+        recordedOpen.push({ conflicts: c, opContext: ctxArg });
+      },
+    } as unknown as IConflictResolutionService;
+
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: makeAmStubService(calls, {
+        amContinueResult: {
+          success: false,
+          conflicts: [{ path: 'b.ts', resolved: false }],
+        },
+      }),
+      conflictResolutionService: stubConflictSvc,
+      initialPatchPath: '/tmp/two.patch',
+    });
+
+    await fireApply();
+
+    assert.deepStrictEqual(calls, ['continue']);
+    assert.strictEqual(recordedOpen.length, 1);
+    assert.strictEqual(recordedOpen[0].opContext.operation, 'applyPatch');
+    assert.strictEqual(recordedOpen[0].conflicts[0].path, 'b.ts');
+  });
+
+  it('Skip Patch choice → modal confirm → amSkip invoked', async () => {
+    const calls: string[] = [];
+    errorAnswers = ['Skip Patch'];
+    warningAnswer = 'Skip';
+    dialog = new ApplyPatchDialog(ctx, {
+      repo,
+      patchService: makeAmStubService(calls),
+      initialPatchPath: '/tmp/two.patch',
+    });
+
+    await fireApply();
+
+    assert.strictEqual(warningCalls.length, 1, 'skip must confirm first');
+    assert.deepStrictEqual(calls, ['skip']);
   });
 });

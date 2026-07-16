@@ -247,3 +247,56 @@ describe('readInProgressOperation', () => {
     assert.ok(!result.target?.includes('\r'));
   });
 });
+
+// git-am session disambiguation (F-K1): git's own status check reads
+// `rebase-apply/applying` — present = a `git am` session, absent = an
+// am-based rebase (git wt-status.c show_rebase_information). Misreading an
+// am session as a rebase offers recovery commands git refuses.
+describe('readInProgressOperation — git-am session (rebase-apply/applying)', () => {
+  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+  let amTmp: string;
+  let amGitDir: string;
+
+  beforeEach(() => {
+    fs.mkdirSync(TMP_ROOT, { recursive: true });
+    amTmp = fs.mkdtempSync(path.join(TMP_ROOT, 'intellig-am-'));
+    amGitDir = path.join(amTmp, '.git');
+    fs.mkdirSync(amGitDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(amTmp, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  });
+
+  it('classifies rebase-apply/ WITH the applying marker as kind "applying"', async () => {
+    const dir = path.join(amGitDir, 'rebase-apply');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'applying'), '', 'utf8');
+    const result = await readInProgressOperation(amGitDir, FAKE_SHORTEN);
+    assert.ok(result, 'expected an in-progress operation result');
+    assert.strictEqual(result.kind, 'applying', 'an am session is NOT a rebase');
+  });
+
+  it('labels the am session with the patch progress from next/last', async () => {
+    const dir = path.join(amGitDir, 'rebase-apply');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'applying'), '', 'utf8');
+    fs.writeFileSync(path.join(dir, 'next'), '2\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'last'), '5\n', 'utf8');
+    const result = await readInProgressOperation(amGitDir, FAKE_SHORTEN);
+    assert.strictEqual(result?.kind, 'applying');
+    assert.strictEqual(result?.target, '2/5');
+  });
+
+  it('keeps classifying rebase-apply/ WITHOUT the applying marker as a rebase', async () => {
+    const dir = path.join(amGitDir, 'rebase-apply');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'head-name'), 'refs/heads/feature\n', 'utf8');
+    const result = await readInProgressOperation(amGitDir, FAKE_SHORTEN);
+    assert.strictEqual(result?.kind, 'rebasing');
+  });
+});

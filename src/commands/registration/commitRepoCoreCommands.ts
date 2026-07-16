@@ -41,6 +41,41 @@ import type {
   IFileStatus,
   FileStatus,
 } from '../../git-core/interfaces/IGitService';
+import { loadPersisted, savePersisted, type PersistedSlot } from '../../utils/persistedState';
+
+/** One row of the Create Patch from Local Changes multi-pick. */
+export type CreateLocalPatchPick = 'file' | 'clipboard' | 'reverse';
+
+/**
+ * Validate the persisted Create Patch pick set: an array of known pick ids
+ * carrying at least one destination (`file` / `clipboard`). Anything else —
+ * junk entries, an options-only set — degrades to the caller's default.
+ */
+export function validateCreateLocalPatchPicks(raw: unknown): CreateLocalPatchPick[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const allowed: readonly string[] = ['file', 'clipboard', 'reverse'];
+  if (!raw.every((v): v is CreateLocalPatchPick => typeof v === 'string' && allowed.includes(v))) {
+    return undefined;
+  }
+  if (!raw.includes('file') && !raw.includes('clipboard')) {
+    return undefined;
+  }
+  return [...new Set(raw)] as CreateLocalPatchPick[];
+}
+
+/**
+ * Persisted pick set for Create Patch from Local Changes (destinations +
+ * the Reverse option), so the multi-pick reopens with the user's last
+ * choices — the IntelliJ Create Patch panel persists the same toggles
+ * (CreatePatchConfigurationPanel / CreatePatchCommitExecutor).
+ */
+export const CREATE_LOCAL_PATCH_PICKS_SLOT: PersistedSlot<CreateLocalPatchPick[]> = {
+  key: 'intellig.patch.createFromLocalPicks',
+  version: 1,
+  validate: validateCreateLocalPatchPicks,
+};
 
 /**
  * Build the modal confirmation text for the Rollback / Revert Local Changes
@@ -975,47 +1010,82 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     pickerTitle: 'Create Patch — Choose Repository',
     pickerPlaceholder: 'Select a repository',
     run: async ({ services, repo }) => {
-      const target = await vscode.window.showQuickPick(
+      // Multi-pick mirroring the reference Create Patch panel's checkboxes:
+      // destinations (file / clipboard — both allowed at once) plus the
+      // Reverse option, reopened with the user's last picks.
+      const persisted = loadPersisted(
+        ctx.context.workspaceState,
+        CREATE_LOCAL_PATCH_PICKS_SLOT
+      ) ?? ['file'];
+      const picked = await vscode.window.showQuickPick(
         [
-          { label: '$(file) Save to file…', id: 'file' as const },
-          { label: '$(clippy) Copy to clipboard', id: 'clipboard' as const },
+          {
+            label: '$(file) Save to file…',
+            id: 'file' as const,
+            picked: persisted.includes('file'),
+          },
+          {
+            label: '$(clippy) Copy to clipboard',
+            id: 'clipboard' as const,
+            picked: persisted.includes('clipboard'),
+          },
+          {
+            label: '$(arrow-swap) Reverse (-R)',
+            description: 'Applying the patch undoes the local changes',
+            id: 'reverse' as const,
+            picked: persisted.includes('reverse'),
+          },
         ],
-        { placeHolder: 'Where should the patch be written?' }
+        {
+          canPickMany: true,
+          placeHolder: 'Choose where to write the patch (and options)',
+        }
       );
-      if (!target) {
+      if (!picked) {
         return;
       }
+      const picks = picked.map((item) => item.id);
+      if (!picks.includes('file') && !picks.includes('clipboard')) {
+        void vscode.window.showInformationMessage(
+          'Pick at least one destination (file or clipboard).'
+        );
+        return;
+      }
+      await savePersisted(ctx.context.workspaceState, CREATE_LOCAL_PATCH_PICKS_SLOT, picks);
+      const reverse = picks.includes('reverse');
+      const toClipboard = picks.includes('clipboard');
 
       try {
-        if (target.id === 'clipboard') {
-          const patch = await services.patchService.createPatchFromLocalChanges(repo, {
-            toClipboard: true,
+        let outputPath: string | undefined;
+        if (picks.includes('file')) {
+          const defaultUri = vscode.Uri.joinPath(repo.rootUri, 'changes.patch');
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+            saveLabel: 'Save Patch',
           });
-          if (!patch || patch.trim().length === 0) {
-            void vscode.window.showInformationMessage('No local changes to diff.');
+          if (!uri) {
             return;
           }
-          void vscode.window.showInformationMessage('Patch copied to clipboard.');
-          return;
+          outputPath = uri.fsPath;
         }
 
-        const defaultUri = vscode.Uri.joinPath(repo.rootUri, 'changes.patch');
-        const uri = await vscode.window.showSaveDialog({
-          defaultUri,
-          filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
-          saveLabel: 'Save Patch',
-        });
-        if (!uri) {
-          return;
-        }
         const patch = await services.patchService.createPatchFromLocalChanges(repo, {
-          outputPath: uri.fsPath,
+          toClipboard,
+          outputPath,
+          reverse,
         });
         if (!patch || patch.trim().length === 0) {
           void vscode.window.showInformationMessage('No local changes to diff.');
           return;
         }
-        void vscode.window.showInformationMessage(`Patch created: ${uri.fsPath}`);
+        void vscode.window.showInformationMessage(
+          outputPath
+            ? toClipboard
+              ? `Patch created: ${outputPath} (also copied to clipboard).`
+              : `Patch created: ${outputPath}`
+            : 'Patch copied to clipboard.'
+        );
       } catch (error) {
         // PatchWriteFailed means the service has already surfaced a
         // sanitised toast — we must not re-toast or the user sees two

@@ -19,6 +19,7 @@ import { IGitService } from './interfaces/IGitService';
 import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
 import { NON_INTERACTIVE_GIT_ENV } from './gitEnv';
 import { resolveWorktreeGitDir } from './repo/RepositoryDiscovery';
+import { REBASE_APPLY_DIR, REBASE_MERGE_DIR } from './gitDirMarkers';
 import {
   IAutostashWatchToken,
   beginAutostashWatch,
@@ -692,7 +693,7 @@ export class RebaseService implements IRebaseService {
    * @returns True if paused for edit
    */
   private async isPausedForEdit(repo: IRepository): Promise<boolean> {
-    const rebaseMergePath = path.join(this.gitDir(repo), 'rebase-merge');
+    const rebaseMergePath = path.join(this.gitDir(repo), REBASE_MERGE_DIR);
 
     if (!fs.existsSync(rebaseMergePath)) {
       return false;
@@ -729,7 +730,7 @@ export class RebaseService implements IRebaseService {
    */
   private isPausedForReword(repo: IRepository): boolean {
     const gitDir = this.gitDir(repo);
-    const rebaseMergePath = path.join(gitDir, 'rebase-merge');
+    const rebaseMergePath = path.join(gitDir, REBASE_MERGE_DIR);
 
     if (!fs.existsSync(rebaseMergePath)) {
       return false;
@@ -755,7 +756,7 @@ export class RebaseService implements IRebaseService {
    * @returns The current step number (0-indexed)
    */
   private getCurrentRebaseStep(repo: IRepository): number {
-    const rebaseMergePath = path.join(this.gitDir(repo), 'rebase-merge');
+    const rebaseMergePath = path.join(this.gitDir(repo), REBASE_MERGE_DIR);
     const donePath = path.join(rebaseMergePath, 'done');
 
     if (!fs.existsSync(donePath)) {
@@ -979,8 +980,8 @@ export class RebaseService implements IRebaseService {
    */
   private isRebaseInProgress(repo: IRepository): boolean {
     const gitDir = this.gitDir(repo);
-    const rebaseMergePath = path.join(gitDir, 'rebase-merge');
-    const rebaseApplyPath = path.join(gitDir, 'rebase-apply');
+    const rebaseMergePath = path.join(gitDir, REBASE_MERGE_DIR);
+    const rebaseApplyPath = path.join(gitDir, REBASE_APPLY_DIR);
 
     return fs.existsSync(rebaseMergePath) || fs.existsSync(rebaseApplyPath);
   }
@@ -992,7 +993,7 @@ export class RebaseService implements IRebaseService {
    * @returns Partial session info if rebase is active, undefined otherwise
    */
   private detectActiveRebase(repo: IRepository): Partial<IRebaseSession> | undefined {
-    const rebaseMergePath = path.join(this.gitDir(repo), 'rebase-merge');
+    const rebaseMergePath = path.join(this.gitDir(repo), REBASE_MERGE_DIR);
 
     if (!fs.existsSync(rebaseMergePath)) {
       return undefined;

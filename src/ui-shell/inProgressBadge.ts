@@ -27,6 +27,7 @@ export interface IInProgressBadge {
 const LABELS: Record<Exclude<RepositoryState, 'idle'>, string> = {
   rebasing: 'Rebase in progress',
   merging: 'Merge in progress',
+  applying: 'Patch apply (git am) in progress',
   'cherry-picking': 'Cherry-pick in progress',
   reverting: 'Revert in progress',
 };

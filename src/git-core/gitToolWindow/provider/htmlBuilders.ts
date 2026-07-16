@@ -222,6 +222,7 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
       <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${escapeHtml(headHash)}">
         <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">Copy Revision Number</div>
         <div class="context-menu-item" data-action="createPatch" role="menuitem" tabindex="0">Create Patch\u2026</div>
+        <div class="context-menu-item" data-action="createPatchToClipboard" role="menuitem" tabindex="0">Create Patch to Clipboard</div>
         <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">Cherry-Pick</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="checkoutRevision" role="menuitem" tabindex="0">Checkout Revision</div>

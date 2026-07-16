@@ -368,16 +368,51 @@ export interface IRebaseWarningCommandRunner {
 }
 
 /**
- * Surface a warning toast when ANY open repository has
- * `inProgress.kind === 'rebasing'`, gated on a per-repo warned-set so the
- * same paused rebase isn't re-announced on every `onDidChangeRepository`
- * event.
+ * One paused-operation toast shape: the message built for a repo plus the
+ * button → command routing. Kept in a single table so the rebase and git-am
+ * arms cannot drift (the am arm exists precisely because am sessions used to
+ * masquerade as rebases and be offered recovery commands git refuses).
+ */
+const PAUSED_OPERATION_TOASTS: Record<
+  'rebasing' | 'applying',
+  { message: (repoName: string) => string; actions: ReadonlyArray<[string, string]> }
+> = {
+  rebasing: {
+    message: (repoName) =>
+      `A rebase is paused in '${repoName}'. ` +
+      `Resolve any conflicts and continue, or abort to restore the pre-rebase state.`,
+    actions: [
+      ['Continue', 'intellig.rebase.continue'],
+      ['Abort', 'intellig.rebase.abort'],
+      ['Skip Commit', 'intellig.rebase.skip'],
+    ],
+  },
+  applying: {
+    message: (repoName) =>
+      `A patch apply (git am) is paused in '${repoName}'. ` +
+      `Resolve any conflicts and continue, or abort to restore the pre-apply state.`,
+    actions: [
+      ['Continue', 'intellig.am.continue'],
+      ['Abort', 'intellig.am.abort'],
+      ['Skip Patch', 'intellig.am.skip'],
+    ],
+  },
+};
+
+/**
+ * Surface a warning toast when ANY open repository has a paused operation the
+ * user must finish by hand — `inProgress.kind === 'rebasing'` (paused rebase)
+ * or `'applying'` (paused `git am` session) — gated on a per-repo warned-set
+ * so the same paused operation isn't re-announced on every
+ * `onDidChangeRepository` event.
  *
- * The warning offers three actionable buttons that map to the registered
- * `intellig.rebase.continue` / `intellig.rebase.abort` / `intellig.rebase.skip`
- * commands. Without this surface, a user who reloaded VS Code mid-rebase (or
- * inherited a paused rebase from a CLI session) had to know to re-trigger
- * "Rebase Current onto This" from the BRANCHES menu before any UI signal
+ * Each kind offers its OWN recovery buttons ({@link PAUSED_OPERATION_TOASTS}):
+ * a paused rebase routes to `intellig.rebase.continue/abort/skip`, a paused am
+ * session to `intellig.am.continue/abort/skip`. The two must never cross —
+ * git refuses `rebase --continue/--abort` during an am session (and vice
+ * versa), so a mislabeled toast is a dead end. Without this surface, a user
+ * who reloaded VS Code mid-operation (or inherited a paused one from a CLI
+ * session) had to know the recovery commands by name before any UI signal
  * appeared. See `KNOWN-ISSUES.md` "Rebase recovery" entry for the original
  * deferral rationale.
  *
@@ -402,49 +437,48 @@ export function wireRebasePausedWarning(deps: {
    */
   isManagedRebase?: (repo: IRepository) => boolean;
 }): vscode.Disposable[] {
-  const warned = new Set<string>();
+  // Per-repo warned KIND — a value change (rebasing → applying, or any kind →
+  // idle → kind) re-arms the toast, so a different paused operation on the
+  // same repo is announced with its own recovery actions.
+  const warned = new Map<string, 'rebasing' | 'applying'>();
 
   const fireForRepo = async (repo: IRepository): Promise<void> => {
     const rootPath = repo.rootUri.fsPath;
     const inProgressKind = repo.inProgress?.kind;
 
-    // Reset the warned-set entry whenever the rebase clears so a future
-    // rebase will re-warn. The clear can happen after the user runs
-    // continue/abort/skip, or when an external tool ends the rebase.
-    if (inProgressKind !== 'rebasing') {
+    // Reset the warned-set entry whenever the paused operation clears so a
+    // future one will re-warn. The clear can happen after the user runs
+    // continue/abort/skip, or when an external tool ends the operation.
+    if (inProgressKind !== 'rebasing' && inProgressKind !== 'applying') {
       warned.delete(rootPath);
       return;
     }
 
     // A rebase the extension is actively driving (squash / interactive rebase)
     // transiently reports `rebasing` mid-run and owns its own messaging; don't
-    // fire the generic inherited-rebase toast for it.
-    if (deps.isManagedRebase?.(repo)) {
+    // fire the generic inherited-rebase toast for it. am sessions are never
+    // extension-driven rebase episodes, so the gate is rebase-only.
+    if (inProgressKind === 'rebasing' && deps.isManagedRebase?.(repo)) {
       return;
     }
 
-    if (warned.has(rootPath)) {
+    if (warned.get(rootPath) === inProgressKind) {
       return;
     }
-    warned.add(rootPath);
+    warned.set(rootPath, inProgressKind);
 
+    const toast = PAUSED_OPERATION_TOASTS[inProgressKind];
     const choice = await deps.window.showWarningMessage(
-      `A rebase is paused in '${rootPath.split('/').pop() ?? rootPath}'. ` +
-        `Resolve any conflicts and continue, or abort to restore the pre-rebase state.`,
-      'Continue',
-      'Abort',
-      'Skip Commit'
+      toast.message(rootPath.split('/').pop() ?? rootPath),
+      ...toast.actions.map(([label]) => label)
     );
-    if (choice === 'Continue') {
-      await deps.commands.executeCommand('intellig.rebase.continue');
-    } else if (choice === 'Abort') {
-      await deps.commands.executeCommand('intellig.rebase.abort');
-    } else if (choice === 'Skip Commit') {
-      await deps.commands.executeCommand('intellig.rebase.skip');
+    const chosen = toast.actions.find(([label]) => label === choice);
+    if (chosen) {
+      await deps.commands.executeCommand(chosen[1]);
     }
     // Other choices (Esc / dismissed): leave the warned-set entry in
     // place. The user explicitly dismissed; don't re-warn until the
-    // rebase state changes.
+    // operation state changes.
   };
 
   // Initial scan: any repo already in `rebasing` state at activation

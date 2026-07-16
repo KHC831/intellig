@@ -846,6 +846,95 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
+  // ─── createPatchToClipboard ───────────────────────────────────────────────
+
+  describe('_handleCreatePatchToClipboard', () => {
+    it('single commit — copies format-patch stdout to the clipboard, no save dialog', async () => {
+      let copiedText = '';
+      writableEnv().clipboard = {
+        writeText: (text: string): Promise<void> => {
+          copiedText = text;
+          return Promise.resolve();
+        },
+        readText: (): Promise<string> => Promise.resolve(''),
+      };
+      let saveDialogCalls = 0;
+      writableWindow().showSaveDialog = (): Promise<vscode.Uri | undefined> => {
+        saveDialogCalls++;
+        return Promise.resolve(undefined);
+      };
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('createPatchToClipboard', [testHash]);
+
+      const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
+      assert.ok(call, 'gitCli.exec should have been called');
+      const args = call.args[0] as string[];
+      assert.ok(
+        args.includes('format-patch'),
+        `expected format-patch argv, got ${JSON.stringify(args)}`
+      );
+      assert.ok(args.includes('--stdout'));
+      assert.ok(args.includes(testHash));
+      assert.strictEqual(copiedText, 'patch content');
+      assert.strictEqual(saveDialogCalls, 0, 'the silent clipboard variant never opens a dialog');
+      assert.strictEqual(messages.info.length, 1);
+      assert.ok(
+        messages.info[0].message.toLowerCase().includes('clipboard'),
+        `toast should mention the clipboard, got: "${messages.info[0].message}"`
+      );
+    });
+
+    it('does nothing with empty commit hashes', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('createPatchToClipboard', []);
+
+      assert.strictEqual(messages.info.length, 0);
+      assert.strictEqual(gitCli.calls.length, 0);
+    });
+
+    it('surfaces a sanitized error toast on git failure; clipboard untouched', async () => {
+      let clipboardWrites = 0;
+      writableEnv().clipboard = {
+        writeText: (): Promise<void> => {
+          clipboardWrites++;
+          return Promise.resolve();
+        },
+        readText: (): Promise<string> => Promise.resolve(''),
+      };
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async () => {
+          throw new Error('format-patch failed');
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('createPatchToClipboard', [testHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(messages.error[0].message.includes('format-patch failed'));
+      assert.strictEqual(clipboardWrites, 0, 'no clipboard write after a git failure');
+    });
+  });
+
   // ─── compareWithLocal ─────────────────────────────────────────────────────
 
   describe('_handleCompareWithLocal', () => {

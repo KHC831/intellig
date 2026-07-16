@@ -142,6 +142,7 @@ function makeMockGitService(): IGitService & {
     failureReason?: string;
   };
   _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
+  _lsTreeStdout: string;
   _fireRepoChange: (repo: IRepository) => void;
 } {
   const execCalls: string[][] = [];
@@ -194,6 +195,9 @@ function makeMockGitService(): IGitService & {
         // accept paths see the index stage model: stage 2 present unless ours is
         // deleted (index 'D'), stage 3 present unless theirs is deleted (work-tree
         // 'D'). Records are `<mode> <sha> <stage>\t<path>` NUL-terminated.
+        if (args[0] === 'ls-tree') {
+          return { exitCode: 0, stdout: svc._lsTreeStdout, stderr: '' };
+        }
         if (args[0] === 'ls-files' && args.includes('-u')) {
           const dashDash = args.indexOf('--');
           const only = dashDash >= 0 ? args[dashDash + 1] : undefined;
@@ -228,6 +232,8 @@ function makeMockGitService(): IGitService & {
       failureReason?: string;
     },
     _statuses: statuses,
+    /** Scripted `git ls-tree` stdout (NUL-separated names) for restore tests. */
+    _lsTreeStdout: '',
     _fireRepoChange: (r: IRepository): void => repoChangeEmitter.fire(r),
   } as unknown as IGitService & {
     _execCalls: string[][];
@@ -244,6 +250,7 @@ function makeMockGitService(): IGitService & {
       failureReason?: string;
     };
     _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
+    _lsTreeStdout: string;
     _fireRepoChange: (repo: IRepository) => void;
   };
   return svc;
@@ -1064,6 +1071,128 @@ describe('ResolveConflictsDialog', () => {
         });
         assert.ok(expectedAbort(gitService), `expected Abort dispatch for ${op}`);
       });
+    });
+  });
+
+  // applyPatch Abort with a pre-apply bracket: the conflict arm of a plain
+  // 3-way apply leaves PARTIAL state (clean siblings fully applied), so an
+  // abort that restores only the unresolved paths silently keeps them. With
+  // the bracket token the abort restores the FULL pre-apply state.
+  describe('applyPatch Abort — full pre-apply restore (bracket token)', () => {
+    const SHA = 'ab12'.repeat(10);
+    const PRE_APPLY = {
+      stashSha: SHA,
+      patchPaths: ['sib.ts', 'target.ts', 'new.ts'],
+    };
+    const origWarn = vscode.window.showWarningMessage;
+    let warnMessages: string[];
+    let warnAnswer: string | undefined;
+
+    beforeEach(() => {
+      warnMessages = [];
+      warnAnswer = 'Abort';
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (...args: unknown[]) => Thenable<string | undefined>;
+        }
+      ).showWarningMessage = (message: unknown): Thenable<string | undefined> => {
+        warnMessages.push(String(message));
+        return Promise.resolve(warnAnswer);
+      };
+    });
+
+    afterEach(() => {
+      (vscode.window as unknown as { showWarningMessage: typeof origWarn }).showWarningMessage =
+        origWarn;
+    });
+
+    function makeBracketDialog(preApplyState?: typeof PRE_APPLY): ResolveConflictsDialog {
+      return new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'target.ts', resolved: false }],
+        {
+          operation: 'applyPatch',
+          canAbort: true,
+          canContinue: true,
+          ...(preApplyState ? { preApplyState } : {}),
+        },
+        conflictService,
+        mergeView,
+        gitService
+      );
+    }
+
+    it('confirms naming the cleanly-applied siblings, then restores from the snapshot', async () => {
+      // sib.ts + target.ts existed pre-apply; new.ts was created by the patch.
+      gitService._lsTreeStdout = 'sib.ts\0target.ts\0';
+      dialog = makeBracketDialog(PRE_APPLY);
+      let closeReason: string | undefined;
+      dialog.onDidClose((r) => {
+        closeReason = r;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'abort',
+      });
+
+      assert.strictEqual(warnMessages.length, 1, 'abort must confirm first');
+      assert.ok(
+        /applied cleanly/i.test(warnMessages[0]),
+        `the confirm must say cleanly-applied files are discarded too, got: "${warnMessages[0]}"`
+      );
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'ls-tree' && a.includes(SHA) && a.includes('new.ts')
+        ),
+        `expected an ls-tree presence probe against the snapshot; execs: ${JSON.stringify(gitService._execCalls)}`
+      );
+      assert.ok(
+        gitService._execCalls.some(
+          (a) =>
+            a[0] === 'checkout' &&
+            a.includes(SHA) &&
+            a.includes('sib.ts') &&
+            a.includes('target.ts') &&
+            !a.includes('new.ts')
+        ),
+        `pre-apply paths must be checked out FROM THE SNAPSHOT; execs: ${JSON.stringify(gitService._execCalls)}`
+      );
+      assert.strictEqual(closeReason, 'aborted');
+    });
+
+    it('declining the confirm restores nothing and keeps the dialog open', async () => {
+      warnAnswer = undefined;
+      dialog = makeBracketDialog(PRE_APPLY);
+      let closed = false;
+      dialog.onDidClose(() => {
+        closed = true;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'abort',
+      });
+
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'ls-tree' || a[0] === 'checkout'),
+        'no restore work may run when the confirm is declined'
+      );
+      assert.strictEqual(closed, false, 'the dialog must stay open');
+    });
+
+    it('without a token, Abort keeps the legacy unresolved-paths restore', async () => {
+      dialog = makeBracketDialog(undefined);
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'abort',
+      });
+
+      assert.ok(
+        gitService._execCalls.some(
+          (a) => a[0] === 'checkout' && a[1] === 'HEAD' && a[2] === '--' && a.includes('target.ts')
+        ),
+        `expected the legacy restore of unresolved paths; execs: ${JSON.stringify(gitService._execCalls)}`
+      );
     });
   });
 

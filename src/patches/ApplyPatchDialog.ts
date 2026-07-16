@@ -367,7 +367,9 @@ ${this._getBodyHtml()}
       return;
     }
 
-    // Conflict path: delegate to the Resolve Conflicts dialog.
+    // Conflict path: delegate to the Resolve Conflicts dialog. The pre-apply
+    // bracket token rides along so the dialog's Abort can restore the FULL
+    // pre-apply state (cleanly-applied siblings included).
     if (result.conflicts && result.conflicts.length > 0) {
       if (this._conflictResolutionService) {
         await this._conflictResolutionService.openResolveConflictsDialog(
@@ -377,6 +379,7 @@ ${this._getBodyHtml()}
             operation: 'applyPatch',
             canAbort: true,
             canContinue: true,
+            ...(result.preApplyState ? { preApplyState: result.preApplyState } : {}),
           }
         );
         // Close the apply dialog once the conflict dialog takes over — the
@@ -394,9 +397,100 @@ ${this._getBodyHtml()}
       return;
     }
 
-    // Hard failure: surface git stderr.
+    // Hard failure: surface git stderr. A failed `git am` that left a paused
+    // session on disk gets the am recovery actions — a plain toast would
+    // strand the user in a session only `git am --continue/--skip/--abort`
+    // can end (git refuses the rebase recovery commands during am).
     const detail = result.stderr ? `: ${sanitizeGitError(result.stderr)}` : '';
+    if (result.amSessionActive) {
+      await this._offerAmRecovery(detail);
+      return;
+    }
     void vscode.window.showErrorMessage(`Apply Patch failed${detail}`);
+  }
+
+  /**
+   * Failure arm for a `useAm` apply that paused with a live `git am` session:
+   * offer the session's own recovery ops. Skip and Abort are destructive and
+   * confirm once (modal), matching the rebase recovery commands' policy.
+   * Continue/Skip outcomes mirror the primary apply arms: success completes
+   * the dialog, further conflicts hand off to the Resolve Conflicts dialog.
+   * After an abort the dialog stays open so the user can adjust and retry.
+   */
+  private async _offerAmRecovery(detail: string): Promise<void> {
+    const choice = await vscode.window.showErrorMessage(
+      `Apply Patch failed${detail} — the patch apply (git am) is paused. ` +
+        `Continue after resolving, skip the failing patch, or abort to restore the pre-apply state.`,
+      'Continue',
+      'Skip Patch',
+      'Abort'
+    );
+    if (choice === 'Continue') {
+      await this._finishAmSession(await this._patchService.amContinue(this._repo), 'continue');
+      return;
+    }
+    if (choice === 'Skip Patch') {
+      const confirm = await vscode.window.showWarningMessage(
+        'Skip this patch? Its changes will NOT be applied.',
+        { modal: true },
+        'Skip'
+      );
+      if (confirm !== 'Skip') {
+        return;
+      }
+      await this._finishAmSession(await this._patchService.amSkip(this._repo), 'skip patch');
+      return;
+    }
+    if (choice === 'Abort') {
+      const confirm = await vscode.window.showWarningMessage(
+        'Abort the patch apply? Your working tree will be restored to its pre-apply state.',
+        { modal: true },
+        'Abort'
+      );
+      if (confirm !== 'Abort') {
+        return;
+      }
+      const res = await this._patchService.amAbort(this._repo);
+      if (res.success) {
+        void vscode.window.showInformationMessage('Patch apply aborted.');
+      } else {
+        void vscode.window.showErrorMessage(
+          `Failed to abort patch apply: ${sanitizeGitError(res.failureReason ?? 'unknown error (no output from git)')}`
+        );
+      }
+    }
+    // Dismissed (Esc): the session stays paused; the paused-operation toast
+    // and the intellig.am.* palette commands remain the recovery route.
+  }
+
+  /**
+   * Route an am continue/skip outcome through the same three arms as the
+   * primary apply: completed, further conflicts (Resolve Conflicts handoff),
+   * or a hard error toast.
+   */
+  private async _finishAmSession(
+    res: Awaited<ReturnType<IPatchService['amContinue']>>,
+    verb: string
+  ): Promise<void> {
+    if (res.success) {
+      void vscode.window.showInformationMessage('Patch applied.');
+      this._onApplyComplete?.();
+      this.dispose();
+      return;
+    }
+    if (res.conflicts && res.conflicts.length > 0 && this._conflictResolutionService) {
+      await this._conflictResolutionService.openResolveConflictsDialog(this._repo, res.conflicts, {
+        operation: 'applyPatch',
+        canAbort: true,
+        canContinue: true,
+      });
+      this._onApplyComplete?.();
+      this.dispose();
+      return;
+    }
+    void vscode.window.showErrorMessage(
+      `Failed to ${verb}: ${sanitizeGitError(res.failureReason ?? 'unknown error (no output from git)')}`
+    );
   }
 
   /**

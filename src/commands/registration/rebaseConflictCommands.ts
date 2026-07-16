@@ -286,6 +286,123 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     },
   });
 
+  // Recovery commands for a paused `git am` session (a failed multi-commit
+  // mailbox apply). Mirror the rebase recovery trio above — same stale-cache
+  // guard, same confirm policy — but route through PatchService's am ops:
+  // git refuses `rebase --continue/--abort` during am (and vice versa), so
+  // the two triples must never cross. The paused-operation warning toast and
+  // the Apply Patch dialog's failure arm both point here.
+  const amContinueCommand = registerRepoCommand(ctx, {
+    id: 'intellig.am.continue',
+    failureTitle: 'Failed to continue patch apply',
+    run: async ({ services, gitService, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const fresh = (await gitService.reloadRepository(repo)) ?? repo;
+      if (conflictService.getRepositoryState(fresh) !== 'applying') {
+        void vscode.window.showInformationMessage(
+          'Continue Patch Apply is only available while a patch apply (git am) is in progress.'
+        );
+        return;
+      }
+
+      const res = await services.patchService.amContinue(repo);
+      if (res.success) {
+        void vscode.window.showInformationMessage('Patch apply continued successfully.');
+      } else if (res.conflicts && res.conflicts.length > 0) {
+        // The next mailbox patch collided — hand the new file set to the
+        // Resolve Conflicts dialog so the user can keep going.
+        await conflictService.openResolveConflictsDialog(repo, res.conflicts, {
+          operation: 'applyPatch',
+          canAbort: true,
+          canContinue: true,
+        });
+      } else {
+        const reason = res.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(
+          `Failed to continue patch apply: ${sanitizeGitError(reason)}`
+        );
+      }
+      await gitService.reloadRepository(repo);
+      ctx.gitToolWindowProvider?.refresh();
+    },
+  });
+
+  const amSkipCommand = registerRepoCommand(ctx, {
+    id: 'intellig.am.skip',
+    failureTitle: 'Failed to skip patch',
+    run: async ({ services, gitService, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const fresh = (await gitService.reloadRepository(repo)) ?? repo;
+      if (conflictService.getRepositoryState(fresh) !== 'applying') {
+        void vscode.window.showInformationMessage(
+          'Skip Patch is only available while a patch apply (git am) is in progress.'
+        );
+        return;
+      }
+
+      const choice = await vscode.window.showWarningMessage(
+        'Skip this patch? Its changes will NOT be applied.',
+        { modal: true },
+        'Skip'
+      );
+      if (choice !== 'Skip') {
+        return;
+      }
+
+      const res = await services.patchService.amSkip(repo);
+      if (res.success) {
+        void vscode.window.showInformationMessage('Patch skipped.');
+      } else if (res.conflicts && res.conflicts.length > 0) {
+        await conflictService.openResolveConflictsDialog(repo, res.conflicts, {
+          operation: 'applyPatch',
+          canAbort: true,
+          canContinue: true,
+        });
+      } else {
+        const reason = res.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(`Failed to skip patch: ${sanitizeGitError(reason)}`);
+      }
+      await gitService.reloadRepository(repo);
+      ctx.gitToolWindowProvider?.refresh();
+    },
+  });
+
+  const amAbortCommand = registerRepoCommand(ctx, {
+    id: 'intellig.am.abort',
+    failureTitle: 'Failed to abort patch apply',
+    run: async ({ services, gitService, repo }) => {
+      const conflictService = services.conflictResolutionService;
+      const fresh = (await gitService.reloadRepository(repo)) ?? repo;
+      if (conflictService.getRepositoryState(fresh) !== 'applying') {
+        void vscode.window.showInformationMessage(
+          'Abort Patch Apply is only available while a patch apply (git am) is in progress.'
+        );
+        return;
+      }
+
+      const choice = await vscode.window.showWarningMessage(
+        'Abort the patch apply? Your working tree will be restored to its pre-apply state.',
+        { modal: true },
+        'Abort'
+      );
+      if (choice !== 'Abort') {
+        return;
+      }
+
+      const res = await services.patchService.amAbort(repo);
+      if (res.success) {
+        void vscode.window.showInformationMessage('Patch apply aborted.');
+      } else {
+        const reason = res.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(
+          `Failed to abort patch apply: ${sanitizeGitError(reason)}`
+        );
+      }
+      await gitService.reloadRepository(repo);
+      ctx.gitToolWindowProvider?.refresh();
+    },
+  });
+
   const markFileResolvedCommand = registerRepoCommand(ctx, {
     id: 'intellig.conflict.markResolved',
     failureTitle: 'Failed to mark file as resolved',
@@ -567,6 +684,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     rebaseSkipCommand,
     rebaseContinueCommand,
     rebaseAbortCommand,
+    amContinueCommand,
+    amSkipCommand,
+    amAbortCommand,
     markFileResolvedCommand,
     unresolveCommand,
     acceptAllCurrentFilesCommand,

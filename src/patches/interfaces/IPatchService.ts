@@ -7,6 +7,7 @@
  */
 
 import { IRepository } from '../../git-core/interfaces/IGitService';
+import type { IPreApplyState } from '../../git-core/ops/preservedChanges';
 import { IConflictedFile } from '../../conflicts/interfaces/IConflictResolutionService';
 
 /**
@@ -68,6 +69,40 @@ export interface IApplyPatchResult {
   conflicts?: IConflictedFile[];
   /** Raw stderr from git, surfaced for toast/error display on plain failure. */
   stderr?: string;
+  /**
+   * `true` when a `useAm` apply failed AND left a paused `git am` session on
+   * disk (`.git/rebase-apply/applying`). Callers must offer the am recovery
+   * ops ({@link IPatchService.amContinue} / `amSkip` / `amAbort`) — a plain
+   * error toast strands the user in a session only `git am` commands can end.
+   * Never set for plain `git apply` runs (they create no repo state).
+   */
+  amSessionActive?: boolean;
+  /**
+   * Pre-apply restore token, present ONLY on a plain 3-way CONFLICT result
+   * (the arm that leaves partial state: conflicted files carry markers,
+   * clean siblings land fully). Callers thread it into the Resolve Conflicts
+   * handoff so Abort can restore the FULL pre-apply state. Success and hard
+   * failure carry no token — a hard failure is atomic (git apply's
+   * all-or-nothing contract), and the snapshot itself is an unreferenced
+   * `git stash create` commit, so dropping it leaves no stash-stack litter.
+   */
+  preApplyState?: IPreApplyState;
+}
+
+/**
+ * Result of an am session recovery op (`git am --continue|--skip|--abort`).
+ */
+export interface IAmSessionOpResult {
+  /** `true` when git finished the operation cleanly. */
+  success: boolean;
+  /**
+   * Unmerged files present after a failed continue/skip (the next mailbox
+   * patch collided). Callers route these through the Resolve Conflicts dialog
+   * with `operation: 'applyPatch'`.
+   */
+  conflicts?: IConflictedFile[];
+  /** Sanitized git error for non-conflict failures. */
+  failureReason?: string;
 }
 
 /**
@@ -87,6 +122,12 @@ export interface ICreatePatchOptions {
   files?: string[];
   /** Diff only staged changes (via `git diff --cached`). */
   stagedOnly?: boolean;
+  /**
+   * Generate the patch in reverse (`git diff -R`): applying it undoes the
+   * local changes. Mirrors IntelliJ's Create Patch "Reverse" checkbox
+   * (CreatePatchConfigurationPanel).
+   */
+  reverse?: boolean;
   /** Write the patch to the system clipboard via `vscode.env.clipboard`. */
   toClipboard?: boolean;
   /** Absolute path to write the patch file. Parent directory must exist. */
@@ -111,6 +152,27 @@ export interface IPatchService {
    * so callers (e.g. tests) can assert the content.
    */
   createPatchFromLocalChanges(repo: IRepository, options: ICreatePatchOptions): Promise<string>;
+
+  /**
+   * Continue a paused `git am` session after the user resolves conflicts
+   * (`git am --continue`). Further conflicts (the next mailbox patch collided)
+   * come back in `conflicts`.
+   */
+  amContinue(repo: IRepository): Promise<IAmSessionOpResult>;
+
+  /**
+   * Skip the failing patch of a paused `git am` session and apply the rest
+   * (`git am --skip`). Destructive of the skipped patch's changes — callers
+   * gate with a single confirm modal.
+   */
+  amSkip(repo: IRepository): Promise<IAmSessionOpResult>;
+
+  /**
+   * Abort a paused `git am` session, restoring the pre-apply state
+   * (`git am --abort`). Destructive of the in-flight apply — callers gate
+   * with a single confirm modal.
+   */
+  amAbort(repo: IRepository): Promise<IAmSessionOpResult>;
 
   /**
    * Dispose of any service-held resources. No-op for the MVP implementation.

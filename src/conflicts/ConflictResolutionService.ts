@@ -21,6 +21,10 @@ import { ConflictUiCoordinator } from './conflictUiCoordinator';
 import { getLogger, type Logger } from '../utils/logger';
 import { NON_INTERACTIVE_GIT_ENV } from '../git-core/gitEnv';
 import { restorePathsToHead } from '../git-core/worktree/restoreToHead';
+import {
+  restorePreApplyState as restorePreApplyStateOp,
+  type IPreApplyState,
+} from '../git-core/ops/preservedChanges';
 
 /**
  * Interface for accessing GitCli from GitService
@@ -732,6 +736,21 @@ export class ConflictResolutionService implements IConflictResolutionService {
     }
   }
 
+  async restorePreApplyState(
+    repo: IRepository,
+    state: IPreApplyState
+  ): Promise<IOperationCompletionResult> {
+    const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+    const restored = await restorePreApplyStateOp(gitCli, repo.rootUri.fsPath, state);
+    if (restored.status === 'failed') {
+      // sanitize-exempt: pre-sanitized: restorePreApplyState returns sanitizeGitError output
+      return { success: false, error: `Failed to abort: ${restored.detail}` };
+    }
+    const conflicts = await this.getConflictedFiles(repo);
+    this._onDidChangeConflicts.fire({ repo, conflicts });
+    return { success: true };
+  }
+
   /**
    * Abort the current merge operation
    *
@@ -810,7 +829,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   getRepositoryState(
     repo: IRepository
-  ): 'idle' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting' {
+  ): 'idle' | 'merging' | 'rebasing' | 'applying' | 'cherry-picking' | 'reverting' {
     // The repository state is already tracked in the IRepository interface
     return repo.state as RepositoryState;
   }

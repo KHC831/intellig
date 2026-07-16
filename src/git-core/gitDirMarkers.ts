@@ -37,12 +37,48 @@ export function isHexObjectId(value: string, options?: { allowPrefix?: boolean }
 export type ShortenSha = (sha: string) => Promise<string | undefined>;
 
 /**
- * The two directories git uses to hold live rebase state: `rebase-merge/`
- * (interactive / merge-strategy rebase) and `rebase-apply/` (legacy `am`-style).
- * Only one exists at a time. Shared so every "is a rebase in progress" probe
- * checks the same set instead of re-listing the literal.
+ * `.git/rebase-merge/` — live state of an interactive / merge-strategy
+ * rebase. The named constant (not a re-typed literal) is the fence line:
+ * `check:git-dir-markers` fails a raw literal outside this module.
  */
-export const REBASE_STATE_DIRS = ['rebase-merge', 'rebase-apply'] as const;
+export const REBASE_MERGE_DIR = 'rebase-merge';
+
+/**
+ * `.git/rebase-apply/` — live state of a legacy `am`-style rebase OR a
+ * `git am` session; the {@link AM_SESSION_MARKER} flag file separates the
+ * two. Consumers must never infer meaning from this directory alone.
+ */
+export const REBASE_APPLY_DIR = 'rebase-apply';
+
+/**
+ * The two directories git uses to hold live rebase state. Only one exists at
+ * a time. Shared so every "is a rebase in progress" probe checks the same set
+ * instead of re-listing the literal.
+ */
+export const REBASE_STATE_DIRS = [REBASE_MERGE_DIR, REBASE_APPLY_DIR] as const;
+
+/**
+ * Flag file distinguishing a `git am` session from an am-based rebase: git's
+ * own status check reads `rebase-apply/applying` — present = `git am`, absent
+ * = rebase (git wt-status.c, show_rebase_information). Misreading an am
+ * session as a rebase offers `git rebase --continue/--abort`, which git
+ * refuses during am.
+ */
+export const AM_SESSION_MARKER = 'applying';
+
+/** True when `rebase-apply/` holds a live `git am` session (not a rebase). */
+export async function isAmSession(gitDir: string): Promise<boolean> {
+  return (await readAmMarker(gitDir, AM_SESSION_MARKER)) !== undefined;
+}
+
+/**
+ * Read a file from the `git am` session's state directory (`rebase-apply/`).
+ * Callers gate on {@link isAmSession} first — the same directory backs an
+ * am-based rebase.
+ */
+export async function readAmMarker(gitDir: string, fileName: string): Promise<string | undefined> {
+  return tryReadGitFile(path.join(gitDir, REBASE_APPLY_DIR, fileName));
+}
 
 /**
  * Read a file from whichever rebase state directory is live. Only one exists at
@@ -73,11 +109,15 @@ export async function readRebaseMarker(
  */
 export async function findBlockingOperation(
   gitDir: string
-): Promise<'rebase' | 'cherry-pick' | 'revert' | undefined> {
+): Promise<'rebase' | 'patch apply (git am)' | 'cherry-pick' | 'revert' | undefined> {
   for (const dir of REBASE_STATE_DIRS) {
     try {
       if ((await fs.stat(path.join(gitDir, dir))).isDirectory()) {
-        return 'rebase';
+        // rebase-apply/ backs BOTH `git am` and am-based rebases; the
+        // `applying` flag file separates them (the returned name is
+        // interpolated into refusal toasts, and pointing an am session at
+        // rebase commands offers recovery git refuses).
+        return (await isAmSession(gitDir)) ? 'patch apply (git am)' : 'rebase';
       }
       // eslint-disable-next-line no-restricted-syntax -- ENOENT is the expected idle case: the marker directory simply doesn't exist.
     } catch {

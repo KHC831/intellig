@@ -471,6 +471,9 @@ export class StatusBarService implements IStatusBarService {
         return target ? `Cherry-picking ${target}` : 'Cherry-picking';
       case 'reverting':
         return target ? `Reverting ${target}` : 'Reverting';
+      case 'applying':
+        // `target` is the am patch progress ("2/5") when known.
+        return target ? `Applying patch ${target} (git am)` : 'Applying patch (git am)';
       default:
         return assertNeverInProgressKind(kind);
     }
@@ -489,6 +492,8 @@ export class StatusBarService implements IStatusBarService {
         return '$(git-commit)';
       case 'reverting':
         return '$(discard)';
+      case 'applying':
+        return '$(diff)';
       default:
         return '';
     }

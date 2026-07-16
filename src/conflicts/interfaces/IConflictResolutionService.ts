@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { IRepository } from '../../git-core/interfaces/IGitService';
+import type { IPreApplyState } from '../../git-core/ops/preservedChanges';
 import { IConflictSideNames } from '../conflictSideNames';
 
 /**
@@ -24,6 +25,15 @@ export interface IConflictOpContext {
    * "Accept Yours"/"Accept Theirs".
    */
   sideNames?: IConflictSideNames;
+  /**
+   * Pre-apply restore token for `operation: 'applyPatch'` — set when the
+   * apply took a working-state snapshot before running. Its presence turns
+   * the dialog's Abort into a FULL pre-apply restore (cleanly-applied
+   * sibling files included) via
+   * {@link IConflictResolutionService.restorePreApplyState}; absent, Abort
+   * falls back to restoring only the unresolved paths.
+   */
+  preApplyState?: IPreApplyState;
 }
 
 /**
@@ -212,6 +222,17 @@ export interface IConflictResolutionService {
   ): Promise<IOperationCompletionResult>;
 
   /**
+   * Abort a patch apply by restoring the FULL pre-apply state from the
+   * bracket token: patch-touched paths come back from the snapshot (or HEAD
+   * when the tree was clean), patch-created files are removed. Paths the
+   * patch never touched are left alone.
+   */
+  restorePreApplyState(
+    repo: IRepository,
+    state: IPreApplyState
+  ): Promise<IOperationCompletionResult>;
+
+  /**
    * Abort the current merge operation
    *
    * @param repo - The repository
@@ -235,7 +256,7 @@ export interface IConflictResolutionService {
    */
   getRepositoryState(
     repo: IRepository
-  ): 'idle' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting';
+  ): 'idle' | 'merging' | 'rebasing' | 'applying' | 'cherry-picking' | 'reverting';
 
   /**
    * The operation that produced the repo's live conflict, recorded when the

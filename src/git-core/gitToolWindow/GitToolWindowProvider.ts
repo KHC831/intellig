@@ -217,6 +217,9 @@ export type LocalChangesContextAction =
 export type LogContextAction =
   | 'copyHash'
   | 'createPatch'
+  // IntelliJ CreatePatchFromChangesAction.Clipboard: silent variant that
+  // copies the combined format-patch mailbox straight to the clipboard.
+  | 'createPatchToClipboard'
   | 'cherryPick'
   | 'checkoutRevision'
   | 'showRepoAtRevision'
@@ -260,6 +263,7 @@ export type LogContextAction =
 const LOG_CONTEXT_ACTIONS = {
   copyHash: true,
   createPatch: true,
+  createPatchToClipboard: true,
   cherryPick: true,
   checkoutRevision: true,
   showRepoAtRevision: true,

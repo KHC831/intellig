@@ -109,6 +109,166 @@ async function flushMicrotasks(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/**
+ * Repo paused in a `git am` session (`.git/rebase-apply/applying` on disk →
+ * `inProgress.kind === 'applying'`).
+ */
+function createAmRepository(rootPath: string): IRepository {
+  return {
+    rootUri: Uri.file(rootPath),
+    state: 'idle',
+    head: undefined,
+    remotes: [],
+    submodules: [],
+    inProgress: { kind: 'applying' },
+  } as unknown as IRepository;
+}
+
+describe('wireRebasePausedWarning — paused git-am (patch apply) sessions', () => {
+  it('fires an am-flavored warning that never claims a rebase', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    gitService.repos = [createAmRepository('/workspace/foo')];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+
+    assert.strictEqual(win.calls.length, 1, 'one warning toast expected for a paused am session');
+    assert.ok(
+      win.calls[0].message.toLowerCase().includes('patch apply'),
+      `toast should mention the paused patch apply, got: "${win.calls[0].message}"`
+    );
+    assert.ok(
+      !/rebase/i.test(win.calls[0].message),
+      `am toast must never claim a rebase, got: "${win.calls[0].message}"`
+    );
+    assert.deepStrictEqual(
+      win.calls[0].items,
+      ['Continue', 'Abort', 'Skip Patch'],
+      'toast must offer the three am recovery actions'
+    );
+  });
+
+  it('routes the "Continue" choice to intellig.am.continue', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    win.nextChoice = 'Continue';
+    gitService.repos = [createAmRepository('/workspace/foo')];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+
+    assert.deepStrictEqual(commands.calls, ['intellig.am.continue']);
+  });
+
+  it('routes the "Abort" choice to intellig.am.abort', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    win.nextChoice = 'Abort';
+    gitService.repos = [createAmRepository('/workspace/foo')];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+
+    assert.deepStrictEqual(commands.calls, ['intellig.am.abort']);
+  });
+
+  it('routes the "Skip Patch" choice to intellig.am.skip', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    win.nextChoice = 'Skip Patch';
+    gitService.repos = [createAmRepository('/workspace/foo')];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+
+    assert.deepStrictEqual(commands.calls, ['intellig.am.skip']);
+  });
+
+  it('never routes an am toast to a rebase recovery command', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    // Answer every choice the toast could offer, one session per choice.
+    for (const choice of ['Continue', 'Abort', 'Skip Patch', 'Skip Commit']) {
+      win.nextChoice = choice;
+      gitService.repos = [createAmRepository(`/workspace/${choice}`)];
+      wireRebasePausedWarning({ gitService, window: win, commands });
+    }
+    await flushMicrotasks();
+
+    assert.ok(
+      commands.calls.every((c) => c.startsWith('intellig.am.')),
+      `am toast routed to a non-am command: ${JSON.stringify(commands.calls)}`
+    );
+  });
+
+  it('warns exactly once per paused am session across repeated change events', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    const repo = createAmRepository('/workspace/foo');
+    gitService.repos = [repo];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+    gitService.fireChange(repo);
+    gitService.fireChange(repo);
+    await flushMicrotasks();
+
+    assert.strictEqual(win.calls.length, 1, 'warned-set must suppress duplicate am toasts');
+  });
+
+  it('re-warns after the am session clears and a new one starts', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    gitService.repos = [createAmRepository('/workspace/foo')];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+    assert.strictEqual(win.calls.length, 1);
+
+    gitService.fireChange(createMockRepository('/workspace/foo', false));
+    await flushMicrotasks();
+    gitService.fireChange(createAmRepository('/workspace/foo'));
+    await flushMicrotasks();
+
+    assert.strictEqual(win.calls.length, 2, 'idle transition must reset the warned-set entry');
+  });
+
+  it('still warns for an am session when isManagedRebase returns true (the gate is rebase-only)', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    // A live RebaseService session must not silence an am toast: git-am
+    // sessions are never extension-driven rebase episodes.
+    gitService.repos = [createAmRepository('/workspace/foo')];
+
+    wireRebasePausedWarning({
+      gitService,
+      window: win,
+      commands,
+      isManagedRebase: () => true,
+    });
+    await flushMicrotasks();
+
+    assert.strictEqual(win.calls.length, 1, 'am session must warn regardless of the rebase gate');
+  });
+});
+
 describe('wireRebasePausedWarning — activation + onDidChangeRepository surfacing', () => {
   it('fires a warning at activation for a repo that is already in rebasing state', async () => {
     const gitService = new StubGitService();
@@ -302,6 +462,27 @@ describe('wireRebasePausedWarning — activation + onDidChangeRepository surfaci
     await flushMicrotasks();
 
     assert.strictEqual(win.calls.length, 1, 'inherited paused rebase still warns');
+  });
+
+  it('re-warns when the paused kind changes under the same repo (rebase → am)', async () => {
+    const gitService = new StubGitService();
+    const win = new StubWindow();
+    const commands = new StubCommands();
+
+    gitService.repos = [createMockRepository('/workspace/foo', true)];
+
+    wireRebasePausedWarning({ gitService, window: win, commands });
+    await flushMicrotasks();
+    assert.strictEqual(win.calls.length, 1, 'rebase toast at activation');
+
+    // The rebase ends and a git-am session starts before any idle event is
+    // seen (e.g. a fast CLI sequence). The kind change alone must re-warn —
+    // the paused OPERATION is different even though the repo never left a
+    // paused state.
+    gitService.fireChange(createAmRepository('/workspace/foo'));
+    await flushMicrotasks();
+    assert.strictEqual(win.calls.length, 2, 'kind change must produce the am toast');
+    assert.ok(!/rebase/i.test(win.calls[1].message), 'second toast must not claim a rebase');
   });
 
   it('returns a disposable that tears down the onDidChangeRepository subscription', () => {

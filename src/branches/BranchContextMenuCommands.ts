@@ -45,6 +45,7 @@ import { readConfig } from '../config/configKeys';
 import { isProtectedTarget } from '../sync/PushDialog';
 import { isNotFullyMergedError, proposeDeleteMergedBranch } from './deleteOnMerge';
 import type { BranchComparisonView } from './BranchComparisonView';
+import { isCommitPublished, type PublishProbeCli } from '../git-core/commitPublished';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
 export type PullDialogAccessor = () => PullDialog | undefined;
@@ -2746,6 +2747,36 @@ export class BranchContextMenuCommands {
   }
 
   /**
+   * Cherry-pick options for the `-x` provenance suffix
+   * (intellig.addCherryPickedFromSuffix). IntelliJ annotates only when the
+   * setting is on AND the commit is published (CherryPickProcess.kt
+   * shouldAddSuffix); our single git invocation annotates all-or-none, so
+   * EVERY hash must be published. The publish probe needs the concrete
+   * GitService's gitCli (frozen IGitService has none — ADR-001), reached
+   * duck-typed; absence degrades to no annotation, matching the
+   * known-published-only contract.
+   */
+  private async _cherryPickSuffixOptions(
+    repo: IRepository,
+    hashes: readonly string[]
+  ): Promise<{ addCherryPickedFrom: true } | undefined> {
+    if (!readConfig('addCherryPickedFromSuffix')) {
+      return undefined;
+    }
+    const cli = (this._gitService as unknown as { gitCli?: PublishProbeCli }).gitCli;
+    if (!cli || typeof cli.exec !== 'function') {
+      return undefined;
+    }
+    const cwd = repo.rootUri.fsPath;
+    for (const hash of hashes) {
+      if (!(await isCommitPublished(cli, cwd, hash, /* probeFailureMeansPublished */ false))) {
+        return undefined;
+      }
+    }
+    return { addCherryPickedFrom: true };
+  }
+
+  /**
    * Handle cherry-pick commits command.
    */
   private async _handleCherryPickCommits({
@@ -2779,7 +2810,8 @@ export class BranchContextMenuCommands {
       }
 
       const commitHashes = selected.map((s) => s.commit.hash);
-      const result = await this._gitService.cherryPick(repo, commitHashes).match(
+      const suffixOptions = await this._cherryPickSuffixOptions(repo, commitHashes);
+      const result = await this._gitService.cherryPick(repo, commitHashes, suffixOptions).match(
         (r) => r,
         (e) => {
           throw e;
@@ -3205,12 +3237,15 @@ export class BranchContextMenuCommands {
    */
   private async _handleTagCherryPick({ repo, target }: ITreeItemRunArgs<'tag'>): Promise<void> {
     try {
-      const result = await this._gitService.cherryPick(repo, [target.tag.commit]).match(
-        (r) => r,
-        (e) => {
-          throw e;
-        }
-      );
+      const suffixOptions = await this._cherryPickSuffixOptions(repo, [target.tag.commit]);
+      const result = await this._gitService
+        .cherryPick(repo, [target.tag.commit], suffixOptions)
+        .match(
+          (r) => r,
+          (e) => {
+            throw e;
+          }
+        );
 
       if (result.success) {
         void vscode.window.showInformationMessage(

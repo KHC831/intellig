@@ -42,6 +42,41 @@ export function looksLikePatchConflictText(text: string): boolean {
 }
 
 /**
+ * Recover the file list a `git apply` run reported as touched, from its
+ * per-file output lines:
+ *  - `patching file <path>` — `git apply --verbose`;
+ *  - `Checking patch <path>...` — check mode;
+ *  - `Applied patch to '<path>' with conflicts.` / `... cleanly.` — the
+ *    3-way fallback's per-file report (apply.c), the shape a plain
+ *    `git apply --index --3way` actually emits.
+ * Returns [] when no shape matches. PatchService scopes its conflict
+ * attribution to this set — missing a shape degrades the scoping to ALL
+ * unmerged files, mis-attributing pre-existing unrelated conflicts to
+ * the patch.
+ */
+export function parseAppliedPatchFiles(output: string): string[] {
+  const files = new Set<string>();
+  for (const raw of output.split('\n')) {
+    const line = raw.trim();
+    const patching = line.match(/^patching file (.+)$/i);
+    if (patching) {
+      files.add(patching[1]);
+      continue;
+    }
+    const checking = line.match(/^Checking patch (.+?)\.\.\.$/);
+    if (checking) {
+      files.add(checking[1]);
+      continue;
+    }
+    const applied = line.match(/^Applied patch to '(.+)' (?:with conflicts|cleanly)\.$/);
+    if (applied) {
+      files.add(applied[1]);
+    }
+  }
+  return Array.from(files);
+}
+
+/**
  * git refused an operation because TRACKED local changes would be
  * clobbered ("Your local changes to the following files would be
  * overwritten by …" / "Please commit your changes or stash them…") — the

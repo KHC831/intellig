@@ -1,6 +1,9 @@
 {
   "$doc": "Reviewed manifest of palette-visible commands, consumed by scripts/check-palette-coherence.mjs. Every id here has a verified no-argument path from Cmd+Shift+P: a repo/target picker fallback, active-editor scoping, or an informative toast - never a silent return, never a crash. Adding a command to the palette requires verifying that path and listing it here (or hiding it with a commandPalette when:false entry). Initial population: the R8 command-surface audit + remediation (workspace-notes/audit/r8/).",
   "commands": [
+    "intellig.am.abort",
+    "intellig.am.continue",
+    "intellig.am.skip",
     "intellig.blame.clearHiddenRevisions",
     "intellig.blame.toggleDetectMovementsAcrossFiles",
     "intellig.blame.toggleDetectMovementsWithinFile",

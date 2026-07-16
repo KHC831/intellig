@@ -667,6 +667,40 @@ export const window = {
   showQuickPick: async (_items: unknown[], _options?: unknown): Promise<unknown> => {
     return undefined;
   },
+  /**
+   * Minimal QuickPick object — enough surface for list-driven views
+   * (ShelfView's shelf list) to construct and show without a real host.
+   * Tests that need to observe or drive it override `createQuickPick`.
+   */
+  createQuickPick: (): {
+    title: string;
+    placeholder: string;
+    value: string;
+    items: unknown[];
+    activeItems: unknown[];
+    selectedItems: unknown[];
+    busy: boolean;
+    onDidAccept: (listener: () => unknown) => { dispose(): void };
+    onDidHide: (listener: () => unknown) => { dispose(): void };
+    onDidChangeValue: (listener: (value: string) => unknown) => { dispose(): void };
+    show(): void;
+    hide(): void;
+    dispose(): void;
+  } => ({
+    title: '',
+    placeholder: '',
+    value: '',
+    items: [],
+    activeItems: [],
+    selectedItems: [],
+    busy: false,
+    onDidAccept: () => ({ dispose: (): void => {} }),
+    onDidHide: () => ({ dispose: (): void => {} }),
+    onDidChangeValue: () => ({ dispose: (): void => {} }),
+    show: (): void => {},
+    hide: (): void => {},
+    dispose: (): void => {},
+  }),
   showInputBox: async (options?: { value?: string }): Promise<string | undefined> => {
     return options?.value;
   },

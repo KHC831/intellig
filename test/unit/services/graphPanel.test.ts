@@ -858,9 +858,9 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have role="menuitem" on each menu item', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      // git4idea-parity set; Compare with Branch removed from the commit menu
-      // (22 − 1 = 21).
-      assert.strictEqual(menuItemCount, 21, 'Should have 21 menu items with role="menuitem"');
+      // git4idea-parity set; Compare with Branch removed from the commit menu,
+      // Create Patch to Clipboard added (the silent Clipboard action variant).
+      assert.strictEqual(menuItemCount, 22, 'Should have 22 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {

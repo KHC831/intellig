@@ -68,7 +68,7 @@ import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/Worktree
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
-import { resolveGitDir } from './gitDirMarkers';
+import { REBASE_STATE_DIRS, resolveGitDir } from './gitDirMarkers';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 import { RepoCommandQueue } from './repoCommandQueue';
@@ -342,8 +342,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     'CHERRY_PICK_HEAD',
     'REVERT_HEAD',
     'BISECT_LOG',
-    'rebase-merge/**',
-    'rebase-apply/**',
+    ...REBASE_STATE_DIRS.map((dir) => `${dir}/**`),
     // The stash reflog is the ONE reflog worth watching (IntelliJ watches
     // exactly this file: GitRepositoryFiles.isStashReflogFile, consumed by
     // git4idea's GitStashTracker): dropping/renaming a NON-TOP stash rewrites

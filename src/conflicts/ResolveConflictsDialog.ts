@@ -652,11 +652,32 @@ ${this._getBodyHtml()}
           break;
         case 'unshelve':
         case 'unstash':
-        case 'applyPatch':
-          // These apply patches directly and leave conflict markers with no
-          // git-level "aborting" state, so the service restores just the
-          // unresolved paths to HEAD (a bare `checkout -- .` would wipe
-          // unrelated working-tree changes).
+        case 'applyPatch': {
+          // A plain 3-way patch apply carries a pre-apply bracket token: its
+          // conflict arm leaves PARTIAL state (cleanly-applied siblings land
+          // fully, staged), so Abort must restore the FULL pre-apply state —
+          // not just the unresolved paths. Confirm first, saying exactly
+          // that: the clean siblings are discarded too.
+          const preApplyState = op === 'applyPatch' ? this._opContext.preApplyState : undefined;
+          if (preApplyState) {
+            const confirm = await vscode.window.showWarningMessage(
+              'Abort the patch apply? ALL files the patch changed — including the ones that ' +
+                'applied cleanly — will be restored to their pre-apply state.',
+              { modal: true },
+              'Abort'
+            );
+            if (confirm !== 'Abort') {
+              return;
+            }
+            this._throwIfFailed(
+              await this._conflictResolutionService.restorePreApplyState(this._repo, preApplyState)
+            );
+            break;
+          }
+          // Unshelve / unstash (and a bracket-less apply) leave conflict
+          // markers with no git-level "aborting" state, so the service
+          // restores just the unresolved paths to HEAD (a bare
+          // `checkout -- .` would wipe unrelated working-tree changes).
           this._throwIfFailed(
             await this._conflictResolutionService.abortWorkingTreeConflicts(
               this._repo,
@@ -664,6 +685,7 @@ ${this._getBodyHtml()}
             )
           );
           break;
+        }
         default:
           // Unreachable.
           return;

@@ -56,6 +56,7 @@ const MERGE_IN_RANGE_REASON =
 export type MultiSelectMenuAction =
   | 'copyHash'
   | 'createPatch'
+  | 'createPatchToClipboard'
   | 'cherryPick'
   | 'checkoutRevision'
   | 'showRepoAtRevision'
@@ -263,6 +264,7 @@ export function computeMenuVisibility(
     // Multi-also
     copyHash: selectedCount >= 1,
     createPatch: selectedCount >= 1,
+    createPatchToClipboard: selectedCount >= 1,
     cherryPick: selectedCount >= 1,
     revert: selectedCount >= 1,
     dropCommit: selectedCount >= 1,
@@ -335,6 +337,7 @@ export function computeMenuEnableState(
     // N≥1 actions
     copyHash: isAtLeastOne,
     createPatch: isAtLeastOne,
+    createPatchToClipboard: isAtLeastOne,
     cherryPick: isAtLeastOne,
     revert: isAtLeastOne,
     // Drop must reject merge commits. Silent history-

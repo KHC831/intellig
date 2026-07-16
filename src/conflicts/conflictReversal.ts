@@ -16,7 +16,13 @@ export function isReversedOperation(operation?: IConflictOpContext['operation'])
 }
 
 /** Git repository states the conflict service distinguishes. */
-export type ConflictRepoState = 'idle' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting';
+export type ConflictRepoState =
+  | 'idle'
+  | 'merging'
+  | 'rebasing'
+  | 'applying'
+  | 'cherry-picking'
+  | 'reverting';
 
 /**
  * Operation to assume when (re)opening the Resolve Conflicts dialog and when
@@ -52,6 +58,10 @@ export function inferReopenOperation(
       return 'cherryPick';
     case 'reverting':
       return 'revert';
+    case 'applying':
+      // A `git am --3way` conflict is a forward apply, like cherry-pick:
+      // ours = the current branch, theirs = the patch. No reversal.
+      return 'applyPatch';
     case 'idle':
       return recordedOp ?? 'unstash';
   }

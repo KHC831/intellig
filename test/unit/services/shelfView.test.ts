@@ -853,6 +853,185 @@ describe('ShelfView', () => {
       }
     });
 
+    // Import Patches directory arms (ImportIntoShelfAction parity):
+    // dir-capable picker, recursive gathering, differing-set confirm,
+    // no-patches warning, and the jump to the last imported entry.
+
+    describe('directory gathering + confirm + jump', () => {
+      const TMP_ROOT = path.join(path.resolve(__dirname, '../../..'), 'workspace-notes', 'tmp');
+      let treeRoot: string;
+      let originalOpen: typeof vscode.window.showOpenDialog;
+      let originalCreateQuickPick: typeof vscode.window.createQuickPick;
+
+      beforeEach(() => {
+        fs.mkdirSync(TMP_ROOT, { recursive: true });
+        treeRoot = fs.mkdtempSync(path.join(TMP_ROOT, 'import-tree-'));
+        originalOpen = vscode.window.showOpenDialog;
+        originalCreateQuickPick = vscode.window.createQuickPick;
+      });
+
+      afterEach(() => {
+        (vscode.window as unknown as { showOpenDialog: typeof originalOpen }).showOpenDialog =
+          originalOpen;
+        (
+          vscode.window as unknown as { createQuickPick: typeof originalCreateQuickPick }
+        ).createQuickPick = originalCreateQuickPick;
+        restoreMessageFunctions();
+        fs.rmSync(treeRoot, { recursive: true, force: true });
+      });
+
+      function seed(relPath: string): string {
+        const abs = path.join(treeRoot, relPath);
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, 'diff --git a/x b/x\n');
+        return abs;
+      }
+
+      function stubOpenDialog(paths: string[]): { options: Array<vscode.OpenDialogOptions> } {
+        const captured: Array<vscode.OpenDialogOptions> = [];
+        (
+          vscode.window as unknown as {
+            showOpenDialog: (opts?: vscode.OpenDialogOptions) => Promise<vscode.Uri[] | undefined>;
+          }
+        ).showOpenDialog = async (opts?: vscode.OpenDialogOptions) => {
+          if (opts) {
+            captured.push(opts);
+          }
+          return paths.map((f) => vscode.Uri.file(f));
+        };
+        return { options: captured };
+      }
+
+      /** Answer the differing-set confirm with the given choice. */
+      function stubConfirm(choice: string | undefined): { messages: string[] } {
+        const messages: string[] = [];
+        (
+          vscode.window as unknown as {
+            showInformationMessage: (message: string, ...rest: unknown[]) => Promise<unknown>;
+          }
+        ).showInformationMessage = async (message: string) => {
+          messages.push(message);
+          return choice;
+        };
+        return { messages };
+      }
+
+      /** Minimal recording QuickPick so the jump's list-open is observable. */
+      function stubCreateQuickPick(): { instances: Array<{ activeItems: unknown[] }> } {
+        const instances: Array<{ activeItems: unknown[] }> = [];
+        (vscode.window as unknown as { createQuickPick: () => unknown }).createQuickPick = () => {
+          const qp = {
+            title: '',
+            placeholder: '',
+            items: [] as unknown[],
+            activeItems: [] as unknown[],
+            selectedItems: [] as unknown[],
+            onDidAccept: () => ({ dispose: (): void => {} }),
+            onDidHide: () => ({ dispose: (): void => {} }),
+            show: (): void => {},
+            hide: (): void => {},
+            dispose: (): void => {},
+          };
+          instances.push(qp as unknown as { activeItems: unknown[] });
+          return qp;
+        };
+        return { instances };
+      }
+
+      it('opens the picker with directories selectable', async () => {
+        const dialog = stubOpenDialog([]);
+        stubCreateQuickPick();
+
+        await view.importPatches();
+
+        assert.strictEqual(dialog.options.length, 1);
+        assert.strictEqual(
+          dialog.options[0].canSelectFolders,
+          true,
+          'the picker must allow directories (ImportIntoShelfAction parity)'
+        );
+        assert.strictEqual(dialog.options[0].canSelectFiles, true);
+      });
+
+      it('gathers patches recursively from a picked directory after the confirm', async () => {
+        const a = seed('a.patch');
+        const b = seed('nested/b.diff');
+        seed('nested/skip.txt');
+        stubOpenDialog([treeRoot]);
+        stubCreateQuickPick();
+        const confirm = stubConfirm('Import');
+
+        const results = await view.importPatches();
+
+        const confirmMessage = confirm.messages.find((m) => m.includes('found in the selection'));
+        assert.ok(
+          confirmMessage,
+          `differing set must confirm first; info messages: ${JSON.stringify(confirm.messages)}`
+        );
+        assert.ok(
+          confirmMessage.includes('2'),
+          `confirm should name the gathered count, got: "${confirmMessage}"`
+        );
+        assert.strictEqual(results.filter((r) => r.success).length, 2);
+        assert.deepStrictEqual(
+          svc._importedPatches.map((o) => o.patchPath).sort(),
+          [a, b].sort(),
+          'the gathered files — never the raw directory — must be imported'
+        );
+      });
+
+      it('declining the differing-set confirm imports nothing', async () => {
+        seed('a.patch');
+        stubOpenDialog([treeRoot]);
+        stubCreateQuickPick();
+        stubConfirm(undefined);
+
+        const results = await view.importPatches();
+
+        assert.deepStrictEqual(results, []);
+        assert.strictEqual(svc._importedPatches.length, 0);
+      });
+
+      it('a selection with no patch files warns distinctly and imports nothing', async () => {
+        seed('only/notes.txt');
+        stubOpenDialog([treeRoot]);
+        stubCreateQuickPick();
+        const warnings = installWarningMessageTracker();
+        try {
+          const results = await view.importPatches();
+
+          assert.deepStrictEqual(results, []);
+          assert.strictEqual(svc._importedPatches.length, 0);
+          assert.strictEqual(warnings.calls.length, 1);
+          assert.ok(
+            warnings.calls[0].message.toLowerCase().includes('no patch files'),
+            `expected the no-patch-files warning, got: "${warnings.calls[0].message}"`
+          );
+        } finally {
+          restoreMessageFunctions();
+        }
+      });
+
+      it('jumps to the shelf list with the last imported entry active', async () => {
+        const a = seed('a.patch');
+        const b = seed('b.patch');
+        stubOpenDialog([a, b]);
+        const qp = stubCreateQuickPick();
+
+        const results = await view.importPatches();
+
+        assert.strictEqual(results.filter((r) => r.success).length, 2);
+        assert.strictEqual(qp.instances.length, 1, 'the shelf list must open after the import');
+        const active = qp.instances[0].activeItems as Array<{ shelfItem?: { id: string } }>;
+        assert.strictEqual(active.length, 1, 'exactly one row preselected');
+        assert.strictEqual(
+          active[0].shelfItem?.id,
+          'imp-2',
+          'the LAST imported entry must be the active row'
+        );
+      });
+    });
+
     // Sanitize importPatches error path. Per-file import failures
     // embed their raw Error message into the structured result; `git
     // apply`/`git am` can surface credentialed remote URLs (from patch
