@@ -18,6 +18,13 @@ import * as vscode from 'vscode';
 import { createFixtureRepo, execGit, Fixture } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';
 import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
+import { getCommitToolWindow } from '../support/activatedExtension';
+import {
+  injectRecordingView,
+  lastPushedChangelistPaths,
+  lastPushedUnversionedPaths,
+  pollUntil,
+} from '../support/ctwLiveHarness';
 
 describe('e2e — commit-context commands', function () {
   this.timeout(20_000);
@@ -117,5 +124,38 @@ describe('e2e — commit-context commands', function () {
     // detached state.
     const sym = await execGit(fix.rootPath, ['symbolic-ref', '-q', 'HEAD'], { allowNonZero: true });
     assert.notStrictEqual(sym.exitCode, 0, 'HEAD should be detached after checkoutRevision');
+  });
+
+  it('CTW live updates — an external touch + git add flows through the real reconcile into a push', async function () {
+    this.timeout(45_000);
+    fix = await createFixtureRepo({ commits: 1 });
+    await useFixtureWorkspace(fix.rootPath);
+    stubs = stubPrompts({});
+
+    const ctw = getCommitToolWindow();
+    assert.ok(ctw, 'commit tool window singleton not initialised');
+    const rec = injectRecordingView(ctw);
+    try {
+      // External file creation: lands in the Unversioned Files bucket via
+      // the status lane → ChangelistService reconcile → updateModel chain.
+      const fpath = path.join(fix.rootPath, 'external.txt');
+      fs.writeFileSync(fpath, 'external content\n');
+      await pollUntil(
+        () => lastPushedUnversionedPaths(rec.posted).includes('external.txt'),
+        20_000,
+        'external new file never reached an updateModel push (unversioned bucket)'
+      );
+
+      // External `git add`: untracked → added, moving the file from the
+      // unversioned bucket into the changelist (the staged flip).
+      await execGit(fix.rootPath, ['add', 'external.txt']);
+      await pollUntil(
+        () => lastPushedChangelistPaths(rec.posted).includes('external.txt'),
+        20_000,
+        'external git add never reached an updateModel push (changelist bucket)'
+      );
+    } finally {
+      rec.restore();
+    }
   });
 });

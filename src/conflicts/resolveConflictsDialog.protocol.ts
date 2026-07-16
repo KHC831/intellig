@@ -42,9 +42,11 @@ export type ResolveConflictsDialogInbound =
   | { type: 'skip' };
 
 /** Host → webview messages. */
-export type ResolveConflictsDialogOutbound =
-  | { type: 'updateFileStatus'; path: string; status: ConflictFileStatus }
-  | { type: 'closeDialog'; reason: 'completed' | 'aborted' | 'cancelled' };
+export type ResolveConflictsDialogOutbound = {
+  type: 'updateFileStatus';
+  path: string;
+  status: ConflictFileStatus;
+};
 
 /** Runtime discriminant set — the host guard rejects an unknown type before dispatch. */
 export const RESOLVE_CONFLICTS_DIALOG_INBOUND_TYPES = [

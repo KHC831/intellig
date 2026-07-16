@@ -868,7 +868,6 @@ ${this._getBodyHtml()}
       return;
     }
     this._closeReason = reason;
-    void this.postMessage({ type: 'closeDialog', reason });
     this._onDidClose.fire(reason);
     this.dispose();
   }

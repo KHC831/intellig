@@ -1097,7 +1097,7 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
-  it('re-renders the view with the freshly-loaded changelists on reload (first open / post-commit)', async () => {
+  it('pushes an updateModel carrying the freshly-loaded changelists on reload (first open / post-commit)', async () => {
     const memento = createMockMemento();
     const repo = createMockRepo();
     const changelists: IChangelist[] = [
@@ -1118,8 +1118,9 @@ describe('CommitToolWindow — host behavior', () => {
       memento
     );
 
-    // A resolved view that captures the html the class renders into it.
+    // A resolved view that captures html assignments and posted messages.
     let html = '';
+    const posted: Array<{ type?: string; model?: { local?: { changelists?: unknown[] } } }> = [];
     /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
     (tw as any)._view = {
       webview: {
@@ -1132,113 +1133,32 @@ describe('CommitToolWindow — host behavior', () => {
         options: {},
         cspSource: 'test:',
         asWebviewUri: (u: unknown) => u,
-        postMessage: () => Promise.resolve(true),
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
         onDidReceiveMessage: () => ({ dispose: () => {} }),
       },
       onDidDispose: () => ({ dispose: () => {} }),
     };
     /* eslint-enable @typescript-eslint/no-explicit-any */
 
-    // Reload is the sole render in this direct-injection path. Before the fix
-    // it posted a `fullRender` message the webview never handled and never
-    // touched `webview.html`, so the loaded changelist stayed invisible until a
-    // structural interaction (empty/stale on first open).
+    // Reload must deliver the loaded state as an incremental updateModel —
+    // never by reassigning webview.html (that regen destroyed composer /
+    // checkbox / scroll state; the resolve render is the only html write).
     await asTestSurface(tw)._reloadState();
 
+    assert.strictEqual(html, '', 'a reload must not reassign webview.html');
+    const update = posted.find((m) => m.type === 'updateModel');
+    assert.ok(update, 'the reload must post an updateModel message');
     assert.ok(
-      html.includes('ReloadRendersChangelist'),
-      'the reload must re-render the view with the freshly-loaded changelists'
+      JSON.stringify(update.model?.local?.changelists ?? []).includes('ReloadRendersChangelist'),
+      'the pushed model must carry the freshly-loaded changelists'
     );
 
     tw.dispose();
   });
 
-  // A resolved view whose webview captures the last html the class renders.
-  function injectHtmlCapturingView(tw: CommitToolWindow): { get(): string } {
-    let html = '';
-    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
-    (tw as any)._view = {
-      webview: {
-        get html(): string {
-          return html;
-        },
-        set html(v: string) {
-          html = v;
-        },
-        options: {},
-        cspSource: 'test:',
-        asWebviewUri: (u: unknown) => u,
-        postMessage: () => Promise.resolve(true),
-        onDidReceiveMessage: () => ({ dispose: () => {} }),
-      },
-      onDidDispose: () => ({ dispose: () => {} }),
-    };
-    /* eslint-enable @typescript-eslint/no-explicit-any */
-    return { get: () => html };
-  }
-
-  it('re-renders when changelists change externally (staging elsewhere / a git op)', () => {
-    const memento = createMockMemento();
-    const repo = createMockRepo();
-    const services = createMockServices(repo, []);
-    const tw = new CommitToolWindow(
-      Uri.file('/ext'),
-      services.gitService,
-      services.changelistService,
-      services.shelfService,
-      memento
-    );
-    const view = injectHtmlCapturingView(tw);
-
-    // Fire the service's change event as if a file were staged from another
-    // view. Before the fix the handler only cached the changelists and never
-    // re-rendered, so the Local Changes tree stayed stale until an unrelated
-    // interaction forced a full regen.
-    services.clChange.fire([
-      {
-        id: 'cl1',
-        name: 'ExternallyChangedChangelist',
-        isDefault: true,
-        isActive: true,
-        files: [{ path: 'src/elsewhere.ts', status: 'modified', staged: false }],
-      },
-    ]);
-
-    assert.ok(
-      view.get().includes('ExternallyChangedChangelist'),
-      'an external changelist change must re-render the view, not leave it stale'
-    );
-
-    tw.dispose();
-  });
-
-  it('re-renders when shelf items change externally', () => {
-    const memento = createMockMemento();
-    const repo = createMockRepo();
-    const services = createMockServices(repo, []);
-    const tw = new CommitToolWindow(
-      Uri.file('/ext'),
-      services.gitService,
-      services.changelistService,
-      services.shelfService,
-      memento
-    );
-    const view = injectHtmlCapturingView(tw);
-
-    services.shelfChange.fire([
-      {
-        id: 'shelf1',
-        name: 'ExternallyChangedShelf',
-        timestamp: new Date(),
-        files: [{ path: 'src/shelved.ts', diff: '' }],
-      },
-    ]);
-
-    assert.ok(
-      view.get().includes('ExternallyChangedShelf'),
-      'an external shelf change must re-render the view, not leave it stale'
-    );
-
-    tw.dispose();
-  });
+  // External changelist / shelf / stash change → coalesced updateModel push:
+  // covered by test/unit/services/commitToolWindowLiveUpdates.test.ts.
 });

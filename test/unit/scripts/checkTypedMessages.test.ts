@@ -216,6 +216,80 @@ describe('check-typed-messages guard', () => {
     }
   });
 
+  it('Rule E: fails an outbound arm no webview entry consumes', () => {
+    const fx = makeFixture('ruleE', {
+      'panel/foo.protocol.ts':
+        "export type FooOutbound =\n  | { type: 'updateModel'; model: { a: string; b: number } }\n  | { type: 'neverConsumed'; payload: string };\n",
+      'panel/webview/main.ts':
+        "import type { FooOutbound } from '../foo.protocol';\n" +
+        "window.addEventListener('message', (ev) => {\n" +
+        '  const m = ev.data as FooOutbound;\n' +
+        "  if (m.type === 'updateModel') {\n    apply(m);\n  }\n});\n" +
+        'function apply(_m: unknown) {}\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'a host arm with no webview consumer must fail');
+      assert.ok(/neverConsumed/.test(stderr), `should name the dead arm; stderr:\n${stderr}`);
+      assert.ok(!/updateModel/.test(stderr), `the consumed arm must not flag; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule E: multi-field members do not truncate the union scan (inner semicolons)', () => {
+    // `{ type: 'a'; path: string }` carries semicolons INSIDE the member —
+    // a first-semicolon slice would stop scanning before the second arm.
+    const fx = makeFixture('ruleE-multifield', {
+      'panel/foo.protocol.ts':
+        "export type FooOutbound =\n  | { type: 'first'; path: string; error?: string }\n  | { type: 'second'; ok: boolean };\n",
+      'panel/webview/main.ts':
+        "import type { FooOutbound } from '../foo.protocol';\n" +
+        "console.log('first' as FooOutbound['type']);\n",
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'the second arm must still be scanned and fail');
+      assert.ok(/second/.test(stderr), `should name the second arm; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule E: a fence-exempt comment on the union member passes', () => {
+    const fx = makeFixture('ruleE-exempt', {
+      'panel/foo.protocol.ts':
+        'export type FooOutbound =\n' +
+        "  | { type: 'updateModel' }\n" +
+        '  // fence-exempt: consumed by the follower window, not the entry\n' +
+        "  | { type: 'followerOnly' };\n",
+      'panel/webview/main.ts':
+        "import type { FooOutbound } from '../foo.protocol';\n" +
+        "console.log('updateModel' as FooOutbound['type']);\n",
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 0, `an exempt arm must pass; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule E: inbound unions are out of scope (one-directional fence)', () => {
+    const fx = makeFixture('ruleE-inbound', {
+      'panel/foo.protocol.ts':
+        "export type FooInbound = { type: 'clicked' } | { type: 'typed' };\n",
+      'panel/webview/main.ts':
+        "import type { FooInbound } from '../foo.protocol';\nconsole.log('clicked' as FooInbound['type']);\n",
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 0, `inbound-only protocols must pass; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
   it('ratchet: allowlisted file passes, identical unlisted file fails, empty allowlist stays closed', () => {
     const fx = makeFixture('ratchet', {
       'legacy/Old.ts':

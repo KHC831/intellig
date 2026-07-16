@@ -671,6 +671,18 @@ export function __getCommitContextMenuCommandsForTest(): CommitContextMenuComman
   return commitContextMenuCommands;
 }
 
+/**
+ * Get the Commit Tool Window.
+ * Bundle-singleton seam for the Electron test bridge (see
+ * test/e2e/support/activatedExtension.ts) — the e2e lane drives the CTW's
+ * live-update path against real git fixtures through this instance.
+ *
+ * @returns The Commit Tool Window, or undefined if not activated
+ */
+export function getCommitToolWindow(): CommitToolWindow | undefined {
+  return commitToolWindow;
+}
+
 // Module-identity seam for the Electron test lanes: the host runs the
 // dist/extension.js bundle, so its module-level singletons (logger, output
 // channel) are reachable ONLY through the bundle's own exports — a require

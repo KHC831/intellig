@@ -61,6 +61,13 @@ export interface IResolveRepoContext {
    * by callers that want to handle the empty-state themselves.
    */
   silent?: boolean;
+  /**
+   * When `true`, never show the disambiguation QuickPick: resolve through
+   * the deterministic chain (hints, defaultRepo, active editor, single repo)
+   * or return `undefined`. For background callers (event-driven refreshes)
+   * that must never interrupt the user with a modal.
+   */
+  nonInteractive?: boolean;
 }
 
 /** Dependencies injected into {@link selectRepo} — keeps the core testable. */
@@ -156,7 +163,10 @@ export async function selectRepo(
     return repositories[0];
   }
 
-  // multi-repo: prompt.
+  // multi-repo: prompt — unless the caller runs in the background.
+  if (context.nonInteractive) {
+    return undefined;
+  }
   const items: IRepoPickItem[] = repositories.map((r) => ({
     label: basenameOf(r.rootUri.fsPath),
     description: r.rootUri.fsPath,

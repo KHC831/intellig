@@ -23,17 +23,28 @@
  *    (receiver-keyed, so the typed `this.postMessage(` Base method is allowed).
  *    Rule C requires an `assertNever` in any file that imports a `*.protocol`
  *    module AND defines a message handler (so the exhaustiveness gate can't be
- *    silently deleted). A RATCHETING allowlist (NOT_YET_MIGRATED) tolerates raw
+ *    silently deleted). Rule E requires every `*Outbound` union discriminant in
+ *    a `<name>.protocol.ts` to appear in the webview entry source(s) that
+ *    type-import that protocol (files under a `webview/` directory): a host arm
+ *    the entry never mentions is a DEAD POST — the exact defect that left the
+ *    commit tool window's live updates silently unwired. Exempt an arm consumed
+ *    elsewhere (e.g. a follower window) with a `// fence-exempt: <reason>`
+ *    comment on or directly above the union member. One-directional by design:
+ *    an unused webview listener arm is dead code, not a silent product bug.
+ *    A RATCHETING allowlist (NOT_YET_MIGRATED) tolerates raw
  *    sites in panels not yet migrated; each Phase-4 round removes its files, and
  *    the final round empties it — an empty allowlist with any remaining raw site
  *    FAILS, so the ratchet can't regrow. New raw sites in unlisted files fail
  *    from day one.
  *
  * 3. Known false-positive cases
- *    None: `.getState()` / `vscode.getState()` don't match either call shape;
- *    `vscode.postMessage(` (the webview-side handle) isn't receiver-`webview`;
- *    prose mentions of `onDidReceiveMessage`/`postMessage` without a trailing `(`
- *    don't match.
+ *    Rules A-D: none — `.getState()` / `vscode.getState()` don't match either
+ *    call shape; `vscode.postMessage(` (the webview-side handle) isn't
+ *    receiver-`webview`; prose mentions of `onDidReceiveMessage`/`postMessage`
+ *    without a trailing `(` don't match. Rule E: an entry that dispatches on
+ *    the discriminant through an indirection (a lookup table of type strings)
+ *    rather than the quoted literal would flag — no such site exists; if one
+ *    appears, justify it with `// fence-exempt: <reason>` on the union member.
  *
  * 4. Known false-negative cases
  *    The string-emitted webview side (scriptBuilder.ts + inline dialog scripts)
@@ -72,6 +83,8 @@ const RAW_POST_RE = /\b\w*[wW]ebview\s*(?:\?\.|\.)\s*postMessage\s*\(/g;
 const PROTOCOL_IMPORT_RE = /from\s+['"][^'"]*\.protocol['"]/;
 const HANDLER_DEF_RE = /_onMessage\s*\(|_handleMessage\s*\(|_handleWebviewMessage\s*\(/;
 const INBOUND_TYPES_DEF_RE = /\b\w*_INBOUND_TYPES\s*=\s*\[/;
+const OUTBOUND_UNION_RE = /export\s+type\s+\w*Outbound\s*=/g;
+const OUTBOUND_ARM_RE = /type:\s*'([^']+)'/g;
 
 function collectTsFiles(dir) {
   const out = [];
@@ -93,6 +106,34 @@ function hasExemptAbove(content, line) {
     .slice(Math.max(0, line - 1 - 4), line - 1)
     .join('\n')
     .includes('typed-messages-exempt:');
+}
+
+function hasFenceExemptAt(content, line) {
+  // The member's own line or the two lines above it (a leading comment).
+  const lines = content.split('\n');
+  return lines
+    .slice(Math.max(0, line - 3), line)
+    .join('\n')
+    .includes('fence-exempt:');
+}
+
+/**
+ * Slice a type-union body starting at `startIndex` up to its terminating
+ * top-level `;` (semicolons inside member braces don't terminate it).
+ */
+function unionBlock(content, startIndex) {
+  let depth = 0;
+  for (let i = startIndex; i < content.length; i++) {
+    const ch = content[i];
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+    } else if (ch === ';' && depth === 0) {
+      return content.slice(startIndex, i);
+    }
+  }
+  return content.slice(startIndex);
 }
 
 function main() {
@@ -159,6 +200,47 @@ function main() {
           '`type _Tie = AssertInboundArrayTie<InboundArrayTie<XInbound, typeof X_INBOUND_TYPES>>;`\n' +
           'from src/utils/protocolTie.ts (a missing/extra discriminant then fails to compile).'
       );
+    }
+  }
+
+  // Rule E — every host→webview outbound arm has a consumer in the panel's
+  // bundled entry. Consumers are the files under a `webview/` directory that
+  // import the arm's `<name>.protocol` module; the arm's quoted discriminant
+  // must appear in at least one of them.
+  const allFiles = collectTsFiles(srcDir).filter((f) => !f.endsWith('.test.ts'));
+  const webviewFiles = allFiles.filter((f) =>
+    relative(srcDir, f).split(/[\\/]/).includes('webview')
+  );
+  const webviewContents = new Map(webviewFiles.map((f) => [f, readFileSync(f, 'utf8')]));
+  for (const protoFile of allFiles.filter((f) => f.endsWith('.protocol.ts'))) {
+    const content = readFileSync(protoFile, 'utf8');
+    const relRoot = relative(root, protoFile);
+    const baseName = relative(srcDir, protoFile)
+      .split(/[\\/]/)
+      .pop()
+      .slice(0, -'.protocol.ts'.length);
+    const importRe = new RegExp(`from\\s+['"][^'"]*\\b${baseName}\\.protocol['"]`);
+    const consumerText = [...webviewContents.values()].filter((c) => importRe.test(c)).join('\n');
+
+    let unionMatch;
+    OUTBOUND_UNION_RE.lastIndex = 0;
+    while ((unionMatch = OUTBOUND_UNION_RE.exec(content)) !== null) {
+      const union = unionBlock(content, unionMatch.index);
+      let arm;
+      OUTBOUND_ARM_RE.lastIndex = 0;
+      while ((arm = OUTBOUND_ARM_RE.exec(union)) !== null) {
+        const literal = arm[1];
+        const line = lineOf(content, unionMatch.index + arm.index);
+        if (hasFenceExemptAt(content, line)) continue;
+        if (!consumerText.includes(`'${literal}'`) && !consumerText.includes(`"${literal}"`)) {
+          failures.push(
+            `check-typed-messages: outbound arm '${literal}' at ${relRoot}:${line} has no consumer\n` +
+              `in any webview entry importing ${baseName}.protocol — a host post nobody handles is a\n` +
+              'silent no-op. Handle the arm in the bundled entry, or justify with a\n' +
+              '`// fence-exempt: <reason>` comment on the union member.'
+          );
+        }
+      }
     }
   }
 

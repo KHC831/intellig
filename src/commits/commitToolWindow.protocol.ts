@@ -7,7 +7,10 @@
  * via `Omit`, split into a discriminated union so `assertNever` can gate it;
  * outbound is enumerated from the panel's `_postMessage` call sites.
  */
-import type { ICommitToolWebviewMessage } from './commitToolWindow.types';
+import type {
+  ICommitToolWebviewMessage,
+  ICommitToolWindowInitModel,
+} from './commitToolWindow.types';
 import type { IDiff } from '../git-core/interfaces/gitModels';
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
@@ -28,12 +31,17 @@ export type CommitToolWindowInbound =
   | ({ type: 'shelfTabContextAction' } & Fields);
 
 /**
- * Host → webview messages. The view has no incremental live-update path today —
- * initial load, structural changes, and post-commit/rollback all go through a
- * full host-side re-render — so this is just the three fine-grained patches the
- * client listener applies in place.
+ * Host → webview messages. `updateModel` is the single live-update arm: every
+ * post-resolve state change (service events, stash lane, reload, tab switch,
+ * shelf filter, grouping) ships the full render model and the client applies
+ * it in place, preserving composer/selection/scroll. `setComposerMessage` is
+ * the prefill carve-out (Undo Commit): an explicit user action that writes the
+ * composer, which a live update never does. The remaining three are
+ * fine-grained patches the client applies in place.
  */
 export type CommitToolWindowOutbound =
+  | { type: 'updateModel'; model: ICommitToolWindowInitModel }
+  | { type: 'setComposerMessage'; message: string }
   | { type: 'updateDiffPreview'; path: string; diff?: IDiff; error?: string }
   | { type: 'updateFileCheckbox'; path: string; checked: boolean }
   | { type: 'commitDone'; success: boolean };

@@ -248,14 +248,16 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
       assert.ok(patterns.includes('rebase-merge/**'), 'should watch rebase-merge/**');
       assert.ok(patterns.includes('rebase-apply/**'), 'should watch rebase-apply/**');
 
-      // Negative invariants — loop-causing paths must NOT be watched.
+      // Negative invariants — loop-causing paths must NOT be watched. The
+      // stash reflog is the ONE sanctioned logs/ entry: only `git stash`
+      // mutations write it (reads don't), so it cannot loop.
       for (const p of patterns) {
         assert.ok(
           !p.startsWith('objects'),
           `pattern ${JSON.stringify(p)} would trigger the refresh loop via objects/**`
         );
         assert.ok(
-          !p.startsWith('logs'),
+          p === 'logs/refs/stash' || !p.startsWith('logs'),
           `pattern ${JSON.stringify(p)} would trigger the refresh loop via logs/**`
         );
         assert.notStrictEqual(

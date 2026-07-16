@@ -405,3 +405,16 @@ describe('GitService — .git/config is watched (remote set-url has no save hear
     );
   });
 });
+
+describe('GitService — the stash reflog is watched (non-top drops rewrite only logs/refs/stash)', () => {
+  it('WATCHED_GIT_PATTERNS includes logs/refs/stash', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    const patterns = (GitService as any).WATCHED_GIT_PATTERNS as readonly string[];
+    assert.ok(
+      patterns.includes('logs/refs/stash'),
+      "`git stash drop 'stash@{1}'` (and stash renames) rewrite only the stash " +
+        'reflog — refs/stash and index are untouched — so without this pattern no ' +
+        'event fires and stash lists stay stale until an unrelated repo event'
+    );
+  });
+});

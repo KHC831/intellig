@@ -310,8 +310,9 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    * Deliberately EXCLUDED:
    *  - `objects/**` — every git read/write touches this; watching it causes
    *    an infinite refresh loop.
-   *  - `logs/**` — reflog updates fire on every command; no user-visible
-   *    state the UI needs to re-render.
+   *  - `logs/**` — with the single exception of `logs/refs/stash` below,
+   *    reflog updates fire on every command; no user-visible state the UI
+   *    needs to re-render.
    *  - `FETCH_HEAD` — redundant with `onDidFetch` which fires when our own
    *    `fetch()` call completes.
    *  - `ORIG_HEAD` — a side-effect file written by reset/merge; the real
@@ -343,6 +344,13 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     'BISECT_LOG',
     'rebase-merge/**',
     'rebase-apply/**',
+    // The stash reflog is the ONE reflog worth watching (IntelliJ watches
+    // exactly this file: GitRepositoryFiles.isStashReflogFile, consumed by
+    // git4idea's GitStashTracker): dropping/renaming a NON-TOP stash rewrites
+    // only this file — `refs/stash` and `index` are untouched, so no other
+    // pattern fires. Loop-safe: only `git stash` mutations write it; reads
+    // (`git stash list`) never do.
+    'logs/refs/stash',
   ];
 
   /**

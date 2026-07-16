@@ -22,7 +22,8 @@ import * as vscode from 'vscode';
 import { createFixtureRepo, execGit, Fixture } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';
 import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
-import { getServices } from '../support/activatedExtension';
+import { getServices, getCommitToolWindow } from '../support/activatedExtension';
+import { injectRecordingView, lastPushedStashNames, pollUntil } from '../support/ctwLiveHarness';
 
 describe('e2e — shelf commands', function () {
   this.timeout(20_000);
@@ -146,6 +147,65 @@ describe('e2e — shelf commands', function () {
     // With nothing shelved, the command should return quietly without
     // throwing or mutating the working tree.
     await vscode.commands.executeCommand('intellig.unshelve.silent');
+  });
+
+  it('CTW live updates — external stash push and NON-TOP drop reach the pushed model', async function () {
+    this.timeout(45_000);
+    fix = await createFixtureRepo({ commits: 1 });
+    const fpath = path.join(fix.rootPath, 'file0.txt');
+    await useFixtureWorkspace(fix.rootPath);
+    stubs = stubPrompts({});
+
+    const ctw = getCommitToolWindow();
+    assert.ok(ctw, 'commit tool window singleton not initialised');
+    const rec = injectRecordingView(ctw);
+    try {
+      // Two external stashes from "a terminal" (real git subprocess).
+      fs.writeFileSync(fpath, 'stash-me-1\n');
+      await execGit(fix.rootPath, ['stash', 'push', '-m', 'e2e-first']);
+      await pollUntil(
+        () => lastPushedStashNames(rec.posted).some((n) => n.includes('e2e-first')),
+        20_000,
+        'first external stash never reached an updateModel push'
+      );
+
+      fs.writeFileSync(fpath, 'stash-me-2\n');
+      await execGit(fix.rootPath, ['stash', 'push', '-m', 'e2e-second']);
+      await pollUntil(
+        () => lastPushedStashNames(rec.posted).some((n) => n.includes('e2e-second')),
+        20_000,
+        'second external stash never reached an updateModel push'
+      );
+
+      // The reflog case: dropping the NON-TOP stash rewrites only
+      // .git/logs/refs/stash — this leg fails without that watcher entry.
+      await execGit(fix.rootPath, ['stash', 'drop', 'stash@{1}']);
+      await pollUntil(
+        () => {
+          const names = lastPushedStashNames(rec.posted);
+          return (
+            names.some((n) => n.includes('e2e-second')) &&
+            !names.some((n) => n.includes('e2e-first'))
+          );
+        },
+        20_000,
+        'non-top stash drop never reached an updateModel push (logs/refs/stash watcher)'
+      );
+
+      // Host mirror agrees with the pushed wire model.
+      const mirror = rec.stashEntries().map((s) => s.message);
+      assert.strictEqual(
+        mirror.length,
+        1,
+        `expected one stash in the host mirror, got ${JSON.stringify(mirror)}`
+      );
+      assert.ok(
+        mirror[0].includes('e2e-second'),
+        `host mirror should hold the surviving stash; got ${mirror[0]}`
+      );
+    } finally {
+      rec.restore();
+    }
   });
 
   it('intellig.showShelfList — opens without throwing on an empty shelf', async () => {

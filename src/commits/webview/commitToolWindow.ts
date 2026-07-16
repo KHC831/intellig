@@ -1,10 +1,17 @@
 /// <reference lib="dom" />
 // Webview entry for the Commit Tool Window (bundled into
 // media/webview/commitToolWindow.js). Reads its render model from the host's
-// `data-init` island, builds every panel (tab strip, Local Changes tree, diff
-// preview, composer, Shelf list) via createElement, and posts protocol-typed
-// messages. A typed host→webview listener syncs file checkboxes, the diff
-// preview, and the post-commit message reset.
+// `data-init` island, builds every panel via createElement, and posts
+// protocol-typed messages.
+//
+// The DOM splits into a PERSISTENT skeleton (tab strip, the two panels, diff
+// preview pane, composer) built once at boot, and two replaceable content
+// containers (`#ctw-local-tree`, `#ctw-shelf-list`) that both boot and the
+// host's `updateModel` messages fill from the same pure builders. A live
+// update therefore can never touch composer text, focus, or the tab strip —
+// the invariant that keeps background refreshes from stomping user input.
+// Row/checkbox/filter/grouping events are DELEGATED on the persistent
+// containers, so a content swap cannot orphan listeners.
 
 import type {
   CommitToolWindowInbound,
@@ -60,6 +67,364 @@ function cssEscapeAttr(value: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch);
 }
 
+/** Path currently shown in the diff preview pane (undefined = placeholder). */
+let previewedPath: string | undefined;
+
+// ─── Pure builders (shared by boot and applyModel) ───────────────────────────
+
+function buildFileRow(
+  f: ICtwFileEntry,
+  changelistId: string,
+  selected: ReadonlySet<string>
+): HTMLDivElement {
+  const row = el('div', { className: 'ctw-file-row' });
+  setAttrs(row, { 'data-path': f.path, 'data-changelist': changelistId });
+  const chk = el('input', {
+    type: 'checkbox',
+    className: 'ctw-file-check',
+    checked: selected.has(f.path),
+  });
+  setAttrs(chk, { 'data-path': f.path });
+  row.appendChild(chk);
+  row.appendChild(el('span', { className: 'ctw-file-status', textContent: f.statusChar }));
+  row.appendChild(el('span', { className: 'ctw-file-path', textContent: f.displayName }));
+  return row;
+}
+
+// Append a changelist's files into its block, honoring grouping. Flat mode
+// appends file rows directly; directory mode wraps each bucket in a
+// .ctw-dir-group (with an optional .ctw-dir-row header).
+function appendChangelistFiles(
+  block: HTMLElement,
+  cl: ICtwChangelistModel,
+  selected: ReadonlySet<string>
+): void {
+  if (cl.dirGroups) {
+    cl.dirGroups.forEach((g) => {
+      const group = el('div', { className: 'ctw-dir-group' });
+      if (g.dir !== null && g.dir !== undefined) {
+        const dirRow = el('div', { className: 'ctw-dir-row' });
+        setAttrs(dirRow, { 'data-dir': g.dir });
+        dirRow.appendChild(el('span', { className: 'ctw-dir-chevron', textContent: '▾' }));
+        dirRow.appendChild(el('span', { className: 'ctw-dir-path', textContent: g.dir }));
+        group.appendChild(dirRow);
+      }
+      (g.files || []).forEach((f) => {
+        group.appendChild(buildFileRow(f, cl.id, selected));
+      });
+      block.appendChild(group);
+    });
+  } else {
+    (cl.files || []).forEach((f) => {
+      block.appendChild(buildFileRow(f, cl.id, selected));
+    });
+  }
+}
+
+function buildChangelistBlock(
+  cl: ICtwChangelistModel,
+  selected: ReadonlySet<string>,
+  opts?: { unversioned?: boolean }
+): HTMLDivElement {
+  const block = el('div', {
+    className: 'ctw-changelist-block' + (opts && opts.unversioned ? ' ctw-unversioned-block' : ''),
+  });
+  const header = el('div', {
+    className: 'ctw-changelist-row' + (opts && opts.unversioned ? ' ctw-unversioned-row' : ''),
+  });
+  setAttrs(header, { 'data-changelist': cl.id });
+  header.appendChild(el('span', { className: 'ctw-chevron', textContent: '▾' }));
+  const name = el('span', {
+    className: 'ctw-changelist-name' + (cl.isActive ? ' ctw-changelist-active' : ''),
+  });
+  name.appendChild(document.createTextNode(cl.name));
+  if (cl.isActive) {
+    name.appendChild(document.createTextNode(' '));
+    name.appendChild(el('span', { className: 'ctw-active-tag', textContent: '(Active)' }));
+  }
+  header.appendChild(name);
+  header.appendChild(
+    el('span', {
+      className: 'ctw-count',
+      textContent: cl.fileCount + ' file' + (cl.fileCount === 1 ? '' : 's'),
+    })
+  );
+  block.appendChild(header);
+  appendChangelistFiles(block, cl, selected);
+  return block;
+}
+
+function buildGroupingToggle(model: ICommitToolWindowInitModel): HTMLDivElement {
+  const wrap = el('div', { className: 'ctw-grouping' });
+  setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Group by' });
+  wrap.appendChild(el('span', { className: 'ctw-grouping-label', textContent: 'Group by:' }));
+  const btn = (value: string, label: string): HTMLButtonElement => {
+    const b = el('button', {
+      className: 'ctw-grouping-btn' + (model.grouping === value ? ' ctw-grouping-active' : ''),
+      textContent: label,
+    });
+    setAttrs(b, { 'data-grouping': value, 'aria-pressed': model.grouping === value });
+    return b;
+  };
+  wrap.appendChild(btn('directory', 'Directory'));
+  wrap.appendChild(btn('flat', 'Flat'));
+  return wrap;
+}
+
+/** Grouping toggle + changelist tree (or empty note) — the replaceable Local Changes content. */
+function buildLocalTreeContent(model: ICommitToolWindowInitModel): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  frag.appendChild(buildGroupingToggle(model));
+  if (model.local.empty) {
+    frag.appendChild(el('div', { className: 'ctw-empty', textContent: 'No uncommitted changes.' }));
+    return frag;
+  }
+  const selected = new Set(model.selectedFiles ?? []);
+  const tree = el('div', { className: 'ctw-changelist-tree' });
+  setAttrs(tree, { role: 'tree' });
+  model.local.changelists.forEach((cl) => {
+    tree.appendChild(buildChangelistBlock(cl, selected));
+  });
+  if (model.local.unversioned) {
+    tree.appendChild(
+      buildChangelistBlock(model.local.unversioned, selected, { unversioned: true })
+    );
+  }
+  frag.appendChild(tree);
+  return frag;
+}
+
+/** Persistent diff-preview pane, born with the placeholder. */
+function buildDiffPreviewPane(): HTMLDivElement {
+  const pane = el('div', { className: 'ctw-diff-preview' });
+  setAttrs(pane, { 'data-diff-preview': '' });
+  resetPreviewPane(pane);
+  return pane;
+}
+
+function resetPreviewPane(pane: Element): void {
+  while (pane.firstChild) {
+    pane.removeChild(pane.firstChild);
+  }
+  pane.appendChild(
+    el('div', {
+      className: 'ctw-diff-preview-empty',
+      textContent: 'Select a file to preview changes',
+    })
+  );
+}
+
+function buildComposerPanel(model: ICommitToolWindowInitModel): HTMLDivElement {
+  const c = model.composer;
+  const wrap = el('div', { className: 'ctw-composer' });
+  const row = el('div', { className: 'ctw-composer-row' });
+  const ta = el('textarea', { className: 'ctw-composer-msg', value: c.message });
+  setAttrs(ta, { placeholder: 'Commit message' });
+  row.appendChild(ta);
+  wrap.appendChild(row);
+  const opts = el('div', { className: 'ctw-composer-options' });
+  const checkbox = (cls: string, checked: boolean, label: string): HTMLLabelElement => {
+    const lbl = el('label');
+    const input = el('input', { type: 'checkbox', className: cls, checked: !!checked });
+    lbl.appendChild(input);
+    lbl.appendChild(document.createTextNode(' ' + label));
+    return lbl;
+  };
+  opts.appendChild(checkbox('ctw-chk-amend', c.amend, 'Amend'));
+  opts.appendChild(checkbox('ctw-chk-signoff', c.signOff, 'Sign-off'));
+  wrap.appendChild(opts);
+  const actions = el('div', { className: 'ctw-composer-actions' });
+  const group = el('div', { className: 'ctw-primary-group' });
+  const commitBtn = el('button', { className: 'ctw-btn-commit', textContent: 'Commit' });
+  setAttrs(commitBtn, { type: 'button' });
+  group.appendChild(commitBtn);
+  const dropdown = el('button', { className: 'ctw-btn-commit-dropdown', textContent: '▾' });
+  setAttrs(dropdown, { type: 'button', 'aria-haspopup': 'menu' });
+  group.appendChild(dropdown);
+  actions.appendChild(group);
+  const menu = el('div', { className: 'ctw-primary-menu', hidden: true });
+  const cap = el('button', {
+    className: 'ctw-btn-commit-and-push',
+    textContent: 'Commit and Push…',
+  });
+  setAttrs(cap, { type: 'button' });
+  menu.appendChild(cap);
+  actions.appendChild(menu);
+  wrap.appendChild(actions);
+  return wrap;
+}
+
+function buildShelfFilterHeader(model: ICommitToolWindowInitModel): HTMLDivElement {
+  const wrap = el('div', { className: 'ctw-shelf-filter' });
+  setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Show' });
+  wrap.appendChild(el('span', { className: 'ctw-shelf-filter-label', textContent: 'Show:' }));
+  const btn = (value: string, label: string): HTMLButtonElement => {
+    const b = el('button', {
+      className:
+        'ctw-shelf-filter-btn' + (model.shelf.filter === value ? ' ctw-shelf-filter-active' : ''),
+      textContent: label,
+    });
+    setAttrs(b, { 'data-shelf-filter': value, 'aria-pressed': model.shelf.filter === value });
+    return b;
+  };
+  wrap.appendChild(btn('shelves', 'Shelves'));
+  wrap.appendChild(btn('stashes', 'Stashes'));
+  wrap.appendChild(btn('both', 'Both'));
+  return wrap;
+}
+
+function buildShelfRow(entry: ICommitToolWindowInitModel['shelf']['rows'][number]): HTMLDivElement {
+  const row = el('div', { className: 'ctw-shelf-row' });
+  setAttrs(row, { role: 'listitem' });
+  if (entry.kind === 'shelf') {
+    setAttrs(row, { 'data-row-kind': 'shelf', 'data-shelf-id': entry.id });
+    const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📚' });
+    setAttrs(badge, { title: 'Shelf entry' });
+    row.appendChild(badge);
+    const name = el('span', { className: 'ctw-shelf-name' });
+    name.appendChild(document.createTextNode(entry.name));
+    if (entry.alreadyUnshelved) {
+      name.appendChild(document.createTextNode(' '));
+      name.appendChild(
+        el('span', {
+          className: 'ctw-shelf-alreadyUnshelved',
+          textContent: '(already unshelved)',
+        })
+      );
+    }
+    row.appendChild(name);
+    row.appendChild(
+      el('span', {
+        className: 'ctw-shelf-count',
+        textContent: entry.fileCount + ' file' + (entry.fileCount === 1 ? '' : 's'),
+      })
+    );
+  } else {
+    setAttrs(row, { 'data-row-kind': 'stash', 'data-stash-index': entry.index });
+    const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📦' });
+    setAttrs(badge, { title: 'Git stash' });
+    row.appendChild(badge);
+    row.appendChild(el('span', { className: 'ctw-shelf-name', textContent: entry.name }));
+    row.appendChild(el('span', { className: 'ctw-shelf-count', textContent: entry.id }));
+  }
+  return row;
+}
+
+/** Filter header + rows (or empty note) — the replaceable Shelf content. */
+function buildShelfListContent(model: ICommitToolWindowInitModel): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  frag.appendChild(buildShelfFilterHeader(model));
+  if (model.shelf.empty) {
+    frag.appendChild(el('div', { className: 'ctw-empty', textContent: model.shelf.emptyCopy }));
+    return frag;
+  }
+  const list = el('div', { className: 'ctw-shelf-list' });
+  setAttrs(list, { role: 'list' });
+  model.shelf.rows.forEach((r) => {
+    list.appendChild(buildShelfRow(r));
+  });
+  frag.appendChild(list);
+  return frag;
+}
+
+// ─── Skeleton lookups ────────────────────────────────────────────────────────
+
+function localPanelEl(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-panel="localChanges"]');
+}
+
+function shelfPanelEl(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-panel="shelf"]');
+}
+
+/** Toggle tab-strip active state, panel visibility, and pane emptiness. */
+function applyChrome(model: ICommitToolWindowInitModel): void {
+  document.querySelectorAll('.ctw-tab').forEach((tab) => {
+    const active = tab.getAttribute('data-tab') === model.activeTab;
+    tab.classList.toggle('ctw-tab-active', active);
+    setAttrs(tab, { 'aria-selected': active });
+  });
+  const local = localPanelEl();
+  const shelf = shelfPanelEl();
+  if (local) {
+    local.style.display = model.showLocal ? 'flex' : 'none';
+  }
+  if (shelf) {
+    shelf.style.display = model.showLocal ? 'none' : 'flex';
+  }
+  // No file rows → nothing to preview; hide the pane instead of showing an
+  // idle placeholder under the empty note.
+  const pane = document.querySelector<HTMLElement>('[data-diff-preview]');
+  if (pane) {
+    pane.style.display = model.local.empty ? 'none' : '';
+  }
+}
+
+function modelHasPath(model: ICommitToolWindowInitModel, path: string): boolean {
+  const inChangelist = (cl: ICtwChangelistModel): boolean => {
+    if (cl.files && cl.files.some((f) => f.path === path)) {
+      return true;
+    }
+    return !!cl.dirGroups && cl.dirGroups.some((g) => g.files.some((f) => f.path === path));
+  };
+  if (model.local.changelists.some(inChangelist)) {
+    return true;
+  }
+  return !!model.local.unversioned && inChangelist(model.local.unversioned);
+}
+
+/**
+ * Apply a host `updateModel` in place. Replaces the two content containers'
+ * children from the pure builders, restores panel scroll around the swap, and
+ * refreshes or resets the diff preview. Deliberately never reads
+ * `model.composer` — a live update must not stomp in-progress typing.
+ */
+function applyModel(model: ICommitToolWindowInitModel): void {
+  const localTree = document.getElementById('ctw-local-tree');
+  const shelfList = document.getElementById('ctw-shelf-list');
+  if (!localTree || !shelfList) {
+    return;
+  }
+  const local = localPanelEl();
+  const shelf = shelfPanelEl();
+  const localScroll = local ? local.scrollTop : 0;
+  const shelfScroll = shelf ? shelf.scrollTop : 0;
+
+  while (localTree.firstChild) {
+    localTree.removeChild(localTree.firstChild);
+  }
+  localTree.appendChild(buildLocalTreeContent(model));
+  while (shelfList.firstChild) {
+    shelfList.removeChild(shelfList.firstChild);
+  }
+  shelfList.appendChild(buildShelfListContent(model));
+
+  applyChrome(model);
+
+  if (local) {
+    local.scrollTop = localScroll;
+  }
+  if (shelf) {
+    shelf.scrollTop = shelfScroll;
+  }
+
+  if (previewedPath !== undefined) {
+    if (modelHasPath(model, previewedPath)) {
+      // Content may have changed under the preview — ask the host for a
+      // fresh diff of the same path.
+      post({ type: 'selectFile', path: previewedPath });
+    } else {
+      const pane = document.querySelector('[data-diff-preview]');
+      if (pane) {
+        resetPreviewPane(pane);
+      }
+      previewedPath = undefined;
+    }
+  }
+}
+
+// ─── Boot render ─────────────────────────────────────────────────────────────
+
 function render(INIT: ICommitToolWindowInitModel): void {
   function buildTabStrip(): HTMLDivElement {
     const strip = el('div', { className: 'ctw-tab-strip' });
@@ -94,258 +459,41 @@ function render(INIT: ICommitToolWindowInitModel): void {
     return strip;
   }
 
-  function buildFileRow(f: ICtwFileEntry, changelistId: string): HTMLDivElement {
-    const row = el('div', { className: 'ctw-file-row' });
-    setAttrs(row, { 'data-path': f.path, 'data-changelist': changelistId });
-    const chk = el('input', { type: 'checkbox', className: 'ctw-file-check' });
-    setAttrs(chk, { 'data-path': f.path });
-    row.appendChild(chk);
-    row.appendChild(el('span', { className: 'ctw-file-status', textContent: f.statusChar }));
-    row.appendChild(el('span', { className: 'ctw-file-path', textContent: f.displayName }));
-    return row;
-  }
-
-  // Append a changelist's files into its block, honoring grouping. Flat mode
-  // appends file rows directly; directory mode wraps each bucket in a
-  // .ctw-dir-group (with an optional .ctw-dir-row header).
-  function appendChangelistFiles(block: HTMLElement, cl: ICtwChangelistModel): void {
-    if (cl.dirGroups) {
-      cl.dirGroups.forEach((g) => {
-        const group = el('div', { className: 'ctw-dir-group' });
-        if (g.dir !== null && g.dir !== undefined) {
-          const dirRow = el('div', { className: 'ctw-dir-row' });
-          setAttrs(dirRow, { 'data-dir': g.dir });
-          dirRow.appendChild(el('span', { className: 'ctw-dir-chevron', textContent: '▾' }));
-          dirRow.appendChild(el('span', { className: 'ctw-dir-path', textContent: g.dir }));
-          group.appendChild(dirRow);
-        }
-        (g.files || []).forEach((f) => {
-          group.appendChild(buildFileRow(f, cl.id));
-        });
-        block.appendChild(group);
-      });
-    } else {
-      (cl.files || []).forEach((f) => {
-        block.appendChild(buildFileRow(f, cl.id));
-      });
-    }
-  }
-
-  function buildChangelistBlock(
-    cl: ICtwChangelistModel,
-    opts?: { unversioned?: boolean }
-  ): HTMLDivElement {
-    const block = el('div', {
-      className:
-        'ctw-changelist-block' + (opts && opts.unversioned ? ' ctw-unversioned-block' : ''),
-    });
-    const header = el('div', {
-      className: 'ctw-changelist-row' + (opts && opts.unversioned ? ' ctw-unversioned-row' : ''),
-    });
-    setAttrs(header, { 'data-changelist': cl.id });
-    header.appendChild(el('span', { className: 'ctw-chevron', textContent: '▾' }));
-    const name = el('span', {
-      className: 'ctw-changelist-name' + (cl.isActive ? ' ctw-changelist-active' : ''),
-    });
-    name.appendChild(document.createTextNode(cl.name));
-    if (cl.isActive) {
-      name.appendChild(document.createTextNode(' '));
-      name.appendChild(el('span', { className: 'ctw-active-tag', textContent: '(Active)' }));
-    }
-    header.appendChild(name);
-    header.appendChild(
-      el('span', {
-        className: 'ctw-count',
-        textContent: cl.fileCount + ' file' + (cl.fileCount === 1 ? '' : 's'),
-      })
-    );
-    block.appendChild(header);
-    appendChangelistFiles(block, cl);
-    return block;
-  }
-
-  function buildGroupingToggle(): HTMLDivElement {
-    const wrap = el('div', { className: 'ctw-grouping' });
-    setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Group by' });
-    wrap.appendChild(el('span', { className: 'ctw-grouping-label', textContent: 'Group by:' }));
-    const btn = (value: string, label: string): HTMLButtonElement => {
-      const b = el('button', {
-        className: 'ctw-grouping-btn' + (INIT.grouping === value ? ' ctw-grouping-active' : ''),
-        textContent: label,
-      });
-      setAttrs(b, { 'data-grouping': value, 'aria-pressed': INIT.grouping === value });
-      return b;
-    };
-    wrap.appendChild(btn('directory', 'Directory'));
-    wrap.appendChild(btn('flat', 'Flat'));
-    return wrap;
-  }
-
-  function buildLocalChangesPanel(): DocumentFragment {
-    const frag = document.createDocumentFragment();
-    frag.appendChild(buildGroupingToggle());
-    if (INIT.local.empty) {
-      frag.appendChild(
-        el('div', { className: 'ctw-empty', textContent: 'No uncommitted changes.' })
-      );
-      return frag;
-    }
-    const tree = el('div', { className: 'ctw-changelist-tree' });
-    setAttrs(tree, { role: 'tree' });
-    INIT.local.changelists.forEach((cl) => {
-      tree.appendChild(buildChangelistBlock(cl));
-    });
-    if (INIT.local.unversioned) {
-      tree.appendChild(buildChangelistBlock(INIT.local.unversioned, { unversioned: true }));
-    }
-    frag.appendChild(tree);
-    const pane = el('div', { className: 'ctw-diff-preview' });
-    setAttrs(pane, { 'data-diff-preview': '' });
-    pane.appendChild(
-      el('div', {
-        className: 'ctw-diff-preview-empty',
-        textContent: 'Select a file to preview changes',
-      })
-    );
-    frag.appendChild(pane);
-    return frag;
-  }
-
-  function buildComposerPanel(): HTMLDivElement {
-    const c = INIT.composer;
-    const wrap = el('div', { className: 'ctw-composer' });
-    const row = el('div', { className: 'ctw-composer-row' });
-    const ta = el('textarea', { className: 'ctw-composer-msg', value: c.message });
-    setAttrs(ta, { placeholder: 'Commit message' });
-    row.appendChild(ta);
-    wrap.appendChild(row);
-    const opts = el('div', { className: 'ctw-composer-options' });
-    const checkbox = (cls: string, checked: boolean, label: string): HTMLLabelElement => {
-      const lbl = el('label');
-      const input = el('input', { type: 'checkbox', className: cls, checked: !!checked });
-      lbl.appendChild(input);
-      lbl.appendChild(document.createTextNode(' ' + label));
-      return lbl;
-    };
-    opts.appendChild(checkbox('ctw-chk-amend', c.amend, 'Amend'));
-    opts.appendChild(checkbox('ctw-chk-signoff', c.signOff, 'Sign-off'));
-    wrap.appendChild(opts);
-    const actions = el('div', { className: 'ctw-composer-actions' });
-    const group = el('div', { className: 'ctw-primary-group' });
-    const commitBtn = el('button', { className: 'ctw-btn-commit', textContent: 'Commit' });
-    setAttrs(commitBtn, { type: 'button' });
-    group.appendChild(commitBtn);
-    const dropdown = el('button', { className: 'ctw-btn-commit-dropdown', textContent: '▾' });
-    setAttrs(dropdown, { type: 'button', 'aria-haspopup': 'menu' });
-    group.appendChild(dropdown);
-    actions.appendChild(group);
-    const menu = el('div', { className: 'ctw-primary-menu', hidden: true });
-    const cap = el('button', {
-      className: 'ctw-btn-commit-and-push',
-      textContent: 'Commit and Push…',
-    });
-    setAttrs(cap, { type: 'button' });
-    menu.appendChild(cap);
-    actions.appendChild(menu);
-    wrap.appendChild(actions);
-    return wrap;
-  }
-
-  function buildShelfFilterHeader(): HTMLDivElement {
-    const wrap = el('div', { className: 'ctw-shelf-filter' });
-    setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Show' });
-    wrap.appendChild(el('span', { className: 'ctw-shelf-filter-label', textContent: 'Show:' }));
-    const btn = (value: string, label: string): HTMLButtonElement => {
-      const b = el('button', {
-        className:
-          'ctw-shelf-filter-btn' + (INIT.shelf.filter === value ? ' ctw-shelf-filter-active' : ''),
-        textContent: label,
-      });
-      setAttrs(b, { 'data-shelf-filter': value, 'aria-pressed': INIT.shelf.filter === value });
-      return b;
-    };
-    wrap.appendChild(btn('shelves', 'Shelves'));
-    wrap.appendChild(btn('stashes', 'Stashes'));
-    wrap.appendChild(btn('both', 'Both'));
-    return wrap;
-  }
-
-  function buildShelfRow(
-    entry: ICommitToolWindowInitModel['shelf']['rows'][number]
-  ): HTMLDivElement {
-    const row = el('div', { className: 'ctw-shelf-row' });
-    setAttrs(row, { role: 'listitem' });
-    if (entry.kind === 'shelf') {
-      setAttrs(row, { 'data-row-kind': 'shelf', 'data-shelf-id': entry.id });
-      const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📚' });
-      setAttrs(badge, { title: 'Shelf entry' });
-      row.appendChild(badge);
-      const name = el('span', { className: 'ctw-shelf-name' });
-      name.appendChild(document.createTextNode(entry.name));
-      if (entry.alreadyUnshelved) {
-        name.appendChild(document.createTextNode(' '));
-        name.appendChild(
-          el('span', {
-            className: 'ctw-shelf-alreadyUnshelved',
-            textContent: '(already unshelved)',
-          })
-        );
-      }
-      row.appendChild(name);
-      row.appendChild(
-        el('span', {
-          className: 'ctw-shelf-count',
-          textContent: entry.fileCount + ' file' + (entry.fileCount === 1 ? '' : 's'),
-        })
-      );
-    } else {
-      setAttrs(row, { 'data-row-kind': 'stash', 'data-stash-index': entry.index });
-      const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📦' });
-      setAttrs(badge, { title: 'Git stash' });
-      row.appendChild(badge);
-      row.appendChild(el('span', { className: 'ctw-shelf-name', textContent: entry.name }));
-      row.appendChild(el('span', { className: 'ctw-shelf-count', textContent: entry.id }));
-    }
-    return row;
-  }
-
-  function buildShelfPanel(): DocumentFragment {
-    const frag = document.createDocumentFragment();
-    frag.appendChild(buildShelfFilterHeader());
-    if (INIT.shelf.empty) {
-      frag.appendChild(el('div', { className: 'ctw-empty', textContent: INIT.shelf.emptyCopy }));
-      return frag;
-    }
-    const list = el('div', { className: 'ctw-shelf-list' });
-    setAttrs(list, { role: 'list' });
-    INIT.shelf.rows.forEach((r) => {
-      list.appendChild(buildShelfRow(r));
-    });
-    frag.appendChild(list);
-    return frag;
-  }
-
-  // Assemble the tool window into #ctw-root before wiring listeners.
+  // Assemble the persistent skeleton into #ctw-root, then fill the two
+  // content containers exactly the way applyModel does.
   const root = document.getElementById('ctw-root');
   if (!root) {
     return;
   }
   root.appendChild(buildTabStrip());
   const bodyEl = el('div', { className: 'ctw-body' });
+
   const localPanel = el('div', { className: 'ctw-panel' });
   setAttrs(localPanel, {
     'data-panel': 'localChanges',
     style: 'display:' + (INIT.showLocal ? 'flex' : 'none') + ';',
   });
-  localPanel.appendChild(buildLocalChangesPanel());
-  localPanel.appendChild(buildComposerPanel());
+  const localTree = el('div');
+  localTree.id = 'ctw-local-tree';
+  localTree.appendChild(buildLocalTreeContent(INIT));
+  localPanel.appendChild(localTree);
+  const pane = buildDiffPreviewPane();
+  if (INIT.local.empty) {
+    pane.style.display = 'none';
+  }
+  localPanel.appendChild(pane);
+  localPanel.appendChild(buildComposerPanel(INIT));
   bodyEl.appendChild(localPanel);
+
   const shelfPanel = el('div', { className: 'ctw-panel' });
   setAttrs(shelfPanel, {
     'data-panel': 'shelf',
     style: 'display:' + (INIT.showLocal ? 'none' : 'flex') + ';',
   });
-  shelfPanel.appendChild(buildShelfPanel());
+  const shelfList = el('div');
+  shelfList.id = 'ctw-shelf-list';
+  shelfList.appendChild(buildShelfListContent(INIT));
+  shelfPanel.appendChild(shelfList);
   bodyEl.appendChild(shelfPanel);
   root.appendChild(bodyEl);
 
@@ -422,7 +570,7 @@ function getComposerPayload(): {
 }
 
 function wireControls(): void {
-  // Tab click
+  // Tab click (persistent nodes → direct listeners).
   document.querySelectorAll('.ctw-tab').forEach((btn) => {
     btn.addEventListener('click', () => {
       const tab = btn.getAttribute('data-tab');
@@ -432,7 +580,7 @@ function wireControls(): void {
     });
   });
 
-  // Gear toggle
+  // Gear toggle (persistent).
   const gear = document.querySelector('.ctw-gear');
   const gearMenu = document.querySelector<HTMLElement>('.ctw-gear-menu');
   if (gear && gearMenu) {
@@ -441,26 +589,62 @@ function wireControls(): void {
     });
   }
 
-  // File row click → selectFile, checkbox change → toggleFile
-  document.querySelectorAll('.ctw-file-row').forEach((row) => {
-    row.addEventListener('click', (e) => {
-      if (e.target && (e.target as HTMLElement).tagName === 'INPUT') {
-        return; // checkbox handled below
+  // Local Changes content — DELEGATED on the persistent container, so rows
+  // and controls rebuilt by applyModel keep working without re-wiring.
+  const localTree = document.getElementById('ctw-local-tree');
+  if (localTree) {
+    localTree.addEventListener('click', (e) => {
+      if (!(e.target instanceof Element)) {
+        return;
       }
-      const path = row.getAttribute('data-path');
-      if (path) {
-        post({ type: 'selectFile', path });
+      const groupingBtn = e.target.closest('.ctw-grouping-btn');
+      if (groupingBtn) {
+        const g = groupingBtn.getAttribute('data-grouping');
+        if (g === 'flat' || g === 'directory') {
+          post({ type: 'changesGroupingChange', grouping: g });
+        }
+        return;
+      }
+      if ((e.target as HTMLElement).tagName === 'INPUT') {
+        return; // checkbox handled by the change listener below
+      }
+      const row = e.target.closest('.ctw-file-row');
+      if (row) {
+        const path = row.getAttribute('data-path');
+        if (path) {
+          post({ type: 'selectFile', path });
+        }
       }
     });
-  });
-  document.querySelectorAll('.ctw-file-check').forEach((chk) => {
-    chk.addEventListener('change', () => {
-      const path = chk.getAttribute('data-path');
+    localTree.addEventListener('change', (e) => {
+      if (!(e.target instanceof Element) || !e.target.classList.contains('ctw-file-check')) {
+        return;
+      }
+      const path = e.target.getAttribute('data-path');
       if (path) {
         post({ type: 'toggleFile', path });
       }
     });
-  });
+  }
+
+  // Shelf content — delegated filter clicks; row clicks are reserved (the
+  // host acts on right-clicks only).
+  const shelfList = document.getElementById('ctw-shelf-list');
+  if (shelfList) {
+    shelfList.addEventListener('click', (e) => {
+      if (!(e.target instanceof Element)) {
+        return;
+      }
+      const btn = e.target.closest('.ctw-shelf-filter-btn');
+      if (!btn) {
+        return;
+      }
+      const f = btn.getAttribute('data-shelf-filter');
+      if (f === 'shelves' || f === 'stashes' || f === 'both') {
+        post({ type: 'shelfTabFilterChange', filter: f });
+      }
+    });
+  }
 
   // Right-click on a changelist row or file row → send a context-action ping to
   // the host. Host decides what menu to present (keeps the menu labels in one
@@ -499,35 +683,7 @@ function wireControls(): void {
     });
   });
 
-  // Shelf-tab filter segmented control.
-  document.querySelectorAll('.ctw-shelf-filter-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const f = btn.getAttribute('data-shelf-filter');
-      if (f === 'shelves' || f === 'stashes' || f === 'both') {
-        post({ type: 'shelfTabFilterChange', filter: f });
-      }
-    });
-  });
-
-  // Local Changes grouping segmented control (Directory / Flat).
-  document.querySelectorAll('.ctw-grouping-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const g = btn.getAttribute('data-grouping');
-      if (g === 'flat' || g === 'directory') {
-        post({ type: 'changesGroupingChange', grouping: g });
-      }
-    });
-  });
-
-  // Plain click on a shelf-tab row is reserved — the host doesn't currently act
-  // on row clicks, but the listener keeps the hook point discoverable.
-  document.querySelectorAll('.ctw-shelf-row').forEach((row) => {
-    row.addEventListener('click', () => {
-      // Reserved — host doesn't currently act on row clicks.
-    });
-  });
-
-  // Composer fields
+  // Composer fields (persistent).
   const msgField = document.querySelector<HTMLTextAreaElement>('.ctw-composer-msg');
   const amendChk = document.querySelector<HTMLInputElement>('.ctw-chk-amend');
   const signoffChk = document.querySelector<HTMLInputElement>('.ctw-chk-signoff');
@@ -547,7 +703,7 @@ function wireControls(): void {
     });
   }
 
-  // Primary commit button + Commit-and-Push dropdown
+  // Primary commit button + Commit-and-Push dropdown (persistent).
   const commitBtn = document.querySelector('.ctw-btn-commit');
   const commitDropdownBtn = document.querySelector('.ctw-btn-commit-dropdown');
   const commitPushMenu = document.querySelector<HTMLElement>('.ctw-primary-menu');
@@ -571,13 +727,24 @@ function wireControls(): void {
     });
   }
 
-  // Host → webview updates. The view consumes incremental checkbox + diff-preview
-  // patches and the post-commit message reset; structural changes arrive as a
-  // full HTML re-render from the host, not through this listener.
+  // Host → webview updates. `updateModel` swaps the two content subtrees in
+  // place (composer untouched); `setComposerMessage` is the explicit prefill
+  // write; the rest are fine-grained patches.
   window.addEventListener('message', (ev: MessageEvent) => {
     const m = ev.data as CommitToolWindowOutbound | undefined;
     if (!m || typeof m.type !== 'string') {
       return;
+    }
+    if (m.type === 'updateModel' && m.model) {
+      applyModel(m.model);
+    }
+    if (m.type === 'setComposerMessage' && typeof m.message === 'string') {
+      const field = document.querySelector<HTMLTextAreaElement>('.ctw-composer-msg');
+      if (field) {
+        // No updateComposerField echo: the host set its mirror before
+        // posting, so both sides already agree.
+        field.value = m.message;
+      }
     }
     if (m.type === 'updateFileCheckbox' && typeof m.path === 'string') {
       const box = document.querySelector<HTMLInputElement>(
@@ -590,13 +757,14 @@ function wireControls(): void {
     if (m.type === 'updateDiffPreview') {
       const pane = document.querySelector('[data-diff-preview]');
       if (pane) {
+        previewedPath = m.path;
         renderDiffPreview(pane, m.path, m.diff, m.error);
       }
     }
     if (m.type === 'commitDone' && m.success) {
-      const msgField = document.querySelector<HTMLTextAreaElement>('.ctw-composer-msg');
-      if (msgField) {
-        msgField.value = '';
+      const doneField = document.querySelector<HTMLTextAreaElement>('.ctw-composer-msg');
+      if (doneField) {
+        doneField.value = '';
       }
     }
   });
@@ -606,6 +774,7 @@ function wireControls(): void {
 function boot(): void {
   const island = document.getElementById(INIT_ELEMENT_ID);
   const init = parseInitIsland<ICommitToolWindowInitModel>(island?.getAttribute('data-init'));
+  previewedPath = undefined;
   render(init);
 }
 

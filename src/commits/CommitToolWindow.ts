@@ -50,6 +50,7 @@ import {
   type CommitToolWindowOutbound,
 } from './commitToolWindow.protocol';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { fingerprintCtwModel } from './ctwModelFingerprint';
 import { sanitizeGitError } from '../git-core/gitError';
 import type {
   CommitToolWindowTab,
@@ -101,6 +102,13 @@ export const SHELF_TAB_FILTER_STATE_KEY = 'intellig.commitToolWindow.shelfFilter
 
 /** Maximum size of the recent-commit-messages LRU. */
 export const RECENT_MESSAGES_MAX = 20;
+
+/**
+ * Trailing-coalescer window for live pushes. Matches ChangelistService's
+ * reconcile debounce so a reconcile burst costs one push; upstream lanes
+ * (250 ms repo watcher, 1 s/5 s status lane) debounce independently.
+ */
+const LIVE_UPDATE_DEBOUNCE_MS = 300;
 
 /** Sentinel id for the "Unversioned Files" pseudo-changelist. */
 export const UNVERSIONED_PSEUDO_CHANGELIST_ID = '_unversioned';
@@ -391,6 +399,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   private _shelfItems: IShelfItem[] = [];
   /** Most recent `git stash list` snapshot. */
   private _stashEntries: IStash[] = [];
+  /** Trailing coalescer for {@link _pushLiveUpdate} (service-event bursts). */
+  private _liveUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Fingerprint of the last pushed model; reset on every resolve. */
+  private _lastPushedFingerprint = '';
+  /** Delivery result of the last live post; drives visibility redelivery. */
+  private _lastPostDelivered = true;
   /** Active Shelf-tab filter, persisted to workspaceState. */
   private _shelfTabFilter: ShelfTabFilter = 'both';
   /** Local Changes file-grouping mode, persisted to workspaceState. */
@@ -439,20 +453,15 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       this._changesGrouping = persistedGrouping;
     }
 
-    // Cache the underlying services' state and re-render so an external change
-    // (staging from another view, a completed git op) is reflected live rather
-    // than left stale until an unrelated interaction. `_render` is a no-op until
-    // the view resolves. Full regen is the view's only host→webview refresh path
-    // (structural change → full regen); incremental tree patching is a follow-up.
+    // Live-update triggers. Events are triggers ONLY: the coalesced push
+    // re-reads the services for the resolved repo at push time, so a payload
+    // from another repo can never cross-cache into this view. The repository
+    // lane covers stash mutations (`refs/stash` + `logs/refs/stash` watchers)
+    // exactly like IntelliJ's GIT_REPO_CHANGE → GitStashTracker refresh.
     this._disposables.push(
-      this._changelistService.onDidChangeChangelists((changelists) => {
-        this._changelists = changelists;
-        this._render();
-      }),
-      this._shelfService.onDidChangeShelf((items) => {
-        this._shelfItems = items;
-        this._render();
-      }),
+      this._changelistService.onDidChangeChangelists(() => this._scheduleLiveUpdate()),
+      this._shelfService.onDidChangeShelf(() => this._scheduleLiveUpdate()),
+      this._gitService.onDidChangeRepository(() => this._scheduleLiveUpdate()),
       this._onDidCommit
     );
   }
@@ -477,14 +486,32 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
    * render via {@link _getBodyParts}. Here we kick an async reload of state.
    */
   protected override _onResolve(
-    _webviewView: vscode.WebviewView,
+    webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
+    // A fresh document just rendered; the first push must always go through.
+    this._lastPushedFingerprint = '';
+
+    // Belt-and-braces redelivery: retainContextWhenHidden keeps hidden views
+    // receiving posts, but if a post ever reports undelivered, re-push the
+    // current model when the view becomes visible again.
+    this._registerPerResolve(
+      webviewView.onDidChangeVisibility(() => {
+        if (webviewView.visible && !this._lastPostDelivered) {
+          this._lastPushedFingerprint = '';
+          safeFireAndForget(
+            this._pushLiveUpdate(),
+            'CommitToolWindow._onResolve: redelivery push on visibility'
+          );
+        }
+      })
+    );
+
     // The base class already rendered an empty shell; kick the async state
-    // load, which re-renders the view with the loaded changelists / shelf /
-    // stash once the services respond. Bucket C: init path — a first-load
-    // reject leaves the empty shell and self-heals on the next reload.
+    // load, which pushes the loaded changelists / shelf / stash once the
+    // services respond. Bucket C: init path — a first-load reject leaves the
+    // empty shell and self-heals on the next reload.
     safeFireAndForget(this._reloadState(), 'CommitToolWindow._onResolve: initial state reload');
   }
 
@@ -532,7 +559,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     }
     this._shelfTabFilter = filter;
     await savePersisted(this._workspaceState, SHELF_TAB_FILTER_SLOT, filter);
-    this._render();
+    await this._pushLiveUpdate();
   }
 
   /** Current Local Changes grouping mode (persisted across sessions). */
@@ -550,30 +577,37 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     }
     this._changesGrouping = grouping;
     await savePersisted(this._workspaceState, CHANGES_GROUPING_SLOT, grouping);
-    this._render();
+    await this._pushLiveUpdate();
+  }
+
+  /**
+   * Prefill the commit composer's message field. Used by Undo Commit to
+   * restore the undone commit's message so the user can re-commit without
+   * retyping it (IntelliJ GitUncommitAction parity). Ships on its own
+   * outbound arm: an explicit user action that WRITES the composer, which the
+   * live-update path never does (a live `updateModel` ignores composer state).
+   */
+  public prefillComposerMessage(message: string): void {
+    this._composerMessage = message;
+    void this.postMessage({ type: 'setComposerMessage', message });
   }
 
   /**
    * Read-only accessor for the recent-messages LRU. Exposed so the legacy
    * {@link CommitDialog} (or future callers) can reuse the same history.
    */
-  /**
-   * Prefill the commit composer's message field and re-render. Used by Undo
-   * Commit to restore the undone commit's message so the user can re-commit
-   * without retyping it (IntelliJ GitUncommitAction parity).
-   */
-  public prefillComposerMessage(message: string): void {
-    this._composerMessage = message;
-    this._render();
-  }
-
   public getRecentMessages(): string[] {
     return [...this._readRecentMessages()];
   }
 
-  // Disposal is owned by `BaseWebviewView.dispose()` — drains `_disposables`,
-  // marks the view disposed, and clears `_view`. Subclasses that need extra
-  // teardown can override and chain via `super.dispose()`.
+  /** Chains to {@link BaseWebviewView.dispose} after stopping a pending push. */
+  public override dispose(): void {
+    if (this._liveUpdateTimer !== undefined) {
+      clearTimeout(this._liveUpdateTimer);
+      this._liveUpdateTimer = undefined;
+    }
+    super.dispose();
+  }
 
   // ── Message handling ───────────────────────────────────────────────────
 
@@ -645,7 +679,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     }
     this._activeTab = tab;
     await savePersisted(this._workspaceState, ACTIVE_TAB_SLOT, tab);
-    this._render(); // structural change → full regen
+    await this._pushLiveUpdate();
   }
 
   private async _handleSelectFile(path: string): Promise<void> {
@@ -658,9 +692,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     }
     try {
       const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
-      this.postMessage({ type: 'updateDiffPreview', path, diff });
+      void this.postMessage({ type: 'updateDiffPreview', path, diff });
     } catch (error) {
-      this.postMessage({
+      void this.postMessage({
         type: 'updateDiffPreview',
         path,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -674,7 +708,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     } else {
       this._selectedFiles.add(path);
     }
-    this.postMessage({
+    void this.postMessage({
       type: 'updateFileCheckbox',
       path,
       checked: this._selectedFiles.has(path),
@@ -719,7 +753,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     if (!noVerify) {
       const proceed = await runBeforeCommitChecks(this._gitService, repo, selected);
       if (!proceed) {
-        this.postMessage({ type: 'commitDone', success: false });
+        void this.postMessage({ type: 'commitDone', success: false });
         return;
       }
     }
@@ -736,7 +770,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     if (!result.success) {
       // The webview renders nothing from this message beyond the flag — the
       // error itself is surfaced via the toast below.
-      this.postMessage({
+      void this.postMessage({
         type: 'commitDone',
         success: false,
       });
@@ -756,7 +790,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       files: result.files ?? selected,
     });
 
-    this.postMessage({ type: 'commitDone', success: true });
+    void this.postMessage({ type: 'commitDone', success: true });
     void vscode.window.showInformationMessage(
       `Committed ${(result.files ?? selected).length} file(s)`
     );
@@ -1007,21 +1041,90 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     } catch {
       // Best-effort; ChangelistService surfaces errors via its own channels.
     }
-    this._changelists = this._changelistService.getChangelists(repo);
-    this._shelfItems = this._shelfService.getShelfItems(repo);
+    // The push re-reads every service for the resolved repo and ships the
+    // result as an incremental updateModel (I6: the resolve render is the
+    // only webview.html assignment). Pass the repo through so a multi-root
+    // disambiguation made here isn't lost to the push's non-interactive
+    // resolution.
+    await this._pushLiveUpdate(repo);
+  }
 
-    // Fetch stash list. Failure is non-fatal — the view falls back to an
-    // empty stash array and the filter still works.
-    try {
-      this._stashEntries = await this._gitService.stashList(repo);
-    } catch {
-      this._stashEntries = [];
+  /**
+   * Coalesce service-event bursts into one {@link _pushLiveUpdate}. Trailing
+   * 300 ms timer: the last event in a burst wins, and the push reads state
+   * AFTER the burst settled.
+   */
+  private _scheduleLiveUpdate(): void {
+    if (this._liveUpdateTimer !== undefined) {
+      clearTimeout(this._liveUpdateTimer);
+    }
+    this._liveUpdateTimer = setTimeout(() => {
+      this._liveUpdateTimer = undefined;
+      safeFireAndForget(
+        this._pushLiveUpdate(),
+        'CommitToolWindow._scheduleLiveUpdate: coalesced live push'
+      );
+    }, LIVE_UPDATE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Re-read the services for the resolved repo, rebuild the render model, and
+   * post it as one `updateModel` message. The single update seam: service
+   * events, the stash lane, reloads, tab switches, shelf filter, and grouping
+   * all end here. No-op when the fingerprint (composer excluded) matches the
+   * last pushed model.
+   *
+   * Repo resolution is NON-INTERACTIVE: a push runs in the background (or
+   * under a click that never prompted before), so it must not raise the
+   * repo-disambiguation QuickPick. When no repo resolves deterministically
+   * the re-read is skipped and the model builds from the cached state — a
+   * tab/filter/grouping change still reaches the webview.
+   */
+  private async _pushLiveUpdate(repoOverride?: IRepository): Promise<void> {
+    // Never-resolved / disposed guard: no service reads, no spawn, no post.
+    // The provider is constructed at activation, so events fire long before a
+    // user opens the view — this keeps those bursts free. Nothing is lost:
+    // the resolve path loads fresh state (_reloadState) and the fingerprint
+    // resets per-resolve, so the first post-resolve push always goes through.
+    if (!this._view || this._disposed) {
+      return;
+    }
+    const repo =
+      repoOverride ??
+      (await resolveRepo(this._gitService, {
+        preferActive: true,
+        silent: true,
+        nonInteractive: true,
+      }));
+    if (repo) {
+      this._changelists = this._changelistService.getChangelists(repo);
+      this._shelfItems = this._shelfService.getShelfItems(repo);
+      // Failure is non-fatal — the view falls back to an empty stash array
+      // and the filter still works.
+      try {
+        this._stashEntries = await this._gitService.stashList(repo);
+        // eslint-disable-next-line no-restricted-syntax -- stash list is decorative here; an empty list renders and the next push retries.
+      } catch {
+        this._stashEntries = [];
+      }
+
+      // Prune vanished paths from the inclusion model so neither the pushed
+      // model nor the host-side commit fallback carries ghosts (I3).
+      const present = new Set(this._flattenFiles().map((f) => f.path));
+      for (const path of [...this._selectedFiles]) {
+        if (!present.has(path)) {
+          this._selectedFiles.delete(path);
+        }
+      }
     }
 
-    // Rebuild the whole view from the freshly-loaded state. This is the
-    // refresh for the initial load and for post-commit / post-rollback reloads;
-    // the view has no incremental host→webview update path.
-    this._render();
+    const model = buildCommitToolWindowInitModel(this._renderInput());
+    const fingerprint = fingerprintCtwModel(model);
+    if (fingerprint === this._lastPushedFingerprint) {
+      return;
+    }
+    this._lastPushedFingerprint = fingerprint;
+    this._lastPostDelivered = await this.postMessage({ type: 'updateModel', model });
   }
 
   /**
@@ -1091,7 +1194,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
    * island the bundled entry reads.
    */
   protected override _getBodyParts(): { body: string } {
-    return buildCommitToolWindowBodyParts({
+    return buildCommitToolWindowBodyParts(this._renderInput());
+  }
+
+  /** Current render input — shared by the resolve render and the live push. */
+  private _renderInput(): IRenderInput {
+    return {
       activeTab: this._activeTab,
       changelists: sortChangelistsForDisplay(this._changelists),
       shelfItems: this._shelfItems,
@@ -1108,7 +1216,8 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       },
       activeChangelistId: findActiveChangelistId(this._changelists),
       grouping: this._changesGrouping,
-    });
+      selectedFiles: [...this._selectedFiles],
+    };
   }
 
   // ── Shelf-tab message handlers ─────────────────────────────────────────
@@ -1279,6 +1388,8 @@ export interface IRenderInput {
   activeChangelistId?: string;
   /** Local Changes file-grouping mode. Defaults to `flat` when omitted. */
   grouping?: ChangesGroupingMode;
+  /** Checked file paths (host-owned inclusion model). Defaults to none. */
+  selectedFiles?: readonly string[];
 }
 
 /** Map an {@link IFileChange} to its render-model entry. */
@@ -1351,6 +1462,7 @@ export function buildCommitToolWindowInitModel(input: IRenderInput): ICommitTool
     grouping,
     gearItems: gearMenuItems(),
     composer: { message: composer.message, amend: composer.amend, signOff: composer.signOff },
+    selectedFiles: [...(input.selectedFiles ?? [])],
     local: {
       empty: changelists.length === 0,
       changelists: changelistModels,

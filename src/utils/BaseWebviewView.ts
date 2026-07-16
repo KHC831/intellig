@@ -243,11 +243,14 @@ export abstract class BaseWebviewView<TOutbound = unknown> implements vscode.Web
   /**
    * Post a message to the resolved webview. Typed to the view's declared
    * outbound union (`TOutbound`) so the host can only send on-contract messages;
-   * subclasses that have not yet declared a protocol default to `unknown`. No-op
-   * when the view is unresolved / disposed.
+   * subclasses that have not yet declared a protocol default to `unknown`.
+   * Returns the webview's delivery result (`false` when the message was
+   * dropped, or when the view is unresolved / disposed) so callers that need
+   * redelivery (e.g. a visibility-gated live update) can observe it; most
+   * callers ignore it.
    */
-  protected postMessage(message: TOutbound): void {
-    void this._view?.webview.postMessage(message);
+  protected postMessage(message: TOutbound): Thenable<boolean> {
+    return this._view?.webview.postMessage(message) ?? Promise.resolve(false);
   }
 
   /**

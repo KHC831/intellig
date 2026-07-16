@@ -168,6 +168,12 @@ export interface ICommitToolWindowInitModel {
   grouping: ChangesGroupingMode;
   gearItems: Array<{ label: string; tooltip: string }>;
   composer: { message: string; amend: boolean; signOff: boolean };
+  /**
+   * Repo-relative paths whose file checkboxes are checked. Host-owned
+   * inclusion model (IntelliJ `InclusionModel` parity): the webview applies
+   * it on boot and on every `updateModel`, never deriving it from DOM state.
+   */
+  selectedFiles: string[];
   local: {
     empty: boolean;
     changelists: ICtwChangelistModel[];

@@ -358,6 +358,35 @@ describe('resolveRepo — multi-repo picker', () => {
     assert.deepStrictEqual(h.errors, [], 'cancelling is not an error');
   });
 
+  it('nonInteractive: returns undefined WITHOUT prompting when only the picker remains', async () => {
+    const a = mkRepo('/workspace/a');
+    const b = mkRepo('/workspace/b');
+    const h = mkDeps({
+      repositories: [a, b],
+      pickChoice: a,
+    });
+    const result = await selectRepo(h.deps, { nonInteractive: true });
+    assert.strictEqual(result, undefined);
+    assert.strictEqual(
+      h.pickRequested.length,
+      0,
+      'a nonInteractive resolution must never open the QuickPick'
+    );
+  });
+
+  it('nonInteractive: the deterministic chain still resolves (active editor wins)', async () => {
+    const a = mkRepo('/workspace/a');
+    const b = mkRepo('/workspace/b');
+    const h = mkDeps({
+      repositories: [a, b],
+      activeEditorFsPath: '/workspace/b/src/x.ts',
+      pickChoice: a,
+    });
+    const result = await selectRepo(h.deps, { preferActive: true, nonInteractive: true });
+    assert.strictEqual(result, b);
+    assert.strictEqual(h.pickRequested.length, 0);
+  });
+
   it('honors a custom picker title/placeholder when provided', async () => {
     const a = mkRepo('/workspace/a');
     const b = mkRepo('/workspace/b');
