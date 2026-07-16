@@ -73,6 +73,7 @@ export interface IRebaseConflictResult {
   status: 'conflict';
   conflictedFiles: string[];
   rebaseInProgress: boolean;
+  autostashParked?: never;
 }
 
 /**
@@ -87,6 +88,13 @@ export interface IRebaseOutcomeResult {
   status: Exclude<RebaseStatus, 'conflict'>;
   conflictedFiles?: never;
   rebaseInProgress?: never;
+  /**
+   * Terminal transitions only: `true` when git's `--autostash` reapply
+   * conflicted and the entry was PARKED as a normal stash entry (data-safe;
+   * git reset the tree first). Consumers surface the shared
+   * AUTOSTASH_PARKED_WARNING copy exactly once per terminal transition.
+   */
+  autostashParked?: boolean;
 }
 
 /**
@@ -148,9 +156,10 @@ export interface IRebaseService {
   continueRebase(repo: IRepository): Promise<IRebaseResult>;
 
   /**
-   * Abort the rebase and restore original state
+   * Abort the rebase and restore original state. Reports whether git's
+   * autostash reapply conflicted and was parked as a stash entry.
    */
-  abortRebase(repo: IRepository): Promise<void>;
+  abortRebase(repo: IRepository): Promise<{ autostashParked: boolean }>;
 
   /**
    * Skip the current commit during rebase

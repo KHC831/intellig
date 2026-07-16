@@ -31,6 +31,7 @@ import {
 export type { ConflictFileStatus } from './resolveConflictsDialog.protocol';
 import { initIslandHtml } from '../utils/webviewInit';
 import { sanitizeGitError } from '../git-core/gitError';
+import { AUTOSTASH_PARKED_WARNING } from '../git-core/rebaseAutostash';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { escapeHtml } from '../utils/escapeHtml';
 import {
@@ -625,9 +626,14 @@ ${this._getBodyHtml()}
         case 'merge':
           this._throwIfFailed(await this._conflictResolutionService.abortMerge(this._repo));
           break;
-        case 'rebase':
-          this._throwIfFailed(await this._conflictResolutionService.abortRebase(this._repo));
+        case 'rebase': {
+          const res = await this._conflictResolutionService.abortRebase(this._repo);
+          this._throwIfFailed(res);
+          if (res.autostashParked) {
+            void vscode.window.showWarningMessage(AUTOSTASH_PARKED_WARNING);
+          }
           break;
+        }
         case 'cherryPick':
           await this._gitService.cherryPickAbort(this._repo).match(
             () => undefined,
@@ -707,6 +713,9 @@ ${this._getBodyHtml()}
             // Non-conflict failure (e.g. nothing staged, no rebase in
             // progress). Surface git's reason rather than a false "completed".
             throw new Error(res.failureReason ?? 'Failed to continue rebase');
+          }
+          if (res.autostashParked) {
+            void vscode.window.showWarningMessage(AUTOSTASH_PARKED_WARNING);
           }
           break;
         }

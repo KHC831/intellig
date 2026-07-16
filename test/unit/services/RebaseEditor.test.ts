@@ -79,10 +79,10 @@ class MockRebaseService implements IRebaseService {
     return Promise.resolve({ success: true, status: 'completed' });
   }
 
-  abortRebase(_repo: IRepository): Promise<void> {
+  abortRebase(_repo: IRepository): Promise<{ autostashParked: boolean }> {
     this._session = undefined;
     this._onDidChangeRebaseSession.fire(undefined);
-    return Promise.resolve();
+    return Promise.resolve({ autostashParked: false });
   }
 
   public clearSessionCalls = 0;

@@ -198,7 +198,7 @@ function createMockRebaseService(
     updateRebasePlan: () => {},
     executeRebase: async () => ({ success: true, status: 'completed' as const }),
     continueRebase: async () => ({ success: true, status: 'completed' as const }),
-    abortRebase: async () => {},
+    abortRebase: async () => ({ autostashParked: false }),
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),

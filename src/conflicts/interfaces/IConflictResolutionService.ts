@@ -69,6 +69,12 @@ export interface IOperationCompletionResult {
   error?: string;
   /** Any remaining conflicted files */
   remainingConflicts?: string[];
+  /**
+   * Rebase terminals only: `true` when git's `--autostash` reapply conflicted
+   * and the entry was PARKED as a normal stash (data-safe; git reset the tree
+   * first). Consumers surface the shared AUTOSTASH_PARKED_WARNING copy.
+   */
+  autostashParked?: boolean;
 }
 
 /**

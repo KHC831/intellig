@@ -11,6 +11,7 @@ import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDi
 import { inferReopenOperation, isReversedOperation } from './conflictReversal';
 import { resolveConflictSideNames, IConflictSideNames } from './conflictSideNames';
 import { sanitizeGitError } from '../git-core/gitError';
+import { withAutostashParked } from '../git-core/rebaseAutostash';
 import { IMergeView } from './interfaces/IMergeView';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { resolveGitDir } from '../git-core/gitDirMarkers';
@@ -777,7 +778,11 @@ export class ConflictResolutionService implements IConflictResolutionService {
         cwd: repo.rootUri.fsPath,
       };
 
-      const result: IGitCommandResult = await gitCli.exec(['rebase', '--abort'], options);
+      const { result, autostashParked } = await withAutostashParked(
+        gitCli,
+        repo.rootUri.fsPath,
+        () => gitCli.exec(['rebase', '--abort'], options)
+      );
 
       if (result.exitCode !== 0) {
         return {
@@ -790,7 +795,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       const conflicts = await this.getConflictedFiles(repo);
       this._onDidChangeConflicts.fire({ repo, conflicts });
 
-      return { success: true };
+      return { success: true, autostashParked };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return { success: false, error: `Failed to abort rebase: ${sanitizeGitError(errorMessage)}` };

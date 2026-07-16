@@ -3,6 +3,7 @@ import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { sanitizeGitError } from '../../git-core/gitError';
+import { AUTOSTASH_PARKED_WARNING } from '../../git-core/rebaseAutostash';
 import { createMergeView } from '../../services';
 import { inferReopenOperation } from '../../conflicts/conflictReversal';
 import { acceptLabels } from '../../conflicts/conflictSideNames';
@@ -217,6 +218,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       const res = await gitService.rebaseContinue(repo);
       if (res.success) {
         void vscode.window.showInformationMessage('Rebase continued successfully.');
+        if (res.autostashParked) {
+          void vscode.window.showWarningMessage(AUTOSTASH_PARKED_WARNING);
+        }
       } else if (res.conflicts && res.conflicts.length > 0) {
         // Next commit in the rebase sequence introduced new conflicts —
         // reopen the Resolve Conflicts dialog so the user can keep going.
@@ -268,13 +272,15 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
 
-      await gitService.rebaseAbort(repo).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
+      // Route through RebaseService.abortRebase (not the raw BranchOps
+      // rebaseAbort): it tolerates the "no rebase in progress" phantom,
+      // clears any cached session, and reports whether git parked a
+      // conflicting autostash.
+      const { autostashParked } = await services.rebaseService.abortRebase(repo);
       void vscode.window.showInformationMessage('Rebase aborted.');
+      if (autostashParked) {
+        void vscode.window.showWarningMessage(AUTOSTASH_PARKED_WARNING);
+      }
       await gitService.reloadRepository(repo);
       ctx.gitToolWindowProvider?.refresh();
     },

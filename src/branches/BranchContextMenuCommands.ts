@@ -1525,6 +1525,7 @@ export class BranchContextMenuCommands {
         // exist before our call. If the user already had a rebase paused,
         // `beforeKind === 'rebasing'` and we never touch it.
         try {
+          // rebase-abort-exempt: orphaned-rebase recovery — non-conflict failure only; the before/after boundary above proves THIS invocation created the rebasing state
           await this._gitService.rebaseAbort(repo).match(
             () => undefined,
             (e) => {

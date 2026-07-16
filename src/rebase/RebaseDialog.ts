@@ -475,6 +475,7 @@ ${this._getBodyHtml()}
         // user's model is "it didn't work, leave it as if I never clicked" —
         // auto-abort, but ONLY when the state did not exist before our call.
         try {
+          // rebase-abort-exempt: orphaned-rebase recovery — non-conflict failure only; the before/after boundary above proves THIS invocation created the rebasing state
           await this._gitService.rebaseAbort(this._repo).match(
             () => undefined,
             (e) => {

@@ -227,7 +227,7 @@ function createErrorThrowingRebaseService(errorMsg: string): IRebaseService {
     continueRebase: async () => {
       throw new Error(errorMsg);
     },
-    abortRebase: async () => {},
+    abortRebase: async () => ({ autostashParked: false }),
     skipCommit: async () => {
       throw new Error(errorMsg);
     },

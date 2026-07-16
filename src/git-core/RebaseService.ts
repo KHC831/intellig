@@ -18,6 +18,12 @@ import { IGitService } from './interfaces/IGitService';
 import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
 import { NON_INTERACTIVE_GIT_ENV } from './gitEnv';
 import { resolveWorktreeGitDir } from './repo/RepositoryDiscovery';
+import {
+  IAutostashWatchToken,
+  beginAutostashWatch,
+  finishAutostashWatch,
+  withAutostashParked,
+} from './rebaseAutostash';
 
 /**
  * Rebase Service implementation.
@@ -196,9 +202,25 @@ export class RebaseService implements IRebaseService {
    * driving this rebase (squash / interactive rebase / a paused extension-run
    * rebase). Reads the RAW map only: unlike {@link getRebaseSession} it never
    * reconstructs a session from disk, so an inherited/CLI rebase reads false.
+   *
+   * Self-reconciles against git reality: a post-planning session whose
+   * on-disk rebase is gone is a phantom — the rebase reached a terminal state
+   * through a path that doesn't touch this service (the resolve dialog's
+   * Continue/Abort, the terminal). Left in place it would suppress
+   * `wireRebasePausedWarning` for a future genuinely-inherited rebase in the
+   * repo, so it is cleared here and reported false. A `planning` session has
+   * no git backing by design and always survives.
    */
   isManagingRebase(repo: IRepository): boolean {
-    return this._sessions.has(this.getRepoKey(repo));
+    const session = this._sessions.get(this.getRepoKey(repo));
+    if (!session) {
+      return false;
+    }
+    if (session.status !== 'planning' && !this.isRebaseInProgress(repo)) {
+      this.clearSession(repo);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -309,10 +331,12 @@ export class RebaseService implements IRebaseService {
     // open an editor under the non-TTY spawn — which fails outright when the
     // host has no EDITOR set ("Terminal is dumb, but EDITOR unset"). Mirrors the
     // GIT_EDITOR handling on the interactive-rebase start.
-    const result = await this._gitCli.exec(['rebase', '--continue'], {
-      cwd,
-      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
-    });
+    const { result, autostashParked } = await withAutostashParked(this._gitCli, cwd, () =>
+      this._gitCli.exec(['rebase', '--continue'], {
+        cwd,
+        env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
+      })
+    );
 
     // Reconcile against git reality: if git reports no rebase in progress, the
     // cached session is a phantom (e.g. an abandoned planning session). Clear
@@ -329,7 +353,7 @@ export class RebaseService implements IRebaseService {
 
       if (isComplete) {
         this._finishRebase(repo, repoKey);
-        return { success: true, status: 'completed' };
+        return { success: true, status: 'completed', autostashParked };
       }
 
       // Update session status
@@ -369,11 +393,13 @@ export class RebaseService implements IRebaseService {
    *
    * @param repo - The repository
    */
-  async abortRebase(repo: IRepository): Promise<void> {
+  async abortRebase(repo: IRepository): Promise<{ autostashParked: boolean }> {
     const cwd = repo.rootUri.fsPath;
     const repoKey = this.getRepoKey(repo);
 
-    const result = await this._gitCli.exec(['rebase', '--abort'], { cwd });
+    const { result, autostashParked } = await withAutostashParked(this._gitCli, cwd, () =>
+      this._gitCli.exec(['rebase', '--abort'], { cwd })
+    );
 
     // A "no rebase in progress" fatal means the cached session was a phantom
     // (e.g. an abandoned planning session). Treat it as a successful clear so
@@ -384,6 +410,7 @@ export class RebaseService implements IRebaseService {
 
     // Clear the session
     this._finishRebase(repo, repoKey);
+    return { autostashParked };
   }
 
   /**
@@ -504,6 +531,12 @@ export class RebaseService implements IRebaseService {
     // {@link atomicWriteFileSync} for the crash-during-write rationale.
     atomicWriteFileSync(todoScriptPath, todoScript, { mode: 0o755 });
 
+    // The autostash is created AND (on a pop conflict) parked inside the one
+    // `git rebase` command below, so no marker is observable beforehand —
+    // the token's stash-tip snapshot is the detection signal at the
+    // completed arm (see rebaseAutostash module doc).
+    const autostashToken = await beginAutostashWatch(this._gitCli, cwd);
+
     try {
       // Start the interactive rebase with our custom sequence editor.
       // The GIT_SEQUENCE_EDITOR transforms git's todo with our plan.
@@ -535,7 +568,7 @@ export class RebaseService implements IRebaseService {
       this.cleanupTempFile(todoScriptPath);
 
       // Update session status based on result
-      return await this.handleRebaseResult(repo, session, result);
+      return await this.handleRebaseResult(repo, session, result, autostashToken);
     } catch (error) {
       // Clean up on error
       this.cleanupTempFile(todoScriptPath);
@@ -560,9 +593,16 @@ export class RebaseService implements IRebaseService {
   private async handleRebaseResult(
     repo: IRepository,
     session: IRebaseSession,
-    result: IGitCommandResult
+    result: IGitCommandResult,
+    autostashToken?: IAutostashWatchToken
   ): Promise<IRebaseResult> {
     const repoKey = this.getRepoKey(repo);
+    // Resolved only at the terminal (completed) arms — a still-live rebase
+    // has not reached the autostash reapply yet.
+    const autostashParked = async (): Promise<boolean> =>
+      autostashToken
+        ? finishAutostashWatch(this._gitCli, repo.rootUri.fsPath, autostashToken)
+        : false;
 
     // Check for conflicts first, even on a zero exit code. With `--autostash`
     // git replays the commits, then re-applies the stashed working tree; if
@@ -600,7 +640,7 @@ export class RebaseService implements IRebaseService {
       const isComplete = !this.isRebaseInProgress(repo);
       if (isComplete) {
         this._finishRebase(repo, repoKey);
-        return { success: true, status: 'completed' };
+        return { success: true, status: 'completed', autostashParked: await autostashParked() };
       }
     }
 
@@ -634,7 +674,7 @@ export class RebaseService implements IRebaseService {
 
     // Rebase completed
     this._finishRebase(repo, repoKey);
-    return { success: true, status: 'completed' };
+    return { success: true, status: 'completed', autostashParked: await autostashParked() };
   }
 
   /**

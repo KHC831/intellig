@@ -8,8 +8,8 @@
  * 2. MEDIUM — Senior - — Save-As silent abort: detect a save to
  *               a different URI, surface a clarifying toast, treat as
  *               cancel.
- * 3. MEDIUM — Senior - — squash success path uses the shared
- *               `_unstashWithErrorReport` helper (mirrors drop multi).
+ * 3. MEDIUM — Senior - — the rebase-editing flows carry no manual
+ *               stash bracket (git owns save/restore via --autostash).
  * 4. LOW — Senior - — tempfile name includes `crypto.randomBytes`
  *               so two squashes in the same millisecond can't collide.
  * 5. LOW — Senior - — fallback to showInputBox surfaces a
@@ -109,46 +109,30 @@ describe('structural pins', () => {
     });
   });
 
-  // Shared unstash-error helper
-  describe('squash success uses _unstashWithErrorReport helper', () => {
-    it('a private _unstashWithErrorReport(cwd, opName) helper is declared once', () => {
-      const matches = src.match(/private\s+async\s+_unstashWithErrorReport\s*\(/g) || [];
-      assert.strictEqual(
-        matches.length,
-        1,
-        `expected exactly 1 _unstashWithErrorReport declaration; got ${matches.length}`
+  // No manual stash bracket — git owns save/restore via `rebase --autostash`
+  describe('rebase-editing flows carry no manual stash bracket', () => {
+    it('the _stashIfDirty/_unstash bracket is gone from the class', () => {
+      assert.ok(
+        !/_stashIfDirty|_unstashWithErrorReport/.test(src),
+        'the manual stash bracket must not exist — the rebase runs --autostash'
       );
     });
 
-    it('squash success path calls _unstashWithErrorReport(cwd, "Squash")', () => {
-      const handlerIdx = src.indexOf('private async _handleSquashCommits');
-      const editIdx = src.indexOf('private async _handleEditCommitMessage', handlerIdx);
-      const body = src.substring(handlerIdx, editIdx > 0 ? editIdx : handlerIdx + 12000);
-      // _handleSquashCommits now also handles the fixup mode (via
-      // squashWithPrevious + fixupWithPrevious). The opName argument is now
-      // `mode === 'fixup' ? 'Fixup' : 'Squash'` rather than the literal
-      // 'Squash'. Either form satisfies the contract that the squash branch
-      // surfaces an unstash failure tagged "Squash".
+    it('squash and drop-multi delegate to the shared runner', () => {
+      const squashIdx = src.indexOf('private async _handleSquashCommits');
+      const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
+      const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*['"]Squash['"]\s*\)/.test(
-          body
-        ) ||
-          /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*mode\s*===\s*['"]fixup['"]\s*\?\s*['"]Fixup['"]\s*:\s*['"]Squash['"]\s*\)/.test(
-            body
-          ),
-        '_handleSquashCommits success path must call _unstashWithErrorReport(cwd, "Squash") (or the Wave K mode-aware ternary form)'
+        /this\._runHistoryRewrite\s*\(/.test(squashBody),
+        '_handleSquashCommits must ride _runHistoryRewrite'
       );
-    });
 
-    it('drop multi success path calls _unstashWithErrorReport(cwd, "Drop")', () => {
-      const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
-      const squashIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
-      const body = src.substring(handlerIdx, squashIdx > 0 ? squashIdx : handlerIdx + 12000);
+      const dropIdx = src.indexOf('private async _handleDropCommitMulti');
+      const nextIdx = src.indexOf('private async _handleSquashCommits', dropIdx);
+      const dropBody = src.substring(dropIdx, nextIdx > 0 ? nextIdx : dropIdx + 12000);
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*['"]Drop['"]\s*\)/.test(
-          body
-        ),
-        '_handleDropCommitMulti success path must call _unstashWithErrorReport(cwd, "Drop")'
+        /this\._runHistoryRewrite\s*\(/.test(dropBody),
+        '_handleDropCommitMulti must ride _runHistoryRewrite'
       );
     });
   });
@@ -648,9 +632,9 @@ describe('behavioural specs', () => {
     });
   });
 
-  // Squash success unstash error surfaces distinct toast
-  describe('squash success path reports unstash failures', () => {
-    it('surfaces "Squash succeeded but failed to restore stash" when stash pop fails', async () => {
+  // No manual stash — git owns save/restore via `rebase --autostash`
+  describe('squash takes no manual stash on a dirty tree', () => {
+    it('runs the rebase without pushing or popping a stash', async () => {
       const tracker = blankRebaseTracker();
       tracker.sessionCommits = [
         { hash: HASH_MID, message: 'mid', action: 'pick' },
@@ -660,13 +644,12 @@ describe('behavioural specs', () => {
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
 
-      // Drive `_stashIfDirty` to actually stash (status --porcelain
-      // returns a non-empty line) and then make `stash pop` fail with
-      // a non-zero exit code.
+      const stashCalls: string[] = [];
       const gitCli = createMockGitCli({
         exec: (...args: unknown[]) => {
           const argv = args[0] as string[];
           if (argv[0] === 'status' && argv.includes('--porcelain')) {
+            // Dirty (non-conflicted) tree — git's autostash territory.
             return Promise.resolve({
               exitCode: 0,
               stdout: ' M src/file.ts\n',
@@ -674,22 +657,14 @@ describe('behavioural specs', () => {
               combined: '',
             });
           }
-          if (argv[0] === 'stash' && argv[1] === 'push') {
-            return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
-          }
-          if (argv[0] === 'stash' && argv[1] === 'pop') {
-            return Promise.resolve({
-              exitCode: 1,
-              stdout: '',
-              stderr: 'CONFLICT (content): merge conflict in src/file.ts',
-              combined: '',
-            });
+          if (argv[0] === 'stash') {
+            stashCalls.push(argv[1]);
           }
           return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
         },
       });
       const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
-      const messages = captureMessages();
+      captureMessages();
 
       await runWithEditor(
         () =>
@@ -701,11 +676,12 @@ describe('behavioural specs', () => {
         (e) => e.simulateSave('combined message')
       );
 
-      const allWarnings = messages.warning.map((m) => m.message).join(' || ');
-      assert.ok(
-        /Squash succeeded but failed to restore stash/i.test(allWarnings),
-        `expected the distinct unstash-error warning; got: ${allWarnings}`
+      assert.deepStrictEqual(
+        stashCalls,
+        [],
+        'no manual stash may run — executeRebase passes --autostash'
       );
+      assert.strictEqual(tracker.executeCalls, 1, 'the rebase must still run on a dirty tree');
     });
   });
 

@@ -33,6 +33,7 @@ import { getOutputChannel } from '../../utils/outputChannel';
 import { IGitOpsContext } from './GitOpsContext';
 import { NON_INTERACTIVE_GIT_ENV } from '../gitEnv';
 import { isHexObjectId } from '../gitDirMarkers';
+import { withAutostashParked } from '../rebaseAutostash';
 
 /**
  * Translate {@link IRebaseOptions} into git flags, in IntelliJ git4idea's
@@ -698,14 +699,19 @@ export class BranchOps {
     // Pin the editor to a no-op so git commits it verbatim instead of trying to
     // open an editor under the non-TTY spawn — which fails outright when the host
     // has no EDITOR set ("Terminal is dumb, but EDITOR unset").
-    const result = await this.ctx.gitCli.exec(['rebase', '--continue'], {
-      cwd: repo.rootUri.fsPath,
-      env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
-    });
+    const { result, autostashParked } = await withAutostashParked(
+      this.ctx.gitCli,
+      repo.rootUri.fsPath,
+      () =>
+        this.ctx.gitCli.exec(['rebase', '--continue'], {
+          cwd: repo.rootUri.fsPath,
+          env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV },
+        })
+    );
     this.ctx.invalidateCache(repo.rootUri.fsPath);
 
     if (result.exitCode === 0) {
-      return { success: true };
+      return { success: true, autostashParked };
     }
 
     const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain', '-z'], {

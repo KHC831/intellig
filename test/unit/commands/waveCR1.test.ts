@@ -10,11 +10,11 @@
  *      complete" warning, not success toast (covered in waveC.test.ts;
  *      structural pin here).
  *   4. Empty rebase-window guard surfaces stale-selection toast and
- *      aborts (covered in waveC.test.ts; structural pin here).
+ *      refuses (covered in waveC.test.ts; structural pin here).
  *   5. Drop confirm modal includes commit subjects, not bare short-shas
  *      (covered in waveC.test.ts; structural pin here).
- *   6. Post-success unstash failure surfaces a distinct toast, not the
- *      generic "Failed to drop".
+ *   6. The rebase-editing flows ride the shared _runHistoryRewrite runner
+ *      with no manual stash bracket (git owns --autostash).
  *   7. Empty save = cancel (covered in waveC.test.ts; structural pin
  *      here).
  *   8. STALE_SELECTION_TOAST const replaces 4 inline duplicates
@@ -136,24 +136,37 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── squash status: 'paused' guard ───────────────────────────────────────
+  // The outcome switch lives in the shared runner (_runHistoryRewrite); the
+  // squash body must ride it and the runner must keep the pins.
   describe('squash second-pause false-success edge', () => {
-    it("_handleSquashCommits success branch pins to status === 'completed'", () => {
+    it('_handleSquashCommits rides the shared history-rewrite runner', () => {
       const squashIdx = src.indexOf('private async _handleSquashCommits');
       const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
       const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
       assert.ok(
-        /result\.status\s*===\s*['"]completed['"]/.test(squashBody),
-        "_handleSquashCommits success branch must require status === 'completed'"
+        /this\._runHistoryRewrite\s*\(/.test(squashBody),
+        '_handleSquashCommits must delegate execute + outcome handling to _runHistoryRewrite'
       );
     });
 
-    it("_handleSquashCommits surfaces a partial-complete warning when status === 'paused'", () => {
-      const squashIdx = src.indexOf('private async _handleSquashCommits');
-      const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
-      const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
+    it("the runner's success branch pins to status === 'completed'", () => {
+      const runnerIdx = src.indexOf('private async _runHistoryRewrite');
+      assert.ok(runnerIdx > 0, 'expected _runHistoryRewrite definition');
+      const nextIdx = src.indexOf('private async _handleDropCommit(', runnerIdx);
+      const runnerBody = src.substring(runnerIdx, nextIdx > 0 ? nextIdx : runnerIdx + 8000);
       assert.ok(
-        /partially complete|partial complete/i.test(squashBody),
-        '_handleSquashCommits must surface a partial-complete warning'
+        /result\.status\s*===\s*['"]completed['"]/.test(runnerBody),
+        "the runner's success branch must require status === 'completed'"
+      );
+    });
+
+    it("the runner surfaces a partial-complete warning when status === 'paused'", () => {
+      const runnerIdx = src.indexOf('private async _runHistoryRewrite');
+      const nextIdx = src.indexOf('private async _handleDropCommit(', runnerIdx);
+      const runnerBody = src.substring(runnerIdx, nextIdx > 0 ? nextIdx : runnerIdx + 8000);
+      assert.ok(
+        /partially complete|partial complete/i.test(runnerBody),
+        'the runner must surface a partial-complete warning'
       );
     });
   });
@@ -190,31 +203,21 @@ describe('Wave C R1 — review fixes', () => {
     });
   });
 
-  // ─── post-success unstash error path ─────────────────────────────────────
-  describe('post-success unstash error has distinct phrasing', () => {
-    it('_handleDropCommitMulti routes its post-success unstash through _unstashWithErrorReport', () => {
+  // ─── no manual stash bracket in the rebase-editing flows ─────────────────
+  describe('drop multi carries no manual stash bracket', () => {
+    it('_handleDropCommitMulti rides the shared runner with no stash machinery', () => {
       const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
       const nextIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
       const body = src.substring(handlerIdx, nextIdx > 0 ? nextIdx : handlerIdx + 12000);
-      // Drop's inline post-success unstash was extracted into the
-      // shared `_unstashWithErrorReport` helper so squash-multi can
-      // share the phrasing. Pin the call shape.
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*stashSha\s*,\s*['"]Drop['"]\s*\)/.test(
-          body
-        ),
-        '_handleDropCommitMulti success path must call _unstashWithErrorReport(cwd, "Drop")'
+        /this\._runHistoryRewrite\s*\(/.test(body),
+        '_handleDropCommitMulti must delegate execute + outcome handling to _runHistoryRewrite'
       );
-    });
-
-    it('the shared helper surfaces a distinct "succeeded but failed to restore stash" toast', () => {
-      const helperIdx = src.indexOf('private async _unstashWithErrorReport');
-      assert.ok(helperIdx > 0, 'expected the _unstashWithErrorReport helper to exist');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
-      const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 4000);
+      // git owns save/restore via `rebase --autostash`; a manual bracket
+      // here would pop onto a mid-rebase tree when the rebase pauses.
       assert.ok(
-        /succeeded but failed to restore stash/i.test(helperBody),
-        '_unstashWithErrorReport must surface the distinct toast phrasing'
+        !/_stashIfDirty|_unstash/.test(body),
+        '_handleDropCommitMulti must not run a manual stash bracket'
       );
     });
   });

@@ -734,6 +734,7 @@ export interface IBasicRebaseConflictResult {
   conflicts: string[];
   rebaseInProgress: boolean;
   failureReason?: never;
+  autostashParked?: never;
 }
 
 /**
@@ -753,6 +754,13 @@ export interface IBasicRebaseOutcomeResult {
    */
   failureReason?: string;
   rebaseInProgress?: never;
+  /**
+   * Successful terminal transitions only: `true` when git's `--autostash`
+   * reapply conflicted and the entry was PARKED as a normal stash (data-safe;
+   * git reset the tree first). Consumers surface the shared
+   * AUTOSTASH_PARKED_WARNING copy exactly once per terminal transition.
+   */
+  autostashParked?: boolean;
 }
 
 export type IBasicRebaseResult = IBasicRebaseConflictResult | IBasicRebaseOutcomeResult;

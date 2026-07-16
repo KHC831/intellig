@@ -10,7 +10,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { IBranch, IGitService, IRepository } from '../git-core/interfaces/IGitService';
-import { IRebaseService } from '../git-core/interfaces/IRebaseService';
+import {
+  IRebaseService,
+  IRebaseSession,
+  IRebaseAction,
+  IRebaseResult,
+} from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
 import { GitCli, revParseVerified } from '../git-core/gitCli';
@@ -31,7 +36,12 @@ import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
 import { CommitMessageDialog } from './CommitMessageDialog';
 import { buildSquashRebasePlan } from './squashPlan';
-import { saveLocalChanges, restoreLocalChanges } from '../git-core/ops/preservedChanges';
+import {
+  detectLocalChanges,
+  saveLocalChanges,
+  restoreLocalChanges,
+} from '../git-core/ops/preservedChanges';
+import { AUTOSTASH_PARKED_WARNING } from '../git-core/rebaseAutostash';
 import { restorePathsToHead, IRestoreToHeadRequest } from '../git-core/worktree/restoreToHead';
 
 /**
@@ -950,73 +960,6 @@ export class CommitContextMenuCommands {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`
-      );
-    }
-  }
-
-  /**
-   * Stash dirty working tree if needed, returning whether a stash was created.
-   * Refuses to stash if there are unmerged files (returns false and shows error).
-   */
-  private async _stashIfDirty(
-    cwd: string
-  ): Promise<{ stashed: boolean; blocked: boolean; stashSha?: string }> {
-    // Thin adapter over the shared save-local-changes bracket
-    // (git-core/ops/preservedChanges) so every dirty-tree-sensitive flow
-    // shares ONE save/restore implementation.
-    const saved = await saveLocalChanges(this._gitCli, cwd, 'Auto-stash before git operation');
-    return {
-      stashed: saved.status === 'saved',
-      blocked: saved.status === 'blocked-unmerged',
-      stashSha: saved.status === 'saved' ? saved.stashSha : undefined,
-    };
-  }
-
-  /**
-   * Pop the stash if one was created.
-   */
-  private async _unstash(cwd: string, stashSha: string | undefined): Promise<void> {
-    if (stashSha === undefined) {
-      return;
-    }
-    const restore = await restoreLocalChanges(this._gitCli, cwd, stashSha);
-    if (restore.status === 'failed') {
-      // Leave in stash if pop fails (the success-path variant surfaces a
-      // toast; this cleanup path stays quiet). Log so it isn't silent.
-      getLogger()
-        .child({ component: 'CommitContextMenuCommands' })
-        .debug('_unstash: stash pop failed', { err: restore.detail });
-    }
-  }
-
-  /**
-   * Pop the stash on the success path of a
-   * destructive operation (drop / squash) and surface a distinct toast
-   * if it fails. The plain {@link _unstash} helper swallows errors by
-   * design; on the success path that's misleading because the user
-   * sees "Squashed N commits successfully" but their stashed working
-   * changes silently stay in the stash list.
-   *
-   * Single source of truth so drop-multi and squash-multi share the
-   * same phrasing — the drop path previously inlined this logic and the
-   * squash path used the silent helper.
-   *
-   * Single-commit handlers (drop, edit-commit-message) keep their
-   * existing `_unstash` shape; the follow-up TODO tracks adopting
-   * this helper there too.
-   */
-  private async _unstashWithErrorReport(
-    cwd: string,
-    stashSha: string | undefined,
-    opName: string
-  ): Promise<void> {
-    if (stashSha === undefined) {
-      return;
-    }
-    const restore = await restoreLocalChanges(this._gitCli, cwd, stashSha);
-    if (restore.status === 'failed') {
-      void vscode.window.showWarningMessage(
-        `${opName} succeeded but failed to restore stash: ${restore.detail}`
       );
     }
   }
@@ -2309,6 +2252,109 @@ export class CommitContextMenuCommands {
     return false;
   }
 
+  /**
+   * Shared skeleton for the history-rewrite flows (single/multi drop,
+   * squash/fixup, reword): pre-flight → plan → execute → one outcome switch.
+   * Bodies own op-specific guards, confirm modals, message dialogs, and
+   * their catch-clause copy; the runner owns the invariants:
+   *
+   *  - Unmerged files refuse the operation before any git mutation.
+   *  - No manual stash bracket — `executeRebase` passes `--autostash`, so
+   *    git owns saving and restoring local changes via the
+   *    `.git/rebase-merge/autostash` marker on every terminal path
+   *    (continue, abort, terminal git included).
+   *  - A stale plan clears the planning session; no rebase has started, so
+   *    there is nothing to abort.
+   *  - A conflicted rebase is left PAUSED and handed to the resolve dialog
+   *    with `rebaseInProgress` passed VERBATIM (Continue/Abort/Skip render
+   *    only when a rebase is actually in progress). `rebase --abort` runs
+   *    only from explicit user actions: dialog Abort, palette, the
+   *    paused-rebase warning toast, or the terminal — matching git4idea's
+   *    GitRebaseProcess, whose conflict loop never aborts.
+   *  - Every executed arm reloads the repo and refreshes the log (HEAD may
+   *    sit at the replayed prefix even when paused).
+   */
+  private async _runHistoryRewrite(
+    repo: IRepository,
+    opts: {
+      /** Rebase base, e.g. `${hash}~1`. */
+      onto: string;
+      /**
+       * Turn the planning session into a plan. Returning `'stale'` refuses
+       * the operation (the body surfaces its own stale/not-found toast).
+       */
+      buildPlan: (session: IRebaseSession) => IRebaseAction[] | 'stale';
+      /** Toast subject: 'Drop' | 'Squash' | 'Fixup' | 'Edit message'. */
+      opLabel: string;
+      /** Resolve-dialog target: 'drop' | 'squash' | 'reword'. */
+      target: string;
+      successToast: string;
+      /**
+       * Reword only: consume the paused reword step(s) and return the final
+       * result for the outcome switch. Drop/squash omit it.
+       */
+      drivePaused?: (first: IRebaseResult) => Promise<IRebaseResult>;
+    }
+  ): Promise<void> {
+    // rebase-containment-exempt: every body runs _isOldestInCurrentBranch on
+    // its own oldest hash BEFORE calling the runner — the runner only receives
+    // the prepared `onto` base and cannot know which commit is oldest.
+    const cwd = repo.rootUri.fsPath;
+    if ((await detectLocalChanges(this._gitCli, cwd)) === 'blocked-unmerged') {
+      void vscode.window.showErrorMessage(
+        `Cannot ${opts.opLabel.toLowerCase()} while you have unmerged files. Please resolve conflicts first.`
+      );
+      return;
+    }
+
+    const session = await this._rebaseService.startInteractiveRebase(repo, opts.onto);
+    const plan = opts.buildPlan(session);
+    if (plan === 'stale') {
+      this._rebaseService.clearSession(repo);
+      return;
+    }
+    this._rebaseService.updateRebasePlan(repo, plan);
+
+    const first = await this._rebaseService.executeRebase(repo);
+    const result = opts.drivePaused ? await opts.drivePaused(first) : first;
+
+    if (result.success && result.status === 'completed') {
+      void vscode.window.showInformationMessage(opts.successToast);
+      if (result.autostashParked) {
+        void vscode.window.showWarningMessage(AUTOSTASH_PARKED_WARNING);
+      }
+    } else if (result.status === 'conflict' && result.conflictedFiles.length > 0) {
+      if (result.rebaseInProgress !== false) {
+        void vscode.window.showWarningMessage(
+          `${opts.opLabel} hit conflicts in ${result.conflictedFiles.length} file(s) — resolve them to continue, or abort to roll back.`
+        );
+      }
+      // A live conflict gets Continue/Abort/Skip; a terminal conflict (the
+      // defensive autostash-pop arm) renders resolve-only.
+      await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
+        operation: 'rebase',
+        target: opts.target,
+        rebaseInProgress: result.rebaseInProgress,
+      });
+    } else if (result.status === 'cleared-stale') {
+      // A continue/reword drive found no live rebase and self-cleared the
+      // phantom session — report the no-op honestly.
+      void vscode.window.showInformationMessage('No rebase in progress — cleared a stale session.');
+    } else if (result.status === 'paused') {
+      void vscode.window.showWarningMessage(
+        `${opts.opLabel} partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
+      );
+    } else {
+      void vscode.window.showErrorMessage(
+        `${opts.opLabel} failed: the rebase did not complete successfully.`
+      );
+    }
+    // HEAD may have moved on every executed arm (completed rewrite, replayed
+    // prefix at a pause, autostash reapply); reload before refresh.
+    await this._gitService.reloadRepository(repo);
+    this._gitToolWindowProvider.refresh();
+  }
+
   private async _handleDropCommit(
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
@@ -2361,7 +2407,6 @@ export class CommitContextMenuCommands {
     }
 
     const hash = commitHashes[0];
-    const cwd = repo.rootUri.fsPath;
 
     // defence-in-depth merge-commit gate. The UI hides the
     // action entirely when the selection contains a merge commit, but
@@ -2407,87 +2452,28 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      const { stashed, blocked, stashSha } = await this._stashIfDirty(cwd);
-      if (blocked) {
-        void vscode.window.showErrorMessage(
-          'Cannot drop commit while you have unmerged files. Please resolve conflicts first.'
-        );
-        return;
-      }
-
-      try {
-        const session = await this._rebaseService.startInteractiveRebase(repo, `${hash}~1`);
-
-        const targetCommit = session.commits.find(
-          (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
-        );
-        if (!targetCommit) {
-          void vscode.window.showErrorMessage(
-            `Commit ${hash.substring(0, 8)} not found in rebase session.`
+      await this._runHistoryRewrite(repo, {
+        onto: `${hash}~1`,
+        opLabel: 'Drop',
+        target: 'drop',
+        successToast: `Dropped commit ${hash.substring(0, 8)}`,
+        buildPlan: (session) => {
+          const targetCommit = session.commits.find(
+            (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
           );
-          await this._rebaseService.abortRebase(repo);
-          if (stashed) {
-            await this._unstash(cwd, stashSha);
+          if (!targetCommit) {
+            void vscode.window.showErrorMessage(
+              `Commit ${hash.substring(0, 8)} not found in rebase session.`
+            );
+            return 'stale';
           }
-          return;
-        }
-
-        this._rebaseService.updateRebasePlan(
-          repo,
-          session.commits.map((c) =>
+          return session.commits.map((c) =>
             c.hash === targetCommit.hash
               ? { hash: c.hash, action: 'drop' as const }
               : { hash: c.hash, action: c.action }
-          )
-        );
-
-        const result = await this._rebaseService.executeRebase(repo);
-
-        // Mirror Squash's outcome checks: only toast success on a truly
-        // completed rebase, warn on paused (user must continue/abort
-        // manually), error on any other non-conflict failure.
-        if (result.success && result.status === 'completed') {
-          void vscode.window.showInformationMessage(`Dropped commit ${hash.substring(0, 8)}`);
-        } else if (result.status === 'paused') {
-          void vscode.window.showWarningMessage(
-            `Drop partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
           );
-        } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          // Only abort a LIVE rebase. A post-completion autostash-pop conflict
-          // (rebaseInProgress === false) has no rebase to abort — `git rebase
-          // --abort` would dead-end on "no rebase in progress".
-          if (result.rebaseInProgress !== false) {
-            await this._rebaseService.abortRebase(repo);
-          }
-          if (stashed) {
-            await this._unstash(cwd, stashSha);
-          }
-          void vscode.window.showWarningMessage(
-            `Drop commit conflicts in ${result.conflictedFiles.length} file(s). The operation has been aborted.`
-          );
-          // Abort moved HEAD; reload before refresh.
-          await this._gitService.reloadRepository(repo);
-          this._gitToolWindowProvider.refresh();
-          return;
-        } else {
-          // Non-conflict, non-paused failure — the rebase did not complete.
-          void vscode.window.showErrorMessage(
-            `Failed to drop commit: rebase did not complete successfully.`
-          );
-        }
-      } catch (opError) {
-        if (stashed) {
-          await this._unstash(cwd, stashSha);
-        }
-        throw opError;
-      }
-
-      if (stashed) {
-        await this._unstash(cwd, stashSha);
-      }
-      // drop-via-rebase moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
+        },
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
@@ -2511,13 +2497,11 @@ export class CommitContextMenuCommands {
    *   4. Initial-commit edge — `oldest^` doesn't resolve when oldest
    *      is the initial commit. Detect via parentCount=0 and toast.
    *   5. Confirm modal — N>=2 only. List up to 5 short-shas.
-   *   6. Stash dirty working tree if needed (mirrors single-drop).
-   *   7. Start interactive rebase onto `oldest^`. Build the plan: every
-   *      commit in the rebase window stays `pick` unless its hash is in
-   *      the selected set, which becomes `drop`.
-   *   8. Execute. On success, refresh + toast. On conflict, abort
-   *      the rebase + unstash, then route the conflict files through
-   *      `_openResolveConflictsDialog(operation: 'rebase', target: 'drop')`.
+   *   6. Hand off to {@link _runHistoryRewrite}: rebase onto `oldest^`
+   *      with every commit in the window staying `pick` unless its hash is
+   *      in the selected set (which becomes `drop`); on conflict the rebase
+   *      stays paused and the resolve dialog opens
+   *      (operation:'rebase', target:'drop').
    *
    * Replay direction (trap #3): commitHashes arrives newest-first from
    * the webview. The rebase window is built oldest-first by
@@ -2634,121 +2618,43 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    const cwd = repo.rootUri.fsPath;
-    let stashed = false;
-    let stashSha: string | undefined;
-
     try {
-      // 6. Stash dirty tree.
-      const stashResult = await this._stashIfDirty(cwd);
-      stashed = stashResult.stashed;
-      stashSha = stashResult.stashSha;
-      if (stashResult.blocked) {
-        void vscode.window.showErrorMessage(
-          'Cannot drop commits while you have unmerged files. Please resolve conflicts first.'
-        );
-        return;
-      }
-
-      try {
-        // 7. Start interactive rebase onto `oldest^`. The rebase window
-        // covers every commit reachable from HEAD that's newer than
-        // oldestHash^ — including non-selected commits that must stay.
-        const session = await this._rebaseService.startInteractiveRebase(repo, `${oldestHash}^`);
-
-        // Build the plan: each commit in the session stays `pick`
-        // unless its hash is in the selected drop set.
-        const plan = session.commits.map((c) =>
-          selectedSet.has(c.hash)
-            ? { hash: c.hash, action: 'drop' as const }
-            : { hash: c.hash, action: c.action }
-        );
-
-        // Empty rebase-window or partial-coverage
-        // guard. If `getCommitsToRebase` returned fewer commits than
-        // the user selected (the most plausible cause: a force-push
-        // landed between dispatch and rebase, mutating reachable
-        // history), the empty plan would `executeRebase` to a no-op
-        // success and we'd surface a misleading "dropped N commits"
-        // toast. Detect via "every selected hash must be a drop in
-        // the plan"; toast STALE_SELECTION_TOAST and abort.
-        // Compare against `selectedSet.size`, not
-        // `commitHashes.length`. The webview never produces duplicate
-        // hashes today, but a future palette / scripted entry point
-        // might (e.g. a user pasting `[abc, abc]` from the clipboard).
-        // Comparing against the deduped set size keeps the guard
-        // robust without reading like a coincidence.
-        const planDropCount = plan.filter((p) => p.action === 'drop').length;
-        if (planDropCount < selectedSet.size) {
-          void vscode.window.showWarningMessage(STALE_SELECTION_TOAST);
-          await this._rebaseService.abortRebase(repo);
-          // Mirror the conflict path: pop the stash so the user's dirty working-tree
-          // changes aren't left stranded when we return without executing the rebase.
-          if (stashed) {
-            await this._unstashWithErrorReport(cwd, stashSha, 'Drop');
-            stashed = false;
-          }
-          return;
-        }
-        this._rebaseService.updateRebasePlan(repo, plan);
-
-        const result = await this._rebaseService.executeRebase(repo);
-
-        // Mirror Squash's outcome checks (and the single-drop fix):
-        // only toast success on a fully completed rebase, warn on paused,
-        // error on any other non-conflict failure.
-        if (result.success && result.status === 'completed') {
-          void vscode.window.showInformationMessage(
-            `Dropped ${commitHashes.length} commits successfully.`
+      // 6-8. The shared runner: rebase onto `oldest^` (the window covers
+      // every commit reachable from HEAD that's newer than oldestHash^ —
+      // including non-selected commits that must stay), pause on conflict,
+      // hand off to the resolve dialog.
+      await this._runHistoryRewrite(repo, {
+        onto: `${oldestHash}^`,
+        opLabel: 'Drop',
+        target: 'drop',
+        successToast: `Dropped ${commitHashes.length} commits successfully.`,
+        buildPlan: (session) => {
+          // Each commit in the session stays `pick` unless its hash is in
+          // the selected drop set.
+          const plan = session.commits.map((c) =>
+            selectedSet.has(c.hash)
+              ? { hash: c.hash, action: 'drop' as const }
+              : { hash: c.hash, action: c.action }
           );
-        } else if (result.status === 'paused') {
-          void vscode.window.showWarningMessage(
-            `Drop partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
-          );
-        } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          // 8. Conflict path — abort + unstash, then hand off to the
-          // resolve dialog with operation:'rebase', target:'drop'. Only abort
-          // a LIVE rebase: a post-completion autostash-pop conflict has no
-          // rebase to abort, and the dialog suppresses continue/abort for it.
-          if (result.rebaseInProgress !== false) {
-            await this._rebaseService.abortRebase(repo);
-          }
-          if (stashed) {
-            await this._unstash(cwd, stashSha);
-            stashed = false;
-          }
-          await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
-            operation: 'rebase',
-            target: 'drop',
-            rebaseInProgress: result.rebaseInProgress,
-          });
-          // abortRebase moved HEAD; reload before refresh.
-          await this._gitService.reloadRepository(repo);
-          this._gitToolWindowProvider.refresh();
-          return;
-        } else {
-          // Non-conflict, non-paused failure — the rebase did not complete.
-          void vscode.window.showErrorMessage(
-            `Failed to drop commits: rebase did not complete successfully.`
-          );
-        }
-      } catch (opError) {
-        if (stashed) {
-          await this._unstash(cwd, stashSha);
-          stashed = false;
-        }
-        throw opError;
-      }
 
-      // Post-success unstash uses
-      // the shared {@link _unstashWithErrorReport} helper so the drop
-      // and squash success paths share the same phrasing.
-      if (stashed) {
-        await this._unstashWithErrorReport(cwd, stashSha, 'Drop');
-      }
-      // multi-drop rebase moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
+          // Empty rebase-window or partial-coverage guard. If
+          // `getCommitsToRebase` returned fewer commits than the user
+          // selected (the most plausible cause: a force-push landed between
+          // dispatch and rebase, mutating reachable history), the empty plan
+          // would `executeRebase` to a no-op success and we'd surface a
+          // misleading "dropped N commits" toast. Detect via "every selected
+          // hash must be a drop in the plan"; toast STALE_SELECTION_TOAST
+          // and refuse. Compare against `selectedSet.size`, not
+          // `commitHashes.length`, so a duplicate-hash payload from a future
+          // palette / scripted entry point keeps the guard robust.
+          const planDropCount = plan.filter((p) => p.action === 'drop').length;
+          if (planDropCount < selectedSet.size) {
+            void vscode.window.showWarningMessage(STALE_SELECTION_TOAST);
+            return 'stale';
+          }
+          return plan;
+        },
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
@@ -2772,18 +2678,17 @@ export class CommitContextMenuCommands {
    *      with `\n\n` to seed the message editor.
    *   4. Open the squash-message dialog with the seed value. On cancel
    *      or a blank message, abort with no git side-effects.
-   *   5. Stash dirty tree. On unmerged-files block, error toast.
-   *   6. Start rebase onto `oldest^`. Build the plan mirroring git4idea's
-   *      unite model: the oldest selected commit (the unite root) becomes
-   *      `reword` carrying the user's combined message; every other
-   *      selected commit becomes `fixup` (its own message discarded);
-   *      non-selected commits keep their action.
-   *   7. Execute the rebase. The combined message is delivered through the
+   *   5. Hand off to {@link _runHistoryRewrite}: rebase onto `oldest^`
+   *      with the plan mirroring git4idea's unite model — the oldest
+   *      selected commit (the unite root) becomes `reword` carrying the
+   *      user's combined message; every other selected commit becomes
+   *      `fixup` (its own message discarded); non-selected commits keep
+   *      their action. The combined message is delivered through the
    *      reword override in the plan (realised as `pick` + a
    *      non-interactive `commit --amend -F`), so the rebase runs to
-   *      completion without pausing for a message.
-   *   8. Conflict path: abort + unstash + handoff to the resolve
-   *      dialog with operation:'rebase', target:'squash'.
+   *      completion without pausing for a message. On conflict the rebase
+   *      stays paused and the resolve dialog opens
+   *      (operation:'rebase', target:'squash').
    */
   private async _handleSquashCommits(
     commitHashes: string[],
@@ -2953,108 +2858,26 @@ export class CommitContextMenuCommands {
       }
     }
 
-    const cwd = repo.rootUri.fsPath;
-
     try {
-      // 5. Stash dirty tree.
-      const { stashed, blocked, stashSha } = await this._stashIfDirty(cwd);
-      if (blocked) {
-        const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
-        void vscode.window.showErrorMessage(
-          `Cannot ${verb} while you have unmerged files. Please resolve conflicts first.`
-        );
-        return;
-      }
-
-      try {
-        // 6. Start interactive rebase onto oldest^.
-        const session = await this._rebaseService.startInteractiveRebase(repo, `${oldestHash}^`);
-
-        // Build the plan (reword the unite root with the combined message,
-        // fixup the rest — git4idea parity). See {@link buildSquashRebasePlan}.
-        // Fixup carries no message, so the target keeps its own (root stays
-        // pick); squash threads the user's combined message as a reword.
-        const plan =
+      // 5-7. The shared runner: rebase onto `oldest^` with the squash plan
+      // (reword the unite root with the combined message, fixup the rest —
+      // git4idea parity; see {@link buildSquashRebasePlan}. Fixup carries no
+      // message, so the target keeps its own — the root stays pick). The
+      // combined message is delivered through the plan (a reword override on
+      // the squash target), so the rebase runs non-interactively — it never
+      // pauses for the message. On conflict the rebase stays paused and the
+      // resolve dialog opens (operation:'rebase', target:'squash').
+      const verb = mode === 'fixup' ? 'Fixup' : 'Squash';
+      await this._runHistoryRewrite(repo, {
+        onto: `${oldestHash}^`,
+        opLabel: verb,
+        target: 'squash',
+        successToast: `${mode === 'fixup' ? "Fixup'd" : 'Squashed'} ${commitHashes.length} commits successfully.`,
+        buildPlan: (session) =>
           mode === 'fixup'
             ? buildSquashRebasePlan(session.commits, selectedSet, oldestHash)
-            : buildSquashRebasePlan(session.commits, selectedSet, oldestHash, userMessage);
-        this._rebaseService.updateRebasePlan(repo, plan);
-
-        // 7. Execute. The combined message is delivered through the plan above
-        // (a reword override on the squash target), so the rebase runs
-        // non-interactively to completion — it never pauses for the message.
-        const result = await this._rebaseService.executeRebase(repo);
-
-        // `result.success` alone is not sufficient:
-        // `RebaseService.amendEditCommit` returns `{success: true,
-        // status: 'paused'}` when the amend lands but the rebase still
-        // has more steps to run. Treating that as "squash done" surfaces
-        // a misleading toast. Pin the success branch to `'completed'`
-        // and route `'paused'` through a "partial" warning so the user
-        // knows to resume manually.
-        if (result.success && result.status === 'completed') {
-          // Phrase the toast per mode so the user reads the
-          // semantically correct verb ("Squashed" vs "Fixup'd"). Plurality
-          // matches existing squash semantics: the count is the number of
-          // commits that were combined.
-          const verb = mode === 'fixup' ? "Fixup'd" : 'Squashed';
-          void vscode.window.showInformationMessage(
-            `${verb} ${commitHashes.length} commits successfully.`
-          );
-        } else if (result.status === 'paused') {
-          const verbCap = mode === 'fixup' ? 'Fixup' : 'Squash';
-          void vscode.window.showWarningMessage(
-            `${verbCap} partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
-          );
-        } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          // 8. Conflict path — abort + unstash + handoff. Only abort a LIVE
-          // rebase: a post-completion autostash-pop conflict has no rebase to
-          // abort, and the dialog suppresses continue/abort for it.
-          if (result.rebaseInProgress !== false) {
-            await this._rebaseService.abortRebase(repo);
-          }
-          if (stashed) {
-            await this._unstash(cwd, stashSha);
-          }
-          // The squash has been ROLLED BACK by now — either we just aborted the
-          // live rebase, or it was a post-completion autostash-pop conflict with
-          // no rebase at all. So there's nothing to continue/abort/skip: open the
-          // dialog as resolve-only (`rebaseInProgress: false`) instead of
-          // threading the pre-abort value, which would render Continue/Abort and
-          // dead-end on "no rebase in progress".
-          await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
-            operation: 'rebase',
-            target: 'squash',
-            rebaseInProgress: false,
-          });
-          // abortRebase moved HEAD; reload before refresh.
-          await this._gitService.reloadRepository(repo);
-          this._gitToolWindowProvider.refresh();
-          return;
-        } else {
-          // Non-conflict, non-paused failure — the rebase did not complete.
-          const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
-          void vscode.window.showErrorMessage(
-            `Failed to ${verb}: rebase did not complete successfully.`
-          );
-        }
-      } catch (opError) {
-        if (stashed) {
-          await this._unstash(cwd, stashSha);
-        }
-        throw opError;
-      }
-
-      // Squash success path now reports unstash
-      // failures distinctly via {@link _unstashWithErrorReport}, mirroring
-      // the drop path. The earlier silent `_unstash` would leave the user
-      // believing the squash had restored their working changes.
-      if (stashed) {
-        await this._unstashWithErrorReport(cwd, stashSha, mode === 'fixup' ? 'Fixup' : 'Squash');
-      }
-      // Squash rebase moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
+            : buildSquashRebasePlan(session.commits, selectedSet, oldestHash, userMessage),
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
@@ -3291,12 +3114,6 @@ export class CommitContextMenuCommands {
         }
       }
 
-      // Tracks a no-op reword: provideRewordMessage delegates to
-      // continueRebase, which can self-clear a phantom rebase session and
-      // return 'cleared-stale' instead of rewriting a message. We report
-      // that honestly rather than claiming the message was updated.
-      let clearedStale = false;
-
       if (isHead) {
         // HEAD amend: git commit --amend -m only rewrites the commit message.
         // It doesn't touch the working tree or index, so it works even with
@@ -3305,130 +3122,56 @@ export class CommitContextMenuCommands {
           ['commit', '--amend', '--allow-empty', '--only', '-m', newMessage],
           { cwd, throwOnError: true }
         );
-      } else {
-        // Non-HEAD: interactive rebase requires a clean working tree.
-        const { stashed, blocked, stashSha } = await this._stashIfDirty(cwd);
-        if (blocked) {
-          void vscode.window.showErrorMessage(
-            'Cannot edit a non-HEAD commit message while you have unmerged files. Please resolve conflicts first.'
-          );
-          return;
-        }
-
-        try {
-          const session = await this._rebaseService.startInteractiveRebase(repo, `${hash}~1`);
-
-          const targetCommit = session.commits.find(
-            (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
-          );
-          if (!targetCommit) {
-            void vscode.window.showErrorMessage(
-              `Commit ${hash.substring(0, 8)} not found in rebase session.`
-            );
-            await this._rebaseService.abortRebase(repo);
-            if (stashed) {
-              await this._unstash(cwd, stashSha);
-            }
-            return;
-          }
-
-          this._rebaseService.updateRebasePlan(
-            repo,
-            session.commits.map((c) =>
-              c.hash === targetCommit.hash
-                ? { hash: c.hash, action: 'reword' as const, newMessage }
-                : { hash: c.hash, action: c.action }
-            )
-          );
-
-          const result = await this._rebaseService.executeRebase(repo);
-
-          if (!result.success && result.conflictedFiles && result.conflictedFiles.length > 0) {
-            // Only abort a LIVE rebase — a post-completion autostash-pop
-            // conflict has no rebase to abort.
-            if (result.rebaseInProgress !== false) {
-              await this._rebaseService.abortRebase(repo);
-            }
-            if (stashed) {
-              await this._unstash(cwd, stashSha);
-            }
-            void vscode.window.showErrorMessage(
-              'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
-            );
-            // abortRebase moved HEAD; reload before refresh.
-            await this._gitService.reloadRepository(repo);
-            this._gitToolWindowProvider.refresh();
-            return;
-          }
-
-          // `git rebase -i` pauses at the reword step waiting for the
-          // user to type a new commit message in `$GIT_EDITOR` /
-          // `core.editor`. Headless extension hosts have no
-          // GIT_EDITOR (we only set GIT_SEQUENCE_EDITOR), so git
-          // pauses with the rebase metadata still in `.git/rebase-merge/`
-          // and HEAD detached at the parent of the reword target —
-          // the user-visible "branch dropped to detached HEAD" symptom.
-          //
-          // The codebase already provides the right primitive:
-          // `provideRewordMessage` runs `git commit --amend -m <msg>`
-          // (no editor needed) followed by `git rebase --continue`,
-          // which lands the rewrite and updates the branch ref. We
-          // route through it here so the rebase actually completes.
-          //
-          // For the common single-reword case there's only one paused
-          // step, but we loop in case a future caller passes a plan
-          // with multiple reword actions in sequence.
-          let pausedResult = result;
-          while (pausedResult.success && pausedResult.status === 'paused') {
-            pausedResult = await this._rebaseService.provideRewordMessage(repo, newMessage);
-            if (
-              !pausedResult.success &&
-              pausedResult.conflictedFiles &&
-              pausedResult.conflictedFiles.length > 0
-            ) {
-              // Only abort a LIVE rebase — a post-completion autostash-pop
-              // conflict has no rebase to abort.
-              if (pausedResult.rebaseInProgress !== false) {
-                await this._rebaseService.abortRebase(repo);
-              }
-              if (stashed) {
-                await this._unstash(cwd, stashSha);
-              }
-              void vscode.window.showErrorMessage(
-                'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
-              );
-              await this._gitService.reloadRepository(repo);
-              this._gitToolWindowProvider.refresh();
-              return;
-            }
-          }
-          clearedStale = pausedResult.status === 'cleared-stale';
-        } catch (opError) {
-          if (stashed) {
-            await this._unstash(cwd, stashSha);
-          }
-          throw opError;
-        }
-
-        if (stashed) {
-          await this._unstash(cwd, stashSha);
-        }
-      }
-
-      if (clearedStale) {
-        // No message was rewritten — the reword self-cleared a phantom
-        // rebase session. Mirror RebaseProgressView's honest wording.
-        void vscode.window.showInformationMessage(
-          'No rebase in progress — cleared a stale session.'
-        );
-      } else {
         void vscode.window.showInformationMessage(
           `Updated commit message for ${hash.substring(0, 8)}`
         );
+        // The amend rewrote HEAD; reload before refresh.
+        await this._gitService.reloadRepository(repo);
+        this._gitToolWindowProvider.refresh();
+      } else {
+        // Non-HEAD: reword via the shared history-rewrite runner.
+        await this._runHistoryRewrite(repo, {
+          onto: `${hash}~1`,
+          opLabel: 'Edit message',
+          target: 'reword',
+          successToast: `Updated commit message for ${hash.substring(0, 8)}`,
+          buildPlan: (session) => {
+            const targetCommit = session.commits.find(
+              (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
+            );
+            if (!targetCommit) {
+              void vscode.window.showErrorMessage(
+                `Commit ${hash.substring(0, 8)} not found in rebase session.`
+              );
+              return 'stale';
+            }
+            return session.commits.map((c) =>
+              c.hash === targetCommit.hash
+                ? { hash: c.hash, action: 'reword' as const, newMessage }
+                : { hash: c.hash, action: c.action }
+            );
+          },
+          // `git rebase -i` pauses at the reword step waiting for a commit
+          // message in `$GIT_EDITOR` / `core.editor`. Headless extension
+          // hosts have no GIT_EDITOR (only GIT_SEQUENCE_EDITOR is set), so
+          // git pauses with the rebase metadata still in
+          // `.git/rebase-merge/` and HEAD detached at the parent of the
+          // reword target. `provideRewordMessage` runs `git commit --amend
+          // -m <msg>` (no editor needed) followed by `git rebase
+          // --continue`, which lands the rewrite and updates the branch
+          // ref. The common single-reword case has one paused step; the
+          // loop covers a plan with multiple reword actions in sequence.
+          // A conflict (or cleared-stale no-op) surfaced mid-drive returns
+          // to the runner's outcome switch, which pauses / reports it.
+          drivePaused: async (first) => {
+            let result = first;
+            while (result.success && result.status === 'paused') {
+              result = await this._rebaseService.provideRewordMessage(repo, newMessage);
+            }
+            return result;
+          },
+        });
       }
-      // Reword rewrote history; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(

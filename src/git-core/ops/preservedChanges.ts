@@ -40,10 +40,31 @@ export type SaveLocalChangesResult =
   | { status: 'saved'; stashSha: string };
 
 /**
+ * Read-only working-tree probe shared by the save bracket and flows that
+ * delegate the actual save elsewhere (e.g. a rebase run with `--autostash`,
+ * where git owns the stash but unmerged files must still refuse up front).
+ * Conflict detection uses the canonical porcelain parse (`-z` +
+ * {@link isConflictedStatus}) so AA/DD conflicts are caught alongside
+ * U-marked ones.
+ */
+export async function detectLocalChanges(
+  gitCli: GitCli,
+  cwd: string
+): Promise<'clean' | 'dirty' | 'blocked-unmerged'> {
+  const status = await gitCli.exec(['status', '--porcelain', '-z'], { cwd, throwOnError: true });
+  const entries = parseStatus(status.stdout);
+  if (entries.length === 0) {
+    return 'clean';
+  }
+  if (entries.some(isConflictedStatus)) {
+    return 'blocked-unmerged';
+  }
+  return 'dirty';
+}
+
+/**
  * Stash the working tree (including untracked files) when dirty, refusing
- * when unmerged files are present. Conflict detection uses the canonical
- * porcelain parse (`-z` + {@link isConflictedStatus}) so AA/DD conflicts are
- * caught alongside U-marked ones.
+ * when unmerged files are present ({@link detectLocalChanges} is the probe).
  *
  * @param label - Stash message, e.g. `Auto-stash before drop commit`.
  */
@@ -52,12 +73,11 @@ export async function saveLocalChanges(
   cwd: string,
   label: string
 ): Promise<SaveLocalChangesResult> {
-  const status = await gitCli.exec(['status', '--porcelain', '-z'], { cwd, throwOnError: true });
-  const entries = parseStatus(status.stdout);
-  if (entries.length === 0) {
+  const detected = await detectLocalChanges(gitCli, cwd);
+  if (detected === 'clean') {
     return { status: 'clean' };
   }
-  if (entries.some(isConflictedStatus)) {
+  if (detected === 'blocked-unmerged') {
     return { status: 'blocked-unmerged' };
   }
   await gitCli.exec(['stash', 'push', '--include-untracked', '-m', label], {

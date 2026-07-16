@@ -181,6 +181,9 @@ function createMockRebaseService(
     updateRebasePlan: (...args: unknown[]) => {
       calls.push({ method: 'updateRebasePlan', args });
     },
+    clearSession: (...args: unknown[]) => {
+      calls.push({ method: 'clearSession', args });
+    },
     executeRebase: async (...args: unknown[]) => {
       calls.push({ method: 'executeRebase', args });
       return { success: true, status: 'completed' as const };
@@ -1174,7 +1177,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(messages.error[0].message.includes('rebase failed'));
     });
 
-    it('stashes dirty state before dropping and pops after', async () => {
+    it('takes no manual stash on a dirty tree — the rebase runs with --autostash', async () => {
+      // git owns save/restore of local changes via the autostash marker;
+      // a manual bracket here would pop onto a mid-rebase tree if the
+      // rebase pauses on conflict.
       const execCalls: string[][] = [];
       createMessageTrackersAcceptingDrop();
       const repo = createMockRepo();
@@ -1188,10 +1194,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
             return { exitCode: 0, stdout: ' M src/dirty.ts\n', stderr: '', combined: '' };
           }
-          const pinned = pinnedStashResponse(cmdArgs);
-          if (pinned) {
-            return pinned;
-          }
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         },
       });
@@ -1199,10 +1201,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('dropCommit', [testHash]);
 
-      const stashPush = execCalls.find((c) => c[0] === 'stash' && c[1] === 'push');
-      assert.ok(stashPush, 'should stash before drop');
-      const stashPop = execCalls.find((c) => c[0] === 'stash' && c[1] === 'pop');
-      assert.ok(stashPop, 'should pop stash after drop');
+      assert.ok(
+        !execCalls.some((c) => c[0] === 'stash'),
+        `no manual stash may run; got: ${JSON.stringify(execCalls)}`
+      );
+      const execCall = rebaseService.calls.find((c) => c.method === 'executeRebase');
+      assert.ok(execCall, 'the rebase must still run on a dirty (non-conflicted) tree');
     });
 
     it('blocks drop when there are unmerged files', async () => {
@@ -1381,24 +1385,21 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // ─── dropCommit: stale guard + dirty tree (R3-1) ────────────────────────
 
   describe('_handleDropMultipleCommits — stale guard unstash', () => {
-    it('pops stash before returning when multi-drop stale guard fires on a dirty tree', async () => {
-      // Regression: the stale-selection guard (planDropCount < selectedSet.size)
-      // returned without popping the stash, stranding the user's working-tree
-      // changes in the stash list.
-      const stashPopCalls: string[] = [];
+    it('multi-drop stale guard fires before any stash or rebase, and clears the session', async () => {
+      // The stale-selection guard (planDropCount < selectedSet.size) refuses
+      // during plan-building — before executeRebase, so no autostash exists
+      // and no manual stash is ever taken. Nothing to abort either: the
+      // planning session is cleared truthfully.
+      const stashCalls: string[] = [];
       const gitCli = createMockGitCli({
         exec: async (...args: unknown[]) => {
           const cmdArgs = args[0] as string[];
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
-            // Dirty tree → stash will be pushed.
+            // Dirty (non-conflicted) tree.
             return { exitCode: 0, stdout: ' M file.ts', stderr: '', combined: '' };
           }
-          const pinned = pinnedStashResponse(cmdArgs);
-          if (pinned) {
-            return pinned;
-          }
-          if (cmdArgs[0] === 'stash' && cmdArgs[1] === 'pop') {
-            stashPopCalls.push('pop');
+          if (cmdArgs[0] === 'stash') {
+            stashCalls.push(cmdArgs[1]);
           }
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         },
@@ -1436,10 +1437,22 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         ]
       );
 
-      assert.strictEqual(
-        stashPopCalls.length,
-        1,
-        'stash must be popped when multi-drop stale guard fires on a dirty tree'
+      assert.deepStrictEqual(
+        stashCalls,
+        [],
+        'the stale guard fires before any stash exists — nothing may be pushed or popped'
+      );
+      assert.ok(
+        !rebaseService.calls.find((c) => c.method === 'executeRebase'),
+        'a stale plan must never execute'
+      );
+      assert.ok(
+        !rebaseService.calls.find((c) => c.method === 'abortRebase'),
+        'no rebase has started — nothing to abort'
+      );
+      assert.ok(
+        rebaseService.calls.find((c) => c.method === 'clearSession'),
+        'the planning session must be cleared'
       );
     });
   });
@@ -1585,7 +1598,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
-    it('uses rebase reword for non-HEAD commit, stashing changes first', async () => {
+    it('uses rebase reword for non-HEAD commit with no manual stash (--autostash owns the tree)', async () => {
       createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
@@ -1625,12 +1638,13 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         'Editor should be seeded with the full commit message'
       );
 
-      // Should have stashed changes
+      // The dirty (non-conflicted) tree is git's to save: executeRebase
+      // passes --autostash, so no manual stash may run.
       const stashCall = gitCli.calls.find((c: CallTracker) => {
         const a = c.args[0] as string[];
-        return a[0] === 'stash' && a[1] === 'push';
+        return a[0] === 'stash';
       });
-      assert.ok(stashCall, 'git stash push should have been called');
+      assert.ok(!stashCall, 'no manual stash may run — the rebase owns the tree via --autostash');
 
       const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(startCall, 'startInteractiveRebase should have been called');
@@ -1644,12 +1658,6 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(targetEntry.action, 'reword');
       assert.strictEqual(targetEntry.newMessage, 'new commit message');
 
-      // Should have popped stash after
-      const popCall = gitCli.calls.find((c: CallTracker) => {
-        const a = c.args[0] as string[];
-        return a[0] === 'stash' && a[1] === 'pop';
-      });
-      assert.ok(popCall, 'git stash pop should have been called');
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
@@ -1916,12 +1924,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       );
     });
 
-    it('aborts the rebase when provideRewordMessage hits a conflict', async () => {
-      // Defensive companion to the paused-path test above. If the
-      // post-paused continue produces conflicts, abort cleanly so
-      // the user never sees a half-finished rebase with a detached
-      // HEAD.
-      createMessageTrackers();
+    it('leaves the rebase paused when provideRewordMessage hits a conflict', async () => {
+      // Companion to the paused-path test above. If the post-paused
+      // continue produces conflicts, the rebase stays paused for the
+      // resolve dialog — abort is user-initiated only (git4idea
+      // GitRebaseProcess parity).
+      const messages = createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
       const gitService = createMockGitService(repo);
 
@@ -1951,8 +1959,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       const abortCall = rebaseService.calls.find((c) => c.method === 'abortRebase');
       assert.ok(
-        abortCall,
-        'abortRebase MUST be called when provideRewordMessage surfaces a conflict'
+        !abortCall,
+        'the conflicted rebase must stay paused — abort is user-initiated only'
+      );
+      assert.ok(
+        messages.warning.some((w) => /conflict/i.test(w.message) && /resolve/i.test(w.message)),
+        `expected the resolve-to-continue warning; got: ${JSON.stringify(messages.warning)}`
       );
     });
 
@@ -3003,7 +3015,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   });
 
   describe('_handleSquashCommits — conflict handoff opens the dialog resolve-only', () => {
-    it('after aborting the squash rebase, opens Resolve Conflicts with rebaseInProgress:false', async () => {
+    it('squash conflict leaves the rebase paused and passes rebaseInProgress verbatim', async () => {
       createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -3069,12 +3081,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(captured, 'the Resolve Conflicts dialog must be opened on a squash conflict');
       assert.strictEqual(
         captured.rebaseInProgress,
-        false,
-        'after rolling the squash back, the dialog must be resolve-only (no continue/abort/skip)'
+        true,
+        'a live conflict is continuable — the dialog affordances must reflect it verbatim'
       );
       assert.ok(
-        rebaseService.calls.find((c) => c.method === 'abortRebase'),
-        'the live rebase must be aborted before the handoff'
+        !rebaseService.calls.find((c) => c.method === 'abortRebase'),
+        'the conflicted rebase must stay paused — abort is user-initiated only'
       );
     });
   });

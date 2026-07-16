@@ -591,10 +591,16 @@ describe('Rebase-driven multi-commit ops', () => {
         NODES_4
       );
 
-      assert.strictEqual(tracker.abortCalls, 1, 'must abort the rebase before opening the dialog');
+      assert.strictEqual(
+        tracker.abortCalls,
+        0,
+        'the conflicted rebase stays paused for the dialog — abort is user-initiated only'
+      );
       assert.strictEqual(conflictSvc.calls.length, 1);
       assert.strictEqual(conflictSvc.calls[0].options.operation, 'rebase');
       assert.strictEqual(conflictSvc.calls[0].options.target, 'drop');
+      assert.strictEqual(conflictSvc.calls[0].options.canContinue, true);
+      assert.strictEqual(conflictSvc.calls[0].options.canAbort, true);
       assert.deepStrictEqual(
         conflictSvc.calls[0].conflicts.map((c) => c.path),
         ['src/conflicted.ts']
@@ -925,10 +931,16 @@ describe('Rebase-driven multi-commit ops', () => {
         (e) => e.simulateSave('combined')
       );
 
-      assert.strictEqual(tracker.abortCalls, 1);
+      assert.strictEqual(
+        tracker.abortCalls,
+        0,
+        'the conflicted rebase stays paused for the dialog — abort is user-initiated only'
+      );
       assert.strictEqual(conflictSvc.calls.length, 1);
       assert.strictEqual(conflictSvc.calls[0].options.operation, 'rebase');
       assert.strictEqual(conflictSvc.calls[0].options.target, 'squash');
+      assert.strictEqual(conflictSvc.calls[0].options.canContinue, true);
+      assert.strictEqual(conflictSvc.calls[0].options.canAbort, true);
     });
 
     it('autostash-pop conflict (rebaseInProgress:false): does NOT abort, suppresses continue/abort in dialog', async () => {

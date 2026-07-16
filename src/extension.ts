@@ -657,6 +657,20 @@ export function getGitToolWindowProvider(): GitToolWindowProvider | undefined {
   return gitToolWindowProvider;
 }
 
+/**
+ * Test seam: the live {@link CommitContextMenuCommands} singleton. The log
+ * context-menu actions (drop / squash / reword) have no palette command —
+ * they enter only through the tool window's webview event — so fixture-backed
+ * e2e suites drive `_handleAction` on this instance via the activated-bundle
+ * bridge (test/e2e/support/activatedExtension.ts). NOT part of the public
+ * API; production code must not call it.
+ *
+ * @internal
+ */
+export function __getCommitContextMenuCommandsForTest(): CommitContextMenuCommands | undefined {
+  return commitContextMenuCommands;
+}
+
 // Module-identity seam for the Electron test lanes: the host runs the
 // dist/extension.js bundle, so its module-level singletons (logger, output
 // channel) are reachable ONLY through the bundle's own exports — a require

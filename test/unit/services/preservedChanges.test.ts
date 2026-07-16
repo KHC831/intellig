@@ -12,6 +12,7 @@ import '../../setup';
 import * as assert from 'assert';
 import { GitCli } from '../../../src/git-core/gitCli';
 import {
+  detectLocalChanges,
   saveLocalChanges,
   restoreLocalChanges,
   withSavedChanges,
@@ -66,6 +67,37 @@ function makeCli(
   } as unknown as GitCli;
   return { cli, calls };
 }
+
+describe('detectLocalChanges', () => {
+  it("reports 'clean' for an empty status and never mutates", async () => {
+    const { cli, calls } = makeCli('');
+    assert.strictEqual(await detectLocalChanges(cli, CWD), 'clean');
+    assert.ok(
+      calls.every((c) => c[0] === 'status'),
+      'detection is a read-only probe'
+    );
+  });
+
+  it("reports 'dirty' for tracked and untracked changes without stashing", async () => {
+    for (const line of ['M  staged.ts\0', '?? new.ts\0', ' M unstaged.ts\0']) {
+      const { cli, calls } = makeCli(line);
+      assert.strictEqual(await detectLocalChanges(cli, CWD), 'dirty', `for status "${line}"`);
+      assert.ok(!calls.some((c) => c[0] === 'stash'), 'must never stash');
+    }
+  });
+
+  it("reports 'blocked-unmerged' for conflicts — including AA/DD with no U column", async () => {
+    for (const line of ['UU both.ts\0', 'AA both-added.ts\0', 'DD both-deleted.ts\0']) {
+      const { cli } = makeCli(line);
+      assert.strictEqual(await detectLocalChanges(cli, CWD), 'blocked-unmerged');
+    }
+  });
+
+  it('flags unmerged even when ordinary dirt is also present', async () => {
+    const { cli } = makeCli('M  staged.ts\0UU both.ts\0');
+    assert.strictEqual(await detectLocalChanges(cli, CWD), 'blocked-unmerged');
+  });
+});
 
 describe('saveLocalChanges', () => {
   it('is a no-op on a clean tree', async () => {
