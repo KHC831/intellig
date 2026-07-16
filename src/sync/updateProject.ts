@@ -18,26 +18,39 @@ export interface IUpdateProjectState {
   hasUnmergedFiles: boolean;
 }
 
+/** Machine-readable blockage kind, driving the resolve-conflicts affordance. */
+export type UpdateBlockage = 'rebase' | 'merge' | 'conflicts';
+
 /**
  * Decide whether an "Update Project" may proceed — IntelliJ git4idea
  * `GitUpdateProcess` parity. That process refuses to update when a rebase or
  * merge is already in progress, or when the working tree has unmerged files
  * (GitUpdateProcess.java: `checkRebaseInProgress() || isMergeInProgress() ||
  * areUnmergedFiles()`). A cherry-pick or revert in progress is NOT one of its
- * blockers, so those pass.
+ * blockers, so those pass. The blockage KIND lets the command layer offer
+ * resolution (GitUpdateProcess offers the conflict resolver / rebase continue
+ * instead of a flat block).
  *
- * @returns a human-readable reason the update is blocked, or `undefined` when
- *   the repo is ready to update. Pure — no git access.
+ * @returns the blockage kind + human-readable reason, or `undefined` when the
+ *   repo is ready to update. Pure — no git access.
  */
-export function updateProjectBlockedReason(state: IUpdateProjectState): string | undefined {
+export function updateProjectBlockage(
+  state: IUpdateProjectState
+): { kind: UpdateBlockage; reason: string } | undefined {
   if (state.inProgressKind === 'rebasing') {
-    return 'A rebase is in progress. Finish or abort it before updating.';
+    return {
+      kind: 'rebase',
+      reason: 'A rebase is in progress. Finish or abort it before updating.',
+    };
   }
   if (state.inProgressKind === 'merging') {
-    return 'A merge is in progress. Finish or abort it before updating.';
+    return { kind: 'merge', reason: 'A merge is in progress. Finish or abort it before updating.' };
   }
   if (state.hasUnmergedFiles) {
-    return 'There are unresolved merge conflicts. Resolve them before updating.';
+    return {
+      kind: 'conflicts',
+      reason: 'There are unresolved merge conflicts. Resolve them before updating.',
+    };
   }
   return undefined;
 }
@@ -117,10 +130,15 @@ export interface IUpdateRepoResult {
   rebase: boolean;
   /** Commits pulled in (incoming count consumed by the update). */
   incoming: number;
-  /** Outcome status. */
-  status: 'updated' | 'up-to-date' | 'conflict' | 'error';
-  /** Error / conflict detail, when `status` is `conflict` or `error`. */
+  /** Outcome status. `skipped` = not updatable (e.g. detached HEAD), not a failure. */
+  status: 'updated' | 'up-to-date' | 'conflict' | 'error' | 'skipped';
+  /** Error / conflict / skip detail, when `status` is not clean. */
   detail?: string;
+  /**
+   * Set when the preflight blocked this root on an in-progress operation or
+   * unresolved conflicts — drives the "Resolve Conflicts" follow-up.
+   */
+  blocked?: UpdateBlockage;
 }
 
 /** Aggregate summary feeding the Update Info tab. */
@@ -144,8 +162,30 @@ export function summarizeUpdate(
   repos: IUpdateRepoResult[]
 ): IUpdateInfoSummary {
   const totalIncoming = repos.reduce((sum, r) => sum + r.incoming, 0);
-  const allClean = repos.every((r) => r.status === 'updated' || r.status === 'up-to-date');
+  // A skipped root (e.g. detached HEAD) is informational, not a failure —
+  // the reference errors only when every root is skipped.
+  const allClean = repos.every(
+    (r) => r.status === 'updated' || r.status === 'up-to-date' || r.status === 'skipped'
+  );
   return { method, repos, totalIncoming, allClean };
+}
+
+/**
+ * First preflight-blocked root of an update run, mapped to the conflict
+ * resolver's operation. Feeds the post-run "Resolve Conflicts" affordance
+ * (GitUpdateProcess offers resolution instead of a dead-end error).
+ */
+export function pickResolutionTarget(
+  summary: IUpdateInfoSummary
+): { rootPath: string; operation: 'rebase' | 'merge' } | undefined {
+  const blockedRow = summary.repos.find((r) => r.blocked !== undefined);
+  if (!blockedRow) {
+    return undefined;
+  }
+  return {
+    rootPath: blockedRow.rootPath,
+    operation: blockedRow.blocked === 'rebase' ? 'rebase' : 'merge',
+  };
 }
 
 /** Last path segment of a repo root, for display. */
@@ -215,17 +255,33 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
     const rootPath = repo.rootUri.fsPath;
     let branch = repo.head?.name?.replace('refs/heads/', '');
 
+    // Detached HEAD: skip with a reason (GitUpdateProcess.java:388-406) —
+    // there is no branch to integrate, and a raw `git pull` would land the
+    // repo as a git-prose error row.
+    if (!branch) {
+      results.push({
+        name,
+        rootPath,
+        branch,
+        rebase,
+        incoming: 0,
+        status: 'skipped',
+        detail: 'HEAD is detached — no current branch to update.',
+      });
+      continue;
+    }
+
     // Preflight per-repo.
     const status = await deps.gitService.getStatus(repo);
     // Use isConflictedStatus so AA (both-added) and DD (both-deleted) entries
     // are caught alongside the U (unmerged) marker — they all signal a conflict
     // state that blocks an update.
     const hasUnmergedFiles = status.some(isConflictedStatus);
-    const blocked = updateProjectBlockedReason({
+    const blockage = updateProjectBlockage({
       inProgressKind: repo.inProgress?.kind,
       hasUnmergedFiles,
     });
-    if (blocked) {
+    if (blockage) {
       results.push({
         name,
         rootPath,
@@ -233,7 +289,8 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
         rebase,
         incoming: 0,
         status: 'error',
-        detail: blocked,
+        detail: blockage.reason,
+        blocked: blockage.kind,
       });
       continue;
     }

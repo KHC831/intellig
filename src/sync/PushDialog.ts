@@ -15,8 +15,10 @@
  *     to "Force Push with Lease" (matches IntelliJ behaviour).
  *   - Bare `--force` ("Force Push (Anyway)…") is always a secondary, explicit
  *     dropdown entry. It is never the default.
- *   - Targets matching `intellig.protectedBranches` disable the bare-force
- *     entry per-row; force-with-lease remains available.
+ *   - Targets matching `intellig.protectedBranches` prohibit BOTH force
+ *     flavors (bare --force and --force-with-lease), matching IntelliJ's
+ *     GitPushSupport.isForcePushAllowed, where force-with-lease IS the force
+ *     push. Only a plain push can reach a protected target.
  *   - No double-confirm modal on force push — the explicit dropdown entry IS
  *     the confirm. Matches IR minimal-UX policy.
  *
@@ -133,6 +135,11 @@ export function classifyPushError(stderr: string): PushErrorKind {
   if (/protected branch/.test(msg) || /refusing to (allow|overwrite)/.test(msg)) {
     return 'rejected-protected';
   }
+  if (/\(stale info\)/.test(msg)) {
+    // A force-with-lease refused because the remote moved after the last
+    // fetch (reference result type REJECTED_STALE_INFO).
+    return 'rejected-stale-lease';
+  }
   if (/\(non-fast-forward\)/.test(msg) || /updates were rejected because/.test(msg)) {
     return 'rejected-non-ff';
   }
@@ -155,13 +162,23 @@ export function classifyPushError(stderr: string): PushErrorKind {
  * spec section 4, when the selected branch has local divergence from its upstream
  * (ahead > 0 AND behind > 0), flip the default from `push` to
  * `forceWithLease` so the user's muscle-memory "Enter" stays safe.
+ *
+ * A diverged row whose target is protected never triggers the flip: force
+ * pushes (both flavors) are prohibited on protected targets, so arming one
+ * behind the Enter key would either rewrite the protected branch or dead-end
+ * on the guard.
  */
-export function defaultPrimaryAction(rows: ReadonlyArray<IPushRow>): PushAction {
+export function defaultPrimaryAction(
+  rows: ReadonlyArray<IPushRow>,
+  protectedBranches: ReadonlyArray<string> = []
+): PushAction {
   const selected = rows.filter((r) => r.selected);
   if (selected.length === 0) {
     return 'push';
   }
-  const anyDiverged = selected.some((r) => r.ahead > 0 && r.behind > 0);
+  const anyDiverged = selected.some(
+    (r) => r.ahead > 0 && r.behind > 0 && !isProtectedTarget(r.targetBranch, protectedBranches)
+  );
   return anyDiverged ? 'forceWithLease' : 'push';
 }
 
@@ -265,15 +282,19 @@ export function isValidPushRef(name: string): boolean {
 
 /**
  * Guard: is this primary action permitted for the row given the protected list?
- * The bare-force action is the only one blocked on protected targets; forceWithLease
- * and push always pass.
+ * Both force flavors are blocked on protected targets (IntelliJ
+ * GitPushSupport.isForcePushAllowed disables the force-push action entirely,
+ * and force-with-lease is just its lease-checked variant); plain push passes.
  */
 export function isActionAllowedForRow(
   row: IPushRow,
   action: PushAction,
   protectedBranches: ReadonlyArray<string>
 ): boolean {
-  if (action === 'force' && isProtectedTarget(row.targetBranch, protectedBranches)) {
+  if (
+    (action === 'force' || action === 'forceWithLease') &&
+    isProtectedTarget(row.targetBranch, protectedBranches)
+  ) {
     return false;
   }
   return true;
@@ -302,7 +323,7 @@ export async function runPushRow(
       ok: false,
       error: {
         kind: 'rejected-protected',
-        message: `'${row.targetBranch}' is a protected branch — Force Push (Anyway) is blocked locally. Remove it from intellig.protectedBranches to enable.`,
+        message: `'${row.targetBranch}' is a protected branch — force pushes (with or without lease) are blocked locally. Remove it from intellig.protectedBranches to enable.`,
       },
     };
   }
@@ -341,6 +362,36 @@ export async function runPushRow(
  * between updates, so the update→push cycle repeats — but never unbounded.
  */
 export const MAX_PUSH_ATTEMPTS = 10;
+
+/**
+ * Gate for the rejected-push update proposal, mirroring IntelliJ
+ * `GitPushOperation`'s break conditions: the update leg integrates the
+ * CURRENT branch from its tracked upstream, so proposing Merge/Rebase is only
+ * meaningful when every rejected push was the current branch onto that
+ * branch's own tracked target. A rejected push of a non-checked-out branch
+ * (`pushingNotCurrentBranch`), to an edited/non-tracked target
+ * (`pushingToNotTrackedBranch`), or of a branch with no upstream surfaces
+ * as-is instead — updating would pull into a branch the user never asked to
+ * touch. (Force pushes never reach this check; the caller only loops plain
+ * pushes.)
+ */
+export function shouldProposeUpdateForRejected(rejected: ReadonlyArray<IPushRow>): boolean {
+  return (
+    rejected.length > 0 &&
+    rejected.every((row) => {
+      const head = row.repo.head;
+      const currentBranch = head?.name?.replace(/^refs\/heads\//, '');
+      if (!currentBranch || row.localBranch !== currentBranch) {
+        return false;
+      }
+      const upstream = head?.upstream;
+      if (!upstream) {
+        return false;
+      }
+      return row.targetBranch === upstream.name && row.upstreamRemote === upstream.remote;
+    })
+  );
+}
 
 /** Seams for {@link updateAndRetryRejectedRows}. */
 export interface IUpdateRetryDeps {
@@ -482,7 +533,7 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
     } else if (options.preselectForce === 'force') {
       this._primaryAction = 'force';
     } else {
-      this._primaryAction = defaultPrimaryAction(this._rows);
+      this._primaryAction = defaultPrimaryAction(this._rows, this._protectedBranches);
     }
     this._render();
   }
@@ -749,7 +800,7 @@ ${this._getBodyHtml()}
         this._updateRow(msg.rowId, msg.rowPatch);
         // A target-edit might flip the default primary action (divergence
         // vs. protected state), so recompute.
-        this._primaryAction = defaultPrimaryAction(this._rows);
+        this._primaryAction = defaultPrimaryAction(this._rows, this._protectedBranches);
         // Send an incremental DOM patch rather than a full
         // _render(). Full re-render steals focus mid-edit and drops
         // keystrokes.
@@ -805,6 +856,18 @@ ${this._getBodyHtml()}
           return;
         }
         await this._submitRows([row], 'forceWithLease');
+        return;
+      }
+
+      case 'forceAnyway-row': {
+        // Follow-up to a stale-lease rejection: re-run with plain force for
+        // exactly this row (GitPushOperation.deriveForceWithoutLease). The
+        // protected guard in runPushRow still applies.
+        const row = this._rows.find((r) => r.id === msg.rowId);
+        if (!row) {
+          return;
+        }
+        await this._submitRows([row], 'force');
         return;
       }
 
@@ -904,12 +967,14 @@ ${this._getBodyHtml()}
 
       // GitPushOperation parity: a plain push rejected non-fast-forward gets
       // the Merge/Rebase update-and-retry loop instead of a dead-end banner.
-      // Force pushes never loop — the user already chose to overwrite.
+      // Force pushes never loop — the user already chose to overwrite — and
+      // the proposal is further gated on every rejected row being the current
+      // branch pushed to its tracked target (see shouldProposeUpdateForRejected).
       if (action === 'push') {
         const rejected = rows.filter(
           (_row, i) => !results[i].ok && results[i].error?.kind === 'rejected-non-ff'
         );
-        if (rejected.length > 0) {
+        if (rejected.length > 0 && shouldProposeUpdateForRejected(rejected)) {
           const rejectedWithError = rejected.map((row) => ({
             ...row,
             error: results[rows.indexOf(row)].error,
@@ -919,7 +984,7 @@ ${this._getBodyHtml()}
               pushRow: (row) => runPushRow(deps, row, action, this._overflow),
               pull: async (row, method) =>
                 this._gitService
-                  .pull(row.repo, { rebase: method === 'rebase', autostash: true })
+                  .pull(row.repo, { rebase: method === 'rebase', autostash: true, prune: true })
                   .match(
                     () => ({ ok: true }),
                     (e) => ({ ok: false, message: sanitizeGitError(e.message) })

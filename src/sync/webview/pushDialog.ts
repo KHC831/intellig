@@ -50,7 +50,8 @@ function applyPrimary(
     }
     for (let i = 0; i < sel.options.length; i++) {
       const opt = sel.options[i];
-      if (opt.value === 'force') {
+      // Protected targets prohibit ALL force pushes — both flavors.
+      if (opt.value === 'force' || opt.value === 'forceWithLease') {
         opt.disabled = !!primary.anyProtected;
       }
     }
@@ -122,10 +123,27 @@ function render(init: IPushDialogInit): void {
         const b1 = el('button', { textContent: 'Pull and Retry…' });
         b1.setAttribute('data-action', 'pullAndRetry');
         b1.setAttribute('data-row-id', r.id);
-        const b2 = el('button', { textContent: 'Force with Lease' });
-        b2.setAttribute('data-action', 'forceWithLease-row');
-        b2.setAttribute('data-row-id', r.id);
-        td.append(b1, ' ', b2);
+        td.append(b1);
+        // No force escape hatch on a protected target — all force pushes
+        // are prohibited there.
+        if (!r.protected) {
+          const b2 = el('button', { textContent: 'Force with Lease' });
+          b2.setAttribute('data-action', 'forceWithLease-row');
+          b2.setAttribute('data-row-id', r.id);
+          td.append(' ', b2);
+        }
+      } else if (r.error.kind === 'rejected-stale-lease' && !r.protected) {
+        // The lease refused because the remote moved after the last fetch;
+        // the explicit follow-up re-pushes this row with plain force.
+        td.append(
+          el('span', {
+            textContent: 'The remote was updated after your last fetch. ',
+          })
+        );
+        const b = el('button', { textContent: 'Force Push (Anyway)' });
+        b.setAttribute('data-action', 'forceAnyway-row');
+        b.setAttribute('data-row-id', r.id);
+        td.append(b);
       }
       er.append(td);
       tbody.append(er);
@@ -185,6 +203,7 @@ function render(init: IPushDialogInit): void {
   optPush.selected = init.primaryAction === 'push';
   const optLease = el('option', { value: 'forceWithLease', textContent: 'Force Push with Lease' });
   optLease.selected = init.primaryAction === 'forceWithLease';
+  optLease.disabled = init.anyProtected;
   const optForce = el('option', { value: 'force', textContent: 'Force Push (Anyway)…' });
   optForce.selected = init.primaryAction === 'force';
   optForce.disabled = init.anyProtected;

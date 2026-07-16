@@ -19,7 +19,13 @@ export interface IPushOverflowState {
 }
 
 /** Classified push-failure kind carried on a row's error. */
-export type PushErrorKind = 'rejected-non-ff' | 'rejected-protected' | 'auth' | 'hook' | 'other';
+export type PushErrorKind =
+  | 'rejected-non-ff'
+  | 'rejected-stale-lease'
+  | 'rejected-protected'
+  | 'auth'
+  | 'hook'
+  | 'other';
 
 /** One repo row baked into the init island (wire view — no live IRepository). */
 export interface IPushRowView {
@@ -58,7 +64,8 @@ export type PushDialogInbound =
   | ({ type: 'updateRow' } & PushInboundFields)
   | ({ type: 'updateOverflow' } & PushInboundFields)
   | ({ type: 'pullAndRetry' } & PushInboundFields)
-  | ({ type: 'forceWithLease-row' } & PushInboundFields);
+  | ({ type: 'forceWithLease-row' } & PushInboundFields)
+  | ({ type: 'forceAnyway-row' } & PushInboundFields);
 
 /** Derived primary-button + select state carried on both outbound patches. */
 type PushPrimaryPayload = { action: PushAction; label: string; anyProtected: boolean };
@@ -75,6 +82,7 @@ export const PUSH_DIALOG_INBOUND_TYPES = [
   'updateOverflow',
   'pullAndRetry',
   'forceWithLease-row',
+  'forceAnyway-row',
 ] as const;
 
 export function asPushDialogInbound(message: unknown): PushDialogInbound | undefined {

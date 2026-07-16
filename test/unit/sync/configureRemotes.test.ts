@@ -46,6 +46,7 @@ interface MockHarness {
   errorMessages: string[];
   warnMessages: string[];
   fetchedRemotes: string[];
+  probedUrls: string[];
   remotesChangedCalls: number;
 }
 
@@ -72,6 +73,8 @@ function createHarness(options: {
   addError?: Error;
   getRemotesError?: Error;
   fetchError?: Error;
+  /** Scripted probe outcomes, consumed in order. Present = probe seam wired. */
+  probeResults?: Array<{ ok: boolean; message?: string }>;
 }): MockHarness {
   const opCalls: OpCall[] = [];
   const quickPickItemLabels: string[][] = [];
@@ -112,6 +115,8 @@ function createHarness(options: {
     },
   } as unknown as IGitService;
 
+  let probeIndex = 0;
+  const probedUrls: string[] = [];
   const harness: MockHarness = {
     opCalls,
     quickPickItemLabels,
@@ -120,10 +125,19 @@ function createHarness(options: {
     errorMessages,
     warnMessages,
     fetchedRemotes,
+    probedUrls,
     remotesChangedCalls: 0,
     deps: {
       repo: createRepo(),
       gitService,
+      probeRemoteUrl: options.probeResults
+        ? async (url: string) => {
+            probedUrls.push(url);
+            const result = options.probeResults?.[probeIndex] ?? { ok: true };
+            probeIndex += 1;
+            return result;
+          }
+        : undefined,
       showQuickPick: async (items: Array<{ label: string }>) => {
         quickPickItemLabels.push(items.map((i) => i.label));
         const response = options.quickPickResponses[quickPickIndex];
@@ -325,6 +339,69 @@ describe('runConfigureRemotesFlow', () => {
     await runConfigureRemotesFlow(h.deps);
     assert.strictEqual(h.opCalls.length, 0);
     assert.strictEqual(h.quickPickItemLabels.length, 2);
+  });
+
+  // GitDefineRemoteDialog runs `git ls-remote <url>` on OK and refuses to
+  // create/update a remote whose URL is inaccessible.
+  it('blocks the add when the URL probe fails and the user gives up', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['Add Remote', undefined],
+      inputResponses: ['upstream', 'https://bad.example/repo.git', undefined],
+      probeResults: [{ ok: false, message: 'could not read from remote repository' }],
+    });
+    await runConfigureRemotesFlow(h.deps);
+    assert.deepStrictEqual(h.probedUrls, ['https://bad.example/repo.git']);
+    assert.strictEqual(h.opCalls.length, 0, 'the remote must NOT be created');
+    assert.ok(
+      h.errorMessages.some((m) => /not (accessible|reachable)/i.test(m)),
+      `error explains the inaccessible URL: ${JSON.stringify(h.errorMessages)}`
+    );
+  });
+
+  it('re-prompts the URL after a failed probe and adds once a good URL passes', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['Add Remote', undefined],
+      inputResponses: ['upstream', 'https://bad.example/repo.git', 'https://good.example/repo.git'],
+      probeResults: [{ ok: false, message: 'no route to host' }, { ok: true }],
+    });
+    await runConfigureRemotesFlow(h.deps);
+    assert.deepStrictEqual(h.probedUrls, [
+      'https://bad.example/repo.git',
+      'https://good.example/repo.git',
+    ]);
+    assert.deepStrictEqual(h.opCalls, [
+      { op: 'add', args: ['upstream', 'https://good.example/repo.git'] },
+    ]);
+    // The retry input is prefilled with the failing URL for correction.
+    assert.strictEqual(h.inputBoxOptions[2].value, 'https://bad.example/repo.git');
+  });
+
+  it('blocks a URL change when the probe fails', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['origin', 'Change URL', undefined],
+      inputResponses: ['https://typo.example/origin.git', undefined],
+      probeResults: [{ ok: false, message: 'could not resolve host' }],
+    });
+    await runConfigureRemotesFlow(h.deps);
+    assert.deepStrictEqual(h.probedUrls, ['https://typo.example/origin.git']);
+    assert.strictEqual(h.opCalls.length, 0, 'the URL must NOT be changed');
+    assert.ok(h.errorMessages.some((m) => /not (accessible|reachable)/i.test(m)));
+  });
+
+  it('changes the URL when the probe passes', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['origin', 'Change URL', undefined],
+      inputResponses: ['https://new.example/origin.git'],
+      probeResults: [{ ok: true }],
+    });
+    await runConfigureRemotesFlow(h.deps);
+    assert.deepStrictEqual(h.opCalls, [
+      { op: 'setUrl', args: ['origin', 'https://new.example/origin.git'] },
+    ]);
   });
 
   it('renames a remote through the action menu', async () => {

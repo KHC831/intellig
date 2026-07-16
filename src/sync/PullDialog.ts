@@ -51,22 +51,41 @@ const FLAG_LABELS: Record<PullFlagKey, string> = {
  */
 const STRATEGY_FLAGS: ReadonlyArray<PullFlagKey> = ['rebase', 'ffOnly', 'noFf'];
 
-/** Flags that are not mutex-constrained (can be freely toggled). */
+/** The remaining flags, in picker order. */
 const MODIFIER_FLAGS: ReadonlyArray<PullFlagKey> = ['squash', 'noCommit', 'noVerify', 'autostash'];
 
 /** All flag keys in picker order. */
 export const ALL_PULL_FLAGS: ReadonlyArray<PullFlagKey> = [...STRATEGY_FLAGS, ...MODIFIER_FLAGS];
 
+/**
+ * Pairwise incompatibilities, mirroring GitPullOption.isOptionSuitable:
+ * `--rebase` refuses every merge-shaping flag; `--ff-only` / `--no-ff` /
+ * `--squash` are mutually incompatible; `--no-commit` only clashes with
+ * `--rebase`. `--no-verify` and `--autostash` combine with anything. git
+ * itself errors on these combinations, so the picker must resolve them
+ * rather than pass them through.
+ */
+const FLAG_INCOMPATIBILITIES: Record<PullFlagKey, ReadonlyArray<PullFlagKey>> = {
+  rebase: ['ffOnly', 'noFf', 'squash', 'noCommit'],
+  ffOnly: ['rebase', 'noFf', 'squash'],
+  noFf: ['rebase', 'ffOnly', 'squash'],
+  squash: ['rebase', 'ffOnly', 'noFf'],
+  noCommit: ['rebase'],
+  noVerify: [],
+  autostash: [],
+};
+
 // ─── Pure mutex resolver ─────────────────────────────────────────────────────
 
 /**
- * Resolve mutex constraints between strategy flags. When a strategy flag is
- * enabled, the other strategy flags are forced off.
+ * Resolve the incompatibility matrix over a flag state.
  *
  * @param flags - Current flag state.
  * @param lastToggled - The flag the user most recently toggled on, if any.
- *   When present and enabled, its mutex partners are cleared. When omitted,
- *   the first enabled strategy flag (in {@link STRATEGY_FLAGS} order) wins.
+ *   When present and enabled, its incompatible partners are cleared first so
+ *   the fresh choice wins. Independently of that, a final sweep in picker
+ *   order keeps each enabled flag only when it is compatible with every flag
+ *   kept before it, so no incompatible pair ever survives.
  */
 export function resolveFlagMutex(
   flags: Record<PullFlagKey, boolean>,
@@ -74,25 +93,21 @@ export function resolveFlagMutex(
 ): Record<PullFlagKey, boolean> {
   const resolved: Record<PullFlagKey, boolean> = { ...flags };
 
-  if (lastToggled && STRATEGY_FLAGS.includes(lastToggled) && resolved[lastToggled]) {
-    for (const other of STRATEGY_FLAGS) {
-      if (other !== lastToggled) {
-        resolved[other] = false;
-      }
+  if (lastToggled && resolved[lastToggled]) {
+    for (const other of FLAG_INCOMPATIBILITIES[lastToggled]) {
+      resolved[other] = false;
     }
-    return resolved;
   }
 
-  // No explicit "last toggled" → enforce "at most one strategy flag" by
-  // keeping the first one that's on (in picker order).
-  let seenStrategy = false;
-  for (const key of STRATEGY_FLAGS) {
-    if (resolved[key]) {
-      if (seenStrategy) {
-        resolved[key] = false;
-      } else {
-        seenStrategy = true;
-      }
+  const kept: PullFlagKey[] = [];
+  for (const key of ALL_PULL_FLAGS) {
+    if (!resolved[key]) {
+      continue;
+    }
+    if (kept.some((k) => FLAG_INCOMPATIBILITIES[k].includes(key))) {
+      resolved[key] = false;
+    } else {
+      kept.push(key);
     }
   }
   return resolved;
@@ -263,9 +278,10 @@ export function applyFlagSelection(
     autostash: selectedKeys.has('autostash'),
   };
 
-  // Detect which strategy flag was freshly enabled relative to `previous`.
+  // Detect which flag was freshly enabled relative to `previous` — the
+  // fresh choice wins over whatever it is incompatible with.
   let newlyEnabled: PullFlagKey | undefined;
-  for (const key of STRATEGY_FLAGS) {
+  for (const key of ALL_PULL_FLAGS) {
     if (next[key] && !previous[key]) {
       newlyEnabled = key;
       break;

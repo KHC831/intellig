@@ -25,6 +25,8 @@ function statusLabel(status: IUpdateRepoResult['status']): { text: string; cls: 
       return { text: 'Conflict', cls: 'conflict' };
     case 'error':
       return { text: 'Error', cls: 'error' };
+    case 'skipped':
+      return { text: 'Skipped', cls: 'skipped' };
   }
 }
 
@@ -112,6 +114,7 @@ export function updateInfoTabStyles(): string {
     }
     .update-info-status-updated { color: var(--vscode-gitDecoration-addedResourceForeground); }
     .update-info-status-up-to-date { color: var(--vscode-descriptionForeground); }
+    .update-info-status-skipped { color: var(--vscode-descriptionForeground); }
     .update-info-status-conflict { color: var(--vscode-gitDecoration-conflictingResourceForeground); }
     .update-info-status-error { color: var(--vscode-errorForeground); }
     .update-info-detail {

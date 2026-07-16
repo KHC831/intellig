@@ -46,6 +46,7 @@ import {
   isValidPushRef,
   PushDialog,
   runPushRow,
+  shouldProposeUpdateForRejected,
   updateAndRetryRejectedRows,
   MAX_PUSH_ATTEMPTS,
   IPushRowResult,
@@ -137,17 +138,24 @@ interface PushCallLog {
   options?: IPushOptions;
 }
 
+interface PullCallLog {
+  repo: IRepository;
+  options?: unknown;
+}
+
 interface MockGitServiceOptions {
   pushError?: Error | ((repo: IRepository, options?: IPushOptions) => Error | undefined);
 }
 
-function makeGitService(
-  options: MockGitServiceOptions = {}
-): IGitService & { pushCalls: PushCallLog[] } {
+type MockGitService = IGitService & { pushCalls: PushCallLog[]; pullCalls: PullCallLog[] };
+
+function makeGitService(options: MockGitServiceOptions = {}): MockGitService {
   const pushCalls: PushCallLog[] = [];
+  const pullCalls: PullCallLog[] = [];
   const emitter = new EventEmitter<IRepository>();
   const service = {
     pushCalls,
+    pullCalls,
     onDidChangeRepository: emitter.event,
     getRepository: async () => undefined,
     getRepositories: () => [],
@@ -169,7 +177,10 @@ function makeGitService(
       changedFiles: [],
     }),
     fetch: () => okAsync({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
-    pull: () => okAsync(undefined),
+    pull: (repo: IRepository, opts?: unknown) => {
+      pullCalls.push({ repo, options: opts });
+      return okAsync(undefined);
+    },
     push: (repo: IRepository, opts?: IPushOptions) => {
       pushCalls.push({ repo, options: opts });
       if (typeof options.pushError === 'function') {
@@ -225,7 +236,7 @@ function makeGitService(
     revertFile: () => okAsync(undefined),
     resetToCommit: () => okAsync(undefined),
     dispose: () => {},
-  } as unknown as IGitService & { pushCalls: PushCallLog[] };
+  } as unknown as MockGitService;
   return service;
 }
 
@@ -310,12 +321,10 @@ function makeDialog(
   overrides: Partial<IPushDialogOptions> & { repos?: ReadonlyArray<IRepository> } = {}
 ): {
   dialog: TestPushDialog;
-  gitService: IGitService & { pushCalls: PushCallLog[] };
+  gitService: MockGitService;
   pullDialogCalls: Array<{ repo: IRepository; preset?: string; prefilledSource?: unknown }>;
 } {
-  const gitService =
-    (overrides.gitService as (IGitService & { pushCalls: PushCallLog[] }) | undefined) ??
-    makeGitService();
+  const gitService = (overrides.gitService as MockGitService | undefined) ?? makeGitService();
   const pullDialogCalls: Array<{ repo: IRepository; preset?: string; prefilledSource?: unknown }> =
     [];
   const pullDialog = {
@@ -408,6 +417,14 @@ describe('PushDialog — pure helpers', () => {
       assert.strictEqual(classifyPushError('pre-push hook failed'), 'hook');
       assert.strictEqual(classifyPushError('remote: hook declined'), 'hook');
     });
+    it('classifies a stale force-with-lease rejection as rejected-stale-lease', () => {
+      // Reference result type REJECTED_STALE_INFO: the remote moved after the
+      // last fetch, so the lease check refused the push.
+      assert.strictEqual(
+        classifyPushError('! [rejected]        main -> main (stale info)'),
+        'rejected-stale-lease'
+      );
+    });
     it('falls back to other for unknown errors', () => {
       assert.strictEqual(classifyPushError('some weird git thing'), 'other');
     });
@@ -446,9 +463,12 @@ describe('PushDialog — pure helpers', () => {
       const row = makeRow({ targetBranch: 'main' });
       assert.strictEqual(isActionAllowedForRow(row, 'force', ['main']), false);
     });
-    it('always allows forceWithLease even on protected target', () => {
+    it('blocks forceWithLease when target is protected (reference prohibits ALL force pushes)', () => {
+      // GitPushSupport.isForcePushAllowed returns false for a protected target,
+      // which disables BOTH force flavors — in IntelliJ force-with-lease IS the
+      // force push, chosen by git.use.push.force.with.lease.
       const row = makeRow({ targetBranch: 'main' });
-      assert.strictEqual(isActionAllowedForRow(row, 'forceWithLease', ['main']), true);
+      assert.strictEqual(isActionAllowedForRow(row, 'forceWithLease', ['main']), false);
     });
     it('always allows plain push', () => {
       const row = makeRow({ targetBranch: 'main' });
@@ -592,13 +612,14 @@ describe('runPushRow', () => {
     assert.strictEqual(gitService.pushCalls.length, 0);
   });
 
-  it('protected-target allows forceWithLease', async () => {
+  it('protected-target + forceWithLease action short-circuits: no push, error returned', async () => {
     const gitService = makeGitService();
     const deps: IRunPushRowDeps = { gitService, protectedBranches: ['main'] };
     const row = makeRow({ targetBranch: 'main' });
     const result = await runPushRow(deps, row, 'forceWithLease', makeOverflow());
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(gitService.pushCalls[0].options?.forceWithLease, true);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error?.kind, 'rejected-protected');
+    assert.strictEqual(gitService.pushCalls.length, 0);
   });
 
   it('classifies non-ff errors from gitService.push', async () => {
@@ -644,6 +665,42 @@ describe('PushDialog — lifecycle', () => {
     const { dialog } = makeDialog({ repos: [repo] });
     await dialog.waitUntilPopulated();
     assert.strictEqual(dialog.primaryAction, 'forceWithLease');
+    dialog.dispose();
+  });
+
+  it('a diverged row with a PROTECTED target never auto-flips the default to forceWithLease', async () => {
+    // intellig.protectedBranches: ["main"], local main diverged — the primary
+    // action must stay Push (force actions are prohibited on protected targets),
+    // never auto-arm a force push behind the Enter key.
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/main',
+      upstream: { remote: 'origin', name: 'main' },
+      ahead: 2,
+      behind: 3,
+    });
+    const { dialog } = makeDialog({ repos: [repo], protectedBranches: ['main'] });
+    await dialog.waitUntilPopulated();
+    assert.strictEqual(dialog.primaryAction, 'push');
+    dialog.dispose();
+  });
+
+  it('submit with forceWithLease on a protected target is blocked without pushing', async () => {
+    installMessageTrackers();
+    const { dialog, gitService } = makeDialog({
+      repos: [
+        makeRepo('/repo-a', {
+          name: 'refs/heads/main',
+          upstream: { remote: 'origin', name: 'main' },
+        }),
+      ],
+      protectedBranches: ['main'],
+    });
+    await dialog.waitUntilPopulated();
+    // Even if a malicious webview message bypasses the disabled select,
+    // runPushRow rejects the action locally.
+    await dialog.simulateMessage({ type: 'submit', action: 'forceWithLease' });
+    assert.strictEqual(gitService.pushCalls.length, 0);
+    assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-protected');
     dialog.dispose();
   });
 
@@ -849,6 +906,39 @@ describe('PushDialog — lifecycle', () => {
     assert.strictEqual(gitService.pushCalls[0].options?.forceWithLease, true);
     assert.strictEqual(gitService.pushCalls[0].repo.rootUri.fsPath, '/repo-a');
   });
+
+  it('per-row "Force Push (Anyway)" after a stale lease force-pushes just that row', async () => {
+    // GitPushOperation.deriveForceWithoutLease: the follow-up re-runs with
+    // plain force for exactly the stale repos.
+    installMessageTrackers();
+    const repoA = makeRepo('/repo-a');
+    const repoB = makeRepo('/repo-b', { name: 'refs/heads/b' });
+    const { dialog, gitService } = makeDialog({ repos: [repoA, repoB] });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'forceAnyway-row', rowId: '/repo-a' });
+    assert.strictEqual(gitService.pushCalls.length, 1);
+    assert.strictEqual(gitService.pushCalls[0].options?.force, true);
+    assert.strictEqual(gitService.pushCalls[0].options?.forceWithLease, undefined);
+    assert.strictEqual(gitService.pushCalls[0].repo.rootUri.fsPath, '/repo-a');
+  });
+
+  it('per-row "Force Push (Anyway)" respects the protected guard', async () => {
+    installMessageTrackers();
+    const { dialog, gitService } = makeDialog({
+      repos: [
+        makeRepo('/repo-a', {
+          name: 'refs/heads/main',
+          upstream: { remote: 'origin', name: 'main' },
+        }),
+      ],
+      protectedBranches: ['main'],
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'forceAnyway-row', rowId: '/repo-a' });
+    assert.strictEqual(gitService.pushCalls.length, 0);
+    assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-protected');
+    dialog.dispose();
+  });
 });
 
 // ─── Preselected-branch push: clicked branch is the sole source of the ref ───
@@ -1022,6 +1112,178 @@ describe('PushDialog — preselected non-HEAD branch keeps its own upstream (iss
   });
 });
 
+// ─── Rejected-push update proposal gates (GitPushOperation parity) ───────────
+
+describe('shouldProposeUpdateForRejected', () => {
+  function trackedRow(overrides: Partial<IPushRow> = {}): IPushRow {
+    const repo = makeRepo('/r', {
+      name: 'refs/heads/feature',
+      upstream: { remote: 'origin', name: 'feature' },
+    });
+    return makeRow({ repo, localBranch: 'feature', targetBranch: 'feature', ...overrides });
+  }
+
+  it('allows the proposal when every rejected row is the current branch on its tracked target', () => {
+    assert.strictEqual(shouldProposeUpdateForRejected([trackedRow()]), true);
+  });
+  it('blocks when the pushed branch is not the current branch', () => {
+    assert.strictEqual(
+      shouldProposeUpdateForRejected([trackedRow({ localBranch: 'other', targetBranch: 'other' })]),
+      false
+    );
+  });
+  it('blocks when the target is not the tracked upstream branch', () => {
+    assert.strictEqual(
+      shouldProposeUpdateForRejected([trackedRow({ targetBranch: 'main' })]),
+      false
+    );
+  });
+  it('blocks when the row pushes to a different remote than the tracked one', () => {
+    assert.strictEqual(
+      shouldProposeUpdateForRejected([trackedRow({ upstreamRemote: 'fork' })]),
+      false
+    );
+  });
+  it('blocks when the current branch has no upstream', () => {
+    const repo = makeRepo('/r', { name: 'refs/heads/feature' });
+    assert.strictEqual(
+      shouldProposeUpdateForRejected([
+        makeRow({ repo, localBranch: 'feature', upstreamRemote: undefined }),
+      ]),
+      false
+    );
+  });
+  it('blocks when HEAD is detached', () => {
+    const repo = makeRepo('/r');
+    (repo as { head?: unknown }).head = undefined;
+    assert.strictEqual(shouldProposeUpdateForRejected([makeRow({ repo })]), false);
+  });
+  it('one non-updatable row blocks the proposal for the whole submit (reference: break, not filter)', () => {
+    assert.strictEqual(
+      shouldProposeUpdateForRejected([
+        trackedRow(),
+        trackedRow({ id: '/r2', localBranch: 'other', targetBranch: 'other' }),
+      ]),
+      false
+    );
+  });
+  it('an empty rejected set never proposes', () => {
+    assert.strictEqual(shouldProposeUpdateForRejected([]), false);
+  });
+});
+
+describe('PushDialog — rejected-push update proposal gates', () => {
+  const NON_FF = new SpawnFailedError('! [rejected] main -> main (non-fast-forward)');
+
+  it('a rejected non-HEAD branch push gets NO update proposal and NO pull', async () => {
+    // Reference: GitPushOperation breaks out of the update loop when the
+    // pushed source is not the current branch (pushingNotCurrentBranch,
+    // :243-252) — its update leg integrates the CURRENT branch, so proposing
+    // Merge/Rebase would pull upstream into a branch the user never touched.
+    const log = installMessageTrackers();
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/main',
+      upstream: { remote: 'origin', name: 'main' },
+    });
+    const { dialog, gitService } = makeDialog({
+      gitService: makeGitService({ pushError: NON_FF }),
+      repos: [repo],
+      preselect: { repo, branch: 'feature', upstream: { remote: 'origin', name: 'feature' } },
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.deepStrictEqual(log.warn, [], 'no Merge/Rebase modal for a non-current-branch push');
+    assert.strictEqual(gitService.pullCalls.length, 0, 'the current branch is never pulled');
+    assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-non-ff', 'rejection surfaces as-is');
+    dialog.dispose();
+  });
+
+  it('a rejected push to an edited non-tracked target gets NO update proposal', async () => {
+    // Reference: pushingToNotTrackedBranch (:231-241) — target differs from
+    // the current branch's tracked upstream, so an update would not resolve
+    // the rejection.
+    const log = installMessageTrackers();
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/feature',
+      upstream: { remote: 'origin', name: 'feature' },
+    });
+    const { dialog, gitService } = makeDialog({
+      gitService: makeGitService({ pushError: NON_FF }),
+      repos: [repo],
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({
+      type: 'updateRow',
+      rowId: '/repo-a',
+      rowPatch: { targetBranch: 'other' },
+    });
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.deepStrictEqual(log.warn, [], 'no Merge/Rebase modal for a non-tracked target');
+    assert.strictEqual(gitService.pullCalls.length, 0);
+    dialog.dispose();
+  });
+
+  it('a rejected push of a branch with NO upstream gets NO update proposal', async () => {
+    const log = installMessageTrackers();
+    const { dialog, gitService } = makeDialog({
+      gitService: makeGitService({ pushError: NON_FF }),
+      repos: [makeRepo('/repo-a', { name: 'refs/heads/feature' })],
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.deepStrictEqual(log.warn, [], 'no Merge/Rebase modal without a tracked upstream');
+    assert.strictEqual(gitService.pullCalls.length, 0);
+    dialog.dispose();
+  });
+
+  it('a rejected current-branch push onto its tracked target DOES propose, and the update pull prunes', async () => {
+    // Positive control for the gates + F-E4: the one sanctioned update leg
+    // must carry prune (every fetch/pull site does — GitImpl.java:648-653
+    // appends --prune unconditionally to update fetches).
+    const log = installMessageTrackers();
+    (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = async (
+      message: string
+    ) => {
+      log.warn.push(message);
+      return 'Merge';
+    };
+    let attempts = 0;
+    const gitServiceIn = makeGitService({
+      pushError: () => (++attempts === 1 ? NON_FF : undefined),
+    });
+    const { dialog, gitService } = makeDialog({
+      gitService: gitServiceIn,
+      repos: [
+        makeRepo('/repo-a', {
+          name: 'refs/heads/feature',
+          upstream: { remote: 'origin', name: 'feature' },
+        }),
+      ],
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.strictEqual(log.warn.length, 1, 'the Merge/Rebase modal is shown once');
+    assert.strictEqual(gitService.pullCalls.length, 1, 'one update pull before the retry');
+    const pullOpts = gitService.pullCalls[0].options as {
+      rebase?: boolean;
+      autostash?: boolean;
+      prune?: boolean;
+    };
+    assert.strictEqual(pullOpts.rebase, false, 'Merge choice → non-rebase pull');
+    assert.strictEqual(pullOpts.autostash, true);
+    assert.strictEqual(
+      pullOpts.prune,
+      true,
+      'the update pull must prune like every other fetch/pull site'
+    );
+    assert.strictEqual(gitService.pushCalls.length, 2, 'rejected push retried after the update');
+  });
+});
+
 // ─── SR-5: incremental patch on updateRow / updateOverflow ───────────────────
 
 describe('PushDialog — SR-5 incremental patch (no full re-render)', () => {
@@ -1182,6 +1444,81 @@ describe('PushDialog — rendered DOM (script-built)', () => {
       assert.ok(document.querySelector('#action-select'), 'action select built');
       assert.ok(document.querySelector('#push-btn'), 'push button built');
       assert.ok(document.querySelector('#cancel-btn'), 'cancel button built');
+    } finally {
+      dialog.dispose();
+    }
+  });
+
+  it('disables BOTH force options in the action select when a selected target is protected', async () => {
+    const { dialog } = makeDialog({
+      repos: [
+        makeRepo('/repo-a', {
+          name: 'refs/heads/main',
+          upstream: { remote: 'origin', name: 'main' },
+        }),
+      ],
+      protectedBranches: ['main'],
+    });
+    try {
+      await dialog.waitUntilPopulated();
+      const { document } = renderDoc(dialog);
+      const sel = document.querySelector('#action-select') as HTMLSelectElement;
+      const byValue = (v: string): HTMLOptionElement =>
+        [...sel.options].find((o) => o.value === v) as HTMLOptionElement;
+      assert.strictEqual(byValue('force').disabled, true, 'bare force disabled');
+      assert.strictEqual(
+        byValue('forceWithLease').disabled,
+        true,
+        'force-with-lease disabled too — ALL force pushes are prohibited on protected targets'
+      );
+      assert.strictEqual(byValue('push').disabled, false, 'plain push stays available');
+    } finally {
+      dialog.dispose();
+    }
+  });
+
+  it('a stale-lease rejection renders a "Force Push (Anyway)" affordance', async () => {
+    installMessageTrackers();
+    const { dialog, gitService } = makeDialog({
+      repos: [makeRepo('/repo-a', { upstream: { remote: 'origin', name: 'feature' } })],
+    });
+    (gitService as unknown as { push: IGitService['push'] }).push = () =>
+      errAsync(new SpawnFailedError('! [rejected]        feature -> feature (stale info)'));
+    try {
+      await dialog.waitUntilPopulated();
+      await dialog.simulateMessage({ type: 'submit', action: 'forceWithLease' });
+      assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-stale-lease');
+      const { document } = renderDoc(dialog);
+      const banner = document.querySelector('tr.row-error');
+      assert.ok(banner, 'rejection banner renders');
+      const forceBtn = banner.querySelector('button[data-action="forceAnyway-row"]');
+      assert.ok(forceBtn, 'stale-lease rejection offers an explicit force-anyway follow-up');
+    } finally {
+      dialog.dispose();
+    }
+  });
+
+  it('omits the per-row "Force with Lease" rejection affordance on a protected row', async () => {
+    installMessageTrackers();
+    const { dialog, gitService } = makeDialog({
+      repos: [
+        makeRepo('/repo-a', {
+          name: 'refs/heads/main',
+          upstream: { remote: 'origin', name: 'main' },
+        }),
+      ],
+      protectedBranches: ['main'],
+    });
+    (gitService as unknown as { push: IGitService['push'] }).push = () =>
+      errAsync(new SpawnFailedError('! [rejected] main -> main (non-fast-forward)'));
+    try {
+      await dialog.waitUntilPopulated();
+      await dialog.simulateMessage({ type: 'submit', action: 'push' });
+      const { document } = renderDoc(dialog);
+      const banner = document.querySelector('tr.row-error');
+      assert.ok(banner, 'rejection banner renders');
+      const leaseBtn = banner.querySelector('button[data-action="forceWithLease-row"]');
+      assert.strictEqual(leaseBtn, null, 'no force-with-lease escape hatch on a protected row');
     } finally {
       dialog.dispose();
     }

@@ -4,6 +4,8 @@ import { registerLoggedCommand, getLogger } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
+import type { ResultAsync } from 'neverthrow';
+import type { GitError } from '../../git-core/errors';
 import { findCommitByQuery } from '../../git-core/gitToolWindow/jumpToHash';
 import {
   CommitDialog,
@@ -22,6 +24,8 @@ import { registerBareCommand, registerFileCommand, registerRepoCommand } from '.
 import { fileStatusFor, revertPrecheck } from './explorerCommands';
 import { extractCommitHash, runNewTagFlowFromContext, presentFileHistory } from './commitHelpers';
 import {
+  pickResolutionTarget,
+  repoDisplayName,
   runUpdateProject,
   type IUpdateGitService,
   type UpdateMethod,
@@ -317,37 +321,43 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   });
 
   // Push All Tags — a standalone palette command that runs
-  // `git push --tags` on the active repo. Lives alongside the main Push
-  // dialog (which also surfaces the tag push radio) so IntelliJ users get
-  // a one-click entry point.
+  // `git push <remote> --tags` on the active repo. Lives alongside the main
+  // Push dialog (which also surfaces the tag push radio) so IntelliJ users
+  // get a one-click entry point. The remote is resolved explicitly (tracked
+  // upstream remote, else the single remote, else a prompt) so the push
+  // target and the toast always agree — a bare `git push --tags` lets git
+  // resolve its own default, which can differ from any name we display.
   const pushAllTagsCommand = registerRepoCommand(ctx, {
     id: 'intellig.pushAllTags',
     failureTitle: 'Failed to push tags',
     pickerTitle: 'Push All Tags — Choose Repository',
     pickerPlaceholder: 'Select a repository',
     run: async ({ gitService, repo }) => {
-      // Pick the default remote to display in the toast. `getRemotes()` is
-      // async; fall back to `'origin'` if the user's config doesn't list
-      // any remote (edge case — the push will still fail informatively).
-      let remoteName = 'origin';
-      try {
+      let remoteName = repo.head?.upstream?.remote;
+      if (!remoteName) {
         const remotes = await gitService.getRemotes(repo).match(
           (r) => r,
-          (e) => {
-            throw e;
-          }
+          () => []
         );
-        if (remotes.length > 0) {
-          remoteName = remotes[0].name;
+        if (remotes.length === 0) {
+          void vscode.window.showErrorMessage('Cannot push tags: no remotes configured.');
+          return;
         }
-      } catch (error) {
-        // Non-fatal — the push below surfaces the real error; the toast just
-        // falls back to 'origin'. Log so the swallowed fault stays visible.
-        getLogger()
-          .child({ component: 'extension' })
-          .debug('pushAllTags: remote resolution failed', {
-            err: error instanceof Error ? error.message : String(error),
-          });
+        if (remotes.length === 1) {
+          remoteName = remotes[0].name;
+        } else {
+          const picked = await vscode.window.showQuickPick(
+            remotes.map((r) => ({ label: r.name })),
+            {
+              title: 'Push All Tags — Choose Remote',
+              placeHolder: 'No upstream configured — select the remote to push tags to',
+            }
+          );
+          if (!picked) {
+            return;
+          }
+          remoteName = picked.label;
+        }
       }
       try {
         await vscode.window.withProgress(
@@ -356,7 +366,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
             title: `Pushing all tags to ${remoteName}…`,
             cancellable: false,
           },
-          () => gitService.push(repo, { tags: true })
+          () => gitService.push(repo, { remote: remoteName, tags: true })
         );
         void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
         // Push --tags updated remote-tracking refs for tags; reload + refresh so
@@ -387,27 +397,43 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     handlePullDialogOutcome(outcome);
   });
 
-  // Fetch command. Fetches all remotes for the selected repository,
-  // with a QuickPick when there are multiple repositories in the workspace.
-  const fetchCommand = registerRepoCommand(ctx, {
+  // Fetch command — GitFetch.java parity: one invocation fetches all remotes
+  // of ALL repositories (no repo picker), continues past per-repo failures,
+  // and refuses to stack while a manual fetch is still running (the reference
+  // action disables itself via isFetchRunning).
+  let manualFetchInFlight = false;
+  const fetchCommand = registerBareCommand(ctx, {
     id: 'intellig.fetch',
     failureTitle: 'Fetch failed',
-    pickerTitle: 'Fetch — Choose Repository',
-    pickerPlaceholder: 'Select a repository to fetch',
-    run: async ({ services, gitService, repo }) => {
+    run: async ({ services, gitService }) => {
+      if (manualFetchInFlight) {
+        void vscode.window.showInformationMessage('Fetch is already running.');
+        return;
+      }
+      const repos = gitService.getRepositories();
+      if (repos.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found in workspace');
+        return;
+      }
+      manualFetchInFlight = true;
       try {
-        const result = await vscode.window.withProgress(
+        const outcomes = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: 'Fetching from all remotes…',
+            title:
+              repos.length > 1
+                ? `Fetching all remotes of ${repos.length} repositories…`
+                : 'Fetching from all remotes…',
             cancellable: false,
           },
           () =>
-            gitService.fetch(repo, { all: true, prune: true }).match(
-              (r) => r,
-              (e) => {
-                throw e;
-              }
+            Promise.all(
+              repos.map((repo) =>
+                gitService.fetch(repo, { all: true, prune: true }).match(
+                  (result) => ({ repo, result, error: undefined }),
+                  (error) => ({ repo, result: undefined, error })
+                )
+              )
             )
         );
 
@@ -421,21 +447,38 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         // ahead/behind counts on the branch tree go stale until the watcher's
         // 250ms debounce. Reload-then-refresh closes the visible window the
         // same way the other mutation sites do.
-        await gitService.reloadRepository(repo);
+        for (const { repo } of outcomes) {
+          await gitService.reloadRepository(repo);
+        }
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.refresh();
         }
 
-        const remoteCount = repo.remotes.length || 1;
-        const refCount = result.updatedRefs.length;
-        const message =
-          refCount > 0
-            ? `Fetched ${remoteCount} remote(s); ${refCount} ref(s) updated`
-            : `Fetched ${remoteCount} remote(s); already up to date`;
-        void vscode.window.showInformationMessage(message);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Fetch failed: ${sanitizeGitError(msg)}`);
+        const failed = outcomes.filter((o) => o.error !== undefined);
+        const updates = outcomes.flatMap((o) => o.result?.updatedRefs ?? []);
+        const prunedCount = updates.filter((u) => /^0+$/.test(u.newSha)).length;
+        const refCount = updates.length - prunedCount;
+        const scope =
+          repos.length > 1
+            ? `${repos.length} repositories`
+            : `${repos[0].remotes.length || 1} remote(s)`;
+        const parts = [
+          refCount > 0 ? `${refCount} ref(s) updated` : 'already up to date',
+          ...(prunedCount > 0 ? [`${prunedCount} stale ref(s) pruned`] : []),
+        ];
+        if (failed.length > 0) {
+          const names = failed.map((o) => repoDisplayName(o.repo)).join(', ');
+          const firstMessage =
+            failed[0].error instanceof Error ? failed[0].error.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Fetch failed for ${names}: ${sanitizeGitError(firstMessage)}`
+          );
+        }
+        if (failed.length < outcomes.length) {
+          void vscode.window.showInformationMessage(`Fetched ${scope}; ${parts.join('; ')}`);
+        }
+      } finally {
+        manualFetchInFlight = false;
       }
     },
   });
@@ -473,6 +516,27 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
               )
           );
         },
+        // `probeRemoteUrl` is a concrete-GitService capability (ADR-001:
+        // the IGitService composite is frozen), so narrow to the role shape.
+        probeRemoteUrl: async (url) =>
+          vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'Checking remote URL…',
+              cancellable: false,
+            },
+            () =>
+              (
+                gitService as unknown as {
+                  probeRemoteUrl: (r: typeof repo, u: string) => ResultAsync<void, GitError>;
+                }
+              )
+                .probeRemoteUrl(repo, url)
+                .match(
+                  () => ({ ok: true }),
+                  (e) => ({ ok: false, message: e.message })
+                )
+          ),
         onRemotesChanged: async () => {
           // Remote changes alter remote-tracking refs and the branch tree;
           // reload-then-refresh like the other mutation sites.
@@ -509,7 +573,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   const updateProjectCommand = registerBareCommand(ctx, {
     id: 'intellig.updateProject',
     failureTitle: 'Update failed',
-    run: async ({ gitService }) => {
+    run: async ({ services, gitService }) => {
       const repos = gitService.getRepositories();
       if (repos.length === 0) {
         void vscode.window.showErrorMessage('No Git repository found in workspace');
@@ -594,11 +658,32 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         summary.allClean,
         sanitizeGitError(updateInfoHeadline(summary))
       );
-      const labels = (notification.deepLinks ?? []).map((l) => l.label);
+      // GitUpdateProcess offers resolution for roots blocked on an
+      // in-progress merge/rebase or unresolved conflicts, instead of a
+      // dead-end error row.
+      const resolveTarget = pickResolutionTarget(summary);
+      const RESOLVE_LABEL = 'Resolve Conflicts…';
+      const labels = [
+        ...(notification.deepLinks ?? []).map((l) => l.label),
+        ...(resolveTarget ? [RESOLVE_LABEL] : []),
+      ];
       const choice =
         notification.severity === 'warning'
           ? await vscode.window.showWarningMessage(notification.message, ...labels)
           : await vscode.window.showInformationMessage(notification.message, ...labels);
+      if (choice === RESOLVE_LABEL && resolveTarget) {
+        const blockedRepo = repos.find((r) => r.rootUri.fsPath === resolveTarget.rootPath);
+        const conflictService = services.conflictResolutionService;
+        if (blockedRepo && conflictService) {
+          const conflicts = await conflictService.getConflictedFiles(blockedRepo);
+          await conflictService.openResolveConflictsDialog(blockedRepo, conflicts, {
+            operation: resolveTarget.operation,
+            canAbort: true,
+            canContinue: true,
+          });
+        }
+        return;
+      }
       const link = (notification.deepLinks ?? []).find((l) => l.label === choice);
       if (link) {
         await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? []));
@@ -1110,9 +1195,12 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   });
 
   // Push up to here — IntelliJ's Git.PushUpToHere. Accepts a commit hash,
-  // resolves the current branch + remote, and pushes `<hash>:refs/heads/<branch>`
-  // so the remote moves to that exact commit. Single-only; invoked
-  // programmatically from the log commit context menu (not shown in menus).
+  // resolves the branch CONTAINING it (the current branch when the commit is
+  // on HEAD, else the first containing local branch — GitPushUpToCommitAction
+  // semantics), and pushes `<hash>:refs/heads/<target>` on that branch's
+  // tracked remote so the remote ref moves to that exact commit. Single-only;
+  // invoked programmatically from the log commit context menu (not shown in
+  // menus).
   const PUSH_HASH_RE = /^[0-9a-f]{4,64}$/i;
   const pushUpToCommitCommand = registerBareCommand(ctx, {
     id: 'intellig.pushUpToCommit',
@@ -1140,14 +1228,31 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       if (!repo) {
         return;
       }
-      const branch = repo.head?.name;
-      if (!branch) {
-        void vscode.window.showErrorMessage('Cannot push: HEAD is detached (no current branch).');
+      // Resolve the branch that CONTAINS the commit. Pushing the hash onto
+      // the current branch's remote ref regardless of containment would move
+      // that ref to a foreign-branch commit (fast-forwardable case) or fail
+      // with a confusing non-ff error naming the wrong branch.
+      const headBranch = repo.head?.name?.replace(/^refs\/heads\//, '');
+      const containing = await gitService.getContainingBranches(repo, hash);
+      const locals = new Map(
+        (await gitService.getBranches(repo))
+          .filter((b) => b.type === 'local')
+          .map((b) => [b.name, b])
+      );
+      const chosen =
+        headBranch && containing.includes(headBranch)
+          ? (locals.get(headBranch) ?? { name: headBranch, upstream: repo.head?.upstream })
+          : containing.map((name) => locals.get(name)).find((b) => b !== undefined);
+      if (!chosen) {
+        void vscode.window.showErrorMessage(
+          `Cannot push: commit ${hash.slice(0, 7)} is not on any local branch.`
+        );
         return;
       }
+      const branch = chosen.upstream?.name ?? chosen.name;
       // Without a configured upstream, ask which remote to move rather than
       // silently assuming origin (fork workflows: origin vs upstream).
-      let remote = repo.head?.upstream?.remote;
+      let remote = chosen.upstream?.remote;
       if (!remote) {
         const remotes = await gitService.getRemotes(repo).match(
           (r) => r,

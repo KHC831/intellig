@@ -476,6 +476,29 @@ export class RemoteOps {
   }
 
   /**
+   * URL reachability probe (`git ls-remote <url> HEAD`) backing the
+   * Configure Remotes verification — GitDefineRemoteDialog's OK-time check.
+   * Bounded timeout (a probe must never hang the wizard) and
+   * `GIT_TERMINAL_PROMPT=0` so an auth-requiring URL fails fast instead of
+   * waiting on a credential prompt. Leading-dash guard = the argv-injection
+   * defense, as for the other remote verbs.
+   */
+  probeRemoteUrl(repo: IRepository, url: string): ResultAsync<void, GitError> {
+    if (!url || url.startsWith('-')) {
+      return errAsync(new InvalidArgumentError(`Invalid remote URL: ${url}`));
+    }
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['ls-remote', url, 'HEAD'], {
+        cwd: repo.rootUri.fsPath,
+        timeout: 30_000,
+        env: { GIT_TERMINAL_PROMPT: '0' },
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => undefined);
+  }
+
+  /**
    * Add a remote (`git remote add <name> <url>`). `git remote` has no
    * `--end-of-options`, so a leading-dash guard on both args is the
    * argv-injection defense (mirrors {@link setRemoteUrl}/{@link renameRemote}).

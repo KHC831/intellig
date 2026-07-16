@@ -174,6 +174,9 @@ describe('delegating commands honor the threaded clicked-commit repo root', () =
         [ROOT_B, repoB],
       ]),
       {
+        // The command resolves the branch containing the commit; report it
+        // as on HEAD ('main') so the push proceeds against the hinted repo.
+        getContainingBranches: async () => ['main'],
         push: (repo: IRepository) => {
           pushCalls.push(repo);
           return okAsync(undefined);

@@ -274,15 +274,62 @@ describe('PullDialog — pure helpers', () => {
       assert.strictEqual(out.noFf, false);
     });
 
-    it('preserves modifier flags while resolving strategy mutex', () => {
+    // GitPullOption.isOptionSuitable matrix: REBASE ⟂ {FF_ONLY, NO_FF, SQUASH,
+    // NO_COMMIT}; FF_ONLY / NO_FF / SQUASH mutually incompatible; NO_COMMIT ⟂
+    // REBASE only; NO_VERIFY (and our autostash) compatible with everything.
+    it('toggling rebase clears squash and noCommit too, keeping noVerify', () => {
       const out = resolveFlagMutex(
-        { ...zero, rebase: true, ffOnly: true, squash: true, noVerify: true },
+        { ...zero, rebase: true, ffOnly: true, squash: true, noCommit: true, noVerify: true },
         'rebase'
       );
       assert.strictEqual(out.rebase, true);
       assert.strictEqual(out.ffOnly, false);
+      assert.strictEqual(out.squash, false, 'git refuses --rebase --squash');
+      assert.strictEqual(out.noCommit, false, 'git refuses --rebase --no-commit');
+      assert.strictEqual(out.noVerify, true, 'noVerify is compatible with everything');
+    });
+
+    it('toggling squash clears every strategy flag', () => {
+      const out = resolveFlagMutex({ ...zero, rebase: true, squash: true }, 'squash');
       assert.strictEqual(out.squash, true);
+      assert.strictEqual(out.rebase, false);
+    });
+
+    it('toggling ffOnly clears squash', () => {
+      const out = resolveFlagMutex({ ...zero, ffOnly: true, squash: true }, 'ffOnly');
+      assert.strictEqual(out.ffOnly, true);
+      assert.strictEqual(out.squash, false);
+    });
+
+    it('toggling noCommit clears rebase but keeps merge-family flags', () => {
+      const out = resolveFlagMutex(
+        { ...zero, rebase: true, noFf: true, noCommit: true },
+        'noCommit'
+      );
+      assert.strictEqual(out.noCommit, true);
+      assert.strictEqual(out.rebase, false);
+      assert.strictEqual(out.noFf, true, 'noFf + noCommit is a legal combination');
+    });
+
+    it('squash and noCommit remain freely combinable', () => {
+      const out = resolveFlagMutex({ ...zero, squash: true, noCommit: true }, 'squash');
+      assert.strictEqual(out.squash, true);
+      assert.strictEqual(out.noCommit, true);
+    });
+
+    it('without lastToggled, an incompatible squash yields to an earlier strategy flag', () => {
+      const out = resolveFlagMutex({ ...zero, ffOnly: true, squash: true });
+      assert.strictEqual(out.ffOnly, true);
+      assert.strictEqual(out.squash, false);
+    });
+
+    it('autostash and noVerify survive every resolution', () => {
+      const out = resolveFlagMutex(
+        { ...zero, rebase: true, noVerify: true, autostash: true },
+        'rebase'
+      );
       assert.strictEqual(out.noVerify, true);
+      assert.strictEqual(out.autostash, true);
     });
   });
 
@@ -391,6 +438,33 @@ describe('PullDialog — pure helpers', () => {
       const out = applyFlagSelection(prev, selection);
       assert.strictEqual(out.rebase, true, 'rebase should win (newly toggled)');
       assert.strictEqual(out.ffOnly, false, 'ffOnly should be cleared by mutex');
+    });
+
+    it('freshly picking squash clears a previously-set rebase (modifier toggles resolve too)', () => {
+      const prev = defaultPullFlags(false, 'rebase');
+      const selection: IPullFlagItem[] = [
+        { label: '--rebase', flagKey: 'rebase' },
+        { label: '--squash', flagKey: 'squash' },
+        { label: '$(play) Pull', confirm: true },
+      ];
+      const out = applyFlagSelection(prev, selection);
+      assert.strictEqual(out.squash, true, 'squash is the freshly-toggled flag');
+      assert.strictEqual(out.rebase, false, 'rebase must yield — git refuses the combination');
+    });
+
+    it('a selection that keeps an incompatible pair never reaches the pull options', () => {
+      // Multi-pick accepts arbitrary sets in one go; whatever the detection
+      // order, no {rebase, squash}-style pair may survive resolution.
+      const prev = defaultPullFlags(false);
+      const selection: IPullFlagItem[] = [
+        { label: '--rebase', flagKey: 'rebase' },
+        { label: '--squash', flagKey: 'squash' },
+        { label: '--no-commit', flagKey: 'noCommit' },
+        { label: '$(play) Pull', confirm: true },
+      ];
+      const out = applyFlagSelection(prev, selection);
+      assert.ok(!(out.rebase && out.squash), 'rebase + squash must not survive');
+      assert.ok(!(out.rebase && out.noCommit), 'rebase + no-commit must not survive');
     });
 
     it('empty selection clears all flags', () => {
@@ -555,20 +629,49 @@ describe('PullDialog — runPullDialog', () => {
     assert.strictEqual(h.pullCalls[0].options?.ffOnly, undefined);
   });
 
-  it('maps each flag onto the IPullOptions record', async () => {
+  it('maps each flag onto the IPullOptions record (legal combination)', async () => {
+    // --no-ff --squash is NOT picked together: the two are incompatible per
+    // GitPullOption (git itself refuses them); squash mapping is covered below.
     const h = createHarness({
       sourcePick: '$(git-branch) main',
-      flagPicks: ['--no-ff', '--squash', '--no-commit', '--no-verify', '$(play) Pull'],
+      flagPicks: ['--no-ff', '--no-commit', '--no-verify', '$(play) Pull'],
     });
     const outcome = await runPullDialog(h.deps);
     assert.strictEqual(outcome.status, 'pulled');
     const opts = h.pullCalls[0].options;
     assert.strictEqual(opts?.noFf, true);
-    assert.strictEqual(opts?.squash, true);
     assert.strictEqual(opts?.noCommit, true);
     assert.strictEqual(opts?.noVerify, true);
+    assert.strictEqual(opts?.squash, undefined);
     assert.strictEqual(opts?.rebase, undefined);
     assert.strictEqual(opts?.ffOnly, undefined);
+  });
+
+  it('maps --squash onto the IPullOptions record', async () => {
+    const h = createHarness({
+      sourcePick: '$(git-branch) main',
+      flagPicks: ['--squash', '--no-commit', '$(play) Pull'],
+    });
+    const outcome = await runPullDialog(h.deps);
+    assert.strictEqual(outcome.status, 'pulled');
+    const opts = h.pullCalls[0].options;
+    assert.strictEqual(opts?.squash, true);
+    assert.strictEqual(opts?.noCommit, true, 'squash + no-commit is a legal combination');
+    assert.strictEqual(opts?.noFf, undefined);
+  });
+
+  it('an incompatible multi-pick (--rebase + --squash) resolves before reaching git', async () => {
+    const h = createHarness({
+      sourcePick: '$(git-branch) main',
+      flagPicks: ['--rebase', '--squash', '$(play) Pull'],
+    });
+    const outcome = await runPullDialog(h.deps);
+    assert.strictEqual(outcome.status, 'pulled');
+    const opts = h.pullCalls[0].options;
+    assert.ok(
+      !(opts?.rebase && opts?.squash),
+      'git refuses --rebase --squash; the dialog must never pass both'
+    );
   });
 
   it('threads --autostash into the pull options when the checkbox is picked', async () => {

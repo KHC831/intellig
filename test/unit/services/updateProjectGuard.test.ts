@@ -5,41 +5,44 @@
  * GitUpdateProcess refuses to update when a rebase or merge is already in
  * progress, or when the working tree has unmerged files (GitUpdateProcess.java
  * line ~170: `checkRebaseInProgress() || isMergeInProgress() ||
- * areUnmergedFiles()`). `updateProjectBlockedReason` is the pure predicate
- * mirroring that check — it returns a human-readable reason string when an
- * update must NOT proceed, or undefined when the repo is ready.
+ * areUnmergedFiles()`). `updateProjectBlockage` is the pure predicate
+ * mirroring that check — it returns the blockage kind + a human-readable
+ * reason when an update must NOT proceed, or undefined when the repo is ready.
  */
 
 import '../../setup';
 import * as assert from 'assert';
-import { updateProjectBlockedReason } from '../../../src/sync/updateProject';
+import { updateProjectBlockage } from '../../../src/sync/updateProject';
 
-describe('updateProjectBlockedReason (#P2 Update Project preflight)', () => {
+describe('updateProjectBlockage (#P2 Update Project preflight)', () => {
   it('returns undefined for an idle repo with no unmerged files', () => {
-    assert.strictEqual(updateProjectBlockedReason({ hasUnmergedFiles: false }), undefined);
+    assert.strictEqual(updateProjectBlockage({ hasUnmergedFiles: false }), undefined);
   });
 
   it('blocks when a rebase is in progress', () => {
-    const reason = updateProjectBlockedReason({
+    const blockage = updateProjectBlockage({
       inProgressKind: 'rebasing',
       hasUnmergedFiles: false,
     });
-    assert.ok(reason && /rebase/i.test(reason), `expected a rebase reason, got: ${reason}`);
+    assert.strictEqual(blockage?.kind, 'rebase');
+    assert.ok(/rebase/i.test(blockage.reason), `expected a rebase reason, got: ${blockage.reason}`);
   });
 
   it('blocks when a merge is in progress', () => {
-    const reason = updateProjectBlockedReason({
+    const blockage = updateProjectBlockage({
       inProgressKind: 'merging',
       hasUnmergedFiles: false,
     });
-    assert.ok(reason && /merge/i.test(reason), `expected a merge reason, got: ${reason}`);
+    assert.strictEqual(blockage?.kind, 'merge');
+    assert.ok(/merge/i.test(blockage.reason), `expected a merge reason, got: ${blockage.reason}`);
   });
 
   it('blocks when there are unmerged (conflicted) files', () => {
-    const reason = updateProjectBlockedReason({ hasUnmergedFiles: true });
+    const blockage = updateProjectBlockage({ hasUnmergedFiles: true });
+    assert.strictEqual(blockage?.kind, 'conflicts');
     assert.ok(
-      reason && /conflict|unmerged/i.test(reason),
-      `expected an unmerged reason: ${reason}`
+      /conflict|unmerged/i.test(blockage.reason),
+      `expected an unmerged reason: ${blockage.reason}`
     );
   });
 
@@ -47,20 +50,20 @@ describe('updateProjectBlockedReason (#P2 Update Project preflight)', () => {
     // GitUpdateProcess only guards rebase/merge/unmerged — a cherry-pick or
     // revert in progress is not one of its three blockers.
     assert.strictEqual(
-      updateProjectBlockedReason({ inProgressKind: 'cherry-picking', hasUnmergedFiles: false }),
+      updateProjectBlockage({ inProgressKind: 'cherry-picking', hasUnmergedFiles: false }),
       undefined
     );
     assert.strictEqual(
-      updateProjectBlockedReason({ inProgressKind: 'reverting', hasUnmergedFiles: false }),
+      updateProjectBlockage({ inProgressKind: 'reverting', hasUnmergedFiles: false }),
       undefined
     );
   });
 
   it('reports the rebase/merge block even if unmerged files are also present (rebase takes precedence)', () => {
-    const reason = updateProjectBlockedReason({
+    const blockage = updateProjectBlockage({
       inProgressKind: 'rebasing',
       hasUnmergedFiles: true,
     });
-    assert.ok(reason && /rebase/i.test(reason));
+    assert.strictEqual(blockage?.kind, 'rebase');
   });
 });

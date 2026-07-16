@@ -103,11 +103,57 @@ export interface IConfigureRemotesDeps {
    * itself succeeded.
    */
   fetchRemote?: (remoteName: string) => Promise<void>;
+  /**
+   * URL reachability probe (GitDefineRemoteDialog runs `git ls-remote <url>`
+   * on OK and refuses to create/update an inaccessible remote). When wired,
+   * add and change-URL block on a failed probe and re-prompt.
+   */
+  probeRemoteUrl?: (url: string) => Promise<{ ok: boolean; message?: string }>;
   /** Refresh hook invoked after every successful mutation. */
   onRemotesChanged?: () => Promise<void> | void;
 }
 
 const ADD_LABEL = '$(add) Add Remote…';
+
+/**
+ * Prompt for a remote URL and, when the probe seam is wired, verify the URL
+ * is reachable before accepting it — re-prompting (prefilled with the failing
+ * value) until a URL passes or the user cancels. Mirrors
+ * GitDefineRemoteDialog, whose OK runs `git ls-remote` and does not close on
+ * an inaccessible URL.
+ *
+ * @returns the accepted trimmed URL, or `undefined` on cancel.
+ */
+async function promptVerifiedUrl(
+  deps: IConfigureRemotesDeps,
+  options: { title: string; initialValue?: string; placeHolder?: string }
+): Promise<string | undefined> {
+  let value = options.initialValue;
+  for (;;) {
+    const url = await deps.showInputBox({
+      title: options.title,
+      prompt: 'Remote URL',
+      value,
+      placeHolder: options.placeHolder,
+      validateInput: (input: string) => validateRemoteUrl(input.trim()),
+    });
+    if (!url || url.trim().length === 0) {
+      return undefined;
+    }
+    const trimmed = url.trim();
+    if (!deps.probeRemoteUrl) {
+      return trimmed;
+    }
+    const probe = await deps.probeRemoteUrl(trimmed);
+    if (probe.ok) {
+      return trimmed;
+    }
+    void deps.showErrorMessage(
+      `Remote URL is not accessible: ${sanitizeGitError(probe.message ?? 'unknown error')}`
+    );
+    value = trimmed;
+  }
+}
 
 /**
  * The Configure Remotes wizard. Loops the remotes list until the user
@@ -175,19 +221,17 @@ async function addRemoteFlow(deps: IConfigureRemotesDeps, existing: IRemote[]): 
   if (!name || name.trim().length === 0) {
     return;
   }
-  const url = await deps.showInputBox({
+  const url = await promptVerifiedUrl(deps, {
     title: 'Add Remote',
-    prompt: 'Remote URL',
     placeHolder: 'e.g., https://example.com/repo.git',
-    validateInput: (value: string) => validateRemoteUrl(value.trim()),
   });
-  if (!url || url.trim().length === 0) {
+  if (!url) {
     return;
   }
 
   const trimmedName = name.trim();
   const ok = await runRemoteOp(deps, `Failed to add remote '${trimmedName}'`, () =>
-    deps.gitService.addRemote(deps.repo, trimmedName, url.trim())
+    deps.gitService.addRemote(deps.repo, trimmedName, url)
   );
   if (!ok) {
     return;
@@ -246,17 +290,15 @@ async function editRemoteFlow(
   }
 
   if (action.label.includes('Change URL')) {
-    const newUrl = await deps.showInputBox({
+    const newUrl = await promptVerifiedUrl(deps, {
       title: `Change URL of Remote '${remote.name}'`,
-      prompt: 'Remote URL',
-      value: remote.fetchUrl ?? '',
-      validateInput: (value: string) => validateRemoteUrl(value.trim()),
+      initialValue: remote.fetchUrl ?? '',
     });
-    if (!newUrl || newUrl.trim().length === 0 || newUrl.trim() === remote.fetchUrl) {
+    if (!newUrl || newUrl === remote.fetchUrl) {
       return;
     }
     const ok = await runRemoteOp(deps, `Failed to change URL of remote '${remote.name}'`, () =>
-      deps.gitService.setRemoteUrl(deps.repo, remote.name, newUrl.trim())
+      deps.gitService.setRemoteUrl(deps.repo, remote.name, newUrl)
     );
     if (ok) {
       void deps.showInformationMessage(`Updated URL of remote: ${remote.name}`);

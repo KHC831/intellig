@@ -13,6 +13,7 @@ import type { IPullOptions, IRepository } from '../../../src/git-core/interfaces
 import { GitCommandError, IGitCommandResult } from '../../../src/git-core/gitCli';
 import {
   buildUpdatePullOptions,
+  pickResolutionTarget,
   repoDisplayName,
   resolveUpdateRebase,
   runUpdateProject,
@@ -101,6 +102,9 @@ describe('summarizeUpdate', () => {
       false
     );
     assert.strictEqual(summarizeUpdate('merge', [r('error', 0)]).allClean, false);
+  });
+  it('a skipped root does not fail the run (reference: skip-with-reason)', () => {
+    assert.strictEqual(summarizeUpdate('merge', [r('updated', 1), r('skipped', 0)]).allClean, true);
   });
 });
 
@@ -230,6 +234,103 @@ describe('runUpdateProject', () => {
     assert.ok(/conflict|unmerged/i.test(a.detail ?? ''));
     assert.strictEqual(b.status, 'updated');
     assert.strictEqual(summary.allClean, false);
+  });
+
+  it('skips a detached-HEAD root with a reason instead of pulling into raw git prose', async () => {
+    // GitUpdateProcess.java:388-406 — a detached root is skipped with the
+    // reason; only when EVERY root is detached does the update error out.
+    const detached = {
+      rootUri: { fsPath: '/repos/det' },
+      state: 'idle',
+      head: { name: undefined, ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    } as unknown as IRepository;
+    const git = makeGit({ incomingByRoot: { '/repos/ok': { incoming: 0 } } });
+    const summary = await runUpdateProject({
+      repos: [detached, repo('ok')],
+      gitService: git,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+    const det = summary.repos.find((r) => r.name === 'det');
+    assert.ok(det, 'the detached root still gets a summary row');
+    assert.strictEqual(det.status, 'skipped');
+    assert.match(det.detail ?? '', /detached/i);
+    assert.ok(!git.fetchCalls.includes('/repos/det'), 'no fetch for the detached root');
+    assert.ok(!git.pullCalls.some((c) => c.root === '/repos/det'), 'no pull for the detached root');
+    assert.ok(git.fetchCalls.includes('/repos/ok'), 'the healthy root still updates');
+    assert.strictEqual(summary.allClean, true, 'a skip does not fail the run');
+  });
+
+  it('marks a conflict-blocked root with machine-readable blockage for the resolve affordance', async () => {
+    const git = makeGit({
+      incomingByRoot: { '/repos/a': { incoming: 1 } },
+      unmergedRoots: new Set(['/repos/a']),
+    });
+    const summary = await runUpdateProject({
+      repos: [repo('a')],
+      gitService: git,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+    assert.strictEqual(summary.repos[0].status, 'error');
+    assert.strictEqual(summary.repos[0].blocked, 'conflicts');
+  });
+
+  it('marks a rebase-in-progress root with blockage=rebase', async () => {
+    const rebasing = {
+      ...repo('a'),
+      inProgress: { kind: 'rebasing' },
+    } as unknown as IRepository;
+    const git = makeGit({ incomingByRoot: { '/repos/a': { incoming: 1 } } });
+    const summary = await runUpdateProject({
+      repos: [rebasing],
+      gitService: git,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+    assert.strictEqual(summary.repos[0].status, 'error');
+    assert.strictEqual(summary.repos[0].blocked, 'rebase');
+  });
+
+  it('pickResolutionTarget returns the first blocked root mapped to its operation', () => {
+    const rows: IUpdateRepoResult[] = [
+      {
+        name: 'clean',
+        rootPath: '/repos/clean',
+        branch: 'main',
+        rebase: false,
+        incoming: 1,
+        status: 'updated',
+      },
+      {
+        name: 'a',
+        rootPath: '/repos/a',
+        branch: 'main',
+        rebase: false,
+        incoming: 0,
+        status: 'error',
+        blocked: 'rebase',
+        detail: 'A rebase is in progress.',
+      },
+    ];
+    const target = pickResolutionTarget(summarizeUpdate('merge', rows));
+    assert.deepStrictEqual(target, { rootPath: '/repos/a', operation: 'rebase' });
+  });
+
+  it('pickResolutionTarget is undefined when nothing is blocked', () => {
+    const rows: IUpdateRepoResult[] = [
+      {
+        name: 'clean',
+        rootPath: '/repos/clean',
+        branch: 'main',
+        rebase: false,
+        incoming: 1,
+        status: 'updated',
+      },
+    ];
+    assert.strictEqual(pickResolutionTarget(summarizeUpdate('merge', rows)), undefined);
   });
 
   it('classifies a conflicting pull as status=conflict', async () => {

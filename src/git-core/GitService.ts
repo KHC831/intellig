@@ -2049,6 +2049,14 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     return this._remoteOps.renameRemote(repo, oldName, newName);
   }
 
+  /**
+   * URL reachability probe for Configure Remotes. Lives on the concrete
+   * GitService, NOT the frozen IGitService composite (ADR-001).
+   */
+  probeRemoteUrl(repo: IRepository, url: string): ResultAsync<void, GitError> {
+    return this._remoteOps.probeRemoteUrl(repo, url);
+  }
+
   // ============================================
   // Incoming / Outgoing
   // ============================================
