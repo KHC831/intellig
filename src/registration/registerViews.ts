@@ -152,6 +152,26 @@ export function wireInitialDataLoad(
 }
 
 /**
+ * Route `intellig.showGitConsole` — F-A3 reference parity. IntelliJ's console
+ * IS a tab of the VCS tool window (VcsConsoleTabService.kt;
+ * ShowVcsConsoleTabAction selects it), and our tool window carries the analog
+ * Console tab fed by the same ConsoleService. Reveal the host, then select
+ * that tab; the raw OutputChannel remains only as the no-provider fallback.
+ * Pure over its seams so the routing is unit-testable.
+ */
+export async function runShowGitConsole(
+  provider: { revealLogHost(): Promise<void>; focusTab(tab: 'console'): Promise<void> } | undefined,
+  showOutputChannel: () => void
+): Promise<void> {
+  if (provider) {
+    await provider.revealLogHost();
+    await provider.focusTab('console');
+    return;
+  }
+  showOutputChannel();
+}
+
+/**
  * Register views and view providers.
  *
  * @param ctx - The view-registration context (RULE E1 bridge to the
@@ -185,11 +205,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       consoleService.connectToToolWindow(ctx.gitToolWindowProvider);
     }
 
-    // Command to reveal the Git Console OutputChannel, the IntelliJ "open VCS
-    // Console" analog. Captured by value so the closure doesn't depend on
-    // `ctx.services` still being live at invocation time.
+    // Command to open the VCS console — routes to the tool window's Console
+    // TAB (the reference-analog surface); the OutputChannel is only the
+    // no-provider fallback. Captured by value so the closure doesn't depend
+    // on `ctx.services` still being live at invocation time.
+    const toolWindowProviderForConsole = ctx.gitToolWindowProvider;
     const showGitConsoleCommand = vscode.commands.registerCommand('intellig.showGitConsole', () => {
-      consoleService.showConsole();
+      void runShowGitConsole(toolWindowProviderForConsole, () => consoleService.showConsole());
     });
     ctx.context.subscriptions.push(showGitConsoleCommand);
 
@@ -638,14 +660,34 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     const graphLoadMore: IGraphLoadMoreController<LogFilter> =
       createGraphLoadMoreController<LogFilter>(
         GRAPH_INITIAL_PAGE,
-        (repo, filter, opts) => {
-          void loadLogCommitsForRepo(repo, filter, opts);
-        },
+        // Return the load promise so ensureWindowCovers can await it;
+        // handleLoadMore stays fire-and-forget (it voids the return).
+        (repo, filter, opts) => loadLogCommitsForRepo(repo, filter, opts),
         GRAPH_PAGE
       );
     ctx.context.subscriptions.push(
       wireGraphLoadMore(ctx.gitToolWindowProvider, () => graphLoadMore.handleLoadMore())
     );
+
+    // Jump-to-hash growth: on a miss, grow the window to the ACTIVE scope's
+    // full history (rev-list count over the identical scope) and await the
+    // reload, so the command can retry against the complete log — the
+    // reference retries as data packs load until the pack is full. An
+    // unverifiable total (count failed) or an uncommitted scope (cold start /
+    // merged view) reports false and the command degrades to its warning.
+    ctx.gitToolWindowProvider.setEnsureFullLogLoaded(async () => {
+      const target = graphLoadMore.activeTarget();
+      if (!target) {
+        return false;
+      }
+      const total = await gitService
+        .getLogCount(target.repo, buildLogScope(target.filter))
+        .catch(() => undefined);
+      if (total === undefined) {
+        return false;
+      }
+      return graphLoadMore.ensureWindowCovers(total);
+    });
 
     /**
      * Compute `git log --cherry-mark` for the given repo against its

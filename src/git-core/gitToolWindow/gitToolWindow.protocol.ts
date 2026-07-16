@@ -47,7 +47,7 @@ export type GitToolWindowOutbound =
   | { type: 'commitsLoaded' }
   | { type: 'scrollToCommit'; commitHash: string }
   | { type: 'logFilterOptionsReady'; branchGroups: IBranchFilterGroups }
-  | { type: 'authorOptionsReady'; authors: string[] }
+  | { type: 'authorOptionsReady'; authors: string[]; me?: string }
   | { type: 'updateBranchFocus'; focusedBranchName: string | null; focusedHash: string | null }
   | {
       type: 'updateMenuEnableState';

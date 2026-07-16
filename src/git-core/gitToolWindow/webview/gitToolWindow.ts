@@ -857,6 +857,17 @@ function main(vscode: IVsCodeApi): void {
         allBtn.setAttribute('data-author', '__all__');
         allBtn.textContent = 'All users';
         list.appendChild(allBtn);
+        // "me" preset — applies the resolved configured identity as the
+        // author filter; omitted when the identity is unknown.
+        if (typeof message.me === 'string' && message.me.length > 0) {
+          const meBtn = document.createElement('button');
+          meBtn.type = 'button';
+          meBtn.className = 'log-filter-popup-item' + (message.me === current ? ' active' : '');
+          meBtn.setAttribute('data-action', 'pickAuthorFilter');
+          meBtn.setAttribute('data-author', message.me);
+          meBtn.textContent = 'me';
+          list.appendChild(meBtn);
+        }
         message.authors.forEach(function (a) {
           const name = String(a);
           const btn = document.createElement('button');
@@ -1430,7 +1441,24 @@ function main(vscode: IVsCodeApi): void {
       case 'c':
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
-          navigator.clipboard.writeText(hash).catch(function (_err) {
+          // CopyRevisionNumberAction parity: act on the SELECTION when the
+          // focused row is part of it — oldest-first (reverse of the
+          // newest-first DOM order), space-joined for terminal paste. An
+          // unselected focused row copies just itself.
+          const selectedHashesForCopy = Array.from(
+            document.querySelectorAll('.graph-panel .commit-row.selected')
+          )
+            .map(function (r) {
+              return r.getAttribute('data-hash') || '';
+            })
+            .filter(function (h) {
+              return h.length > 0;
+            });
+          const copyText =
+            selectedHashesForCopy.indexOf(hash) !== -1
+              ? selectedHashesForCopy.reverse().join(' ')
+              : hash;
+          navigator.clipboard.writeText(copyText).catch(function (_err) {
             /* clipboard writes can fail on focus loss; the user can re-copy */
           });
         }

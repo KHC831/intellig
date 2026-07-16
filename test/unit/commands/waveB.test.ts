@@ -550,7 +550,7 @@ describe('Multi-commit safe ops', () => {
 
   // ─── B4 — Copy Hashes + Compare Versions ──────────────────────────────────
   describe('B4 — _handleCopyHash multi-commit + _handleCompareVersions', () => {
-    it('copyHash on N>=2 joins hashes with newlines', async () => {
+    it('copyHash on N>=2 joins hashes oldest-first with spaces (CopyRevisionNumberAction parity)', async () => {
       let copied = '';
       writableEnv().clipboard = {
         writeText: (text: string) => {
@@ -573,8 +573,8 @@ describe('Multi-commit safe ops', () => {
 
       assert.strictEqual(
         copied,
-        [HASH_NEWEST, HASH_MIDDLE, HASH_OLDEST].join('\n'),
-        'multi-commit copyHash must produce a newline-joined string'
+        [HASH_OLDEST, HASH_MIDDLE, HASH_NEWEST].join(' '),
+        'multi-commit copyHash must be oldest-first space-joined (terminal-paste order)'
       );
     });
 

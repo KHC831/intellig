@@ -834,10 +834,12 @@ export class CommitContextMenuCommands {
   /**
    * Copy the full SHA(s) to the system clipboard.
    *
-   * N=1 (legacy): one hash, no newline.
-   * N>=2 joins hashes with `\n` so a paste into a shell or
-   * editor lands them as a vertical list. Order is preserved as supplied
-   * (newest-first per the webview's DOM order).
+   * N=1: one hash. N>=2: OLDEST-first, joined with a single space —
+   * CopyRevisionNumberAction parity ("we want hashes from old to new,
+   * e.g., to pass to native client in terminal"), so a paste lands in
+   * `git cherry-pick` replay order. `commitHashes` arrives newest-first
+   * (webview DOM order); the reverse here is the canonical direction
+   * point, mirroring `_handleCherryPick`.
    */
   private async _handleCopyHash(commitHashes: string[]): Promise<void> {
     if (commitHashes.length === 0) {
@@ -845,7 +847,8 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      const text = commitHashes.length === 1 ? commitHashes[0] : commitHashes.join('\n');
+      const text =
+        commitHashes.length === 1 ? commitHashes[0] : [...commitHashes].reverse().join(' ');
       await vscode.env.clipboard.writeText(text);
       const message =
         commitHashes.length === 1

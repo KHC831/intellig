@@ -123,6 +123,28 @@ describe('jumpToHash — findCommitByQuery branch name', () => {
     assert.strictEqual(result, commitA.hash);
   });
 
+  it('prefix-matches a branch name (jumpToRefOrHash startsWith contract)', () => {
+    const branches = [mkBranch('dev/foo', commitA.hash)];
+    const result = findCommitByQuery('dev', [], branches, []);
+    assert.strictEqual(result, commitA.hash);
+  });
+
+  it('prefers the exact name over a longer prefix match', () => {
+    const branches = [mkBranch('dev/foo', commitB.hash), mkBranch('dev', commitA.hash)];
+    const result = findCommitByQuery('dev', [], branches, []);
+    assert.strictEqual(result, commitA.hash, 'exact ref beats a longer prefix match');
+  });
+
+  it('prefers a local branch over a remote branch and a tag on the same prefix', () => {
+    const result = findCommitByQuery(
+      'rel',
+      [],
+      [mkBranch('release-remote', commitB.hash, 'remote'), mkBranch('release', commitA.hash)],
+      [mkTag('rel-tag', commitC.hash)]
+    );
+    assert.strictEqual(result, commitA.hash, 'local branch wins the ref comparator');
+  });
+
   it('is case-sensitive (branch names in git are case-sensitive)', () => {
     const branches = [mkBranch('main', commitA.hash)];
     const result = findCommitByQuery('MAIN', [], branches, []);
@@ -143,11 +165,17 @@ describe('jumpToHash — findCommitByQuery tag name', () => {
 // ─── findCommitByQuery — priority and no-match ───────────────────────────────
 
 describe('jumpToHash — findCommitByQuery priority + misses', () => {
-  it('prefers SHA match over branch match when query is a valid hex prefix', () => {
-    // A branch happens to be named "abc1234" — pathological but possible.
+  it('prefers a REF match over a SHA match on an all-hex query (jumpToRefOrHash order)', () => {
+    // A branch happens to be named "abc1234" — the reference matches refs
+    // FIRST and falls back to hash resolution only when no ref matches
+    // (VcsLogNavigationUtil.kt jumpToRefOrHash).
     const branches = [mkBranch('abc1234', commitB.hash)];
     const result = findCommitByQuery('abc1234', [commitA], branches, []);
-    // SHA match wins → commitA, not commitB.
+    assert.strictEqual(result, commitB.hash, 'ref resolution precedes hash resolution');
+  });
+
+  it('trims shell-quote characters around a hash query (reference trim set)', () => {
+    const result = findCommitByQuery('"abc1234"', [commitA], [], []);
     assert.strictEqual(result, commitA.hash);
   });
 
@@ -169,7 +197,9 @@ describe('jumpToHash — findCommitByQuery priority + misses', () => {
   });
 
   it('returns undefined when loadedCommits is empty and query is a SHA', () => {
-    // Per spec: only operates on currently-loaded commits. No auto-page.
+    // The pure helper matches only the inputs it is given; the COMMAND layer
+    // grows the log window and retries on a miss (reference: tryJumpTo
+    // retries as data packs load until the pack is full).
     const result = findCommitByQuery('abc1234', [], [], []);
     assert.strictEqual(result, undefined);
   });

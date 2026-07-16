@@ -62,12 +62,13 @@ export function stableLogFilterKey(
   return parts.join('\u0000');
 }
 
-/** Re-run the scoped graph load at a grown limit. */
+/** Re-run the scoped graph load at a grown limit. A returned promise lets
+ * {@link IGraphLoadMoreController.ensureWindowCovers} await the load. */
 export type GraphLoadMoreReloader<F> = (
   repo: IRepository,
   filter: F | undefined,
   opts: { limit: number }
-) => void;
+) => void | Promise<void>;
 
 export interface IGraphLoadMoreController<F> {
   /**
@@ -101,6 +102,22 @@ export interface IGraphLoadMoreController<F> {
    * repo/filter is active.
    */
   handleLoadMore(): void;
+  /**
+   * The committed active (repo, filter) target, or `undefined` before the
+   * first committed load / in the merged view. Lets callers run a
+   * scope-identical query (e.g. a rev-list count) against exactly the load
+   * this controller replays.
+   */
+  activeTarget(): { repo: IRepository; filter: F | undefined } | undefined;
+  /**
+   * Grow the window so it covers at least `minLimit` commits and re-run the
+   * active scoped load, AWAITING it (jump-to-hash uses this to load the full
+   * history before retrying a miss — the reference retries as packs load
+   * until the pack is full). Never shrinks an already-larger window; the
+   * grown limit becomes the baseline further load-mores increment from.
+   * Returns false (no reload) when no target has committed.
+   */
+  ensureWindowCovers(minLimit: number): Promise<boolean>;
 }
 
 /**
@@ -165,7 +182,20 @@ export function createGraphLoadMoreController<F extends Readonly<Record<string, 
         return;
       }
       limit += incrementPage;
-      reload(repo, filter, { limit });
+      void reload(repo, filter, { limit });
+    },
+    activeTarget(): { repo: IRepository; filter: F | undefined } | undefined {
+      return repo ? { repo, filter } : undefined;
+    },
+    async ensureWindowCovers(minLimit: number): Promise<boolean> {
+      if (!repo) {
+        return false;
+      }
+      if (minLimit > limit) {
+        limit = minLimit;
+      }
+      await reload(repo, filter, { limit });
+      return true;
     },
   };
 }

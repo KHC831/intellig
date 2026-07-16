@@ -16,6 +16,7 @@ import {
   PatchWriteFailed,
   type IBranch,
   type ITag,
+  type ICommit,
   type ICommitDialogResult,
   type PullDialogOutcome,
 } from '../../services';
@@ -233,6 +234,61 @@ export function commitAndPushFollowUp(
  * (RULE E1); commitToolWindow / gitToolWindowProvider are read-only. Returns
  * its disposables; extension.ts owns the single push (RULE E4).
  */
+/** Seams {@link runJumpToCommitFlow} needs, kept discrete for testing. */
+export interface IJumpToCommitFlowDeps {
+  /** Prompt the user for the query; undefined/empty cancels. */
+  promptQuery(): Promise<string | undefined>;
+  /** The currently-loaded log window (re-read after a grow). */
+  getLoadedCommits(): ICommit[];
+  /** Branches + tags for ref-name matching (empty arrays on failure). */
+  getRefs(): Promise<{ branches: IBranch[]; tags: ITag[] }>;
+  /** Grow the log window to the active scope's full history; false = couldn't. */
+  ensureFullLogLoaded(): Promise<boolean>;
+  revealLogHost(): Promise<void>;
+  /** Scroll to a loaded commit; false when the hash isn't in the window. */
+  scrollToCommit(hash: string): boolean;
+  warn(message: string): void;
+}
+
+/**
+ * Jump-to-Commit resolution flow — jumpToRefOrHash parity. Resolves the query
+ * ref-prefix-first via `findCommitByQuery`; a miss grows the log window to
+ * the full history ONCE and retries (the reference retries as data packs
+ * load until the pack is full, so any commit in the repo is found). A ref
+ * match whose tip commit sits outside the loaded window grows the same way
+ * before scrolling. Warnings fire only once growth is exhausted.
+ */
+export async function runJumpToCommitFlow(deps: IJumpToCommitFlowDeps): Promise<void> {
+  const query = await deps.promptQuery();
+  if (!query) {
+    return;
+  }
+
+  const refs = await deps.getRefs();
+  const find = (): string | undefined =>
+    findCommitByQuery(query, deps.getLoadedCommits(), refs.branches, refs.tags);
+
+  let match = find();
+  if (!match && (await deps.ensureFullLogLoaded())) {
+    match = find();
+  }
+  if (!match) {
+    // sanitize-exempt: user-input: query.trim() is the user-typed search string echoed back, not git stderr
+    deps.warn(`No commit found matching '${query.trim()}'`);
+    return;
+  }
+
+  await deps.revealLogHost();
+  if (deps.scrollToCommit(match)) {
+    return;
+  }
+  // A ref matched but its tip commit is outside the loaded window — grow to
+  // full history and retry the scroll.
+  if (!(await deps.ensureFullLogLoaded()) || !deps.scrollToCommit(match)) {
+    deps.warn(`Commit ${match.substring(0, 7)} is not currently loaded in the graph`);
+  }
+}
+
 export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Disposable[] {
   // Open Git Tool Window command
   // spine-exempt: pure focus route with no services dependency
@@ -733,82 +789,73 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     },
   });
 
-  // Jump to a commit hash / branch / tag within the currently-loaded
-  // log. Accepts user input via an InputBox, resolves via `findCommitByQuery`
-  // (pure helper, operates only on already-loaded commits per spec), then
-  // delegates to `GitToolWindowProvider.scrollToCommit` which posts the
-  // webview message + re-renders with the scroll target.
+  // Jump to a commit hash / branch / tag. Accepts user input via an
+  // InputBox and runs {@link runJumpToCommitFlow}: ref-prefix-first
+  // resolution via `findCommitByQuery`, growing the log window to the full
+  // history on a miss (reference: tryJumpTo retries as packs load until the
+  // pack is full), then `GitToolWindowProvider.scrollToCommit`.
   const jumpToHashCommand = registerBareCommand(ctx, {
     id: 'intellig.toolWindow.jumpToHash',
     failureTitle: 'Failed to jump to commit',
     run: async ({ gitService }) => {
-      if (!ctx.gitToolWindowProvider) {
+      const provider = ctx.gitToolWindowProvider;
+      if (!provider) {
         void vscode.window.showErrorMessage('Git tool window not ready');
         return;
       }
 
-      const query = await vscode.window.showInputBox({
-        title: 'Jump to Commit',
-        prompt: 'Enter a commit SHA, branch name, or tag name',
-        placeHolder: 'e.g., abc1234 or main or v1.0.0',
+      await runJumpToCommitFlow({
+        promptQuery: () =>
+          Promise.resolve(
+            vscode.window.showInputBox({
+              title: 'Jump to Commit',
+              prompt: 'Enter a commit SHA, branch name, or tag name',
+              placeHolder: 'e.g., abc1234 or main or v1.0.0',
+            })
+          ),
+        getLoadedCommits: () => provider.getExtendedLogState().commitNodes.map((n) => n.commit),
+        getRefs: async () => {
+          // Branches and tags for name-based matching. Fall back to empty
+          // arrays on error so the command degrades to pure SHA matching
+          // rather than failing outright. Prefer the tool-window's selected
+          // repo; fall back to the active-editor's repo in multi-root
+          // workspaces.
+          const repo =
+            provider.getSelectedRepository() ??
+            (await resolveRepo(gitService, { preferActive: true, silent: true }));
+          let branches: IBranch[] = [];
+          let tags: ITag[] = [];
+          if (repo) {
+            try {
+              branches = await gitService.getBranches(repo);
+            } catch (error) {
+              // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+              getLogger()
+                .child({ component: 'extension' })
+                .debug('findCommit: getBranches failed', {
+                  err: error instanceof Error ? error.message : String(error),
+                });
+            }
+            try {
+              tags = await gitService.getTags(repo);
+            } catch (error) {
+              // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+              getLogger()
+                .child({ component: 'extension' })
+                .debug('findCommit: getTags failed', {
+                  err: error instanceof Error ? error.message : String(error),
+                });
+            }
+          }
+          return { branches, tags };
+        },
+        ensureFullLogLoaded: () => provider.ensureFullLogLoaded(),
+        revealLogHost: () => provider.revealLogHost(),
+        scrollToCommit: (hash) => provider.scrollToCommit(hash),
+        warn: (message) => {
+          void vscode.window.showWarningMessage(message);
+        },
       });
-      if (!query) {
-        return;
-      }
-
-      const state = ctx.gitToolWindowProvider.getExtendedLogState();
-      const loadedCommits = state.commitNodes.map((n) => n.commit);
-
-      // Branches and tags for name-based matching. We fall back to empty
-      // arrays on error so the command degrades to pure SHA matching rather
-      // than failing outright.
-      // prefer the tool-window's selected repo when set, otherwise
-      // fall back to the active-editor's repo in multi-root workspaces.
-      const repo =
-        ctx.gitToolWindowProvider.getSelectedRepository() ??
-        (await resolveRepo(gitService, { preferActive: true, silent: true }));
-      let branches: IBranch[] = [];
-      let tags: ITag[] = [];
-      if (repo) {
-        try {
-          branches = await gitService.getBranches(repo);
-        } catch (error) {
-          // Fall through to SHA-only matching; log so the swallowed fault stays visible.
-          getLogger()
-            .child({ component: 'extension' })
-            .debug('findCommit: getBranches failed', {
-              err: error instanceof Error ? error.message : String(error),
-            });
-        }
-        try {
-          tags = await gitService.getTags(repo);
-        } catch (error) {
-          // Fall through to SHA-only matching; log so the swallowed fault stays visible.
-          getLogger()
-            .child({ component: 'extension' })
-            .debug('findCommit: getTags failed', {
-              err: error instanceof Error ? error.message : String(error),
-            });
-        }
-      }
-
-      const match = findCommitByQuery(query, loadedCommits, branches, tags);
-      if (!match) {
-        // sanitize-exempt: user-input: query.trim() is the user-typed search string echoed back, not git stderr
-        void vscode.window.showWarningMessage(`No commit found matching '${query.trim()}'`);
-        return;
-      }
-
-      await ctx.gitToolWindowProvider.revealLogHost();
-      const scrolled = ctx.gitToolWindowProvider.scrollToCommit(match);
-      if (!scrolled) {
-        // Shouldn't happen given findCommitByQuery matched against the same
-        // loaded set, but surface a warning just in case (e.g. state drifted
-        // between the two calls).
-        void vscode.window.showWarningMessage(
-          `Commit ${match.substring(0, 7)} is not currently loaded in the graph`
-        );
-      }
     },
   });
 

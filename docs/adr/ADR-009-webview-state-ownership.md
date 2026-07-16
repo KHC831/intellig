@@ -289,12 +289,14 @@ LHS/RHS to OLDER ↔ NEWER). To remove the footgun for future callers
 provider exposes a typed sibling helper:
 
 - `GitToolWindowProvider.getSelectedCommits()` — newest-first display
-  order. Use for revert / clipboard / `Compare Versions` lhs/rhs
+  order. Use for revert / `Compare Versions` lhs/rhs
   picking / status-bar count.
 - `GitToolWindowProvider.getSelectedCommitsOldestFirst()` — chronological
   replay order (the reversed sibling). Use for cherry-pick / drop /
-  squash / rebase. The naming makes the direction explicit at the call
-  site so a contributor doesn't have to remember to `.reverse()`.
+  squash / rebase / clipboard (CopyRevisionNumberAction parity:
+  oldest-first space-joined so a terminal paste replays in order). The
+  naming makes the direction explicit at the call site so a contributor
+  doesn't have to remember to `.reverse()`.
 
 Wave B R1 (TLB-H-2) also pushed display-order forward through the
 context-menu dispatch event payload, so handlers receive

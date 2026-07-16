@@ -438,6 +438,9 @@ export class GitToolWindowProvider
   private _hasRepository: boolean = false;
   private _isLoading: boolean = true;
   private _scrollToCommitHash: string | undefined;
+
+  /** Jump-to-hash growth delegate — see {@link setEnsureFullLogLoaded}. */
+  private _ensureFullLogLoaded?: () => Promise<boolean>;
   /**
    * Total commits available for the current repo/filter (from
    * `getLogCount` → `git rev-list --count`). Drives the graph's honest
@@ -1373,6 +1376,26 @@ export class GitToolWindowProvider
    */
   public getActiveLogFilter(): ILogFilter | undefined {
     return this._extendedLogState.filter;
+  }
+
+  /**
+   * Late-bind the jump-to-hash growth delegate. registerViews wires it to the
+   * load-more controller (which owns the active scope + window), growing the
+   * log window to the scope's full history and awaiting the reload.
+   */
+  public setEnsureFullLogLoaded(fn: () => Promise<boolean>): void {
+    this._ensureFullLogLoaded = fn;
+  }
+
+  /**
+   * Grow the log window to the active scope's full history so a jump target
+   * outside the current window becomes reachable (the reference retries as
+   * data packs load until the pack is full — VcsLogNavigationUtil.tryJumpTo).
+   * Resolves false when the delegate is unwired, no scope has committed yet
+   * (cold start / merged view), or the total couldn't be verified.
+   */
+  public async ensureFullLogLoaded(): Promise<boolean> {
+    return this._ensureFullLogLoaded ? this._ensureFullLogLoaded() : false;
   }
 
   /**
@@ -2503,10 +2526,20 @@ export class GitToolWindowProvider
       return;
     }
     const authors = await gitService.getLogContributors(repo).catch(() => []);
+    // The "me" preset identity (UserFilterPopupComponent parity). The lookup
+    // lives on the concrete GitService, not the frozen IGitService (ADR-001),
+    // so reach it duck-typed; absence or failure just omits the preset.
+    let me: string | undefined;
+    const identitySource = gitService as unknown as {
+      getConfiguredUserIdentity?: (r: IRepository) => Promise<string | undefined>;
+    };
+    if (typeof identitySource.getConfiguredUserIdentity === 'function') {
+      me = await identitySource.getConfiguredUserIdentity(repo).catch(() => undefined);
+    }
     if (!this.hasView()) {
       return;
     }
-    this.postToWebview({ type: 'authorOptionsReady', authors });
+    this.postToWebview({ type: 'authorOptionsReady', authors, me });
   }
 
   /**

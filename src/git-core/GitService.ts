@@ -1819,6 +1819,25 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     return [...seen];
   }
 
+  /**
+   * The repo's configured commit identity as `"Name <email>"`, or `undefined`
+   * when either half is unset (current user unknown). Powers the author
+   * filter's "me" preset (UserFilterPopupComponent parity — the reference
+   * offers "me" only when the current user is known). Reads `git config`
+   * per key so repo-local values override global ones, exactly as commits do.
+   */
+  async getConfiguredUserIdentity(repo: IRepository): Promise<string | undefined> {
+    const options: IGitCommandOptions = { cwd: repo.rootUri.fsPath };
+    const read = async (key: string): Promise<string | undefined> => {
+      const result = await this._gitCli.exec(['config', '--get', key], options);
+      const value = result.stdout.trim();
+      return result.exitCode === 0 && value ? value : undefined;
+    };
+    const name = await read('user.name');
+    const email = await read('user.email');
+    return name && email ? `${name} <${email}>` : undefined;
+  }
+
   createBranch(
     repo: IRepository,
     name: string,

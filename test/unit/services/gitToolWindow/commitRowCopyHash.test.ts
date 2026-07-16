@@ -64,3 +64,70 @@ describe('Git tool window entry — Ctrl/Cmd+C copies the focused commit hash (F
     assert.deepStrictEqual(captured, [], 'plain "c" must not touch the clipboard');
   });
 });
+
+// CopyRevisionNumberAction parity: the action reads the SELECTION (not just
+// the focused row), reverses to oldest-first, and joins full hashes with a
+// single space ("pass to native client in terminal").
+describe('Git tool window entry — Ctrl/Cmd+C acts on the multi-selection (F-A13)', () => {
+  const OLDEST = 'a'.repeat(40);
+  const MIDDLE = 'b'.repeat(40);
+  const NEWEST = 'c'.repeat(40);
+  let h: IWebviewEntryHarness;
+
+  afterEach(() => {
+    if (h) {
+      h.dispose();
+    }
+  });
+
+  function bootRows(rows: string, captured: string[]): IWebviewEntryHarness {
+    return bootWebviewEntry(ENTRY, {
+      bodyHtml: `<div class="graph-panel" aria-multiselectable="true">${rows}</div>`,
+      beforeBoot: (window) => {
+        Object.defineProperty(window.navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            writeText: (text: string): Promise<void> => {
+              captured.push(text);
+              return Promise.resolve();
+            },
+          },
+        });
+      },
+    });
+  }
+
+  it('copies all selected hashes oldest-first, space-joined', () => {
+    const captured: string[] = [];
+    // DOM lists newest-first (display order); all three rows selected.
+    h = bootRows(
+      `<div class="commit-row selected" data-hash="${NEWEST}" tabindex="0"></div>` +
+        `<div class="commit-row selected" data-hash="${MIDDLE}" tabindex="0"></div>` +
+        `<div class="commit-row selected" data-hash="${OLDEST}" tabindex="0"></div>`,
+      captured
+    );
+    const row = h.document.querySelector(`.commit-row[data-hash="${MIDDLE}"]`) as HTMLElement;
+    row.dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true })
+    );
+    assert.deepStrictEqual(
+      captured,
+      [[OLDEST, MIDDLE, NEWEST].join(' ')],
+      'Ctrl+C on a selected row must copy the whole selection oldest-first, space-joined'
+    );
+  });
+
+  it('falls back to the focused row when it is outside the selection', () => {
+    const captured: string[] = [];
+    h = bootRows(
+      `<div class="commit-row selected" data-hash="${NEWEST}" tabindex="0"></div>` +
+        `<div class="commit-row" data-hash="${OLDEST}" tabindex="0"></div>`,
+      captured
+    );
+    const row = h.document.querySelector(`.commit-row[data-hash="${OLDEST}"]`) as HTMLElement;
+    row.dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true })
+    );
+    assert.deepStrictEqual(captured, [OLDEST], 'unselected focused row copies just itself');
+  });
+});

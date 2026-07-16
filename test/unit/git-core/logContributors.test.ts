@@ -78,3 +78,43 @@ describe('GitService.getLogContributors — author datalist source (G1)', () => 
     assert.strictEqual(result[0], 'User0 <u0@x.com>');
   });
 });
+
+describe('GitService.getConfiguredUserIdentity — the author-filter "me" (F-A21)', () => {
+  function makeIdentityService(byKey: Record<string, ExecStub>): {
+    service: GitService;
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    const service = Object.create(GitService.prototype) as GitService;
+    (service as unknown as { _gitCli: unknown })._gitCli = {
+      exec: async (args: string[]) => {
+        calls.push(args);
+        const key = args[args.length - 1];
+        return byKey[key] ?? { exitCode: 1, stdout: '', stderr: '' };
+      },
+    };
+    return { service, calls };
+  }
+
+  it('composes "Name <email>" from the configured user.name + user.email', async () => {
+    const { service } = makeIdentityService({
+      'user.name': { exitCode: 0, stdout: 'Alice\n', stderr: '' },
+      'user.email': { exitCode: 0, stdout: 'alice@a.com\n', stderr: '' },
+    });
+    assert.strictEqual(await service.getConfiguredUserIdentity(repo), 'Alice <alice@a.com>');
+  });
+
+  it('returns undefined when user.name is unset (current user unknown)', async () => {
+    const { service } = makeIdentityService({
+      'user.email': { exitCode: 0, stdout: 'alice@a.com\n', stderr: '' },
+    });
+    assert.strictEqual(await service.getConfiguredUserIdentity(repo), undefined);
+  });
+
+  it('returns undefined when user.email is unset', async () => {
+    const { service } = makeIdentityService({
+      'user.name': { exitCode: 0, stdout: 'Alice\n', stderr: '' },
+    });
+    assert.strictEqual(await service.getConfiguredUserIdentity(repo), undefined);
+  });
+});

@@ -105,7 +105,9 @@ describe('Graph load-more controller', () => {
     // Production shape: initial 100 (small startup chunk), increment 500.
     const controller = createGraphLoadMoreController<Filter>(
       100,
-      (repo, filter, opts) => calls.push({ repo, filter, limit: opts.limit }),
+      (repo, filter, opts) => {
+        calls.push({ repo, filter, limit: opts.limit });
+      },
       500
     );
     controller.beginLoad(repoA, undefined);
@@ -310,5 +312,68 @@ describe('stableLogFilterKey', () => {
       stableLogFilterKey({ branches: ['a', 'b'] }),
       stableLogFilterKey({ branches: ['a'] })
     );
+  });
+});
+
+describe('Graph load-more controller — ensureWindowCovers (jump-to-hash growth)', () => {
+  it('grows the window to the requested minimum, awaiting the reload', async () => {
+    const calls: ReloadCall[] = [];
+    const controller = createGraphLoadMoreController<Filter>(500, async (repo, filter, opts) => {
+      calls.push({ repo, filter, limit: opts.limit });
+    });
+    controller.beginLoad(repoA, undefined);
+    controller.commitLoad();
+
+    const grown = await controller.ensureWindowCovers(4200);
+
+    assert.strictEqual(grown, true);
+    assert.deepStrictEqual(calls, [{ repo: repoA, filter: undefined, limit: 4200 }]);
+  });
+
+  it('never shrinks an already-larger window', async () => {
+    const calls: ReloadCall[] = [];
+    const controller = createGraphLoadMoreController<Filter>(500, (repo, filter, opts) => {
+      calls.push({ repo, filter, limit: opts.limit });
+    });
+    controller.beginLoad(repoA, undefined);
+    controller.commitLoad();
+    controller.handleLoadMore(); // limit → 1000
+
+    await controller.ensureWindowCovers(600);
+
+    assert.strictEqual(calls[calls.length - 1].limit, 1000, 'window must not shrink');
+  });
+
+  it('returns false before any load has committed an active target', async () => {
+    const { controller, calls } = makeController(500);
+    const grown = await controller.ensureWindowCovers(4200);
+    assert.strictEqual(grown, false);
+    assert.strictEqual(calls.length, 0);
+  });
+
+  it('subsequent load-more grows from the covered window, not the old one', async () => {
+    const calls: ReloadCall[] = [];
+    const controller = createGraphLoadMoreController<Filter>(500, (repo, filter, opts) => {
+      calls.push({ repo, filter, limit: opts.limit });
+    });
+    controller.beginLoad(repoA, undefined);
+    controller.commitLoad();
+    await controller.ensureWindowCovers(4200);
+
+    controller.handleLoadMore();
+
+    assert.strictEqual(
+      calls[calls.length - 1].limit,
+      4700,
+      'increment applies on top of the grown window'
+    );
+  });
+
+  it('exposes the committed active target for scope-identical counting', () => {
+    const { controller } = makeController(500);
+    assert.strictEqual(controller.activeTarget(), undefined);
+    controller.beginLoad(repoA, { branch: 'x' });
+    controller.commitLoad();
+    assert.deepStrictEqual(controller.activeTarget(), { repo: repoA, filter: { branch: 'x' } });
   });
 });
