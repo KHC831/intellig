@@ -12,6 +12,8 @@ import {
   looksLikeConflictText,
   looksLikePatchConflictText,
   isLocalChangesWouldBeOverwritten,
+  isIndexConflictOnUnstash,
+  parseLocalChangesOverwriteFiles,
 } from '../../../src/git-core/gitProse';
 
 describe('gitProse — shared English-prose predicates', () => {
@@ -43,6 +45,55 @@ describe('gitProse — shared English-prose predicates', () => {
 
     it('stays quiet on a hard refusal', () => {
       assert.strictEqual(looksLikePatchConflictText('fatal: unrecognized input'), false);
+    });
+  });
+
+  describe('isIndexConflictOnUnstash', () => {
+    it("matches git's --index refusal (reference: INDEX_CONFLICT_ON_UNSTASH = 'conflicts in index')", () => {
+      assert.strictEqual(
+        isIndexConflictOnUnstash('error: conflicts in index. Try without --index.'),
+        true
+      );
+    });
+
+    it('stays quiet on plain merge conflicts and unrelated errors', () => {
+      assert.strictEqual(
+        isIndexConflictOnUnstash('CONFLICT (content): Merge conflict in a.ts'),
+        false
+      );
+      assert.strictEqual(isIndexConflictOnUnstash('fatal: not a git repository'), false);
+    });
+  });
+
+  describe('parseLocalChangesOverwriteFiles', () => {
+    it('extracts the file list from the modern header + indented-list form', () => {
+      const msg = [
+        'error: Your local changes to the following files would be overwritten by merge:',
+        '\tsrc/a.ts',
+        '\tsrc/b.ts',
+        'Please commit your changes or stash them before you merge.',
+        'Aborting',
+      ].join('\n');
+      assert.deepStrictEqual(parseLocalChangesOverwriteFiles(msg), ['src/a.ts', 'src/b.ts']);
+    });
+
+    it('extracts the single file from the legacy inline form', () => {
+      assert.deepStrictEqual(
+        parseLocalChangesOverwriteFiles(
+          "error: Your local changes to 'src/a.ts' would be overwritten by merge."
+        ),
+        ['src/a.ts']
+      );
+    });
+
+    it('returns null for the UNTRACKED-overwrite refusal and unrelated errors', () => {
+      const untracked = [
+        'error: The following untracked working tree files would be overwritten by merge:',
+        '\tnew.txt',
+        'Please move or remove them before you merge.',
+      ].join('\n');
+      assert.strictEqual(parseLocalChangesOverwriteFiles(untracked), null);
+      assert.strictEqual(parseLocalChangesOverwriteFiles('fatal: not a git repository'), null);
     });
   });
 

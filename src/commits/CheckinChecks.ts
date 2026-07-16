@@ -33,6 +33,8 @@ import {
   IRepository,
 } from '../git-core/interfaces/IGitService';
 import { isConflictedStatus } from '../git-core/gitParser';
+import { readConfig, updateConfig } from '../config/configKeys';
+import { sanitizeGitError } from '../git-core/gitError';
 import {
   ICheckinContext,
   ICheckinFile,
@@ -237,6 +239,8 @@ export async function gatherCheckinContext(
     detachedHead,
     coreAutoCrlf,
     statusReadFailed,
+    warnAboutCrlf: readConfig('warnAboutCrlf'),
+    largeFileWarningBytes: readConfig('largeFileWarningMb') * 1024 * 1024,
   };
 }
 
@@ -275,9 +279,52 @@ export async function runBeforeCommitChecks(
     return true;
   }
 
-  const detail = formatCheckinProblems(result.problems);
-  const proceedLabel = result.hasBlockingProblem ? 'Commit Anyway' : 'Commit';
-  const title = result.hasBlockingProblem
+  // The CRLF problem carries its own affordances (reference GitCrlfDialog:
+  // Fix and Commit sets core.autocrlf=true --global before committing;
+  // Commit As-Is proceeds; Cancel aborts; don't-warn-again persists the
+  // warnAboutCrlf setting off).
+  const crlfProblem = result.problems.find((p) => p.handlerId === 'git.crlf');
+  let remaining = result.problems;
+  if (crlfProblem) {
+    const FIX = 'Fix and Commit';
+    const AS_IS = 'Commit As-Is';
+    const DONT_ASK = "Commit As-Is, Don't Ask Again";
+    const crlfChoice = await vscode.window.showWarningMessage(
+      'Committing CRLF line separators',
+      { modal: true, detail: crlfProblem.text },
+      FIX,
+      AS_IS,
+      DONT_ASK
+    );
+    if (crlfChoice === undefined) {
+      return false;
+    }
+    if (crlfChoice === FIX) {
+      const gitCli = (gitService as IGitServiceWithCli).gitCli;
+      try {
+        await gitCli.exec(['config', '--global', 'core.autocrlf', 'true'], {
+          cwd: repo.rootUri.fsPath,
+          throwOnError: true,
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showWarningMessage(
+          `Could not set core.autocrlf: ${sanitizeGitError(msg)}. Committing anyway.`
+        );
+      }
+    } else if (crlfChoice === DONT_ASK) {
+      await updateConfig('warnAboutCrlf', false);
+    }
+    remaining = result.problems.filter((p) => p.handlerId !== 'git.crlf');
+    if (remaining.length === 0) {
+      return true;
+    }
+  }
+
+  const hasBlocking = remaining.some((p) => p.severity === 'error');
+  const detail = formatCheckinProblems(remaining);
+  const proceedLabel = hasBlocking ? 'Commit Anyway' : 'Commit';
+  const title = hasBlocking
     ? 'Before-commit checks found problems'
     : 'Before-commit checks found warnings';
 

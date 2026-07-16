@@ -24,8 +24,13 @@ import { resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
  *       `activeChangelistId`. Reads of v1 files are migrated lazily
  *       (record gets `description: ''`, file stays on disk as v1 until
  *       the next write).
+ *  v3 — drops per-record `isDefault`; `activeChangelistId` is the single
+ *       active/default marker (reference: active == default is one
+ *       concept — SetDefaultChangeListAction). Legacy files derive the
+ *       active id from the `isDefault` record when no explicit id is
+ *       stored; the key itself is consumed, never round-tripped.
  */
-const CHANGELIST_STORAGE_VERSION = 2;
+const CHANGELIST_STORAGE_VERSION = 3;
 
 /**
  * Changelist storage file name.
@@ -92,7 +97,6 @@ interface IFileChangeMeta {
 interface IChangelistStorageItem {
   id: string;
   name: string;
-  isDefault: boolean;
   /**
    * Optional free-form description. Added in v2. Absent on v1 records
    * until lazy migration runs during the next write.
@@ -135,12 +139,19 @@ const KNOWN_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_TOP_
 const KNOWN_ITEM_KEYS_SPEC = {
   id: true,
   name: true,
-  isDefault: true,
   description: true,
   files: true,
 } as const satisfies Record<Exclude<keyof IChangelistStorageItem, '_unknownItem'>, true>;
 
-const KNOWN_ITEM_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_ITEM_KEYS_SPEC));
+/**
+ * `isDefault` is a CONSUMED legacy key (pre-v3): the migration reads it to
+ * derive the active id, then drops it — it must never be captured as an
+ * unknown key or it would round-trip back onto v3 files.
+ */
+const KNOWN_ITEM_KEYS: ReadonlySet<string> = new Set([
+  ...Object.keys(KNOWN_ITEM_KEYS_SPEC),
+  'isDefault',
+]);
 
 /**
  * Pure version of {@link ChangelistService.migrateStorage}, exported so
@@ -161,6 +172,10 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
   const version = typeof parsed.version === 'number' ? parsed.version : 1;
 
   const rawItems = parsed.changelists as unknown[];
+  // Pre-v3 files mark the default/active list with a per-record `isDefault`
+  // flag; consume it here as the active-id fallback (the key never
+  // round-trips — see KNOWN_ITEM_KEYS).
+  let legacyDefaultId: string | undefined;
   const changelists: IChangelistStorageItem[] = rawItems.map((raw) => {
     const item = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const unknownItem: Record<string, unknown> = {};
@@ -169,10 +184,13 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
         unknownItem[k] = item[k];
       }
     }
+    const id = typeof item.id === 'string' ? item.id : '';
+    if (legacyDefaultId === undefined && Boolean(item.isDefault)) {
+      legacyDefaultId = id;
+    }
     return {
-      id: typeof item.id === 'string' ? item.id : '',
+      id,
       name: typeof item.name === 'string' ? item.name : '',
-      isDefault: Boolean(item.isDefault),
       description: typeof item.description === 'string' ? item.description : '',
       files: Array.isArray(item.files) ? (item.files as string[]).slice() : [],
       ...(Object.keys(unknownItem).length > 0 ? { _unknownItem: unknownItem } : {}),
@@ -190,7 +208,7 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
   const activeChangelistId =
     typeof parsed.activeChangelistId === 'string' && parsed.activeChangelistId.length > 0
       ? parsed.activeChangelistId
-      : DEFAULT_CHANGELIST_ID;
+      : (legacyDefaultId ?? DEFAULT_CHANGELIST_ID);
 
   const unknownTopLevel: Record<string, unknown> = {};
   for (const k of Object.keys(parsed)) {
@@ -212,7 +230,7 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
  *
  * Known keys emit in the fixed order `{version, activeChangelistId,
  * changelists, ...unknownTopLevel}`; per-item keys emit in the fixed order
- * `{id, name, isDefault, description, files, ...unknownItem}`.
+ * `{id, name, description, files, ...unknownItem}`.
  *
  * The internal bookkeeping fields (`_unknownTopLevel`, `_unknownItem`) are
  * consumed here and MUST NOT appear in the emitted JSON. Callers that
@@ -229,7 +247,6 @@ export function serializeStorageForDisk(storage: IChangelistStorage): Record<str
     const known: Record<string, unknown> = {
       id: cl.id,
       name: cl.name,
-      isDefault: cl.isDefault,
       description: typeof cl.description === 'string' ? cl.description : '',
       files: cl.files.slice(),
     };
@@ -380,19 +397,17 @@ export class ChangelistService implements IChangelistService {
     // Load from storage
     const storage = this.loadChangelistStorage(repo);
 
-    // Ensure default changelist exists
-    const hadDefault = storage.changelists.some((cl) => cl.isDefault);
+    // Ensure at least one changelist exists (persist when one was seeded).
+    const hadChangelists = storage.changelists.length > 0;
     this.ensureDefaultChangelist(storage);
-
-    // Save if we added the default changelist
-    if (!hadDefault) {
+    if (!hadChangelists) {
       this.saveChangelistStorage(repo, storage);
     }
 
     // Resolve the active id once for the whole list. A stored id that no
     // longer references an existing changelist (manual JSON edit, migration
-    // glitch) falls back to the default so exactly one changelist ends up
-    // marked `isActive` — mirroring getActiveChangelist's fallback.
+    // glitch) falls back so exactly one changelist ends up marked
+    // `isActive` — mirroring getActiveChangelist's fallback.
     const activeId = this.resolveActiveChangelistId(storage);
 
     // Convert to IChangelist format
@@ -421,8 +436,10 @@ export class ChangelistService implements IChangelistService {
 
     const trimmedName = name.trim();
 
-    // Load current storage
+    // Load current storage. Seed the initial list first so a create on a
+    // fresh repo never leaves the new list as the only (hence active) one.
     const storage = this.loadChangelistStorage(repo);
+    this.ensureDefaultChangelist(storage);
 
     // Check for duplicate names
     if (storage.changelists.some((cl) => cl.name === trimmedName)) {
@@ -436,7 +453,6 @@ export class ChangelistService implements IChangelistService {
     const storageItem: IChangelistStorageItem = {
       id,
       name: trimmedName,
-      isDefault: false,
       description: '',
       files: [],
     };
@@ -468,19 +484,17 @@ export class ChangelistService implements IChangelistService {
 
   /**
    * Delete a changelist.
-   * Files in the deleted changelist are moved to the default changelist.
+   * Files in the deleted changelist are moved to the ACTIVE changelist
+   * (the reference's default — active and default are one concept). The
+   * active changelist itself cannot be deleted.
    *
    * @param repo - The repository
    * @param id - ID of the changelist to delete
    */
   deleteChangelist(repo: IRepository, id: string): void {
-    // Cannot delete the default changelist
-    if (id === DEFAULT_CHANGELIST_ID) {
-      throw new Error('Cannot delete the default changelist');
-    }
-
     // Load current storage
     const storage = this.loadChangelistStorage(repo);
+    this.ensureDefaultChangelist(storage);
 
     // Find the changelist to delete
     const index = storage.changelists.findIndex((cl) => cl.id === id);
@@ -488,35 +502,25 @@ export class ChangelistService implements IChangelistService {
       throw new Error(`Changelist not found: ${id}`);
     }
 
+    // The active list is the routing target for new changes — undeletable,
+    // matching the reference (the default changelist cannot be removed).
+    const activeId = this.resolveActiveChangelistId(storage);
+    if (id === activeId) {
+      throw new Error('Cannot delete the active changelist');
+    }
+
     const changelistToDelete = storage.changelists[index];
 
-    // Cannot delete if it's marked as default
-    if (changelistToDelete.isDefault) {
-      throw new Error('Cannot delete the default changelist');
-    }
-
-    // Find the default changelist
-    const defaultChangelist = storage.changelists.find((cl) => cl.isDefault);
-    if (!defaultChangelist) {
-      // This should never happen, but handle it gracefully
-      this.ensureDefaultChangelist(storage);
-    }
-
-    // Move files to default changelist
-    const defaultCl = storage.changelists.find((cl) => cl.isDefault)!;
+    // Move files to the active changelist.
+    const activeCl = storage.changelists.find((cl) => cl.id === activeId)!;
     for (const file of changelistToDelete.files) {
-      if (!defaultCl.files.includes(file)) {
-        defaultCl.files.push(file);
+      if (!activeCl.files.includes(file)) {
+        activeCl.files.push(file);
       }
     }
 
     // Remove the changelist
     storage.changelists.splice(index, 1);
-
-    // If the deleted changelist was the active one, fall back to default.
-    if (storage.activeChangelistId === id) {
-      storage.activeChangelistId = defaultCl.id;
-    }
 
     // Save to file
     this.saveChangelistStorage(repo, storage);
@@ -651,18 +655,19 @@ export class ChangelistService implements IChangelistService {
   }
 
   /**
-   * Get the default changelist.
-   * Creates it if it doesn't exist.
+   * Get the default changelist — the ACTIVE one (active and default are one
+   * concept, matching the reference). Synchronous counterpart of
+   * {@link getActiveChangelist}; creates the initial list if none exists.
    *
    * @param repo - The repository
-   * @returns The default changelist
+   * @returns The default (= active) changelist
    */
   getDefaultChangelist(repo: IRepository): IChangelist {
     const changelists = this.getChangelists(repo);
     const defaultChangelist = changelists.find((cl) => cl.isDefault);
 
     if (!defaultChangelist) {
-      // This should never happen since getChangelists ensures default exists
+      // This should never happen since getChangelists ensures a valid active id
       throw new Error('Default changelist not found');
     }
 
@@ -822,17 +827,21 @@ export class ChangelistService implements IChangelistService {
       }
     }
 
-    // Step c: add missing dirty paths to the default changelist.
+    // Step c: add missing dirty paths to the ACTIVE changelist — the
+    // reference routes new changes to the default(=active) list
+    // (ChangeListWorker.myDefault).
     const assigned = new Set<string>();
     for (const cl of storage.changelists) {
       for (const f of cl.files) {
         assigned.add(f);
       }
     }
-    const defaultCl = storage.changelists.find((cl) => cl.isDefault)!;
+    const activeCl = storage.changelists.find(
+      (cl) => cl.id === this.resolveActiveChangelistId(storage)
+    )!;
     for (const p of dirtyPaths) {
       if (!assigned.has(p)) {
-        defaultCl.files.push(p);
+        activeCl.files.push(p);
         changed = true;
       }
     }
@@ -881,21 +890,19 @@ export class ChangelistService implements IChangelistService {
    * @param storage - The changelist storage
    */
   private ensureDefaultChangelist(storage: IChangelistStorage): void {
-    const hasDefault = storage.changelists.some((cl) => cl.isDefault);
-
-    if (!hasDefault) {
-      // Create the default changelist
+    if (storage.changelists.length === 0) {
+      // Seed the initial changelist.
       storage.changelists.unshift({
         id: DEFAULT_CHANGELIST_ID,
         name: DEFAULT_CHANGELIST_NAME,
-        isDefault: true,
         description: '',
         files: [],
       });
     }
 
-    if (!storage.activeChangelistId) {
-      storage.activeChangelistId = DEFAULT_CHANGELIST_ID;
+    // Keep the active id pointing at an existing list.
+    if (!storage.changelists.some((cl) => cl.id === storage.activeChangelistId)) {
+      storage.activeChangelistId = storage.changelists[0].id;
     }
   }
 
@@ -916,8 +923,7 @@ export class ChangelistService implements IChangelistService {
     if (active) {
       return active.id;
     }
-    const defaultCl = storage.changelists.find((cl) => cl.isDefault);
-    return defaultCl?.id ?? DEFAULT_CHANGELIST_ID;
+    return storage.changelists[0]?.id ?? DEFAULT_CHANGELIST_ID;
   }
 
   /**
@@ -938,7 +944,9 @@ export class ChangelistService implements IChangelistService {
     return {
       id: storageItem.id,
       name: storageItem.name,
-      isDefault: storageItem.isDefault,
+      // Active and default are ONE concept (v3 collapse): the active list
+      // is the routing target for new changes, i.e. the reference's default.
+      isDefault: storageItem.id === activeChangelistId,
       isActive: storageItem.id === activeChangelistId,
       description: storageItem.description ?? '',
       files: storageItem.files.map((filePath) => this.createFileChange(filePath, statusMeta)),

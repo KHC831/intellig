@@ -100,6 +100,18 @@ export interface ICheckinContext {
    * run — surfaced as a non-blocking warning rather than silently passing.
    */
   statusReadFailed?: boolean;
+  /**
+   * `intellig.warnAboutCrlf` — reference: the CRLF check is gated on the
+   * warnAboutCrlf setting (GitCheckinHandlerFactory). `false` silences the
+   * CRLF check; unset defaults to warning.
+   */
+  warnAboutCrlf?: boolean;
+  /**
+   * Large-file warn threshold in BYTES, from `intellig.largeFileWarningMb`
+   * (reference: warnAboutLargeFilesLimitMb). `<= 0` disables the check;
+   * unset falls back to {@link LARGE_FILE_WARNING_BYTES}.
+   */
+  largeFileWarningBytes?: number;
 }
 
 /**
@@ -262,6 +274,9 @@ export const crlfCheckinHandler: ICheckinHandler = {
   id: 'git.crlf',
   displayName: 'No CRLF committed without autocrlf',
   check(context: ICheckinContext): ICheckinProblem[] {
+    if (context.warnAboutCrlf === false) {
+      return [];
+    }
     if (context.coreAutoCrlf === 'true' || context.coreAutoCrlf === 'input') {
       return [];
     }
@@ -295,12 +310,17 @@ export const largeFileCheckinHandler: ICheckinHandler = {
   id: 'git.large.file',
   displayName: 'No unexpectedly large files',
   check(context: ICheckinContext): ICheckinProblem[] {
+    const threshold = context.largeFileWarningBytes ?? LARGE_FILE_WARNING_BYTES;
+    if (threshold <= 0) {
+      return []; // 0 (or negative) disables the check
+    }
     const big = context.files.filter(
-      (f) => typeof f.sizeBytes === 'number' && f.sizeBytes > LARGE_FILE_WARNING_BYTES
+      (f) => typeof f.sizeBytes === 'number' && f.sizeBytes > threshold
     );
     if (big.length === 0) {
       return [];
     }
+    const thresholdMb = Math.round(threshold / (1024 * 1024));
     const list = big
       .slice(0, 5)
       .map((f) => `${f.path} (${Math.round((f.sizeBytes ?? 0) / (1024 * 1024))} MB)`)
@@ -309,7 +329,7 @@ export const largeFileCheckinHandler: ICheckinHandler = {
     return [
       {
         handlerId: 'git.large.file',
-        text: `${big.length} file${big.length === 1 ? ' is' : 's are'} larger than 50 MB: ${list}${more}. Large blobs stay in history forever and most hosts refuse them — consider Git LFS or excluding the file.`,
+        text: `${big.length} file${big.length === 1 ? ' is' : 's are'} larger than ${thresholdMb} MB: ${list}${more}. Large blobs stay in history forever and most hosts refuse them — consider Git LFS or excluding the file.`,
         severity: 'warning',
       },
     ];

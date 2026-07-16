@@ -416,7 +416,11 @@ describe('CommitDialog — recent messages + author + gear', () => {
       assert.deepStrictEqual(svc.calls[2].args[1], ['a.ts']);
     });
 
-    it('does not run any restore calls when the commit succeeds', async () => {
+    it('re-stages excluded staged files after a successful commit (bystander split preserved)', async () => {
+      // b.ts was staged before the dialog opened and merely excluded from
+      // this commit — afterwards it must STILL be staged (reference:
+      // GitResetAddStagingAreaStateManager.restoreExcluded re-stages the
+      // excluded staged changes after the commit).
       const svc = makeGitService();
       const repo = makeRepo();
       const result = await performCommit(svc, repo, {
@@ -430,8 +434,53 @@ describe('CommitDialog — recent messages + author + gear', () => {
       assert.strictEqual(result.success, true);
       assert.deepStrictEqual(
         svc.calls.map((c) => c.method),
-        ['stage', 'unstage', 'commit'],
-        'the success path is unchanged'
+        ['stage', 'unstage', 'commit', 'stage'],
+        'the excluded staged delta is re-staged after the successful commit'
+      );
+      assert.deepStrictEqual(svc.calls[3].args[1], ['b.ts'], 'only the excluded file is re-staged');
+    });
+
+    it('runs no restore when nothing was excluded (all selected files committed)', async () => {
+      const svc = makeGitService();
+      const repo = makeRepo();
+      const result = await performCommit(svc, repo, {
+        message: 'x',
+        selectedFiles: ['a.ts'],
+        allFiles: [{ path: 'a.ts', staged: false }],
+      });
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(
+        svc.calls.map((c) => c.method),
+        ['stage', 'commit'],
+        'no re-stage call when no staged file was excluded'
+      );
+    });
+
+    it('surfaces a warning when the post-success re-stage fails', async () => {
+      let commitDone = false;
+      const svc = makeGitService({
+        commitImpl: async () => {
+          commitDone = true;
+        },
+        stageImpl: async (_repo, paths) => {
+          if (commitDone && paths.includes('b.ts')) {
+            throw new Error('index.lock held');
+          }
+        },
+      });
+      const repo = makeRepo();
+      const result = await performCommit(svc, repo, {
+        message: 'x',
+        selectedFiles: ['a.ts'],
+        allFiles: [
+          { path: 'a.ts', staged: false },
+          { path: 'b.ts', staged: true },
+        ],
+      });
+      assert.strictEqual(result.success, true, 'the commit itself still succeeded');
+      assert.ok(
+        result.restoreWarning && /staged/i.test(result.restoreWarning),
+        'a failed re-stage must be reported, not swallowed'
       );
     });
   });

@@ -1140,7 +1140,9 @@ export class BranchContextMenuCommands {
       index = entry.index;
     }
     try {
-      await this._gitService.stashPop(repo, index).match(
+      // Explicit --index: this pops the extension's OWN auto-stash, so the
+      // exact staged/unstaged split it captured must come back.
+      await this._gitService.stashPop(repo, index, true).match(
         () => undefined,
         (e) => {
           throw e;

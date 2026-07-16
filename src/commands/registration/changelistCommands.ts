@@ -5,6 +5,9 @@ import { commitChangelist, LAST_NO_VERIFY_STATE_KEY } from '../../commits/Commit
 import { runBeforeCommitChecks } from '../../commits/CheckinChecks';
 import type { ICommandContext } from './CommandContext';
 import { registerRepoCommand } from './commandSpine';
+import { loadPersisted, savePersisted, type PersistedSlot } from '../../utils/persistedState';
+import type { IChangelistService, IChangelist } from '../../services';
+import type { IRepository } from '../../git-core/interfaces/IGitService';
 
 /**
  * Changelist command handlers (`intellig.changelist.*`) extracted verbatim
@@ -78,6 +81,81 @@ async function pickFilesToMove(
   return picked.map((p) => p.label);
 }
 
+/**
+ * Persisted "make the new changelist active" preference — the reference's
+ * NewChangelistDialog checkbox, persisted as
+ * VcsConfiguration.MAKE_NEW_CHANGELIST_ACTIVE (default false).
+ */
+export const MAKE_NEW_CHANGELIST_ACTIVE_SLOT: PersistedSlot<boolean> = {
+  key: 'intellig.changelist.makeNewActive',
+  version: 1,
+  validate: (raw) => (typeof raw === 'boolean' ? raw : undefined),
+};
+
+/**
+ * Gather name + optional description + make-active choice and create the
+ * changelist (reference: NewChangelistDialog — name, description, and a
+ * persisted "make active" checkbox; AddChangeListAction applies them). One
+ * flow shared by `intellig.changelist.new` and the Move-to-Changelist
+ * picker's inline New Changelist entry. Returns the created changelist, or
+ * undefined when the user cancels at any step.
+ */
+async function runNewChangelistFlow(
+  service: IChangelistService,
+  repo: IRepository,
+  workspaceState: vscode.Memento
+): Promise<IChangelist | undefined> {
+  const name = await vscode.window.showInputBox({
+    prompt: 'Enter new changelist name',
+    validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
+  });
+  if (!name) {
+    return undefined;
+  }
+
+  const description = await vscode.window.showInputBox({
+    prompt: 'Changelist description (optional)',
+    placeHolder: 'Leave empty for no description',
+  });
+  if (description === undefined) {
+    return undefined; // Esc cancels the whole flow
+  }
+
+  interface IMakeActiveItem extends vscode.QuickPickItem {
+    makeActive: boolean;
+  }
+  const activeItem: IMakeActiveItem = {
+    label: '$(check) Make active',
+    description: 'New changes will go to this changelist',
+    makeActive: true,
+  };
+  const inactiveItem: IMakeActiveItem = {
+    label: "$(circle-slash) Don't make active",
+    description: 'Keep the current active changelist',
+    makeActive: false,
+  };
+  // The persisted choice leads (Enter default) — reference checkbox state.
+  const persistedDefault = loadPersisted(workspaceState, MAKE_NEW_CHANGELIST_ACTIVE_SLOT) ?? false;
+  const items = persistedDefault ? [activeItem, inactiveItem] : [inactiveItem, activeItem];
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `New Changelist '${name.trim()}'`,
+    placeHolder: 'Make this the active changelist?',
+  });
+  if (!picked) {
+    return undefined;
+  }
+  await savePersisted(workspaceState, MAKE_NEW_CHANGELIST_ACTIVE_SLOT, picked.makeActive);
+
+  const created = service.createChangelist(repo, name.trim());
+  if (description.trim().length > 0 && service instanceof ChangelistService) {
+    service.setDescription(repo, created.id, description.trim());
+  }
+  if (picked.makeActive) {
+    await service.setActiveChangelist(repo, created.id);
+  }
+  return created;
+}
+
 export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposable[] {
   /** Narrow the raw command argument to a changelist id, when present. */
   const idArg = (raw: unknown): string | undefined => (typeof raw === 'string' ? raw : undefined);
@@ -86,14 +164,7 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
     id: 'intellig.changelist.new',
     failureTitle: 'Failed to create changelist',
     run: async ({ services, repo }) => {
-      const name = await vscode.window.showInputBox({
-        prompt: 'Enter new changelist name',
-        validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
-      });
-      if (!name) {
-        return;
-      }
-      services.changelistService.createChangelist(repo, name.trim());
+      await runNewChangelistFlow(services.changelistService, repo, ctx.context.workspaceState);
     },
   });
 
@@ -149,11 +220,11 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         return;
       }
       // A non-empty changelist gets a confirm — its files fall back to the
-      // default changelist (no data loss, but the grouping is gone).
+      // active changelist (no data loss, but the grouping is gone).
       const target = service.getChangelists(repo).find((cl) => cl.id === targetId);
       if (target && target.files.length > 0) {
         const confirm = await vscode.window.showWarningMessage(
-          `Remove changelist '${target.name}'? Its ${target.files.length} file(s) will move to the default changelist.`,
+          `Remove changelist '${target.name}'? Its ${target.files.length} file(s) will move to the active changelist.`,
           { modal: true },
           'Remove'
         );
@@ -207,7 +278,12 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       if (!toMove || toMove.length === 0) {
         return;
       }
-      const targets = service.getChangelists(repo).map((cl) => ({ label: cl.name, id: cl.id }));
+      // Reference: the ChangeListChooser offers creating a new list inline.
+      const NEW_CHANGELIST_ID = '__new__';
+      const targets: Array<{ label: string; id: string }> = [
+        { label: '$(add) New Changelist…', id: NEW_CHANGELIST_ID },
+        ...service.getChangelists(repo).map((cl) => ({ label: cl.name, id: cl.id })),
+      ];
       const picked = await vscode.window.showQuickPick(targets, {
         title: `Move ${toMove.length} file${toMove.length === 1 ? '' : 's'} to…`,
         placeHolder: 'Select target changelist',
@@ -215,7 +291,15 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
       if (!picked) {
         return;
       }
-      service.moveToChangelist(repo, toMove, picked.id);
+      let targetId = picked.id;
+      if (targetId === NEW_CHANGELIST_ID) {
+        const created = await runNewChangelistFlow(service, repo, ctx.context.workspaceState);
+        if (!created) {
+          return;
+        }
+        targetId = created.id;
+      }
+      service.moveToChangelist(repo, toMove, targetId);
     },
   });
 

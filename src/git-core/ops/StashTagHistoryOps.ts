@@ -30,6 +30,16 @@ import { getOutputChannel } from '../../utils/outputChannel';
 import { isHexObjectId } from '../gitDirMarkers';
 
 /**
+ * Narrow capability the Clear-All-Stashes surfaces depend on. The
+ * {@link IGitService} composite is frozen (ADR-001), so the concrete
+ * {@link GitService} exposes this post-freeze method directly; consumers
+ * widen through this role interface rather than the frozen composite.
+ */
+export interface IStashClearCapable {
+  stashClear(repo: IRepository): ResultAsync<void, GitError>;
+}
+
+/**
  * Stash + tag + history (getLog/getCommit/getFileHistory) operations
  * extracted from the {@link GitService} façade. Stateless: reaches the live
  * GitCli + cache invalidation lazily through {@link IGitOpsContext}.
@@ -116,16 +126,19 @@ export class StashTagHistoryOps {
     }
   }
 
-  stashApply(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
+  stashApply(
+    repo: IRepository,
+    index: number,
+    reinstateIndex = false
+  ): ResultAsync<void, GitError> {
     const invalid = this._stashIndexError(index);
     if (invalid) {
       return errAsync(invalid);
     }
-    // `--index` reinstates the staged/unstaged split; without it git returns
-    // previously-staged changes as unstaged. Mirrors IntelliJ's unstash
-    // "Reinstate index" checkbox (GitStashUtils.createUnstashHandler), which
-    // adds `--index` only when selected. Default true preserves the staged
-    // split; false is a working-tree-only apply.
+    // `--index` reinstates the staged/unstaged split and is added only when
+    // the caller asks for it — IntelliJ's unstash "Reinstate index" checkbox
+    // defaults off (GitUnstashAsDialog keepIndex=false;
+    // GitStashUtils.createUnstashHandler), matching git's own default.
     const args = ['stash', 'apply'];
     if (reinstateIndex) {
       args.push('--index');
@@ -139,13 +152,12 @@ export class StashTagHistoryOps {
     });
   }
 
-  stashPop(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
+  stashPop(repo: IRepository, index: number, reinstateIndex = false): ResultAsync<void, GitError> {
     const invalid = this._stashIndexError(index);
     if (invalid) {
       return errAsync(invalid);
     }
-    // See stashApply: `--index` reinstates the staged/unstaged split and is
-    // gated on the "Reinstate index" choice (IntelliJ GitStashUtils).
+    // See stashApply: `--index` only on explicit request, off by default.
     const args = ['stash', 'pop'];
     if (reinstateIndex) {
       args.push('--index');
@@ -166,6 +178,24 @@ export class StashTagHistoryOps {
     }
     return ResultAsync.fromPromise(
       this.ctx.gitCli.exec(['stash', 'drop', `stash@{${index}}`], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }),
+      classifyGitCommandError
+    ).map(() => {
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+    });
+  }
+
+  /**
+   * Drop every stash entry (`git stash clear`) — the reference unstash
+   * dialog's Clear button (GitStashUtils.clearStashesWithConfirmation).
+   * Destructive and unconfirmed at this layer; callers own the warning
+   * confirm per the destructive-op policy.
+   */
+  stashClear(repo: IRepository): ResultAsync<void, GitError> {
+    return ResultAsync.fromPromise(
+      this.ctx.gitCli.exec(['stash', 'clear'], {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       }),

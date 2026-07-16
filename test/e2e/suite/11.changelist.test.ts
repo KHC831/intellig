@@ -37,8 +37,12 @@ describe('e2e — changelist commands', function () {
     fix = await createFixtureRepo({ commits: 1 });
     await useFixtureWorkspace(fix.rootPath);
 
+    // The flow asks name → description (input boxes) → make-active
+    // QuickPick; answer the name, skip the description, keep the default.
+    let inputCall = 0;
     stubs = stubPrompts({
-      inputBox: () => 'Urgent Fix',
+      inputBox: () => (++inputCall === 1 ? 'Urgent Fix' : ''),
+      quickPick: (items) => (items as Array<{ label: string }>)[0],
     });
 
     const services = getServices();

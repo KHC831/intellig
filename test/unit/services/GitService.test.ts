@@ -2609,16 +2609,16 @@ describe('GitService - Stash Operations', () => {
 
   describe('stashApply()', () => {
     describe('Applying stash without removing', () => {
-      it('should execute git stash apply with index', async () => {
+      it('should execute git stash apply without --index by default (reference default)', async () => {
         await gitService.stashApply(mockRepo, 0);
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['stash', 'apply', '--index', 'stash@{0}']);
+        assert.deepStrictEqual(lastCommand.args, ['stash', 'apply', 'stash@{0}']);
       });
 
-      it('should apply stash at specific index', async () => {
-        await gitService.stashApply(mockRepo, 2);
+      it('should apply stash at specific index (explicit --index)', async () => {
+        await gitService.stashApply(mockRepo, 2, true);
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
@@ -2634,7 +2634,7 @@ describe('GitService - Stash Operations', () => {
       });
 
       it('should throw on error', async () => {
-        mockGitCli.setMockResult('stash apply --index stash@{0}', {
+        mockGitCli.setMockResult('stash apply stash@{0}', {
           exitCode: 1,
           stdout: '',
           stderr: 'error: Your local changes would be overwritten',
@@ -2651,16 +2651,16 @@ describe('GitService - Stash Operations', () => {
 
   describe('stashPop()', () => {
     describe('Applying and removing stash', () => {
-      it('should execute git stash pop with index', async () => {
+      it('should execute git stash pop without --index by default (reference default)', async () => {
         await gitService.stashPop(mockRepo, 0);
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['stash', 'pop', '--index', 'stash@{0}']);
+        assert.deepStrictEqual(lastCommand.args, ['stash', 'pop', 'stash@{0}']);
       });
 
-      it('should pop stash at specific index', async () => {
-        await gitService.stashPop(mockRepo, 1);
+      it('should pop stash at specific index (explicit --index)', async () => {
+        await gitService.stashPop(mockRepo, 1, true);
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
@@ -2676,7 +2676,7 @@ describe('GitService - Stash Operations', () => {
       });
 
       it('should throw on error', async () => {
-        mockGitCli.setMockResult('stash pop --index stash@{0}', {
+        mockGitCli.setMockResult('stash pop stash@{0}', {
           exitCode: 1,
           stdout: '',
           stderr: 'error: Your local changes would be overwritten',

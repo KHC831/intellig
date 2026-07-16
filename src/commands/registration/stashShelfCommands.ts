@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { repoRelativePath } from '../../utils/repoRelativePath';
-import { createStashView, createShelfView, type IRepository, type ShelfView } from '../../services';
+import { type IRepository, type ShelfView } from '../../services';
+import { ensureStashView, ensureShelfView } from '../../shelf/viewSingletons';
 import { ShelveDialog } from '../../shelf/ShelveDialog';
 import type { ICommandContext } from './CommandContext';
 import { registerBareCommand, registerRepoCommand } from './commandSpine';
@@ -84,12 +85,8 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
     pickerTitle: 'Stash — Choose Repository',
     pickerPlaceholder: 'Select a repository',
     discoverFallback: true,
-    run: async ({ gitService, repo }) => {
-      // Create stash view if not exists and show create dialog
-      if (!ctx.stashView) {
-        ctx.stashView = createStashView(gitService);
-      }
-      await ctx.stashView.showCreateDialog(repo);
+    run: async ({ services, repo }) => {
+      await ensureStashView(ctx, services).showCreateDialog(repo);
     },
   });
 
@@ -99,11 +96,8 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
     failureTitle: 'Failed to show stashes',
     pickerTitle: 'Stashes — Choose Repository',
     pickerPlaceholder: 'Select a repository',
-    run: async ({ gitService, repo }) => {
-      if (!ctx.stashView) {
-        ctx.stashView = createStashView(gitService);
-      }
-      await ctx.stashView.show(repo);
+    run: async ({ services, repo }) => {
+      await ensureStashView(ctx, services).show(repo);
     },
   });
 
@@ -238,21 +232,14 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
         return undefined;
       }
     }
-    if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(
-        ctx.services.shelfService,
-        (r) => gitService.getStatus(r),
-        ctx.services.conflictResolutionService,
-        ctx.services.changelistService
-      );
-    }
+    const view = ensureShelfView(ctx, ctx.services);
     // Bind the view to the repo WITHOUT UI — show() would pop the whole
     // "Shelved Changes" QuickPick as a side effect of a silent command. The
     // refresh keeps the view's internal list state in sync; its failure is
     // non-fatal (the command handlers surface their own errors).
-    ctx.shelfView.setRepository(repo);
-    await ctx.shelfView.refresh();
-    return { repo, view: ctx.shelfView };
+    view.setRepository(repo);
+    await view.refresh();
+    return { repo, view };
   }
 
   // Silent Shelve (Ctrl+Shift+H). Shelves the active changelist with no
@@ -363,16 +350,8 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
   const showShelfListCommand = registerRepoCommand(ctx, {
     id: 'intellig.showShelfList',
     failureTitle: 'Failed to show shelf',
-    run: async ({ services, gitService, repo }) => {
-      if (!ctx.shelfView) {
-        ctx.shelfView = createShelfView(
-          services.shelfService,
-          (r) => gitService.getStatus(r),
-          undefined,
-          services.changelistService
-        );
-      }
-      await ctx.shelfView.show(repo);
+    run: async ({ services, repo }) => {
+      await ensureShelfView(ctx, services).show(repo);
     },
   });
 
@@ -409,12 +388,10 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
     // Ensure the shared StashView exists so state stays consistent with the
     // list view the user may already have open. Bind + refresh without UI —
     // show() would pop the stash list on top of this picker.
-    if (!ctx.stashView) {
-      ctx.stashView = createStashView(gitService, ctx.services.conflictResolutionService);
-    }
-    ctx.stashView.setRepository(repo);
-    await ctx.stashView.refresh();
-    const state = ctx.stashView.getState();
+    const stashView = ensureStashView(ctx, ctx.services);
+    stashView.setRepository(repo);
+    await stashView.refresh();
+    const state = stashView.getState();
     if (!state.stashes || state.stashes.length === 0) {
       void vscode.window.showInformationMessage('No stashes to choose from.');
       return undefined;
@@ -435,7 +412,7 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
       return undefined;
     }
     return {
-      view: ctx.stashView,
+      view: stashView,
       stash: { index: picked.index, message: picked.message },
     };
   }

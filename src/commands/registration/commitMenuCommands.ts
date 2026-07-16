@@ -767,7 +767,9 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       }
     }
     try {
-      await gitService.stashPop(repo, index).match(
+      // Explicit --index: this pops the extension's OWN bracket stash, so the
+      // exact staged/unstaged split it captured must come back.
+      await gitService.stashPop(repo, index, true).match(
         () => undefined,
         (e) => {
           throw e;

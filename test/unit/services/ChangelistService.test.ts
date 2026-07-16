@@ -284,10 +284,10 @@ describe('ChangelistService', () => {
       assert.ok(filePaths.includes('file2.txt'), 'file2.txt should be in default');
     });
 
-    it('should throw error when deleting default changelist', () => {
+    it('should throw error when deleting the active (default) changelist', () => {
       assert.throws(
         () => changelistService.deleteChangelist(mockRepo, 'default'),
-        /Cannot delete the default changelist/
+        /Cannot delete the active changelist/
       );
     });
 
@@ -487,8 +487,8 @@ describe('ChangelistService', () => {
 
       assert.strictEqual(
         storage.version,
-        2,
-        'Storage version should be 2 after any write by the current service'
+        3,
+        'Storage version should be 3 after any write by the current service'
       );
       const names = storage.changelists.map((cl) => cl.name);
       assert.ok(names.includes('Storage Test'), 'Should include created changelist');
@@ -665,7 +665,7 @@ describe('ChangelistService', () => {
       assert.strictEqual(feature.description, 'adds blame perf');
     });
 
-    it('lazily rewrites v1 file as v2 on next save', () => {
+    it('lazily rewrites v1 file as the current version on next save', () => {
       const v1 = {
         version: 1,
         changelists: [{ id: 'default', name: 'Default Changelist', isDefault: true, files: [] }],
@@ -685,7 +685,7 @@ describe('ChangelistService', () => {
         version: number;
         activeChangelistId?: string;
       };
-      assert.strictEqual(afterWrite.version, 2, 'write must stamp v2');
+      assert.strictEqual(afterWrite.version, 3, 'write must stamp the current version');
       assert.strictEqual(typeof afterWrite.activeChangelistId, 'string');
     });
   });
@@ -724,14 +724,17 @@ describe('ChangelistService', () => {
       );
     });
 
-    it('deleting the active changelist falls back to default as active', async () => {
+    it('the active changelist cannot be deleted (it is the default target)', async () => {
       const cl = changelistService.createChangelist(mockRepo, 'To Delete');
       await changelistService.setActiveChangelist(mockRepo, cl.id);
 
-      changelistService.deleteChangelist(mockRepo, cl.id);
+      assert.throws(
+        () => changelistService.deleteChangelist(mockRepo, cl.id),
+        /Cannot delete the active changelist/
+      );
 
       const active = await changelistService.getActiveChangelist(mockRepo);
-      assert.strictEqual(active.id, 'default');
+      assert.strictEqual(active.id, cl.id, 'the active list survives');
     });
   });
 
@@ -1292,6 +1295,144 @@ describe('ChangelistService', () => {
       }
 
       assert.strictEqual(count, 1, 'File should be in exactly one changelist');
+    });
+  });
+
+  // Reference: "Set Active Changelist" IS setDefaultChangeList
+  // (SetDefaultChangeListAction.kt → ChangeListManagerImpl); the active
+  // list is one concept with the default — the routing target for new
+  // changes and the destination for a deleted list's files.
+  describe('active == default unification', () => {
+    it('isDefault mirrors the active flag after Set Active', async () => {
+      const feature = changelistService.createChangelist(mockRepo, 'feature');
+      await changelistService.setActiveChangelist(mockRepo, feature.id);
+      const lists = changelistService.getChangelists(mockRepo);
+      const feat = lists.find((c) => c.id === feature.id)!;
+      const initial = lists.find((c) => c.id === 'default')!;
+      assert.strictEqual(feat.isActive, true);
+      assert.strictEqual(feat.isDefault, true, 'the active list IS the default');
+      assert.strictEqual(initial.isDefault, false, 'the initial list loses the default marker');
+    });
+
+    it('reconcile routes newly-dirty paths to the ACTIVE changelist', async () => {
+      const gitService = {
+        getStatus: async (): Promise<IFileStatus[]> => [
+          { path: 'fresh.ts', indexStatus: ' ' as const, workTreeStatus: 'M' as const },
+        ],
+        onDidChangeRepository: (_l: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+        onDidChangeWorkingTree: (_l: (repo: IRepository) => void) => ({
+          dispose: (): void => {},
+        }),
+      } as unknown as IGitService & IGitWorkingTreeEvents;
+      const svc = createChangelistService(gitService);
+      try {
+        const feature = svc.createChangelist(mockRepo, 'feature');
+        await svc.setActiveChangelist(mockRepo, feature.id);
+        await svc.reconcileWithGitStatus(mockRepo);
+        const lists = svc.getChangelists(mockRepo);
+        const feat = lists.find((c) => c.id === feature.id)!;
+        assert.deepStrictEqual(
+          feat.files.map((f) => f.path),
+          ['fresh.ts'],
+          'new dirty files join the ACTIVE changelist'
+        );
+        const initial = lists.find((c) => c.id === 'default')!;
+        assert.ok(
+          !initial.files.some((f) => f.path === 'fresh.ts'),
+          'the inactive initial list must not receive the file'
+        );
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it("deleteChangelist moves the deleted list's files to the ACTIVE changelist", async () => {
+      const feature = changelistService.createChangelist(mockRepo, 'feature');
+      const doomed = changelistService.createChangelist(mockRepo, 'doomed');
+      changelistService.moveToChangelist(mockRepo, ['x.ts'], doomed.id);
+      await changelistService.setActiveChangelist(mockRepo, feature.id);
+
+      changelistService.deleteChangelist(mockRepo, doomed.id);
+
+      const lists = changelistService.getChangelists(mockRepo);
+      const feat = lists.find((c) => c.id === feature.id)!;
+      assert.deepStrictEqual(
+        feat.files.map((f) => f.path),
+        ['x.ts'],
+        "the deleted list's files land in the ACTIVE changelist"
+      );
+    });
+
+    it('deleting the ACTIVE changelist is refused', async () => {
+      const feature = changelistService.createChangelist(mockRepo, 'feature');
+      await changelistService.setActiveChangelist(mockRepo, feature.id);
+      assert.throws(
+        () => changelistService.deleteChangelist(mockRepo, feature.id),
+        /Cannot delete the active changelist/
+      );
+    });
+
+    it('the initial Default list is deletable once another list is active', async () => {
+      const feature = changelistService.createChangelist(mockRepo, 'feature');
+      await changelistService.setActiveChangelist(mockRepo, feature.id);
+      changelistService.deleteChangelist(mockRepo, 'default');
+      const lists = changelistService.getChangelists(mockRepo);
+      assert.ok(!lists.some((c) => c.id === 'default'));
+    });
+
+    it('v3 storage drops per-record isDefault; v2 files migrate on the next write', () => {
+      const storagePath = path.join(testRepoPath, '.git', 'intellig-changelists.json');
+      const v2 = {
+        version: 2,
+        activeChangelistId: 'feature',
+        changelists: [
+          {
+            id: 'default',
+            name: 'Default Changelist',
+            isDefault: true,
+            description: '',
+            files: [],
+          },
+          { id: 'feature', name: 'Feature', isDefault: false, description: '', files: [] },
+        ],
+      };
+      fs.writeFileSync(storagePath, JSON.stringify(v2, null, 2), 'utf8');
+
+      const lists = changelistService.getChangelists(mockRepo);
+      const feature = lists.find((c) => c.id === 'feature')!;
+      assert.strictEqual(feature.isDefault, true, 'active list reads as default after migration');
+
+      // Trigger a write; the persisted file must be v3 with no isDefault keys.
+      changelistService.createChangelist(mockRepo, 'Triggers migration');
+      const onDisk = JSON.parse(fs.readFileSync(storagePath, 'utf8')) as {
+        version: number;
+        activeChangelistId: string;
+        changelists: Array<Record<string, unknown>>;
+      };
+      assert.strictEqual(onDisk.version, 3);
+      assert.strictEqual(onDisk.activeChangelistId, 'feature');
+      assert.ok(
+        onDisk.changelists.every((cl) => !('isDefault' in cl)),
+        'legacy isDefault keys are consumed by the migration, not round-tripped'
+      );
+    });
+
+    it('a v1 file with no active id derives it from the legacy isDefault record', () => {
+      const storagePath = path.join(testRepoPath, '.git', 'intellig-changelists.json');
+      const v1 = {
+        version: 1,
+        changelists: [
+          { id: 'work', name: 'Work', isDefault: true, files: ['a.txt'] },
+          { id: 'other', name: 'Other', isDefault: false, files: [] },
+        ],
+      };
+      fs.writeFileSync(storagePath, JSON.stringify(v1, null, 2), 'utf8');
+      const lists = changelistService.getChangelists(mockRepo);
+      const work = lists.find((c) => c.id === 'work')!;
+      assert.strictEqual(work.isActive, true, 'legacy default record becomes the active list');
+      assert.strictEqual(work.isDefault, true);
     });
   });
 });

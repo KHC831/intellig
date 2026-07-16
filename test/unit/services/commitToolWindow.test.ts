@@ -1001,6 +1001,114 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
+  // ─── File-context actions dispatch to registered commands with their
+  //     expected argument shapes (Uri resolved against the repo root) ────────
+
+  function createFileContextWindow(): {
+    tw: CommitToolWindow;
+    executed: Array<{ command: string; args: unknown[] }>;
+  } {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      {
+        id: 'def',
+        name: 'Default',
+        isDefault: true,
+        isActive: true,
+        files: [{ path: 'src/sub/a.ts', status: 'modified', staged: false }],
+      },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+    const executed: Array<{ command: string; args: unknown[] }> = [];
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
+      executed.push({ command, args });
+      return Promise.resolve(undefined);
+    };
+    return { tw, executed };
+  }
+
+  function assertRepoResolvedUriDispatch(
+    executed: Array<{ command: string; args: unknown[] }>,
+    expectedCommand: string
+  ): void {
+    const call = executed.find((e) => e.command === expectedCommand);
+    assert.ok(
+      call,
+      `expected ${expectedCommand} to fire; got: ${executed.map((e) => e.command).join(', ') || '(none)'}`
+    );
+    const arg = call?.args[0] as { fsPath?: string } | undefined;
+    assert.ok(arg && typeof arg.fsPath === 'string', 'expected a Uri argument');
+    assert.ok(
+      arg.fsPath.endsWith('src/sub/a.ts') && arg.fsPath.includes('test-repo'),
+      `expected an absolute repo path, got: ${arg.fsPath}`
+    );
+  }
+
+  it('showDiff dispatches intellig.explorer.showDiff with a repo-resolved file Uri', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'showDiff',
+      changelistId: 'def',
+      path: 'src/sub/a.ts',
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
+    assert.ok(
+      !executed.some((e) => e.command === 'intellig.localChanges.showDiff'),
+      'must NOT post the unregistered intellig.localChanges.showDiff id'
+    );
+    tw.dispose();
+  });
+
+  it('jumpToSource dispatches intellig.localChanges.openFile with a repo-resolved file Uri', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'jumpToSource',
+      changelistId: 'def',
+      path: 'src/sub/a.ts',
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.localChanges.openFile');
+    tw.dispose();
+  });
+
+  it('showHistory dispatches intellig.showHistory with a repo-resolved file Uri', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'showHistory',
+      changelistId: 'def',
+      path: 'src/sub/a.ts',
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.showHistory');
+    tw.dispose();
+  });
+
+  it('annotate dispatches intellig.toggleBlame with a repo-resolved file Uri', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'annotate',
+      changelistId: 'def',
+      path: 'src/sub/a.ts',
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.toggleBlame');
+    assert.ok(
+      !executed.some((e) => e.command === 'intellig.annotate'),
+      'must NOT post the unregistered intellig.annotate id'
+    );
+    tw.dispose();
+  });
+
   // ─── SR-8: multi-root resolveRepo ──────────────────────────────────────────
 
   it("commit in a multi-root workspace uses the active editor's repo, not repositories[0]", async () => {

@@ -1167,3 +1167,366 @@ describe('StashView — stale-index re-validation (wrong-stash data-loss guard)'
     }
   });
 });
+
+// ─── Reinstate-index prompt seam (interactive apply/pop) ────────────────────
+
+describe('StashView reinstate-index prompt seam', () => {
+  interface IQuickPickCapture {
+    items: Array<{ label: string; reinstate?: boolean }>;
+    options: vscode.QuickPickOptions | undefined;
+  }
+
+  function installQuickPickStub(
+    choose: (items: Array<{ label: string; reinstate?: boolean }>) => unknown
+  ): { captures: IQuickPickCapture[]; restore: () => void } {
+    const captures: IQuickPickCapture[] = [];
+    const original = vscode.window.showQuickPick;
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = async (
+      items: Array<{ label: string; reinstate?: boolean }>,
+      options?: vscode.QuickPickOptions
+    ): Promise<unknown> => {
+      captures.push({ items, options });
+      return choose(items);
+    };
+    return {
+      captures,
+      restore: (): void => {
+        (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = original;
+      },
+    };
+  }
+
+  function makeViewWithSpies(): {
+    view: ReturnType<typeof createStashView>;
+    applied: Array<boolean | undefined>;
+    popped: Array<boolean | undefined>;
+  } {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    const applied: Array<boolean | undefined> = [];
+    const popped: Array<boolean | undefined> = [];
+    (gitService as unknown as { stashApply: unknown }).stashApply = (
+      _repo: IRepository,
+      _index: number,
+      reinstateIndex?: boolean
+    ): ReturnType<typeof okAsync> => {
+      applied.push(reinstateIndex);
+      return okAsync(undefined);
+    };
+    (gitService as unknown as { stashPop: unknown }).stashPop = (
+      _repo: IRepository,
+      _index: number,
+      reinstateIndex?: boolean
+    ): ReturnType<typeof okAsync> => {
+      popped.push(reinstateIndex);
+      return okAsync(undefined);
+    };
+    const view = createStashView(gitService);
+    (view as unknown as { _repository: IRepository })._repository = makeRepo();
+    return { view, applied, popped };
+  }
+
+  it('lists "Working tree only" FIRST — the Enter default matches the reference default (off)', async () => {
+    const { view, applied } = makeViewWithSpies();
+    const { toasts, restore: restoreToasts } = installWindowStubs(() => undefined);
+    const { captures, restore } = installQuickPickStub((items) => items[0]);
+    try {
+      await view.refresh();
+      const result = await view.applyStashInteractive(0);
+      assert.strictEqual(captures.length, 1, 'exactly one reinstate prompt');
+      assert.ok(
+        captures[0].items[0].label.includes('Working tree only'),
+        `first (Enter-default) item must be Working tree only, got: ${captures[0].items[0].label}`
+      );
+      assert.ok(
+        captures[0].items[1].label.includes('Reinstate index'),
+        'Reinstate index is the second, explicit choice'
+      );
+      assert.strictEqual(result.success, true, `apply failed: ${result.error ?? ''}`);
+      assert.deepStrictEqual(applied, [false], 'Enter (first item) applies working-tree only');
+      assert.ok(toasts.error.length === 0, 'no error toast');
+    } finally {
+      restore();
+      restoreToasts();
+      view.dispose();
+    }
+  });
+
+  it('picking "Reinstate index" passes reinstateIndex=true to the pop', async () => {
+    const { view, popped } = makeViewWithSpies();
+    const { restore: restoreToasts } = installWindowStubs(() => undefined);
+    const { restore } = installQuickPickStub((items) =>
+      items.find((i) => i.label.includes('Reinstate index'))
+    );
+    try {
+      await view.refresh();
+      const result = await view.popStashInteractive(0);
+      assert.strictEqual(result.success, true, `pop failed: ${result.error ?? ''}`);
+      assert.deepStrictEqual(popped, [true]);
+    } finally {
+      restore();
+      restoreToasts();
+      view.dispose();
+    }
+  });
+
+  it('cancelling the prompt aborts without touching git', async () => {
+    const { view, applied, popped } = makeViewWithSpies();
+    const { restore: restoreToasts } = installWindowStubs(() => undefined);
+    const { restore } = installQuickPickStub(() => undefined);
+    try {
+      await view.refresh();
+      const applyResult = await view.applyStashInteractive(0);
+      const popResult = await view.popStashInteractive(0);
+      assert.strictEqual(applyResult.success, false);
+      assert.strictEqual(popResult.success, false);
+      assert.deepStrictEqual(applied, [], 'no apply ran');
+      assert.deepStrictEqual(popped, [], 'no pop ran');
+    } finally {
+      restore();
+      restoreToasts();
+      view.dispose();
+    }
+  });
+});
+
+// ─── Unstash failure-arm classification (reference: GitStashUtils.unstash) ──
+
+describe('StashView unstash failure arms', () => {
+  function makeViewFailingWith(message: string, conflicts: string[] = []) {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    (gitService as unknown as { stashApply: unknown }).stashApply = (): unknown =>
+      errAsync(new SpawnFailedError(message));
+    (gitService as unknown as { stashPop: unknown }).stashPop = (): unknown =>
+      errAsync(new SpawnFailedError(message));
+    const conflictService = makeMockConflictService(conflicts);
+    const view = createStashView(gitService, conflictService);
+    (view as unknown as { _repository: IRepository })._repository = makeRepo();
+    return { view, conflictService };
+  }
+
+  it('index conflict (--index refusal) gets its own error, not the conflict dialog', async () => {
+    const { view, conflictService } = makeViewFailingWith(
+      'error: conflicts in index. Try without --index.',
+      ['would-be-conflict.ts']
+    );
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      await view.refresh();
+      const result = await view.applyStash(0, true);
+      assert.strictEqual(result.success, false);
+      assert.ok(
+        toasts.error.some((m) => /index/i.test(m) && /manual/i.test(m)),
+        `expected a dedicated manual-resolution index-conflict error, got: ${JSON.stringify(toasts.error)}`
+      );
+      assert.strictEqual(
+        (conflictService as unknown as { _opens: unknown[] })._opens.length,
+        0,
+        'index conflicts are manual-only — the resolve dialog must NOT open'
+      );
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('untracked-overwrite refusal surfaces a file-listing notification', async () => {
+    const message = [
+      'error: The following untracked working tree files would be overwritten by merge:',
+      '\tnew.txt',
+      '\tother.txt',
+      'Please move or remove them before you merge.',
+    ].join('\n');
+    const { view } = makeViewFailingWith(message);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      await view.refresh();
+      const result = await view.applyStash(0);
+      assert.strictEqual(result.success, false);
+      assert.ok(
+        toasts.error.some(
+          (m) => m.includes('new.txt') && m.includes('other.txt') && /untracked/i.test(m)
+        ),
+        `expected an untracked-overwrite file listing, got: ${JSON.stringify(toasts.error)}`
+      );
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('local-changes-overwrite refusal surfaces a file-listing notification (pop arm)', async () => {
+    const message = [
+      'error: Your local changes to the following files would be overwritten by merge:',
+      '\tsrc/dirty.ts',
+      'Please commit your changes or stash them before you merge.',
+    ].join('\n');
+    const { view } = makeViewFailingWith(message);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      await view.refresh();
+      const result = await view.popStash(0);
+      assert.strictEqual(result.success, false);
+      assert.ok(
+        toasts.error.some((m) => m.includes('src/dirty.ts') && /local changes/i.test(m)),
+        `expected a local-changes-overwrite file listing, got: ${JSON.stringify(toasts.error)}`
+      );
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+});
+
+// ─── Clear All Stashes (reference: GitUnstashDialog Clear button) ───────────
+
+describe('StashView clearAllStashes', () => {
+  function makeClearView(stashes: IStash[] = makeStashes()): {
+    view: ReturnType<typeof createStashView>;
+    clearCalls: number[];
+  } {
+    const gitService = makeGitService({ stashes });
+    const clearCalls: number[] = [];
+    (gitService as unknown as { stashClear: unknown }).stashClear = (): unknown => {
+      clearCalls.push(1);
+      return okAsync(undefined);
+    };
+    const view = createStashView(gitService);
+    (view as unknown as { _repository: IRepository })._repository = makeRepo();
+    return { view, clearCalls };
+  }
+
+  function stubModalWarning(answer: string | undefined): {
+    prompts: string[];
+    restore: () => void;
+  } {
+    const prompts: string[] = [];
+    const original = vscode.window.showWarningMessage;
+    (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = async (
+      message: string
+    ): Promise<string | undefined> => {
+      prompts.push(message);
+      return answer;
+    };
+    return {
+      prompts,
+      restore: (): void => {
+        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = original;
+      },
+    };
+  }
+
+  it('confirms with a warning, then clears every stash and refreshes', async () => {
+    const { view, clearCalls } = makeClearView();
+    const { prompts, restore } = stubModalWarning('Clear');
+    try {
+      await view.refresh();
+      const result = await view.clearAllStashes();
+      assert.strictEqual(result.success, true, `clear failed: ${result.error ?? ''}`);
+      assert.strictEqual(prompts.length, 1, 'a warning confirm is shown first');
+      assert.strictEqual(clearCalls.length, 1, 'git stash clear runs once');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('cancelling the confirm leaves the stash stack untouched', async () => {
+    const { view, clearCalls } = makeClearView();
+    const { restore } = stubModalWarning(undefined);
+    try {
+      await view.refresh();
+      const result = await view.clearAllStashes();
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(clearCalls.length, 0, 'no git call on cancel');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('informs (no confirm, no git call) when there are no stashes', async () => {
+    const { view, clearCalls } = makeClearView([]);
+    const { prompts, restore } = stubModalWarning('Clear');
+    const { toasts, restore: restoreToasts } = installWindowStubs(() => undefined);
+    try {
+      await view.refresh();
+      const result = await view.clearAllStashes();
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(prompts.length, 0, 'no destructive confirm for an empty list');
+      assert.strictEqual(clearCalls.length, 0);
+      assert.ok(
+        toasts.info.some((m) => /no stashes/i.test(m)),
+        `expected an informational toast, got: ${JSON.stringify(toasts.info)}`
+      );
+    } finally {
+      restoreToasts();
+      restore();
+      view.dispose();
+    }
+  });
+});
+
+describe('StashView stash-list pick routing', () => {
+  it('routes the Create / Clear All list entries and stash rows to their handlers', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    const view = createStashView(gitService);
+    (view as unknown as { _repository: IRepository })._repository = makeRepo();
+    await view.refresh();
+
+    const calls: string[] = [];
+    (view as unknown as { showCreateDialog: unknown }).showCreateDialog =
+      async (): Promise<void> => {
+        calls.push('create');
+      };
+    (view as unknown as { clearAllStashes: unknown }).clearAllStashes = async (): Promise<{
+      success: boolean;
+    }> => {
+      calls.push('clearAll');
+      return { success: true };
+    };
+    (view as unknown as { showContextMenu: unknown }).showContextMenu = async (
+      index: number
+    ): Promise<void> => {
+      calls.push(`menu:${index}`);
+    };
+
+    const surface = view as unknown as {
+      _handleStashListPick: (item: unknown) => Promise<void>;
+      _buildStashQuickPickItems: () => Array<{
+        listAction?: string;
+        stash?: { index: number };
+        label: string;
+      }>;
+    };
+    const items = surface._buildStashQuickPickItems();
+
+    const createItem = items.find((i) => i.listAction === 'create');
+    assert.ok(createItem, 'list carries a Create entry');
+    await surface._handleStashListPick(createItem);
+
+    const clearItem = items.find((i) => i.listAction === 'clearAll');
+    assert.ok(clearItem, 'list carries a Clear All entry when stashes exist');
+    await surface._handleStashListPick(clearItem);
+
+    const row = items.find((i) => i.stash);
+    assert.ok(row, 'list carries stash rows');
+    await surface._handleStashListPick(row);
+
+    assert.deepStrictEqual(calls, ['create', 'clearAll', `menu:${row.stash!.index}`]);
+    view.dispose();
+  });
+
+  it('omits the Clear All entry when the stash list is empty', async () => {
+    const gitService = makeGitService({ stashes: [] });
+    const view = createStashView(gitService);
+    (view as unknown as { _repository: IRepository })._repository = makeRepo();
+    await view.refresh();
+    const items = (
+      view as unknown as {
+        _buildStashQuickPickItems: () => Array<{ listAction?: string }>;
+      }
+    )._buildStashQuickPickItems();
+    assert.ok(!items.some((i) => i.listAction === 'clearAll'));
+    view.dispose();
+  });
+});

@@ -16,6 +16,8 @@ export const CONFIG_KEYS = {
   addCherryPickedFromSuffix: 'addCherryPickedFromSuffix',
   useCommitToolWindow: 'useCommitToolWindow',
   commitAuthor: 'commitAuthor',
+  warnAboutCrlf: 'warnAboutCrlf',
+  largeFileWarningMb: 'largeFileWarningMb',
   commitMessageIssueLinks: 'commitMessageIssueLinks',
   useTabbedGitToolWindow: 'useTabbedGitToolWindow',
   logShowAllRoots: 'log.showAllRoots',
@@ -65,6 +67,8 @@ export type ConfigValues = {
   addCherryPickedFromSuffix: boolean;
   useCommitToolWindow: boolean;
   commitAuthor: string;
+  warnAboutCrlf: boolean;
+  largeFileWarningMb: number;
   commitMessageIssueLinks: boolean;
   useTabbedGitToolWindow: boolean;
   'log.showAllRoots': boolean;

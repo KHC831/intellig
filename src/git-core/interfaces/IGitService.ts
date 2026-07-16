@@ -1141,8 +1141,9 @@ export interface IGitService {
   stash(repo: IRepository, message?: string, options?: IStashOptions): ResultAsync<void, GitError>;
   stashList(repo: IRepository): Promise<IStash[]>;
   /**
-   * Apply a stash. `reinstateIndex` (default true) controls whether `--index`
-   * reinstates the staged/unstaged split — IntelliJ unstash "Reinstate index".
+   * Apply a stash. `reinstateIndex` (default false) controls whether `--index`
+   * reinstates the staged/unstaged split — IntelliJ unstash "Reinstate index",
+   * a checkbox that defaults off.
    */
   stashApply(
     repo: IRepository,

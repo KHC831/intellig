@@ -140,6 +140,8 @@ export interface IShelfTabStashController {
   showDiff?: (index: number) => Promise<void>;
   rename?: (index: number) => Promise<void>;
   branchFromStash?: (index: number) => Promise<void>;
+  /** Clear the whole stash stack (warning confirm owned by the view). */
+  clearAll?: () => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -368,6 +370,7 @@ export function stashRowContextMenuLabels(): Array<{
     { label: 'Rename…', action: 'stashRename' },
     { label: 'Create Branch from Stash…', action: 'stashBranchFromStash' },
     { label: 'Drop', action: 'stashDrop' },
+    { label: 'Clear All Stashes', action: 'stashClearAll' },
   ];
 }
 
@@ -412,6 +415,13 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   private _selectedFiles: Set<string> = new Set();
   /** Absolute URI of the last Local-Changes row the user selected (F4 target). */
   private _lastSelectedFileUri: vscode.Uri | undefined;
+  /**
+   * Active-changelist paths already OFFERED to the inclusion (whether or not
+   * still selected) — the reference's `knownActiveChanges`. Auto-inclusion
+   * only adds paths not in this set, so an explicit user uncheck survives
+   * live updates.
+   */
+  private _knownActiveFiles: Set<string> = new Set();
 
   private readonly _onDidCommit = new vscode.EventEmitter<{
     repo: IRepository;
@@ -802,6 +812,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     });
 
     void this.postMessage({ type: 'commitDone', success: true });
+    if (result.restoreWarning) {
+      void vscode.window.showWarningMessage(result.restoreWarning);
+    }
     void vscode.window.showInformationMessage(
       `Committed ${(result.files ?? selected).length} file(s)`
     );
@@ -968,12 +981,18 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         return;
       case 'showDiff':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.localChanges.showDiff', message.path);
+          const fileUri = await this._resolveFileUri(message.path);
+          if (fileUri) {
+            await vscode.commands.executeCommand('intellig.explorer.showDiff', fileUri);
+          }
         }
         return;
       case 'jumpToSource':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.localChanges.openFile', message.path);
+          const fileUri = await this._resolveFileUri(message.path);
+          if (fileUri) {
+            await vscode.commands.executeCommand('intellig.localChanges.openFile', fileUri);
+          }
         }
         return;
       case 'rollback':
@@ -996,31 +1015,39 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         return;
       case 'addToVcs':
         if (message.path) {
-          // The registered command is `intellig.explorer.addToVcs`
-          // (explorerCommands.ts). The pre-fix code posted the non-existent
-          // `intellig.addToVcs`, making Add-to-VCS a silent no-op. Fix the
-          // id AND pass a proper file Uri — the command's
-          // `resolveExplorerFileUri` expects a `vscode.Uri`, not the
-          // repo-relative string the webview carries, so we resolve the
-          // changelist path against the repo root first.
-          const repo = await this._resolveRepo();
-          if (repo) {
-            const fileUri = vscode.Uri.joinPath(repo.rootUri, message.path);
+          const fileUri = await this._resolveFileUri(message.path);
+          if (fileUri) {
             await vscode.commands.executeCommand('intellig.explorer.addToVcs', fileUri);
           }
         }
         return;
       case 'showHistory':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.showHistory', message.path);
+          const fileUri = await this._resolveFileUri(message.path);
+          if (fileUri) {
+            await vscode.commands.executeCommand('intellig.showHistory', fileUri);
+          }
         }
         return;
       case 'annotate':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.annotate', message.path);
+          const fileUri = await this._resolveFileUri(message.path);
+          if (fileUri) {
+            await vscode.commands.executeCommand('intellig.toggleBlame', fileUri);
+          }
         }
         return;
     }
+  }
+
+  /**
+   * Resolve a webview row's repo-relative path to an absolute file Uri for
+   * dispatch to the owning commands (their handlers expect a `vscode.Uri`,
+   * not the bare relative string the webview carries).
+   */
+  private async _resolveFileUri(path: string): Promise<vscode.Uri | undefined> {
+    const repo = await this._resolveRepo();
+    return repo ? vscode.Uri.joinPath(repo.rootUri, path) : undefined;
   }
 
   // ── State helpers ──────────────────────────────────────────────────────
@@ -1126,6 +1153,24 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         if (!present.has(path)) {
           this._selectedFiles.delete(path);
         }
+      }
+
+      // Reference inclusion contract (ChangesViewCommitWorkflowHandler
+      // setInclusion / inclusionChanged): the ACTIVE changelist's tracked
+      // files are included by default — on load and as new ones appear —
+      // unless the user explicitly unchecked them (_knownActiveFiles
+      // remembers every path already offered). Unversioned files stay opt-in.
+      const active = this._changelists.find((cl) => cl.isActive);
+      if (active) {
+        const activeTracked = active.files
+          .filter((f) => f.status !== 'untracked')
+          .map((f) => f.path);
+        for (const path of activeTracked) {
+          if (!this._knownActiveFiles.has(path)) {
+            this._selectedFiles.add(path);
+          }
+        }
+        this._knownActiveFiles = new Set(activeTracked);
       }
     }
 
@@ -1354,6 +1399,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
           return;
         case 'stashBranchFromStash':
           await this._stashController.branchFromStash?.(idx);
+          return;
+        case 'stashClearAll':
+          await this._stashController.clearAll?.();
           return;
         default:
           return;

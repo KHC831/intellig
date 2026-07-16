@@ -9,7 +9,14 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { gatherCheckinContext, formatCheckinProblems } from '../../../src/commits/CheckinChecks';
+import {
+  gatherCheckinContext,
+  formatCheckinProblems,
+  runBeforeCommitChecks,
+} from '../../../src/commits/CheckinChecks';
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   runCheckinHandlers,
   crlfCheckinHandler,
@@ -359,5 +366,170 @@ describe('sampleFileFacts', () => {
     assert.strictEqual(out[0].hasCrlf, undefined);
     assert.strictEqual(out[1].sizeBytes, undefined);
     assert.strictEqual(out[1].hasCrlf, undefined);
+  });
+});
+
+// ─── F-B1: config-gated CRLF / large-file checks ─────────────────────────────
+
+describe('checkin handler config gates', () => {
+  it('crlf check is disableable via warnAboutCrlf=false in the context', () => {
+    const problems = crlfCheckinHandler.check(
+      ctxWith({
+        files: [{ path: 'a.ts', status: 'modified', hasCrlf: true }],
+        warnAboutCrlf: false,
+      })
+    );
+    assert.deepStrictEqual(problems, [], 'warnAboutCrlf=false must silence the check');
+  });
+
+  it('large-file threshold comes from the context (largeFileWarningBytes)', () => {
+    const tenMb = 10 * 1024 * 1024;
+    const problems = largeFileCheckinHandler.check(
+      ctxWith({
+        files: [{ path: 'mid.bin', status: 'added', sizeBytes: tenMb + 1 }],
+        largeFileWarningBytes: tenMb,
+      })
+    );
+    assert.strictEqual(problems.length, 1, 'a file over the configured threshold warns');
+    assert.ok(problems[0].text.includes('10 MB'), problems[0].text);
+  });
+
+  it('largeFileWarningBytes <= 0 disables the large-file check', () => {
+    const problems = largeFileCheckinHandler.check(
+      ctxWith({
+        files: [{ path: 'huge.bin', status: 'added', sizeBytes: LARGE_FILE_WARNING_BYTES * 4 }],
+        largeFileWarningBytes: 0,
+      })
+    );
+    assert.deepStrictEqual(problems, []);
+  });
+
+  it('gatherCheckinContext carries the two settings from configuration', async () => {
+    const git = makeGitServiceWithCli([], {});
+    const context = await gatherCheckinContext(git, makeRepo(), []);
+    // Schema defaults: warnAboutCrlf=true, largeFileWarningMb=50.
+    assert.strictEqual(context.warnAboutCrlf, true);
+    assert.strictEqual(context.largeFileWarningBytes, 50 * 1024 * 1024);
+  });
+});
+
+// ─── F-B1: CRLF modal affordances (reference GitCrlfDialog) ──────────────────
+
+describe('runBeforeCommitChecks — CRLF affordances', () => {
+  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+
+  function makeCrlfFixture(): { repo: IRepository; git: IGitService; execCalls: string[][] } {
+    fs.mkdirSync(TMP_ROOT, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(TMP_ROOT, 'crlf-check-'));
+    fs.writeFileSync(path.join(dir, 'win.ts'), 'line one\r\nline two\r\n');
+    const repo = {
+      rootUri: Uri.file(dir),
+      state: 'idle',
+      head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    } as unknown as IRepository;
+    const execCalls: string[][] = [];
+    const ok = (stdout: string): { exitCode: number; stdout: string; stderr: string } => ({
+      exitCode: 0,
+      stdout,
+      stderr: '',
+    });
+    const git = {
+      getStatus: async (): Promise<IFileStatus[]> => [
+        { path: 'win.ts', indexStatus: ' ', workTreeStatus: 'M' } as IFileStatus,
+      ],
+      gitCli: {
+        exec: async (
+          args: string[]
+        ): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+          execCalls.push(args);
+          if (args[0] === 'config' && args[2] === 'user.name') {
+            return ok('Test');
+          }
+          if (args[0] === 'config' && args[2] === 'user.email') {
+            return ok('t@example.com');
+          }
+          if (args[0] === 'symbolic-ref') {
+            return ok('refs/heads/main');
+          }
+          return ok('');
+        },
+      },
+    } as unknown as IGitService;
+    return { repo, git, execCalls };
+  }
+
+  function stubModal(answer: string | undefined): {
+    prompts: Array<{ title: string; buttons: string[] }>;
+    restore: () => void;
+  } {
+    const prompts: Array<{ title: string; buttons: string[] }> = [];
+    const win = vscode.window as unknown as Record<string, unknown>;
+    const original = win.showWarningMessage;
+    win.showWarningMessage = async (
+      title: string,
+      _opts: unknown,
+      ...buttons: string[]
+    ): Promise<string | undefined> => {
+      prompts.push({ title, buttons });
+      return answer;
+    };
+    return {
+      prompts,
+      restore: (): void => {
+        win.showWarningMessage = original;
+      },
+    };
+  }
+
+  it("offers Fix and Commit / Commit As-Is / don't-ask; Fix sets core.autocrlf --global", async () => {
+    const { repo, git, execCalls } = makeCrlfFixture();
+    const { prompts, restore } = stubModal('Fix and Commit');
+    try {
+      const proceed = await runBeforeCommitChecks(git, repo, ['win.ts']);
+      assert.strictEqual(proceed, true, 'Fix and Commit proceeds with the commit');
+      assert.strictEqual(prompts.length, 1);
+      assert.deepStrictEqual(prompts[0].buttons, [
+        'Fix and Commit',
+        'Commit As-Is',
+        "Commit As-Is, Don't Ask Again",
+      ]);
+      assert.ok(
+        execCalls.some(
+          (a) => a[0] === 'config' && a.includes('--global') && a.includes('core.autocrlf')
+        ),
+        `expected a core.autocrlf --global write, got: ${JSON.stringify(execCalls)}`
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('cancelling the CRLF prompt aborts the commit', async () => {
+    const { repo, git, execCalls } = makeCrlfFixture();
+    const { restore } = stubModal(undefined);
+    try {
+      const proceed = await runBeforeCommitChecks(git, repo, ['win.ts']);
+      assert.strictEqual(proceed, false);
+      assert.ok(
+        !execCalls.some((a) => a.includes('core.autocrlf') && a.includes('--global')),
+        'no config write on cancel'
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('Commit As-Is proceeds without touching git config', async () => {
+    const { repo, git, execCalls } = makeCrlfFixture();
+    const { restore } = stubModal('Commit As-Is');
+    try {
+      const proceed = await runBeforeCommitChecks(git, repo, ['win.ts']);
+      assert.strictEqual(proceed, true);
+      assert.ok(!execCalls.some((a) => a.includes('--global')), 'no config write for as-is');
+    } finally {
+      restore();
+    }
   });
 });

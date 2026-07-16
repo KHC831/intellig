@@ -21,7 +21,13 @@ import {
 } from './interfaces/IStashView';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
-import { looksLikeConflictText } from '../git-core/gitProse';
+import {
+  looksLikeConflictText,
+  isIndexConflictOnUnstash,
+  parseUntrackedOverwriteFiles,
+  parseLocalChangesOverwriteFiles,
+} from '../git-core/gitProse';
+import type { IStashClearCapable } from '../git-core/ops/StashTagHistoryOps';
 import { renderDiffAsText } from './diffText';
 
 /**
@@ -32,6 +38,8 @@ interface IStashQuickPickItem extends vscode.QuickPickItem {
   action?: StashContextAction;
   isAction?: boolean;
   isSeparator?: boolean;
+  /** List-level entries that target the whole stack, not one stash. */
+  listAction?: 'create' | 'clearAll';
 }
 
 /**
@@ -294,12 +302,13 @@ export class StashView implements IStashView {
    * Apply a stash to the working directory.
    *
    * @param index - The stash index to apply
-   * @param reinstateIndex - When true (default), pass `--index` to restore the
-   *   staged/unstaged split; when false, apply working-tree changes only.
-   *   Mirrors IntelliJ unstash "Reinstate index".
+   * @param reinstateIndex - When true, pass `--index` to restore the
+   *   staged/unstaged split; default false applies working-tree changes only
+   *   (IntelliJ's unstash "Reinstate index" checkbox defaults off). Use
+   *   {@link applyStashInteractive} to let the user choose.
    * @returns Promise resolving to the action result
    */
-  async applyStash(index: number, reinstateIndex = true): Promise<IStashActionResult> {
+  async applyStash(index: number, reinstateIndex = false): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -331,43 +340,93 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // On conflict, route to the Resolve Conflicts dialog instead of
-      // surfacing a raw error toast.
-      if (this._conflictResolutionService && looksLikeConflictText(errorMessage)) {
-        const conflicts = await this._conflictResolutionService.getConflictedFiles(
-          this._repository
-        );
-        if (conflicts.length > 0) {
-          await this._conflictResolutionService.openResolveConflictsDialog(
-            this._repository,
-            conflicts,
-            {
-              operation: 'unstash',
-              target: `stash@{${index}}`,
-              canAbort: true,
-              canContinue: true,
-            }
-          );
-          return { success: false, action: 'apply', stash, error: errorMessage };
-        }
-      }
-      void vscode.window.showErrorMessage(
-        `Failed to apply stash: ${sanitizeGitError(errorMessage)}`
-      );
-      return { success: false, action: 'apply', stash, error: errorMessage };
+      return this._handleUnstashError('apply', index, stash, errorMessage);
     }
+  }
+
+  /**
+   * Classify an apply/pop failure the way the reference's unstash loop does
+   * (GitStashUtils.unstash detector chain): index conflict → manual-only
+   * error; merge conflict → Resolve Conflicts dialog; untracked-overwrite /
+   * local-changes-overwrite → file-listing notifications; else a generic
+   * sanitized toast. One seam for both actions.
+   */
+  private async _handleUnstashError(
+    action: 'apply' | 'pop',
+    index: number,
+    stash: IStash,
+    errorMessage: string
+  ): Promise<IStashActionResult> {
+    const failure = { success: false, action, stash, error: errorMessage } as const;
+
+    // Index conflicts can only be resolved manually — checked BEFORE the
+    // generic conflict predicate ("conflicts in index" contains "conflict").
+    if (isIndexConflictOnUnstash(errorMessage)) {
+      void vscode.window.showErrorMessage(
+        `Failed to ${action} stash: restoring the index hit conflicts, which must be resolved ` +
+          `manually. Retry with "Working tree only" to apply without --index.`
+      );
+      return failure;
+    }
+
+    // Merge conflict → route to the Resolve Conflicts dialog instead of
+    // surfacing a raw error toast.
+    if (
+      this._repository &&
+      this._conflictResolutionService &&
+      looksLikeConflictText(errorMessage)
+    ) {
+      const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+      if (conflicts.length > 0) {
+        await this._conflictResolutionService.openResolveConflictsDialog(
+          this._repository,
+          conflicts,
+          {
+            operation: 'unstash',
+            target: `stash@{${index}}`,
+            canAbort: true,
+            canContinue: true,
+          }
+        );
+        return failure;
+      }
+    }
+
+    const untracked = parseUntrackedOverwriteFiles(errorMessage);
+    if (untracked && untracked.length > 0) {
+      void vscode.window.showErrorMessage(
+        `Failed to ${action} stash: untracked working tree files would be overwritten: ` +
+          `${untracked.join(', ')}. Move or remove them, then retry.`
+      );
+      return failure;
+    }
+
+    const localChanges = parseLocalChangesOverwriteFiles(errorMessage);
+    if (localChanges && localChanges.length > 0) {
+      void vscode.window.showErrorMessage(
+        `Failed to ${action} stash: your local changes would be overwritten: ` +
+          `${localChanges.join(', ')}. Commit, stash, or revert them, then retry.`
+      );
+      return failure;
+    }
+
+    void vscode.window.showErrorMessage(
+      `Failed to ${action} stash: ${sanitizeGitError(errorMessage)}`
+    );
+    return failure;
   }
 
   /**
    * Pop a stash (apply and remove).
    *
    * @param index - The stash index to pop
-   * @param reinstateIndex - When true (default), pass `--index` to restore the
-   *   staged/unstaged split; when false, apply working-tree changes only.
-   *   Mirrors IntelliJ unstash "Reinstate index".
+   * @param reinstateIndex - When true, pass `--index` to restore the
+   *   staged/unstaged split; default false applies working-tree changes only
+   *   (IntelliJ's unstash "Reinstate index" checkbox defaults off). Use
+   *   {@link popStashInteractive} to let the user choose.
    * @returns Promise resolving to the action result
    */
-  async popStash(index: number, reinstateIndex = true): Promise<IStashActionResult> {
+  async popStash(index: number, reinstateIndex = false): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -408,27 +467,7 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // On conflict, route to the Resolve Conflicts dialog.
-      if (this._conflictResolutionService && looksLikeConflictText(errorMessage)) {
-        const conflicts = await this._conflictResolutionService.getConflictedFiles(
-          this._repository
-        );
-        if (conflicts.length > 0) {
-          await this._conflictResolutionService.openResolveConflictsDialog(
-            this._repository,
-            conflicts,
-            {
-              operation: 'unstash',
-              target: `stash@{${index}}`,
-              canAbort: true,
-              canContinue: true,
-            }
-          );
-          return { success: false, action: 'pop', stash, error: errorMessage };
-        }
-      }
-      void vscode.window.showErrorMessage(`Failed to pop stash: ${sanitizeGitError(errorMessage)}`);
-      return { success: false, action: 'pop', stash, error: errorMessage };
+      return this._handleUnstashError('pop', index, stash, errorMessage);
     }
   }
 
@@ -651,6 +690,62 @@ export class StashView implements IStashView {
   }
 
   /**
+   * Drop EVERY stash entry after a warning confirm — the reference unstash
+   * dialog's Clear button (GitUnstashDialog; GitStashUtils.
+   * clearStashesWithConfirmation runs `git stash clear` behind a yes/no
+   * warning dialog).
+   */
+  async clearAllStashes(): Promise<IStashActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+
+    // Fresh read so the confirm names the real count.
+    await this.refresh();
+    const count = this._state.stashes.length;
+    if (count === 0) {
+      void vscode.window.showInformationMessage('No stashes to clear.');
+      return { success: false };
+    }
+
+    const noun = count === 1 ? 'stash' : 'stashes';
+    const confirm = await vscode.window.showWarningMessage(
+      `Clear the stash list? All ${count} ${noun} will be deleted — this cannot be undone.`,
+      { modal: true },
+      'Clear'
+    );
+    if (confirm !== 'Clear') {
+      return { success: false };
+    }
+
+    const stashClearCapable = this._gitService as unknown as IStashClearCapable;
+    try {
+      await stashClearCapable.stashClear(this._repository).match(
+        () => undefined,
+        (e) => {
+          throw e;
+        }
+      );
+      void vscode.window.showInformationMessage(`Cleared ${count} ${noun}`);
+
+      // refresh() never rejects — surface failure as a warning toast.
+      const refreshResult = await this.refresh();
+      if (refreshResult.error) {
+        // sanitize-exempt: pre-sanitized: refresh() returns sanitizeGitError output
+        void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
+      }
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to clear stashes: ${sanitizeGitError(errorMessage)}`
+      );
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
    * View a stash's contents as diff.
    *
    * @param index - The stash index to view
@@ -807,9 +902,10 @@ export class StashView implements IStashView {
 
   /**
    * Ask whether to reinstate the index when applying/popping a stash —
-   * IntelliJ's unstash "Reinstate index" checkbox. The default option restores
-   * the staged/unstaged split (`--index`); the alternative applies working-tree
-   * changes only. Returns `undefined` when the user cancels.
+   * IntelliJ's unstash "Reinstate index" checkbox, which defaults OFF. The
+   * first (Enter-default) option applies working-tree changes only; the
+   * explicit alternative restores the staged/unstaged split (`--index`).
+   * Returns `undefined` when the user cancels.
    */
   private async _promptReinstateIndex(action: 'apply' | 'pop'): Promise<boolean | undefined> {
     interface IReinstateItem extends vscode.QuickPickItem {
@@ -817,14 +913,14 @@ export class StashView implements IStashView {
     }
     const items: IReinstateItem[] = [
       {
-        label: '$(check) Reinstate index',
-        description: 'Restore the staged/unstaged split (git stash --index)',
-        reinstate: true,
-      },
-      {
         label: '$(circle-slash) Working tree only',
         description: 'Apply changes as unstaged (omit --index)',
         reinstate: false,
+      },
+      {
+        label: '$(check) Reinstate index',
+        description: 'Restore the staged/unstaged split (git stash --index)',
+        reinstate: true,
       },
     ];
 
@@ -837,6 +933,28 @@ export class StashView implements IStashView {
   }
 
   /**
+   * Prompt-then-apply — the single reinstate-index seam every interactive
+   * entry point (sidebar context menu, CTW Shelf tab) routes through.
+   * Returns `{ success: false }` without touching git when the user cancels.
+   */
+  async applyStashInteractive(index: number): Promise<IStashActionResult> {
+    const reinstateIndex = await this._promptReinstateIndex('apply');
+    if (reinstateIndex === undefined) {
+      return { success: false };
+    }
+    return this.applyStash(index, reinstateIndex);
+  }
+
+  /** Prompt-then-pop counterpart of {@link applyStashInteractive}. */
+  async popStashInteractive(index: number): Promise<IStashActionResult> {
+    const reinstateIndex = await this._promptReinstateIndex('pop');
+    if (reinstateIndex === undefined) {
+      return { success: false };
+    }
+    return this.popStash(index, reinstateIndex);
+  }
+
+  /**
    * Handle a stash action.
    */
   private async _handleAction(
@@ -844,20 +962,10 @@ export class StashView implements IStashView {
     index: number
   ): Promise<IStashActionResult> {
     switch (action) {
-      case 'apply': {
-        const reinstateIndex = await this._promptReinstateIndex('apply');
-        if (reinstateIndex === undefined) {
-          return { success: false };
-        }
-        return this.applyStash(index, reinstateIndex);
-      }
-      case 'pop': {
-        const reinstateIndex = await this._promptReinstateIndex('pop');
-        if (reinstateIndex === undefined) {
-          return { success: false };
-        }
-        return this.popStash(index, reinstateIndex);
-      }
+      case 'apply':
+        return this.applyStashInteractive(index);
+      case 'pop':
+        return this.popStashInteractive(index);
       case 'drop':
         return this.dropStash(index);
       case 'view':
@@ -916,18 +1024,7 @@ export class StashView implements IStashView {
     quickPick.onDidAccept(async () => {
       const selected = quickPick.selectedItems[0];
       quickPick.hide();
-
-      if (!selected) {
-        return;
-      }
-
-      if (selected.isAction && selected.action === 'apply' && selected.stash) {
-        // Direct action from the list
-        await this._handleAction('apply', selected.stash.index);
-      } else if (selected.stash) {
-        // Show context menu for the selected stash
-        await this.showContextMenu(selected.stash.index);
-      }
+      await this._handleStashListPick(selected);
     });
 
     quickPick.onDidHide(() => {
@@ -935,6 +1032,36 @@ export class StashView implements IStashView {
     });
 
     quickPick.show();
+  }
+
+  /**
+   * Route an accepted stash-list QuickPick entry: list-level actions
+   * (create / clear all) act on the stack; a stash row opens its context
+   * menu (the `apply` shortcut item runs directly).
+   */
+  private async _handleStashListPick(selected: IStashQuickPickItem | undefined): Promise<void> {
+    if (!selected) {
+      return;
+    }
+    if (selected.listAction === 'create') {
+      if (this._repository) {
+        await this.showCreateDialog(this._repository);
+      }
+      return;
+    }
+    if (selected.listAction === 'clearAll') {
+      await this.clearAllStashes();
+      return;
+    }
+    if (selected.isAction && selected.action === 'apply' && selected.stash) {
+      // Direct action from the list
+      await this._handleAction('apply', selected.stash.index);
+      return;
+    }
+    if (selected.stash) {
+      // Show context menu for the selected stash
+      await this.showContextMenu(selected.stash.index);
+    }
   }
 
   /**
@@ -948,6 +1075,7 @@ export class StashView implements IStashView {
       label: '$(add) Create New Stash...',
       description: 'Stash current changes',
       isAction: true,
+      listAction: 'create',
     });
 
     // Separator
@@ -976,6 +1104,17 @@ export class StashView implements IStashView {
         description: stash.message || 'No message',
         detail: `${relativeTime}${branchInfo}`,
         stash,
+      });
+    }
+
+    // Stack-level Clear All at the bottom (reference: the unstash dialog's
+    // Clear button) — only meaningful when there is something to clear.
+    if (this._state.stashes.length > 0) {
+      items.push({
+        label: '$(trash) Clear All Stashes',
+        description: 'Drop every stash after confirmation',
+        isAction: true,
+        listAction: 'clearAll',
       });
     }
 

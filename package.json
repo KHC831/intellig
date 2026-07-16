@@ -1560,6 +1560,19 @@
             "default": true,
             "description": "Detect issue/PR references (e.g. #42, GH-101, PROJ-7) in commit messages and render them as clickable links to the configured hosting provider.",
             "order": 5
+          },
+          "intellig.warnAboutCrlf": {
+            "type": "boolean",
+            "default": true,
+            "description": "Warn before committing files with CRLF line separators when core.autocrlf is not normalizing. The warning offers fixing core.autocrlf or committing as-is.",
+            "order": 6
+          },
+          "intellig.largeFileWarningMb": {
+            "type": "number",
+            "default": 50,
+            "minimum": 0,
+            "description": "Warn before committing files larger than this size in MB (large blobs stay in history forever and most hosts refuse them). Set 0 to disable the check.",
+            "order": 7
           }
         }
       },
@@ -2061,7 +2074,8 @@
     "check:rebase-conflict-flow": "bash scripts/check-rebase-conflict-flow.sh",
     "check:conflict-toast-handoff": "bash scripts/check-conflict-toast-handoff.sh",
     "check:git-prose-matching": "bash scripts/check-git-prose-matching.sh",
-    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp && npm run check:context-keys && npm run check:config-keys && npm run check:persisted-state && npm run check:typed-messages && npm run check:ctw-render-resolve-only && npm run check:no-string-scripts && npm run check:rebase-conflict-flow && npm run check:conflict-toast-handoff && npm run check:menu-reachability && npm run check:git-prose-matching && npm run check:keybindings-coherence",
+    "check:dispatch-targets": "node scripts/check-dispatch-targets.mjs",
+    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console && npm run check:remote-ops-eoo && npm run check:no-section-symbol && npm run check:command-reachability && npm run check:command-coverage && npm run check:webview-coverage && npm run check:pathspec-canonicalized && npm run check:exec-leading-rev && npm run check:no-inline-handlers && npm run check:stash-pop-pinned && npm run check:checkout-head-batched && npm run check:conflict-predicate-shared && npm run check:dead-exports && npm run check:anchored-repo-paths && npm run check:repo-resolution && npm run check:git-dir-resolved && npm run check:palette-coherence && npm run check:spine-registration && npm run check:tree-item-optional && npm run check:rebase-containment && npm run check:rev-parse-verified && npm run check:webview-keybinding-panelid && npm run check:webview-csp && npm run check:context-keys && npm run check:config-keys && npm run check:persisted-state && npm run check:typed-messages && npm run check:ctw-render-resolve-only && npm run check:no-string-scripts && npm run check:rebase-conflict-flow && npm run check:conflict-toast-handoff && npm run check:menu-reachability && npm run check:git-prose-matching && npm run check:keybindings-coherence && npm run check:dispatch-targets",
     "package:dogfood": "INTELLIG_ALLOW_PLACEHOLDERS=1 INTELLIG_DOGFOOD_BUILD=1 INTELLIG_DOGFOOD_INVOCATION=1 npx --yes @vscode/vsce@2.24.0 package --out intellig-${npm_package_version}-dogfood.vsix",
     "release": "bash scripts/publish.sh",
     "release:dry": "bash scripts/publish.sh --dry-run",

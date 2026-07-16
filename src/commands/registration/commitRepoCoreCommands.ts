@@ -142,6 +142,25 @@ export function enrichRollbackChanges(
 }
 
 /**
+ * Resolve the file `intellig.showHistory` targets: an explicit file-Uri
+ * argument (the CTW Local-Changes context menu passes the clicked row) wins
+ * over the active editor; a non-Uri argument (or none) falls back to the
+ * active editor; no editor → undefined (repo-level history).
+ */
+export function resolveShowHistoryTargetFsPath(
+  rawArg: unknown,
+  activeEditorFsPath: string | undefined
+): string | undefined {
+  const argFsPath =
+    rawArg &&
+    typeof rawArg === 'object' &&
+    typeof (rawArg as { fsPath?: unknown }).fsPath === 'string'
+      ? (rawArg as { fsPath: string }).fsPath
+      : undefined;
+  return argFsPath ?? activeEditorFsPath;
+}
+
+/**
  * Handle the outcome of the generic `intellig.pull` PullDialog.
  *
  * The dialog (`runPullDialog`) shows its own toasts for the `pulled`,
@@ -1010,20 +1029,24 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     },
   });
 
-  // Show History command (command palette / keybinding)
+  // Show History command (command palette / keybinding / CTW file rows).
   const showHistoryCommand = registerRepoCommand(ctx, {
     id: 'intellig.showHistory',
     failureTitle: 'Failed to get history',
     pickerTitle: 'Show History — Choose Repository',
     pickerPlaceholder: 'Select a repository',
-    run: async ({ gitService, repo }) => {
-      const activeEditor = vscode.window.activeTextEditor;
+    hintFromRawUri: true,
+    run: async ({ gitService, repo }, rawArg) => {
+      const targetFsPath = resolveShowHistoryTargetFsPath(
+        rawArg,
+        vscode.window.activeTextEditor?.document.uri.fsPath
+      );
 
       // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
       // relative path. `asRelativePath` is workspace-folder-relative and breaks
       // for nested/multi-root repos (see repoRelativePath).
-      const filePath = activeEditor
-        ? repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath)
+      const filePath = targetFsPath
+        ? repoRelativePath(repo.rootUri.fsPath, targetFsPath)
         : undefined;
 
       // For a file, present its history via the shared helper — identical to the

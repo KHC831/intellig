@@ -572,18 +572,28 @@ describe('GitService - Command Argument Correctness', () => {
       assert.ok(cmd.args.includes('--keep-index'));
     });
 
-    it('stash apply: git stash apply --index stash@{N} (reinstates staged split)', async () => {
+    it('stash apply: working-tree only by default; --index on explicit request', async () => {
       await gitService.stashApply(mockRepo, 2);
-      const cmd = mockGitCli.getLastCommand();
-      assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['stash', 'apply', '--index', 'stash@{2}']);
+      assert.deepStrictEqual(mockGitCli.getLastCommand()?.args, ['stash', 'apply', 'stash@{2}']);
+      await gitService.stashApply(mockRepo, 2, true);
+      assert.deepStrictEqual(mockGitCli.getLastCommand()?.args, [
+        'stash',
+        'apply',
+        '--index',
+        'stash@{2}',
+      ]);
     });
 
-    it('stash pop: git stash pop --index stash@{N} (reinstates staged split)', async () => {
+    it('stash pop: working-tree only by default; --index on explicit request', async () => {
       await gitService.stashPop(mockRepo, 0);
-      const cmd = mockGitCli.getLastCommand();
-      assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['stash', 'pop', '--index', 'stash@{0}']);
+      assert.deepStrictEqual(mockGitCli.getLastCommand()?.args, ['stash', 'pop', 'stash@{0}']);
+      await gitService.stashPop(mockRepo, 0, true);
+      assert.deepStrictEqual(mockGitCli.getLastCommand()?.args, [
+        'stash',
+        'pop',
+        '--index',
+        'stash@{0}',
+      ]);
     });
 
     it('stash drop: git stash drop stash@{N}', async () => {

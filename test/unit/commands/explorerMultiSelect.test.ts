@@ -225,8 +225,8 @@ describe('explorer commands — multi-select handling', () => {
   });
 });
 
-describe('explorer commands — multi-select (commit file staging)', () => {
-  it('Commit File… stages every selected file before revealing SCM', async () => {
+describe('explorer commands — multi-select (commit file dialog scope)', () => {
+  it('Commit File… opens the commit dialog with every selected file preselected', async () => {
     const handlers = new Map<string, Handler>();
     const cmds = vscode.commands as unknown as {
       registerCommand: (id: string, cb: Handler) => { dispose: () => void };
@@ -241,6 +241,7 @@ describe('explorer commands — multi-select (commit file staging)', () => {
     cmds.executeCommand = async () => undefined;
     try {
       const stageCalls: string[][] = [];
+      const shown: Array<string[] | undefined> = [];
       const repo = {
         rootUri: Uri.file('/r'),
         state: 'idle',
@@ -260,12 +261,22 @@ describe('explorer commands — multi-select (commit file staging)', () => {
         services: { gitService },
         gitToolWindowProvider: { refresh: (): void => {} },
         context: { subscriptions: [] },
+        commitDialog: {
+          show: async (
+            _r: IRepository,
+            options?: { preSelectedFiles?: string[] }
+          ): Promise<unknown> => {
+            shown.push(options?.preSelectedFiles);
+            return { committed: false };
+          },
+        },
       } as unknown as ICommandContext);
 
       const uris = [Uri.file('/r/a.ts'), Uri.file('/r/b.ts')];
       await handlers.get('intellig.explorer.commitFile')!(uris[0], uris);
 
-      assert.deepStrictEqual(stageCalls, [['a.ts', 'b.ts']]);
+      assert.deepStrictEqual(shown, [['a.ts', 'b.ts']], 'the whole selection is preselected');
+      assert.deepStrictEqual(stageCalls, [], 'nothing is staged before the dialog');
     } finally {
       cmds.registerCommand = originalRegister;
       cmds.executeCommand = originalExecute;

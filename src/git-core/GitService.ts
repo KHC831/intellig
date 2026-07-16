@@ -2182,12 +2182,24 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     );
   }
 
-  stashApply(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
+  stashApply(
+    repo: IRepository,
+    index: number,
+    reinstateIndex = false
+  ): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashApply(repo, index, reinstateIndex);
   }
 
-  stashPop(repo: IRepository, index: number, reinstateIndex = true): ResultAsync<void, GitError> {
+  stashPop(repo: IRepository, index: number, reinstateIndex = false): ResultAsync<void, GitError> {
     return this._stashTagHistory.stashPop(repo, index, reinstateIndex);
+  }
+
+  /**
+   * Drop every stash entry. Post-freeze capability (ADR-001): lives on the
+   * concrete class + {@link IStashClearCapable}, not the frozen composite.
+   */
+  stashClear(repo: IRepository): ResultAsync<void, GitError> {
+    return this._stashTagHistory.stashClear(repo);
   }
 
   stashDrop(repo: IRepository, index: number): ResultAsync<void, GitError> {

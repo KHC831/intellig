@@ -444,8 +444,12 @@ describe('CommitToolWindow — live updates (host seam)', () => {
     timers.tick(300);
     await settle();
 
-    await asLiveSurface(tw)._handleWebviewMessage({ type: 'toggleFile', path: 'src/keep.ts' });
-    await asLiveSurface(tw)._handleWebviewMessage({ type: 'toggleFile', path: 'src/gone.ts' });
+    // Both files are pre-included by the active-changelist inclusion.
+    assert.deepStrictEqual(
+      [...asLiveSurface(tw)._selectedFiles].sort(),
+      ['src/gone.ts', 'src/keep.ts'],
+      'precondition: both paths selected'
+    );
     const baseline = view.posted.length;
 
     // src/gone.ts left the working tree (e.g. reverted externally).
@@ -658,6 +662,100 @@ describe('CommitToolWindow — live updates (host seam)', () => {
       updateModelPosts(view.posted, baseline).length,
       0,
       'prefill must not ride the live-update arm (I7 would swallow it)'
+    );
+    tw.dispose();
+  });
+});
+
+// ─── Active-changelist inclusion (reference: setInclusion / inclusionChanged) ─
+
+describe('CommitToolWindow — active-changelist inclusion', () => {
+  let timers: ReturnType<typeof installFakeTimers> | undefined;
+
+  afterEach(() => {
+    timers?.uninstall();
+    timers = undefined;
+  });
+
+  function makeWindow(repos: IRepository[]): { tw: CommitToolWindow; services: LiveServices } {
+    const services = createLiveServices(repos);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      createMockMemento()
+    );
+    return { tw, services };
+  }
+
+  it("pre-includes the ACTIVE changelist's tracked files on load; unversioned stay opt-in", async () => {
+    timers = installFakeTimers();
+    const repo = makeRepo('/test-repo');
+    const { tw, services } = makeWindow([repo]);
+    services.state.changelists.set('/test-repo', [
+      {
+        id: 'active',
+        name: 'Changes',
+        isDefault: true,
+        isActive: true,
+        files: [
+          { path: 'src/a.ts', status: 'modified' as const, staged: false },
+          { path: 'new.txt', status: 'untracked' as const, staged: false },
+        ],
+      },
+      {
+        id: 'other',
+        name: 'Parked',
+        isDefault: false,
+        isActive: false,
+        files: [{ path: 'src/parked.ts', status: 'modified' as const, staged: false }],
+      },
+    ]);
+    const view = resolveView(tw);
+    timers.tick(300);
+    await settle();
+
+    const updates = updateModelPosts(view.posted, 0);
+    assert.ok(updates.length >= 1, 'an updateModel is pushed on load');
+    const selected = updates[updates.length - 1].model?.selectedFiles ?? [];
+    assert.deepStrictEqual(
+      [...selected].sort(),
+      ['src/a.ts'],
+      'the active list pre-includes tracked files; unversioned + non-active files stay out'
+    );
+    tw.dispose();
+  });
+
+  it('auto-includes newly-appearing active-changelist files, but not user-unchecked ones', async () => {
+    timers = installFakeTimers();
+    const repo = makeRepo('/test-repo');
+    const { tw, services } = makeWindow([repo]);
+    services.state.changelists.set('/test-repo', [makeChangelist('Changes', ['src/a.ts'])]);
+    const view = resolveView(tw);
+    timers.tick(300);
+    await settle();
+
+    // The user explicitly unchecks the pre-included a.ts.
+    await asLiveSurface(tw)._handleWebviewMessage({ type: 'toggleFile', path: 'src/a.ts' });
+    assert.ok(!asLiveSurface(tw)._selectedFiles.has('src/a.ts'), 'uncheck applied');
+    const baseline = view.posted.length;
+
+    // A NEW file joins the active changelist externally.
+    services.state.changelists.set('/test-repo', [
+      makeChangelist('Changes', ['src/a.ts', 'src/fresh.ts']),
+    ]);
+    services.fireChangelists();
+    timers.tick(300);
+    await settle();
+
+    const updates = updateModelPosts(view.posted, baseline);
+    assert.strictEqual(updates.length, 1);
+    const selected = updates[0].model?.selectedFiles ?? [];
+    assert.ok(selected.includes('src/fresh.ts'), 'the new active-changelist file auto-includes');
+    assert.ok(
+      !selected.includes('src/a.ts'),
+      'the explicitly-unchecked file must NOT be re-included'
     );
     tw.dispose();
   });

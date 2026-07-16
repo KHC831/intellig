@@ -181,15 +181,17 @@ describe('ChangelistService storage round-trip — TL-10', () => {
         const loaded = migrateStorageForTest(onDisk);
         const emitted = serializeStorageForDisk(loaded);
 
-        // Version is always re-stamped to the current schema version (v2).
-        assert.strictEqual(emitted.version, 2);
+        // Version is always re-stamped to the current schema version.
+        assert.strictEqual(emitted.version, 3);
         assert.strictEqual(emitted.activeChangelistId, raw.activeChangelistId);
         const outItems = emitted.changelists as Array<Record<string, unknown>>;
         assert.strictEqual(outItems.length, raw.items.length);
         for (let i = 0; i < raw.items.length; i++) {
           assert.strictEqual(outItems[i].id, raw.items[i].id);
           assert.strictEqual(outItems[i].name, raw.items[i].name);
-          assert.strictEqual(outItems[i].isDefault, raw.items[i].isDefault);
+          // `isDefault` is a consumed legacy key (v3 collapse): it must NOT
+          // round-trip — the active id is the single marker.
+          assert.ok(!('isDefault' in outItems[i]), 'legacy isDefault key must not re-emit');
           assert.strictEqual(outItems[i].description, raw.items[i].description);
           assert.deepStrictEqual(outItems[i].files, raw.items[i].files);
         }
@@ -241,5 +243,7 @@ describe('ChangelistService storage round-trip — TL-10', () => {
     assert.deepStrictEqual(outItems[0].labels, ['release', 'wip']);
     assert.deepStrictEqual(outItems[1].labels, []);
     assert.strictEqual(outItems[1].priority, 7);
+    // The legacy isDefault marker is consumed by the v3 migration.
+    assert.ok(outItems.every((it) => !('isDefault' in it)));
   });
 });

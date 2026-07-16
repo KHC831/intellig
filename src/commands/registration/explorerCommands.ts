@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getLogger } from '../../utils/logger';
 import { formatActionFailureToast } from '../../git-core/gitError';
 import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
-import { PatchWriteFailed } from '../../services';
+import { PatchWriteFailed, CommitDialog } from '../../services';
 import { canonicalizeFsPath } from '../../utils/repoRelativePath';
+import { safeFireAndForget } from '../../utils/safeFireAndForget';
 import { statusCodeToFileStatus } from '../../git-core/gitParser';
 import type { FileStatus, IFileStatus } from '../../git-core/interfaces/IGitService';
 import { presentFileHistory } from './commitHelpers';
@@ -351,51 +351,31 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   });
 
   // Commit File (git4idea Git.FileActions → CheckinFiles, the head of the
-  // submenu). Per ADR-014 commit/staging routes through the native SCM API,
-  // not a webview: stage the selection, then reveal the SCM view so the
-  // user types a message and accepts to commit it via the IntelliG
-  // SourceControl input (mirrors VS Code's built-in Git flow).
+  // submenu). Opens the Commit Dialog with exactly the selection preselected
+  // (reference: CommitChangeListDialog scoped to the clicked change) — the
+  // dialog stages/commits only the checked files, so already-staged work on
+  // OTHER files never rides along with a "commit this file" click.
   const explorerCommitFileCommand = registerSelectionCommand(ctx, {
     id: 'intellig.explorer.commitFile',
     noTargetMessage: 'No file selected to commit',
     pickerTitle: 'Commit File — Choose Repository',
     pickerPlaceholder: 'Select a repository',
-    failureTitle: 'Failed to stage file for commit',
-    run: async ({ gitService, repo, paths }) => {
-      await gitService.stage(repo, paths).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-      ctx.gitToolWindowProvider?.refresh();
-      // The SCM accept commits the WHOLE staged index — when other files
-      // are already staged, say so before the user hits commit.
-      try {
-        const statuses = await gitService.getStatus(repo);
-        const otherStaged = statuses.filter(
-          (st) => st.indexStatus !== ' ' && st.indexStatus !== '?' && !paths.includes(st.path)
-        ).length;
-        if (otherStaged > 0) {
-          void vscode.window.showInformationMessage(
-            `Note: ${otherStaged} other staged file(s) will be included in the commit.`
-          );
-        }
-      } catch (statusError) {
-        getLogger()
-          .child({ component: 'explorerCommands' })
-          .debug('commitFile: staged-index probe failed', {
-            err: statusError instanceof Error ? statusError.message : String(statusError),
-          });
+    failureTitle: 'Failed to open the commit dialog',
+    run: ({ gitService, repo, paths }) => {
+      if (!ctx.commitDialog) {
+        ctx.commitDialog = new CommitDialog(
+          ctx.context.extensionUri,
+          gitService,
+          ctx.context.workspaceState
+        );
       }
-      // Reveal the native SCM view so the just-staged files can be committed
-      // from the IntelliG SourceControl input (acceptInputCommand commits on
-      // accept). VS Code offers no per-SourceControl input-focus command, so
-      // this reveals the SCM viewlet where that input lives. The accept
-      // commits the whole staged index (as the built-in Git extension does),
-      // not strictly these files — but staging them first makes the common
-      // clean-index case effectively selection-scoped.
-      await vscode.commands.executeCommand('workbench.view.scm');
+      // show() resolves when the dialog CLOSES — don't hold the command open
+      // on user interaction; the dialog surfaces its own failures.
+      safeFireAndForget(
+        ctx.commitDialog.show(repo, { preSelectedFiles: paths }).then(() => undefined),
+        'explorer.commitFile: commit dialog'
+      );
+      return Promise.resolve();
     },
   });
 

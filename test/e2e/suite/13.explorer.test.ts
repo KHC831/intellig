@@ -154,19 +154,25 @@ describe('e2e — explorer context-menu commands (nested repo, real git state)',
     );
   });
 
-  it('intellig.explorer.commitFile — stages the file ready for commit', async () => {
+  it('intellig.explorer.commitFile — opens the scoped commit dialog without pre-staging', async () => {
     await setup();
     fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'modified\n');
     stubs = stubPrompts({});
 
     await vscode.commands.executeCommand('intellig.explorer.commitFile', uriFor('file0.txt'));
 
-    await assertStaged(fix.rootPath, 'file0.txt');
+    // The Commit Dialog owns staging at commit time (only the checked
+    // files) — the command must NOT stage up front, or already-staged
+    // bystanders would ride along with the commit.
+    await assertUnstaged(fix.rootPath, 'file0.txt');
     assert.deepStrictEqual(
       stubs.errorMessageCalls.map((c) => c.message),
       [],
       'commitFile must not surface an error toast on the happy path'
     );
+
+    // Close the dialog's webview panel so it doesn't leak into later tests.
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   });
 
   it('intellig.explorer.showHistory — finds commits for the file and offers the picker', async () => {

@@ -100,7 +100,8 @@ export type ShelfTabStashAction =
   | 'stashDrop'
   | 'stashShowDiff'
   | 'stashRename'
-  | 'stashBranchFromStash';
+  | 'stashBranchFromStash'
+  | 'stashClearAll';
 
 /** Message types posted from the webview to the host. */
 export interface ICommitToolWebviewMessage {

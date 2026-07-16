@@ -39,9 +39,11 @@ function makeContext(over?: {
   repos?: IRepository[];
   changelists?: ChangelistStub[];
   serviceOverrides?: Record<string, unknown>;
+  workspaceState?: Record<string, unknown>;
 }): {
   ctx: ICommandContext;
   calls: Record<string, unknown[][]>;
+  stateStore: Map<string, unknown>;
 } {
   const calls: Record<string, unknown[][]> = {};
   const rec = (name: string, ...args: unknown[]): void => {
@@ -72,6 +74,7 @@ function makeContext(over?: {
     ...over?.serviceOverrides,
   };
 
+  const stateStore = new Map<string, unknown>(Object.entries(over?.workspaceState ?? {}));
   const ctx = {
     services: {
       gitService: { getRepositories: () => over?.repos ?? [REPO] },
@@ -79,11 +82,17 @@ function makeContext(over?: {
       shelfService,
     },
     context: {
-      workspaceState: { get: <T>(_k: string, d?: T) => d },
+      workspaceState: {
+        get: <T>(k: string, d?: T): T | undefined =>
+          stateStore.has(k) ? (stateStore.get(k) as T) : d,
+        update: async (k: string, v: unknown): Promise<void> => {
+          stateStore.set(k, v);
+        },
+      },
     },
   } as unknown as ICommandContext;
 
-  return { ctx, calls };
+  return { ctx, calls, stateStore };
 }
 
 describe('changelist commands — handler branch coverage', () => {
@@ -162,12 +171,78 @@ describe('changelist commands — handler branch coverage', () => {
     assert.deepStrictEqual(rec.errors, []);
   });
 
-  it('new: creates the changelist with a trimmed name', async () => {
+  /** Sequence showInputBox answers (name, then description). */
+  function stubInputs(answers: Array<string | undefined>): void {
+    let i = 0;
+    win.showInputBox = async (): Promise<string | undefined> => answers[i++];
+  }
+
+  /** Stub the make-active QuickPick; `choose` picks from the offered items. */
+  function stubMakeActivePick(choose: (items: Array<{ label: string }>) => unknown): {
+    captured: Array<Array<{ label: string }>>;
+  } {
+    const captured: Array<Array<{ label: string }>> = [];
+    win.showQuickPick = async (items: Array<{ label: string }>): Promise<unknown> => {
+      captured.push(items);
+      return choose(items);
+    };
+    return { captured };
+  }
+
+  it('new: gathers name + description and creates without activating by default', async () => {
+    const { ctx, calls } = makeContext({
+      serviceOverrides: {
+        createChangelist: () => ({ id: 'cl-1', name: 'Feature X', files: [] }),
+      },
+    });
+    register(ctx);
+    stubInputs(['  Feature X  ', 'adds blame perf']);
+    const { captured } = stubMakeActivePick((items) => items[0]);
+    await invoke('intellig.changelist.new');
+    assert.deepStrictEqual(calls.setDescription, [[REPO, 'cl-1', 'adds blame perf']]);
+    assert.strictEqual(captured.length, 1, 'the make-active choice is offered');
+    assert.ok(
+      /don.t make active|not active/i.test(captured[0][0].label),
+      `the persisted default (false) leads the picker, got: ${captured[0][0].label}`
+    );
+    assert.ok(!calls.setActiveChangelist, 'default choice leaves the active list unchanged');
+  });
+
+  it('new: make-active choice activates the created list and persists as the next default', async () => {
+    const { ctx, calls, stateStore } = makeContext({
+      serviceOverrides: {
+        createChangelist: () => ({ id: 'cl-2', name: 'Feature Y', files: [] }),
+      },
+    });
+    register(ctx);
+    stubInputs(['Feature Y', '']);
+    stubMakeActivePick((items) => items.find((i) => i.label.includes('$(check)')));
+    await invoke('intellig.changelist.new');
+    assert.deepStrictEqual(calls.setActiveChangelist, [[REPO, 'cl-2']]);
+
+    // The choice persists and leads the next picker (reference:
+    // VcsConfiguration.MAKE_NEW_CHANGELIST_ACTIVE).
+    assert.ok(
+      [...stateStore.values()].some(
+        (v) => typeof v === 'object' && v !== null && (v as { data?: unknown }).data === true
+      ),
+      'the make-active preference is persisted'
+    );
+    const { captured } = stubMakeActivePick((items) => items[0]);
+    stubInputs(['Feature Z', '']);
+    await invoke('intellig.changelist.new');
+    assert.ok(
+      /make active/i.test(captured[0][0].label) && !/don.t/i.test(captured[0][0].label),
+      `persisted true must lead the picker, got: ${captured[0][0].label}`
+    );
+  });
+
+  it('new: cancelling the description aborts the whole flow', async () => {
     const { ctx, calls } = makeContext();
     register(ctx);
-    win.showInputBox = async (): Promise<string | undefined> => '  Feature X  ';
+    stubInputs(['Feature X', undefined]);
     await invoke('intellig.changelist.new');
-    assert.deepStrictEqual(calls.createChangelist, [[REPO, 'Feature X']]);
+    assert.ok(!calls.createChangelist, 'no create when the flow is cancelled');
   });
 
   it('new: surfaces a service error as a toast', async () => {
@@ -179,7 +254,8 @@ describe('changelist commands — handler branch coverage', () => {
       },
     });
     register(ctx);
-    win.showInputBox = async (): Promise<string | undefined> => 'X';
+    stubInputs(['X', '']);
+    stubMakeActivePick((items) => items[0]);
     await invoke('intellig.changelist.new');
     assert.strictEqual(rec.errors.length, 1);
     assert.ok(rec.errors[0].startsWith('Failed to create changelist:'));
@@ -351,6 +427,43 @@ describe('changelist commands — handler branch coverage', () => {
     win.showQuickPick = async (): Promise<unknown> => ({ label: 'CL', id: 'cl-1' });
     await invoke('intellig.changelist.moveFilesTo', ['a.ts', 'b.ts']);
     assert.deepStrictEqual(calls.moveToChangelist, [[REPO, ['a.ts', 'b.ts'], 'cl-1']]);
+  });
+
+  it('moveFilesTo: the target picker offers New Changelist… and moves into the created list', async () => {
+    // Reference: the ChangeListChooser used by Move-to-Changelist offers
+    // creating a new list inline.
+    const { ctx, calls } = makeContext({
+      changelists: [{ id: 'cl-1', name: 'CL', files: [] }],
+      serviceOverrides: {
+        createChangelist: () => ({ id: 'cl-new', name: 'Fresh', files: [] }),
+      },
+    });
+    register(ctx);
+    const picks: Array<Array<{ label: string }>> = [];
+    let quickPickCall = 0;
+    win.showQuickPick = async (items: Array<{ label: string }>): Promise<unknown> => {
+      picks.push(items);
+      quickPickCall += 1;
+      if (quickPickCall === 1) {
+        // Target picker: choose the inline New Changelist entry.
+        return items.find((i) => /new changelist/i.test(i.label));
+      }
+      // Make-active picker inside the new-changelist flow: keep default.
+      return items[0];
+    };
+    let inputCall = 0;
+    win.showInputBox = async (): Promise<string | undefined> => {
+      inputCall += 1;
+      return inputCall === 1 ? 'Fresh' : '';
+    };
+
+    await invoke('intellig.changelist.moveFilesTo', ['a.ts']);
+
+    assert.ok(
+      picks[0].some((i) => /new changelist/i.test(i.label)),
+      `the target picker offers New Changelist…, got: ${picks[0].map((i) => i.label).join(', ')}`
+    );
+    assert.deepStrictEqual(calls.moveToChangelist, [[REPO, ['a.ts'], 'cl-new']]);
   });
 
   // ── commitOnly (guard branches; deep commit path stays in e2e) ──────────────

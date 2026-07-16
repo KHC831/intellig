@@ -9,8 +9,6 @@ import {
   MergeView,
   createStatusBarService,
   KeymapService,
-  createStashView,
-  createShelfView,
   createBranchComparisonView,
   createGutterBlameProvider,
   createLineStatusTracker,
@@ -21,6 +19,7 @@ import {
   COMMIT_TOOL_WINDOW_VIEW_ID,
 } from '../services';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
+import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
 import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
@@ -256,26 +255,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Bind shelf/stash row controllers so the combined Shelf tab can
     // dispatch context-menu actions. ShelfView / StashView already hold the
     // QuickPick + error-handling UX; the controllers are thin adapters.
+    // The singleton factory keeps the Shelf tab consistent with the palette
+    // commands (same UX, same confirm flow, full dependency set).
     const gs = ctx.services.gitService;
-    const cs = ctx.services.conflictResolutionService;
-    const shelfSvc = ctx.services.shelfService;
-
-    // Ensure the ShelfView / StashView singletons exist — both are built
-    // lazily elsewhere in this file. Re-using them keeps the Shelf tab
-    // consistent with the palette commands (same UX, same confirm flow).
-    if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(
-        shelfSvc,
-        (r) => gs.getStatus(r),
-        cs,
-        ctx.services.changelistService
-      );
-    }
-    if (!ctx.stashView) {
-      ctx.stashView = createStashView(gs, cs);
-    }
-    const shelfViewRef = ctx.shelfView;
-    const stashViewRef = ctx.stashView;
+    const shelfViewRef = ensureShelfView(ctx, ctx.services);
+    const stashViewRef = ensureStashView(ctx, ctx.services);
 
     // When the user first opens the Commit tool window, neither view has
     // had `.show()` called, so their internal `_repository` is `undefined`.
@@ -330,13 +314,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         },
       },
       {
+        // Interactive apply/pop: the CTW Shelf tab goes through the same
+        // reinstate-index prompt as the sidebar Stash view (one seam).
         apply: async (idx): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.applyStash(idx);
+          await stashViewRef.applyStashInteractive(idx);
         },
         pop: async (idx): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.popStash(idx);
+          await stashViewRef.popStashInteractive(idx);
         },
         drop: async (idx): Promise<void> => {
           await bindShelfRepo();
@@ -353,6 +339,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         branchFromStash: async (idx): Promise<void> => {
           await bindShelfRepo();
           await stashViewRef.branchFromStash(idx);
+        },
+        clearAll: async (): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.clearAllStashes();
         },
       }
     );
@@ -1418,20 +1408,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       ).setResolveConflictsDependencies(ctx.context, ctx.mergeView);
     }
 
-    // Initialize Stash View — pass conflictResolutionService so that
-    // `apply`/`pop` conflicts route through the Resolve Conflicts dialog.
-    ctx.stashView = createStashView(gitService, ctx.services.conflictResolutionService);
-    ctx.context.subscriptions.push(ctx.stashView);
-
-    // Initialize Shelf View — pass conflictResolutionService so that
-    // unshelve conflicts route through the Resolve Conflicts dialog.
-    ctx.shelfView = createShelfView(
-      ctx.services.shelfService,
-      (repo) => gitService.getStatus(repo),
-      ctx.services.conflictResolutionService,
-      ctx.services.changelistService
-    );
-    ctx.context.subscriptions.push(ctx.shelfView);
+    // Initialize the Stash + Shelf views through the singleton factory
+    // (full dependency set: apply/pop/unshelve conflicts route through the
+    // Resolve Conflicts dialog; disposal registered on creation).
+    ensureStashView(ctx, ctx.services);
+    ensureShelfView(ctx, ctx.services);
 
     // Initialize Branch Comparison View
     ctx.branchComparisonView = createBranchComparisonView(gitService);

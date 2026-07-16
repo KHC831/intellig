@@ -290,6 +290,8 @@ chord that behaves differently under the preset.
 | ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
 | `intellig.commitAuthor`                        | `""`                 | Optional commit-author override in `Name <email>` format                                         |
 | `intellig.commitMessageIssueLinks`             | `true`               | Detect issue/PR references and render as clickable links                                         |
+| `intellig.warnAboutCrlf`                       | `true`               | Warn before committing CRLF line endings when `core.autocrlf` is not normalizing                 |
+| `intellig.largeFileWarningMb`                  | `50`                 | Warn before committing files larger than this size in MB (`0` disables)                          |
 | `intellig.protectedBranches`                   | `["main", "master"]` | Branches that require a confirm before destructive ops                                           |
 | `intellig.addCherryPickedFromSuffix`           | `true`               | Append `(cherry picked from commit <hash>)` when cherry-picking a published commit               |
 | `intellig.pullRebase`                          | `false`              | Use `--rebase` by default in the Pull dialog                                                     |

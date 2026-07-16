@@ -76,14 +76,19 @@ const MANUAL_OWNED = [
 describe('deactivate() disposal ownership', () => {
   const deactivateBody = functionBody(read('src/extension.ts'), 'deactivate');
   const registerViews = read('src/registration/registerViews.ts');
+  // StashView/ShelfView are created (and disposal-registered) by the
+  // singleton factory, not inline in registerViews.
+  const viewSingletons = read('src/shelf/viewSingletons.ts');
 
   describe('context-owned services (pushed onto context.subscriptions)', () => {
     for (const svc of CONTEXT_OWNED) {
       it(`${svc} is registered on context.subscriptions (VS Code owns disposal)`, () => {
-        assert.ok(
-          registerViews.includes(`subscriptions.push(ctx.${svc})`),
-          `${svc} must be pushed onto context.subscriptions`
-        );
+        const viaFactory = svc === 'stashView' || svc === 'shelfView';
+        const source = viaFactory ? viewSingletons : registerViews;
+        const pattern = viaFactory
+          ? `subscriptions.push(host.${svc})`
+          : `subscriptions.push(ctx.${svc})`;
+        assert.ok(source.includes(pattern), `${svc} must be pushed onto context.subscriptions`);
       });
 
       it(`deactivate() does NOT manually dispose ${svc} (avoids double-dispose)`, () => {

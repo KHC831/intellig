@@ -9,10 +9,11 @@
  *   1. **package.json contract** — the command is declared (IntelliG category,
  *      Unicode-ellipsis title) and sits at the very top of the explorer Git
  *      submenu, matching git4idea's `Git.FileActions` (CheckinFiles leads).
- *   2. **Command handler** — invoking it stages the resolved file and reveals
- *      the SCM view; the no-file / no-repo paths surface a toast and never
- *      stage. Driven through the captured `registerCommand` callback with a
- *      mock gitService.
+ *   2. **Command handler** — invoking it opens the CommitDialog scoped to the
+ *      resolved selection (no pre-staging, no whole-index SCM accept); the
+ *      no-file / no-repo paths surface a toast and never open the dialog.
+ *      Driven through the captured `registerCommand` callback with a mock
+ *      gitService.
  *   3. **SCM accept** — `GitScmProvider.commitFromInput` commits the staged
  *      changes with the SourceControl input message (and no-ops on empty).
  */
@@ -216,34 +217,13 @@ describe('intellig.explorer.commitFile — handler', () => {
     return found.cb;
   }
 
-  it('stages the resolved file then reveals the SCM view', async () => {
+  it('opens the CommitDialog scoped to the clicked file (no pre-staging, no SCM reveal)', async () => {
+    // Reference: "Commit File…" opens the commit dialog with exactly that
+    // change preselected (CommitChangeListDialog scoped invocation) — it
+    // must NOT stage up front and reveal the whole-index SCM accept, which
+    // can commit other already-staged files.
     const repo = repoAt('/repo');
-    let staged: string[] | undefined;
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      stage: (_r: IRepository, files: string[]) => {
-        staged = files;
-        return okAsync(undefined);
-      },
-    });
-
-    const handler = commitFileHandler(git);
-    await handler(Uri.file('/repo/src/foo.ts'));
-
-    assert.ok(staged, 'stage should have been called');
-    assert.ok(
-      staged?.some((f) => f.endsWith('foo.ts')),
-      `expected the selected file to be staged, got: ${JSON.stringify(staged)}`
-    );
-    assert.ok(
-      executed.includes('workbench.view.scm'),
-      `expected the SCM view to be revealed, executed: ${JSON.stringify(executed)}`
-    );
-  });
-
-  it('shows a "no file" toast and does NOT stage when no file is resolvable', async () => {
     let stageCalled = false;
-    const repo = repoAt('/repo');
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       stage: () => {
@@ -252,10 +232,43 @@ describe('intellig.explorer.commitFile — handler', () => {
       },
     });
 
+    const ctx = makeContext(git);
+    const shown: Array<{ repo: IRepository; options?: { preSelectedFiles?: string[] } }> = [];
+    (ctx as { commitDialog?: unknown }).commitDialog = {
+      show: async (r: IRepository, options?: { preSelectedFiles?: string[] }): Promise<unknown> => {
+        shown.push({ repo: r, options });
+        return { committed: false };
+      },
+    };
+
+    patch = patchRegisterCommand();
+    registerExplorerCommands(ctx);
+    const found = patch.handlers.find((h) => h.id === 'intellig.explorer.commitFile');
+    assert.ok(found, 'intellig.explorer.commitFile should be registered');
+    await found.cb(Uri.file('/repo/src/foo.ts'));
+
+    assert.strictEqual(shown.length, 1, 'the CommitDialog opens');
+    assert.deepStrictEqual(
+      shown[0].options?.preSelectedFiles,
+      ['src/foo.ts'],
+      'the clicked file is preselected (repo-relative)'
+    );
+    assert.strictEqual(stageCalled, false, 'must not stage before the dialog');
+    assert.ok(
+      !executed.includes('workbench.view.scm'),
+      'must not reveal the whole-index SCM accept'
+    );
+  });
+
+  it('shows a "no file" toast and does NOT open the dialog when no file is resolvable', async () => {
+    const repo = repoAt('/repo');
+    const git = createMockGitService(repo, {
+      getRepositories: () => [repo],
+    });
+
     const handler = commitFileHandler(git);
     await handler(undefined); // no fileUri, no active editor in the mock
 
-    assert.strictEqual(stageCalled, false, 'must not stage without a file');
     assert.ok(
       errorTracker.calls.some((c) => /no file/i.test(c.message)),
       `expected a no-file error toast, got: ${JSON.stringify(errorTracker.calls)}`
@@ -263,22 +276,26 @@ describe('intellig.explorer.commitFile — handler', () => {
     assert.ok(!executed.includes('workbench.view.scm'), 'must not reveal SCM without a file');
   });
 
-  it('does NOT stage when no repository is found', async () => {
-    let stageCalled = false;
+  it('does nothing when no repository is found', async () => {
     const repo = repoAt('/repo');
     const git = createMockGitService(repo, {
       getRepositories: () => [],
-      stage: () => {
-        stageCalled = true;
-        return okAsync(undefined);
-      },
     });
 
-    const handler = commitFileHandler(git);
-    await handler(Uri.file('/repo/src/foo.ts'));
+    const ctx = makeContext(git);
+    let dialogShown = false;
+    (ctx as { commitDialog?: unknown }).commitDialog = {
+      show: async (): Promise<unknown> => {
+        dialogShown = true;
+        return { committed: false };
+      },
+    };
+    patch = patchRegisterCommand();
+    registerExplorerCommands(ctx);
+    const found = patch.handlers.find((h) => h.id === 'intellig.explorer.commitFile');
+    await found!.cb(Uri.file('/repo/src/foo.ts'));
 
-    assert.strictEqual(stageCalled, false, 'must not stage when there is no repo');
-    assert.ok(!executed.includes('workbench.view.scm'), 'must not reveal SCM without a repo');
+    assert.strictEqual(dialogShown, false, 'must not open the dialog when there is no repo');
   });
 });
 

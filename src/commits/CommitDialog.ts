@@ -146,6 +146,12 @@ export interface IPerformCommitResult {
   error?: string;
   /** Paths that ended up in the commit. Echoes {@link IPerformCommitOptions.selectedFiles} on success. */
   files?: string[];
+  /**
+   * Set when the commit landed but restoring the user's pre-dialog staging
+   * split failed afterwards — the caller must surface it (the index no
+   * longer matches what the user had).
+   */
+  restoreWarning?: string;
 }
 
 /**
@@ -247,7 +253,23 @@ export async function performCommit(
       }
     );
 
-    return { success: true, files: options.selectedFiles };
+    // Files the user had staged but excluded from this commit must STILL be
+    // staged afterwards (reference: GitStagingAreaStateManager restores the
+    // staging area after the commit, success and failure alike;
+    // restoreExcluded re-stages the excluded staged changes). Hunk-level
+    // splits inside delta files remain best-effort, as on the failure path.
+    let restoreWarning: string | undefined;
+    if (appliedUnstaged.length > 0) {
+      await gitService.stage(repository, appliedUnstaged).match(
+        () => undefined,
+        () => {
+          restoreWarning =
+            'The commit succeeded, but re-staging the files you had staged and excluded failed — check git status';
+        }
+      );
+    }
+
+    return { success: true, files: options.selectedFiles, restoreWarning };
   } catch (error) {
     // Sanitize at source so the error field is display-ready everywhere —
     // raw git stderr can carry credentialed URLs / home paths, and a mixed
@@ -989,6 +1011,9 @@ export class CommitDialog {
     // Push the committed message onto the recent-messages LRU.
     await this._pushRecentMessage(commitMessage);
 
+    if (result.restoreWarning) {
+      void vscode.window.showWarningMessage(result.restoreWarning);
+    }
     void vscode.window.showInformationMessage(
       `Committed ${(result.files ?? selectedFiles).length} file(s)`
     );

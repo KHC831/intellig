@@ -179,7 +179,7 @@ describe('shelfRowContextMenuLabels', () => {
 });
 
 describe('stashRowContextMenuLabels', () => {
-  it('returns Pop + Apply + Show Diff + Rename… + Create Branch…  + Drop', () => {
+  it('returns Pop + Apply + Show Diff + Rename… + Create Branch… + Drop + Clear All', () => {
     const labels = stashRowContextMenuLabels().map((e) => e.action);
     assert.deepStrictEqual(labels, [
       'stashPop',
@@ -188,6 +188,7 @@ describe('stashRowContextMenuLabels', () => {
       'stashRename',
       'stashBranchFromStash',
       'stashDrop',
+      'stashClearAll',
     ]);
   });
 });

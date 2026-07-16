@@ -54,6 +54,56 @@ export function isLocalChangesWouldBeOverwritten(text: string): boolean {
 }
 
 /**
+ * git refused `stash apply/pop --index` because the index state cannot be
+ * restored ("conflicts in index. Try without --index."). The reference
+ * treats this arm as manual-only — a dedicated error notification, never
+ * the merge dialog (GitSimpleEventDetector.Event.INDEX_CONFLICT_ON_UNSTASH
+ * = "conflicts in index"; GitStashUtils.unstash). Check BEFORE the generic
+ * conflict predicate: the message contains "conflicts" and would otherwise
+ * classify as a mergeable conflict.
+ */
+export function isIndexConflictOnUnstash(text: string): boolean {
+  return text.toLowerCase().includes('conflicts in index');
+}
+
+/**
+ * Detect git's "Your local changes to the following files would be
+ * overwritten" refusal and extract the blocked TRACKED files. Returns
+ * `null` when the message is not that error — including the untracked
+ * form, which {@link parseUntrackedOverwriteFiles} owns (callers run that
+ * one first, mirroring the reference's detector order).
+ *
+ * Mirrors git4idea's GitLocalChangesWouldBeOverwrittenDetector: the modern
+ * form is a header line followed by indented file lines up to the
+ * "Please commit your changes or stash them" hint; the legacy form names a
+ * single file inline.
+ */
+export function parseLocalChangesOverwriteFiles(message: string): string[] | null {
+  const lines = message.split('\n');
+  const headerIdx = lines.findIndex((l) =>
+    /your local changes to the following files would be overwritten by/i.test(l)
+  );
+  if (headerIdx >= 0) {
+    const files: string[] = [];
+    for (const line of lines.slice(headerIdx + 1)) {
+      if (/^\s*please commit your changes or stash them/i.test(line)) {
+        break;
+      }
+      const file = line.trim();
+      if (file.length > 0 && !/^aborting/i.test(file)) {
+        files.push(file);
+      }
+    }
+    return files;
+  }
+  const legacy = message.match(/your local changes to '(.*)' would be overwritten by/i);
+  if (legacy) {
+    return [legacy[1]];
+  }
+  return null;
+}
+
+/**
  * git's error when a `reset` (esp. `--keep`/`--merge`) would clobber
  * uncommitted work — the trigger for IntelliJ's Smart Reset proposal
  * (GitResetOperation.proposeSmartReset).

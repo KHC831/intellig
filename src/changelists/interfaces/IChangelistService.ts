@@ -17,14 +17,21 @@ export interface IFileChange {
 export interface IChangelist {
   id: string;
   name: string;
+  /**
+   * Mirror of {@link isActive}: active and default are ONE concept
+   * (reference: "Set Active Changelist" IS setDefaultChangeList) — the
+   * active list is the routing target for new changes and a deleted list's
+   * files, and is undeletable. Kept as a separate field so consumers can
+   * keep reading the "default" role by name.
+   */
   isDefault: boolean;
   /**
    * True when this changelist is the repository's currently-active one —
-   * the default target for new file assignments made through the UI. Derived
-   * from the storage-level `activeChangelistId` when the model is built, so
-   * exactly one changelist in a repo's list carries `isActive: true` (the
-   * active id always resolves to an existing changelist, falling back to the
-   * default). Lets the tree render the active marker without a separate async
+   * the default target for new file assignments. Derived from the
+   * storage-level `activeChangelistId` when the model is built, so exactly
+   * one changelist in a repo's list carries `isActive: true` (a dangling
+   * active id falls back to the first list). Lets the tree render the
+   * active marker without a separate async
    * {@link IChangelistService.getActiveChangelist} round-trip on the render
    * path.
    */
