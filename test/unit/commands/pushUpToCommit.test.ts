@@ -1,9 +1,10 @@
 /**
- * `intellig.pushUpToCommit` must push the clicked commit onto the branch that
- * CONTAINS it — mirroring GitPushUpToCommitAction: the current branch when the
- * commit is on HEAD, else the first containing local branch — never blindly
- * onto the current branch's remote ref (which would move that ref to a
- * foreign-branch commit).
+ * `intellig.pushUpToCommit` must resolve the branch CONTAINING the clicked
+ * commit — mirroring GitPushUpToCommitAction: the current branch when the
+ * commit is on HEAD, else the first containing local branch, else a detached
+ * push source — and open the PUSH DIALOG with that revision source for
+ * preview. It never pushes directly: protected-target and force rules apply
+ * through the normal dialog path.
  */
 
 import '../../setup';
@@ -14,10 +15,12 @@ import { registerCommitRepoCoreCommands } from '../../../src/commands/registrati
 import type { ICommandContext } from '../../../src/commands/registration/CommandContext';
 import type {
   IBranch,
+  IBranchComparison,
   IGitService,
   IPushOptions,
   IRepository,
 } from '../../../src/git-core/interfaces/IGitService';
+import type { IPushPreselect } from '../../../src/sync/PushDialog';
 import { Uri } from '../../mocks/vscode';
 import { createMockGitService } from '../../mocks/mockGitService';
 import { restoreMessageFunctions, writableWindow } from '../../typed/windowStub';
@@ -40,6 +43,10 @@ function makeRepo(head: {
 
 function localBranch(name: string, upstream?: { remote: string; name: string }): IBranch {
   return { name, type: 'local', commit: 'cafe', upstream, isHead: false };
+}
+
+function emptyComparison(aheadCount = 0): IBranchComparison {
+  return { commitsAhead: [], commitsBehind: [], aheadCount, behindCount: 0, changedFiles: [] };
 }
 
 interface CapturedHandler {
@@ -65,12 +72,18 @@ function patchRegisterCommand(): { handlers: CapturedHandler[]; restore: () => v
   };
 }
 
-function makeContext(gitService: IGitService): ICommandContext {
+function makeContext(gitService: IGitService, opened: IPushPreselect[]): ICommandContext {
   return {
     context: { subscriptions: [] },
     services: { gitService, conflictResolutionService: undefined },
     gitToolWindowProvider: { refresh: (): void => {} },
     commitContextMenuCommands: undefined,
+    openPushDialog: (preselect?: IPushPreselect): undefined => {
+      if (preselect) {
+        opened.push(preselect);
+      }
+      return undefined;
+    },
   } as unknown as ICommandContext;
 }
 
@@ -82,50 +95,56 @@ interface PushLog {
 function setup(
   repo: IRepository,
   containing: string[],
-  branches: IBranch[]
-): { runPush: (...args: unknown[]) => Promise<unknown>; pushes: PushLog[]; errors: string[] } {
+  branches: IBranch[],
+  overrides: Partial<IGitService> = {}
+): {
+  runPush: (...args: unknown[]) => Promise<unknown>;
+  pushes: PushLog[];
+  errors: string[];
+  opened: IPushPreselect[];
+} {
   const pushes: PushLog[] = [];
   const errors: string[] = [];
+  const opened: IPushPreselect[] = [];
   const gitService = createMockGitService(repo, {
     getRepository: async () => repo,
     getContainingBranches: async () => containing,
     getBranches: async () => branches,
+    compareBranches: async () => emptyComparison(),
     push: (r: IRepository, options?: IPushOptions) => {
       pushes.push({ repo: r, options });
       return okAsync(undefined);
     },
+    ...overrides,
   });
   writableWindow().showInformationMessage = () => Promise.resolve(undefined);
   writableWindow().showErrorMessage = (message: string) => {
     errors.push(message);
     return Promise.resolve(undefined);
   };
-  (
-    vscode.window as unknown as { withProgress: (opts: unknown, task: () => unknown) => unknown }
-  ).withProgress = (_opts, task) => task();
 
   const patch = patchRegisterCommand();
   let handler: CapturedHandler | undefined;
   try {
-    registerCommitRepoCoreCommands(makeContext(gitService));
+    registerCommitRepoCoreCommands(makeContext(gitService, opened));
     handler = patch.handlers.find((h) => h.id === 'intellig.pushUpToCommit');
   } finally {
     patch.restore();
   }
   assert.ok(handler, 'intellig.pushUpToCommit should be registered');
-  return { runPush: (...args) => Promise.resolve(handler.cb(...args)), pushes, errors };
+  return { runPush: (...args) => Promise.resolve(handler.cb(...args)), pushes, errors, opened };
 }
 
-describe('pushUpToCommit resolves the branch containing the commit', () => {
+describe('pushUpToCommit opens the push dialog with a revision source', () => {
   afterEach(() => {
     restoreMessageFunctions();
   });
 
-  it('pushes onto the containing branch, not the current branch, when the commit is elsewhere', async () => {
-    // HEAD = main; the clicked commit sits on feature (tracked). Pushing it
-    // as refs/heads/main would move origin/main to a foreign-branch commit.
+  it('previews via the dialog with the containing branch, not the current branch, when the commit is elsewhere', async () => {
+    // HEAD = main; the clicked commit sits on feature (tracked). The dialog
+    // row must carry feature + the hash — never main.
     const repo = makeRepo({ name: 'main', upstream: { remote: 'origin', name: 'main' } });
-    const { runPush, pushes } = setup(
+    const { runPush, pushes, opened } = setup(
       repo,
       ['feature', 'origin/feature'],
       [
@@ -135,14 +154,16 @@ describe('pushUpToCommit resolves the branch containing the commit', () => {
     );
     await runPush(HASH, ROOT);
 
-    assert.strictEqual(pushes.length, 1, 'push runs once');
-    assert.strictEqual(pushes[0].options?.refspec, `${HASH}:refs/heads/feature`);
-    assert.strictEqual(pushes[0].options?.remote, 'origin');
+    assert.strictEqual(pushes.length, 0, 'no direct push — the dialog owns the submit');
+    assert.strictEqual(opened.length, 1, 'the push dialog opens once');
+    assert.strictEqual(opened[0].branch, 'feature');
+    assert.deepStrictEqual(opened[0].upstream, { remote: 'origin', name: 'feature' });
+    assert.deepStrictEqual(opened[0].pushSource, { hash: HASH, detached: false });
   });
 
-  it('pushes onto the current branch when the commit is on HEAD', async () => {
+  it('uses the current branch when the commit is on HEAD', async () => {
     const repo = makeRepo({ name: 'main', upstream: { remote: 'origin', name: 'main' } });
-    const { runPush, pushes } = setup(
+    const { runPush, opened } = setup(
       repo,
       ['feature', 'main', 'origin/main'],
       [
@@ -152,14 +173,14 @@ describe('pushUpToCommit resolves the branch containing the commit', () => {
     );
     await runPush(HASH, ROOT);
 
-    assert.strictEqual(pushes.length, 1);
-    assert.strictEqual(pushes[0].options?.refspec, `${HASH}:refs/heads/main`);
-    assert.strictEqual(pushes[0].options?.remote, 'origin');
+    assert.strictEqual(opened.length, 1);
+    assert.strictEqual(opened[0].branch, 'main');
+    assert.deepStrictEqual(opened[0].pushSource, { hash: HASH, detached: false });
   });
 
-  it('detached HEAD still pushes when a local branch contains the commit', async () => {
+  it('detached HEAD still previews when a local branch contains the commit', async () => {
     const repo = makeRepo({ name: undefined });
-    const { runPush, pushes, errors } = setup(
+    const { runPush, opened, errors } = setup(
       repo,
       ['feature'],
       [localBranch('feature', { remote: 'origin', name: 'feature' })]
@@ -167,27 +188,32 @@ describe('pushUpToCommit resolves the branch containing the commit', () => {
     await runPush(HASH, ROOT);
 
     assert.deepStrictEqual(errors, [], 'no detached-HEAD hard error');
-    assert.strictEqual(pushes.length, 1);
-    assert.strictEqual(pushes[0].options?.refspec, `${HASH}:refs/heads/feature`);
+    assert.strictEqual(opened.length, 1);
+    assert.strictEqual(opened[0].branch, 'feature');
+    assert.deepStrictEqual(opened[0].pushSource, { hash: HASH, detached: false });
   });
 
-  it('errors without pushing when no local branch contains the commit', async () => {
+  it('opens a DETACHED revision source when no local branch contains the commit', async () => {
+    // Reference: GitPushSource.createDetached — no error, the dialog previews
+    // the raw hash and the user confirms the target.
     const repo = makeRepo({ name: 'main', upstream: { remote: 'origin', name: 'main' } });
-    const { runPush, pushes, errors } = setup(
+    const { runPush, pushes, errors, opened } = setup(
       repo,
       ['origin/gone'],
       [localBranch('main', { remote: 'origin', name: 'main' })]
     );
     await runPush(HASH, ROOT);
 
-    assert.strictEqual(pushes.length, 0, 'nothing is pushed');
-    assert.strictEqual(errors.length, 1);
-    assert.ok(/not on any local branch/i.test(errors[0]), errors[0]);
+    assert.strictEqual(pushes.length, 0);
+    assert.deepStrictEqual(errors, [], 'a detached source is not an error');
+    assert.strictEqual(opened.length, 1);
+    assert.strictEqual(opened[0].branch, undefined, 'no containing branch on the row');
+    assert.deepStrictEqual(opened[0].pushSource, { hash: HASH, detached: true });
   });
 
-  it('pushes to the containing branch tracked target name when it differs from the local name', async () => {
+  it('threads the containing branch tracked target when it differs from the local name', async () => {
     const repo = makeRepo({ name: 'main', upstream: { remote: 'origin', name: 'main' } });
-    const { runPush, pushes } = setup(
+    const { runPush, opened } = setup(
       repo,
       ['feature'],
       [
@@ -197,8 +223,38 @@ describe('pushUpToCommit resolves the branch containing the commit', () => {
     );
     await runPush(HASH, ROOT);
 
-    assert.strictEqual(pushes.length, 1);
-    assert.strictEqual(pushes[0].options?.remote, 'fork');
-    assert.strictEqual(pushes[0].options?.refspec, `${HASH}:refs/heads/renamed-feature`);
+    assert.strictEqual(opened.length, 1);
+    assert.deepStrictEqual(opened[0].upstream, { remote: 'fork', name: 'renamed-feature' });
+  });
+
+  it("threads the hash's own ahead-of-target count for the commits badge", async () => {
+    const repo = makeRepo({ name: 'main', upstream: { remote: 'origin', name: 'main' } });
+    const compared: Array<[string, string]> = [];
+    const { runPush, opened } = setup(
+      repo,
+      ['feature'],
+      [localBranch('feature', { remote: 'origin', name: 'feature' })],
+      {
+        compareBranches: async (_repo, a, b) => {
+          compared.push([a, b]);
+          return emptyComparison(3);
+        },
+      }
+    );
+    await runPush(HASH, ROOT);
+
+    assert.strictEqual(opened.length, 1);
+    assert.strictEqual(opened[0].ahead, 3);
+    assert.deepStrictEqual(compared, [[HASH, 'origin/feature']], 'hash vs the target ref');
+  });
+
+  it('rejects an invalid hash without opening the dialog', async () => {
+    const repo = makeRepo({ name: 'main', upstream: { remote: 'origin', name: 'main' } });
+    const { runPush, errors, opened } = setup(repo, [], []);
+    await runPush('--upload-pack=evil', ROOT);
+
+    assert.strictEqual(opened.length, 0);
+    assert.strictEqual(errors.length, 1);
+    assert.ok(/invalid commit hash/i.test(errors[0]), errors[0]);
   });
 });

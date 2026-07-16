@@ -120,6 +120,7 @@ function makeRow(overrides: Partial<IPushRow> = {}): IPushRow {
     upstreamRemote,
     ahead: overrides.ahead ?? 0,
     behind: overrides.behind ?? 0,
+    pushSource: overrides.pushSource,
     error: overrides.error,
   };
 }
@@ -1281,6 +1282,325 @@ describe('PushDialog — rejected-push update proposal gates', () => {
       'the update pull must prune like every other fetch/pull site'
     );
     assert.strictEqual(gitService.pushCalls.length, 2, 'rejected push retried after the update');
+  });
+});
+
+// ─── Revision push source (push up to here — GitPushSource.createRef/createDetached) ───
+
+describe('PushDialog — revision push source (push up to here)', () => {
+  const HASH = 'beebeebeebeebeebeebeebeebeebeebeebeebeeb';
+  const SHORT = HASH.slice(0, 7);
+
+  describe('buildPushOptions with a revision source', () => {
+    it('pushes the hash refspec onto refs/heads/<target> with no positional branch', () => {
+      const row = makeRow({ pushSource: { hash: HASH, detached: false } });
+      const opts = buildPushOptions(row, 'push', DEFAULT_PUSH_OVERFLOW);
+      assert.strictEqual(opts.refspec, `${HASH}:refs/heads/feature`);
+      assert.strictEqual(opts.branch, undefined, 'no positional branch beside the refspec');
+      assert.strictEqual(opts.remote, 'origin');
+    });
+
+    it('never sets --set-upstream, even when the row has no upstream remote', () => {
+      const row = makeRow({
+        pushSource: { hash: HASH, detached: false },
+        upstreamRemote: undefined,
+      });
+      const opts = buildPushOptions(row, 'push', DEFAULT_PUSH_OVERFLOW);
+      assert.strictEqual(
+        opts.setUpstream,
+        undefined,
+        'a revision source is not a branch ref — there is nothing to track (GitPushTarget.shouldSetUpstream)'
+      );
+      assert.strictEqual(opts.refspec, `${HASH}:refs/heads/feature`);
+    });
+
+    it('maps force actions through unchanged', () => {
+      const row = makeRow({ pushSource: { hash: HASH, detached: false } });
+      const lease = buildPushOptions(row, 'forceWithLease', DEFAULT_PUSH_OVERFLOW);
+      assert.strictEqual(lease.forceWithLease, true);
+      const force = buildPushOptions(row, 'force', DEFAULT_PUSH_OVERFLOW);
+      assert.strictEqual(force.force, true);
+    });
+
+    it('a detached row (no local branch) still builds the hash refspec', () => {
+      const row = makeRow({
+        pushSource: { hash: HASH, detached: true },
+        localBranch: '',
+        upstreamRemote: undefined,
+        targetBranch: 'main',
+      });
+      const opts = buildPushOptions(row, 'push', DEFAULT_PUSH_OVERFLOW);
+      assert.strictEqual(opts.refspec, `${HASH}:refs/heads/main`);
+      assert.strictEqual(opts.branch, undefined);
+    });
+
+    it('an empty target on a revision row throws instead of producing a broken refspec', () => {
+      const row = makeRow({ pushSource: { hash: HASH, detached: true }, targetBranch: '' });
+      assert.throws(() => buildPushOptions(row, 'push', DEFAULT_PUSH_OVERFLOW), /target/i);
+    });
+
+    it('a malformed hash throws (defense against a smuggled flag)', () => {
+      const row = makeRow({ pushSource: { hash: '--upload-pack=evil', detached: false } });
+      assert.throws(() => buildPushOptions(row, 'push', DEFAULT_PUSH_OVERFLOW), /hash/i);
+    });
+
+    it('a target already in full ref form is not double-prefixed', () => {
+      const row = makeRow({
+        pushSource: { hash: HASH, detached: false },
+        targetBranch: 'refs/heads/qa',
+      });
+      const opts = buildPushOptions(row, 'push', DEFAULT_PUSH_OVERFLOW);
+      assert.strictEqual(opts.refspec, `${HASH}:refs/heads/qa`);
+    });
+  });
+
+  it('shouldProposeUpdateForRejected never proposes for a revision row, even one shaped like the current tracked branch', () => {
+    // An update + re-push of a FIXED hash would push the wrong commit — the
+    // reference gates its HEAD^n re-push variant behind a registry flag for
+    // exactly this reason.
+    const repo = makeRepo('/r', {
+      name: 'refs/heads/feature',
+      upstream: { remote: 'origin', name: 'feature' },
+    });
+    const row = makeRow({
+      repo,
+      localBranch: 'feature',
+      targetBranch: 'feature',
+      pushSource: { hash: HASH, detached: false },
+    });
+    assert.strictEqual(shouldProposeUpdateForRejected([row]), false);
+  });
+
+  describe('lifecycle', () => {
+    it('preselect seeds the row from the containing branch and carries the hash + its own ahead count', async () => {
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/main',
+        upstream: { remote: 'origin', name: 'main' },
+        ahead: 5,
+      });
+      const { dialog } = makeDialog({
+        repos: [repo],
+        preselect: {
+          repo,
+          branch: 'feature',
+          upstream: { remote: 'origin', name: 'feature' },
+          ahead: 2,
+          behind: 0,
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      await dialog.waitUntilPopulated();
+      const row = dialog.rows[0];
+      assert.strictEqual(row.pushSource?.hash, HASH);
+      assert.strictEqual(row.localBranch, 'feature');
+      assert.strictEqual(row.targetBranch, 'feature');
+      assert.strictEqual(row.upstreamRemote, 'origin');
+      assert.strictEqual(row.ahead, 2, "the hash's own count, not HEAD's");
+      dialog.dispose();
+    });
+
+    it('a revision source on the CURRENT branch still uses the threaded ahead count, not the branch tip', async () => {
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/feature',
+        upstream: { remote: 'origin', name: 'feature' },
+        ahead: 5,
+      });
+      const { dialog } = makeDialog({
+        repos: [repo],
+        preselect: {
+          repo,
+          branch: 'feature',
+          upstream: { remote: 'origin', name: 'feature' },
+          ahead: 2,
+          behind: 0,
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      await dialog.waitUntilPopulated();
+      assert.strictEqual(
+        dialog.rows[0].ahead,
+        2,
+        'an older commit on HEAD pushes fewer commits than the tip'
+      );
+      dialog.dispose();
+    });
+
+    it('a detached revision source has no local branch and defaults the target to the current branch name', async () => {
+      // GitPushSupport.getDefaultTarget: a detached source targets the
+      // current branch name when one exists.
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/main',
+        upstream: { remote: 'origin', name: 'main' },
+      });
+      const { dialog } = makeDialog({
+        repos: [repo],
+        preselect: { repo, pushSource: { hash: HASH, detached: true } },
+      });
+      await dialog.waitUntilPopulated();
+      const row = dialog.rows[0];
+      assert.strictEqual(row.pushSource?.detached, true);
+      assert.strictEqual(row.localBranch, '', 'no local branch contains the commit');
+      assert.strictEqual(row.targetBranch, 'main');
+      dialog.dispose();
+    });
+
+    it('a detached revision source with no current branch targets "detached"', async () => {
+      const repo = makeRepo('/repo-a');
+      (repo.head as { name?: string }).name = undefined;
+      const { dialog } = makeDialog({
+        repos: [repo],
+        preselect: { repo, pushSource: { hash: HASH, detached: true } },
+      });
+      await dialog.waitUntilPopulated();
+      assert.strictEqual(dialog.rows[0].targetBranch, 'detached');
+      dialog.dispose();
+    });
+
+    it('submit pushes the hash refspec through gitService.push and toasts the commit, not a branch', async () => {
+      const log = installMessageTrackers();
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/main',
+        upstream: { remote: 'origin', name: 'main' },
+      });
+      const { dialog, gitService } = makeDialog({
+        repos: [repo],
+        preselect: {
+          repo,
+          branch: 'feature',
+          upstream: { remote: 'origin', name: 'feature' },
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      await dialog.waitUntilPopulated();
+      await dialog.simulateMessage({ type: 'submit', action: 'push' });
+      assert.strictEqual(gitService.pushCalls.length, 1);
+      assert.strictEqual(gitService.pushCalls[0].options?.refspec, `${HASH}:refs/heads/feature`);
+      assert.strictEqual(gitService.pushCalls[0].options?.branch, undefined);
+      assert.deepStrictEqual(
+        log.info,
+        [`Pushed up to ${SHORT}`],
+        'a detached row has no branch name to toast'
+      );
+    });
+
+    it('protected target blocks force submit for a revision row (normal dialog rules apply)', async () => {
+      installMessageTrackers();
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/main',
+        upstream: { remote: 'origin', name: 'main' },
+      });
+      const { dialog, gitService } = makeDialog({
+        repos: [repo],
+        protectedBranches: ['main'],
+        preselect: {
+          repo,
+          branch: 'main',
+          upstream: { remote: 'origin', name: 'main' },
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      await dialog.waitUntilPopulated();
+      await dialog.simulateMessage({ type: 'submit', action: 'forceWithLease' });
+      assert.strictEqual(gitService.pushCalls.length, 0, 'the guard blocks before pushing');
+      assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-protected');
+      dialog.dispose();
+    });
+
+    it('a rejected revision row surfaces as-is: NO Merge/Rebase modal, NO pull', async () => {
+      const log = installMessageTrackers();
+      const NON_FF = new SpawnFailedError('! [rejected] beebeeb -> main (non-fast-forward)');
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/feature',
+        upstream: { remote: 'origin', name: 'feature' },
+      });
+      const { dialog, gitService } = makeDialog({
+        gitService: makeGitService({ pushError: NON_FF }),
+        repos: [repo],
+        preselect: {
+          repo,
+          branch: 'feature',
+          upstream: { remote: 'origin', name: 'feature' },
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      await dialog.waitUntilPopulated();
+      await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+      assert.deepStrictEqual(log.warn, [], 'no Merge/Rebase modal for a fixed-hash push');
+      assert.strictEqual(gitService.pullCalls.length, 0, 'no update pull');
+      assert.strictEqual(gitService.pushCalls.length, 1, 'no retry — the rejection stands');
+      assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-non-ff');
+      dialog.dispose();
+    });
+  });
+
+  describe('rendered DOM', () => {
+    function renderDoc(dialog: TestPushDialog): Document {
+      const bodyHtml = extractWebviewScript(dialog.renderedHtml()).bodyHtml;
+      const h = bootWebviewEntry('sync/webview/pushDialog', { bodyHtml });
+      _pushHarnesses.push(h);
+      return h.document;
+    }
+
+    it('the source cell renders the short hash, not the branch tip name', async () => {
+      // GitPushSource.OnRevision presentation is the short hash.
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/main',
+        upstream: { remote: 'origin', name: 'main' },
+      });
+      const { dialog } = makeDialog({
+        repos: [repo],
+        preselect: {
+          repo,
+          branch: 'feature',
+          upstream: { remote: 'origin', name: 'feature' },
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      try {
+        await dialog.waitUntilPopulated();
+        const document = renderDoc(dialog);
+        const sourceCell = document.querySelector(
+          '#rows tr[data-row-id] td:nth-child(3)'
+        ) as HTMLElement;
+        assert.strictEqual(sourceCell.textContent, SHORT);
+      } finally {
+        dialog.dispose();
+      }
+    });
+
+    it('a rejected revision row offers no Pull-and-Retry affordance', async () => {
+      installMessageTrackers();
+      const NON_FF = new SpawnFailedError('! [rejected] beebeeb -> feature (non-fast-forward)');
+      const repo = makeRepo('/repo-a', {
+        name: 'refs/heads/feature',
+        upstream: { remote: 'origin', name: 'feature' },
+      });
+      const { dialog } = makeDialog({
+        gitService: makeGitService({ pushError: NON_FF }),
+        repos: [repo],
+        preselect: {
+          repo,
+          branch: 'feature',
+          upstream: { remote: 'origin', name: 'feature' },
+          pushSource: { hash: HASH, detached: false },
+        },
+      });
+      try {
+        await dialog.waitUntilPopulated();
+        await dialog.simulateMessage({ type: 'submit', action: 'push' });
+        const document = renderDoc(dialog);
+        const banner = document.querySelector('tr.row-error');
+        assert.ok(banner, 'rejection banner renders');
+        assert.strictEqual(
+          banner.querySelector('button[data-action="pullAndRetry"]'),
+          null,
+          'pulling cannot make a fixed hash pushable — no update/retry affordance'
+        );
+      } finally {
+        dialog.dispose();
+      }
+    });
   });
 });
 

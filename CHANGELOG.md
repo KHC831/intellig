@@ -30,6 +30,7 @@ fresh empty `[Unreleased]` block is added on top.
 - Branch favorites are now per-workspace, like IntelliJ's per-project favorites; existing stars carry over once per workspace.
 - Picking a revision in Show Line History opens that revision's diff instead of an info toast.
 - Selecting text in the merge window shows the selection highlight again, including over conflict-colored lines.
+- "Push All up to Here" now opens the push dialog to preview the push instead of pushing immediately, shows the commit it will push, and can push a commit no local branch contains.
 
 ## [0.4.2] - 2026-07-15
 

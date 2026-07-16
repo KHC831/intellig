@@ -70,6 +70,19 @@ export const DEFAULT_PUSH_OVERFLOW: IPushOverflowState = {
   tagScope: 'all',
 };
 
+/**
+ * Revision push source for a row: push this exact commit instead of the
+ * local branch tip — GitPushSource.createRef / createDetached. `detached`
+ * means no local branch contains the commit; the row then has no local
+ * branch and pushes the raw hash onto whatever target the user confirms.
+ */
+export interface IPushRowSource {
+  /** Hash of the commit to push (full or unique-prefix). */
+  hash: string;
+  /** True when no local branch contains the commit. */
+  detached: boolean;
+}
+
 /** Per-row state in the repo table. */
 export interface IPushRow {
   /** Stable row id (repo root fsPath). */
@@ -90,6 +103,8 @@ export interface IPushRow {
   ahead: number;
   /** Count of commits behind upstream (divergence signal). */
   behind: number;
+  /** When set, the row pushes this exact commit, not the branch tip. */
+  pushSource?: IPushRowSource;
   /**
    * Per-row error state, if the last push attempt failed. Used to render the
    * inline row banner and offer "Pull and Retry" / "Force with Lease".
@@ -202,8 +217,13 @@ export function primaryButtonLabel(action: PushAction): string {
  * Build an {@link IPushOptions} from a row + chosen action + overflow state.
  *
  * - Sets `--set-upstream` when the row has no upstreamRemote (new branch).
+ *   Never for a revision source — a pushed hash is not a branch ref, so
+ *   there is nothing to track (GitPushTarget.shouldSetUpstream).
  * - Computes a `refspec` only when the target differs from the local branch
- *   (so the common case stays `git push <remote> <branch>`).
+ *   (so the common case stays `git push <remote> <branch>`). A revision
+ *   source always pushes `<hash>:refs/heads/<target>` — the full ref name,
+ *   since git cannot infer a ref kind from a raw hash
+ *   (GitPushOperation.createPushSpec).
  * - Maps action: `push` → nothing / `forceWithLease` → --force-with-lease
  *   / `force` → --force (and only `force` sets bare --force).
  * - Maps overflow: `noVerify` → --no-verify; `pushTags` + scope → --tags or
@@ -215,10 +235,18 @@ export function buildPushOptions(
   overflow: IPushOverflowState,
   fallbackRemote: string = 'origin'
 ): IPushOptions {
-  // Security: refuse up-front if either branch name could be parsed by git as
-  // a CLI flag. `git push <remote> -foo` treats `-foo` as `-f oo`; same for
+  // Security: refuse up-front if a ref/hash could be parsed by git as a CLI
+  // flag. `git push <remote> -foo` treats `-foo` as `-f oo`; same for
   // refspec halves. Matches validateTagName / isValidRef policy.
-  if (!isValidPushRef(row.localBranch)) {
+  const source = row.pushSource;
+  if (source) {
+    if (!isValidPushHash(source.hash)) {
+      throw new Error(`Invalid commit hash '${source.hash}'`);
+    }
+    if (!row.targetBranch) {
+      throw new Error('A commit push needs a target branch name');
+    }
+  } else if (!isValidPushRef(row.localBranch)) {
     throw new Error(`Invalid local branch '${row.localBranch}': cannot start with '-' or '.'`);
   }
   if (row.targetBranch && !isValidPushRef(row.targetBranch)) {
@@ -228,11 +256,13 @@ export function buildPushOptions(
   const remote = row.upstreamRemote ?? fallbackRemote;
   const opts: IPushOptions = {
     remote,
-    branch: row.localBranch,
   };
 
-  if (!row.upstreamRemote) {
-    opts.setUpstream = true;
+  if (!source) {
+    opts.branch = row.localBranch;
+    if (!row.upstreamRemote) {
+      opts.setUpstream = true;
+    }
   }
 
   switch (action) {
@@ -258,7 +288,12 @@ export function buildPushOptions(
     }
   }
 
-  if (row.targetBranch && row.targetBranch !== row.localBranch) {
+  if (source) {
+    const targetRef = row.targetBranch.startsWith('refs/')
+      ? row.targetBranch
+      : `refs/heads/${row.targetBranch}`;
+    opts.refspec = `${source.hash}:${targetRef}`;
+  } else if (row.targetBranch && row.targetBranch !== row.localBranch) {
     opts.refspec = `${row.localBranch}:${row.targetBranch}`;
     // When pushing a refspec, drop the positional branch so the CLI doesn't
     // see two push specs.
@@ -278,6 +313,14 @@ export function buildPushOptions(
  */
 export function isValidPushRef(name: string): boolean {
   return /^(?![-.])[A-Za-z0-9_./@~^-]+$/.test(name);
+}
+
+/**
+ * Security guard for a revision push source: hex only (full hash or unique
+ * prefix), so it can never be parsed as a CLI flag or expand the refspec.
+ */
+export function isValidPushHash(hash: string): boolean {
+  return /^[0-9a-f]{4,64}$/i.test(hash);
 }
 
 /**
@@ -374,11 +417,20 @@ export const MAX_PUSH_ATTEMPTS = 10;
  * as-is instead — updating would pull into a branch the user never asked to
  * touch. (Force pushes never reach this check; the caller only loops plain
  * pushes.)
+ *
+ * Revision rows (push-up-to-here) never enter the loop: an update moves the
+ * branch tip but the row's hash is FIXED, so a re-push would still be
+ * rejected — or worse, ff-move the remote to a commit the user never chose.
+ * The reference gates its re-pushable HEAD^n variant behind a registry flag
+ * for the same reason.
  */
 export function shouldProposeUpdateForRejected(rejected: ReadonlyArray<IPushRow>): boolean {
   return (
     rejected.length > 0 &&
     rejected.every((row) => {
+      if (row.pushSource) {
+        return false;
+      }
       const head = row.repo.head;
       const currentBranch = head?.name?.replace(/^refs\/heads\//, '');
       if (!currentBranch || row.localBranch !== currentBranch) {
@@ -474,6 +526,13 @@ export interface IPushPreselect {
    */
   ahead?: number;
   behind?: number;
+  /**
+   * Revision push source (push-up-to-here): the selected row pushes this
+   * exact commit. With `detached: false`, `branch` names the containing
+   * local branch; with `detached: true` no local branch contains it and the
+   * row has no local branch at all.
+   */
+  pushSource?: IPushRowSource;
 }
 
 /** Options for constructing a {@link PushDialog}. */
@@ -559,15 +618,28 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
       // fallback. A clicked branch with no upstream still falls through to a
       // new-upstream push (target = branch itself).
       const isPreselectedBranchRow = Boolean(preselect?.branch) && selected;
-      const localBranch = isPreselectedBranchRow ? preselect!.branch! : headBranch;
+      let localBranch = isPreselectedBranchRow ? preselect!.branch! : headBranch;
       const clickedIsHead = isPreselectedBranchRow && localBranch === headBranch;
-      const rowUpstream = !isPreselectedBranchRow || clickedIsHead ? upstream : preselect?.upstream;
-      const targetBranch = rowUpstream?.name ?? localBranch;
+      let rowUpstream = !isPreselectedBranchRow || clickedIsHead ? upstream : preselect?.upstream;
+      let targetBranch = rowUpstream?.name ?? localBranch;
+
+      // A revision source (push-up-to-here) pushes an exact commit, not a
+      // branch tip. A detached source has no local branch at all; its target
+      // defaults to the current branch name, else a fresh "detached" ref
+      // (GitPushSupport.getDefaultTarget for a branchless source).
+      const pushSource = selected ? preselect?.pushSource : undefined;
+      if (pushSource?.detached) {
+        localBranch = '';
+        rowUpstream = preselect?.upstream;
+        targetBranch = rowUpstream?.name ?? (headBranch || 'detached');
+      }
 
       // A clicked non-HEAD branch reports its OWN divergence (threaded via
       // preselect), not the resolved HEAD's — otherwise a diverged non-HEAD
-      // branch shows 0/0 and the force-with-lease auto-flip never fires.
-      const fromClickedBranch = isPreselectedBranchRow && !clickedIsHead;
+      // branch shows 0/0 and the force-with-lease auto-flip never fires. A
+      // revision row's counts are ALWAYS the hash's own (even on HEAD, an
+      // older commit pushes fewer commits than the tip).
+      const fromClickedBranch = (isPreselectedBranchRow && !clickedIsHead) || Boolean(pushSource);
       const ahead = fromClickedBranch ? (preselect?.ahead ?? 0) : (repo.head?.ahead ?? 0);
       const behind = fromClickedBranch ? (preselect?.behind ?? 0) : (repo.head?.behind ?? 0);
 
@@ -581,6 +653,7 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
         upstreamRemote: rowUpstream?.remote,
         ahead,
         behind,
+        ...(pushSource ? { pushSource } : {}),
       });
     }
     this._rows = rows;
@@ -718,6 +791,7 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
         ahead: r.ahead,
         selected: r.selected,
         protected: isProtectedTarget(r.targetBranch, this._protectedBranches),
+        sourceHash: r.pushSource?.hash ?? null,
         error: r.error ? { message: r.error.message, kind: r.error.kind } : null,
       })),
       primaryAction: this._primaryAction,
@@ -825,7 +899,10 @@ ${this._getBodyHtml()}
 
       case 'pullAndRetry': {
         const row = this._rows.find((r) => r.id === msg.rowId);
-        if (!row) {
+        // A revision row never updates-and-retries: its hash is fixed, so a
+        // pull cannot make it pushable (the webview hides the affordance;
+        // this guards a stale DOM).
+        if (!row || row.pushSource) {
           return;
         }
         const dialog = this._pullDialogAccessor?.();
@@ -1034,10 +1111,14 @@ ${this._getBodyHtml()}
       this._render();
 
       if (anySuccess && !anyFailure) {
-        // All rows settled successfully — toast, fire callback, dispose.
+        // All rows settled successfully — toast, fire callback, dispose. A
+        // revision row names the pushed commit (a detached one has no branch
+        // name at all).
         void vscode.window.showInformationMessage(
           rows.length === 1
-            ? `Pushed '${rows[0].localBranch}'`
+            ? rows[0].pushSource
+              ? `Pushed up to ${rows[0].pushSource.hash.slice(0, 7)}`
+              : `Pushed '${rows[0].localBranch}'`
             : `Pushed ${rows.length} repositories`
         );
         if (this._onPushComplete) {

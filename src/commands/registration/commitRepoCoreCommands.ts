@@ -32,6 +32,7 @@ import {
   type UpdateMethod,
 } from '../../sync/updateProject';
 import { runConfigureRemotesFlow } from '../../sync/configureRemotes';
+import { isValidPushHash } from '../../sync/PushDialog';
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
 import { buildUpdateNotification } from '../../ui-shell/updateNotification';
 import { statusCodeToFileStatus } from '../../git-core/gitParser';
@@ -1243,18 +1244,19 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
 
   // Push up to here — IntelliJ's Git.PushUpToHere. Accepts a commit hash,
   // resolves the branch CONTAINING it (the current branch when the commit is
-  // on HEAD, else the first containing local branch — GitPushUpToCommitAction
-  // semantics), and pushes `<hash>:refs/heads/<target>` on that branch's
-  // tracked remote so the remote ref moves to that exact commit. Single-only;
-  // invoked programmatically from the log commit context menu (not shown in
-  // menus).
-  const PUSH_HASH_RE = /^[0-9a-f]{4,64}$/i;
+  // on HEAD, else the first containing local branch, else a detached source —
+  // GitPushUpToCommitAction semantics) and opens the PUSH DIALOG with that
+  // revision source for preview. The dialog owns the submit, so protected-
+  // target and force rules apply through the normal path; the push moves the
+  // target ref to that exact commit (`<hash>:refs/heads/<target>`).
+  // Single-only; invoked programmatically from the log commit context menu
+  // (not shown in menus).
   const pushUpToCommitCommand = registerBareCommand(ctx, {
     id: 'intellig.pushUpToCommit',
     failureTitle: 'Push failed',
     run: async ({ gitService }, rawHash, repoRootArg) => {
       const hash = typeof rawHash === 'string' ? rawHash : '';
-      if (!hash || !PUSH_HASH_RE.test(hash)) {
+      if (!hash || !isValidPushHash(hash)) {
         void vscode.window.showErrorMessage('Cannot push: invalid commit hash.');
         return;
       }
@@ -1275,10 +1277,11 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       if (!repo) {
         return;
       }
-      // Resolve the branch that CONTAINS the commit. Pushing the hash onto
-      // the current branch's remote ref regardless of containment would move
-      // that ref to a foreign-branch commit (fast-forwardable case) or fail
-      // with a confusing non-ff error naming the wrong branch.
+      // Resolve the branch that CONTAINS the commit. Seeding the dialog row
+      // from the current branch regardless of containment would propose
+      // moving that ref to a foreign-branch commit. A commit on no local
+      // branch becomes a detached source (GitPushSource.createDetached), not
+      // an error — the dialog previews the raw hash.
       const headBranch = repo.head?.name?.replace(/^refs\/heads\//, '');
       const containing = await gitService.getContainingBranches(repo, hash);
       const locals = new Map(
@@ -1290,63 +1293,27 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         headBranch && containing.includes(headBranch)
           ? (locals.get(headBranch) ?? { name: headBranch, upstream: repo.head?.upstream })
           : containing.map((name) => locals.get(name)).find((b) => b !== undefined);
-      if (!chosen) {
-        void vscode.window.showErrorMessage(
-          `Cannot push: commit ${hash.slice(0, 7)} is not on any local branch.`
-        );
-        return;
-      }
-      const branch = chosen.upstream?.name ?? chosen.name;
-      // Without a configured upstream, ask which remote to move rather than
-      // silently assuming origin (fork workflows: origin vs upstream).
-      let remote = chosen.upstream?.remote;
-      if (!remote) {
-        const remotes = await gitService.getRemotes(repo).match(
-          (r) => r,
-          () => []
-        );
-        if (remotes.length === 0) {
-          void vscode.window.showErrorMessage('Cannot push: no remotes configured.');
-          return;
-        }
-        if (remotes.length === 1) {
-          remote = remotes[0].name;
-        } else {
-          const picked = await vscode.window.showQuickPick(
-            remotes.map((r) => ({ label: r.name })),
-            {
-              title: 'Push up to here — Choose Remote',
-              placeHolder: `No upstream configured for '${branch}' — select the remote to push to`,
+
+      // The hash's own ahead-of-target count for the dialog's commits badge —
+      // an older commit pushes fewer commits than the branch tip.
+      const upstream = chosen?.upstream;
+      const ahead = upstream
+        ? (await gitService.compareBranches(repo, hash, `${upstream.remote}/${upstream.name}`))
+            .aheadCount
+        : 0;
+
+      ctx.openPushDialog(
+        chosen
+          ? {
+              repo,
+              branch: chosen.name,
+              upstream,
+              ahead,
+              behind: 0,
+              pushSource: { hash, detached: false },
             }
-          );
-          if (!picked) {
-            return;
-          }
-          remote = picked.label;
-        }
-      }
-      try {
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Pushing up to ${hash.slice(0, 7)} on ${remote}/${branch}…`,
-            cancellable: false,
-          },
-          () =>
-            gitService.push(repo, {
-              remote,
-              refspec: `${hash}:refs/heads/${branch}`,
-            })
-        );
-        void vscode.window.showInformationMessage(`Pushed up to ${hash.slice(0, 7)}.`);
-        await gitService.reloadRepository(repo);
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.refresh();
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Push failed.';
-        void vscode.window.showErrorMessage(sanitizeGitError(msg));
-      }
+          : { repo, ahead, behind: 0, pushSource: { hash, detached: true } }
+      );
     },
   });
 

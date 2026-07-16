@@ -164,10 +164,9 @@ describe('delegating commands honor the threaded clicked-commit repo root', () =
     assert.strictEqual(tagCalls[0].rootUri.fsPath, ROOT_B);
   });
 
-  it('pushUpToCommit pushes to the repo identified by the root hint', async () => {
+  it('pushUpToCommit opens the push dialog against the repo identified by the root hint', async () => {
     const repoA = makeRepo(ROOT_A);
     const repoB = makeRepo(ROOT_B);
-    const pushCalls: IRepository[] = [];
     const gitService = makeDispatchingGitService(
       new Map([
         [ROOT_A, repoA],
@@ -175,22 +174,22 @@ describe('delegating commands honor the threaded clicked-commit repo root', () =
       ]),
       {
         // The command resolves the branch containing the commit; report it
-        // as on HEAD ('main') so the push proceeds against the hinted repo.
+        // as on HEAD ('main') so the row seeds against the hinted repo.
         getContainingBranches: async () => ['main'],
-        push: (repo: IRepository) => {
-          pushCalls.push(repo);
-          return okAsync(undefined);
-        },
       }
     );
     writableWindow().showInformationMessage = () => Promise.resolve(undefined);
     writableWindow().showErrorMessage = () => Promise.resolve(undefined);
-    // The command wraps the push in withProgress; run the task immediately.
-    (
-      vscode.window as unknown as { withProgress: (opts: unknown, task: () => unknown) => unknown }
-    ).withProgress = (_opts, task) => task();
 
-    const ctx = makeContext(gitService);
+    const dialogRepos: IRepository[] = [];
+    const ctx = makeContext(gitService, {
+      openPushDialog: (preselect?: { repo: IRepository }) => {
+        if (preselect) {
+          dialogRepos.push(preselect.repo);
+        }
+        return undefined;
+      },
+    } as unknown as Partial<ICommandContext>);
     const patch = patchRegisterCommand();
     try {
       registerCommitRepoCoreCommands(ctx);
@@ -200,7 +199,7 @@ describe('delegating commands honor the threaded clicked-commit repo root', () =
       patch.restore();
     }
 
-    assert.strictEqual(pushCalls.length, 1, 'push should have run once');
-    assert.strictEqual(pushCalls[0].rootUri.fsPath, ROOT_B);
+    assert.strictEqual(dialogRepos.length, 1, 'the push dialog should have opened once');
+    assert.strictEqual(dialogRepos[0].rootUri.fsPath, ROOT_B);
   });
 });

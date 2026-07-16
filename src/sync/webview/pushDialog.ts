@@ -105,13 +105,13 @@ function render(init: IPushDialogInit): void {
         textContent: r.ahead === 0 ? 'up to date' : String(r.ahead),
       })
     );
-    tr.append(
-      c0,
-      el('td', { textContent: r.repoLabel }),
-      el('td', { textContent: r.localBranch }),
-      c3,
-      c4
-    );
+    // A revision row shows the pushed commit's short hash as the source —
+    // the GitPushSource.OnRevision/DetachedHead presentation — never the
+    // branch tip it does not push.
+    const sourceCell = r.sourceHash
+      ? el('td', { textContent: r.sourceHash.slice(0, 7), title: r.sourceHash })
+      : el('td', { textContent: r.localBranch });
+    tr.append(c0, el('td', { textContent: r.repoLabel }), sourceCell, c3, c4);
     tbody.append(tr);
     if (r.error) {
       const er = el('tr', { className: 'row-error' });
@@ -120,10 +120,15 @@ function render(init: IPushDialogInit): void {
       td.setAttribute('colspan', '5');
       td.append('⚠ ' + r.error.message + ' ');
       if (r.error.kind === 'rejected-non-ff') {
-        const b1 = el('button', { textContent: 'Pull and Retry…' });
-        b1.setAttribute('data-action', 'pullAndRetry');
-        b1.setAttribute('data-row-id', r.id);
-        td.append(b1);
+        // No update/retry affordance on a revision row: pulling moves the
+        // branch tip but the row's hash is fixed, so a retry cannot become
+        // pushable.
+        if (!r.sourceHash) {
+          const b1 = el('button', { textContent: 'Pull and Retry…' });
+          b1.setAttribute('data-action', 'pullAndRetry');
+          b1.setAttribute('data-row-id', r.id);
+          td.append(b1);
+        }
         // No force escape hatch on a protected target — all force pushes
         // are prohibited there.
         if (!r.protected) {

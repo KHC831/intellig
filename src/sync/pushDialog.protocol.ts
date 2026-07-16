@@ -36,6 +36,14 @@ export interface IPushRowView {
   ahead: number;
   selected: boolean;
   protected: boolean;
+  /**
+   * Full hash when the row pushes an exact commit (push-up-to-here) instead
+   * of a branch tip; the source cell then renders the short hash — the
+   * GitPushSource.OnRevision/DetachedHead presentation — and the rejection
+   * banner drops the update/retry affordance (a fixed hash cannot be
+   * meaningfully re-pushed after an update).
+   */
+  sourceHash: string | null;
   error: { message: string; kind: PushErrorKind } | null;
 }
 
