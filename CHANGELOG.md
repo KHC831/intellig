@@ -24,6 +24,7 @@ fresh empty `[Unreleased]` block is added on top.
 
 ### Fixed
 
+- The IntelliG sidebar keeps its views in a stable order at startup: Branches, Git, Commit. The Commit view's late appearance no longer shuffles the panel.
 - Ctrl+D under the `intellij` preset opens the active file's diff; it previously targeted a branch-compare action that can never run from the keyboard.
 - F4 opens the file last selected in the Commit tool window instead of always asking you to select one.
 - Branch favorites are now per-workspace, like IntelliJ's per-project favorites; existing stars carry over once per workspace.

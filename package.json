@@ -1463,15 +1463,17 @@
     "views": {
       "intellig": [
         {
+          "id": "intellig.branchTree",
+          "name": "Branches",
+          "initialSize": 1,
+          "order": 1
+        },
+        {
           "type": "webview",
           "id": "intellig.toolWindow",
           "name": "Git",
-          "initialSize": 3
-        },
-        {
-          "id": "intellig.branchTree",
-          "name": "Branches",
-          "initialSize": 1
+          "initialSize": 3,
+          "order": 2
         },
         {
           "type": "webview",
@@ -1479,7 +1481,8 @@
           "name": "Commit",
           "icon": "$(git-commit)",
           "when": "workbenchState != empty && config.intellig.useCommitToolWindow",
-          "initialSize": 2
+          "initialSize": 2,
+          "order": 3
         }
       ]
     },
