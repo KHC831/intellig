@@ -61,6 +61,12 @@ export interface StubPromptOptions {
     ...items: unknown[]
   ) => string | undefined;
   /**
+   * Answer information toasts that carry action items (offers like "Delete
+   * Tracked Branch"). When omitted, info toasts resolve `undefined` (recorded
+   * but unanswered) — the long-standing default.
+   */
+  informationMessage?: (message: string, ...items: unknown[]) => string | undefined;
+  /**
    * Suppress information toasts entirely (they're chatty in test output).
    * Default: true.
    */
@@ -146,18 +152,21 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
   // recorded text in their failure messages, turning a silent
   // regression into a readable error.
   //
-  // We always silence (pass through `undefined`) and always record.
-  // The `silenceInfoMessages` / `silenceErrorMessages` options are
-  // retained for future expansion but currently no-ops — recording
-  // alone gives us everything we need without polluting test output
-  // with toast text.
+  // We always record; info toasts resolve `undefined` unless the test
+  // supplies an `informationMessage` answerer (needed for offers carried on
+  // info toasts, e.g. the tracked-branch delete cascade). The
+  // `silenceInfoMessages` / `silenceErrorMessages` options are retained for
+  // future expansion but currently no-ops — recording alone gives us
+  // everything we need without polluting test output with toast text.
   void options.silenceInfoMessages;
   void options.silenceErrorMessages;
   (
     vscode.window as unknown as { showInformationMessage: InformationMessageFn }
   ).showInformationMessage = ((message: string, ...rest: unknown[]) => {
     stubs.informationMessageCalls.push({ message, items: rest });
-    return Promise.resolve(undefined);
+    return Promise.resolve(
+      options.informationMessage ? options.informationMessage(message, ...rest) : undefined
+    );
   }) as unknown as InformationMessageFn;
 
   (vscode.window as unknown as { showErrorMessage: ErrorMessageFn }).showErrorMessage = ((
