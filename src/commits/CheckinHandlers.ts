@@ -112,6 +112,12 @@ export interface ICheckinContext {
    * unset falls back to {@link LARGE_FILE_WARNING_BYTES}.
    */
   largeFileWarningBytes?: number;
+  /**
+   * True when the repo has `lfs.repositoryformatversion` set. The large-file
+   * check skips LFS repos (reference GitCheckinHandlerFactory.kt:183) — big
+   * files there are pointer-tracked, not raw blobs.
+   */
+  lfsRepo?: boolean;
 }
 
 /**
@@ -313,6 +319,9 @@ export const largeFileCheckinHandler: ICheckinHandler = {
     const threshold = context.largeFileWarningBytes ?? LARGE_FILE_WARNING_BYTES;
     if (threshold <= 0) {
       return []; // 0 (or negative) disables the check
+    }
+    if (context.lfsRepo) {
+      return []; // LFS repos track big files as pointers, not raw blobs
     }
     const big = context.files.filter(
       (f) => typeof f.sizeBytes === 'number' && f.sizeBytes > threshold

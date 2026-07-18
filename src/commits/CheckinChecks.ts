@@ -32,7 +32,7 @@ import {
   IGitService,
   IRepository,
 } from '../git-core/interfaces/IGitService';
-import { isConflictedStatus } from '../git-core/gitParser';
+import { isConflictedStatus, parseLineAttrPaths } from '../git-core/gitParser';
 import { readConfig, updateConfig } from '../config/configKeys';
 import { sanitizeGitError } from '../git-core/gitError';
 import {
@@ -132,19 +132,37 @@ async function isDetachedHead(gitCli: GitCli, repo: IRepository): Promise<boolea
 /** Injectable fs seam for {@link sampleFileFacts}. */
 export interface IFileFactsFs {
   stat(absPath: string): Promise<{ size: number }>;
-  /** Read the first few KiB of the file (enough to spot CRLF / binary). */
-  readChunk(absPath: string): Promise<Buffer>;
+  /** Read up to {@link FACTS_CHUNK_BYTES} starting at byte `offset`. */
+  readChunk(absPath: string, offset: number): Promise<Buffer>;
 }
 
 const FACTS_CHUNK_BYTES = 8192;
+/**
+ * The CRLF scan reads the file in chunks up to this cap; a first CRLF deeper
+ * than 1 MiB into an otherwise-LF file goes undetected (bounded I/O per
+ * committed file beats exhaustive certainty here).
+ */
+export const FACTS_SCAN_CAP_BYTES = 1024 * 1024;
+
+/**
+ * The `core.autocrlf` value "Fix and Commit" writes (reference
+ * `GitCrlfUtil.RECOMMENDED_VALUE`): `true` on Windows (checkout CRLF,
+ * commit LF), `input` elsewhere — `true` on macOS/Linux would rewrite
+ * LF checkouts to CRLF.
+ */
+export function recommendedAutoCrlfValue(
+  platform: NodeJS.Platform = process.platform
+): 'true' | 'input' {
+  return platform === 'win32' ? 'true' : 'input';
+}
 
 const realFileFactsFs: IFileFactsFs = {
   stat: (absPath) => fs.promises.stat(absPath),
-  async readChunk(absPath) {
+  async readChunk(absPath, offset) {
     const handle = await fs.promises.open(absPath, 'r');
     try {
       const buffer = Buffer.alloc(FACTS_CHUNK_BYTES);
-      const { bytesRead } = await handle.read(buffer, 0, FACTS_CHUNK_BYTES, 0);
+      const { bytesRead } = await handle.read(buffer, 0, FACTS_CHUNK_BYTES, offset);
       return buffer.subarray(0, bytesRead);
     } finally {
       await handle.close();
@@ -154,10 +172,11 @@ const realFileFactsFs: IFileFactsFs = {
 
 /**
  * Sample the on-disk facts the CRLF and large-file checks need: size and
- * whether the leading chunk contains a CRLF separator. NUL in the chunk
- * marks the file binary (CRLF is meaningless there). Deleted files and any
- * fs failure leave the fields undefined — the checks stay silent on an
- * unknown rather than guessing.
+ * whether the file contains a CRLF separator within the first
+ * {@link FACTS_SCAN_CAP_BYTES}. A NUL in any scanned chunk marks the file
+ * binary (CRLF is meaningless there). Deleted files and any fs failure leave
+ * the fields undefined — the checks stay silent on an unknown rather than
+ * guessing.
  */
 export async function sampleFileFacts(
   repoRootFsPath: string,
@@ -174,8 +193,25 @@ export async function sampleFileFacts(
       let hasCrlf: boolean | undefined;
       try {
         sizeBytes = (await fsLike.stat(absPath)).size;
-        const chunk = await fsLike.readChunk(absPath);
-        hasCrlf = chunk.includes(0) ? false : chunk.includes('\r\n');
+        hasCrlf = false;
+        let prevEndsWithCr = false;
+        for (let offset = 0; offset < FACTS_SCAN_CAP_BYTES; offset += FACTS_CHUNK_BYTES) {
+          const chunk = await fsLike.readChunk(absPath, offset);
+          if (chunk.length === 0) {
+            break;
+          }
+          if (chunk.includes(0)) {
+            break; // binary — CRLF is meaningless there
+          }
+          if ((prevEndsWithCr && chunk[0] === 0x0a) || chunk.includes('\r\n')) {
+            hasCrlf = true;
+            break;
+          }
+          prevEndsWithCr = chunk[chunk.length - 1] === 0x0d;
+          if (chunk.length < FACTS_CHUNK_BYTES) {
+            break; // EOF
+          }
+        }
       } catch {
         // Missing/unreadable file: leave both facts undefined (checks skip).
         sizeBytes = undefined;
@@ -222,14 +258,45 @@ export async function gatherCheckinContext(
     };
   }
 
-  const [userName, userEmail, autoCrlfRaw, detachedHead, sampledFiles] = await Promise.all([
-    readGitConfig(gitCli, repo, 'user.name'),
-    readGitConfig(gitCli, repo, 'user.email'),
-    readGitConfig(gitCli, repo, 'core.autocrlf'),
-    isDetachedHead(gitCli, repo),
-    sampleFileFacts(repo.rootUri.fsPath, files),
-  ]);
+  const [userName, userEmail, autoCrlfRaw, lfsVersion, detachedHead, sampledFiles] =
+    await Promise.all([
+      readGitConfig(gitCli, repo, 'user.name'),
+      readGitConfig(gitCli, repo, 'user.email'),
+      readGitConfig(gitCli, repo, 'core.autocrlf'),
+      readGitConfig(gitCli, repo, 'lfs.repositoryformatversion'),
+      isDetachedHead(gitCli, repo),
+      sampleFileFacts(repo.rootUri.fsPath, files),
+    ]);
   const coreAutoCrlf = autoCrlfRaw ? autoCrlfRaw.trim().toLowerCase() : undefined;
+
+  // gitattributes trump the sampled CRLF facts: a file with a text/crlf
+  // attribute either gets normalized on checkin or carries CRLFs on purpose
+  // (reference GitCrlfProblemsDetector.findFilesWithoutAttrs). Only consulted
+  // when the warning could actually fire; on check-attr failure the reference
+  // fails gracefully by not warning at all.
+  const warnAboutCrlf = readConfig('warnAboutCrlf');
+  const normalizing = coreAutoCrlf === 'true' || coreAutoCrlf === 'input';
+  const crlfFiles = sampledFiles.filter((f) => f.hasCrlf);
+  if (warnAboutCrlf !== false && !normalizing && crlfFiles.length > 0) {
+    let excluded: ReadonlySet<string>;
+    try {
+      const result = await gitCli.exec(
+        ['check-attr', '-z', 'text', 'crlf', '--', ...crlfFiles.map((f) => f.path)],
+        { cwd: repo.rootUri.fsPath }
+      );
+      excluded =
+        result.exitCode === 0
+          ? parseLineAttrPaths(result.stdout)
+          : new Set(crlfFiles.map((f) => f.path));
+    } catch {
+      excluded = new Set(crlfFiles.map((f) => f.path));
+    }
+    for (const f of crlfFiles) {
+      if (excluded.has(f.path)) {
+        f.hasCrlf = false;
+      }
+    }
+  }
 
   return {
     userName,
@@ -238,8 +305,9 @@ export async function gatherCheckinContext(
     files: sampledFiles,
     detachedHead,
     coreAutoCrlf,
+    lfsRepo: lfsVersion !== undefined,
     statusReadFailed,
-    warnAboutCrlf: readConfig('warnAboutCrlf'),
+    warnAboutCrlf,
     largeFileWarningBytes: readConfig('largeFileWarningMb') * 1024 * 1024,
   };
 }
@@ -280,11 +348,32 @@ export async function runBeforeCommitChecks(
   }
 
   // The CRLF problem carries its own affordances (reference GitCrlfDialog:
-  // Fix and Commit sets core.autocrlf=true --global before committing;
-  // Commit As-Is proceeds; Cancel aborts; don't-warn-again persists the
-  // warnAboutCrlf setting off).
+  // Fix and Commit sets the platform-recommended core.autocrlf --global
+  // before committing; Commit As-Is proceeds; Cancel aborts; don't-warn-again
+  // persists the warnAboutCrlf setting off). Its dialog runs LAST, after the
+  // general problems modal, so the config write can never land on a commit
+  // the user then aborts at a blocking problem.
   const crlfProblem = result.problems.find((p) => p.handlerId === 'git.crlf');
-  let remaining = result.problems;
+  const remaining = result.problems.filter((p) => p.handlerId !== 'git.crlf');
+
+  if (remaining.length > 0) {
+    const hasBlocking = remaining.some((p) => p.severity === 'error');
+    const detail = formatCheckinProblems(remaining);
+    const proceedLabel = hasBlocking ? 'Commit Anyway' : 'Commit';
+    const title = hasBlocking
+      ? 'Before-commit checks found problems'
+      : 'Before-commit checks found warnings';
+
+    const choice = await vscode.window.showWarningMessage(
+      title,
+      { modal: true, detail },
+      proceedLabel
+    );
+    if (choice !== proceedLabel) {
+      return false;
+    }
+  }
+
   if (crlfProblem) {
     const FIX = 'Fix and Commit';
     const AS_IS = 'Commit As-Is';
@@ -302,7 +391,7 @@ export async function runBeforeCommitChecks(
     if (crlfChoice === FIX) {
       const gitCli = (gitService as IGitServiceWithCli).gitCli;
       try {
-        await gitCli.exec(['config', '--global', 'core.autocrlf', 'true'], {
+        await gitCli.exec(['config', '--global', 'core.autocrlf', recommendedAutoCrlfValue()], {
           cwd: repo.rootUri.fsPath,
           throwOnError: true,
         });
@@ -313,25 +402,10 @@ export async function runBeforeCommitChecks(
         );
       }
     } else if (crlfChoice === DONT_ASK) {
-      await updateConfig('warnAboutCrlf', false);
-    }
-    remaining = result.problems.filter((p) => p.handlerId !== 'git.crlf');
-    if (remaining.length === 0) {
-      return true;
+      // Workspace scope: the reference keeps the warn-about-crlf opt-out
+      // project-level, so silencing here must not leak into other workspaces.
+      await updateConfig('warnAboutCrlf', false, vscode.ConfigurationTarget.Workspace);
     }
   }
-
-  const hasBlocking = remaining.some((p) => p.severity === 'error');
-  const detail = formatCheckinProblems(remaining);
-  const proceedLabel = hasBlocking ? 'Commit Anyway' : 'Commit';
-  const title = hasBlocking
-    ? 'Before-commit checks found problems'
-    : 'Before-commit checks found warnings';
-
-  const choice = await vscode.window.showWarningMessage(
-    title,
-    { modal: true, detail },
-    proceedLabel
-  );
-  return choice === proceedLabel;
+  return true;
 }

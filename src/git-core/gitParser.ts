@@ -1243,3 +1243,23 @@ export function getTagFormat(separator: string = '\x1f'): string {
   const commitField = '%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)';
   return `%(refname)${separator}${commitField}${separator}%(objecttype)${separator}%(taggername)${separator}%(taggeremail)${separator}%(taggerdate:iso)${separator}%(subject)`;
 }
+
+/**
+ * Parse `git check-attr -z text crlf` output (NUL-separated path/attr/value
+ * triplets) into the set of paths whose `text` or `crlf` attribute is
+ * specified — set, unset, or valued, anything but `unspecified` (reference
+ * GitCheckAttrParser). Those files' CRLFs are either normalized on checkin or
+ * intentional, so the CRLF warning skips them.
+ */
+export function parseLineAttrPaths(stdoutZ: string): Set<string> {
+  const specified = new Set<string>();
+  const fields = stdoutZ.split('\0');
+  // Trailing NUL leaves one empty field; incomplete triplets are dropped.
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    const [file, attr, value] = [fields[i], fields[i + 1], fields[i + 2]];
+    if ((attr === 'text' || attr === 'crlf') && value.toLowerCase() !== 'unspecified') {
+      specified.add(file);
+    }
+  }
+  return specified;
+}

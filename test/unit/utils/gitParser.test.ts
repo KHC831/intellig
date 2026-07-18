@@ -15,6 +15,7 @@ import {
   getLogFormat,
   getBranchFormat,
   getTagFormat,
+  parseLineAttrPaths,
 } from '../../../src/git-core/gitParser';
 
 describe('Git Parser Utilities', () => {
@@ -1394,5 +1395,37 @@ index 1234567,abcdefg..fedcba9
       assert.strictEqual(lines[0].commit, sha256);
       assert.strictEqual(lines[0].author, 'Alice');
     });
+  });
+});
+
+describe('parseLineAttrPaths', () => {
+  const z = (...fields: string[]): string => fields.join('\0') + '\0';
+
+  it('collects paths whose text or crlf attribute is specified', () => {
+    const out =
+      z('a.ts', 'text', 'set', 'a.ts', 'crlf', 'unspecified') +
+      z('b.ts', 'text', 'unspecified', 'b.ts', 'crlf', 'set');
+    assert.deepStrictEqual([...parseLineAttrPaths(out)].sort(), ['a.ts', 'b.ts']);
+  });
+
+  it('ignores unspecified attributes', () => {
+    const out = z('a.ts', 'text', 'unspecified', 'a.ts', 'crlf', 'unspecified');
+    assert.deepStrictEqual([...parseLineAttrPaths(out)], []);
+  });
+
+  it('counts an explicitly unset attribute (-text) as specified', () => {
+    // Reference GitCheckAttrParser skips only 'unspecified'; 'unset' means the
+    // user wrote a rule for the file, so its line endings are deliberate.
+    const out = z('a.ts', 'text', 'unset');
+    assert.deepStrictEqual([...parseLineAttrPaths(out)], ['a.ts']);
+  });
+
+  it('handles paths containing colons and spaces, and valued attributes', () => {
+    const out = z('dir with space/a:b.ts', 'text', 'auto');
+    assert.deepStrictEqual([...parseLineAttrPaths(out)], ['dir with space/a:b.ts']);
+  });
+
+  it('returns empty for empty output', () => {
+    assert.deepStrictEqual([...parseLineAttrPaths('')], []);
   });
 });
