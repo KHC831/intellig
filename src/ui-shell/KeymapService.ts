@@ -39,25 +39,26 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [];
  * - Unstage: Ctrl+Alt+Shift+Z (deliberate move off the Rollback chord)
  */
 const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
-  // Same as default - Commit: Ctrl+K
+  // Commit: Ctrl+K on every platform (CheckinProject is control K on $default
+  // and the macOS keymap does not override it; cmd+k is a VS Code chord prefix).
   {
     command: 'intellig.commit',
     key: 'ctrl+k',
-    mac: 'cmd+k',
+    mac: 'ctrl+k',
     when: '!inDebugMode && !terminalFocus',
   },
-  // Same as default - Push: Ctrl+Shift+K
+  // Push: Ctrl+Shift+K on every platform (Vcs.Push, no macOS override).
   {
     command: 'intellig.push',
     key: 'ctrl+shift+k',
-    mac: 'cmd+shift+k',
+    mac: 'ctrl+shift+k',
     when: '!inDebugMode && !terminalFocus',
   },
-  // Same as default - Update Project: Ctrl+T (`Vcs.UpdateProject`)
+  // Update Project: Ctrl+T on every platform (Vcs.UpdateProject, no macOS override).
   {
     command: 'intellig.updateProject',
     key: 'ctrl+t',
-    mac: 'cmd+t',
+    mac: 'ctrl+t',
     when: '!inDebugMode && !terminalFocus',
   },
   // Commit and Push: Ctrl+Alt+K — IntelliJ-gated in package.json.
@@ -92,21 +93,13 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     mac: 'cmd+alt+shift+a',
     when: 'editorTextFocus',
   },
-  // Show History: Ctrl+H — IntelliG convenience; Vcs.ShowTabbedFileHistory
-  // has no reference default (IntelliJ's own Ctrl+H is Type Hierarchy).
-  {
-    command: 'intellig.showHistory',
-    key: 'ctrl+h',
-    mac: 'cmd+h',
-    when: '!inDebugMode',
-  },
   // Show Diff for the active file: Ctrl+D (reference Diff.ShowDiff class —
   // the old branch.compareWithCurrent target was a tree-item command a
   // keybinding can never supply an argument to).
   {
     command: 'intellig.explorer.compareWithRepoVersion',
     key: 'ctrl+d',
-    mac: 'cmd+d',
+    mac: 'ctrl+d',
     when: '!inDebugMode && !terminalFocus',
   },
   // Rollback (Revert): Ctrl+Alt+Z
@@ -150,11 +143,25 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     key: 'f4',
     when: '!inDebugMode',
   },
-  // Move Files to Another Changelist: Alt+Shift+M (ChangesView.Move).
+  // Move Files to Another Changelist: Alt+Shift+M, and Cmd+Shift+M on macOS —
+  // the one action in this set the macOS keymap explicitly overrides.
   {
     command: 'intellig.changelist.moveFilesTo',
     key: 'alt+shift+m',
-    when: '!inDebugMode',
+    mac: 'cmd+shift+m',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Jump to Commit: Ctrl+F, scoped to the log view.
+  {
+    command: 'intellig.toolWindow.jumpToHash',
+    key: 'ctrl+f',
+    mac: 'cmd+f',
+  },
+  // Focus the log text filter: Ctrl+L on every platform (Vcs.Log.FocusTextFilter).
+  {
+    command: 'intellig.toolWindow.focusTextFilter',
+    key: 'ctrl+l',
+    mac: 'ctrl+l',
   },
   // Shelve Silently: Ctrl+Shift+H (ChangesView.ShelveSilently).
   {

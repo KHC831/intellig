@@ -155,7 +155,9 @@ describe('KeymapService', () => {
       const keybinding = keymap.keybindings.find((kb) => kb.command === 'intellig.commit');
       assert.ok(keybinding);
       assert.strictEqual(keybinding.key, 'ctrl+k');
-      assert.strictEqual(keybinding.mac, 'cmd+k');
+      // CheckinProject is `control K` on $default with no macOS override, and
+      // cmd+k is a VS Code chord prefix — macOS keeps the control chord.
+      assert.strictEqual(keybinding.mac, 'ctrl+k');
     });
   });
 
@@ -277,13 +279,14 @@ describe('getIntelliJKeymap', () => {
     assert.strictEqual(blameBinding.key, 'ctrl+alt+shift+a');
   });
 
-  it('should include Show History keybinding with Ctrl+H', () => {
+  it('binds no shortcut to Show History', () => {
+    // ShowTabbedFileHistory carries no shortcut in any bundled IntelliJ keymap;
+    // Ctrl+H shadows editor Find-and-Replace and Cmd+H is the macOS Hide chord.
     const keymap = getIntelliJKeymap();
     const historyBinding = keymap.keybindings.find(
       (kb: IKeybinding) => kb.command === 'intellig.showHistory'
     );
-    assert.ok(historyBinding);
-    assert.strictEqual(historyBinding.key, 'ctrl+h');
+    assert.strictEqual(historyBinding, undefined);
   });
 
   it('should bind Ctrl+D to the active-file diff (Diff.ShowDiff class)', () => {

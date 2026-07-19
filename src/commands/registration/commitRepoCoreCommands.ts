@@ -51,6 +51,25 @@ import {
 } from '../../patches/createPatchFlow';
 
 /**
+ * Which surface `intellig.showCommitToolWindow` should open.
+ *
+ * The Commit tool window's view contribution is gated on
+ * `intellig.useCommitToolWindow`; with the flag off its when-clause is false,
+ * so revealing it does nothing at all. The modal commit dialog is the surface
+ * that still works in that state, and the palette can reach this command
+ * regardless of the keybinding's own gate.
+ */
+export function resolveCommitSurface(input: {
+  hasToolWindow: boolean;
+  flagEnabled: boolean;
+}): 'toolWindow' | 'view' | 'dialog' {
+  if (!input.flagEnabled) {
+    return 'dialog';
+  }
+  return input.hasToolWindow ? 'toolWindow' : 'view';
+}
+
+/**
  * Build the modal confirmation text for the Rollback / Revert Local Changes
  * action — IntelliJ's RollbackChangesDialog lists every affected file before
  * the (irreversible) revert. Returns the headline + a `detail` block that
@@ -384,15 +403,30 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     return ctx.commitDialog.show(repo);
   });
 
-  // Focus the Commit tool window (Alt+0).
+  // Focus the Commit tool window (Alt+0), or the modal dialog when the tool
+  // window is switched off.
   // spine-exempt: view reveal with its own tool-window/fallback routing
   const showCommitToolWindowCommand = registerLoggedCommand(
     'intellig.showCommitToolWindow',
     async () => {
-      if (ctx.commitToolWindow) {
-        await ctx.commitToolWindow.show();
-      } else {
+      const surface = resolveCommitSurface({
+        hasToolWindow: ctx.commitToolWindow !== undefined,
+        flagEnabled: isCommitToolWindowEnabled(),
+      });
+      if (surface === 'toolWindow') {
+        await ctx.commitToolWindow?.show();
+        return;
+      }
+      if (surface === 'view') {
         await vscode.commands.executeCommand(`${COMMIT_TOOL_WINDOW_VIEW_ID}.focus`);
+        return;
+      }
+      if (!ctx.services || !ctx.commitDialog) {
+        return;
+      }
+      const repo = await resolveRepo(ctx.services.gitService, { preferActive: true });
+      if (repo) {
+        await ctx.commitDialog.show(repo);
       }
     }
   );
@@ -813,6 +847,23 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         return Promise.resolve();
       }
       provider.openInEditor();
+      return Promise.resolve();
+    },
+  });
+
+  // Focus the log's text filter (reference: Vcs.Log.FocusTextFilter, bound to
+  // Ctrl+L on every keymap). The input lives in the webview, so the host just
+  // asks it to take focus.
+  const focusTextFilterCommand = registerBareCommand(ctx, {
+    id: 'intellig.toolWindow.focusTextFilter',
+    failureTitle: 'Failed to focus the log filter',
+    run: () => {
+      const provider = ctx.gitToolWindowProvider;
+      if (!provider) {
+        void vscode.window.showErrorMessage('Git tool window not ready');
+        return Promise.resolve();
+      }
+      provider.postToWebview({ type: 'focusTextFilter' });
       return Promise.resolve();
     },
   });
@@ -1413,6 +1464,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     focusTabCommand,
     openLogInEditorCommand,
     jumpToHashCommand,
+    focusTextFilterCommand,
     revealCommitCommand,
     stageSelectedCommand,
     unstageSelectedCommand,

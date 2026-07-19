@@ -268,6 +268,11 @@
         "icon": "$(search)"
       },
       {
+        "command": "intellig.toolWindow.focusTextFilter",
+        "title": "Focus Log Text Filter",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.stageSelected",
         "title": "Stage Active File",
         "category": "IntelliG",
@@ -1024,6 +1029,10 @@
         {
           "command": "intellig.toggleBlame",
           "when": "false"
+        },
+        {
+          "command": "intellig.toolWindow.focusTextFilter",
+          "when": "false"
         }
       ],
       "view/item/context": [
@@ -1523,10 +1532,10 @@
             ],
             "enumDescriptions": [
               "Stock VS Code keybindings — IntelliG binds no keyboard shortcuts.",
-              "IntelliJ IDEA-style Git keybindings (Ctrl+K commit, Ctrl+Shift+K push, Alt+` VCS popup, and the rest — see the Keyboard Shortcuts editor). Ctrl+H (history) and Ctrl+Alt+Shift+A (blame) are IntelliG conveniences without an IntelliJ default."
+              "IntelliJ IDEA-style Git keybindings (Ctrl+K commit, Ctrl+Shift+K push, Alt+` VCS popup, and the rest — see the Keyboard Shortcuts editor). Ctrl+Alt+Shift+A (blame) is an IntelliG convenience without an IntelliJ default."
             ],
             "default": "default",
-            "markdownDescription": "Keyboard shortcut preset. `intellij` applies IntelliJ IDEA-style Git keybindings — the full table is on the extension's Feature Contributions page and in the Keyboard Shortcuts editor (search `intellig`).\n\n**Note:** with the `intellij` preset on, `Ctrl/Cmd+Alt+Z` performs **Revert File** — a destructive on-disk revert — overriding the default keymap's Unstage Selected on the same chord. To unstage while the preset is on, use the Local Changes context menu or run `IntelliG: Unstage Selected Files` from the command palette.",
+            "markdownDescription": "Keyboard shortcut preset. `intellij` applies IntelliJ IDEA-style Git keybindings — the full table is on the extension's Feature Contributions page and in the Keyboard Shortcuts editor (search `intellig`).\n\n**Note:** with the `intellij` preset on, `Ctrl/Cmd+Alt+Z` performs **Revert File** — a destructive on-disk revert. Unstage Selected is a distinct chord (`Ctrl/Cmd+Alt+Shift+Z`).",
             "order": 3
           },
           "intellig.protectedBranches": {
@@ -1910,7 +1919,7 @@
       {
         "command": "intellig.commit",
         "key": "ctrl+k",
-        "mac": "cmd+k",
+        "mac": "ctrl+k",
         "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
@@ -1928,38 +1937,38 @@
       {
         "command": "intellig.showCommitToolWindow",
         "key": "alt+0",
-        "when": "!terminalFocus && config.intellig.keymapPreset == 'intellij'",
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij' && config.intellig.useCommitToolWindow",
         "mac": "cmd+0"
       },
       {
         "command": "intellig.push",
         "key": "ctrl+shift+k",
-        "mac": "cmd+shift+k",
+        "mac": "ctrl+shift+k",
         "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.updateProject",
         "key": "ctrl+t",
-        "mac": "cmd+t",
+        "mac": "ctrl+t",
         "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.openGitToolWindow",
         "key": "alt+9",
         "mac": "cmd+9",
-        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.toolWindow.jumpToHash",
         "key": "ctrl+f",
         "mac": "cmd+f",
-        "when": "(focusedView == 'intellig.toolWindow' || activeWebviewPanelId == 'intellig.gitLogPanel') && intellig.toolWindow.activeTab == 'log'"
+        "when": "((focusedView == 'intellig.toolWindow' || activeWebviewPanelId == 'intellig.gitLogPanel') && intellig.toolWindow.activeTab == 'log') && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.showBranchPopup",
         "key": "ctrl+shift+`",
         "mac": "cmd+shift+`",
-        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.refresh",
@@ -1983,7 +1992,7 @@
         "command": "intellig.vcsOperationsPopup",
         "key": "alt+`",
         "mac": "ctrl+v",
-        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.toggleBlame",
@@ -1992,15 +2001,9 @@
         "when": "editorTextFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
-        "command": "intellig.showHistory",
-        "key": "ctrl+h",
-        "mac": "cmd+h",
-        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
-      },
-      {
         "command": "intellig.explorer.compareWithRepoVersion",
         "key": "ctrl+d",
-        "mac": "cmd+d",
+        "mac": "ctrl+d",
         "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
@@ -2018,18 +2021,25 @@
       {
         "command": "intellig.localChanges.openFile",
         "key": "f4",
-        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.changelist.moveFilesTo",
         "key": "alt+shift+m",
-        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'",
+        "mac": "cmd+shift+m"
       },
       {
         "command": "intellig.commitAndPush",
         "key": "ctrl+alt+k",
         "mac": "cmd+alt+k",
         "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
+      },
+      {
+        "command": "intellig.toolWindow.focusTextFilter",
+        "key": "ctrl+l",
+        "mac": "ctrl+l",
+        "when": "(focusedView == 'intellig.toolWindow' || activeWebviewPanelId == 'intellig.gitLogPanel') && intellig.toolWindow.activeTab == 'log' && config.intellig.keymapPreset == 'intellij'"
       }
     ]
   },

@@ -756,6 +756,15 @@ function main(vscode: IVsCodeApi): void {
     if (message.type === 'scrollToCommit' && message.commitHash) {
       scrollToCommit(message.commitHash);
     }
+    if (message.type === 'focusTextFilter') {
+      // Select the current text too: the shortcut's job is to start a new
+      // query, so typing should replace what's there rather than append.
+      const input = document.getElementById('filter-search') as HTMLInputElement | null;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
     if (message.type === 'graphTotalsUpdate') {
       const gp = document.querySelector('.graph-panel');
       if (gp) {

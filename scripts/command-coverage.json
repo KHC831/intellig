@@ -178,6 +178,10 @@
       "category": "nav",
       "note": "graph navigation"
     },
+    "intellig.toolWindow.focusTextFilter": {
+      "category": "nav",
+      "note": "moves focus into the log filter input; webview handler covered by test/unit/webview/focusTextFilter.test.ts"
+    },
     "intellig.branch.focusOnGraph": {
       "category": "nav",
       "note": "graph navigation"

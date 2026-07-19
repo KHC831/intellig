@@ -40,12 +40,12 @@ function keybindings(): PackageKeybinding[] {
 }
 
 describe('keybinding gating (keymapPreset default = stock VS Code)', () => {
-  it('every binding is preset-gated except the panel-scoped in-view find', () => {
+  it('gates every binding on the preset, so `default` really binds nothing', () => {
     const ungated = keybindings().filter((kb) => !(kb.when ?? '').includes(INTELLIJ_GATE));
     assert.deepStrictEqual(
       ungated.map((kb) => kb.command).sort(),
-      ['intellig.toolWindow.jumpToHash'],
-      `only the log view's own ctrl+f may bind without the preset gate; ungated: ${JSON.stringify(
+      [],
+      `the default preset promises zero bindings; ungated: ${JSON.stringify(
         ungated.map((kb) => `${kb.command} (${kb.key})`)
       )}`
     );
