@@ -28,6 +28,7 @@ import { readConfig } from '../config/configKeys';
 import {
   loadPersisted,
   savePersisted,
+  readBoolean,
   readEnum,
   readStringArray,
   type PersistedSlot,
@@ -40,6 +41,7 @@ import {
 import { IShelfItem, IShelfService } from '../shelf/interfaces/IShelfService';
 import { IGitService, IRepository, IStash, FileStatus } from '../git-core/interfaces/IGitService';
 import { performCommit, LAST_NO_VERIFY_SLOT } from './CommitDialog';
+import { AmendMessageTracker, loadHeadCommitMessage } from './amendMessage';
 import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
 import { initIslandHtml } from '../utils/webviewInit';
@@ -99,6 +101,9 @@ export const RECENT_MESSAGES_STATE_KEY = 'intellig.recentCommitMessages';
  * One of `'shelves' | 'stashes' | 'both'` (default `'both'`).
  */
 export const SHELF_TAB_FILTER_STATE_KEY = 'intellig.commitToolWindow.shelfFilter';
+
+/** workspaceState key for the sticky Sign-off checkbox. */
+export const SIGN_OFF_STATE_KEY = 'intellig.commitToolWindow.signOff';
 
 /** Maximum size of the recent-commit-messages LRU. */
 export const RECENT_MESSAGES_MAX = 20;
@@ -261,6 +266,16 @@ export const RECENT_MESSAGES_SLOT: PersistedSlot<string[]> = {
 };
 
 /**
+ * Persisted slot for the Sign-off checkbox — a sticky preference like
+ * IntelliJ's (GitCommitOptions persists it), not per-commit state.
+ */
+export const SIGN_OFF_SLOT: PersistedSlot<boolean> = {
+  key: SIGN_OFF_STATE_KEY,
+  version: 1,
+  validate: readBoolean,
+};
+
+/**
  * Labels for the file-action context menu, in IntelliJ-parity order.
  * A file is considered untracked (eligible for `Add to VCS`) when its
  * status is `untracked`.
@@ -318,17 +333,19 @@ export function changelistContextMenuLabels(input: {
 }
 
 /**
- * Gear-menu placeholder items for the composer. These render as disabled
- * with a "coming soon" tooltip until they're wired up.
+ * Gear-menu items for the composer. The single entry toggles the persisted
+ * no-verify flag the commit path reads (shared with CommitDialog's gear via
+ * LAST_NO_VERIFY_SLOT); `checked` mirrors that flag.
  */
-export function gearMenuItems(): Array<{ label: string; tooltip: string }> {
-  const tooltip = 'Coming soon';
+export function gearMenuItems(
+  noVerify: boolean
+): Array<{ id: 'toggleNoVerify'; label: string; checked: boolean }> {
   return [
-    { label: 'Reformat code', tooltip },
-    { label: 'Optimize imports', tooltip },
-    { label: 'Run Code Cleanup', tooltip },
-    { label: 'Check TODO', tooltip },
-    { label: 'Disable pre-commit hooks (--no-verify)', tooltip },
+    {
+      id: 'toggleNoVerify',
+      label: 'Disable pre-commit hooks (--no-verify)',
+      checked: noVerify,
+    },
   ];
 }
 
@@ -393,6 +410,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
 
   private _activeTab: CommitToolWindowTab = 'localChanges';
   private _amend = false;
+  private readonly _amendTracker = new AmendMessageTracker();
   private _signOff = false;
   /** Re-entrancy guard: true while a commit is in flight (blocks double-submit). */
   private _committing = false;
@@ -463,6 +481,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     const persistedGrouping = loadPersisted(this._workspaceState, CHANGES_GROUPING_SLOT);
     if (persistedGrouping !== undefined) {
       this._changesGrouping = persistedGrouping;
+    }
+
+    // Restore the sticky Sign-off checkbox (defaults to off).
+    const persistedSignOff = loadPersisted(this._workspaceState, SIGN_OFF_SLOT);
+    if (persistedSignOff !== undefined) {
+      this._signOff = persistedSignOff;
     }
 
     // Live-update triggers. Events are triggers ONLY: the coalesced push
@@ -605,6 +629,23 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   }
 
   /**
+   * Amend checkbox flipped (reference AmendCommitHandlerImpl): entering amend
+   * swaps HEAD's message into the composer (saving the draft); leaving amend
+   * restores the draft unless the user edited the amend message. Both writes
+   * ship on the explicit `setComposerMessage` arm.
+   */
+  private async _handleAmendToggled(amend: boolean): Promise<void> {
+    const next = amend
+      ? await this._amendTracker.enterAmend(this._composerMessage, async () =>
+          loadHeadCommitMessage(this._gitService, await this._resolveRepo())
+        )
+      : this._amendTracker.exitAmend(this._composerMessage);
+    if (next !== undefined) {
+      this.prefillComposerMessage(next);
+    }
+  }
+
+  /**
    * Read-only accessor for the recent-messages LRU. Exposed so the legacy
    * {@link CommitDialog} (or future callers) can reuse the same history.
    */
@@ -651,11 +692,13 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         if (typeof msg.message === 'string') {
           this._composerMessage = msg.message;
         }
-        if (typeof msg.amend === 'boolean') {
+        if (typeof msg.amend === 'boolean' && msg.amend !== this._amend) {
           this._amend = msg.amend;
+          await this._handleAmendToggled(msg.amend);
         }
-        if (typeof msg.signOff === 'boolean') {
+        if (typeof msg.signOff === 'boolean' && msg.signOff !== this._signOff) {
           this._signOff = msg.signOff;
+          await savePersisted(this._workspaceState, SIGN_OFF_SLOT, msg.signOff);
         }
         break;
       case 'commit':
@@ -679,6 +722,13 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         break;
       case 'shelfTabContextAction':
         await this._handleShelfTabAction(msg);
+        break;
+      case 'gearAction':
+        if (msg.id === 'toggleNoVerify') {
+          const next = !(loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT) ?? false);
+          await savePersisted(this._workspaceState, LAST_NO_VERIFY_SLOT, next);
+          void this.postMessage({ type: 'setGearState', noVerify: next });
+        }
         break;
       default:
         assertNever(msg);
@@ -971,14 +1021,15 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
           await vscode.commands.executeCommand('intellig.changelist.shelve', message.changelistId);
         }
         return;
-      case 'moveToChangelist':
-        if (message.targetFiles) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.moveFilesTo',
-            message.targetFiles
-          );
+      case 'moveToChangelist': {
+        // The context-menu message carries only the clicked path; an explicit
+        // targetFiles list (multi-select) takes precedence when present.
+        const files = message.targetFiles ?? (message.path ? [message.path] : undefined);
+        if (files) {
+          await vscode.commands.executeCommand('intellig.changelist.moveFilesTo', files);
         }
         return;
+      }
       case 'showDiff':
         if (message.path) {
           const fileUri = await this._resolveFileUri(message.path);
@@ -1269,6 +1320,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         message: this._composerMessage,
         amend: this._amend,
         signOff: this._signOff,
+        noVerify: loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT) ?? false,
       },
       activeChangelistId: findActiveChangelistId(this._changelists),
       grouping: this._changesGrouping,
@@ -1443,7 +1495,7 @@ export interface IRenderInput {
   shelfTabEntries?: readonly IShelfTabEntry[];
   /** Active Shelf-tab filter, used to render the segmented control. */
   shelfTabFilter?: ShelfTabFilter;
-  composer: { message: string; amend: boolean; signOff: boolean };
+  composer: { message: string; amend: boolean; signOff: boolean; noVerify?: boolean };
   activeChangelistId?: string;
   /** Local Changes file-grouping mode. Defaults to `flat` when omitted. */
   grouping?: ChangesGroupingMode;
@@ -1519,7 +1571,7 @@ export function buildCommitToolWindowInitModel(input: IRenderInput): ICommitTool
     activeTab,
     showLocal: activeTab === 'localChanges',
     grouping,
-    gearItems: gearMenuItems(),
+    gearItems: gearMenuItems(composer.noVerify ?? false),
     composer: { message: composer.message, amend: composer.amend, signOff: composer.signOff },
     selectedFiles: [...(input.selectedFiles ?? [])],
     local: {

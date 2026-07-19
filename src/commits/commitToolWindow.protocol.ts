@@ -28,7 +28,8 @@ export type CommitToolWindowInbound =
   | ({ type: 'changelistContextAction' } & Fields)
   | ({ type: 'shelfTabFilterChange' } & Fields)
   | ({ type: 'changesGroupingChange' } & Fields)
-  | ({ type: 'shelfTabContextAction' } & Fields);
+  | ({ type: 'shelfTabContextAction' } & Fields)
+  | ({ type: 'gearAction' } & Fields);
 
 /**
  * Host → webview messages. `updateModel` is the single live-update arm: every
@@ -44,6 +45,7 @@ export type CommitToolWindowOutbound =
   | { type: 'setComposerMessage'; message: string }
   | { type: 'updateDiffPreview'; path: string; diff?: IDiff; error?: string }
   | { type: 'updateFileCheckbox'; path: string; checked: boolean }
+  | { type: 'setGearState'; noVerify: boolean }
   | { type: 'commitDone'; success: boolean };
 
 export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
@@ -57,6 +59,7 @@ export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
   'shelfTabFilterChange',
   'changesGroupingChange',
   'shelfTabContextAction',
+  'gearAction',
 ] as const;
 
 export function asCommitToolWindowInbound(message: unknown): CommitToolWindowInbound | undefined {

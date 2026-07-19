@@ -44,6 +44,7 @@ import type {
   IGitService,
   IRepository,
   ICommitOptions,
+  ICommit,
 } from '../../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { bootWebviewEntry } from '../../helpers/bootWebviewEntry';
@@ -1043,5 +1044,44 @@ describe('CommitDialog — recent messages + author + gear', () => {
         'signoff-checkbox must wire change via addEventListener'
       );
     });
+  });
+});
+
+describe('CommitDialog — amend toggle (shared amendMessage helper)', () => {
+  interface DialogAmendSurface {
+    _repository?: IRepository;
+    _commitMessage: string;
+    _handleAmendToggle(amend: boolean): Promise<void>;
+  }
+
+  function makeDialog(headMessage: string): { dialog: CommitDialog; s: DialogAmendSurface } {
+    const git = makeGitService();
+    (git as { getLog: unknown }).getLog = async (): Promise<ICommit[]> => [
+      { message: headMessage, body: '' } as ICommit,
+    ];
+    const dialog = new CommitDialog(Uri.file('/ext'), git);
+    const s = dialog as unknown as DialogAmendSurface;
+    s._repository = makeRepo();
+    return { dialog, s };
+  }
+
+  it("replaces a non-empty draft with HEAD's message and restores it on toggle-off", async () => {
+    const { dialog, s } = makeDialog('HEAD subject');
+    s._commitMessage = 'my draft';
+    await s._handleAmendToggle(true);
+    assert.strictEqual(s._commitMessage, 'HEAD subject');
+    await s._handleAmendToggle(false);
+    assert.strictEqual(s._commitMessage, 'my draft');
+    dialog.dispose();
+  });
+
+  it('keeps a user-edited amend message on toggle-off', async () => {
+    const { dialog, s } = makeDialog('HEAD subject');
+    s._commitMessage = 'my draft';
+    await s._handleAmendToggle(true);
+    s._commitMessage = 'edited amend';
+    await s._handleAmendToggle(false);
+    assert.strictEqual(s._commitMessage, 'edited amend');
+    dialog.dispose();
   });
 });

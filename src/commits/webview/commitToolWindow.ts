@@ -425,6 +425,11 @@ function applyModel(model: ICommitToolWindowInitModel): void {
 
 // ─── Boot render ─────────────────────────────────────────────────────────────
 
+/** Checkbox glyph + label for a gear-menu entry (figure space keeps alignment). */
+function gearItemText(label: string, checked: boolean): string {
+  return `${checked ? '✓' : ' '} ${label}`;
+}
+
 function render(INIT: ICommitToolWindowInitModel): void {
   function buildTabStrip(): HTMLDivElement {
     const strip = el('div', { className: 'ctw-tab-strip' });
@@ -448,10 +453,18 @@ function render(INIT: ICommitToolWindowInitModel): void {
     (INIT.gearItems || []).forEach((i) => {
       const item = el('button', {
         className: 'ctw-gear-item',
-        disabled: true,
-        textContent: i.label,
+        textContent: gearItemText(i.label, i.checked),
       });
-      setAttrs(item, { title: i.tooltip });
+      setAttrs(item, {
+        role: 'menuitemcheckbox',
+        'aria-checked': String(i.checked),
+        'data-gear-id': i.id,
+        'data-gear-label': i.label,
+      });
+      item.addEventListener('click', () => {
+        post({ type: 'gearAction', id: i.id });
+        gearMenu.hidden = true;
+      });
       gearMenu.appendChild(item);
     });
     gearWrap.appendChild(gearMenu);
@@ -744,6 +757,15 @@ function wireControls(): void {
         // No updateComposerField echo: the host set its mirror before
         // posting, so both sides already agree.
         field.value = m.message;
+      }
+    }
+    if (m.type === 'setGearState' && typeof m.noVerify === 'boolean') {
+      const item = document.querySelector<HTMLButtonElement>(
+        '.ctw-gear-item[data-gear-id="toggleNoVerify"]'
+      );
+      if (item) {
+        item.setAttribute('aria-checked', String(m.noVerify));
+        item.textContent = gearItemText(item.getAttribute('data-gear-label') ?? '', m.noVerify);
       }
     }
     if (m.type === 'updateFileCheckbox' && typeof m.path === 'string') {

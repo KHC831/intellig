@@ -24,6 +24,7 @@ import {
   ILineSelection,
 } from '../git-core/interfaces/IGitService';
 import { RECENT_MESSAGES_SLOT, updateRecentMessagesLru } from './CommitToolWindow';
+import { AmendMessageTracker, loadHeadCommitMessage } from './amendMessage';
 import {
   loadPersisted,
   savePersisted,
@@ -481,6 +482,7 @@ export class CommitDialog {
   private _currentDiff: IDiff | undefined;
   private _selectedFilePath: string | undefined;
   private _amendMode: boolean = false;
+  private readonly _amendTracker = new AmendMessageTracker();
   private _signOffMode: boolean = false;
   /** Re-entrancy guard: true while a commit is in flight (blocks double-submit). */
   private _committing: boolean = false;
@@ -654,29 +656,13 @@ export class CommitDialog {
   }
 
   /**
-   * Load the previous commit message for amend mode.
+   * Load the previous commit message for amend mode (shared loader; keeps
+   * whatever was already cached when HEAD is unreadable).
    */
   private async _loadPreviousCommitMessage(): Promise<void> {
-    if (!this._repository) {
-      return;
-    }
-
-    try {
-      const commits = await this._gitService.getLog(this._repository, { maxCount: 1 });
-      if (commits.length > 0) {
-        const commit = commits[0];
-        this._previousCommitMessage = commit.body
-          ? `${commit.message}\n\n${commit.body}`
-          : commit.message;
-      }
-    } catch (error) {
-      // An empty repo is already handled as an empty log; this only fires on a
-      // genuine fault. Log+degrade (no previous-message prefill) so it stays visible.
-      getLogger()
-        .child({ component: 'CommitDialog' })
-        .debug('loadPreviousCommitMessage failed', {
-          err: error instanceof Error ? error.message : String(error),
-        });
+    const head = await loadHeadCommitMessage(this._gitService, this._repository);
+    if (head !== undefined) {
+      this._previousCommitMessage = head;
     }
   }
 
@@ -1067,18 +1053,20 @@ export class CommitDialog {
   }
 
   /**
-   * Handle amend toggle.
+   * Handle amend toggle (reference AmendCommitHandlerImpl): entering amend
+   * swaps HEAD's message into the composer (saving the draft); leaving amend
+   * restores the draft unless the user edited the amend message.
    */
   private async _handleAmendToggle(amend: boolean): Promise<void> {
     this._amendMode = amend;
 
-    if (amend && !this._previousCommitMessage) {
-      await this._loadPreviousCommitMessage();
-    }
-
-    // If enabling amend and message is empty, populate with previous message
-    if (amend && !this._commitMessage.trim()) {
-      this._commitMessage = this._previousCommitMessage;
+    const next = amend
+      ? await this._amendTracker.enterAmend(this._commitMessage, () =>
+          loadHeadCommitMessage(this._gitService, this._repository)
+        )
+      : this._amendTracker.exitAmend(this._commitMessage);
+    if (next !== undefined) {
+      this._commitMessage = next;
     }
 
     this._updateWebview();

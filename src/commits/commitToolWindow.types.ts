@@ -125,6 +125,8 @@ export interface ICommitToolWebviewMessage {
     | ShelfTabStashAction
     | 'contextOpen';
   targetFiles?: string[];
+  /** Gear-menu item being toggled when `type` is `gearAction`. */
+  id?: 'toggleNoVerify';
   /** Newly-selected Shelf-tab filter from the segmented control. */
   filter?: ShelfTabFilter;
   /** Newly-selected Local Changes grouping mode from the segmented control. */
@@ -167,7 +169,7 @@ export interface ICommitToolWindowInitModel {
   activeTab: CommitToolWindowTab;
   showLocal: boolean;
   grouping: ChangesGroupingMode;
-  gearItems: Array<{ label: string; tooltip: string }>;
+  gearItems: Array<{ id: 'toggleNoVerify'; label: string; checked: boolean }>;
   composer: { message: string; amend: boolean; signOff: boolean };
   /**
    * Repo-relative paths whose file checkboxes are checked. Host-owned

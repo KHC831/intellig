@@ -37,6 +37,8 @@ import {
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_MAX as RECENT_MESSAGES_MAX,
 } from '../../../src/services';
 import type { IRenderInput } from '../../../src/services';
+import { LAST_NO_VERIFY_SLOT } from '../../../src/commits/CommitDialog';
+import { loadPersisted } from '../../../src/utils/persistedState';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
 
 // Boot the bundled Commit Tool Window entry against the host body (empty
@@ -62,7 +64,11 @@ import type {
   IFileChange,
 } from '../../../src/changelists/interfaces/IChangelistService';
 import type { IShelfItem, IShelfService } from '../../../src/shelf/interfaces/IShelfService';
-import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
+import type {
+  IGitService,
+  IRepository,
+  ICommit,
+} from '../../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { noopEvent } from '../../mocks/noopEvent';
 import { writableCommands, writableWindow } from '../../typed/windowStub';
@@ -75,6 +81,8 @@ import { writableCommands, writableWindow } from '../../typed/windowStub';
  */
 interface CommitToolWindowTestSurface {
   _changelists: IChangelist[];
+  _composerMessage: string;
+  _signOff: boolean;
   _handleWebviewMessage: (message: unknown) => Promise<void>;
   _reloadState: () => Promise<void>;
 }
@@ -214,27 +222,62 @@ describe('CommitToolWindow — fileContextMenuLabels', () => {
 });
 
 describe('CommitToolWindow — gearMenuItems', () => {
-  const items = gearMenuItems();
-  it('renders the five IR gear entries as disabled stubs', () => {
-    const labels = items.map((i) => i.label);
-    assert.deepStrictEqual(labels, [
-      'Reformat code',
-      'Optimize imports',
-      'Run Code Cleanup',
-      'Check TODO',
-      'Disable pre-commit hooks (--no-verify)',
-    ]);
+  it('offers exactly the --no-verify toggle (no stub entries without a backing feature)', () => {
+    const items = gearMenuItems(false);
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].id, 'toggleNoVerify');
+    assert.ok(items[0].label.includes('--no-verify'), items[0].label);
   });
-  it('tags every item with a "coming soon" tooltip so users know the feature is stubbed', () => {
-    for (const i of items) {
-      assert.ok(i.tooltip.toLowerCase().includes('coming soon'));
-    }
+  it('mirrors the persisted no-verify flag as the checked state', () => {
+    assert.strictEqual(gearMenuItems(true)[0].checked, true);
+    assert.strictEqual(gearMenuItems(false)[0].checked, false);
   });
 });
 
 // ─── rendered DOM (built by the bundled entry) ────────────────────────────────
 
 describe('CommitToolWindow — rendered DOM (built via entry)', () => {
+  it('renders the gear --no-verify entry as an enabled checkbox item that posts the toggle', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false, noVerify: true },
+    });
+    const h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+    _ctwHarnesses.push(h);
+    const items = h.document.querySelectorAll<HTMLButtonElement>('.ctw-gear-item');
+    assert.strictEqual(items.length, 1, 'stub entries without a backing feature are gone');
+    const item = items[0];
+    assert.strictEqual(item.disabled, false, 'the toggle is clickable');
+    assert.strictEqual(item.getAttribute('role'), 'menuitemcheckbox');
+    assert.strictEqual(item.getAttribute('aria-checked'), 'true');
+    item.click();
+    assert.ok(
+      h.posted.some(
+        (m) =>
+          (m as { type?: string; id?: string }).type === 'gearAction' &&
+          (m as { id?: string }).id === 'toggleNoVerify'
+      ),
+      `clicking posts the toggle; got: ${JSON.stringify(h.posted)}`
+    );
+  });
+
+  it('applies a setGearState push to the checkbox display', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false, noVerify: false },
+    });
+    const h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+    _ctwHarnesses.push(h);
+    const item = h.document.querySelector<HTMLButtonElement>('.ctw-gear-item');
+    assert.strictEqual(item?.getAttribute('aria-checked'), 'false');
+    h.post({ type: 'setGearState', noVerify: true });
+    assert.strictEqual(item?.getAttribute('aria-checked'), 'true');
+  });
+
   it('renders both tab buttons and marks the active one', () => {
     const doc = buildCtwDoc({
       activeTab: 'shelf',
@@ -1109,6 +1152,227 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
+  it('moveToChangelist dispatches intellig.changelist.moveFilesTo with the clicked file when no targetFiles ride the message', async () => {
+    const { tw, executed } = createFileContextWindow();
+    // The webview's context-menu message carries only {path, changelistId} —
+    // exactly what a real right-click posts.
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'moveToChangelist',
+      changelistId: 'def',
+      path: 'src/sub/a.ts',
+    });
+    const call = executed.find((e) => e.command === 'intellig.changelist.moveFilesTo');
+    assert.ok(
+      call,
+      `expected intellig.changelist.moveFilesTo to fire; got: ${executed.map((e) => e.command).join(', ') || '(none)'}`
+    );
+    assert.deepStrictEqual(call?.args, [['src/sub/a.ts']]);
+    tw.dispose();
+  });
+
+  it('moveToChangelist prefers explicit targetFiles over the clicked file', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'moveToChangelist',
+      changelistId: 'def',
+      path: 'src/sub/a.ts',
+      targetFiles: ['x.ts', 'y.ts'],
+    });
+    const call = executed.find((e) => e.command === 'intellig.changelist.moveFilesTo');
+    assert.deepStrictEqual(call?.args, [['x.ts', 'y.ts']]);
+    tw.dispose();
+  });
+
+  // Fence: the file context menu must never offer an action whose handler
+  // silently no-ops on the message shape the webview actually posts
+  // ({path, changelistId} only). Iterating fileContextMenuLabels keeps a
+  // future menu entry covered automatically.
+  it('every file context-menu action reaches a command when dispatched with the webview message shape', async () => {
+    const untracked: IFileChange = { path: 'src/new.md', status: 'untracked', staged: false };
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [untracked] },
+    ];
+    // An untracked file yields the superset menu (includes Add to VCS), so
+    // this loop covers every FileAction the webview can post.
+    for (const entry of fileContextMenuLabels(untracked)) {
+      const services = createMockServices(repo, changelists);
+      const tw = new CommitToolWindow(
+        Uri.file('/ext'),
+        services.gitService,
+        services.changelistService,
+        services.shelfService,
+        memento
+      );
+      asTestSurface(tw)._changelists = changelists;
+      const executed: string[] = [];
+      writableCommands().executeCommand = (command: string): Promise<unknown> => {
+        executed.push(command);
+        return Promise.resolve(undefined);
+      };
+      await asTestSurface(tw)._handleWebviewMessage({
+        type: 'changelistContextAction',
+        action: entry.action,
+        changelistId: 'def',
+        path: 'src/new.md',
+      });
+      assert.ok(
+        executed.length > 0,
+        `file action '${entry.action}' must reach an executeCommand with only {path, changelistId} set`
+      );
+      tw.dispose();
+    }
+  });
+
+  // ─── Amend toggle (shared amendMessage helper, reference AmendCommitHandlerImpl) ───
+
+  function createAmendWindow(): {
+    tw: CommitToolWindow;
+    posted: Array<{ type?: string; message?: string }>;
+  } {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    services.gitService.getLog = async () => [
+      { message: 'HEAD subject', body: 'HEAD body' } as ICommit,
+    ];
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const posted: Array<{ type?: string; message?: string }> = [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    return { tw, posted };
+  }
+
+  it("amend toggle on swaps HEAD's message into the composer and pushes it to the webview", async () => {
+    const { tw, posted } = createAmendWindow();
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'updateComposerField', amend: true });
+    assert.strictEqual(asTestSurface(tw)._composerMessage, 'HEAD subject\n\nHEAD body');
+    const push = posted.find((m) => m.type === 'setComposerMessage');
+    assert.strictEqual(push?.message, 'HEAD subject\n\nHEAD body');
+    tw.dispose();
+  });
+
+  it('amend toggle off restores the pre-amend draft when the amend message is unedited', async () => {
+    const { tw, posted } = createAmendWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'updateComposerField',
+      message: 'my draft',
+    });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'updateComposerField', amend: true });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'updateComposerField', amend: false });
+    assert.strictEqual(asTestSurface(tw)._composerMessage, 'my draft');
+    const pushes = posted.filter((m) => m.type === 'setComposerMessage');
+    assert.strictEqual(pushes[pushes.length - 1]?.message, 'my draft');
+    tw.dispose();
+  });
+
+  it('amend toggle off keeps a user-edited amend message (no restore)', async () => {
+    const { tw } = createAmendWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'updateComposerField',
+      message: 'my draft',
+    });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'updateComposerField', amend: true });
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'updateComposerField',
+      message: 'edited amend',
+    });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'updateComposerField', amend: false });
+    assert.strictEqual(asTestSurface(tw)._composerMessage, 'edited amend');
+    tw.dispose();
+  });
+
+  it('sign-off checkbox state persists across tool-window instances (sticky preference)', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'updateComposerField', signOff: true });
+    tw.dispose();
+
+    const services2 = createMockServices(repo, []);
+    const tw2 = new CommitToolWindow(
+      Uri.file('/ext'),
+      services2.gitService,
+      services2.changelistService,
+      services2.shelfService,
+      memento
+    );
+    assert.strictEqual(asTestSurface(tw2)._signOff, true, 'a fresh instance hydrates sign-off');
+    tw2.dispose();
+  });
+
+  it('gear no-verify toggle flips the persisted flag and pushes the new state', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    const posted: Array<{ type?: string; noVerify?: boolean }> = [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'gearAction', id: 'toggleNoVerify' });
+    assert.strictEqual(
+      loadPersisted(memento, LAST_NO_VERIFY_SLOT),
+      true,
+      'the persisted flag the commit path reads flips on'
+    );
+    const push = posted.find((m) => m.type === 'setGearState');
+    assert.strictEqual(push?.noVerify, true, 'the webview learns the new checkbox state');
+
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'gearAction', id: 'toggleNoVerify' });
+    assert.strictEqual(loadPersisted(memento, LAST_NO_VERIFY_SLOT), false, 'toggles back off');
+    tw.dispose();
+  });
+
   // ─── SR-8: multi-root resolveRepo ──────────────────────────────────────────
 
   it("commit in a multi-root workspace uses the active editor's repo, not repositories[0]", async () => {
@@ -1249,7 +1513,7 @@ describe('CommitToolWindow — host behavior', () => {
       },
       onDidDispose: () => ({ dispose: () => {} }),
     };
-    /* eslint-enable @typescript-eslint/no-explicit-any */
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
 
     // Reload must deliver the loaded state as an incremental updateModel —
     // never by reassigning webview.html (that regen destroyed composer /
