@@ -6,7 +6,10 @@ import { repoRelativePath } from '../../utils/repoRelativePath';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from '../../git-core/errors';
-import { findCommitByQuery } from '../../git-core/gitToolWindow/jumpToHash';
+import {
+  findCommitByQuery,
+  buildJumpQuickPickItems,
+} from '../../git-core/gitToolWindow/jumpToHash';
 import {
   CommitDialog,
   GIT_TOOL_WINDOW_VIEW_ID,
@@ -859,51 +862,65 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
 
-      await runJumpToCommitFlow({
-        promptQuery: () =>
-          Promise.resolve(
-            vscode.window.showInputBox({
-              title: 'Jump to Commit',
-              prompt: 'Enter a commit SHA, branch name, or tag name',
-              placeHolder: 'e.g., abc1234 or main or v1.0.0',
-            })
-          ),
-        getLoadedCommits: () => provider.getExtendedLogState().commitNodes.map((n) => n.commit),
-        getRefs: async () => {
-          // Branches and tags for name-based matching. Fall back to empty
-          // arrays on error so the command degrades to pure SHA matching
-          // rather than failing outright. Prefer the tool-window's selected
-          // repo; fall back to the active-editor's repo in multi-root
-          // workspaces.
-          const repo =
-            provider.getSelectedRepository() ??
-            (await resolveRepo(gitService, { preferActive: true, silent: true }));
-          let branches: IBranch[] = [];
-          let tags: ITag[] = [];
-          if (repo) {
-            try {
-              branches = await gitService.getBranches(repo);
-            } catch (error) {
-              // Fall through to SHA-only matching; log so the swallowed fault stays visible.
-              getLogger()
-                .child({ component: 'extension' })
-                .debug('findCommit: getBranches failed', {
-                  err: error instanceof Error ? error.message : String(error),
-                });
-            }
-            try {
-              tags = await gitService.getTags(repo);
-            } catch (error) {
-              // Fall through to SHA-only matching; log so the swallowed fault stays visible.
-              getLogger()
-                .child({ component: 'extension' })
-                .debug('findCommit: getTags failed', {
-                  err: error instanceof Error ? error.message : String(error),
-                });
-            }
+      // Branches and tags fetched ONCE: they seed the completing picker AND
+      // back name-based matching. Fall back to empty arrays on error so the
+      // command degrades to pure SHA matching rather than failing outright.
+      // Prefer the tool-window's selected repo; fall back to the
+      // active-editor's repo in multi-root workspaces.
+      const fetchRefs = async (): Promise<{ branches: IBranch[]; tags: ITag[] }> => {
+        const repo =
+          provider.getSelectedRepository() ??
+          (await resolveRepo(gitService, { preferActive: true, silent: true }));
+        let branches: IBranch[] = [];
+        let tags: ITag[] = [];
+        if (repo) {
+          try {
+            branches = await gitService.getBranches(repo);
+          } catch (error) {
+            // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+            getLogger()
+              .child({ component: 'extension' })
+              .debug('findCommit: getBranches failed', {
+                err: error instanceof Error ? error.message : String(error),
+              });
           }
-          return { branches, tags };
-        },
+          try {
+            tags = await gitService.getTags(repo);
+          } catch (error) {
+            // Fall through to SHA-only matching; log so the swallowed fault stays visible.
+            getLogger()
+              .child({ component: 'extension' })
+              .debug('findCommit: getTags failed', {
+                err: error instanceof Error ? error.message : String(error),
+              });
+          }
+        }
+        return { branches, tags };
+      };
+      const refs = await fetchRefs();
+
+      await runJumpToCommitFlow({
+        // A completing picker (IntelliJ's jump popup): refs as items, free
+        // text (a SHA) accepted verbatim when no item is picked.
+        promptQuery: () =>
+          new Promise<string | undefined>((resolve) => {
+            const qp = vscode.window.createQuickPick();
+            qp.title = 'Jump to Commit';
+            qp.placeholder = 'Commit SHA, branch, or tag';
+            qp.items = buildJumpQuickPickItems(refs.branches, refs.tags);
+            qp.onDidAccept(() => {
+              const value = qp.selectedItems[0]?.label ?? qp.value.trim();
+              qp.hide();
+              resolve(value || undefined);
+            });
+            qp.onDidHide(() => {
+              qp.dispose();
+              resolve(undefined);
+            });
+            qp.show();
+          }),
+        getLoadedCommits: () => provider.getExtendedLogState().commitNodes.map((n) => n.commit),
+        getRefs: () => Promise.resolve(refs),
         ensureFullLogLoaded: () => provider.ensureFullLogLoaded(),
         revealLogHost: () => provider.revealLogHost(),
         scrollToCommit: (hash) => provider.scrollToCommit(hash),

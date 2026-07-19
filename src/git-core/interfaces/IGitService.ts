@@ -478,6 +478,11 @@ export interface ILogOptions {
    */
   matchNothing?: boolean;
   author?: string;
+  /**
+   * Multi-select author filters; multiple values UNION (git ORs repeated
+   * `--author` patterns). The multi-select form of {@link author}.
+   */
+  authors?: string[];
   since?: Date;
   until?: Date;
   path?: string;

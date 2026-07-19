@@ -4,6 +4,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
@@ -1054,6 +1055,163 @@ describe('Log View', () => {
         done();
       });
       applyFilter(provider, { until: '2026-12-31' });
+    });
+
+    it('keeps the regex/case toggles lit in the row HTML when the search box is empty', (done) => {
+      // Toggle-first-then-type: the mode flags are UI properties independent
+      // of the text (IntelliJ TextFilterModel), so a re-render must not
+      // un-highlight them just because no text was committed yet.
+      const disposable = provider.onDidRequestLogFilter(() => {
+        disposable.dispose();
+        const html = (
+          provider as unknown as { _getLogFilterRowHtml(): string }
+        )._getLogFilterRowHtml();
+        const regexBtn = html.match(/<button[^>]*id="filter-search-regex"[^>]*>/)?.[0] ?? '';
+        const caseBtn = html.match(/<button[^>]*id="filter-search-case"[^>]*>/)?.[0] ?? '';
+        assert.ok(regexBtn.includes('aria-pressed="true"'), `regex toggle stays lit: ${regexBtn}`);
+        assert.ok(caseBtn.includes('aria-pressed="true"'), `case toggle stays lit: ${caseBtn}`);
+        done();
+      });
+      applyFilter(provider, { searchText: '', searchRegex: true, searchCaseSensitive: true });
+    });
+
+    it('mode toggles alone do not make the filter active', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter, undefined, 'flags without text are not a filter criterion');
+        done();
+      });
+      applyFilter(provider, { searchText: '', searchRegex: true, searchCaseSensitive: true });
+    });
+
+    it('renders a posted search draft (not the applied text) as the input value', () => {
+      (
+        provider as unknown as { _handleWebviewMessage: (m: unknown) => void }
+      )._handleWebviewMessage({ type: 'logSearchDraft', text: 'half-typ' });
+      const html = (
+        provider as unknown as { _getLogFilterRowHtml(): string }
+      )._getLogFilterRowHtml();
+      const input = html.match(/<input[^>]*id="filter-search"[^>]*>/)?.[0] ?? '';
+      assert.ok(input.includes('value="half-typ"'), `draft survives a re-render: ${input}`);
+    });
+
+    it('carries the committed search text in data-f-search for webview rehydration', (done) => {
+      const disposable = provider.onDidRequestLogFilter(() => {
+        disposable.dispose();
+        const html = (
+          provider as unknown as { _getLogFilterRowHtml(): string }
+        )._getLogFilterRowHtml();
+        assert.ok(html.includes('data-f-search="fix"'), 'committed text rides its own attr');
+        done();
+      });
+      applyFilter(provider, { searchText: 'fix' });
+    });
+
+    it('round-trips a timestamp since through data-f-since without truncating to a day', (done) => {
+      const iso = '2026-07-17T15:30:00.000Z';
+      const disposable = provider.onDidRequestLogFilter(() => {
+        disposable.dispose();
+        const html = (
+          provider as unknown as { _getLogFilterRowHtml(): string }
+        )._getLogFilterRowHtml();
+        assert.ok(
+          html.includes(`data-f-since="${iso}"`),
+          'a preset timestamp must survive the row-attr round trip losslessly'
+        );
+        done();
+      });
+      applyFilter(provider, { since: iso });
+    });
+
+    it('an all-repos-unchecked scope renders the filtered empty state with a Clear affordance', () => {
+      const repo = (rootPath: string) => ({
+        rootUri: Uri.file(rootPath),
+        state: 'idle' as const,
+        remotes: [],
+        submodules: [],
+      });
+      provider.setAvailableRepositories([
+        repo('/workspace/repo-a'),
+        repo('/workspace/repo-b'),
+      ] as Parameters<typeof provider.setAvailableRepositories>[0]);
+      (
+        provider as unknown as { _handleWebviewMessage: (m: unknown) => void }
+      )._handleWebviewMessage({ type: 'selectRepositories', roots: [] });
+      const html = (
+        provider as unknown as { _getEmptyGraphPanelHtml(): string }
+      )._getEmptyGraphPanelHtml();
+      assert.ok(
+        !html.includes('No commits yet'),
+        'an empty scope is a filter outcome, not a fresh repo'
+      );
+      assert.ok(html.includes('clearLogFilter'), 'Clear affordance offered');
+    });
+
+    it('Clear filter also resets an all-unchecked repo scope', () => {
+      const repo = (rootPath: string) => ({
+        rootUri: Uri.file(rootPath),
+        state: 'idle' as const,
+        remotes: [],
+        submodules: [],
+      });
+      provider.setAvailableRepositories([
+        repo('/workspace/repo-a'),
+        repo('/workspace/repo-b'),
+      ] as Parameters<typeof provider.setAvailableRepositories>[0]);
+      const surface = provider as unknown as {
+        _handleWebviewMessage: (m: unknown) => void;
+        _getEmptyGraphPanelHtml(): string;
+      };
+      surface._handleWebviewMessage({ type: 'selectRepositories', roots: [] });
+      surface._handleWebviewMessage({ type: 'clearLogFilter' });
+      const html = surface._getEmptyGraphPanelHtml();
+      assert.ok(
+        html.includes('No commits yet'),
+        'after Clear the scope is back to all repos — the empty list means a fresh repo again'
+      );
+    });
+
+    it('the filter row offers a Jump to Commit button', () => {
+      const html = (
+        provider as unknown as { _getLogFilterRowHtml(): string }
+      )._getLogFilterRowHtml();
+      assert.ok(
+        html.includes('data-action="jumpToCommit"'),
+        'IntelliJ has a toolbar Find action; the filter row carries the analog button'
+      );
+    });
+
+    it('a jumpToCommitRequest message executes the jump command', async () => {
+      const executed: string[] = [];
+      const commands = vscode.commands as unknown as {
+        executeCommand: (id: string) => Promise<unknown>;
+      };
+      const original = commands.executeCommand;
+      commands.executeCommand = async (id: string): Promise<unknown> => {
+        executed.push(id);
+        return undefined;
+      };
+      try {
+        await (
+          provider as unknown as { _handleWebviewMessage: (m: unknown) => Promise<void> | void }
+        )._handleWebviewMessage({ type: 'jumpToCommitRequest' });
+        assert.deepStrictEqual(executed, ['intellig.toolWindow.jumpToHash']);
+      } finally {
+        commands.executeCommand = original;
+      }
+    });
+
+    it('maps a multi-author selection through to authors[] and labels the User button', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.deepStrictEqual(filter?.authors, ['Jane <j@x.com>', 'Bob <b@x.com>']);
+        const html = (
+          provider as unknown as { _getLogFilterRowHtml(): string }
+        )._getLogFilterRowHtml();
+        assert.ok(html.includes('2 users'), 'the User button summarizes the multi-selection');
+        done();
+      });
+      applyFilter(provider, { authors: ['Jane <j@x.com>', 'Bob <b@x.com>'] });
     });
 
     it('drops a garbage since string (Invalid Date) so the filter collapses', (done) => {

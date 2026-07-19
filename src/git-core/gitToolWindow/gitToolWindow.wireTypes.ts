@@ -24,6 +24,8 @@ export interface IWebviewLogFilter {
   branchesNone?: boolean;
   searchText?: string;
   author?: string;
+  /** Multi-select authors (User popup checkboxes) — union. */
+  authors?: string[];
   path?: string;
   paths?: string[];
   since?: string | null;
@@ -74,6 +76,11 @@ export interface IWebviewMessage {
   anchorHash?: string | null;
   /** Optional tab discriminator for tab routing. */
   tab?: TabId;
+  /**
+   * Carried by `logSearchDraft`: the live (uncommitted) search-box text, so a
+   * host re-render can restore it instead of wiping the in-flight draft.
+   */
+  text?: string;
   /**
    * Carried by `jumpToFixupTarget` (G6): the commit subject text that the
    * fixup!/squash! link's target commit must match.

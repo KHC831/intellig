@@ -390,6 +390,14 @@ export class GitToolWindowProvider
 {
   private _extendedLogState: IExtendedLogState;
   /**
+   * Search-mode toggles (regex / match case) as last reported by the webview.
+   * UI state independent of the applied filter: flags with no committed text
+   * must survive a re-render without becoming a filter criterion.
+   */
+  private _searchModeUi?: { regex: boolean; caseSensitive: boolean };
+  /** Live search-box draft (uncommitted); survives re-renders. */
+  private _searchDraft?: string;
+  /**
    * Set of commit hashes on the BFS path from the focused
    * branch tip back to its merge-base with HEAD. Recomputed every time
    * {@link setFocusedBranch} runs; cleared (set to empty) by
@@ -2182,6 +2190,15 @@ export class GitToolWindowProvider
       case 'applyLogFilter':
         this._handleApplyLogFilter(msg.filter as IWebviewLogFilter | null);
         break;
+      case 'logSearchDraft':
+        // In-flight (uncommitted) search text: remembered so a background
+        // re-render reissues it as the input value instead of wiping it.
+        this._searchDraft = typeof msg.text === 'string' ? msg.text : undefined;
+        break;
+      case 'jumpToCommitRequest':
+        // Filter-row Jump button → the ref-completing picker command.
+        void vscode.commands.executeCommand('intellig.toolWindow.jumpToHash');
+        break;
       case 'requestLogFilterOptions':
         // Defense-in-depth: the handler swallows per-root failures internally,
         // but guard the fire-and-forget call so any unexpected throw can't
@@ -2197,7 +2214,14 @@ export class GitToolWindowProvider
         // Fired by the "Clear filter" button on the filtered-empty
         // graph state. Clearing is just applying a null filter, which
         // resets `_extendedLogState.filter` and re-fires the log-filter
-        // event so the host reloads the unfiltered commit list.
+        // event so the host reloads the unfiltered commit list. An
+        // explicit empty repo scope is part of "the filter" for this
+        // button: reset it too, or Clear leaves the list empty.
+        if (this._visibleRepoRoots !== null && this._visibleRepoRoots.length === 0) {
+          this._visibleRepoRoots = null;
+          this._onDidChangeState.fire();
+          this._onDidChangeRepositoryScope.fire({ kind: 'all' });
+        }
         this._handleApplyLogFilter(null);
         break;
       case 'branchClick':
@@ -2305,6 +2329,7 @@ export class GitToolWindowProvider
       !filter.logRange &&
       !filter.searchText &&
       !filter.author &&
+      !(filter.authors && filter.authors.length > 0) &&
       !filter.path &&
       !(filter.paths && filter.paths.length > 0) &&
       !filter.since &&
@@ -2355,6 +2380,15 @@ export class GitToolWindowProvider
     if (webviewFilter) {
       filter = {};
 
+      // The regex/case toggles are UI properties independent of the search
+      // text (IntelliJ TextFilterModel): remember them in their own slot so a
+      // toggle-first-then-type flow survives re-renders. They only join the
+      // FILTER (below) alongside text — flags alone are not a filter criterion.
+      this._searchModeUi = {
+        regex: Boolean(webviewFilter.searchRegex),
+        caseSensitive: Boolean(webviewFilter.searchCaseSensitive),
+      };
+
       // The branch/range crosses the untrusted webview boundary before reaching
       // `git log <ref>`; reject a leading `-` (CLI-flag injection) or `.`
       // (invalid per git-check-ref-format) defensively, mirroring the
@@ -2392,6 +2426,14 @@ export class GitToolWindowProvider
       }
       if (webviewFilter.author) {
         filter.author = webviewFilter.author;
+      }
+      // Multi-select authors (User popup checkboxes) — safe downstream: each
+      // value reaches git `=`-bound as its own `--author=<v>`.
+      if (Array.isArray(webviewFilter.authors)) {
+        const authors = webviewFilter.authors.filter((a) => typeof a === 'string' && a.length > 0);
+        if (authors.length > 0) {
+          filter.authors = authors;
+        }
       }
       // Multi-select branches (nested checkbox tree): each is a positional
       // `git log <ref>`, so apply the same leading-`-`/`.` guard as the single
@@ -3964,7 +4006,10 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * result.
    */
   private _getEmptyGraphPanelHtml(): string {
-    const hasActiveFilter = this._extendedLogState.filter !== undefined;
+    // An explicit "no repositories checked" scope is a filter outcome too:
+    // without it the empty list reads as "No commits yet" with no way back.
+    const scopeShowsNone = this._visibleRepoRoots !== null && this._visibleRepoRoots.length === 0;
+    const hasActiveFilter = this._extendedLogState.filter !== undefined || scopeShowsNone;
 
     const body = hasActiveFilter
       ? `<div class="graph-empty-state">
@@ -4037,9 +4082,15 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    */
   public _getLogFilterRowHtml(): string {
     const filter = this._extendedLogState.filter;
+    // Committed (applied) text rides `data-f-search`; the input VALUE shows
+    // the live draft when one is in flight so a re-render can't wipe it.
     const search = this._escapeHtml(filter?.searchText ?? '');
-    const searchRegex = filter?.searchRegex ?? false;
-    const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
+    const searchInputValue = this._escapeHtml(this._searchDraft ?? filter?.searchText ?? '');
+    // UI slot first (covers toggle-with-empty-text); the applied filter is
+    // the fallback for hydration before any applyLogFilter message arrived.
+    const searchRegex = this._searchModeUi?.regex ?? filter?.searchRegex ?? false;
+    const searchCaseSensitive =
+      this._searchModeUi?.caseSensitive ?? filter?.searchCaseSensitive ?? false;
     // A range filter ("A..B") lives in logRange; show it in the Branch button
     // value, falling back to the single-branch scope. `data-f-branch` keeps that
     // single/range value for back-compat; the multi-select tree round-trips
@@ -4049,12 +4100,18 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     const branchesNone = filter?.branchesNone ?? false;
     const paths = filter?.paths ?? [];
     const author = filter?.author ?? '';
+    const authors = filter?.authors ?? [];
     const path = filter?.path ?? '';
-    const sinceAttr = this._toDateInputValue(filter?.since);
-    const untilAttr = this._toDateInputValue(filter?.until);
+    // Row attrs round-trip the applied bounds losslessly (a preset carries an
+    // exact timestamp); the custom-range date INPUTS still use day values.
+    const sinceAttr = filter?.since ? filter.since.toISOString() : '';
+    const untilAttr = filter?.until ? filter.until.toISOString() : '';
 
     const branchLabel = this._escapeHtml(this._branchFilterLabel(filter));
-    const authorLabel = author ? this._escapeHtml(author) : 'All';
+    const authorLabel =
+      authors.length > 1
+        ? `${authors.length} users`
+        : this._escapeHtml(authors[0] ?? author) || 'All';
     const dateLabel = this._escapeHtml(this._dateFilterLabel(filter?.since, filter?.until));
     const repoLabel = this._escapeHtml(this._repoScopeLabel());
 
@@ -4071,11 +4128,12 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
         : '';
 
     return `
-        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-branches-none="${branchesNone}" data-f-author="${this._escapeHtml(author)}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
+        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-search="${search}" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-branches-none="${branchesNone}" data-f-author="${this._escapeHtml(author)}" data-f-authors="${this._escapeHtml(JSON.stringify(authors))}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
           <div class="log-filter-search">
-            <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${search}" aria-label="Search by message or hash" autocomplete="off" />
+            <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${searchInputValue}" aria-label="Search by message or hash" autocomplete="off" />
             <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Match by regular expression" aria-label="Match by regular expression" aria-pressed="${searchRegex}">.*</button>
             <button type="button" id="filter-search-case" class="log-filter-toggle-btn${searchCaseSensitive ? ' active' : ''}" data-action="toggleSearchCase" title="Match case (case-sensitive)" aria-label="Match case (case-sensitive)" aria-pressed="${searchCaseSensitive}">Aa</button>
+            <button type="button" id="filter-jump" class="log-filter-toggle-btn" data-action="jumpToCommit" title="Jump to Commit (SHA, branch, or tag)" aria-label="Jump to Commit">⌖</button>
           </div>
           ${this._getFilterPopupHtml('branch', 'Branch', branchLabel, this._getBranchPopupBodyHtml())}
           ${this._getFilterPopupHtml('user', 'User', authorLabel, this._getUserPopupBodyHtml(author))}

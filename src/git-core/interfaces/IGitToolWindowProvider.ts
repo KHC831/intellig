@@ -71,6 +71,8 @@ export interface ILogFilter {
    */
   branchesNone?: boolean;
   author?: string;
+  /** Multi-select authors — union (git ORs repeated --author patterns). */
+  authors?: string[];
   since?: Date;
   until?: Date;
   path?: string;

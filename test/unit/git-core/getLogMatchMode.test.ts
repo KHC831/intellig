@@ -122,6 +122,36 @@ describe('StashTagHistoryOps.getLog — author filter matching (G2 corollary)', 
     );
   });
 
+  it('author-only filtering honors the Match case default (adds --regexp-ignore-case)', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'john' });
+    assert.ok(
+      calls[0].includes('--regexp-ignore-case'),
+      'the Match case toggle governs every pattern filter, author included'
+    );
+  });
+
+  it('author-only filtering is case-sensitive when Match case is on', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'john', caseSensitive: true });
+    assert.ok(!calls[0].includes('--regexp-ignore-case'));
+  });
+
+  it('multiple selected authors produce one --author per value (patterns OR)', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { authors: ['Jane <j@x.com>', 'Bob <b@x.com>'] });
+    const authorArgs = calls[0].filter((a) => a.startsWith('--author='));
+    assert.deepStrictEqual(authorArgs, ['--author=Jane <j@x.com>', '--author=Bob <b@x.com>']);
+    assert.ok(calls[0].includes('--fixed-strings'), 'literal matching without the regex toggle');
+  });
+
+  it('regex-escapes every selected author when the text search is in regex mode', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { grep: 'fix.*', regex: true, authors: ['A (X)', 'B (Y)'] });
+    const authorArgs = calls[0].filter((a) => a.startsWith('--author='));
+    assert.deepStrictEqual(authorArgs, ['--author=A \\(X\\)', '--author=B \\(Y\\)']);
+  });
+
   it('regex-escapes the author when the text search is in regex mode', async () => {
     const { ops, calls } = makeOps();
     await ops.getLog(repo, { grep: 'fix.*', regex: true, author: 'John (Corp)' });

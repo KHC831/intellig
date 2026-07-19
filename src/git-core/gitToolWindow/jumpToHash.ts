@@ -187,3 +187,21 @@ export function isHexString(s: string): boolean {
   }
   return true;
 }
+
+/**
+ * Seed items for the Jump-to-Commit picker (IntelliJ's completing popup):
+ * local branches, then remote branches, then tags — the same label-order
+ * rank {@link findCommitByQuery} uses to break prefix ties. Free-typed SHAs
+ * bypass the list entirely.
+ */
+export function buildJumpQuickPickItems(
+  branches: ReadonlyArray<IBranch>,
+  tags: ReadonlyArray<ITag>
+): Array<{ label: string; description: 'branch' | 'tag' }> {
+  const locals = branches.filter((b) => b.type === 'local');
+  const remotes = branches.filter((b) => b.type !== 'local');
+  return [
+    ...[...locals, ...remotes].map((b) => ({ label: b.name, description: 'branch' as const })),
+    ...tags.map((t) => ({ label: t.name, description: 'tag' as const })),
+  ];
+}

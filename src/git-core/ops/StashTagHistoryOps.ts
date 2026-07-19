@@ -857,22 +857,28 @@ export class StashTagHistoryOps {
  */
 function pushPatternFilterArgs(
   args: string[],
-  options: Pick<ILogOptions, 'author' | 'grep' | 'regex' | 'caseSensitive'> | undefined
+  options: Pick<ILogOptions, 'author' | 'authors' | 'grep' | 'regex' | 'caseSensitive'> | undefined
 ): void {
   const grep = options?.grep;
-  const author = options?.author;
-  if (!grep && !author) {
+  // Multi-select authors take precedence over the single-value form; git ORs
+  // repeated --author patterns, matching IntelliJ's multi-user filter.
+  const authorList = options?.authors?.length
+    ? options.authors
+    : options?.author
+      ? [options.author]
+      : [];
+  if (!grep && authorList.length === 0) {
     return;
   }
   const regexMode = Boolean(grep) && options?.regex === true;
-  if (author) {
+  for (const author of authorList) {
     args.push(`--author=${regexMode ? escapeExtendedRegex(author) : author}`);
   }
   if (grep) {
     args.push(`--grep=${grep}`);
-    if (!options?.caseSensitive) {
-      args.push('--regexp-ignore-case');
-    }
+  }
+  if (!options?.caseSensitive) {
+    args.push('--regexp-ignore-case');
   }
   args.push(regexMode ? '--extended-regexp' : '--fixed-strings');
 }

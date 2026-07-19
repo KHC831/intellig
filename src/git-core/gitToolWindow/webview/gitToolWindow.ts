@@ -62,6 +62,7 @@ interface IFilterBridge {
   reconcileBranchSelection(): void;
   syncBranchTree(): void;
   getAuthor(): string;
+  getAuthors(): string[];
 }
 
 const OPEN_FILTER_POPUP_SLOT: IWebviewStateSlot<string | null> = {
@@ -131,6 +132,10 @@ function main(vscode: IVsCodeApi): void {
     const initPath = row.getAttribute('data-f-path') || '';
     const seededBranches = readJsonList('data-f-branches', initBranch);
     const filterState = {
+      // COMMITTED search text (what the applied filter uses). The input box
+      // holds the live draft; non-search actions must apply this, not the
+      // draft — a date-preset click must not silently commit half-typed text.
+      searchText: row.getAttribute('data-f-search') || '',
       branches: seededBranches,
       branchMode: (row.getAttribute('data-f-branches-none') === 'true'
         ? 'none'
@@ -138,7 +143,9 @@ function main(vscode: IVsCodeApi): void {
           ? 'subset'
           : 'all') as 'all' | 'subset' | 'none',
       paths: readJsonList('data-f-paths', initPath),
-      author: row.getAttribute('data-f-author') || '',
+      // Multi-select author filter (IntelliJ multi-user); the single legacy
+      // attr seeds a one-element list.
+      authors: readJsonList('data-f-authors', row.getAttribute('data-f-author') || ''),
       since: row.getAttribute('data-f-since') || '',
       until: row.getAttribute('data-f-until') || '',
     };
@@ -265,8 +272,9 @@ function main(vscode: IVsCodeApi): void {
         filter: {
           branches: filterState.branchMode === 'subset' ? filterState.branches.slice() : [],
           branchesNone: filterState.branchMode === 'none',
-          searchText: readSearch(),
-          author: filterState.author,
+          searchText: filterState.searchText,
+          author: filterState.authors[0] || '',
+          authors: filterState.authors.slice(),
           paths: filterState.paths.slice(),
           since: filterState.since || null,
           until: filterState.until || null,
@@ -276,6 +284,26 @@ function main(vscode: IVsCodeApi): void {
       });
     }
 
+    function authorSummary(): string {
+      const n = filterState.authors.length;
+      if (n === 0) {
+        return 'All';
+      }
+      if (n === 1) {
+        return filterState.authors[0];
+      }
+      return n + ' users';
+    }
+    /** Mirror `filterState.authors` onto the User-popup checkboxes. */
+    function syncAuthorChecks(): void {
+      const list = byId('filter-author-list');
+      if (!list) {
+        return;
+      }
+      list.querySelectorAll<HTMLInputElement>('input[data-author]').forEach(function (box) {
+        box.checked = filterState.authors.indexOf(box.getAttribute('data-author') || '') !== -1;
+      });
+    }
     function setPopValue(key: string, text: string): void {
       const el = byId('filter-' + key + '-value');
       if (el) {
@@ -382,9 +410,13 @@ function main(vscode: IVsCodeApi): void {
       }
     }
 
+    /** Exact instant N days ago (IntelliJ presets are timestamps, not days). */
     function daysAgoIso(days: number): string {
+      return new Date(Date.now() - days * 86400000).toISOString();
+    }
+    /** Today as a `yyyy-mm-dd` date-input value (custom range stays date-only). */
+    function todayDateValue(): string {
       const d = new Date();
-      d.setDate(d.getDate() - days);
       const m = ('0' + (d.getMonth() + 1)).slice(-2);
       const day = ('0' + d.getDate()).slice(-2);
       return d.getFullYear() + '-' + m + '-' + day;
@@ -412,6 +444,8 @@ function main(vscode: IVsCodeApi): void {
       const action = actionEl.getAttribute('data-action');
       if (action === 'toggleFilterPopup') {
         togglePopup(actionEl.getAttribute('data-popup'));
+      } else if (action === 'jumpToCommit') {
+        post({ type: 'jumpToCommitRequest' });
       } else if (action === 'toggleSearchRegex' || action === 'toggleSearchCase') {
         actionEl.classList.toggle('active');
         actionEl.setAttribute(
@@ -421,12 +455,13 @@ function main(vscode: IVsCodeApi): void {
         applyFilters();
       } else if (action === 'pickAuthorFilter') {
         const a = actionEl.getAttribute('data-author');
-        filterState.author = a && a !== '__all__' ? a : '';
+        filterState.authors = a && a !== '__all__' ? [a] : [];
         const ai = byId('filter-author-input') as HTMLInputElement | null;
         if (ai) {
-          ai.value = filterState.author;
+          ai.value = filterState.authors[0] || '';
         }
-        setPopValue('user', filterState.author);
+        syncAuthorChecks();
+        setPopValue('user', authorSummary());
         closeAllPopups();
         applyFilters();
       } else if (action === 'pickDateFilter') {
@@ -434,14 +469,16 @@ function main(vscode: IVsCodeApi): void {
         if (range === '24h') {
           filterState.since = daysAgoIso(1);
           filterState.until = '';
+          setPopValue('date', 'Last 24 Hours');
         } else if (range === '7d') {
           filterState.since = daysAgoIso(7);
           filterState.until = '';
+          setPopValue('date', 'Last 7 Days');
         } else {
           filterState.since = '';
           filterState.until = '';
+          setPopValue('date', dateLabel());
         }
-        setPopValue('date', dateLabel());
         closeAllPopups();
         applyFilters();
       } else if (action === 'dateSelectCustom') {
@@ -454,6 +491,14 @@ function main(vscode: IVsCodeApi): void {
         const beforeOn = byId('filter-before-enabled') as HTMLInputElement | null;
         const afterDate = byId('filter-after-date') as HTMLInputElement | null;
         const beforeDate = byId('filter-before-date') as HTMLInputElement | null;
+        // A checked bound with an empty date is not a range — rejecting keeps
+        // the popup open instead of silently clearing the filter.
+        if (afterOn?.checked && !afterDate?.value) {
+          return;
+        }
+        if (beforeOn?.checked && !beforeDate?.value) {
+          return;
+        }
         filterState.since = afterOn && afterOn.checked && afterDate ? afterDate.value : '';
         filterState.until = beforeOn && beforeOn.checked && beforeDate ? beforeDate.value : '';
         setPopValue('date', dateLabel());
@@ -475,6 +520,9 @@ function main(vscode: IVsCodeApi): void {
       ) as HTMLInputElement | null;
       if (dateInput) {
         dateInput.disabled = !el.checked;
+        if (el.checked && !dateInput.value) {
+          dateInput.value = todayDateValue();
+        }
       }
     });
 
@@ -492,11 +540,14 @@ function main(vscode: IVsCodeApi): void {
       const a = e.target.getAttribute('data-action');
       if (a === 'filterSearchKeydown') {
         e.preventDefault();
+        filterState.searchText = readSearch();
         applyFilters();
       } else if (a === 'filterAuthorKeydown') {
         e.preventDefault();
-        filterState.author = (e.target as HTMLInputElement).value.trim();
-        setPopValue('user', filterState.author);
+        const typed = (e.target as HTMLInputElement).value.trim();
+        filterState.authors = typed ? [typed] : [];
+        syncAuthorChecks();
+        setPopValue('user', authorSummary());
         closeAllPopups();
         applyFilters();
       }
@@ -507,7 +558,22 @@ function main(vscode: IVsCodeApi): void {
         return;
       }
       const action = e.target.getAttribute('data-action');
-      if (action === 'toggleBranchCheckbox') {
+      if (action === 'toggleAuthorCheckbox') {
+        const list = byId('filter-author-list');
+        if (list) {
+          const checked: string[] = [];
+          list.querySelectorAll<HTMLInputElement>('input[data-author]').forEach(function (box) {
+            if (box.checked) {
+              checked.push(box.getAttribute('data-author') || '');
+            }
+          });
+          filterState.authors = checked.filter(function (n) {
+            return n.length > 0;
+          });
+        }
+        setPopValue('user', authorSummary());
+        applyFilters();
+      } else if (action === 'toggleBranchCheckbox') {
         recomputeBranchState();
         applyFilters();
       } else if (action === 'toggleBranchFolder') {
@@ -561,6 +627,12 @@ function main(vscode: IVsCodeApi): void {
       if (!(e.target instanceof Element)) {
         return;
       }
+      if (e.target.getAttribute('data-action') === 'filterSearchKeydown') {
+        // Live draft — the host mirrors it so a background re-render restores
+        // the in-flight text instead of resetting to the applied filter.
+        post({ type: 'logSearchDraft', text: (e.target as HTMLInputElement).value });
+        return;
+      }
       if (e.target.getAttribute('data-action') !== 'filterPopupSearch') {
         return;
       }
@@ -596,7 +668,10 @@ function main(vscode: IVsCodeApi): void {
         }
       },
       getAuthor: function (): string {
-        return filterState.author;
+        return filterState.authors[0] || '';
+      },
+      getAuthors: function (): string[] {
+        return filterState.authors.slice();
       },
     };
     window.__intelligFilter = filterBridge;
@@ -868,15 +943,24 @@ function main(vscode: IVsCodeApi): void {
           meBtn.textContent = 'me';
           list.appendChild(meBtn);
         }
+        // Each author is a CHECKBOX (IntelliJ multi-user filter): checking
+        // several unions them; All users / me stay one-click buttons above.
         message.authors.forEach(function (a) {
           const name = String(a);
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'log-filter-popup-item' + (name === current ? ' active' : '');
-          btn.setAttribute('data-action', 'pickAuthorFilter');
-          btn.setAttribute('data-author', name);
-          btn.textContent = name;
-          list.appendChild(btn);
+          const label = document.createElement('label');
+          label.className = 'log-filter-tree-row';
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.setAttribute('data-action', 'toggleAuthorCheckbox');
+          box.setAttribute('data-author', name);
+          const bridge = window.__intelligFilter;
+          box.checked = bridge ? bridge.getAuthors().indexOf(name) !== -1 : name === current;
+          const text = document.createElement('span');
+          text.className = 'log-filter-tree-leaf';
+          text.textContent = name;
+          label.appendChild(box);
+          label.appendChild(text);
+          list.appendChild(label);
         });
       }
     }

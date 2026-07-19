@@ -16,6 +16,7 @@ import {
   classifyQuery,
   findCommitByQuery,
   isHexString,
+  buildJumpQuickPickItems,
 } from '../../../../src/git-core/gitToolWindow/jumpToHash';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -232,5 +233,24 @@ describe('jumpToHash — classifyQuery', () => {
   it('returns undefined for empty / whitespace-only query', () => {
     assert.strictEqual(classifyQuery('', [], [], []), undefined);
     assert.strictEqual(classifyQuery('  ', [], [], []), undefined);
+  });
+});
+
+describe('buildJumpQuickPickItems', () => {
+  it('seeds locals, then remotes, then tags (label-order rank)', () => {
+    const items = buildJumpQuickPickItems(
+      [mkBranch('origin/dev', 'c1', 'remote'), mkBranch('main', 'c2', 'local')],
+      [mkTag('v1.0.0', 'c3')]
+    );
+    assert.deepStrictEqual(
+      items.map((i) => i.label),
+      ['main', 'origin/dev', 'v1.0.0']
+    );
+  });
+
+  it('labels each item with its ref kind so the popup reads like a completion list', () => {
+    const items = buildJumpQuickPickItems([mkBranch('main', 'c')], [mkTag('v1', 'c')]);
+    assert.strictEqual(items[0].description, 'branch');
+    assert.strictEqual(items[1].description, 'tag');
   });
 });

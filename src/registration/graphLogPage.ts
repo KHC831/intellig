@@ -16,6 +16,8 @@ export interface ILogScopeFilter {
    */
   branchesNone?: boolean;
   author?: string;
+  /** Multi-select authors — union (repeated --author patterns). */
+  authors?: string[];
   since?: Date;
   until?: Date;
   path?: string;
@@ -49,6 +51,7 @@ export interface ILogScope {
   logRange?: string;
   hashes?: string[];
   author?: string;
+  authors?: string[];
   since?: Date;
   until?: Date;
   paths?: string[];
@@ -129,6 +132,7 @@ export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
       logRange,
       hashes,
       author: filter?.author,
+      authors: filter?.authors,
       since: filter?.since,
       until: filter?.until,
       paths: paths.length > 0 ? paths : undefined,
@@ -148,6 +152,7 @@ export function buildLogScope(filter?: ILogScopeFilter): ILogScope {
     logRange,
     hashes,
     author: filter?.author,
+    authors: filter?.authors,
     since: filter?.since,
     until: filter?.until,
     paths: paths.length > 0 ? paths : undefined,

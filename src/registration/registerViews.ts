@@ -171,6 +171,22 @@ export async function runShowGitConsole(
 }
 
 /**
+ * Register `intellig.showGitConsole` unconditionally — the palette offers the
+ * command whenever the extension is active, so it must exist even when
+ * services failed to initialize. Provider and console service are resolved at
+ * invocation time; with neither, the command degrades to a no-op instead of a
+ * raw "command not found".
+ */
+export function registerShowGitConsoleCommand(ctx: IViewRegistrationContext): void {
+  const showGitConsoleCommand = vscode.commands.registerCommand('intellig.showGitConsole', () => {
+    void runShowGitConsole(ctx.gitToolWindowProvider, () =>
+      ctx.services?.consoleService.showConsole()
+    );
+  });
+  ctx.context.subscriptions.push(showGitConsoleCommand);
+}
+
+/**
  * Register views and view providers.
  *
  * @param ctx - The view-registration context (RULE E1 bridge to the
@@ -196,6 +212,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     ctx.context.workspaceState
   );
 
+  // Command to open the VCS console — routes to the tool window's Console
+  // TAB (the reference-analog surface); the OutputChannel is only the
+  // no-provider fallback. Registered before any services gate so the palette
+  // entry always resolves.
+  registerShowGitConsoleCommand(ctx);
+
   // Connect the Console Service to the Git Tool Window Provider
   // This enables real-time Git command output display
   if (ctx.services) {
@@ -203,16 +225,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     if (consoleService instanceof ConsoleService) {
       consoleService.connectToToolWindow(ctx.gitToolWindowProvider);
     }
-
-    // Command to open the VCS console — routes to the tool window's Console
-    // TAB (the reference-analog surface); the OutputChannel is only the
-    // no-provider fallback. Captured by value so the closure doesn't depend
-    // on `ctx.services` still being live at invocation time.
-    const toolWindowProviderForConsole = ctx.gitToolWindowProvider;
-    const showGitConsoleCommand = vscode.commands.registerCommand('intellig.showGitConsole', () => {
-      void runShowGitConsole(toolWindowProviderForConsole, () => consoleService.showConsole());
-    });
-    ctx.context.subscriptions.push(showGitConsoleCommand);
 
     // Wire the History tab to the GitService now that the service registry
     // is up. Safe to call multiple times (last-writer-wins).
@@ -782,6 +794,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       branches?: string[];
       branchesNone?: boolean;
       author?: string;
+      authors?: string[];
       since?: Date;
       until?: Date;
       path?: string;
@@ -1042,6 +1055,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               branches: filter.branches,
               branchesNone: filter.branchesNone,
               author: filter.author,
+              authors: filter.authors,
               since: filter.since,
               until: filter.until,
               path: filter.path,

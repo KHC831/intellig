@@ -466,6 +466,9 @@ export function buildInlineStyles(): string {
         cursor: pointer;
         border-bottom: none;
         transition: background-color 0.1s ease;
+        /* List rows, not selectable text: shift-click range selection must
+           not drag-highlight row text. Hash copying = Ctrl+C command. */
+        user-select: none;
       }
 
       .commit-row:hover {

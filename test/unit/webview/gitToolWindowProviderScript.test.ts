@@ -76,6 +76,155 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     }
   });
 
+  it('a date preset click applies the COMMITTED search text, not the live draft', () => {
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setLogFilter({ searchText: 'fix' } as unknown as Parameters<
+      typeof provider.setLogFilter
+    >[0]);
+    h = bootWebviewEntry(ENTRY, {
+      bodyHtml: bodyOf(provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[])),
+    });
+    const input = h.document.getElementById('filter-search') as HTMLInputElement;
+    input.value = 'fix par'; // half-typed, never committed
+    input.dispatchEvent(new h.window.Event('input', { bubbles: true }));
+    const preset = h.document.querySelector<HTMLElement>(
+      '[data-action="pickDateFilter"][data-range="24h"]'
+    );
+    assert.ok(preset, 'the 24h preset exists');
+    preset.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { searchText: string } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    const last = applies[applies.length - 1];
+    assert.strictEqual(last.filter.searchText, 'fix', 'preset must not commit the draft');
+  });
+
+  it('typing in the search box posts the draft so the host can preserve it', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const input = h.document.getElementById('filter-search') as HTMLInputElement;
+    input.value = 'par';
+    input.dispatchEvent(new h.window.Event('input', { bubbles: true }));
+    assert.ok(
+      h.posted.some(
+        (m) =>
+          (m as { type?: string; text?: string }).type === 'logSearchDraft' &&
+          (m as { text?: string }).text === 'par'
+      ),
+      `draft posted: ${JSON.stringify(h.posted)}`
+    );
+  });
+
+  it('Enter in the search box commits the draft into the applied filter', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const input = h.document.getElementById('filter-search') as HTMLInputElement;
+    input.value = 'committed now';
+    input.dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    );
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { searchText: string } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    assert.strictEqual(applies[applies.length - 1]?.filter.searchText, 'committed now');
+  });
+
+  it('the 24h date preset posts an exact timestamp, not a calendar-day boundary', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const preset = h.document.querySelector<HTMLElement>(
+      '[data-action="pickDateFilter"][data-range="24h"]'
+    )!;
+    preset.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { since: string | null } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    const since = applies[applies.length - 1]?.filter.since;
+    assert.ok(since, 'preset posts a since value');
+    const drift = Math.abs(Date.now() - 24 * 3600 * 1000 - Date.parse(since));
+    assert.ok(drift < 60_000, `"Last 24 Hours" means exactly 24h ago, got drift ${drift}ms`);
+  });
+
+  it('checking a custom date bound seeds today instead of an empty field', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const box = h.document.getElementById('filter-after-enabled') as HTMLInputElement;
+    const dateInput = h.document.getElementById('filter-after-date') as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+    assert.strictEqual(dateInput.disabled, false, 'checking enables the input');
+    assert.ok(dateInput.value.length > 0, 'the input seeds with today, not empty');
+  });
+
+  it('Apply with a checked bound and empty date is rejected instead of silently clearing', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const box = h.document.getElementById('filter-after-enabled') as HTMLInputElement;
+    const dateInput = h.document.getElementById('filter-after-date') as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+    dateInput.value = ''; // user cleared it after checking
+    const before = h.posted.filter(
+      (m) => (m as { type?: string }).type === 'applyLogFilter'
+    ).length;
+    const apply = h.document.querySelector<HTMLElement>('[data-action="applyDateCustom"]')!;
+    apply.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    const after = h.posted.filter((m) => (m as { type?: string }).type === 'applyLogFilter').length;
+    assert.strictEqual(after, before, 'an invalid custom range must not apply/clear the filter');
+  });
+
+  it('clicking the filter-row Jump button posts a jumpToCommitRequest', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const btn = h.document.querySelector<HTMLElement>('[data-action="jumpToCommit"]');
+    assert.ok(btn, 'the Jump button renders in the filter row');
+    btn.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    assert.ok(
+      h.posted.some((m) => (m as { type?: string }).type === 'jumpToCommitRequest'),
+      `jump request posted: ${JSON.stringify(h.posted)}`
+    );
+  });
+
+  it('user popup: checking two author checkboxes posts an authors[] selection', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    h.post({
+      type: 'authorOptionsReady',
+      authors: ['Jane <j@x.com>', 'Bob <b@x.com>', 'Zed <z@x.com>'],
+    });
+    const boxes = Array.from(
+      h.document.querySelectorAll<HTMLInputElement>(
+        '#filter-author-list input[type="checkbox"][data-author]'
+      )
+    );
+    assert.strictEqual(boxes.length, 3, 'each author renders as a checkbox (multi-select)');
+    const check = (name: string): void => {
+      const box = boxes.find((b) => b.getAttribute('data-author') === name)!;
+      box.checked = true;
+      box.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+    };
+    check('Jane <j@x.com>');
+    check('Bob <b@x.com>');
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { authors?: string[] } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    assert.deepStrictEqual(
+      applies[applies.length - 1]?.filter.authors,
+      ['Jane <j@x.com>', 'Bob <b@x.com>'],
+      'multi-select posts every checked author'
+    );
+  });
+
+  it('user popup: author rows carry the shared tree-row classes so long names ellipsize', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    h.post({ type: 'authorOptionsReady', authors: ['A Very Long Name <verylong@example.com>'] });
+
+    const row = h.document.querySelector('#filter-author-list label[class*="tree-row"]');
+
+    assert.ok(row, 'the author row reuses .log-filter-tree-row like the branch tree');
+    assert.ok(
+      row?.querySelector('.log-filter-tree-leaf'),
+      'the author name sits in a .log-filter-tree-leaf span (bare text nodes cannot ellipsize)'
+    );
+  });
+
   it('loads the composed document without throwing and builds the panels', () => {
     h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
     assert.deepStrictEqual(

@@ -60,7 +60,12 @@ describe('Author popup — "me" preset (F-A21)', () => {
     });
 
     const list = h.document.getElementById('filter-author-list') as HTMLElement;
-    const labels = Array.from(list.querySelectorAll('button')).map((b) => b.textContent);
-    assert.deepStrictEqual(labels, ['All users', 'Alice <alice@a.com>']);
+    // Presets are buttons; individual authors are multi-select checkboxes.
+    const presets = Array.from(list.querySelectorAll('button')).map((b) => b.textContent);
+    assert.deepStrictEqual(presets, ['All users'], 'no "me" preset without an identity');
+    const authors = Array.from(
+      list.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-author]')
+    ).map((b) => b.getAttribute('data-author'));
+    assert.deepStrictEqual(authors, ['Alice <alice@a.com>'], 'the author still offered to pick');
   });
 });

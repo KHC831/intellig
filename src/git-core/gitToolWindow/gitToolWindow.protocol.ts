@@ -29,6 +29,8 @@ export type GitToolWindowInbound =
   | ({ type: 'doubleClickFile' } & Fields)
   | ({ type: 'fileContextAction' } & Fields)
   | ({ type: 'applyLogFilter' } & Fields)
+  | ({ type: 'logSearchDraft' } & Fields)
+  | ({ type: 'jumpToCommitRequest' } & Fields)
   | ({ type: 'requestLogFilterOptions' } & Fields)
   | ({ type: 'requestAuthorOptions' } & Fields)
   | ({ type: 'clearLogFilter' } & Fields)
@@ -69,6 +71,8 @@ export const GIT_TOOL_WINDOW_INBOUND_TYPES = [
   'doubleClickFile',
   'fileContextAction',
   'applyLogFilter',
+  'logSearchDraft',
+  'jumpToCommitRequest',
   'requestLogFilterOptions',
   'requestAuthorOptions',
   'clearLogFilter',
