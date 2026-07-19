@@ -507,7 +507,7 @@ export class GitToolWindowProvider
   private _multiChangedFiles = new Map<string, IChangedFile[]>();
   private _multiSelectionKey: string | undefined;
   /** Commits in the current selection whose files were NOT loaded (the cap). */
-  private _multiSelectionSkipped = 0;
+  private _multiSelectionLoaded: ReadonlySet<string> | undefined;
   /**
    * Short-lived cache of the grouped Branch-popup options, keyed by the repo
    * scope. Collapses the per-open `requestLogFilterOptions` storm so a burst
@@ -2110,7 +2110,7 @@ export class GitToolWindowProvider
     // selection land as stale instead of painting over the new one.
     this._multiSelectionKey = key;
     this._multiChangedFiles.clear();
-    this._multiSelectionSkipped = 0;
+    this._multiSelectionLoaded = undefined;
     if (hashes.length >= 2) {
       this._onDidSelectCommits.fire({ hashes: [...hashes] });
     }
@@ -2121,21 +2121,22 @@ export class GitToolWindowProvider
    * Receive the changed files loaded for a multi-commit selection and repaint
    * the panel with the real combined tree.
    *
-   * `skipped` is how many selected commits were left unloaded by
-   * {@link MULTI_DETAILS_COMMIT_CAP}; the panel says so rather than
-   * presenting a short list as the whole truth. A payload for a selection the
-   * user has already left is dropped.
+   * `loadedHashes` is the subset {@link MULTI_DETAILS_COMMIT_CAP} allowed the
+   * loader to read. The panel derives its "showing the first N" notice from
+   * it rather than from a count, so the notice always describes the commits
+   * it actually rendered. A payload for a selection the user has already left
+   * is dropped.
    */
   public updateMultiCommitDetails(
     hashes: readonly string[],
     filesByHash: ReadonlyMap<string, IChangedFile[]>,
-    skipped = 0
+    loadedHashes: readonly string[] = hashes
   ): void {
     if (this._selectionKeyOf(hashes) !== this._multiSelectionKey) {
       return;
     }
     this._multiChangedFiles = new Map(filesByHash);
-    this._multiSelectionSkipped = skipped;
+    this._multiSelectionLoaded = new Set(loadedHashes);
     postDetailsForSelection(this);
   }
 
@@ -4764,7 +4765,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     return buildMultiCommitDetailsPanelModel(
       commitDetailsList,
       this.getSelectedRepoProject(),
-      this._multiSelectionSkipped
+      this._multiSelectionLoaded
     );
   }
 

@@ -285,7 +285,7 @@ describe('multi-commit details panel carries real files', () => {
     provider.updateMultiCommitDetails(
       [A, B, C],
       new Map([[A, [{ path: 'src/a.ts', status: 'modified' as const }]]]),
-      2
+      [A]
     );
 
     const model = lastDetailsModel(h.messages);
@@ -294,5 +294,88 @@ describe('multi-commit details panel carries real files', () => {
       /first 1 of 3 selected commits/,
       'a capped tree is never presented as the whole truth'
     );
+  });
+
+  it('counts the cap notice against the commits actually rendered', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    h.internals._handleWebviewMessage({ type: 'rangeSelectCommit', commitHash: C });
+    // The log re-renders with a shorter page while the selection stands, so C
+    // is selected but no longer a rendered node — it contributes no block.
+    h.internals._extendedLogState.commitNodes = h.internals._extendedLogState.commitNodes.filter(
+      (n) => n.commit.hash !== C
+    );
+
+    provider.updateMultiCommitDetails(
+      [A, B, C],
+      new Map([[A, [{ path: 'src/a.ts', status: 'modified' as const }]]]),
+      [A]
+    );
+
+    const model = lastDetailsModel(h.messages);
+    const rendered = (model?.commits as unknown[]).length;
+    assert.strictEqual(rendered, 2, 'sanity: only the rendered commits get a block');
+    assert.match(
+      String(model?.changedFilesError ?? ''),
+      new RegExp(`first 1 of ${rendered} selected commits`),
+      'both numbers in the notice must describe the rendered list'
+    );
+  });
+});
+
+/**
+ * Clearing the selection is a selection change like any other: the panel must
+ * follow it to the placeholder rather than keep painting the commit the user
+ * just deselected, which the graph no longer shows as selected.
+ */
+describe('empty selection clears the details panel', () => {
+  let provider: GitToolWindowProvider;
+
+  afterEach(() => {
+    provider?.dispose();
+  });
+
+  it('ctrl+click deselecting the only selected commit posts the placeholder', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    provider.updateCommitDetails(A, [{ path: 'src/a.ts', status: 'modified' }] as never);
+
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: A });
+
+    assert.strictEqual(h.internals._extendedLogState.selectedCommits.size, 0, 'sanity: none left');
+    assert.strictEqual(
+      lastDetailsModel(h.messages)?.kind,
+      'placeholder',
+      'the panel must not describe a commit the graph shows as unselected'
+    );
+    assert.strictEqual(
+      h.internals._pendingChangedFiles,
+      undefined,
+      'the deselected commit files must not survive into the next selection'
+    );
+  });
+
+  it('a programmatic empty selection posts the placeholder', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    provider.updateCommitDetails(A, [{ path: 'src/a.ts', status: 'modified' }] as never);
+
+    provider.selectCommits([]);
+
+    assert.strictEqual(lastDetailsModel(h.messages)?.kind, 'placeholder');
+    assert.strictEqual(h.internals._pendingChangedFiles, undefined);
+  });
+
+  it('a selection whose hashes are all unknown posts the placeholder', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+
+    provider.selectCommits(['z'.repeat(40)]);
+
+    assert.strictEqual(lastDetailsModel(h.messages)?.kind, 'placeholder');
   });
 });

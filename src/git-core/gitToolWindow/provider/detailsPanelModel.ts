@@ -323,9 +323,12 @@ export const MULTI_DETAILS_COMMIT_CAP = 20;
 export function buildMultiCommitDetailsPanelModel(
   commitDetailsList: ICommitDetails[],
   project?: IDetailsProject,
-  skippedCommits = 0
+  loadedHashes?: ReadonlySet<string>
 ): DetailsPanelModel {
   const mergedFiles = mergeChangedFiles(commitDetailsList);
+  const skippedCommits = loadedHashes
+    ? commitDetailsList.length - commitDetailsList.filter((d) => loadedHashes.has(d.hash)).length
+    : 0;
   // Any commit whose diff failed makes the combined list partial; report the
   // first reason rather than presenting the remainder as complete. A capped
   // selection is partial for a different reason, and says which.

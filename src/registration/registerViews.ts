@@ -20,7 +20,7 @@ import {
 } from '../services';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
 import type { IChangedFile } from '../git-core/interfaces/IGitToolWindowProvider';
-import { MULTI_DETAILS_COMMIT_CAP } from '../git-core/gitToolWindow/provider/detailsPanelModel';
+import { createMultiCommitFilesLoader } from './multiCommitFilesLoad';
 import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
 import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
@@ -1168,34 +1168,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     ctx.context.subscriptions.push(commitSelectListener);
 
     // Multi-commit selection: load each selected commit's files so the
-    // combined tree is real. Bounded by MULTI_DETAILS_COMMIT_CAP — a
-    // range-select can cover hundreds of commits and each one is a `git
-    // diff`; the panel reports how many were left out.
-    const commitsSelectListener = ctx.gitToolWindowProvider.onDidSelectCommits(
-      async ({ hashes }) => {
-        const loaded = hashes.slice(0, MULTI_DETAILS_COMMIT_CAP);
-        const skipped = hashes.length - loaded.length;
-        const filesByHash = new Map<string, IChangedFile[]>();
-
-        for (const hash of loaded) {
-          const repo =
-            (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
-            ctx.gitToolWindowProvider?.getSelectedRepository();
-          if (!repo) {
-            continue;
-          }
-          try {
-            filesByHash.set(hash, await loadCommitChangedFiles(gitService, repo, hash));
-          } catch {
-            // One unreadable commit must not blank the whole combined tree;
-            // it simply contributes no files.
-            filesByHash.set(hash, []);
-          }
-        }
-
-        ctx.gitToolWindowProvider?.updateMultiCommitDetails(hashes, filesByHash, skipped);
-      }
-    );
+    // combined tree is real. The loader owns the cap, the concurrency bound
+    // and the staleness generation; the panel reports what was left out.
+    const loadMultiCommitFiles = createMultiCommitFilesLoader({
+      resolveRepo: async (hash) =>
+        (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
+        ctx.gitToolWindowProvider?.getSelectedRepository(),
+      loadChangedFiles: (repo, hash) => loadCommitChangedFiles(gitService, repo, hash),
+      publish: (hashes, filesByHash, loadedHashes) => {
+        ctx.gitToolWindowProvider?.updateMultiCommitDetails(hashes, filesByHash, loadedHashes);
+      },
+    });
+    const commitsSelectListener = ctx.gitToolWindowProvider.onDidSelectCommits(({ hashes }) => {
+      void loadMultiCommitFiles(hashes);
+    });
     ctx.context.subscriptions.push(commitsSelectListener);
 
     // Wire up onDidRequestCommitDiff to open diff view on file double-click

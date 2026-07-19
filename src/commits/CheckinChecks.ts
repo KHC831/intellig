@@ -36,6 +36,7 @@ import { isConflictedStatus, parseLineAttrPaths } from '../git-core/gitParser';
 import { readConfig } from '../config/configKeys';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import { mapWithLimit } from '../utils/mapWithLimit';
 import {
   loadPersisted,
   savePersisted,
@@ -160,30 +161,6 @@ export interface IFileFactsFs {
  * process limit.
  */
 const FACTS_SCAN_CONCURRENCY = 16;
-
-/**
- * Run `worker` over `items` with at most `limit` in flight, preserving input
- * order in the result.
- */
-async function mapWithLimit<T, R>(
-  items: ReadonlyArray<T>,
-  limit: number,
-  worker: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async (): Promise<void> => {
-    for (;;) {
-      const index = next++;
-      if (index >= items.length) {
-        return;
-      }
-      results[index] = await worker(items[index]);
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
 
 /**
  * "Commit As-Is, Don't Ask Again" for the CRLF warning.

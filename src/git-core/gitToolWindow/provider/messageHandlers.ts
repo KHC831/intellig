@@ -1,6 +1,6 @@
 import { computeRangeSelection } from '../multiSelect';
 import type { IGtwControllerContext } from './IGtwControllerContext';
-import { commitNodeToBaseDetails } from './detailsPanelModel';
+import { buildDetailsPanelPlaceholderModel, commitNodeToBaseDetails } from './detailsPanelModel';
 
 /**
  * Webview message handlers extracted from the Git tool window provider's
@@ -75,7 +75,7 @@ export function selectCommits(
   }
   // Keep `expandedCommit` on the first surviving hash so single-commit
   // consumers (and the N=1 render) never point at a commit that left the
-  // selection. For N=0 leave it alone — the next render shows the placeholder.
+  // selection. At N=0 it is moot: the seam posts the placeholder.
   if (filtered.length >= 1) {
     ctx.extendedLogState.expandedCommit = filtered[0];
   }
@@ -96,14 +96,17 @@ export function selectCommits(
 }
 
 /**
- * Post the details payload the CURRENT selection calls for: the multi-commit
- * model at two or more, the single-commit model otherwise.
+ * Post the details payload the CURRENT selection calls for: the placeholder
+ * at none, the multi-commit model at two or more, the single-commit model
+ * otherwise.
  *
  * Every path that changes the selection posts through here. A selection of
  * two or more commits is its own presentation — a count, the per-commit
  * summaries and the combined file tree — and rendering the range tip's
  * details instead misreports an N-commit selection as one commit (reference:
- * CommitDetailsListPanel renders a block per commit).
+ * CommitDetailsListPanel renders a block per commit). An empty selection is
+ * likewise its own presentation: the graph shows nothing selected, so the
+ * panel must not keep describing whichever commit was expanded last.
  */
 export function postDetailsForSelection(ctx: IGtwControllerContext): void {
   if (!ctx.hasView()) {
@@ -117,6 +120,15 @@ export function postDetailsForSelection(ctx: IGtwControllerContext): void {
   // a load still running for a selection the user left lands as stale
   // instead of painting over the new one.
   ctx.requestMultiCommitFiles(selected);
+
+  if (selected.length === 0) {
+    // The last selected commit's half-loaded payload belongs to no current
+    // selection; dropping it here keeps every empty-selection entry point
+    // from having to remember to.
+    ctx.clearPendingChangedFiles();
+    ctx.postToWebview({ type: 'updateDetailsPanel', model: buildDetailsPanelPlaceholderModel() });
+    return;
+  }
 
   if (selected.length < 2) {
     ctx.postDetailsForExpandedCommit();
@@ -290,7 +302,8 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
     ctx.extendedLogState.expandedCommit = hash;
   } else if (ctx.extendedLogState.expandedCommit === hash) {
     // Deselected the expanded commit: fall back to another survivor so the
-    // pane never describes a commit that left the selection.
+    // pane never describes a commit that left the selection. With no survivor
+    // there is nothing to fall back to and the seam posts the placeholder.
     const survivor = ctx.extendedLogState.selectedCommits.values().next();
     if (!survivor.done) {
       ctx.clearPendingChangedFiles();
