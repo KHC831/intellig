@@ -11,6 +11,8 @@ import type { ICommandContext } from './CommandContext';
 import { registerBareCommand } from './commandSpine';
 import {
   extractCommitHash,
+  extractCommitFileArg,
+  resolveRepoForCommitFile,
   resolveRepoContainingCommit,
   resolveRepoForCommit,
 } from './commitHelpers';
@@ -174,12 +176,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     id: 'intellig.commit.showDiff',
     failureTitle: 'Failed to show diff',
     run: async (_args, commitArg) => {
-      const hash = extractCommitHash(commitArg);
+      const { hash, path: clickedPath, repoRoot } = extractCommitFileArg(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
         return;
       }
-      const repo = await resolveRepoContainingCommit(ctx, hash);
+      const repo = await resolveRepoForCommitFile(ctx, hash, repoRoot);
       if (!repo || !ctx.services) {
         return;
       }
@@ -191,6 +193,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         );
         if (parent === undefined) {
           return; // user cancelled the merge-parent picker
+        }
+        // The details-panel menu already names the file — diff it directly;
+        // only a file-less (palette) invocation falls back to the picker.
+        if (clickedPath) {
+          await _openFileDiffAtRevision(clickedPath, hash, parent);
+          return;
         }
         await _openCommitFileDiff(repo, hash, parent, gitService);
       } catch (error) {
@@ -246,12 +254,18 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     id: 'intellig.commit.showFileInRevision',
     failureTitle: 'Failed to open file at revision',
     run: async (_args, commitArg) => {
-      const hash = extractCommitHash(commitArg);
+      const { hash, path: clickedPath, repoRoot } = extractCommitFileArg(commitArg);
       if (!hash) {
         void vscode.window.showErrorMessage('No commit selected.');
         return;
       }
-      const repo = await resolveRepoContainingCommit(ctx, hash);
+      // The clicked row already names the file; open it without a picker.
+      if (clickedPath) {
+        const uri = vscode.Uri.parse(`intellig-git:${clickedPath}?${encodeURIComponent(hash)}`);
+        await vscode.commands.executeCommand('vscode.open', uri);
+        return;
+      }
+      const repo = await resolveRepoForCommitFile(ctx, hash, repoRoot);
       if (!repo || !ctx.services) {
         return;
       }
@@ -291,15 +305,9 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     id: 'intellig.commit.fileHistoryFromHere',
     failureTitle: 'Failed to open file history',
     run: async (_args, commitArg) => {
-      const hash = extractCommitHash(commitArg);
-      const path =
-        commitArg &&
-        typeof commitArg === 'object' &&
-        typeof (commitArg as { path?: unknown }).path === 'string'
-          ? (commitArg as { path: string }).path
-          : undefined;
+      const { hash, path, repoRoot } = extractCommitFileArg(commitArg);
       if (hash && path && ctx.gitToolWindowProvider && isTabbedGitToolWindowEnabled()) {
-        const repo = await resolveRepoContainingCommit(ctx, hash);
+        const repo = await resolveRepoForCommitFile(ctx, hash, repoRoot);
         if (!repo) {
           return;
         }
@@ -841,6 +849,22 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
    * changed file in the commit, the user can open a side-by-side diff using
    * the `intellig-git:` content-provider scheme.
    */
+  /** Diff ONE known file between a commit and its parent (no picker). */
+  async function _openFileDiffAtRevision(
+    filePath: string,
+    commitHash: string,
+    parentRef: string
+  ): Promise<void> {
+    const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(parentRef)}`);
+    const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(commitHash)}`);
+    // Bare (re-throws); the caller owns error reporting.
+    await openRevisionDiff({
+      leftUri,
+      rightUri,
+      title: `${filePath} (${parentRef.substring(0, 8)} ↔ ${commitHash.substring(0, 8)})`,
+    });
+  }
+
   async function _openCommitFileDiff(
     repo: IRepository,
     commitHash: string,

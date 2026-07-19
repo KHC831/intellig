@@ -16,6 +16,8 @@ const ctx = {
   isIssueLinkingEnabled: () => false,
   getSelectedRepoRemote: () => undefined,
   getSelectedRepoProject: () => undefined,
+  isKnownCommitHash: () => false,
+  getDetailsGroupBy: () => 'tree' as const,
 } as never;
 
 function commitDetails(over: Partial<ICommitDetails> = {}): ICommitDetails {

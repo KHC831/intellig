@@ -10,7 +10,9 @@ import {
   FILE_STATUS_THEME_VARS,
 } from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../../src/services/interfaces';
-import { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { ICommit, IRepository } from '../../../src/git-core/interfaces/IGitService';
+import type { ICommitNode } from '../../../src/git-core/commitGraph';
+import { commitNodeToBaseDetails } from '../../../src/git-core/gitToolWindow/provider/detailsPanelModel';
 import { Uri, setMockConfigValue } from '../../mocks/vscode';
 import {
   renderDetailsPanel as renderModelPanel,
@@ -67,6 +69,144 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
   afterEach(() => {
     provider.dispose();
+  });
+
+  // Mirrors CommitPresentationUtil.getAuthorAndCommitterText: the committer
+  // line appears when the committer differs from the author, or when only the
+  // timestamps differ (an amend/rebase by the same person).
+  describe('Committer line', () => {
+    const AUTHORED = new Date('2024-01-15T10:30:00Z');
+    const COMMITTED = new Date('2024-02-20T08:00:00Z');
+
+    /** The rendered committer row, or null when the panel omits it. */
+    const committerRow = (details: Partial<ICommitDetails>): Element | null =>
+      renderModelPanel(provider._getDetailsPanelModel(makeCommitDetails(details))).querySelector(
+        '.committed-by-row'
+      );
+
+    it('omits the committer line when author and committer are the same person at the same time', () => {
+      const row = committerRow({
+        author: { name: 'John Doe', email: 'john@example.com' },
+        committer: { name: 'John Doe', email: 'john@example.com' },
+        date: AUTHORED,
+        commitDate: AUTHORED,
+      });
+
+      assert.strictEqual(row, null, 'no committer line for a plain self-authored commit');
+    });
+
+    it('names the committer when a different person committed the change', () => {
+      const row = committerRow({
+        author: { name: 'John Doe', email: 'john@example.com' },
+        committer: { name: 'Jane Roe', email: 'jane@example.com' },
+        date: AUTHORED,
+        commitDate: COMMITTED,
+      });
+
+      assert.ok(row?.textContent?.includes('Jane Roe'), 'the committer is named');
+    });
+
+    it('omits the redundant name when the same person committed at a later time', () => {
+      const row = committerRow({
+        author: { name: 'John Doe', email: 'john@example.com' },
+        committer: { name: 'John Doe', email: 'john@example.com' },
+        date: AUTHORED,
+        commitDate: COMMITTED,
+      });
+
+      assert.ok(row, 'an amend by the same author still reports the commit time');
+      assert.ok(!row?.textContent?.includes('John Doe'), 'the redundant committer name is omitted');
+    });
+
+    it('compares identity by name case-insensitively, not by email', () => {
+      const row = committerRow({
+        author: { name: 'John Doe', email: 'john@example.com' },
+        committer: { name: 'john doe', email: 'john@work.example.com' },
+        date: AUTHORED,
+        commitDate: AUTHORED,
+      });
+
+      assert.strictEqual(row, null, 'same name in standard form is the same person');
+    });
+  });
+
+  // IntelliJ's ReferencesPanel groups the refs pointing AT this commit by type
+  // and renders each as a chip; a commit with no refs shows no chip row.
+  describe('Ref chips', () => {
+    const chips = (details: Partial<ICommitDetails>, selector: string): string[] =>
+      Array.from(
+        renderModelPanel(
+          provider._getDetailsPanelModel(makeCommitDetails(details))
+        ).querySelectorAll(selector)
+      ).map((el) => el.textContent ?? '');
+
+    it('renders a chip per branch pointing at the commit', () => {
+      assert.deepStrictEqual(
+        chips({ branches: ['main', 'feature/login'] }, '.details-ref-branch'),
+        ['main', 'feature/login']
+      );
+    });
+
+    it('renders a chip per tag pointing at the commit', () => {
+      assert.deepStrictEqual(chips({ tags: ['v1.0.0', 'release'] }, '.details-ref-tag'), [
+        'v1.0.0',
+        'release',
+      ]);
+    });
+
+    it('renders no ref row for a commit that carries neither branch nor tag', () => {
+      assert.deepStrictEqual(chips({ branches: [], tags: [] }, '.details-refs-row'), []);
+    });
+
+    it('keeps a hostile ref name as text rather than markup', () => {
+      const [chip] = chips({ branches: ['<img src=x onerror=alert(1)>'] }, '.details-ref-branch');
+
+      assert.strictEqual(chip, '<img src=x onerror=alert(1)>', 'the ref name crosses as data');
+    });
+  });
+
+  describe('Multi-commit changed-files errors', () => {
+    it('surfaces a failed changed-files load instead of showing an empty list', () => {
+      const html = renderMulti(provider, [
+        makeCommitDetails({ hash: 'a'.repeat(40) }),
+        makeCommitDetails({ hash: 'b'.repeat(40), changedFilesError: 'fatal: bad object' }),
+      ]);
+
+      assert.ok(
+        html.includes('fatal: bad object'),
+        'a partial file list must report why it is partial'
+      );
+    });
+
+    it('shows no error banner when every commit loaded cleanly', () => {
+      const html = renderMulti(provider, [makeCommitDetails({ hash: 'a'.repeat(40) })]);
+
+      assert.ok(!html.includes('error-message'), 'a clean load shows no error');
+    });
+  });
+
+  describe('Commit-hash links in the message', () => {
+    it('renders a resolvable hash as a jump target carrying the hash', () => {
+      const loaded = 'abc1234567890abcdef1234567890abcdef12345';
+      (
+        provider as unknown as { _extendedLogState: { commitNodes: unknown[] } }
+      )._extendedLogState.commitNodes = [{ commit: { hash: loaded }, branches: [], tags: [] }];
+
+      const link = renderModelPanel(
+        provider._getDetailsPanelModel(makeCommitDetails({ message: 'Revert abc1234 for now' }))
+      ).querySelector('.commit-hash-link');
+
+      assert.strictEqual(link?.getAttribute('data-commit-hash'), 'abc1234');
+      assert.strictEqual(link?.textContent, 'abc1234');
+    });
+
+    it('leaves a hex word that names no loaded commit unlinked', () => {
+      const link = renderModelPanel(
+        provider._getDetailsPanelModel(makeCommitDetails({ message: 'Use deadbeef as the fill' }))
+      ).querySelector('.commit-hash-link');
+
+      assert.strictEqual(link, null, 'an unresolvable run must not look clickable');
+    });
   });
 
   describe('Commit metadata display', () => {
@@ -1294,5 +1434,31 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
       util.getAttribute('style')?.includes('padding-left: 20px'),
       'nested util dir pinned at padding-left 20px'
     );
+  });
+});
+
+describe('commitNodeToBaseDetails', () => {
+  const makeNode = (commit: Partial<ICommit>): ICommitNode =>
+    ({
+      commit: {
+        hash: 'abc1234567890abcdef1234567890abcdef123456',
+        shortHash: 'abc1234',
+        message: 'Rebased change',
+        author: { name: 'John Doe', email: 'john@example.com' },
+        committer: { name: 'Jane Roe', email: 'jane@example.com' },
+        parents: [],
+        authorDate: new Date('2024-01-15T10:30:00Z'),
+        commitDate: new Date('2024-02-20T08:00:00Z'),
+        ...commit,
+      },
+      branches: [],
+      tags: [],
+    }) as unknown as ICommitNode;
+
+  it('carries the committer and commit date so the panel can show who committed', () => {
+    const details = commitNodeToBaseDetails(makeNode({}));
+
+    assert.deepStrictEqual(details.committer, { name: 'Jane Roe', email: 'jane@example.com' });
+    assert.deepStrictEqual(details.commitDate, new Date('2024-02-20T08:00:00Z'));
   });
 });

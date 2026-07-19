@@ -29,6 +29,9 @@ function singleModel(over: Partial<DetailsPanelModel> = {}): DetailsPanelModel {
     fileTree: [],
     containingBranches: null,
     branchCollapseThreshold: 3,
+    refBranches: [],
+    refTags: [],
+    groupBy: 'tree' as const,
     ...over,
   } as DetailsPanelModel;
 }

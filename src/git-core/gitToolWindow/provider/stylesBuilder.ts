@@ -912,13 +912,49 @@ export function buildInlineStyles(): string {
 
       .detail-value {
         display: block;
-        word-break: break-all;
+        /* Wrap long values, but only at word boundaries: break-all here would
+           split author and branch names mid-word. Hashes opt in below. */
+        overflow-wrap: break-word;
+      }
+
+      .committed-by-row .detail-value {
+        color: var(--vscode-descriptionForeground);
+      }
+
+      .details-refs-value {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .details-ref-chip {
+        max-width: 100%;
+        padding: 0 6px;
+        border-radius: 8px;
+        font-size: 11px;
+        line-height: 16px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .details-ref-branch {
+        background-color: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
+      }
+
+      .details-ref-tag {
+        background-color: var(--vscode-editorWidget-background);
+        color: var(--vscode-descriptionForeground);
+        border: 1px solid var(--vscode-widget-border, transparent);
       }
 
       .hash-value {
         font-family: var(--vscode-editor-font-family, monospace);
         cursor: pointer;
         color: var(--vscode-textLink-foreground);
+        /* An opaque hash has no word boundaries — break it anywhere. */
+        word-break: break-all;
       }
 
       .hash-value:hover {
@@ -932,6 +968,38 @@ export function buildInlineStyles(): string {
       }
 
       .parent-hash:hover {
+        text-decoration: underline;
+      }
+
+      .details-changed-files-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .details-groupby-toggle {
+        flex: 0 0 auto;
+        padding: 0 6px;
+        border: 1px solid var(--vscode-widget-border, transparent);
+        border-radius: 3px;
+        background: none;
+        color: var(--vscode-foreground);
+        font-size: 11px;
+        font-family: var(--vscode-font-family);
+        cursor: pointer;
+      }
+
+      .details-groupby-toggle:hover {
+        background-color: var(--vscode-toolbar-hoverBackground);
+      }
+
+      .commit-hash-link {
+        cursor: pointer;
+        color: var(--vscode-textLink-foreground);
+      }
+
+      .commit-hash-link:hover {
         text-decoration: underline;
       }
 

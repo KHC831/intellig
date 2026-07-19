@@ -98,6 +98,11 @@ import {
   selectCommit as handleSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
+import {
+  loadDetailsGroupBy,
+  saveDetailsGroupBy,
+  type DetailsGroupBy,
+} from '../../utils/detailsGroupBy';
 import { normalizeRepoPath, normalizeRepoPathString } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView, drainDisposables } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
@@ -446,6 +451,8 @@ export class GitToolWindowProvider
    * column is the flex absorber, so it has no stored width. Persisted to
    * workspace state so a user's drag survives re-render and commit-switch. */
   private _columnWidths: [number, number];
+  /** Changed-files Group By mode for the details panel (persisted). */
+  private _detailsGroupBy: DetailsGroupBy;
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
   private _isLoading: boolean = true;
@@ -766,6 +773,9 @@ export class GitToolWindowProvider
     this._panelWidths = workspaceState
       ? loadPanelWidths(workspaceState)
       : [...DEFAULT_PANEL_WIDTHS];
+
+    // Load the persisted changed-files Group By mode.
+    this._detailsGroupBy = workspaceState ? loadDetailsGroupBy(workspaceState) : 'tree';
 
     // Load persisted log-column widths or use defaults
     this._columnWidths = workspaceState
@@ -2107,6 +2117,11 @@ export class GitToolWindowProvider
         // Sidebar placeholder button while the log is undocked.
         void this.revealLogHost();
         break;
+      case 'setDetailsGroupBy':
+        if (msg.groupBy === 'tree' || msg.groupBy === 'flat') {
+          this.setDetailsGroupBy(msg.groupBy);
+        }
+        break;
       case 'selectCommit':
         if (msg.commitHash) {
           this._handleCommitSelection(msg.commitHash);
@@ -2186,7 +2201,14 @@ export class GitToolWindowProvider
         const command =
           typeof msg.action === 'string' ? commandByFileAction[msg.action] : undefined;
         if (command && msg.commitHash) {
-          void vscode.commands.executeCommand(command, { hash: msg.commitHash, path: msg.path });
+          // Pin the owning repo alongside the clicked file so the command acts
+          // on this row's context instead of re-resolving (and re-prompting)
+          // by hash — several roots can hold the same hash.
+          void vscode.commands.executeCommand(command, {
+            hash: msg.commitHash,
+            path: msg.path,
+            repoRoot: this.getSelectedRepository()?.rootUri.fsPath,
+          });
         }
         break;
       }
@@ -2595,7 +2617,12 @@ export class GitToolWindowProvider
    * Handle commit selection in Log view
    */
   private _handleCommitSelection(commitHash: string): void {
-    this.selectCommit(commitHash);
+    // A hash from a commit message is usually abbreviated, while selection
+    // matches full object names — expand it against the loaded graph first.
+    const node = this._extendedLogState.commitNodes.find((n) =>
+      n.commit.hash.toLowerCase().startsWith(commitHash.toLowerCase())
+    );
+    this.selectCommit(node ? node.commit.hash : commitHash);
   }
 
   /**
@@ -4809,6 +4836,38 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * its root basename and home-abbreviated root path — for the changed-files
    * heading. Undefined when no repository is selected.
    */
+  /**
+   * Whether a hex run from a commit message names a commit in the LOADED
+   * graph window. Only such runs become clickable refs, so an ordinary hex
+   * word (a colour, a digest) never looks like a link; a real commit outside
+   * the loaded window stays plain until it loads.
+   */
+  public getDetailsGroupBy(): DetailsGroupBy {
+    return this._detailsGroupBy;
+  }
+
+  /**
+   * Switch how the details panel groups changed files, persisting the choice
+   * so it survives a reload, then re-render the panel.
+   */
+  public setDetailsGroupBy(mode: DetailsGroupBy): void {
+    if (this._detailsGroupBy === mode) {
+      return;
+    }
+    this._detailsGroupBy = mode;
+    if (this._workspaceState) {
+      saveDetailsGroupBy(this._workspaceState, mode);
+    }
+    this.postDetailsForExpandedCommit();
+  }
+
+  public isKnownCommitHash(hash: string): boolean {
+    const prefix = hash.toLowerCase();
+    return this._extendedLogState.commitNodes.some((node) =>
+      node.commit.hash.toLowerCase().startsWith(prefix)
+    );
+  }
+
   public getSelectedRepoProject(): { name: string; path: string } | undefined {
     const repo = this.getSelectedRepository();
     if (!repo) {

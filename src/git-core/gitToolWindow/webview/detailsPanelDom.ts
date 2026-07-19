@@ -46,6 +46,16 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
         a.setAttribute('title', tok.title);
         a.textContent = tok.text;
         parent.appendChild(a);
+      } else if (tok.t === 'commit') {
+        // Referenced commit: the graph's existing selection handler picks this
+        // up by `data-commit-hash` and jumps to the row.
+        const ref = make('a', 'commit-hash-link');
+        ref.setAttribute('role', 'button');
+        ref.setAttribute('tabindex', '0');
+        ref.setAttribute('data-commit-hash', tok.hash);
+        ref.setAttribute('title', 'Jump to commit ' + tok.hash);
+        ref.textContent = tok.text;
+        parent.appendChild(ref);
       } else {
         parent.appendChild(document.createTextNode(tok.v));
       }
@@ -78,7 +88,24 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
     } else {
       h4.textContent = 'Changed Files (' + count + ')';
     }
-    wrap.appendChild(h4);
+    // Heading + Group By toggle share a row; the toggle stays OUTSIDE the
+    // heading so the h4's text (and accessible name) remains just the title.
+    const header = make('div', 'details-changed-files-header');
+    header.appendChild(h4);
+    // IntelliJ offers a GroupBy on every changes list. Single commit only —
+    // the multi panel has no per-selection preference yet.
+    if (model.kind === 'single') {
+      const groupBy = make('button', 'details-groupby-toggle');
+      const flat = model.groupBy === 'flat';
+      groupBy.setAttribute('type', 'button');
+      groupBy.setAttribute('data-action', 'toggleDetailsGroupBy');
+      groupBy.setAttribute('data-groupby', flat ? 'tree' : 'flat');
+      groupBy.setAttribute('aria-pressed', String(!flat));
+      groupBy.setAttribute('title', flat ? 'Group by directory' : 'Show flat file paths');
+      groupBy.textContent = flat ? 'Flat' : 'Tree';
+      header.appendChild(groupBy);
+    }
+    wrap.appendChild(header);
     const list = make('div', 'changed-files-list');
     list.setAttribute('role', 'tree');
     list.setAttribute('aria-label', 'Changed Files');
@@ -119,7 +146,9 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
       list.appendChild(item);
     });
     panel.appendChild(list);
-    panel.appendChild(buildChangedFiles(model.changedFilesCount, model.fileTree, undefined));
+    panel.appendChild(
+      buildChangedFiles(model.changedFilesCount, model.fileTree, model.changedFilesError)
+    );
     return panel;
   }
 
@@ -136,6 +165,27 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
     return r;
   };
 
+  // Refs pointing AT this commit, grouped by type like IntelliJ's
+  // ReferencesPanel. Names cross as textContent — a ref name is user data.
+  const appendRefRow = function (names: string[], kind: string, label: string): void {
+    if (!names || names.length === 0) {
+      return;
+    }
+    const refsRow = make('div', 'detail-row details-refs-row');
+    const refsLabel = make('span', 'detail-label');
+    refsLabel.textContent = label;
+    refsRow.appendChild(refsLabel);
+    const refsVal = make('span', 'detail-value details-refs-value');
+    names.forEach(function (name) {
+      const chip = make('span', 'details-ref-chip details-ref-' + kind);
+      chip.setAttribute('title', name);
+      chip.textContent = name;
+      refsVal.appendChild(chip);
+    });
+    refsRow.appendChild(refsVal);
+    meta.appendChild(refsRow);
+  };
+
   // Commit message — subject in BOLD, body below; no "Message:" label
   // (IntelliJ shows the subject as the header, not a labeled field).
   const msgRow = make('div', 'detail-row message-row');
@@ -149,6 +199,11 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
   }
   msgRow.appendChild(pre);
   meta.appendChild(msgRow);
+
+  const refBranches = model.refBranches || [];
+  const refTags = model.refTags || [];
+  appendRefRow(refBranches, 'branch', refBranches.length === 1 ? 'Branch:' : 'Branches:');
+  appendRefRow(refTags, 'tag', refTags.length === 1 ? 'Tag:' : 'Tags:');
 
   const hashRow = row('Hash:');
   const hashVal = make('span', 'detail-value hash-value');
@@ -169,6 +224,23 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
   dateVal.textContent = model.dateStr;
   dateRow.appendChild(dateVal);
   meta.appendChild(dateRow);
+
+  // Dimmed committer line, shown only when the model carries one: "committed
+  // by <name> <email>" and/or "on <date>" (CommitPresentationUtil).
+  if (model.committed) {
+    const committedRow = make('div', 'detail-row committed-by-row');
+    const committedVal = make('span', 'detail-value committed-by-value');
+    const parts: string[] = [];
+    if (model.committed.name) {
+      parts.push('committed by ' + model.committed.name + ' <' + model.committed.email + '>');
+    }
+    if (model.committed.dateStr) {
+      parts.push((parts.length === 0 ? 'committed on ' : 'on ') + model.committed.dateStr);
+    }
+    committedVal.textContent = parts.join(' ');
+    committedRow.appendChild(committedVal);
+    meta.appendChild(committedRow);
+  }
 
   const parentsRow = row('Parents:');
   const parentsVal = make('span', 'detail-value');

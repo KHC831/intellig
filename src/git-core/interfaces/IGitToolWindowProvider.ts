@@ -31,7 +31,11 @@ export interface ICommitDetails {
   message: string;
   body?: string;
   author: { name: string; email: string };
+  /** Committer, when it differs from the author (amend, rebase, applied patch). */
+  committer?: { name: string; email: string };
   date: Date;
+  /** Commit timestamp; differs from {@link date} whenever history was rewritten. */
+  commitDate?: Date;
   parents: string[];
   branches: string[];
   tags: string[];

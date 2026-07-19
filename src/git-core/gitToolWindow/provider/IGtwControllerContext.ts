@@ -6,6 +6,7 @@ import type * as vscode from 'vscode';
 import type { ICommitDetails } from '../../../services/interfaces';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
+import type { DetailsGroupBy } from './detailsPanelModel.types';
 import type { DetailsPanelModel } from './detailsPanelModel';
 import type { GitToolWindowOutbound } from '../gitToolWindow.protocol';
 
@@ -129,4 +130,12 @@ export interface IGtwControllerContext {
    * heading ("<name> (<n> files) <path>").
    */
   getSelectedRepoProject(): { name: string; path: string } | undefined;
+  /**
+   * Whether a hex run from a commit message names a commit in the loaded
+   * graph; the details builder links only resolvable runs, leaving hex-ish
+   * words inert.
+   */
+  isKnownCommitHash(hash: string): boolean;
+  /** Current Group By mode for the details panel's changed-file list. */
+  getDetailsGroupBy(): DetailsGroupBy;
 }

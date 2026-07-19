@@ -57,6 +57,8 @@ export interface IWebviewMessage {
   branchName?: string | null;
   branchType?: 'local' | 'remote';
   widths?: [number, number];
+  /** Carried by `setDetailsGroupBy`: how to group the changed-file list. */
+  groupBy?: 'tree' | 'flat';
   /**
    * Carried by `selectRepository`: a numeric repository index, or the `'all'`
    * sentinel for the merged "all repositories" scope.

@@ -1294,6 +1294,23 @@ function main(vscode: IVsCodeApi): void {
   // ─── Event delegation for details panel ──────────────────────────
   document.addEventListener('click', function (e) {
     const target = e.target instanceof Element ? e.target : null;
+    const groupByBtn = target ? target.closest('.details-groupby-toggle[data-groupby]') : null;
+    if (groupByBtn) {
+      const mode = groupByBtn.getAttribute('data-groupby');
+      if (mode === 'tree' || mode === 'flat') {
+        post({ type: 'setDetailsGroupBy', groupBy: mode });
+      }
+      return;
+    }
+    // A hash referenced in the commit message: same jump as a parent hash.
+    const messageHash = target ? target.closest('.commit-hash-link[data-commit-hash]') : null;
+    if (messageHash) {
+      const hash = messageHash.getAttribute('data-commit-hash');
+      if (hash) {
+        post({ type: 'selectCommit', commitHash: hash });
+      }
+      return;
+    }
     const parentHash = target ? target.closest('.parent-hash[data-parent-hash]') : null;
     if (parentHash) {
       const hash = parentHash.getAttribute('data-parent-hash');

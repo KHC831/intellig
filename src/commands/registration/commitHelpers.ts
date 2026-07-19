@@ -101,6 +101,58 @@ export function extractCommitHash(arg: unknown): string | undefined {
  * succeeds; and it surfaces an error (rather than prompting) when no open repo
  * contains the commit.
  */
+/**
+ * The context a details-panel file action carries: which commit, which file
+ * was clicked, and which repository owns the commit. Every field is optional —
+ * a palette invocation supplies none of them and the handler falls back to its
+ * pickers.
+ */
+export interface ICommitFileArg {
+  hash?: string;
+  path?: string;
+  repoRoot?: string;
+}
+
+/**
+ * Read the `{hash, path, repoRoot}` context off a command argument. Shared by
+ * every commit-file action so the clicked-row contract is parsed once rather
+ * than re-typed per handler.
+ */
+export function extractCommitFileArg(arg: unknown): ICommitFileArg {
+  const hash = extractCommitHash(arg);
+  if (typeof arg !== 'object' || arg === null) {
+    return { hash };
+  }
+  const obj = arg as { path?: unknown; repoRoot?: unknown };
+  return {
+    hash,
+    path: typeof obj.path === 'string' && obj.path.length > 0 ? obj.path : undefined,
+    repoRoot:
+      typeof obj.repoRoot === 'string' && obj.repoRoot.length > 0 ? obj.repoRoot : undefined,
+  };
+}
+
+/**
+ * Resolve the repository for a commit action, honoring a pinned root when the
+ * caller already knows it (the log/details menus do). Falls back to probing
+ * every open repo for the commit only when no root was supplied.
+ */
+export async function resolveRepoForCommitFile(
+  ctx: ICommandContext,
+  hash: string,
+  repoRoot: string | undefined
+): Promise<IRepository | undefined> {
+  if (repoRoot && ctx.services) {
+    const pinned = ctx.services.gitService
+      .getRepositories()
+      .find((repo) => repo.rootUri.fsPath === repoRoot);
+    if (pinned) {
+      return pinned;
+    }
+  }
+  return resolveRepoContainingCommit(ctx, hash);
+}
+
 export async function resolveRepoContainingCommit(
   ctx: ICommandContext,
   hash: string

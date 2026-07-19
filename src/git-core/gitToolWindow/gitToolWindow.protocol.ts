@@ -37,6 +37,7 @@ export type GitToolWindowInbound =
   | ({ type: 'branchClick' } & Fields)
   | ({ type: 'loadMoreCommits' } & Fields)
   | ({ type: 'panelResize' } & Fields)
+  | ({ type: 'setDetailsGroupBy' } & Fields)
   | ({ type: 'columnResize' } & Fields)
   | ({ type: 'selectRepositories' } & Fields)
   | ({ type: 'jumpToFixupTarget' } & Fields);
@@ -79,6 +80,7 @@ export const GIT_TOOL_WINDOW_INBOUND_TYPES = [
   'branchClick',
   'loadMoreCommits',
   'panelResize',
+  'setDetailsGroupBy',
   'columnResize',
   'selectRepositories',
   'jumpToFixupTarget',
