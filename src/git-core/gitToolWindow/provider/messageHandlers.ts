@@ -1,5 +1,4 @@
 import { computeRangeSelection } from '../multiSelect';
-import type { ICommitDetails } from '../../../services/interfaces';
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import { commitNodeToBaseDetails } from './detailsPanelModel';
 
@@ -93,20 +92,48 @@ export function selectCommits(
   ctx.postSyncSelection();
   ctx.postMenuStateUpdate();
 
-  // A selection of two or more commits is its own presentation: a count, the
-  // per-commit summaries and the combined file tree. Rendering the first
-  // commit's details instead would misreport an N-commit selection as one
-  // commit (reference: CommitDetailsListPanel renders a block per commit).
-  if (filtered.length >= 2 && ctx.hasView()) {
-    const detailsList = filtered
-      .map((hash) => ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash))
-      .filter((node): node is NonNullable<typeof node> => node !== undefined)
-      .map((node) => ({ ...commitNodeToBaseDetails(node), changedFiles: [] }));
-    ctx.postToWebview({
-      type: 'updateDetailsPanel',
-      model: ctx.getMultiCommitDetailsPanelModel(detailsList),
-    });
+  postDetailsForSelection(ctx);
+}
+
+/**
+ * Post the details payload the CURRENT selection calls for: the multi-commit
+ * model at two or more, the single-commit model otherwise.
+ *
+ * Every path that changes the selection posts through here. A selection of
+ * two or more commits is its own presentation — a count, the per-commit
+ * summaries and the combined file tree — and rendering the range tip's
+ * details instead misreports an N-commit selection as one commit (reference:
+ * CommitDetailsListPanel renders a block per commit).
+ */
+export function postDetailsForSelection(ctx: IGtwControllerContext): void {
+  if (!ctx.hasView()) {
+    return;
   }
+  const selected = Array.from(ctx.extendedLogState.selectedCommits);
+  // Ask the host to load the files for this selection. Warm cache → paint
+  // them now; cold → paint the summaries immediately and repaint when the
+  // load lands, the same two-phase shape the single-commit panel uses.
+  // Called for EVERY selection, including ones too small to need a load, so
+  // a load still running for a selection the user left lands as stale
+  // instead of painting over the new one.
+  ctx.requestMultiCommitFiles(selected);
+
+  if (selected.length < 2) {
+    ctx.postDetailsForExpandedCommit();
+    return;
+  }
+
+  const detailsList = selected
+    .map((hash) => ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash))
+    .filter((node): node is NonNullable<typeof node> => node !== undefined)
+    .map((node) => ({
+      ...commitNodeToBaseDetails(node),
+      changedFiles: ctx.getMultiChangedFiles(node.commit.hash) ?? [],
+    }));
+  ctx.postToWebview({
+    type: 'updateDetailsPanel',
+    model: ctx.getMultiCommitDetailsPanelModel(detailsList),
+  });
 }
 
 /**
@@ -154,7 +181,7 @@ export function rangeSelectCommit(ctx: IGtwControllerContext, hash: string): voi
   // press finds no target — the user-visible "Shift+Arrow stops
   // responding after 1-2 commits" symptom.
   ctx.postSyncSelection();
-  ctx.postDetailsForExpandedCommit();
+  postDetailsForSelection(ctx);
   ctx.postMenuStateUpdate();
 }
 
@@ -182,6 +209,11 @@ export function addRangeSelectCommit(ctx: IGtwControllerContext, hash: string): 
     return;
   }
 
+  // The range tip becomes the expanded commit, so the payload loaded for the
+  // previous one no longer describes it (rangeSelectCommit clears for the
+  // same reason).
+  ctx.clearPendingChangedFiles();
+
   for (const h of range) {
     ctx.extendedLogState.selectedCommits.add(h);
   }
@@ -194,7 +226,7 @@ export function addRangeSelectCommit(ctx: IGtwControllerContext, hash: string): 
   // re-render destroys commit-row focus and breaks the keyboard
   // Shift+Arrow loop.
   ctx.postSyncSelection();
-  ctx.postDetailsForExpandedCommit();
+  postDetailsForSelection(ctx);
   ctx.postMenuStateUpdate();
 }
 
@@ -234,24 +266,7 @@ export function selectCommit(ctx: IGtwControllerContext, hash: string): void {
       type: 'selectGraphRow',
       commitHash: hash,
     });
-
-    const node = ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
-    if (node) {
-      const commitDetails: ICommitDetails = {
-        ...commitNodeToBaseDetails(node),
-        changedFiles: [],
-      };
-      ctx.postToWebview({
-        type: 'updateDetailsPanel',
-        model: ctx.getDetailsPanelModel(commitDetails),
-      });
-    } else {
-      // Commit not found — show placeholder
-      ctx.postToWebview({
-        type: 'updateDetailsPanel',
-        model: ctx.getDetailsPanelPlaceholderModel(),
-      });
-    }
+    postDetailsForSelection(ctx);
   }
 }
 
@@ -267,6 +282,21 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
   // Ctrl/Cmd-click also moves the anchor to the clicked
   // commit, matching IntelliJ's selection model.
   ctx.extendedLogState.anchorHash = hash;
+  // The details pane follows the commit the user just acted on, and its
+  // loaded payload belongs to whichever commit was expanded before.
+  const stillSelected = ctx.extendedLogState.selectedCommits.has(hash);
+  if (stillSelected) {
+    ctx.clearPendingChangedFiles();
+    ctx.extendedLogState.expandedCommit = hash;
+  } else if (ctx.extendedLogState.expandedCommit === hash) {
+    // Deselected the expanded commit: fall back to another survivor so the
+    // pane never describes a commit that left the selection.
+    const survivor = ctx.extendedLogState.selectedCommits.values().next();
+    if (!survivor.done) {
+      ctx.clearPendingChangedFiles();
+      ctx.extendedLogState.expandedCommit = survivor.value;
+    }
+  }
 
   // Order: render FIRST so the new document exists,
   // THEN post so postMessage lands on the live page rather than the
@@ -283,4 +313,5 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
   // interpolation bugs and partial-update extension cases.
   ctx.postSyncSelection();
   ctx.postMenuStateUpdate();
+  postDetailsForSelection(ctx);
 }

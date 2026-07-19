@@ -573,8 +573,11 @@ export class BranchTreeItem extends vscode.TreeItem {
         // (per UX request to drop the cloud-vs-branch distinction). The
         // ref kind is still distinguishable via the parent category in
         // the tree (`Local` vs `Remote`) and the `Remote branch:` aria
-        // label on chips.
-        return new vscode.ThemeIcon('git-branch');
+        // label on chips. Favorites star the same way either side of that
+        // line — a remote ref can be starred, so it must be able to show it.
+        return this.isFavorite
+          ? new vscode.ThemeIcon('star-full')
+          : new vscode.ThemeIcon('git-branch');
       case 'tag':
         return new vscode.ThemeIcon('tag');
       case 'category':

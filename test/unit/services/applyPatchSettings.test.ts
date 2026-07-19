@@ -89,6 +89,12 @@ describe('validateApplyPatchSettings', () => {
   });
 });
 
+/**
+ * The three results a `check: true` apply can return, in the shapes
+ * PatchService actually produces from `git apply --3way --check --verbose`:
+ * a clean merge, a merge needing conflict markers (git names the file in its
+ * per-file prose while still exiting 0), and a patch that cannot apply.
+ */
 describe('previewFileResult', () => {
   it('reports a clean check as applying', () => {
     const out = previewFileResult('a.ts', { success: true, appliedFiles: ['a.ts'] });
@@ -100,7 +106,7 @@ describe('previewFileResult', () => {
     const out = previewFileResult('a.ts', {
       success: false,
       appliedFiles: [],
-      stderr: 'error: patch does not apply',
+      stderr: 'error: patch failed: a.ts:1\nerror: a.ts: patch does not apply',
     });
 
     assert.strictEqual(out.ok, false);
@@ -110,7 +116,7 @@ describe('previewFileResult', () => {
   it('names conflicts explicitly rather than leaving a bare failure', () => {
     const out = previewFileResult('a.ts', {
       success: false,
-      appliedFiles: [],
+      appliedFiles: ['a.ts'],
       conflicts: [{ path: 'a.ts', resolved: false }],
     });
 

@@ -12,6 +12,7 @@ import type {
 import { runBeforeCommitChecks } from '../commits/CheckinChecks';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { getLogger } from '../utils/logger';
+import type { MementoLike } from '../utils/persistedState';
 
 /**
  * Command id wired to each SourceControl's `acceptInputCommand`. Internal
@@ -248,7 +249,9 @@ export class GitScmProvider implements vscode.Disposable {
 
   constructor(
     private readonly gitService: IGitService & IGitWorkingTreeEvents,
-    private readonly scm: IScmApi = defaultScmApi
+    private readonly scm: IScmApi = defaultScmApi,
+    /** Workspace state the before-commit checks read their opt-outs from. */
+    private readonly workspaceState?: MementoLike
   ) {}
 
   /**
@@ -336,7 +339,12 @@ export class GitScmProvider implements vscode.Disposable {
       void vscode.window.showErrorMessage(formatActionFailureToast('Failed to commit', error));
       return;
     }
-    const proceed = await runBeforeCommitChecks(this.gitService, entry.repo, stagedPaths);
+    const proceed = await runBeforeCommitChecks(
+      this.gitService,
+      entry.repo,
+      stagedPaths,
+      this.workspaceState
+    );
     if (!proceed) {
       return;
     }

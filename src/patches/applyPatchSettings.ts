@@ -66,7 +66,7 @@ export function applyPatchSettingsSlot(repoRoot: string): PersistedSlot<IApplyPa
   };
 }
 
-/** Per-file verdict of a preview `--check` pass. */
+/** Per-file verdict of a preview dry-run pass. */
 export interface IPatchPreviewFile {
   path: string;
   ok: boolean;

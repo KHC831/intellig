@@ -23,10 +23,10 @@
  * changes a key) without updating `KeymapService` fails here, in the same
  * unit suite as everything else, rather than shipping a stale reference list.
  *
- * The "same as default" bindings (commit / push / pull / refresh /
- * stageSelected / openGitToolWindow) are intentionally NOT gated by the
- * preset in package.json — they bind globally — so they are out of scope for
- * the IntelliJ-gating direction and are not asserted here.
+ * One binding is deliberately outside the gated set: `toolWindow.jumpToHash`
+ * is scoped by focus and active tab rather than by preset, so it binds under
+ * either keymap. Everything else in `contributes.keybindings` carries the
+ * preset gate and is asserted here.
  */
 
 import '../../setup';

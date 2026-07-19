@@ -76,7 +76,7 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     }
   });
 
-  it('a date preset click applies the COMMITTED search text, not the live draft', () => {
+  it('a date preset click applies the text the box SHOWS, not an older query', () => {
     const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
     provider.setLogFilter({ searchText: 'fix' } as unknown as Parameters<
       typeof provider.setLogFilter
@@ -97,7 +97,14 @@ describe('webview: Git tool-window full document (jsdom)', () => {
         !!m && (m as { type?: string }).type === 'applyLogFilter'
     );
     const last = applies[applies.length - 1];
-    assert.strictEqual(last.filter.searchText, 'fix', 'preset must not commit the draft');
+    // Every filter gesture applies what the user can see in the box. Sending
+    // the older committed query instead would filter by something the UI does
+    // not show, and leave the box displaying a query that was never applied.
+    assert.strictEqual(
+      last.filter.searchText,
+      'fix par',
+      'the preset applies the visible search text'
+    );
   });
 
   it('typing in the search box posts the draft so the host can preserve it', () => {

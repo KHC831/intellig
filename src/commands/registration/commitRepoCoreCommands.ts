@@ -9,6 +9,8 @@ import type { GitError } from '../../git-core/errors';
 import {
   findCommitByQuery,
   buildJumpQuickPickItems,
+  resolveJumpAccept,
+  verbatimJumpItem,
 } from '../../git-core/gitToolWindow/jumpToHash';
 import {
   CommitDialog,
@@ -925,9 +927,16 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
             const qp = vscode.window.createQuickPick();
             qp.title = 'Jump to Commit';
             qp.placeholder = 'Commit SHA, branch, or tag';
-            qp.items = buildJumpQuickPickItems(refs.branches, refs.tags);
+            const refItems = buildJumpQuickPickItems(refs.branches, refs.tags);
+            qp.items = refItems;
+            // Keep a leading row carrying the raw input, so typing a full SHA
+            // that fuzzy-matches a ref can still be accepted as the SHA.
+            qp.onDidChangeValue((typed) => {
+              const trimmed = typed.trim();
+              qp.items = trimmed ? [verbatimJumpItem(trimmed), ...refItems] : refItems;
+            });
             qp.onDidAccept(() => {
-              const value = qp.selectedItems[0]?.label ?? qp.value.trim();
+              const value = resolveJumpAccept(qp.selectedItems[0], qp.value);
               qp.hide();
               resolve(value || undefined);
             });

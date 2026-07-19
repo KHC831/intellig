@@ -646,8 +646,9 @@ function formatBranchDescription(branch: IBranch, isCurrent: boolean): string {
 }
 
 /**
- * Build the secondary action-menu items for a REMOTE branch selection.
- * Labels mirror INTELLIJ_REFERENCE.md section "Branches popup — remote branch context menu".
+ * Build the secondary action-menu items for a REMOTE branch selection:
+ * checkout-as-local first, then the rebase/pull/merge group, then compare and
+ * delete — the reference's remote-branch menu order.
  *
  * Routes to command IDs declared in package.json:
  *   - intellig.remoteBranch.checkoutAsLocal
@@ -720,8 +721,9 @@ export function buildRemoteBranchActionMenu(branch: IBranch): IBranchQuickPickIt
 }
 
 /**
- * Build the secondary action-menu items for a LOCAL non-current branch.
- * Labels mirror INTELLIJ_REFERENCE.md section "Branches popup — local branch context menu".
+ * Build the secondary action-menu items for a LOCAL non-current branch:
+ * checkout first, then the update/rebase/merge group against the current
+ * branch, then compare, rename and delete.
  */
 export function buildLocalBranchActionMenu(
   branch: IBranch,
@@ -822,8 +824,9 @@ export function buildLocalBranchActionMenu(
 }
 
 /**
- * Build the secondary action-menu items for a TAG.
- * Labels mirror INTELLIJ_REFERENCE.md section "Branches popup — tag context menu".
+ * Build the secondary action-menu items for a TAG: detached checkout, then
+ * the rebase/merge pair, then delete. A tag has no local counterpart, so the
+ * branch menu's update and rename entries have no analog here.
  */
 export function buildTagActionMenu(tag: ITag): IBranchQuickPickItem[] {
   return [

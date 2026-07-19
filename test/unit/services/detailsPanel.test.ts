@@ -33,13 +33,12 @@ function renderDetails(provider: GitToolWindowProvider, details: ICommitDetails)
   return renderModelHtml(provider._getDetailsPanelModel(details));
 }
 
-/** Render the multi-commit Details Panel HTML. */
-function renderMulti(
-  provider: GitToolWindowProvider,
-  list: ICommitDetails[],
-  combined?: Parameters<GitToolWindowProvider['_getMultiCommitDetailsPanelModel']>[1]
-): string {
-  return renderModelHtml(provider._getMultiCommitDetailsPanelModel(list, combined));
+/**
+ * Render the multi-commit Details Panel HTML. The combined tree is merged
+ * from the entries' own `changedFiles`, which is how the host supplies them.
+ */
+function renderMulti(provider: GitToolWindowProvider, list: ICommitDetails[]): string {
+  return renderModelHtml(provider._getMultiCommitDetailsPanelModel(list));
 }
 
 /**
@@ -865,16 +864,16 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
 
       it('should accept pre-computed combined changed files', () => {
+        // One file per commit: the combined tree is the union of the entries.
         const commits = makeMultipleCommitDetails(2);
-        const combinedFiles = [
-          { path: 'src/combined-a.ts', status: 'modified' as const },
-          { path: 'src/combined-b.ts', status: 'added' as const },
-        ];
-        const html = renderMulti(provider, commits, combinedFiles);
+        commits[0].changedFiles = [{ path: 'src/combined-a.ts', status: 'modified' as const }];
+        commits[1].changedFiles = [{ path: 'src/combined-b.ts', status: 'added' as const }];
 
-        assert.ok(html.includes('combined-a.ts'), 'Should contain pre-computed file');
-        assert.ok(html.includes('combined-b.ts'), 'Should contain pre-computed file');
-        assert.ok(html.includes('Changed Files (2)'), 'Should show pre-computed file count');
+        const html = renderMulti(provider, commits);
+
+        assert.ok(html.includes('combined-a.ts'), "Should contain the first commit's file");
+        assert.ok(html.includes('combined-b.ts'), "Should contain the second commit's file");
+        assert.ok(html.includes('Changed Files (2)'), 'Should show the merged file count');
       });
     });
 
@@ -1341,10 +1340,14 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
 
   it('snap-tree-2: multi-commit combined tree has the SAME structure WITHOUT data-commit-hash (Req 2.11, 2.12)', () => {
     const commits = [
-      makeCommitDetails({ hash: TREE_FIXTURE_HASH, message: 'C1', changedFiles: [] }),
+      makeCommitDetails({
+        hash: TREE_FIXTURE_HASH,
+        message: 'C1',
+        changedFiles: makeTreeFixtureFiles(),
+      }),
     ];
     const list = renderModelPanel(
-      treeProvider._getMultiCommitDetailsPanelModel(commits, makeTreeFixtureFiles())
+      treeProvider._getMultiCommitDetailsPanelModel(commits)
     ).querySelector('.changed-files-list');
     assert.ok(list, 'changed-files-list must render');
     const dirNames = Array.from(list.querySelectorAll('.dir-name')).map((n) => n.textContent);
@@ -1367,10 +1370,13 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
       )
     );
     const combinedPanel = renderModelPanel(
-      treeProvider._getMultiCommitDetailsPanelModel(
-        [makeCommitDetails({ hash: TREE_FIXTURE_HASH, message: 'C1', changedFiles: [] })],
-        makeTreeFixtureFiles()
-      )
+      treeProvider._getMultiCommitDetailsPanelModel([
+        makeCommitDetails({
+          hash: TREE_FIXTURE_HASH,
+          message: 'C1',
+          changedFiles: makeTreeFixtureFiles(),
+        }),
+      ])
     );
     assert.strictEqual(
       singlePanel.querySelectorAll('.changed-file-item[data-commit-hash]').length,

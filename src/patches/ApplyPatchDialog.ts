@@ -13,7 +13,7 @@
  *   - Strip-path numeric input (-p<N>). Default 1.
  *   - Base-dir text input (--directory). Blank by default.
  *   - "Use git am (preserve author)" checkbox.
- *   - Preview button: runs a `--check` apply per file and lists the per-file
+ *   - Preview button: dry-runs the apply per file and lists the per-file
  *     verdict, above a capped dump of the patch body. Re-runnable, since the
  *     verdict describes the working tree at the moment it ran.
  *   - Apply + Cancel buttons; Apply is gated on the form validating.
@@ -40,7 +40,7 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
-import { filterPatchByFiles, splitPatchByFile, validateStripLevel } from './PatchService';
+import { filterPatchByFiles, uniquePatchPaths, validateStripLevel } from './PatchService';
 import {
   applyPatchSettingsSlot,
   previewFileResult,
@@ -300,7 +300,7 @@ ${this._getBodyHtml()}
         await this._handleBrowse();
         return;
       // Preview and apply share the guard: two previews would race each
-      // other's `--check` verdicts, and a preview started before an apply
+      // other's dry-run verdicts, and a preview started before an apply
       // would report on a tree the apply has already changed.
       case 'preview':
         if (this._busy) {
@@ -369,7 +369,7 @@ ${this._getBodyHtml()}
   }
 
   /**
-   * Load the patch for preview: the (capped) body plus a per-file `--check`
+   * Load the patch for preview: the (capped) body plus a per-file dry-run
    * verdict, so the user sees which files will actually apply before
    * committing to it. Re-run on demand, which is also how a preview that went
    * stale against the working tree is refreshed.
@@ -398,11 +398,17 @@ ${this._getBodyHtml()}
   }
 
   /**
-   * Run a `--check` apply per file in the patch and collect the verdicts.
+   * Run a dry-run apply per file in the patch and collect the verdicts.
    *
    * Checking each file separately (rather than reading git's prose from one
-   * whole-patch run) is what makes the result attributable to a file. Checks
-   * mutate nothing. A headerless patch yields a single whole-patch verdict.
+   * whole-patch run) is what makes the result attributable to a file. The
+   * dry run uses the same 3-way strategy the real apply does, so a verdict
+   * predicts the apply outcome — including the conflicted-but-appliable case.
+   * It writes nothing. A headerless patch yields a single whole-patch verdict.
+   *
+   * One verdict per DISTINCT path, matching the per-file selection the apply
+   * pick offers: a path carried by several commits applies or conflicts as
+   * one unit.
    */
   private async _runPreviewChecks(
     content: string,
@@ -414,8 +420,8 @@ ${this._getBodyHtml()}
       baseDir: msg.baseDir,
       check: true,
     };
-    const segments = splitPatchByFile(content);
-    if (segments.length === 0) {
+    const paths = uniquePatchPaths(content);
+    if (paths.length === 0) {
       const result = await this._patchService.applyPatch(this._repo, {
         ...common,
         patchContent: content,
@@ -424,12 +430,17 @@ ${this._getBodyHtml()}
     }
 
     const verdicts: IPatchPreviewFile[] = [];
-    for (const segment of segments) {
+    for (const { path: filePath } of paths) {
+      // Cancelling the dialog must stop the run: each iteration spawns git,
+      // and the panel the verdicts would post to is already gone.
+      if (this._disposed) {
+        break;
+      }
       const result = await this._patchService.applyPatch(this._repo, {
         ...common,
-        patchContent: filterPatchByFiles(content, [segment.path]),
+        patchContent: filterPatchByFiles(content, [filePath]),
       });
-      verdicts.push(previewFileResult(segment.path, result));
+      verdicts.push(previewFileResult(filePath, result));
     }
     return verdicts;
   }
@@ -647,14 +658,21 @@ ${this._getBodyHtml()}
       return options;
     }
 
-    const segments = splitPatchByFile(content);
-    if (segments.length <= 1) {
+    // One row per distinct path: selection is per file, so a path touched by
+    // several commits gets a single row annotated with its block count rather
+    // than identical rows whose individual states the apply cannot honour.
+    const paths = uniquePatchPaths(content);
+    if (paths.length <= 1) {
       // Headerless or single-file patch: nothing to subset.
       return options;
     }
 
     const picked = await vscode.window.showQuickPick(
-      segments.map((segment) => ({ label: segment.path, picked: true })),
+      paths.map(({ path: filePath, count }) => ({
+        label: filePath,
+        picked: true,
+        ...(count > 1 ? { description: `${count} changes` } : {}),
+      })),
       {
         canPickMany: true,
         title: 'Apply Patch — Select Files',
@@ -668,7 +686,7 @@ ${this._getBodyHtml()}
     if (selectedPaths.length === 0) {
       return 'aborted';
     }
-    if (selectedPaths.length === segments.length) {
+    if (selectedPaths.length === paths.length) {
       // Every file checked → today's behavior; keep the original source.
       return options;
     }

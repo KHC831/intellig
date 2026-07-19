@@ -125,7 +125,7 @@ function render(init: IApplyPatchDialogInit): void {
     ])
   );
 
-  // Per-file `--check` verdicts, above the raw body.
+  // Per-file dry-run verdicts, above the raw body.
   root.append(el('div', { className: 'check-list', id: 'checkList' }));
 
   const previewPane = el('div', { className: 'preview', id: 'preview' });
@@ -210,20 +210,18 @@ function render(init: IApplyPatchDialogInit): void {
   // A preview describes the tree as it was when it ran; any change to the
   // inputs (or to the tree itself) can invalidate it, so say so rather than
   // letting a stale verdict look current.
-  const markPreviewStale = (): void => {
+  const markPreviewStale = (
+    reason = 'Inputs changed since this preview — run Preview again to re-check.'
+  ): void => {
     const list = document.getElementById('checkList');
     if (list && list.childElementCount > 0) {
       list.setAttribute('data-stale', 'true');
       const note = document.getElementById('staleNote');
-      if (!note) {
-        list.prepend(
-          el('div', {
-            id: 'staleNote',
-            className: 'stale',
-            textContent: 'Inputs changed since this preview — run Preview again to re-check.',
-          })
-        );
+      if (note) {
+        note.textContent = reason;
+        return;
       }
+      list.prepend(el('div', { id: 'staleNote', className: 'stale', textContent: reason }));
     }
   };
 
@@ -341,6 +339,10 @@ function render(init: IApplyPatchDialogInit): void {
       if (pane) {
         pane.textContent = '⚠ ' + msg.message;
       }
+      // The run that would have refreshed them failed, so the verdicts still
+      // on screen describe an older state — stale them rather than leaving
+      // full-opacity ✓ rows next to an error.
+      markPreviewStale('This preview did not run — the verdicts below are from an earlier run.');
     }
   });
 }

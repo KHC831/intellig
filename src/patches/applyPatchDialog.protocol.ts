@@ -3,7 +3,7 @@
  */
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
-/** Per-file verdict of the preview `--check` pass. */
+/** Per-file verdict of the preview dry-run pass. */
 export interface IPatchPreviewFileWire {
   path: string;
   ok: boolean;
@@ -25,7 +25,7 @@ export type ApplyPatchDialogInbound =
   | { type: 'cancel' }
   | { type: 'browse' }
   | {
-      // Carries the same options as `apply` so the preview's `--check` pass
+      // Carries the same options as `apply` so the preview's dry run
       // reflects exactly what applying would do.
       type: 'preview';
       patchPath?: string;

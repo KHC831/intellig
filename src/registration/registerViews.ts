@@ -19,6 +19,8 @@ import {
   COMMIT_TOOL_WINDOW_VIEW_ID,
 } from '../services';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
+import type { IChangedFile } from '../git-core/interfaces/IGitToolWindowProvider';
+import { MULTI_DETAILS_COMMIT_CAP } from '../git-core/gitToolWindow/provider/detailsPanelModel';
 import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
 import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
@@ -184,6 +186,44 @@ export function registerShowGitConsoleCommand(ctx: IViewRegistrationContext): vo
     );
   });
   ctx.context.subscriptions.push(showGitConsoleCommand);
+}
+
+/**
+ * A commit's changed files, shaped for the details panel.
+ *
+ * Per-file +/- line counts come from the already-parsed diff hunks, so this
+ * costs one `git diff` and no extra call. Binary files have no hunks, so
+ * their counts stay undefined and the UI shows no stat.
+ *
+ * Shared by the single-commit and multi-commit details loads, so the two can
+ * never disagree about what a changed file looks like.
+ */
+async function loadCommitChangedFiles(
+  gitService: IGitService,
+  repo: IRepository,
+  hash: string
+): Promise<IChangedFile[]> {
+  const diffs = await gitService.getCommitDiff(repo, hash);
+  return diffs.map((d) => {
+    let additions = 0;
+    let deletions = 0;
+    for (const hunk of d.hunks) {
+      for (const line of hunk.lines) {
+        if (line.type === 'add') {
+          additions++;
+        } else if (line.type === 'delete') {
+          deletions++;
+        }
+      }
+    }
+    return {
+      path: d.path,
+      oldPath: d.oldPath,
+      status: d.status || ('modified' as const),
+      additions: d.binary ? undefined : additions,
+      deletions: d.binary ? undefined : deletions,
+    };
+  });
 }
 
 /**
@@ -1115,30 +1155,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         .catch(() => {});
 
       try {
-        const diffs = await gitService.getCommitDiff(repo, hash);
-        const changedFiles = diffs.map((d) => {
-          // Per-file +/- line counts from the already-parsed diff hunks (no extra
-          // git call). Binary files have no hunks → counts stay undefined so the
-          // UI shows no stat.
-          let additions = 0;
-          let deletions = 0;
-          for (const hunk of d.hunks) {
-            for (const line of hunk.lines) {
-              if (line.type === 'add') {
-                additions++;
-              } else if (line.type === 'delete') {
-                deletions++;
-              }
-            }
-          }
-          return {
-            path: d.path,
-            oldPath: d.oldPath,
-            status: d.status || ('modified' as const),
-            additions: d.binary ? undefined : additions,
-            deletions: d.binary ? undefined : deletions,
-          };
-        });
+        const changedFiles = await loadCommitChangedFiles(gitService, repo, hash);
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.updateCommitDetails(hash, changedFiles);
         }
@@ -1149,6 +1166,37 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       }
     });
     ctx.context.subscriptions.push(commitSelectListener);
+
+    // Multi-commit selection: load each selected commit's files so the
+    // combined tree is real. Bounded by MULTI_DETAILS_COMMIT_CAP — a
+    // range-select can cover hundreds of commits and each one is a `git
+    // diff`; the panel reports how many were left out.
+    const commitsSelectListener = ctx.gitToolWindowProvider.onDidSelectCommits(
+      async ({ hashes }) => {
+        const loaded = hashes.slice(0, MULTI_DETAILS_COMMIT_CAP);
+        const skipped = hashes.length - loaded.length;
+        const filesByHash = new Map<string, IChangedFile[]>();
+
+        for (const hash of loaded) {
+          const repo =
+            (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
+            ctx.gitToolWindowProvider?.getSelectedRepository();
+          if (!repo) {
+            continue;
+          }
+          try {
+            filesByHash.set(hash, await loadCommitChangedFiles(gitService, repo, hash));
+          } catch {
+            // One unreadable commit must not blank the whole combined tree;
+            // it simply contributes no files.
+            filesByHash.set(hash, []);
+          }
+        }
+
+        ctx.gitToolWindowProvider?.updateMultiCommitDetails(hashes, filesByHash, skipped);
+      }
+    );
+    ctx.context.subscriptions.push(commitsSelectListener);
 
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
     const commitDiffListener = ctx.gitToolWindowProvider.onDidRequestCommitDiff(

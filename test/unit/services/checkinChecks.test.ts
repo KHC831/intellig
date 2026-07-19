@@ -15,7 +15,9 @@ import {
   recommendedAutoCrlfValue,
   runBeforeCommitChecks,
   chunkPathsForArgv,
+  CRLF_DONT_ASK_SLOT,
 } from '../../../src/commits/CheckinChecks';
+import { loadPersisted, savePersisted, type MementoLike } from '../../../src/utils/persistedState';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -509,8 +511,12 @@ describe('chunkPathsForArgv', () => {
 
 describe('sampleFileFacts', () => {
   const readOffsets: number[] = [];
+  const opens: string[] = [];
+  const closes: string[] = [];
   beforeEach(() => {
     readOffsets.length = 0;
+    opens.length = 0;
+    closes.length = 0;
   });
   const fakeFs = (byPath: Record<string, { size?: number; chunk?: string; fail?: boolean }>) => {
     // sampleFileFacts joins the POSIX-literal root + path with the host `path`
@@ -525,13 +531,21 @@ describe('sampleFileFacts', () => {
         }
         return { size: e.size ?? 0 };
       },
-      readChunk: async (p: string, offset: number) => {
+      open: async (p: string) => {
         const e = lookup(p);
         if (!e || e.fail || e.chunk === undefined) {
           throw new Error('ENOENT');
         }
-        readOffsets.push(offset);
-        return Buffer.from(e.chunk, 'binary').subarray(offset, offset + 8192);
+        opens.push(p);
+        return {
+          readChunk: async (offset: number) => {
+            readOffsets.push(offset);
+            return Buffer.from(e.chunk as string, 'binary').subarray(offset, offset + 8192);
+          },
+          close: async (): Promise<void> => {
+            closes.push(p);
+          },
+        };
       },
     };
   };
@@ -610,6 +624,74 @@ describe('sampleFileFacts', () => {
     assert.strictEqual(out[0].hasCrlf, undefined);
     assert.strictEqual(out[1].sizeBytes, undefined);
     assert.strictEqual(out[1].hasCrlf, undefined);
+  });
+
+  /**
+   * The scan opens each committed file ONCE. Reopening per 8 KiB chunk turned
+   * a 1 MiB file into 128 open/close pairs, and an unbounded fan-out held one
+   * descriptor per file for the whole commit.
+   */
+
+  it('opens each file once no matter how many chunks it reads', async () => {
+    // A file large enough to need several chunks, with no CRLF to stop early.
+    const big = 'x'.repeat(8192 * 4) + '\n';
+    const out = await sampleFileFacts(
+      '/root',
+      [{ path: 'a.ts', status: 'modified' as const }],
+      fakeFs({ '/root/a.ts': { size: big.length, chunk: big } })
+    );
+
+    assert.strictEqual(out.length, 1);
+    assert.ok(
+      readOffsets.length > 1,
+      `sanity: the scan read several chunks (${readOffsets.length})`
+    );
+    assert.strictEqual(opens.length, 1, 'one open for the whole file');
+    assert.strictEqual(closes.length, 1, 'and it is closed again');
+  });
+
+  it('closes the handle even when the file is unreadable mid-scan', async () => {
+    await sampleFileFacts(
+      '/root',
+      [{ path: 'a.ts', status: 'modified' as const }],
+      fakeFs({ '/root/a.ts': { size: 10, chunk: 'hello\n' } })
+    );
+
+    assert.strictEqual(opens.length, closes.length, 'every open is matched by a close');
+  });
+
+  it('bounds how many files are open at once', async () => {
+    const files = Array.from({ length: 64 }, (_, i) => ({
+      path: `f${i}.ts`,
+      status: 'modified' as const,
+    }));
+    const entries: Record<string, { size: number; chunk: string }> = {};
+    for (const f of files) {
+      entries[`/root/${f.path}`] = { size: 6, chunk: 'hello\n' };
+    }
+    let live = 0;
+    let peak = 0;
+    const base = fakeFs(entries);
+    const counting = {
+      stat: base.stat,
+      open: async (p: string) => {
+        live += 1;
+        peak = Math.max(peak, live);
+        const handle = await base.open(p);
+        return {
+          readChunk: handle.readChunk,
+          close: async (): Promise<void> => {
+            live -= 1;
+            await handle.close();
+          },
+        };
+      },
+    };
+
+    await sampleFileFacts('/root', files, counting);
+
+    assert.ok(peak > 1, `sanity: the scan overlaps files (peak ${peak})`);
+    assert.ok(peak <= 16, `at most 16 files open at once, saw ${peak}`);
   });
 });
 
@@ -815,18 +897,91 @@ describe('runBeforeCommitChecks — CRLF affordances', () => {
     }
   });
 
-  it("Don't Ask Again persists warnAboutCrlf off at Workspace scope, not Global", async () => {
+  it("Don't Ask Again records the opt-out in workspace state, not in settings", async () => {
     resetMockConfiguration();
     const { repo, git } = makeCrlfFixture();
     const { restore } = stubModal("Commit As-Is, Don't Ask Again");
+    const store = new Map<string, unknown>();
+    const memento: MementoLike = {
+      get: <T>(key: string): T | undefined => store.get(key) as T | undefined,
+      update: (key: string, value: unknown): Thenable<void> => {
+        store.set(key, value);
+        return Promise.resolve();
+      },
+    };
+    try {
+      const proceed = await runBeforeCommitChecks(git, repo, ['win.ts'], memento);
+      assert.strictEqual(proceed, true);
+
+      // A settings write would materialise <repo>/.vscode/settings.json inside
+      // the commit being made; the reference keeps this flag in workspace.xml.
+      const scopes = vscode.workspace.getConfiguration('intellig').inspect('warnAboutCrlf');
+      assert.strictEqual(scopes?.workspaceValue, undefined, 'settings stay untouched');
+      assert.strictEqual(scopes?.globalValue, undefined, 'user scope stays untouched');
+
+      assert.strictEqual(
+        loadPersisted(memento, CRLF_DONT_ASK_SLOT),
+        true,
+        'the opt-out is remembered in workspace state'
+      );
+    } finally {
+      restore();
+      resetMockConfiguration();
+    }
+  });
+
+  it('honors the recorded opt-out on the next commit without prompting', async () => {
+    resetMockConfiguration();
+    const { repo, git } = makeCrlfFixture();
+    const store = new Map<string, unknown>();
+    const memento: MementoLike = {
+      get: <T>(key: string): T | undefined => store.get(key) as T | undefined,
+      update: (key: string, value: unknown): Thenable<void> => {
+        store.set(key, value);
+        return Promise.resolve();
+      },
+    };
+    await savePersisted(memento, CRLF_DONT_ASK_SLOT, true);
+    const { prompts, restore } = stubModal(undefined);
+    try {
+      const proceed = await runBeforeCommitChecks(git, repo, ['win.ts'], memento);
+
+      assert.strictEqual(proceed, true, 'the commit proceeds unprompted');
+      assert.strictEqual(prompts.length, 0, `no CRLF prompt: ${JSON.stringify(prompts)}`);
+    } finally {
+      restore();
+      resetMockConfiguration();
+    }
+  });
+
+  it('an explicit warnAboutCrlf=false in settings still wins', async () => {
+    resetMockConfiguration();
+    setMockConfigValue('intellig', 'warnAboutCrlf', false);
+    const { repo, git } = makeCrlfFixture();
+    const { prompts, restore } = stubModal(undefined);
     try {
       const proceed = await runBeforeCommitChecks(git, repo, ['win.ts']);
+
       assert.strictEqual(proceed, true);
-      const scopes = vscode.workspace.getConfiguration('intellig').inspect('warnAboutCrlf');
-      // Reference: IntelliJ's warn-about-crlf flag is project-level settings
-      // state, so silencing it must not leak into other workspaces.
-      assert.strictEqual(scopes?.workspaceValue, false, 'workspace scope holds the opt-out');
-      assert.strictEqual(scopes?.globalValue, undefined, 'user scope stays untouched');
+      assert.strictEqual(prompts.length, 0, 'a hand-edited setting silences the check');
+    } finally {
+      restore();
+      resetMockConfiguration();
+    }
+  });
+
+  it('a failed opt-out write never aborts the commit', async () => {
+    resetMockConfiguration();
+    const { repo, git } = makeCrlfFixture();
+    const { restore } = stubModal("Commit As-Is, Don't Ask Again");
+    const unwritable: MementoLike = {
+      get: () => undefined,
+      update: () => Promise.reject(new Error('EACCES')),
+    };
+    try {
+      const proceed = await runBeforeCommitChecks(git, repo, ['win.ts'], unwritable);
+
+      assert.strictEqual(proceed, true, 'the user asked to commit; a persist failure is not fatal');
     } finally {
       restore();
       resetMockConfiguration();
@@ -886,5 +1041,64 @@ describe('runBeforeCommitChecks — CRLF affordances', () => {
     } finally {
       restore();
     }
+  });
+});
+
+/**
+ * The CRLF "Don't Ask Again" opt-out lives in workspace state.
+ *
+ * A settings write at Workspace scope creates `<repo>/.vscode/settings.json`
+ * in a single-root workspace — an untracked file that appears mid-commit
+ * inside the very list being committed — and in a multi-root workspace lands
+ * in the `.code-workspace` file, silencing the check for every repo at once.
+ */
+describe('CRLF opt-out persistence', () => {
+  function makeMemento(seed?: Record<string, unknown>): {
+    memento: MementoLike;
+    writes: Array<{ key: string; value: unknown }>;
+  } {
+    const store = new Map<string, unknown>(Object.entries(seed ?? {}));
+    const writes: Array<{ key: string; value: unknown }> = [];
+    return {
+      memento: {
+        get: <T>(key: string): T | undefined => store.get(key) as T | undefined,
+        update: (key: string, value: unknown): Thenable<void> => {
+          writes.push({ key, value });
+          store.set(key, value);
+          return Promise.resolve();
+        },
+      },
+      writes,
+    };
+  }
+
+  it('an opt-out recorded in workspace state silences the warning next run', async () => {
+    const { memento } = makeMemento();
+    await savePersisted(memento, CRLF_DONT_ASK_SLOT, true);
+
+    const ctx = await gatherCheckinContext(makeGitServiceWithCli([], {}), makeRepo(), [], memento);
+
+    assert.strictEqual(ctx.warnAboutCrlf, false, 'the remembered opt-out is honored');
+  });
+
+  it('warns when nothing has been opted out', async () => {
+    const { memento } = makeMemento();
+
+    const ctx = await gatherCheckinContext(makeGitServiceWithCli([], {}), makeRepo(), [], memento);
+
+    assert.notStrictEqual(ctx.warnAboutCrlf, false);
+  });
+
+  it('stores the opt-out under a workspace-state key, never in settings', async () => {
+    const { memento, writes } = makeMemento();
+
+    await savePersisted(memento, CRLF_DONT_ASK_SLOT, true);
+
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].key, 'intellig.commit.crlfDontAsk');
+    assert.ok(
+      !CRLF_DONT_ASK_SLOT.key.startsWith('warnAboutCrlf'),
+      'the opt-out is not the settings key'
+    );
   });
 });

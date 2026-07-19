@@ -33,8 +33,15 @@ import {
   IRepository,
 } from '../git-core/interfaces/IGitService';
 import { isConflictedStatus, parseLineAttrPaths } from '../git-core/gitParser';
-import { readConfig, updateConfig } from '../config/configKeys';
+import { readConfig } from '../config/configKeys';
 import { sanitizeGitError } from '../git-core/gitError';
+import { getLogger } from '../utils/logger';
+import {
+  loadPersisted,
+  savePersisted,
+  type MementoLike,
+  type PersistedSlot,
+} from '../utils/persistedState';
 import {
   ICheckinContext,
   ICheckinFile,
@@ -129,12 +136,76 @@ async function isDetachedHead(gitCli: GitCli, repo: IRepository): Promise<boolea
  *   unresolved-merge check ignores conflicts in files the user isn't
  *   committing.
  */
+/**
+ * An open file being scanned. One of these per committed file, not per chunk:
+ * a 1 MiB scan is up to 128 chunks, and reopening for each turned a
+ * 5000-file commit into hundreds of thousands of open/close pairs.
+ */
+export interface IFileFactsHandle {
+  /** Read up to {@link FACTS_CHUNK_BYTES} starting at byte `offset`. */
+  readChunk(offset: number): Promise<Buffer>;
+  close(): Promise<void>;
+}
+
 /** Injectable fs seam for {@link sampleFileFacts}. */
 export interface IFileFactsFs {
   stat(absPath: string): Promise<{ size: number }>;
-  /** Read up to {@link FACTS_CHUNK_BYTES} starting at byte `offset`. */
-  readChunk(absPath: string, offset: number): Promise<Buffer>;
+  open(absPath: string): Promise<IFileFactsHandle>;
 }
+
+/**
+ * Files scanned at once. The scan is I/O bound and every file in a commit is
+ * independent, so some overlap helps — but an unbounded `Promise.all` over a
+ * normalization-scale commit holds one descriptor per file and exhausts the
+ * process limit.
+ */
+const FACTS_SCAN_CONCURRENCY = 16;
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight, preserving input
+ * order in the result.
+ */
+async function mapWithLimit<T, R>(
+  items: ReadonlyArray<T>,
+  limit: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async (): Promise<void> => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) {
+        return;
+      }
+      results[index] = await worker(items[index]);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+/**
+ * "Commit As-Is, Don't Ask Again" for the CRLF warning.
+ *
+ * Workspace state, not settings: the reference keeps this opt-out in the
+ * project's workspace.xml, which is gitignored and never part of a commit.
+ * A settings write would either create `<repo>/.vscode/settings.json` — an
+ * untracked file appearing mid-commit, inside the very file list being
+ * committed — or, in a multi-root workspace, silence the check for every repo
+ * at once.
+ *
+ * Precedence, highest first:
+ *  1. `intellig.warnAboutCrlf: false` in any settings scope — an explicit,
+ *     hand-edited choice outranks a dialog click;
+ *  2. this opt-out;
+ *  3. warn.
+ */
+export const CRLF_DONT_ASK_SLOT: PersistedSlot<boolean> = {
+  key: 'intellig.commit.crlfDontAsk',
+  version: 1,
+  validate: (raw) => (typeof raw === 'boolean' ? raw : undefined),
+};
 
 const FACTS_CHUNK_BYTES = 8192;
 /**
@@ -158,15 +229,16 @@ export function recommendedAutoCrlfValue(
 
 const realFileFactsFs: IFileFactsFs = {
   stat: (absPath) => fs.promises.stat(absPath),
-  async readChunk(absPath, offset) {
+  async open(absPath) {
     const handle = await fs.promises.open(absPath, 'r');
-    try {
-      const buffer = Buffer.alloc(FACTS_CHUNK_BYTES);
-      const { bytesRead } = await handle.read(buffer, 0, FACTS_CHUNK_BYTES, offset);
-      return buffer.subarray(0, bytesRead);
-    } finally {
-      await handle.close();
-    }
+    return {
+      async readChunk(offset): Promise<Buffer> {
+        const buffer = Buffer.alloc(FACTS_CHUNK_BYTES);
+        const { bytesRead } = await handle.read(buffer, 0, FACTS_CHUNK_BYTES, offset);
+        return buffer.subarray(0, bytesRead);
+      },
+      close: () => handle.close(),
+    };
   },
 };
 
@@ -183,20 +255,22 @@ export async function sampleFileFacts(
   files: ReadonlyArray<ICheckinFile>,
   fsLike: IFileFactsFs = realFileFactsFs
 ): Promise<ICheckinFile[]> {
-  return Promise.all(
-    files.map(async (file) => {
-      if (file.status === 'deleted') {
-        return { ...file };
-      }
-      const absPath = path.join(repoRootFsPath, file.path);
-      let sizeBytes: number | undefined;
-      let hasCrlf: boolean | undefined;
+  return mapWithLimit(files, FACTS_SCAN_CONCURRENCY, async (file) => {
+    if (file.status === 'deleted') {
+      return { ...file };
+    }
+    const absPath = path.join(repoRootFsPath, file.path);
+    let sizeBytes: number | undefined;
+    let hasCrlf: boolean | undefined;
+    try {
+      sizeBytes = (await fsLike.stat(absPath)).size;
+      hasCrlf = false;
+      // One handle for the whole file; closed on every exit path.
+      const handle = await fsLike.open(absPath);
       try {
-        sizeBytes = (await fsLike.stat(absPath)).size;
-        hasCrlf = false;
         let prevEndsWithCr = false;
         for (let offset = 0; offset < FACTS_SCAN_CAP_BYTES; offset += FACTS_CHUNK_BYTES) {
-          const chunk = await fsLike.readChunk(absPath, offset);
+          const chunk = await handle.readChunk(offset);
           if (chunk.length === 0) {
             break;
           }
@@ -212,20 +286,23 @@ export async function sampleFileFacts(
             break; // EOF
           }
         }
-      } catch {
-        // Missing/unreadable file: leave both facts undefined (checks skip).
-        sizeBytes = undefined;
-        hasCrlf = undefined;
+      } finally {
+        await handle.close();
       }
-      return { ...file, sizeBytes, hasCrlf };
-    })
-  );
+    } catch {
+      // Missing/unreadable file: leave both facts undefined (checks skip).
+      sizeBytes = undefined;
+      hasCrlf = undefined;
+    }
+    return { ...file, sizeBytes, hasCrlf };
+  });
 }
 
 export async function gatherCheckinContext(
   gitService: IGitService,
   repo: IRepository,
-  committedPaths: ReadonlyArray<string>
+  committedPaths: ReadonlyArray<string>,
+  workspaceState?: MementoLike
 ): Promise<ICheckinContext> {
   const gitCli = (gitService as IGitServiceWithCli).gitCli;
 
@@ -274,7 +351,13 @@ export async function gatherCheckinContext(
   // (reference GitCrlfProblemsDetector.findFilesWithoutAttrs). Only consulted
   // when the warning could actually fire; on check-attr failure the reference
   // fails gracefully by not warning at all.
-  const warnAboutCrlf = readConfig('warnAboutCrlf');
+  // Settings win outright; the dialog opt-out only decides an otherwise-on
+  // warning (see CRLF_DONT_ASK_SLOT for the precedence).
+  const configuredWarn = readConfig('warnAboutCrlf');
+  const dontAsk = workspaceState
+    ? (loadPersisted(workspaceState, CRLF_DONT_ASK_SLOT) ?? false)
+    : false;
+  const warnAboutCrlf = configuredWarn === false ? false : !dontAsk;
   const normalizing = coreAutoCrlf === 'true' || coreAutoCrlf === 'input';
   const crlfFiles = sampledFiles.filter((f) => f.hasCrlf);
   if (warnAboutCrlf !== false && !normalizing && crlfFiles.length > 0) {
@@ -398,9 +481,10 @@ export function formatCheckinProblems(problems: ReadonlyArray<ICheckinProblem>):
 export async function runBeforeCommitChecks(
   gitService: IGitService,
   repo: IRepository,
-  committedPaths: ReadonlyArray<string>
+  committedPaths: ReadonlyArray<string>,
+  workspaceState?: MementoLike
 ): Promise<boolean> {
-  const context = await gatherCheckinContext(gitService, repo, committedPaths);
+  const context = await gatherCheckinContext(gitService, repo, committedPaths, workspaceState);
   const result = runCheckinHandlers(context);
   if (result.problems.length === 0) {
     return true;
@@ -460,10 +544,16 @@ export async function runBeforeCommitChecks(
           `Could not set core.autocrlf: ${sanitizeGitError(msg)}. Committing anyway.`
         );
       }
-    } else if (crlfChoice === DONT_ASK) {
-      // Workspace scope: the reference keeps the warn-about-crlf opt-out
-      // project-level, so silencing here must not leak into other workspaces.
-      await updateConfig('warnAboutCrlf', false, vscode.ConfigurationTarget.Workspace);
+    } else if (crlfChoice === DONT_ASK && workspaceState) {
+      try {
+        await savePersisted(workspaceState, CRLF_DONT_ASK_SLOT, true);
+      } catch (error) {
+        // The user asked to commit; failing to remember that must not stop
+        // them. The warning simply returns next time.
+        getLogger().warn(
+          `Could not persist the CRLF opt-out: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
   }
   return true;

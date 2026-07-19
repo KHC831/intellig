@@ -293,3 +293,132 @@ describe('filterPatchByFiles — mailbox (git am) sources, real git', () => {
     assert.ok(subset.startsWith('diff --git a/x.ts'), 'no synthetic preamble on plain patches');
   });
 });
+
+describe('mailbox envelope recognition — real git am', () => {
+  /**
+   * A three-commit mailbox, one file per commit, with every envelope line
+   * rewritten by `rewriteEnvelope`. Returns the mailbox plus a clean base
+   * clone to `git am` it onto.
+   */
+  function threeCommitMailbox(
+    prefix: string,
+    rewriteEnvelope: (ident: string, index: number) => string
+  ): { patch: string; base: string } {
+    const root = initRepo(prefix);
+    for (const name of ['one.txt', 'two.txt', 'three.txt']) {
+      fs.writeFileSync(path.join(root, name), `${name} v1\n`);
+    }
+    git(root, 'add', 'one.txt', 'two.txt', 'three.txt');
+    git(root, 'commit', '-qm', 'base');
+    const base = cloneAtHead(root, `${prefix}base-`);
+
+    for (const [index, name] of ['one.txt', 'two.txt', 'three.txt'].entries()) {
+      fs.writeFileSync(path.join(root, name), `${name} v2\n`);
+      git(root, 'add', name);
+      git(root, 'commit', '-qm', `Commit ${index + 1} subject`);
+    }
+
+    const outDir = mkdtemp(`${prefix}out-`);
+    git(root, 'format-patch', '-3', '-o', outDir);
+    const files = fs
+      .readdirSync(outDir)
+      .filter((n) => n.endsWith('.patch'))
+      .sort();
+    assert.strictEqual(files.length, 3, 'format-patch produced three mailbox files');
+
+    let index = 0;
+    const patch = files
+      .map((n) => fs.readFileSync(path.join(outDir, n), 'utf8'))
+      .join('')
+      .replace(/^From (\S+) (.*)$/gm, (_all, ident: string, rest: string) => {
+        const line = `From ${rewriteEnvelope(ident, index)} ${rest}`;
+        index += 1;
+        return line;
+      });
+    return { patch, base };
+  }
+
+  it('splits an mboxrd mailbox per commit, so a subset keeps its OWN message', () => {
+    // The mailing-list envelope form: the ident is `mboxrd@z`, not an object
+    // name. `git am` accepts it, so per-commit splitting must too.
+    const { patch, base } = threeCommitMailbox('patch-mboxrd-', () => 'mboxrd@z');
+    assert.ok(patch.includes('From mboxrd@z '), 'sanity: envelopes really are mboxrd-shaped');
+
+    // Keep ONLY the second commit's file. If the mailbox is not split per
+    // commit, this block gets the FIRST commit's envelope and lands under the
+    // wrong message.
+    const subset = filterPatchByFiles(patch, ['two.txt']);
+
+    const patchFile = path.join(mkdtemp('patch-mboxrd-am-'), 'subset.patch');
+    fs.writeFileSync(patchFile, subset);
+    git(base, 'am', patchFile);
+
+    assert.strictEqual(
+      git(base, 'log', '-1', '--pretty=%s').trim(),
+      'Commit 2 subject',
+      'the kept change lands under its own commit message'
+    );
+    assert.strictEqual(fs.readFileSync(path.join(base, 'two.txt'), 'utf8'), 'two.txt v2\n');
+    assert.strictEqual(
+      fs.readFileSync(path.join(base, 'one.txt'), 'utf8'),
+      'one.txt v1\n',
+      'the deselected commit never applied'
+    );
+  });
+
+  it('splits a 64-hex (SHA-256) envelope mailbox per commit', () => {
+    const { patch, base } = threeCommitMailbox('patch-sha256-', (_ident, index) =>
+      String(index + 1).repeat(64)
+    );
+    assert.ok(/^From [0-9a-f]{64} /m.test(patch), 'sanity: envelopes carry 64-hex idents');
+
+    const subset = filterPatchByFiles(patch, ['three.txt']);
+
+    const patchFile = path.join(mkdtemp('patch-sha256-am-'), 'subset.patch');
+    fs.writeFileSync(patchFile, subset);
+    git(base, 'am', patchFile);
+
+    assert.strictEqual(git(base, 'log', '-1', '--pretty=%s').trim(), 'Commit 3 subject');
+    assert.strictEqual(
+      git(base, 'rev-list', '--count', 'HEAD').trim(),
+      '2',
+      'only the base commit and the one kept commit exist'
+    );
+  });
+
+  it('a commit-message line starting "From " does not open a new section', () => {
+    // git mailsplit requires a date on the envelope line; a prose line that
+    // merely starts with "From " is body text and must stay with its commit.
+    const root = initRepo('patch-frombody-');
+    fs.writeFileSync(path.join(root, 'a.txt'), 'a v1\n');
+    fs.writeFileSync(path.join(root, 'b.txt'), 'b v1\n');
+    git(root, 'add', 'a.txt', 'b.txt');
+    git(root, 'commit', '-qm', 'base');
+    const base = cloneAtHead(root, 'patch-frombody-base-');
+
+    fs.writeFileSync(path.join(root, 'a.txt'), 'a v2\n');
+    fs.writeFileSync(path.join(root, 'b.txt'), 'b v2\n');
+    git(root, 'add', 'a.txt', 'b.txt');
+    git(root, 'commit', '-qm', 'Subject line\n\nFrom foo bar\nFrom the beginning we knew\n');
+
+    const outDir = mkdtemp('patch-frombody-out-');
+    git(root, 'format-patch', '-1', '-o', outDir);
+    const file = fs.readdirSync(outDir).find((n) => n.endsWith('.patch'));
+    assert.ok(file);
+    const patch = fs.readFileSync(path.join(outDir, file), 'utf8');
+    assert.ok(patch.includes('\nFrom foo bar\n'), 'sanity: body really carries the "From " line');
+
+    const subset = filterPatchByFiles(patch, ['a.txt']);
+
+    const patchFile = path.join(mkdtemp('patch-frombody-am-'), 'subset.patch');
+    fs.writeFileSync(patchFile, subset);
+    git(base, 'am', patchFile);
+
+    assert.strictEqual(git(base, 'log', '-1', '--pretty=%s').trim(), 'Subject line');
+    assert.ok(
+      git(base, 'log', '-1', '--pretty=%b').includes('From foo bar'),
+      'the body line survived inside its own commit message'
+    );
+    assert.strictEqual(fs.readFileSync(path.join(base, 'b.txt'), 'utf8'), 'b v1\n');
+  });
+});

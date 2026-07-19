@@ -257,16 +257,27 @@ function main(vscode: IVsCodeApi): void {
     function byId(id: string): HTMLElement | null {
       return document.getElementById(id);
     }
-    function readSearch(): string {
-      const el = byId('filter-search') as HTMLInputElement | null;
-      return el ? el.value.trim() : '';
-    }
     function readToggle(id: string): boolean {
       const el = byId(id);
       return el ? el.classList.contains('active') : false;
     }
 
+    /**
+     * Adopt whatever the search box currently shows as the query to apply.
+     * Every filter gesture applies what the user can SEE — toggling regex or
+     * picking an author filters the typed text, it does not silently apply an
+     * older query. Skipped when the box is not rendered, so a programmatic
+     * filter is not wiped by a missing input.
+     */
+    function commitSearchText(): void {
+      const el = byId('filter-search') as HTMLInputElement | null;
+      if (el) {
+        filterState.searchText = el.value.trim();
+      }
+    }
+
     function applyFilters(): void {
+      commitSearchText();
       post({
         type: 'applyLogFilter',
         filter: {
@@ -540,7 +551,6 @@ function main(vscode: IVsCodeApi): void {
       const a = e.target.getAttribute('data-action');
       if (a === 'filterSearchKeydown') {
         e.preventDefault();
-        filterState.searchText = readSearch();
         applyFilters();
       } else if (a === 'filterAuthorKeydown') {
         e.preventDefault();

@@ -89,3 +89,37 @@ describe('Branches tree: favorites gating cost', () => {
     assert.strictEqual(calls, 1, `category-node render spawned ${calls} getBranches calls`);
   });
 });
+
+/**
+ * A starred ref renders a filled star whichever side of the local/remote
+ * line it sits on. Only the local arm consulted the favorite flag, so a
+ * starred remote branch was indistinguishable from an unstarred one —
+ * including inside the Favorites section itself.
+ */
+describe('Branches tree: favorite rows render a star', () => {
+  async function iconIdOf(
+    branch: IBranch,
+    label: string,
+    headBranch = 'main'
+  ): Promise<string | undefined> {
+    const repo: IRepository = attachedRepo(headBranch);
+    const gitService = createMockGitService(repo, { getBranches: async () => [branch] });
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(repo);
+
+    const row = (await favoriteRows(provider)).find((r) => r.label === label);
+    assert.ok(row, `${label} renders a favorite row`);
+    return (row.iconPath as { id?: string } | undefined)?.id;
+  }
+
+  it('stars a favorite REMOTE branch', async () => {
+    assert.strictEqual(await iconIdOf(REMOTE_DEFAULT, 'origin/main'), 'star-full');
+  });
+
+  it('still stars a favorite local branch', async () => {
+    // HEAD points elsewhere: the current-branch check mark outranks the star,
+    // so leaving `main` checked out would mask the icon under test.
+    const notHead: IBranch = { ...LOCAL_DEFAULT, isHead: false };
+    assert.strictEqual(await iconIdOf(notHead, 'main', 'other'), 'star-full');
+  });
+});

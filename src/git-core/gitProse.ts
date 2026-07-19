@@ -77,6 +77,25 @@ export function parseAppliedPatchFiles(output: string): string[] {
 }
 
 /**
+ * The files a 3-way `git apply` reported it merged WITH CONFLICT markers,
+ * from its `Applied patch to '<path>' with conflicts.` lines (apply.c).
+ *
+ * `git apply --3way --check` emits these too and still exits 0 — it reports
+ * that the merge is possible, not that it is clean — so this is the only
+ * signal a dry run has for the conflicted-but-appliable outcome.
+ */
+export function parseConflictedPatchFiles(output: string): string[] {
+  const files = new Set<string>();
+  for (const raw of output.split('\n')) {
+    const applied = raw.trim().match(/^Applied patch to '(.+)' with conflicts\.$/);
+    if (applied) {
+      files.add(applied[1]);
+    }
+  }
+  return Array.from(files);
+}
+
+/**
  * git refused an operation because TRACKED local changes would be
  * clobbered ("Your local changes to the following files would be
  * overwritten by …" / "Please commit your changes or stash them…") — the

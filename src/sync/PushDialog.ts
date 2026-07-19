@@ -115,7 +115,11 @@ export interface IPushRow {
 /** Row-level push error for rendering retry affordances. */
 export interface IPushRowError {
   kind: PushErrorKind;
-  /** The raw git stderr / error message. */
+  /**
+   * A classified, user-facing one-liner (`pushErrorBannerMessage`), not raw
+   * git output — the row banner is a UI surface, and the full stderr goes to
+   * the log instead.
+   */
   message: string;
 }
 

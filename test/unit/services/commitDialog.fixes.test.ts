@@ -32,9 +32,11 @@ import {
   AUTHOR_FORMAT_REGEX,
   buildGearMenuItems,
   LAST_NO_VERIFY_STATE_KEY,
+  LAST_NO_VERIFY_SLOT,
   CommitDialog,
   createCommitDialog,
 } from '../../../src/commits/CommitDialog';
+import { savePersisted } from '../../../src/utils/persistedState';
 import {
   RECENT_MESSAGES_STATE_KEY,
   RECENT_MESSAGES_MAX,
@@ -1082,6 +1084,42 @@ describe('CommitDialog — amend toggle (shared amendMessage helper)', () => {
     s._commitMessage = 'edited amend';
     await s._handleAmendToggle(false);
     assert.strictEqual(s._commitMessage, 'edited amend');
+    dialog.dispose();
+  });
+});
+
+/**
+ * The dialog is a cached singleton and the Commit Tool Window's gear writes
+ * the SAME workspace-state slot. A value read once in the constructor goes
+ * stale the moment the other surface toggles it — the dialog would then run
+ * hooks the user turned off, and render its own gear in the wrong state.
+ */
+describe('CommitDialog re-reads the shared no-verify flag', () => {
+  function makeMemento(): vscode.Memento {
+    const store = new Map<string, unknown>();
+    return {
+      get: <T>(key: string, fallback?: T): T | undefined =>
+        (store.has(key) ? store.get(key) : fallback) as T | undefined,
+      update: (key: string, value: unknown): Thenable<void> => {
+        store.set(key, value);
+        return Promise.resolve();
+      },
+      keys: () => Array.from(store.keys()),
+    } as unknown as vscode.Memento;
+  }
+
+  it('picks up a slot write made after construction', async () => {
+    const memento = makeMemento();
+    const dialog = new CommitDialog(Uri.file('/tmp/ext'), {} as IGitService, memento);
+    const internals = dialog as unknown as { _noVerify: boolean };
+    assert.strictEqual(internals._noVerify, false, 'sanity: starts off');
+
+    // The Commit Tool Window's gear flips the shared slot.
+    await savePersisted(memento, LAST_NO_VERIFY_SLOT, true);
+    // Re-opening the cached dialog must observe it.
+    dialog.refreshNoVerifyFromState();
+
+    assert.strictEqual(internals._noVerify, true, 'the dialog honors the newer value');
     dialog.dispose();
   });
 });

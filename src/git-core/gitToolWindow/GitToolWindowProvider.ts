@@ -97,6 +97,7 @@ import {
   rangeSelectCommit as handleRangeSelectCommit,
   addRangeSelectCommit as handleAddRangeSelectCommit,
   selectCommit as handleSelectCommit,
+  postDetailsForSelection,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import {
@@ -498,6 +499,16 @@ export class GitToolWindowProvider
    */
   private _pendingContainingBranches: string[] | undefined;
   /**
+   * Changed files per commit for the CURRENT multi-commit selection, keyed by
+   * hash, plus the selection they belong to. The key guards against a slow
+   * load landing after the user moved on: files are only painted while the
+   * selection that asked for them is still the live one.
+   */
+  private _multiChangedFiles = new Map<string, IChangedFile[]>();
+  private _multiSelectionKey: string | undefined;
+  /** Commits in the current selection whose files were NOT loaded (the cap). */
+  private _multiSelectionSkipped = 0;
+  /**
    * Short-lived cache of the grouped Branch-popup options, keyed by the repo
    * scope. Collapses the per-open `requestLogFilterOptions` storm so a burst
    * can't re-run `git branch -a` on every Branch-popup open.
@@ -694,6 +705,7 @@ export class GitToolWindowProvider
     commitNodes: readonly IMenuStateNode[];
   }>();
   private readonly _onDidSelectCommit = new vscode.EventEmitter<string>();
+  private readonly _onDidSelectCommits = new vscode.EventEmitter<{ hashes: string[] }>();
   private readonly _onDidRequestCommitDiff = new vscode.EventEmitter<{
     commitHash: string;
     filePath: string;
@@ -731,6 +743,13 @@ export class GitToolWindowProvider
   public readonly onDidRequestFileDrop = this._onDidRequestFileDrop.event;
   public readonly onDidRequestLogContextAction = this._onDidRequestLogContextAction.event;
   public readonly onDidSelectCommit = this._onDidSelectCommit.event;
+  /**
+   * A MULTI-commit selection needs its files loaded, the same way
+   * {@link onDidSelectCommit} drives the single-commit load. Fired only when
+   * the panel has no files cached for that exact selection, so re-rendering
+   * it (a Group By switch) costs no git.
+   */
+  public readonly onDidSelectCommits = this._onDidSelectCommits.event;
   public readonly onDidRequestLogFilter = this._onDidRequestLogFilter.event;
 
   /**
@@ -790,6 +809,7 @@ export class GitToolWindowProvider
       this._onDidRequestFileDrop,
       this._onDidRequestLogContextAction,
       this._onDidSelectCommit,
+      this._onDidSelectCommits,
       this._onDidRequestCommitDiff,
       this._onDidRequestLogFilter,
       this._onDidRequestLoadMoreCommits,
@@ -2059,6 +2079,67 @@ export class GitToolWindowProvider
   }
 
   /**
+   * Identity of a multi-commit selection, order-independent — the cache key
+   * that decides whether a completed file load still describes what is
+   * selected.
+   */
+  private _selectionKeyOf(hashes: readonly string[]): string {
+    return [...hashes].sort().join(',');
+  }
+
+  /** Changed files already loaded for `hash` in the current selection. */
+  getMultiChangedFiles(hash: string): IChangedFile[] | undefined {
+    return this._multiChangedFiles.get(hash);
+  }
+
+  /**
+   * Ask the host to load changed files for a multi-commit selection, unless
+   * they are already cached for exactly this selection.
+   *
+   * Returns `true` when the cache is warm, so the caller can paint files
+   * immediately instead of waiting for a round trip it does not need.
+   */
+  requestMultiCommitFiles(hashes: readonly string[]): boolean {
+    const key = this._selectionKeyOf(hashes);
+    if (this._multiSelectionKey === key) {
+      return this._multiChangedFiles.size > 0;
+    }
+    // A different selection: the previous selection's files describe commits
+    // that are no longer shown. Recording the key even for a selection too
+    // small to need a load is what makes a still-running load for the old
+    // selection land as stale instead of painting over the new one.
+    this._multiSelectionKey = key;
+    this._multiChangedFiles.clear();
+    this._multiSelectionSkipped = 0;
+    if (hashes.length >= 2) {
+      this._onDidSelectCommits.fire({ hashes: [...hashes] });
+    }
+    return false;
+  }
+
+  /**
+   * Receive the changed files loaded for a multi-commit selection and repaint
+   * the panel with the real combined tree.
+   *
+   * `skipped` is how many selected commits were left unloaded by
+   * {@link MULTI_DETAILS_COMMIT_CAP}; the panel says so rather than
+   * presenting a short list as the whole truth. A payload for a selection the
+   * user has already left is dropped.
+   */
+  public updateMultiCommitDetails(
+    hashes: readonly string[],
+    filesByHash: ReadonlyMap<string, IChangedFile[]>,
+    skipped = 0
+  ): void {
+    if (this._selectionKeyOf(hashes) !== this._multiSelectionKey) {
+      return;
+    }
+    this._multiChangedFiles = new Map(filesByHash);
+    this._multiSelectionSkipped = skipped;
+    postDetailsForSelection(this);
+  }
+
+  /**
    * Push an `updateDetailsPanel` message for the current
    * `expandedCommit`. Used by the range-select handlers (which
    * deliberately avoid `_render()` to preserve commit-row
@@ -2083,9 +2164,19 @@ export class GitToolWindowProvider
       });
       return;
     }
+    // Carry the already-loaded payload, as updateContainingBranches does:
+    // this path also repaints the panel for a commit whose files are in hand
+    // (a Group By switch), and posting an empty list there empties the tree
+    // until the user reselects the commit.
     const commitDetails: ICommitDetails = {
       ...commitNodeToBaseDetails(node),
-      changedFiles: [],
+      changedFiles: this._pendingChangedFiles ?? [],
+      changedFilesError: this._pendingChangedFilesError
+        ? String(this._pendingChangedFilesError)
+        : undefined,
+      ...(this._pendingContainingBranches
+        ? { containingBranches: this._pendingContainingBranches }
+        : {}),
     };
     this.postToWebview({
       type: 'updateDetailsPanel',
@@ -2205,15 +2296,10 @@ export class GitToolWindowProvider
         if (command && msg.commitHash) {
           // Pin the repo that OWNS this commit so the command acts on the
           // row's context instead of re-resolving (and re-prompting) by hash.
-          // In merged scope the selected repo is an arbitrary one, so prefer
-          // the commit's own root; an ambiguous answer leaves the pin unset
-          // and the command's own hash-probing resolver decides.
           void vscode.commands.executeCommand(command, {
             hash: msg.commitHash,
             path: msg.path,
-            repoRoot:
-              this.getRepoRootForCommit(msg.commitHash) ??
-              this.getSelectedRepository()?.rootUri.fsPath,
+            repoRoot: this.resolveCommitRepoPin(msg.commitHash),
           });
         }
         break;
@@ -2407,6 +2493,11 @@ export class GitToolWindowProvider
 
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {
     let filter: ILogFilter | undefined;
+
+    // Applying a filter commits whatever the box held, so the in-flight draft
+    // is spent. Keeping it would let the input keep displaying text that the
+    // active filter does not contain.
+    this._searchDraft = undefined;
 
     if (webviewFilter) {
       filter = {};
@@ -3334,12 +3425,35 @@ export class GitToolWindowProvider
    * identical hashes; the hash alone cannot say which one was meant).
    * Commit-targeted operations use this to act on the repo the CLICKED
    * commit belongs to rather than the single "context" repo
-   * {@link getSelectedRepository} returns; on the ambiguous answer they fall
-   * back to their context chain (or the clicked row's own root, which the
-   * context-menu dispatch prefers and which stays unambiguous).
+   * {@link getSelectedRepository} returns. Callers deciding what to PIN want
+   * {@link resolveCommitRepoPin}, which keeps the ambiguous answer distinct
+   * from the not-recorded one.
    */
   public getRepoRootForCommit(hash: string): string | undefined {
     return this._commitRepoRoots.get(hash) ?? undefined;
+  }
+
+  /**
+   * The repo root a commit-targeted action should PIN, or `undefined` to let
+   * the command resolve the repo itself.
+   *
+   * Three cases, and they are not the same:
+   *  - the snapshot names an owner → pin it;
+   *  - the snapshot says AMBIGUOUS (the hash lives in more than one root) →
+   *    pin nothing. The command's own probing resolver finds the owner;
+   *    substituting the selected repo would pin an arbitrary one, and callers
+   *    that trust a pin skip probing and act on a repo that never held the
+   *    commit;
+   *  - the snapshot knows nothing (single-repo or specific-scope log, where
+   *    per-commit roots are not recorded) → the selected repo IS the context.
+   */
+  public resolveCommitRepoPin(hash: string): string | undefined {
+    const known = this._commitRepoRoots.get(hash);
+    if (known !== undefined) {
+      // `null` is the recorded ambiguous verdict — fail closed.
+      return known ?? undefined;
+    }
+    return this.getSelectedRepository()?.rootUri.fsPath;
   }
 
   /**
@@ -4641,20 +4755,16 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * Carries a header count, the per-commit short-hash/summary list, and the
    * combined changed-files tree (deduplicated by path, most-recent status kept).
    *
+   * Each entry carries its own loaded files; the builder merges them.
+   *
    * @param commitDetailsList - Array of commit details for the selected commits
-   * @param combinedChangedFiles - Optional pre-computed combined changed files
-   *   (e.g., from GitService.getMultiCommitDiff()). If not provided, the method
-   *   merges changed files from the individual commit details.
    * @returns the multi-commit details-panel render-model
    */
-  public _getMultiCommitDetailsPanelModel(
-    commitDetailsList: ICommitDetails[],
-    combinedChangedFiles?: IChangedFile[]
-  ): DetailsPanelModel {
+  public _getMultiCommitDetailsPanelModel(commitDetailsList: ICommitDetails[]): DetailsPanelModel {
     return buildMultiCommitDetailsPanelModel(
       commitDetailsList,
-      combinedChangedFiles,
-      this.getSelectedRepoProject()
+      this.getSelectedRepoProject(),
+      this._multiSelectionSkipped
     );
   }
 

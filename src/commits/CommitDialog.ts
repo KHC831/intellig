@@ -511,7 +511,23 @@ export class CommitDialog {
   ) {
     this._gitService = gitService;
     this._workspaceState = workspaceState;
-    // Seed the gear toggle from persisted workspaceState (defaults false).
+    // The live value is re-read in `show()`; this seed only covers a caller
+    // that inspects the flag before the first open.
+    this._noVerify =
+      (this._workspaceState
+        ? loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT)
+        : undefined) ?? false;
+  }
+
+  /**
+   * Adopt the persisted no-verify flag as the dialog's current state.
+   *
+   * Called on every open: the dialog instance is cached, and the Commit Tool
+   * Window's gear writes the SAME slot, so a value read once at construction
+   * goes stale the first time the other surface toggles it — the dialog would
+   * run hooks the user turned off and render its gear in the wrong state.
+   */
+  refreshNoVerifyFromState(): void {
     this._noVerify =
       (this._workspaceState
         ? loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT)
@@ -532,6 +548,8 @@ export class CommitDialog {
     this._repository = repository;
     this._amendMode = options?.amend ?? false;
     this._commitMessage = options?.initialMessage ?? '';
+
+    this.refreshNoVerifyFromState();
 
     // Seed the author field from `intellig.commitAuthor` config unless the
     // caller already supplied one. Invalid configured values still populate
@@ -968,7 +986,8 @@ export class CommitDialog {
       const proceed = await runBeforeCommitChecks(
         this._gitService,
         this._repository,
-        selectedFiles
+        selectedFiles,
+        this._workspaceState
       );
       if (!proceed) {
         return;

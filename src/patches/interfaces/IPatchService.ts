@@ -31,9 +31,13 @@ export interface IApplyPatchOptions {
   /** Pass `--reverse` to apply the patch in reverse (rollback). */
   reverse?: boolean;
   /**
-   * Dry-run mode. Adds `--check` to `git apply` so paths are validated without
-   * mutating the working tree. `useAm=true` is ignored in check mode (git am
-   * does not support --check meaningfully).
+   * Dry-run mode: `git apply --3way --check`, the apply strategy without
+   * `--index`, so the verdict predicts the real apply and nothing is written.
+   * `useAm=true` falls back to `git apply` here (git am has no dry run); the
+   * diff either lands or does not regardless of who commits it.
+   *
+   * Outcomes mirror a real apply: success for a clean merge, `conflicts` for
+   * one that needs markers, `stderr` when the patch cannot apply at all.
    */
   check?: boolean;
   /**

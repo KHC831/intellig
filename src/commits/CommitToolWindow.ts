@@ -822,7 +822,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     // both git's hooks and these IDE-side checks.
     const noVerify = loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT) ?? false;
     if (!noVerify) {
-      const proceed = await runBeforeCommitChecks(this._gitService, repo, selected);
+      const proceed = await runBeforeCommitChecks(
+        this._gitService,
+        repo,
+        selected,
+        this._workspaceState
+      );
       if (!proceed) {
         void this.postMessage({ type: 'commitDone', success: false });
         return;

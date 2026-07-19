@@ -291,7 +291,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // repository's working tree as Staged Changes / Changes resource groups,
     // the analog of IntelliJ's Local Changes. Registered in subscriptions so
     // VS Code disposes its SourceControls on deactivation.
-    const gitScmProvider = new GitScmProvider(extensionServices.gitService);
+    const gitScmProvider = new GitScmProvider(
+      extensionServices.gitService,
+      undefined,
+      context.workspaceState
+    );
     context.subscriptions.push(gitScmProvider);
     safeFireAndForget(
       gitScmProvider.initialize(),

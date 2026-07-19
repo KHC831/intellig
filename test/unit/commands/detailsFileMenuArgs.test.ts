@@ -362,3 +362,69 @@ describe('the details panel relays the repository that owns the commit', () => {
     });
   });
 });
+
+/**
+ * A hash that exists in more than one open root cannot say which root was
+ * meant. Pinning the selected repo there hands the command a root that never
+ * held the commit — and because a pin suppresses the command's own probing,
+ * the diff resolves against the wrong repo instead of the right one.
+ */
+describe('an ambiguous commit hash pins no repository', () => {
+  function mkCommitIn(
+    hash: string,
+    repoRoot: string
+  ): Parameters<GitToolWindowProvider['updateLogState']>[0][number] {
+    return {
+      hash,
+      shortHash: hash.slice(0, 7),
+      message: 'm',
+      author: { name: 'a', email: 'a@x' },
+      committer: { name: 'a', email: 'a@x' },
+      parents: [],
+      authorDate: new Date(0),
+      commitDate: new Date(0),
+      repoRoot,
+    } as unknown as Parameters<GitToolWindowProvider['updateLogState']>[0][number];
+  }
+
+  it('leaves repoRoot unset when the hash lives in two roots', () => {
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setAvailableRepositories([
+      { rootUri: Uri.file(ROOT_A), state: 'idle', remotes: [], submodules: [] },
+      { rootUri: Uri.file(ROOT_B), state: 'idle', remotes: [], submodules: [] },
+    ] as unknown as Parameters<typeof provider.setAvailableRepositories>[0]);
+    // Two checkouts of the same repo carry identical hashes.
+    provider.updateLogState([
+      mkCommitIn(HASH, Uri.file(ROOT_B).fsPath),
+      mkCommitIn(HASH, Uri.file(ROOT_A).fsPath),
+    ]);
+
+    const relayed: Array<{ arg: unknown }> = [];
+    const cmds = vscode.commands as unknown as {
+      executeCommand: (id: string, ...a: unknown[]) => Thenable<unknown>;
+    };
+    const original = cmds.executeCommand;
+    cmds.executeCommand = ((_id: string, arg: unknown): Thenable<unknown> => {
+      relayed.push({ arg });
+      return Promise.resolve(undefined);
+    }) as typeof cmds.executeCommand;
+
+    try {
+      (provider as unknown as { _handleWebviewMessage(m: unknown): void })._handleWebviewMessage({
+        type: 'fileContextAction',
+        action: 'showDiff',
+        commitHash: HASH,
+        path: CLICKED,
+      });
+    } finally {
+      cmds.executeCommand = original;
+      provider.dispose();
+    }
+
+    assert.strictEqual(
+      (relayed[0]?.arg as { repoRoot?: string }).repoRoot,
+      undefined,
+      'an ambiguous hash must dispatch with no pin so the command probes'
+    );
+  });
+});

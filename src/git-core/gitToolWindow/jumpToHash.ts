@@ -191,8 +191,10 @@ export function isHexString(s: string): boolean {
 /**
  * Seed items for the Jump-to-Commit picker (IntelliJ's completing popup):
  * local branches, then remote branches, then tags — the same label-order
- * rank {@link findCommitByQuery} uses to break prefix ties. Free-typed SHAs
- * bypass the list entirely.
+ * rank {@link findCommitByQuery} uses to break prefix ties. A typed query
+ * that is not one of these rides the verbatim row
+ * ({@link verbatimJumpItem}), because a QuickPick always keeps a
+ * fuzzy-matched item active and Enter would otherwise take the ref.
  */
 export function buildJumpQuickPickItems(
   branches: ReadonlyArray<IBranch>,
@@ -204,4 +206,50 @@ export function buildJumpQuickPickItems(
     ...[...locals, ...remotes].map((b) => ({ label: b.name, description: 'branch' as const })),
     ...tags.map((t) => ({ label: t.name, description: 'tag' as const })),
   ];
+}
+
+/** Marks the picker row that stands for the raw typed text. */
+export const VERBATIM_JUMP_DESCRIPTION = 'as typed';
+
+/** The leading picker row carrying whatever the user typed, verbatim. */
+export interface IVerbatimJumpItem {
+  label: string;
+  description: typeof VERBATIM_JUMP_DESCRIPTION;
+  /** Never filtered out — it IS the query. */
+  alwaysShow: true;
+  /** The raw text accepting this row resolves to. */
+  value: string;
+}
+
+/**
+ * Build the verbatim row for `typed`.
+ *
+ * A QuickPick keeps a fuzzy-matched item active as soon as the typed text
+ * matches any ref loosely, so pressing Enter on a full SHA resolved to that
+ * ref's tip instead of the SHA. Offering the raw input as its own leading row
+ * (the VS Code checkout-picker idiom) makes accept-on-typed-text reachable.
+ */
+export function verbatimJumpItem(typed: string): IVerbatimJumpItem {
+  return {
+    label: `Jump to '${typed}'`,
+    description: VERBATIM_JUMP_DESCRIPTION,
+    alwaysShow: true,
+    value: typed,
+  };
+}
+
+/**
+ * The query an accept resolves to: the verbatim row's raw value when that row
+ * is the active one, otherwise the picked ref's label, otherwise the typed
+ * text (an accept with nothing active).
+ */
+export function resolveJumpAccept(
+  picked: { label?: string; description?: string; value?: string } | undefined,
+  typed: string
+): string | undefined {
+  const trimmed = typed.trim();
+  if (picked?.description === VERBATIM_JUMP_DESCRIPTION) {
+    return picked.value?.trim() || undefined;
+  }
+  return picked?.label ?? trimmed ?? undefined;
 }

@@ -4,6 +4,7 @@
 // stay `import type` to keep it erasable.
 import type * as vscode from 'vscode';
 import type { ICommitDetails } from '../../../services/interfaces';
+import type { IChangedFile } from '../../interfaces/IGitToolWindowProvider';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
 import type { DetailsGroupBy } from './detailsPanelModel.types';
@@ -111,6 +112,17 @@ export interface IGtwControllerContext {
   getDetailsPanelPlaceholderModel(): DetailsPanelModel;
   /** Build the details-panel render-model for a multi-commit selection. */
   getMultiCommitDetailsPanelModel(detailsList: ICommitDetails[]): DetailsPanelModel;
+  /**
+   * Changed files already loaded for `hash` as part of the CURRENT
+   * multi-commit selection, or undefined while they are still in flight.
+   */
+  getMultiChangedFiles(hash: string): IChangedFile[] | undefined;
+  /**
+   * Ask the host to load changed files for a multi-commit selection. A no-op
+   * when they are already cached for exactly that selection; returns whether
+   * the cache is warm.
+   */
+  requestMultiCommitFiles(hashes: readonly string[]): boolean;
   /**
    * Whether issue/PR auto-linking is enabled. Delegates to the provider's
    * config read so the `intellig.commitMessageIssueLinks` flag lookup stays

@@ -52,6 +52,7 @@ import type {
   IConflictOpContext,
   IConflictedFile,
 } from '../../../src/conflicts/interfaces/IConflictResolutionService';
+import type { IPatchService } from '../../../src/patches/interfaces/IPatchService';
 import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 interface RecordedExec {
@@ -1796,5 +1797,184 @@ describe('ApplyPatchDialog — paused am session failure arm', () => {
 
     assert.strictEqual(warningCalls.length, 1, 'skip must confirm first');
     assert.deepStrictEqual(calls, ['skip']);
+  });
+});
+
+/**
+ * Apply Patch selection and preview are PER FILE. A path can appear in more
+ * than one block (a multi-commit mailbox touching the same file twice), and
+ * `filterPatchByFiles` keys off a set of paths — so every block for a path
+ * shares one fate. Offering a row per block would offer a choice the apply
+ * cannot honour: deselecting one of two identical rows changed nothing.
+ */
+describe('ApplyPatchDialog per-file selection — duplicate paths', () => {
+  const dupPatch =
+    'diff --git a/dup.ts b/dup.ts\n--- a/dup.ts\n+++ b/dup.ts\n@@ -1 +1 @@\n-old1\n+new1\n' +
+    'diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-o\n+n\n' +
+    'diff --git a/dup.ts b/dup.ts\n--- a/dup.ts\n+++ b/dup.ts\n@@ -9 +9 @@\n-old2\n+new2\n';
+
+  let ctx: vscode.ExtensionContext;
+  let repo: IRepository;
+  let dialog: ApplyPatchDialog | undefined;
+  const originalQuickPick = vscode.window.showQuickPick;
+  const originalClipRead = vscode.env.clipboard.readText;
+
+  beforeEach(() => {
+    ctx = makeContext();
+    repo = makeRepo();
+    (vscode.env.clipboard as unknown as { readText: () => Promise<string> }).readText = async () =>
+      dupPatch;
+  });
+
+  afterEach(() => {
+    (vscode.window as unknown as { showQuickPick: typeof originalQuickPick }).showQuickPick =
+      originalQuickPick;
+    (vscode.env.clipboard as unknown as { readText: typeof originalClipRead }).readText =
+      originalClipRead;
+    if (dialog) {
+      dialog.dispose();
+      dialog = undefined;
+    }
+  });
+
+  function stubApply(
+    recorded: Array<{ patchContent?: string }>
+  ): IPatchService & { dispose: () => void } {
+    return {
+      applyPatch: async (_repo: IRepository, options: { patchContent?: string }) => {
+        recorded.push(options);
+        return { success: true, appliedFiles: [] };
+      },
+      createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
+      dispose: (): void => {},
+    } as unknown as IPatchService & { dispose: () => void };
+  }
+
+  it('offers ONE row per distinct path, annotated with its block count', async () => {
+    let offered: Array<{ label: string; description?: string }> = [];
+    (
+      vscode.window as unknown as {
+        showQuickPick: (items: Array<{ label: string; description?: string }>) => Promise<unknown>;
+      }
+    ).showQuickPick = async (items) => {
+      offered = items;
+      return items;
+    };
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubApply([]) });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'apply',
+      useClipboard: true,
+    });
+
+    assert.deepStrictEqual(
+      offered.map((i) => i.label),
+      ['dup.ts', 'other.ts'],
+      'the twice-touched path gets one row, not two identical ones'
+    );
+    assert.match(
+      offered[0].description ?? '',
+      /2 changes/,
+      'the row says how many blocks it covers'
+    );
+    assert.strictEqual(
+      offered[1].description,
+      undefined,
+      'a single-block path needs no annotation'
+    );
+  });
+
+  it('deselecting a duplicated path drops BOTH of its blocks', async () => {
+    const recorded: Array<{ patchContent?: string }> = [];
+    (
+      vscode.window as unknown as {
+        showQuickPick: (items: Array<{ label: string }>) => Promise<unknown>;
+      }
+    ).showQuickPick = async (items) => items.filter((i) => i.label === 'other.ts');
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubApply(recorded) });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'apply',
+      useClipboard: true,
+    });
+
+    assert.strictEqual(recorded.length, 1);
+    const applied = recorded[0].patchContent ?? '';
+    assert.ok(applied.includes('other.ts'), 'the kept file is applied');
+    assert.ok(!applied.includes('new1'), 'the first block of the dropped path is gone');
+    assert.ok(!applied.includes('new2'), 'the second block of the dropped path is gone too');
+  });
+
+  it('keeping a duplicated path applies BOTH of its blocks', async () => {
+    const recorded: Array<{ patchContent?: string }> = [];
+    (
+      vscode.window as unknown as {
+        showQuickPick: (items: Array<{ label: string }>) => Promise<unknown>;
+      }
+    ).showQuickPick = async (items) => items.filter((i) => i.label === 'dup.ts');
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubApply(recorded) });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'apply',
+      useClipboard: true,
+    });
+
+    const applied = recorded[0].patchContent ?? '';
+    assert.ok(applied.includes('new1') && applied.includes('new2'), 'both blocks ride along');
+    assert.ok(!applied.includes('other.ts'), 'the deselected file is gone');
+  });
+
+  it('previews ONE verdict per distinct path', async () => {
+    const checked: string[] = [];
+    const stubSvc = {
+      applyPatch: async (
+        _repo: IRepository,
+        options: { patchContent?: string; check?: boolean }
+      ) => {
+        if (options.check) {
+          checked.push(options.patchContent ?? '');
+        }
+        return { success: true, appliedFiles: [] };
+      },
+      createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
+      dispose: (): void => {},
+    } as unknown as IPatchService;
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubSvc });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'preview',
+      useClipboard: true,
+    });
+
+    assert.strictEqual(checked.length, 2, 'one check per distinct path, not per block');
+    assert.ok(
+      checked[0].includes('new1') && checked[0].includes('new2'),
+      'the path is checked whole'
+    );
+  });
+
+  it('disposing mid-preview stops further git runs', async () => {
+    let calls = 0;
+    const stubSvc = {
+      applyPatch: async () => {
+        calls += 1;
+        // Cancel the dialog while the first file is still being checked.
+        dialog?.dispose();
+        return { success: true, appliedFiles: [] };
+      },
+      createPatchFromLocalChanges: async () => '',
+      ...stubAmOps,
+      dispose: (): void => {},
+    } as unknown as IPatchService;
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubSvc });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'preview',
+      useClipboard: true,
+    });
+
+    assert.strictEqual(calls, 1, 'the loop bails instead of spawning git against a dead panel');
   });
 });

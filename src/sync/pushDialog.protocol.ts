@@ -44,6 +44,7 @@ export interface IPushRowView {
    * meaningfully re-pushed after an update).
    */
   sourceHash: string | null;
+  /** `message` is the classified one-liner for the banner, never raw stderr. */
   error: { message: string; kind: PushErrorKind } | null;
 }
 

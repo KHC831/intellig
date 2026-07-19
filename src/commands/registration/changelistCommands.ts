@@ -353,7 +353,8 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
         const proceed = await runBeforeCommitChecks(
           gitService,
           repo,
-          target.files.map((f) => f.path)
+          target.files.map((f) => f.path),
+          ctx.context.workspaceState
         );
         if (!proceed) {
           return;

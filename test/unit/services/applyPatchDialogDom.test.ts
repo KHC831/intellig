@@ -51,6 +51,14 @@ afterEach(() => {
   }
 });
 
+function renderHarness(dialog: ApplyPatchDialog): IWebviewEntryHarness {
+  const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
+  const bodyHtml = extractWebviewScript(html).bodyHtml;
+  const h = bootWebviewEntry('patches/webview/applyPatchDialog', { bodyHtml });
+  _entryHarnesses.push(h);
+  return h;
+}
+
 function renderDoc(dialog: ApplyPatchDialog): { document: Document; posted: unknown[] } {
   const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
   const bodyHtml = extractWebviewScript(html).bodyHtml;
@@ -194,5 +202,42 @@ describe('ApplyPatchDialog — concurrent request guard', () => {
     release();
     await Promise.all([applying, preview]);
     assert.strictEqual(reads(), 0, 'the preview was dropped, not queued behind the apply');
+  });
+});
+
+/**
+ * A failed preview leaves the PREVIOUS run's per-file verdicts on screen. The
+ * error arm used to write only the preview pane, so full-opacity ✓ rows sat
+ * beside an error banner and read as current.
+ */
+describe('ApplyPatchDialog — a failed preview stales its verdicts', () => {
+  it('dims the earlier verdicts when the preview errors', () => {
+    const h = renderHarness(makeDialog('/tmp/x.patch'));
+
+    h.post({
+      type: 'preview',
+      content: 'diff --git a/a.ts b/a.ts',
+      files: [{ path: 'a.ts', ok: true }],
+    });
+    const list = h.document.getElementById('checkList');
+    assert.ok(list && list.childElementCount > 0, 'sanity: verdicts rendered');
+    assert.strictEqual(list?.getAttribute('data-stale'), null, 'sanity: they start current');
+
+    h.post({ type: 'error', message: 'Preview failed: boom' });
+
+    assert.strictEqual(
+      h.document.getElementById('checkList')?.getAttribute('data-stale'),
+      'true',
+      'the surviving verdicts are marked stale'
+    );
+    assert.ok(
+      h.document.getElementById('staleNote'),
+      'and the user is told why they are no longer current'
+    );
+    assert.match(
+      h.document.getElementById('preview')?.textContent ?? '',
+      /Preview failed/,
+      'the error itself still shows'
+    );
   });
 });

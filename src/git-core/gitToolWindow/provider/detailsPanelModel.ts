@@ -310,16 +310,30 @@ export function buildDetailsPanelModel(
   };
 }
 
+/**
+ * How many selected commits get their changed files loaded for the combined
+ * tree. A range-select can cover hundreds of commits and each one costs a
+ * `git diff`; past this many the tree is built from the first
+ * {@link MULTI_DETAILS_COMMIT_CAP} in selection order and the panel says so,
+ * rather than freezing the UI or silently showing a partial list as complete.
+ */
+export const MULTI_DETAILS_COMMIT_CAP = 20;
+
 /** Multi-commit Details Panel model. */
 export function buildMultiCommitDetailsPanelModel(
   commitDetailsList: ICommitDetails[],
-  combinedChangedFiles?: IChangedFile[],
-  project?: IDetailsProject
+  project?: IDetailsProject,
+  skippedCommits = 0
 ): DetailsPanelModel {
-  const mergedFiles = combinedChangedFiles ?? mergeChangedFiles(commitDetailsList);
+  const mergedFiles = mergeChangedFiles(commitDetailsList);
   // Any commit whose diff failed makes the combined list partial; report the
-  // first reason rather than presenting the remainder as complete.
-  const changedFilesError = commitDetailsList.find((d) => d.changedFilesError)?.changedFilesError;
+  // first reason rather than presenting the remainder as complete. A capped
+  // selection is partial for a different reason, and says which.
+  const changedFilesError =
+    commitDetailsList.find((d) => d.changedFilesError)?.changedFilesError ??
+    (skippedCommits > 0
+      ? `Showing files from the first ${commitDetailsList.length - skippedCommits} of ${commitDetailsList.length} selected commits.`
+      : undefined);
   return {
     kind: 'multi',
     changedFilesError,

@@ -23,7 +23,11 @@ import { isAmSession, resolveGitDir } from '../git-core/gitDirMarkers';
 import { createWorkingStateSnapshot, type IPreApplyState } from '../git-core/ops/preservedChanges';
 import { runAmSessionOp } from '../git-core/ops/amSession';
 import { isConflictedStatus } from '../git-core/gitParser';
-import { looksLikePatchConflictText, parseAppliedPatchFiles } from '../git-core/gitProse';
+import {
+  looksLikePatchConflictText,
+  parseAppliedPatchFiles,
+  parseConflictedPatchFiles,
+} from '../git-core/gitProse';
 import { sanitizeGitError } from '../git-core/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { getLogger, type Logger } from '../utils/logger';
@@ -175,17 +179,31 @@ export class PatchService implements IPatchService {
       // from hard error based on the exit code + stderr shape.
       const result: IGitCommandResult = await gitCli.exec(args, execOptions);
 
-      // 6: classify. In check mode we never produce conflicts.
+      // 6: classify.
       if (result.exitCode === 0) {
+        const combined = result.stdout + '\n' + result.stderr;
+        // A 3-way check exits 0 both for a clean merge and for one that needs
+        // conflict markers; only the per-file prose separates them. Reporting
+        // the conflicted files here is what lets a preview predict the
+        // conflict handoff an apply would trigger.
+        const conflicted = options.check ? parseConflictedPatchFiles(combined) : [];
+        if (conflicted.length > 0) {
+          return {
+            success: false,
+            appliedFiles: this._parseAppliedFiles(combined),
+            conflicts: conflicted.map((path) => ({ path, resolved: false })),
+          };
+        }
         return {
           success: true,
-          appliedFiles: this._parseAppliedFiles(result.stdout + '\n' + result.stderr),
+          appliedFiles: this._parseAppliedFiles(combined),
         };
       }
 
-      // Dry-run mode: no conflict extraction — just report the stderr.
-      // Sanitize before returning: git stderr may embed `user:token@host`
-      // credentials if the patch references a remote URL.
+      // Dry-run mode: nothing was written, so there is no unmerged state to
+      // read — report the stderr. Sanitize before returning: git stderr may
+      // embed `user:token@host` credentials if the patch references a remote
+      // URL.
       if (options.check) {
         return {
           success: false,
@@ -404,7 +422,12 @@ export class PatchService implements IPatchService {
   private _buildPlainApplyArgs(options: IApplyPatchOptions, patchPath: string): string[] {
     const flags: string[] = [];
     if (options.check) {
-      flags.push('--check');
+      // Check mode mirrors the apply strategy minus `--index`, so a preview
+      // verdict answers the same question the apply will. A bare `--check`
+      // reports "does not apply" for every patch that only lands via the
+      // 3-way merge, which is the opposite of what applying it would do.
+      // `--check` writes nothing: neither worktree, index, nor refs.
+      flags.push('--3way', '--check', '--verbose');
     } else {
       // --verbose makes git report EVERY touched file ("Checking patch
       // <path>..."), not just the 3-way-fallback ones — without it a file
@@ -547,11 +570,68 @@ export function splitPatchByFile(content: string): IPatchFileSegment[] {
 }
 
 /**
- * First line of a `git format-patch` mailbox: `From <sha> Mon Sep 17 …`.
- * This is what `git am`'s format detection keys on; a patch that loses it
- * fails with "Patch format detection failed" before a hunk is ever read.
+ * Does `line` open a mailbox message, the way `git mailsplit` decides it?
+ *
+ * Ports git's `is_from_line()` (builtin/mailsplit.c): at least 20 bytes
+ * (counting the newline), a `From ` prefix, and — scanning back from the end
+ * — a `:` framed by the digits of a `HH:MM:SS` clock, followed by a year
+ * above 90. The identifier between `From ` and the date is NOT constrained:
+ * `git format-patch` writes the commit's object name (40 or 64 hex depending
+ * on the repo's hash), while mboxrd mailboxes write things like `mboxrd@z`.
+ *
+ * The date requirement is what keeps a commit-message body line such as
+ * `From foo bar` from reading as a new message.
+ *
+ * This is the single envelope notion for the module: both the preamble probe
+ * and the per-commit boundary split are derived from it, so they can never
+ * disagree about what an envelope is.
  */
-const MAILBOX_FIRST_LINE = /^From \S+ /;
+export function isMailboxEnvelopeLine(line: string): boolean {
+  // git measures the line WITH its newline; our lines arrive without one.
+  if (line.length + 1 < 20 || !line.startsWith('From ')) {
+    return false;
+  }
+  let i = line.length - 1;
+  for (;;) {
+    if (i < 5) {
+      return false;
+    }
+    i -= 1;
+    if (line[i] === ':') {
+      break;
+    }
+  }
+  const digit = (at: number): boolean => at >= 0 && at < line.length && /[0-9]/.test(line[at]);
+  if (!digit(i - 4) || !digit(i - 2) || !digit(i - 1) || !digit(i + 1) || !digit(i + 2)) {
+    return false;
+  }
+  return parseInt(line.slice(i + 3), 10) > 90;
+}
+
+/** One changed file of a patch, with how many blocks in the patch touch it. */
+export interface IPatchPathCount {
+  path: string;
+  /** Blocks naming this path — above 1 in a multi-commit mailbox. */
+  count: number;
+}
+
+/**
+ * Collapse a patch's segments to its distinct paths, in first-appearance
+ * order, carrying each path's block count.
+ *
+ * Selection and preview are both PER FILE: `filterPatchByFiles` keys off a
+ * set of paths, so every block for a path shares one fate. Deriving the pick
+ * rows and the preview verdicts from this one list keeps what the user sees
+ * aligned with what applying does — a per-occurrence row would offer a choice
+ * the apply cannot honour.
+ */
+export function uniquePatchPaths(content: string): IPatchPathCount[] {
+  const counts = new Map<string, number>();
+  for (const segment of splitPatchByFile(content)) {
+    counts.set(segment.path, (counts.get(segment.path) ?? 0) + 1);
+  }
+  return Array.from(counts, ([path, count]) => ({ path, count }));
+}
 
 /**
  * Return the mailbox envelope preceding the first `diff --git` header, or
@@ -568,7 +648,9 @@ export function extractMailboxPreamble(content: string): string | undefined {
     return undefined;
   }
   const preamble = content.slice(0, firstHeader);
-  return MAILBOX_FIRST_LINE.test(preamble) ? preamble : undefined;
+  const firstLineEnd = preamble.indexOf('\n');
+  const firstLine = firstLineEnd === -1 ? preamble : preamble.slice(0, firstLineEnd);
+  return isMailboxEnvelopeLine(firstLine) ? preamble : undefined;
 }
 
 /**
@@ -614,22 +696,34 @@ function filterOneSection(content: string, wanted: Set<string>): string {
 }
 
 /**
- * Boundary between commits in a `git format-patch` mailbox. The envelope
- * opens with the commit's full object name, which is what distinguishes it
- * from a `From:` author header or a quoted "From " line inside a message.
- */
-const MAILBOX_COMMIT_BOUNDARY = /(?=^From [0-9a-f]{40} )/m;
-
-/**
  * Split a multi-commit mailbox into one section per commit, or `undefined`
  * when `content` is not a mailbox at all (a plain unified diff).
+ *
+ * Boundaries are exactly the lines {@link isMailboxEnvelopeLine} accepts, so
+ * the split agrees with `git mailsplit` on mboxrd envelopes and SHA-256
+ * object names alike, and never breaks on a `From …` line inside a commit
+ * message.
  */
-function splitMailboxByCommit(content: string): string[] | undefined {
-  const sections = content.split(MAILBOX_COMMIT_BOUNDARY).filter((s) => s.length > 0);
-  if (sections.length === 0 || !/^From [0-9a-f]{40} /.test(sections[0])) {
+export function splitMailboxByCommit(content: string): string[] | undefined {
+  const lines = content.split('\n');
+  const starts: number[] = [];
+  let offset = 0;
+  const offsets: number[] = [];
+  for (const line of lines) {
+    offsets.push(offset);
+    offset += line.length + 1;
+  }
+  lines.forEach((line, index) => {
+    if (isMailboxEnvelopeLine(line)) {
+      starts.push(offsets[index]);
+    }
+  });
+  if (starts.length === 0 || starts[0] !== 0) {
     return undefined;
   }
-  return sections;
+  return starts.map((start, index) =>
+    content.slice(start, index + 1 < starts.length ? starts[index + 1] : undefined)
+  );
 }
 
 /**

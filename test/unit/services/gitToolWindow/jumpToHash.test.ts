@@ -17,6 +17,8 @@ import {
   findCommitByQuery,
   isHexString,
   buildJumpQuickPickItems,
+  resolveJumpAccept,
+  verbatimJumpItem,
 } from '../../../../src/git-core/gitToolWindow/jumpToHash';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -252,5 +254,44 @@ describe('buildJumpQuickPickItems', () => {
     const items = buildJumpQuickPickItems([mkBranch('main', 'c')], [mkTag('v1', 'c')]);
     assert.strictEqual(items[0].description, 'branch');
     assert.strictEqual(items[1].description, 'tag');
+  });
+});
+
+/**
+ * Accepting the Jump-to-Commit picker.
+ *
+ * A QuickPick keeps a fuzzy-matched item ACTIVE as soon as the typed text
+ * loosely matches any ref, so `selectedItems[0]?.label ?? value` silently
+ * swapped a typed SHA for that ref's tip — the user asked for one commit and
+ * landed on another. A leading verbatim row makes the raw input reachable.
+ */
+describe('Jump to Commit — accept resolution', () => {
+  it('resolves the raw text when the verbatim row is accepted', () => {
+    const typed = 'abc1234';
+
+    const resolved = resolveJumpAccept(verbatimJumpItem(typed), typed);
+
+    assert.strictEqual(resolved, typed, 'the typed SHA survives, not a fuzzy-matched ref');
+  });
+
+  it('does not hand back the row LABEL, which is prose', () => {
+    const item = verbatimJumpItem('deadbeef');
+
+    assert.match(item.label, /deadbeef/, 'the row shows what will be jumped to');
+    assert.notStrictEqual(resolveJumpAccept(item, 'deadbeef'), item.label);
+  });
+
+  it('resolves a picked ref to its name', () => {
+    const resolved = resolveJumpAccept({ label: 'feature/x', description: 'branch' }, 'feat');
+
+    assert.strictEqual(resolved, 'feature/x');
+  });
+
+  it('falls back to the typed text when nothing is active', () => {
+    assert.strictEqual(resolveJumpAccept(undefined, '  abc1234  '), 'abc1234');
+  });
+
+  it('the verbatim row is never filtered out of the list', () => {
+    assert.strictEqual(verbatimJumpItem('zzz').alwaysShow, true);
   });
 });
