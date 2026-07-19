@@ -33,7 +33,9 @@ export function renderTabStrip(activeTab: TabId): string {
     const classes = ['intellig-tab', isActive ? 'intellig-tab-active' : '']
       .filter(Boolean)
       .join(' ');
-    return `<button type="button" class="${classes}" data-tab="${tab}" role="tab" aria-selected="${isActive ? 'true' : 'false'}">${label}</button>`;
+    // Roving tabindex + aria-controls/id pairing per the WAI-ARIA tabs pattern:
+    // only the active tab is in the tab order, arrow keys move between them.
+    return `<button type="button" class="${classes}" data-tab="${tab}" id="intellig-tab-${tab}" role="tab" aria-selected="${isActive ? 'true' : 'false'}" aria-controls="intellig-tabpanel-${tab}" tabindex="${isActive ? '0' : '-1'}">${label}</button>`;
   }).join('');
 
   return `<div class="intellig-tab-strip" role="tablist" aria-label="Git Tool Window tabs">${tabs}</div>`;
@@ -71,7 +73,7 @@ export function renderTabPanels(input: {
 
   return TAB_IDS.map((tab) => {
     const display = tab === activeTab ? 'block' : 'none';
-    return `<div class="intellig-tab-panel" data-tab-panel="${tab}" role="tabpanel" aria-hidden="${tab === activeTab ? 'false' : 'true'}" style="display:${display};">${tabToBody[tab]}</div>`;
+    return `<div class="intellig-tab-panel" data-tab-panel="${tab}" id="intellig-tabpanel-${tab}" role="tabpanel" aria-labelledby="intellig-tab-${tab}" aria-hidden="${tab === activeTab ? 'false' : 'true'}" style="display:${display};">${tabToBody[tab]}</div>`;
   }).join('');
 }
 
@@ -96,13 +98,23 @@ export function wrapTabbedBody(input: {
 }): string {
   const strip = renderTabStrip(input.activeTab);
   const panels = renderTabPanels(input);
-  return `${strip}${panels}`;
+  // One bounded flex column: the strip keeps its natural height and each panel
+  // scrolls inside the remaining space. As plain flow siblings, tall tab content
+  // grew the page instead and the body scroll carried the strip out of view.
+  return `<div class="intellig-tabbed">${strip}${panels}</div>`;
 }
 
 /** CSS for the tab strip. Emitted alongside the existing provider styles. */
 export function tabStripStyles(): string {
   return `
+    .intellig-tabbed {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-height: 0;
+    }
     .intellig-tab-strip {
+      flex: 0 0 auto;
       display: flex;
       gap: 0;
       border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
@@ -130,7 +142,24 @@ export function tabStripStyles(): string {
     }
     .intellig-tab-panel {
       flex: 1 1 auto;
+      min-height: 0;
       overflow: auto;
+    }
+    .intellig-tab-stub {
+      padding: 16px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .intellig-tab-stub h3 {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--vscode-foreground, inherit);
+    }
+    .intellig-tab-stub p {
+      margin: 0 0 6px 0;
+    }
+    .intellig-tab-stub-hint {
+      font-size: 0.9em;
     }
   `;
 }

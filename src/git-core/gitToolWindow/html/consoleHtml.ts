@@ -34,10 +34,18 @@ function renderEntry(entry: IConsoleEntry): string {
     </div>`;
 }
 
+/** Toolbar above the log. Clear drops every captured entry (IntelliJ parity). */
+function renderConsoleToolbar(): string {
+  return `
+    <div class="console-toolbar">
+      <button type="button" class="console-clear-btn" title="Clear the console">Clear</button>
+    </div>`;
+}
+
 /**
  * Render the Console tab body. With no entries, shows an empty state that still
- * points at the raw `Output` panel channel; otherwise renders every captured
- * command in array order (oldest first).
+ * points at the raw `Output` panel channel; otherwise renders a toolbar plus
+ * every captured command in array order (oldest first).
  */
 export function renderConsoleTabBody(entries: IConsoleEntry[]): string {
   if (entries.length === 0) {
@@ -53,15 +61,42 @@ export function renderConsoleTabBody(entries: IConsoleEntry[]): string {
   }
 
   return `
-    <div class="console-log" role="log" aria-label="Git command console">
-      ${entries.map(renderEntry).join('')}
+    <div class="console-tab-body">
+      ${renderConsoleToolbar()}
+      <div class="console-log" role="log" aria-label="Git command console">
+        ${entries.map(renderEntry).join('')}
+      </div>
     </div>`;
 }
 
 /** Styles for the Console tab body. Folded into the tool window's extraStyles. */
 export function consoleTabStyles(): string {
   return `
+    .console-tab-body {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+    .console-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
+    }
+    .console-clear-btn {
+      background: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      border: none;
+      padding: 2px 8px;
+      font: inherit;
+      cursor: pointer;
+    }
     .console-log {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: var(--vscode-editor-font-size, 12px);
       padding: 6px 8px;

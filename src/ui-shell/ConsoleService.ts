@@ -29,6 +29,43 @@ const DEFAULT_MAX_ENTRIES = 1000;
 const CONSOLE_CHANNEL_NAME = 'IntelliG Git Console';
 
 /**
+ * Per-entry output cap, matching IntelliJ
+ * `GitVcsConsoleWriter.MAX_CONSOLE_OUTPUT_SIZE`. gitCli permits far more (its
+ * own limit is in the MiB range), and the tool-window console renders every
+ * stored byte into the DOM — one big `git diff` was enough to lock the webview.
+ */
+const MAX_ENTRY_OUTPUT = 10000;
+
+/**
+ * Head/tail split of the retained text, and the length past which eliding is
+ * worth it. Both mirror IntelliJ's chunked `showMessage`: a 30% head and 70%
+ * tail, and no elision until 1.2x the cap so a marginally-over output is kept
+ * whole rather than losing content to save a few hundred characters.
+ */
+const HEAD_FRACTION = 0.3;
+const ELISION_THRESHOLD = MAX_ENTRY_OUTPUT * 1.2;
+
+/**
+ * Cap one entry's output, keeping the head and the tail around a marker.
+ *
+ * The tail matters as much as the head: git puts the failure reason at the end
+ * of a long run, so a head-only truncation would drop the very line the console
+ * exists to show. Exported for the specs that pin the boundary behaviour.
+ */
+export function capConsoleOutput(output: string): string {
+  if (output.length <= ELISION_THRESHOLD) {
+    return output;
+  }
+  const headLength = Math.floor(MAX_ENTRY_OUTPUT * HEAD_FRACTION);
+  const tailLength = MAX_ENTRY_OUTPUT - headLength;
+  const elided = output.length - headLength - tailLength;
+  return (
+    `${output.slice(0, headLength)}\n… ${elided} characters truncated …\n` +
+    `${output.slice(output.length - tailLength)}`
+  );
+}
+
+/**
  * Console Service implementation.
  * Connects GitCli command execution to the Console View for real-time output display.
  */
@@ -176,7 +213,7 @@ export class ConsoleService implements IConsoleService {
     const entry: IConsoleEntry = {
       timestamp: new Date(),
       command: sanitizeGitError(command),
-      output: sanitizeGitError(output),
+      output: capConsoleOutput(sanitizeGitError(output)),
       exitCode,
       isError: options.isError ?? (exitCode !== undefined && exitCode !== 0),
     };

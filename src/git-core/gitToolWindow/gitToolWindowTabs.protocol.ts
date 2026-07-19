@@ -5,14 +5,14 @@
  * import; `TabId` comes from the vscode-free `tabIds` module. Frozen wire.
  *
  * The bundled entry posts every variant below (tab-strip switch + the History
- * tab's commit list / toolbar). `asGitToolWindowTabsInbound` is the host-side
+ * and Incoming tabs' commit lists / toolbar). `asGitToolWindowTabsInbound` is the host-side
  * recognizer used at the message-routing boundary (`_routeIfNonLog`); the
  * `_INBOUND_TYPES` array + Rule-D tie keep it in lockstep with the union.
  */
 import type { TabId } from './tabIds';
 import type { AssertInboundArrayTie, InboundArrayTie } from '../../utils/protocolTie';
 
-/** Webview → host messages on the tab channel (tab switch + History tab). */
+/** Webview → host messages on the tab channel (tab switch + History/Incoming tabs). */
 export type GitToolWindowTabsInbound =
   | { type: 'tabChange'; tab: TabId }
   | { type: 'history.selectRevision'; rev: string; additive?: boolean }
@@ -23,7 +23,10 @@ export type GitToolWindowTabsInbound =
   | { type: 'history.compareWithLocal'; rev: string }
   | { type: 'history.compareWith'; from: string; to: string }
   | { type: 'history.compareWithHead'; rev: string }
-  | { type: 'history.compareWithRef'; rev: string };
+  | { type: 'history.compareWithRef'; rev: string }
+  | { type: 'console.clear' }
+  | { type: 'incoming.selectCommit'; hash: string }
+  | { type: 'incoming.jumpToCommit'; hash: string };
 
 export const GIT_TOOL_WINDOW_TABS_INBOUND_TYPES = [
   'tabChange',
@@ -36,6 +39,9 @@ export const GIT_TOOL_WINDOW_TABS_INBOUND_TYPES = [
   'history.compareWith',
   'history.compareWithHead',
   'history.compareWithRef',
+  'console.clear',
+  'incoming.selectCommit',
+  'incoming.jumpToCommit',
 ] as const;
 
 export function asGitToolWindowTabsInbound(message: unknown): GitToolWindowTabsInbound | undefined {

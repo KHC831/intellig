@@ -599,3 +599,61 @@ describe('ConsoleService', () => {
     });
   });
 });
+
+/**
+ * Per-entry output cap.
+ *
+ * gitCli allows up to 64 MiB of output and the console stored every byte, so a
+ * single big diff froze the tool-window webview rendering it. IntelliJ caps a
+ * console message at 10k chars, keeping a 30% head and 70% tail
+ * (GitVcsConsoleWriter.MAX_CONSOLE_OUTPUT_SIZE + its chunked showMessage), and
+ * only elides past 1.2x the cap so a barely-over message stays whole.
+ */
+describe('ConsoleService output cap', () => {
+  function serviceWithEntry(output: string): IConsoleEntry {
+    const service = new ConsoleService(
+      1000,
+      new StubOutputChannel() as unknown as vscode.OutputChannel
+    );
+    service.logCommand('git diff', output, 0);
+    const entries = service.getEntries();
+    assert.strictEqual(entries.length, 1);
+    return entries[0];
+  }
+
+  it('stores a modest output verbatim', () => {
+    const output = 'x'.repeat(500);
+
+    assert.strictEqual(serviceWithEntry(output).output, output);
+  });
+
+  it('leaves an output just over the cap whole (below the elision threshold)', () => {
+    const output = 'x'.repeat(11000);
+
+    assert.strictEqual(serviceWithEntry(output).output, output);
+  });
+
+  it('caps a far-over output to roughly the limit', () => {
+    const entry = serviceWithEntry('x'.repeat(5_000_000));
+
+    assert.ok(
+      entry.output.length < 11000,
+      `capped output should be near the 10k limit, got ${entry.output.length}`
+    );
+  });
+
+  it('keeps the head AND the tail of a capped output', () => {
+    const output = `HEAD_MARKER${'x'.repeat(5_000_000)}TAIL_MARKER`;
+
+    const entry = serviceWithEntry(output);
+
+    assert.ok(entry.output.startsWith('HEAD_MARKER'), 'head survives');
+    assert.ok(entry.output.endsWith('TAIL_MARKER'), 'tail survives');
+  });
+
+  it('marks the elision so truncated output never reads as complete', () => {
+    const entry = serviceWithEntry('x'.repeat(5_000_000));
+
+    assert.match(entry.output, /truncated|…/);
+  });
+});

@@ -49,7 +49,7 @@ import type {
 import { isTabbedGitToolWindowEnabled } from './config';
 import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
 import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
-import { renderIncomingTabBody } from './html/incomingHtml';
+import { renderIncomingTabBody, incomingTabStyles } from './html/incomingHtml';
 import { renderUpdateInfoTabBody, updateInfoTabStyles } from './html/updateInfoHtml';
 import { renderHistoryTabBody, historyTabStyles } from './html/historyHtml';
 import { createLogTabHandler } from './tabs/LogTab';
@@ -807,7 +807,10 @@ export class GitToolWindowProvider
       },
     });
     this._tabRouter.register('log', createLogTabHandler());
-    this._tabRouter.register('console', createConsoleTabHandler());
+    this._tabRouter.register(
+      'console',
+      createConsoleTabHandler({ clearConsole: () => this.clearConsole() })
+    );
     this._tabRouter.register('incoming', createIncomingTabHandler());
     this._tabRouter.register('updateInfo', createUpdateInfoTabHandler());
     // History tab placeholder handler — replaced by `attachGitService()` once
@@ -3722,7 +3725,7 @@ export class GitToolWindowProvider
       : logBody;
 
     const extraStyles = flagOn
-      ? `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}\n${updateInfoTabStyles()}`
+      ? `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}\n${updateInfoTabStyles()}\n${incomingTabStyles()}`
       : '';
 
     // / HIG — codicon font loader. Without a `@font-face`

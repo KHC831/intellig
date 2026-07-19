@@ -2009,6 +2009,95 @@ function main(vscode: IVsCodeApi): void {
       }
       post({ type: 'tabChange', tab: tab });
     });
+
+    // WAI-ARIA tabs keyboard pattern: arrows move between tabs (wrapping),
+    // Home/End jump to the ends. Selection follows focus, which is what the
+    // pattern prescribes for tab lists whose panels are already loaded.
+    strip.addEventListener('keydown', function (event) {
+      const key = (event as KeyboardEvent).key;
+      const offsets: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
+      if (!(key in offsets) && key !== 'Home' && key !== 'End') {
+        return;
+      }
+      const buttons = Array.from(strip.querySelectorAll<HTMLElement>('[data-tab]'));
+      if (buttons.length === 0) {
+        return;
+      }
+      const current = buttons.findIndex((b) => b.getAttribute('tabindex') === '0');
+      const next =
+        key === 'Home'
+          ? 0
+          : key === 'End'
+            ? buttons.length - 1
+            : (Math.max(current, 0) + offsets[key] + buttons.length) % buttons.length;
+
+      const tab = buttons[next].getAttribute('data-tab');
+      if (!tab || !isTabId(tab)) {
+        return;
+      }
+      event.preventDefault();
+      buttons[next].focus();
+      post({ type: 'tabChange', tab: tab });
+    });
+  })();
+
+  // ─── Console tab behavior ────────────────────────────────────────
+  // Clear drops the captured entries host-side. The log is bottom-pinned on
+  // open and its offset persisted, because every git command re-renders the
+  // whole document while this tab is active — without this the view snapped
+  // back to the top on each one and never followed new output.
+  (function setupConsoleTab(): void {
+    document.addEventListener('click', function (event) {
+      const target = event.target;
+      if (target instanceof Element && target.closest('.console-clear-btn')) {
+        post({ type: 'console.clear' });
+      }
+    });
+
+    const log = document.querySelector<HTMLElement>('.console-log');
+    if (!log) {
+      return;
+    }
+
+    const persisted = (vscode.getState() || {}) as { consoleScrollTop?: number };
+    if (typeof persisted.consoleScrollTop === 'number') {
+      log.scrollTop = persisted.consoleScrollTop;
+    } else {
+      // No remembered position: show the newest output.
+      log.scrollTop = log.scrollHeight - log.clientHeight;
+    }
+
+    log.addEventListener('scroll', function () {
+      const state = (vscode.getState() || {}) as Record<string, unknown>;
+      state.consoleScrollTop = log.scrollTop;
+      vscode.setState(state);
+    });
+  })();
+
+  // ─── Incoming tab behavior ───────────────────────────────────────
+  // Click selects a row, double-click routes to that commit in the Log tab —
+  // the same gesture pair the History rows use. Delegated off the list so rows
+  // re-rendered by `incoming.updateState` stay live. No-ops when the Incoming
+  // tab isn't rendered.
+  (function setupIncomingTab(): void {
+    const hashOf = (target: EventTarget | null): string | null => {
+      const el = target instanceof Element ? target.closest('.incoming-commit-row') : null;
+      return el ? el.getAttribute('data-hash') : null;
+    };
+
+    document.addEventListener('click', function (event) {
+      const hash = hashOf(event.target);
+      if (hash) {
+        post({ type: 'incoming.selectCommit', hash: hash });
+      }
+    });
+
+    document.addEventListener('dblclick', function (event) {
+      const hash = hashOf(event.target);
+      if (hash) {
+        post({ type: 'incoming.jumpToCommit', hash: hash });
+      }
+    });
   })();
 
   // ─── History tab behavior ────────────────────────────────────────

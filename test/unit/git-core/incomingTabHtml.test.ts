@@ -11,7 +11,10 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { renderIncomingTabBody } from '../../../src/git-core/gitToolWindow/html/incomingHtml';
+import {
+  renderIncomingTabBody,
+  incomingTabStyles,
+} from '../../../src/git-core/gitToolWindow/html/incomingHtml';
 import type { IIncomingTabState } from '../../../src/git-core/gitToolWindow/tabs/IncomingTab';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
@@ -82,5 +85,59 @@ describe('renderIncomingTabBody', () => {
     // Short hash is first 7 chars
     assert.ok(html.includes('abc1234'), `Expected short hash "abc1234" in:\n${html}`);
     assert.ok(html.includes(subject), `Expected commit subject "${subject}" in:\n${html}`);
+  });
+});
+
+/**
+ * The Incoming tab shipped classed markup with no stylesheet at all, so every
+ * row rendered as run-together unstyled spans while sibling tabs looked right.
+ * These pin that the tab owns rules for the classes it emits, that the rows
+ * carry the data/list semantics the webview and screen readers need, and that
+ * the empty state uses classes something actually defines.
+ */
+/** A populated (non-loading, has-upstream) incoming state. */
+function makeLoadedState(): IIncomingTabState {
+  return {
+    branch: 'main',
+    upstream: 'origin/main',
+    incomingCount: 1,
+    outgoingCount: 0,
+    noUpstream: false,
+    commits: [makeCommit('abc1234def5678', 'Add feature')],
+    selectedCommit: undefined,
+    error: undefined,
+    loading: false,
+  };
+}
+
+describe('incoming tab styling + semantics', () => {
+  it('defines a rule for every incoming-* class the renderer emits', () => {
+    const state = makeLoadedState();
+    const emitted = new Set(
+      [...renderIncomingTabBody(state).matchAll(/class="([^"]+)"/g)]
+        .flatMap((m) => m[1].split(/\s+/))
+        .filter((c) => c.startsWith('incoming-'))
+    );
+    const css = incomingTabStyles();
+
+    const unstyled = [...emitted].filter((c) => !css.includes(`.${c}`));
+    assert.deepStrictEqual(
+      unstyled,
+      [],
+      `classes emitted with no CSS rule: ${unstyled.join(', ')}`
+    );
+  });
+
+  it('gives each commit row role=listitem inside the role=list container', () => {
+    const state = makeLoadedState();
+
+    const html = renderIncomingTabBody(state);
+
+    assert.match(html, /role="list"/);
+    assert.match(html, /class="incoming-commit-row"[^>]*role="listitem"/);
+  });
+
+  it('carries the full hash on each row so the webview can post a selection', () => {
+    assert.match(renderIncomingTabBody(makeLoadedState()), /data-hash="abc1234def5678"/);
   });
 });

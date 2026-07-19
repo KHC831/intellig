@@ -31,7 +31,7 @@ function renderCommitRow(commit: ICommit): string {
   const date = escapeHtml(renderDate(commit.authorDate));
   const subject = escapeHtml(commit.message.split('\n')[0]);
   return `
-    <div class="incoming-commit-row" data-hash="${escapeHtml(commit.hash)}">
+    <div class="incoming-commit-row" data-hash="${escapeHtml(commit.hash)}" role="listitem">
       <span class="incoming-commit-hash">${shortHash}</span>
       <span class="incoming-commit-subject">${subject}</span>
       <span class="incoming-commit-author">${author}</span>
@@ -96,4 +96,29 @@ export function renderIncomingTabBody(state?: IIncomingTabState): string {
         ${rows}
       </div>
     </div>`;
+}
+
+/**
+ * Styles for the Incoming tab body. Folded into the tool window's extraStyles
+ * alongside the sibling tab stylesheets; the row grid mirrors the History
+ * tab's so the two lists read as the same control.
+ */
+export function incomingTabStyles(): string {
+  return `
+    .incoming-tab-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    .incoming-header { padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
+    .incoming-count { color: var(--vscode-descriptionForeground); }
+    .incoming-loading, .incoming-up-to-date, .incoming-no-upstream { padding: 16px; color: var(--vscode-descriptionForeground); }
+    .incoming-spinner { font-style: italic; }
+    .incoming-up-to-date-message, .incoming-no-upstream-message { margin: 0; }
+    .incoming-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
+    .incoming-error-message { margin: 0; }
+    .incoming-commit-list { flex: 1 1 auto; overflow: auto; }
+    .incoming-commit-row { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }
+    .incoming-commit-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
+    .incoming-commit-row.incoming-selected { background: var(--vscode-list-activeSelectionBackground, rgba(14,99,156,0.5)); color: var(--vscode-list-activeSelectionForeground); }
+    .incoming-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
+    .incoming-commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .incoming-commit-author, .incoming-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  `;
 }
