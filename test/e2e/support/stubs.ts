@@ -50,6 +50,12 @@ export interface PromptStubs {
  *
  * `quickPick` and `warningMessage` receive the full args (`items`/`message`)
  * so the test can choose its return based on what the extension asked.
+ *
+ * A `quickPick` answerer runs under the REAL platform contract: when the
+ * extension passes `canPickMany: true`, VS Code resolves an ARRAY. The stub
+ * normalises to that shape (see {@link resolveQuickPickAnswer}), so a spec that
+ * returns a single item from a multi-pick still hands the extension what the
+ * platform would — a single-item array, not a bare item.
  */
 export interface StubPromptOptions {
   quickPick?: (items: unknown, opts?: unknown) => unknown;
@@ -76,6 +82,44 @@ export interface StubPromptOptions {
    * git state rather than toast text.
    */
   silenceErrorMessages?: boolean;
+}
+
+/**
+ * Shape a quick-pick answer to the platform's contract.
+ *
+ * `canPickMany: true` resolves an ARRAY in real VS Code; a stub that returns a
+ * bare item makes `.map`/`.filter` on the extension side throw under the
+ * harness ONLY — a false failure that says nothing about production. Rules:
+ *
+ *  - single-select: pass the answer through unchanged;
+ *  - multi-select, answerer returned undefined: undefined, i.e. the user
+ *    dismissed the pick (vscode's own semantics — NOT an empty selection);
+ *  - multi-select, answerer returned one item: wrap it;
+ *
+ * An unscripted multi-pick (no answerer at all) is handled at the call site by
+ * {@link defaultMultiPickAnswer}: the pre-picked items, else the first, so it
+ * behaves like a user who accepted the defaults rather than exploding.
+ */
+function resolveQuickPickAnswer(answer: unknown, canPickMany: boolean): unknown {
+  if (!canPickMany) {
+    return answer;
+  }
+  if (Array.isArray(answer)) {
+    return answer;
+  }
+  if (answer !== undefined) {
+    return [answer];
+  }
+  return undefined;
+}
+
+/** The selection an unscripted multi-pick should resolve to. */
+function defaultMultiPickAnswer(items: unknown): unknown[] {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [];
+  }
+  const prePicked = items.filter((item) => (item as { picked?: boolean })?.picked === true);
+  return prePicked.length > 0 ? prePicked : [items[0]];
 }
 
 export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
@@ -116,7 +160,11 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
     opts?: unknown
   ) => {
     stubs.quickPickCalls.push(items);
-    return Promise.resolve(options.quickPick ? options.quickPick(items, opts) : undefined);
+    const canPickMany = (opts as { canPickMany?: boolean } | undefined)?.canPickMany === true;
+    if (!options.quickPick) {
+      return Promise.resolve(canPickMany ? defaultMultiPickAnswer(items) : undefined);
+    }
+    return Promise.resolve(resolveQuickPickAnswer(options.quickPick(items, opts), canPickMany));
   }) as unknown as QuickPickFn;
 
   (vscode.window as unknown as { showInputBox: InputBoxFn }).showInputBox = ((

@@ -206,9 +206,10 @@ describe('e2e — explorer context-menu commands (nested repo, real git state)',
   it('intellig.explorer.createPatchFromFile — copies a non-empty patch to the clipboard', async () => {
     await setup();
     fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'patch me\n');
-    // First quickpick = patch target; choose "Copy to clipboard".
+    // The destination pick is multi-select (file / clipboard / reverse), so the
+    // platform resolves an ARRAY. Answer it deliberately: clipboard only.
     stubs = stubPrompts({
-      quickPick: (items) => (items as Array<{ id: string }>).find((i) => i.id === 'clipboard'),
+      quickPick: (items) => (items as Array<{ id: string }>).filter((i) => i.id === 'clipboard'),
     });
 
     await vscode.commands.executeCommand(

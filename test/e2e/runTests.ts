@@ -19,6 +19,7 @@ import { runTests } from '@vscode/test-electron';
 
 async function main(): Promise<void> {
   let tempWorkspace: string | undefined;
+  let userDataDir: string | undefined;
   try {
     const extensionDevelopmentPath = path.resolve(__dirname, '../../../');
     const extensionTestsPath = path.resolve(__dirname, './suite/index');
@@ -29,10 +30,26 @@ async function main(): Promise<void> {
     // with a workspace at all (activation-on-startup is tied to having one).
     tempWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-e2e-init-'));
 
+    // VS Code opens its main IPC socket inside the user-data dir, and a unix
+    // socket path caps at 103 characters. The default sits under the checkout,
+    // which overflows from a worktree (`workspace-notes/worktrees/<name>/…` is
+    // ~118 chars) and kills the launch with EINVAL before any spec runs. A
+    // short root keeps the lane runnable from every checkout; unique per run so
+    // a stale or parallel run cannot claim the same socket.
+    // os.tmpdir() despite the workspace-notes/tmp rule: this is HOST scratch
+    // for the editor process, not test data, and it must stay short enough to
+    // fit the socket limit from any worktree — which workspace-notes/tmp cannot.
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ig-e2e-'));
+
     const exitCode = await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
-      launchArgs: [tempWorkspace, '--disable-extensions', '--disable-workspace-trust'],
+      launchArgs: [
+        tempWorkspace,
+        '--disable-extensions',
+        '--disable-workspace-trust',
+        `--user-data-dir=${userDataDir}`,
+      ],
     });
 
     if (typeof exitCode === 'number' && exitCode !== 0) {
@@ -42,11 +59,13 @@ async function main(): Promise<void> {
     console.error('Tier-2 E2E suite failed:', err);
     process.exit(1);
   } finally {
-    if (tempWorkspace) {
-      try {
-        fs.rmSync(tempWorkspace, { recursive: true, force: true });
-      } catch {
-        // best-effort
+    for (const scratch of [tempWorkspace, userDataDir]) {
+      if (scratch) {
+        try {
+          fs.rmSync(scratch, { recursive: true, force: true });
+        } catch {
+          // best-effort
+        }
       }
     }
   }
