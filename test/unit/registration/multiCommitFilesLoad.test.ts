@@ -228,6 +228,29 @@ describe('multi-commit changed-files load', () => {
     assert.match(published[0].errorsByHash.get(selection[1]) ?? '', /repo lookup exploded/);
   });
 
+  it('records the reason when no repository contains a commit', async () => {
+    // The resolve-failure arm returned silently, so the commit was absent from
+    // filesByHash, painted as an empty file list, and still counted as loaded —
+    // an unresolvable commit read as "this commit changed nothing".
+    const selection = hashes('r', 2);
+    const published: Published[] = [];
+    const { load } = createMultiCommitFilesLoader({
+      resolveRepo: async (hash) => (hash === selection[1] ? undefined : REPO),
+      loadChangedFiles: async (_repo, hash) => [{ path: `${hash}.ts`, status: 'modified' }],
+      publish: (hashes, filesByHash, loadedHashes, errorsByHash) =>
+        published.push({ hashes, filesByHash, loadedHashes, errorsByHash }),
+    });
+
+    await load(selection);
+
+    assert.strictEqual(published.length, 1, 'the selection must still paint');
+    assert.strictEqual(published[0].filesByHash.get(selection[0])?.length, 1);
+    assert.ok(
+      (published[0].errorsByHash.get(selection[1]) ?? '').length > 0,
+      'an unresolvable commit must say so rather than read as "no changes"'
+    );
+  });
+
   it('invalidate() stops an in-flight load from issuing more git', async () => {
     // Shrinking a 20-commit selection to one fires no new load, so only an
     // explicit invalidate can stop the 20 diffs already queued.

@@ -84,6 +84,9 @@ export function selectCommits(
 
   // Render BEFORE posting so the precomputed enable map
   // anchor sync land on the live document, not the pre-reload one.
+  // focus-restore-exempt: a scripted selection answers no gesture, so there is
+  // no focus to hand back and pulling it would yank the user out of whatever
+  // they are actually using.
   ctx.updateWebview();
   // Fire BEFORE the post sequence (matches
   // selectCommit's ordering).
@@ -95,6 +98,30 @@ export function selectCommits(
   ctx.postMenuStateUpdate();
 
   postDetailsForSelection(ctx);
+}
+
+/**
+ * The current selection in GRAPH order.
+ *
+ * `selectedCommits` is a Set, so iterating it yields click order — which would
+ * make both the rendered block order and which commits the load cap keeps
+ * depend on the sequence the user happened to click. IntelliJ reads the
+ * selection off the table (`VcsLogGraphTable.getSelection` →
+ * `getSelectedRows()`), which is ascending row order however it was built.
+ * Hashes no longer among the rendered nodes keep their relative order at the
+ * end; they contribute no block, but the loader still hears about them.
+ */
+function selectionInGraphOrder(ctx: IGtwControllerContext): string[] {
+  const rows = ctx.extendedLogState.commitNodes.map((n) => n.commit.hash);
+  return Array.from(ctx.extendedLogState.selectedCommits)
+    .map((hash, insertion) => ({ hash, insertion, row: rows.indexOf(hash) }))
+    .sort((a, b) => {
+      if (a.row === b.row) {
+        return a.insertion - b.insertion;
+      }
+      return (a.row === -1 ? Infinity : a.row) - (b.row === -1 ? Infinity : b.row);
+    })
+    .map((entry) => entry.hash);
 }
 
 /**
@@ -114,7 +141,7 @@ export function postDetailsForSelection(ctx: IGtwControllerContext): void {
   if (!ctx.hasView()) {
     return;
   }
-  const selected = Array.from(ctx.extendedLogState.selectedCommits);
+  const selected = selectionInGraphOrder(ctx);
   // Ask the host to load the files for this selection. Warm cache → paint
   // them now; cold → paint the summaries immediately and repaint when the
   // load lands, the same two-phase shape the single-commit panel uses.
@@ -128,6 +155,13 @@ export function postDetailsForSelection(ctx: IGtwControllerContext): void {
     // selection; dropping it here keeps every empty-selection entry point
     // from having to remember to.
     ctx.clearPendingChangedFiles();
+  } else if (selected.length === 1) {
+    // One commit selected — however the user got here. A selection that
+    // SHRANK to one (ctrl-click deselect, a range collapsing onto its anchor)
+    // never went through the plain-click path, so asking here is what keeps
+    // the survivor from painting an empty file list forever. The request is
+    // idempotent per commit, so a repaint costs nothing.
+    ctx.requestSingleCommitFiles(selected[0]);
   }
 
   ctx.postToWebview({ type: 'updateDetailsPanel', model: buildSelectionDetailsModel(ctx) });
@@ -151,7 +185,7 @@ export function buildSelectionDetailsModel(
   ctx: IGtwControllerContext,
   expandedOverride?: ICommitDetails
 ): DetailsPanelModel {
-  const selected = Array.from(ctx.extendedLogState.selectedCommits);
+  const selected = selectionInGraphOrder(ctx);
 
   if (selected.length === 0) {
     return buildDetailsPanelPlaceholderModel();
@@ -290,7 +324,7 @@ export function selectCommit(ctx: IGtwControllerContext, hash: string): void {
   // Fire onDidChangeState BEFORE the post sequence
   // so subscribers see "selection changed" on the same event-loop
   // tick the host knows it.
-  ctx.fireDidSelectCommit(hash);
+  ctx.requestSingleCommitFiles(hash);
   ctx.fireDidChangeState();
   ctx.postMenuStateUpdate();
 
@@ -341,7 +375,11 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
   // pre-reload one (ADR-009 section 3 sub-rule). _postSyncSelection mirrors
   // the host's anchor + selection onto the JS-side mirror so the
   // freshly-rendered document agrees with state on first paint.
-  ctx.updateWebview();
+  // The re-render below destroys the focused `.commit-row`, and the delegated
+  // keyboard handler has nothing to act on without one — Ctrl+Space then
+  // Shift+Down would do nothing. The range-select handlers dodge this by
+  // skipping the render entirely; this path needs it, so it hands focus back.
+  ctx.updateWebview(true);
   // Fire onDidChangeState BEFORE the wire posts
   // so subscribers see "selection changed" on the same event-loop
   // tick the host knows it. Aligns with selectCommit's ordering.

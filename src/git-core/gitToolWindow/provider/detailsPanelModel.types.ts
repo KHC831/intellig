@@ -34,6 +34,12 @@ export type DetailsTreeNode =
       statusColor: string;
       fileName: string;
       oldPath?: string;
+      /**
+       * Commit this file's record came from. Present in the multi-commit
+       * combined tree, where the panel's own hash cannot name it; the row's
+       * diff and context menu target it.
+       */
+      commitHash?: string;
       /** Lines added / deleted (from the diff); omitted for binary or no-line-change files. */
       additions?: number;
       deletions?: number;

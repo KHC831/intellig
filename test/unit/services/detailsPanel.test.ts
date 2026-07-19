@@ -770,29 +770,32 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
 
       it('should use the latest status when a file appears in multiple commits', () => {
+        // The selection arrives in graph order — NEWEST FIRST — so the newest
+        // commit that touched the path is at index 0 and owns the row. Anything
+        // else reports a state the selection has already superseded.
         const commits = [
           makeCommitDetails({
-            hash: 'aaa0000000000000000000000000000000000000',
-            message: 'First commit',
-            changedFiles: [{ path: 'src/file.ts', status: 'added' }],
+            hash: 'bbb0000000000000000000000000000000000000',
+            message: 'Newest commit',
+            changedFiles: [{ path: 'src/file.ts', status: 'modified' }],
           }),
           makeCommitDetails({
-            hash: 'bbb0000000000000000000000000000000000000',
-            message: 'Second commit',
-            changedFiles: [{ path: 'src/file.ts', status: 'modified' }],
+            hash: 'aaa0000000000000000000000000000000000000',
+            message: 'Older commit',
+            changedFiles: [{ path: 'src/file.ts', status: 'added' }],
           }),
         ];
         const html = renderMulti(provider, commits);
 
-        // Last status wins → the file name is coloured with the modified colour
-        // (the M/A/D letter was removed; colour conveys the status now).
+        // The file name is coloured with the newest commit's status (the M/A/D
+        // letter was removed; colour conveys the status now).
         assert.ok(
           html.includes(INTELLIJ_FILE_STATUS_COLORS.modified),
-          'Should colour the file with the modified status from the later commit'
+          'Should colour the file with the modified status from the newest commit'
         );
         assert.ok(
           !html.includes(INTELLIJ_FILE_STATUS_COLORS.added),
-          'the earlier "added" status must not win'
+          'the older "added" status must not win'
         );
       });
 
@@ -1338,7 +1341,7 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     );
   });
 
-  it('snap-tree-2: multi-commit combined tree has the SAME structure WITHOUT data-commit-hash (Req 2.11, 2.12)', () => {
+  it('snap-tree-2: multi-commit combined tree has the SAME structure, each leaf naming its commit (Req 2.11, 2.12)', () => {
     const commits = [
       makeCommitDetails({
         hash: TREE_FIXTURE_HASH,
@@ -1354,16 +1357,19 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     assert.deepStrictEqual(dirNames, ['src/main/java', 'util'], 'same nested dir labels');
     const leaves = Array.from(list.querySelectorAll('.changed-file-item'));
     assert.strictEqual(leaves.length, 4, 'four file leaves');
+    // The combined tree's rows are as interactive as they look: the context
+    // menu and double-click-to-diff both key off the hash, so a row without one
+    // advertises gestures that do nothing.
     leaves.forEach((l) =>
       assert.strictEqual(
         l.getAttribute('data-commit-hash'),
-        null,
-        'combined-view leaves carry NO data-commit-hash'
+        TREE_FIXTURE_HASH,
+        'each combined-view leaf names the commit its record came from'
       )
     );
   });
 
-  it('snap-tree-3: single-commit leaves carry data-commit-hash; combined leaves do not (Req 2.11)', () => {
+  it('snap-tree-3: every leaf carries data-commit-hash in both the single and combined trees (Req 2.11)', () => {
     const singlePanel = renderModelPanel(
       treeProvider._getDetailsPanelModel(
         makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
@@ -1385,8 +1391,8 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     );
     assert.strictEqual(
       combinedPanel.querySelectorAll('.changed-file-item[data-commit-hash]').length,
-      0,
-      'combined-view file leaves must NOT carry data-commit-hash'
+      4,
+      'every combined-view file leaf must carry data-commit-hash too'
     );
   });
 

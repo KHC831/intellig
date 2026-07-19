@@ -52,7 +52,23 @@ declare global {
 interface IGitToolWindowInit {
   initialDetails: DetailsPanelModel | null;
   historyDetails: DetailsPanelModel | null;
+  /**
+   * Whether this document replaced one the host re-rendered for a user gesture.
+   * A focus claim persisted via `vscode.setState` outlives the window, so only
+   * the host can say whether restoring it answers the user's own action or
+   * yanks focus into a tool window they merely reopened.
+   */
+  restoreFocus?: boolean;
 }
+
+/**
+ * Who owned keyboard focus when the last document was torn down. A full
+ * `_render()` reassigns `webview.html`, destroying the focused element: the tab
+ * strip loses its roving tabindex target and a focused `.commit-row` stops
+ * being found by the delegated keyboard handler, which keys off
+ * `e.target.closest('.commit-row[data-hash]')`. One slot, one restore.
+ */
+type FocusSlot = { role: 'tabStrip' } | { role: 'commitRow'; hash: string };
 
 /** Bridge the setupLogFilterRow scope exposes to the window-message handlers. */
 interface IFilterBridge {
@@ -2085,36 +2101,39 @@ function main(vscode: IVsCodeApi): void {
 
     // A tab change re-renders the whole document, so the focus set above dies
     // with the old DOM and the next arrow press has nothing to move from.
-    // Remember that the strip owned focus and restore it to the active tab on
-    // the next boot.
     strip.addEventListener('focusin', function () {
-      const state = (vscode.getState() || {}) as Record<string, unknown>;
-      state.tabStripFocused = true;
-      vscode.setState(state);
+      writeFocusSlot(vscode, { role: 'tabStrip' });
     });
     strip.addEventListener('focusout', function (event) {
-      const to = (event as FocusEvent).relatedTarget;
-      if (to instanceof Node && strip.contains(to)) {
+      if (focusStayedInside(event as FocusEvent, strip)) {
         return;
       }
-      // A null relatedTarget covers two opposite cases: alt-tabbing away (the
-      // strip keeps the focus it will want back on return) and clicking a
-      // non-focusable region of the page, which blurs to <body> and IS the
-      // user moving focus away. Only the document's own focus separates them.
-      if (to === null && !document.hasFocus()) {
-        return;
-      }
-      const state = (vscode.getState() || {}) as Record<string, unknown>;
-      state.tabStripFocused = false;
-      vscode.setState(state);
+      clearFocusSlot(vscode, 'tabStrip');
     });
-
-    const restored = (vscode.getState() || {}) as { tabStripFocused?: boolean };
-    if (restored.tabStripFocused === true) {
-      const active = strip.querySelector<HTMLElement>('[data-tab][tabindex="0"]');
-      active?.focus();
-    }
   })();
+
+  // The same claim for commit rows: a ctrl-click toggle re-renders the whole
+  // document, and the delegated keyboard handler needs a focused row to act on.
+  (function setupCommitRowFocusClaim(): void {
+    document.addEventListener('focusin', function (event) {
+      const target = event.target instanceof Element ? event.target : null;
+      const row = target ? target.closest('.commit-row[data-hash]') : null;
+      const hash = row ? row.getAttribute('data-hash') : null;
+      if (hash) {
+        writeFocusSlot(vscode, { role: 'commitRow', hash: hash });
+      }
+    });
+    document.addEventListener('focusout', function (event) {
+      const target = event.target instanceof Element ? event.target : null;
+      const row = target ? target.closest('.commit-row[data-hash]') : null;
+      if (!row || focusStayedInside(event, row)) {
+        return;
+      }
+      clearFocusSlot(vscode, 'commitRow');
+    });
+  })();
+
+  restoreFocusClaim(vscode);
 
   // ─── Console tab behavior ────────────────────────────────────────
   // Clear drops the captured entries host-side. The log is bottom-pinned on
@@ -2559,4 +2578,59 @@ function readInitIsland(): IGitToolWindowInit {
   } catch (err) {
     return { initialDetails: null, historyDetails: null };
   }
+}
+
+/** Record who owns keyboard focus, so the next document can hand it back. */
+function writeFocusSlot(vscode: IVsCodeApi, slot: FocusSlot): void {
+  const state = (vscode.getState() || {}) as Record<string, unknown>;
+  state.focusSlot = slot;
+  vscode.setState(state);
+}
+
+/** Release the claim, but only if `role` still holds it. */
+function clearFocusSlot(vscode: IVsCodeApi, role: FocusSlot['role']): void {
+  const state = (vscode.getState() || {}) as { focusSlot?: FocusSlot };
+  if (state.focusSlot?.role !== role) {
+    return;
+  }
+  vscode.setState({ ...state, focusSlot: undefined });
+}
+
+/**
+ * Whether a focusout leaves the claim intact.
+ *
+ * Focus moving within `owner` never releases it. A null relatedTarget covers
+ * two opposite cases: alt-tabbing away (the owner keeps the focus it will want
+ * back on return) and clicking a non-focusable region of the page, which blurs
+ * to `<body>` and IS the user moving focus away. Only the document's own focus
+ * separates them.
+ */
+function focusStayedInside(event: FocusEvent, owner: Element): boolean {
+  const to = event.relatedTarget;
+  if (to instanceof Node && owner.contains(to)) {
+    return true;
+  }
+  return to === null && !document.hasFocus();
+}
+
+/**
+ * Hand focus back to whoever held it before this document replaced the last
+ * one — but only when the host says this render answers a user gesture. The
+ * claim is persisted state and outlives the window, so an unconditional
+ * restore would pull focus into a tool window the user merely reopened.
+ */
+function restoreFocusClaim(vscode: IVsCodeApi): void {
+  if (readInitIsland().restoreFocus !== true) {
+    return;
+  }
+  const slot = ((vscode.getState() || {}) as { focusSlot?: FocusSlot }).focusSlot;
+  if (!slot) {
+    return;
+  }
+  if (slot.role === 'tabStrip') {
+    document.querySelector<HTMLElement>('.intellig-tab-strip [data-tab][tabindex="0"]')?.focus();
+    return;
+  }
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('.commit-row[data-hash]'));
+  rows.find((row) => row.getAttribute('data-hash') === slot.hash)?.focus();
 }

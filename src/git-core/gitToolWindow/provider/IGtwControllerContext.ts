@@ -70,8 +70,15 @@ export interface IGtwControllerContext {
   // encapsulated on the provider, and so those instance methods remain
   // patchable — the render-then-post ordering tests reassign them on the
   // instance and observe the call order through these delegations.
-  /** Re-render the webview document (full template refresh). */
-  updateWebview(): void;
+  /**
+   * Re-render the webview document (full template refresh).
+   *
+   * `fromGesture` says this render answers a user action, so the webview may
+   * restore the keyboard focus the render is about to destroy. It is an
+   * argument rather than a separate "mark" call precisely so it cannot outlive
+   * the render it describes.
+   */
+  updateWebview(fromGesture?: boolean): void;
   /** Fire the onDidChangeState event. */
   fireDidChangeState(): void;
   /** Post the host's anchor + selection to the webview's JS-side mirror. */
@@ -101,11 +108,12 @@ export interface IGtwControllerContext {
    */
   postToWebview(msg: GitToolWindowOutbound): void;
   /**
-   * Fire the onDidSelectCommit event with the single-selected hash. Exposes
-   * only the fire capability so handlers can announce the click-driven
-   * selection without gaining subscribe or dispose access to the emitter.
+   * Ask the host to load the changed files for a one-commit selection. Exposes
+   * only the request capability so handlers can announce the selection without
+   * gaining subscribe or dispose access to the emitter, and is idempotent per
+   * commit so every path that lands on a single commit can call it.
    */
-  fireDidSelectCommit(hash: string): void;
+  requestSingleCommitFiles(hash: string): void;
   /** Build the details-panel render-model for the given commit. */
   getDetailsPanelModel(details: ICommitDetails): DetailsPanelModel;
   /** Build the empty/placeholder details-panel render-model. */

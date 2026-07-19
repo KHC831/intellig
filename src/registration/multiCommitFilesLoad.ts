@@ -78,7 +78,16 @@ export function createMultiCommitFilesLoader(
         // than rejecting the fan-out and leaving the selection unpainted.
         try {
           const repo = await deps.resolveRepo(hash);
-          if (!repo || !guard.isCurrent(generation)) {
+          // A superseded selection leaves silently — its payload is discarded
+          // whole. A commit no repository contains is a per-commit FAILURE and
+          // owes the panel a reason, or it paints as "this commit changed
+          // nothing".
+          if (!guard.isCurrent(generation)) {
+            return;
+          }
+          if (!repo) {
+            filesByHash.set(hash, []);
+            errorsByHash.set(hash, 'No repository found for this commit');
             return;
           }
           filesByHash.set(hash, await deps.loadChangedFiles(repo, hash));

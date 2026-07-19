@@ -501,11 +501,39 @@ export class GitToolWindowProvider
   private _pendingChangedFiles: IChangedFile[] | undefined;
   private _pendingChangedFilesError: unknown;
   /**
+   * The commit {@link _pendingChangedFiles} was loaded for. The payload is only
+   * ever read for a matching hash, so a selection that lands on a different
+   * commit reads as "not loaded yet" (and gets a load) rather than showing its
+   * predecessor's files — mis-attribution is impossible instead of resting on
+   * every selection mutator remembering to clear.
+   */
+  private _pendingChangedFilesHash: string | undefined;
+  /**
+   * Whether the render CURRENTLY running answers a user gesture. The webview
+   * persists its focus claim across window sessions, so this is what separates
+   * "hand focus back to what the user was just using" from "yank focus into a
+   * tool window they merely reopened". Only {@link _renderForGesture} writes
+   * it, and only for the duration of one synchronous render.
+   */
+  private _restoreFocusOnNextRender = false;
+  /**
+   * The commit a single-commit changed-files load is already running (or done)
+   * for. Keeps {@link requestSingleCommitFiles} idempotent so the seam can ask
+   * on every repaint without spawning a `git diff` per paint.
+   */
+  private _singleFilesRequestedHash: string | undefined;
+  /**
    * Branches containing the expanded commit, fetched asynchronously after the
    * commit is selected. `undefined` = not yet loaded (the panel shows a loading
    * affordance); resets alongside the pending changed files on a new selection.
    */
   private _pendingContainingBranches: string[] | undefined;
+  /**
+   * The commit {@link _pendingContainingBranches} was loaded for. Pinned for
+   * the same reason as the changed-files payload: a list read under any other
+   * commit describes the wrong one.
+   */
+  private _pendingContainingBranchesHash: string | undefined;
   /**
    * Changed files per commit for the CURRENT multi-commit selection, keyed by
    * hash, plus the selection they belong to. The key guards against a slow
@@ -844,7 +872,17 @@ export class GitToolWindowProvider
         // (Inactive panels use `display: none`; a re-render is the simplest
         // way to update `aria-selected` / `aria-hidden` / `style.display`
         // consistently. Future iterations may flip display in JS.)
-        this._render();
+        //
+        // A gesture render: the hook only fires once `setActiveTab` has
+        // confirmed the tab actually CHANGED, so a click on the already-active
+        // tab never reaches here and never claims a focus restore.
+        //
+        // The classification is "any confirmed tab change", not "a webview tab
+        // click": `loadFileHistory` (intellig.showHistory) and `focusTab` (a
+        // status-bar click) reach it too. Both are user-initiated, and a
+        // persisted commit-row claim is inert on a non-Log tab anyway —
+        // inactive panels ship `display: none`, so `.focus()` is a no-op.
+        this._renderForGesture();
       },
     });
     this._tabRouter.register('log', createLogTabHandler());
@@ -1579,16 +1617,11 @@ export class GitToolWindowProvider
     if (this._extendedLogState.expandedCommit !== hash) {
       return;
     }
-    // The selection, not the expanded commit, decides who owns the panel. No
-    // current path lands here — these loads follow `fireDidSelectCommit`,
-    // which only `selectCommit` fires — but `selectCommits` is public with no
-    // production caller, and a future multi-select entry point that started a
-    // load would otherwise repaint a range as one commit.
-    //
-    // The payload is dropped with the paint, so any such caller must arrange
-    // its own reload: shrinking a selection back to one commit (via
-    // `toggleCommitSelection`) does not fire the select event, and a dropped
-    // payload would otherwise leave a permanent "Changed Files (0)".
+    // The selection, not the expanded commit, decides who owns the panel: a
+    // load that lands after the user grew the selection into a range must not
+    // repaint that range as one commit. The payload is dropped along with the
+    // paint, and the selection seam re-asks whenever a one-commit selection
+    // has no payload of its own.
     if (this._extendedLogState.selectedCommits.size >= 2) {
       return;
     }
@@ -1596,6 +1629,7 @@ export class GitToolWindowProvider
     // Store the changed files and error for use in the next render
     this._pendingChangedFiles = changedFiles;
     this._pendingChangedFilesError = error;
+    this._pendingChangedFilesHash = hash;
 
     // Send a partial update to the webview instead of a full re-render
     // to preserve the graph panel's scroll position
@@ -1606,7 +1640,7 @@ export class GitToolWindowProvider
           ...commitNodeToBaseDetails(node),
           changedFiles,
           changedFilesError: error ? String(error) : undefined,
-          containingBranches: this._pendingContainingBranches,
+          containingBranches: this._pendingBranchesFor(hash),
         };
         this.postToWebview({
           type: 'updateDetailsPanel',
@@ -1637,16 +1671,14 @@ export class GitToolWindowProvider
       return;
     }
     this._pendingContainingBranches = branches;
+    this._pendingContainingBranchesHash = hash;
 
     if (this.hasView()) {
       const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
           ...commitNodeToBaseDetails(node),
-          changedFiles: this._pendingChangedFiles ?? [],
-          changedFilesError: this._pendingChangedFilesError
-            ? String(this._pendingChangedFilesError)
-            : undefined,
+          ...this._pendingFilesFor(hash),
           containingBranches: branches,
         };
         this.postToWebview({
@@ -1672,8 +1704,31 @@ export class GitToolWindowProvider
   // _render / _onDidChangeState.fire / _postSyncSelection /
   // _postMenuStateUpdate on the instance) observe the real call order. Do not
   // inline these bodies or capture the references — that would hide the patch.
-  updateWebview(): void {
+  updateWebview(fromGesture = false): void {
+    if (fromGesture) {
+      this._renderForGesture();
+      return;
+    }
     this._render();
+  }
+
+  /**
+   * Render in answer to a user gesture, so the webview may hand keyboard focus
+   * back to whoever this render is about to destroy.
+   *
+   * The flag is raised and dropped inside this one synchronous call, so it can
+   * never outlive the render it describes. An earlier latch form could be armed
+   * by a gesture that then produced NO render (a click on the already-active
+   * tab), and the next ambient render — a `.git` watcher tick — spent it,
+   * stealing focus from wherever the user had moved on to.
+   */
+  private _renderForGesture(): void {
+    this._restoreFocusOnNextRender = true;
+    try {
+      this._render();
+    } finally {
+      this._restoreFocusOnNextRender = false;
+    }
   }
 
   fireDidChangeState(): void {
@@ -1712,10 +1767,15 @@ export class GitToolWindowProvider
   clearPendingChangedFiles(): void {
     this._pendingChangedFiles = undefined;
     this._pendingChangedFilesError = undefined;
+    this._pendingChangedFilesHash = undefined;
+    // A cleared payload means whatever was requested no longer describes the
+    // panel, so the next single-commit selection asks again.
+    this._singleFilesRequestedHash = undefined;
     // Containing branches belong to the same commit selection; reset them in
     // lockstep so a new selection starts from the loading state, never showing
     // the previous commit's branch list.
     this._pendingContainingBranches = undefined;
+    this._pendingContainingBranchesHash = undefined;
   }
 
   // IGtwControllerContext — capability methods for the single-select handler.
@@ -1890,10 +1950,6 @@ export class GitToolWindowProvider
     this._panel = undefined;
     this._placeholderWebview = undefined;
     this._panelRenderPending = false;
-  }
-
-  fireDidSelectCommit(hash: string): void {
-    this._onDidSelectCommit.fire(hash);
   }
 
   getDetailsPanelModel(details: ICommitDetails): DetailsPanelModel {
@@ -2227,16 +2283,63 @@ export class GitToolWindowProvider
     if (!node) {
       return undefined;
     }
+    const containingBranches = this._pendingBranchesFor(expanded);
     return {
       ...commitNodeToBaseDetails(node),
+      ...this._pendingFilesFor(expanded),
+      ...(containingBranches ? { containingBranches } : {}),
+    };
+  }
+
+  /**
+   * The loaded containing-branches list, but only when it belongs to `hash`.
+   * A list loaded for another commit reads as undefined — the "still loading"
+   * shape — so the panel never names branches that contain a different commit.
+   *
+   * The single read path for the field, as {@link _pendingFilesFor} is for the
+   * changed files: two call sites sharing one accessor is what makes the pin
+   * hold by construction rather than wherever a guard was remembered.
+   */
+  private _pendingBranchesFor(hash: string): string[] | undefined {
+    return this._pendingContainingBranchesHash === hash
+      ? this._pendingContainingBranches
+      : undefined;
+  }
+
+  /**
+   * The loaded changed-files payload, but only when it belongs to `hash`. A
+   * payload loaded for another commit reads as an empty, error-free list — the
+   * "not loaded yet" shape the seam answers with a load.
+   */
+  private _pendingFilesFor(hash: string): {
+    changedFiles: IChangedFile[];
+    changedFilesError: string | undefined;
+  } {
+    if (this._pendingChangedFilesHash !== hash) {
+      return { changedFiles: [], changedFilesError: undefined };
+    }
+    return {
       changedFiles: this._pendingChangedFiles ?? [],
       changedFilesError: this._pendingChangedFilesError
         ? String(this._pendingChangedFilesError)
         : undefined,
-      ...(this._pendingContainingBranches
-        ? { containingBranches: this._pendingContainingBranches }
-        : {}),
     };
+  }
+
+  /**
+   * Ask the host to load the changed files for a single-commit selection,
+   * unless they are already loading (or loaded) for that commit.
+   *
+   * Every gesture that lands on a one-commit selection routes through here, not
+   * just the plain click: a selection that SHRINKS to one commit never fired
+   * the select event, so its survivor was left permanently showing no files.
+   */
+  requestSingleCommitFiles(hash: string): void {
+    if (this._singleFilesRequestedHash === hash) {
+      return;
+    }
+    this._singleFilesRequestedHash = hash;
+    this._onDidSelectCommit.fire(hash);
   }
 
   /**
@@ -3826,38 +3929,12 @@ export class GitToolWindowProvider
 
     const commitNodes = this._extendedLogState.commitNodes;
     const selectedCommits = this._extendedLogState.selectedCommits;
-    const expandedCommit = this._extendedLogState.expandedCommit;
 
-    // Build commit details if a commit is expanded
-    let commitDetails: ICommitDetails | undefined;
-    if (expandedCommit) {
-      const node = commitNodes.find((n) => n.commit.hash === expandedCommit);
-      if (node) {
-        commitDetails = {
-          hash: node.commit.hash,
-          message: node.commit.message,
-          body: node.commit.body,
-          author: { name: node.commit.author.name, email: node.commit.author.email },
-          date: node.commit.authorDate,
-          parents: node.commit.parents || [],
-          branches: (node.branches || []).map((ref) => ref.name),
-          tags: node.tags || [],
-          changedFiles:
-            this._pendingChangedFiles && this._extendedLogState.expandedCommit === node.commit.hash
-              ? this._pendingChangedFiles
-              : [],
-          changedFilesError:
-            this._pendingChangedFilesError &&
-            this._extendedLogState.expandedCommit === node.commit.hash
-              ? String(this._pendingChangedFilesError)
-              : undefined,
-          containingBranches:
-            this._extendedLogState.expandedCommit === node.commit.hash
-              ? this._pendingContainingBranches
-              : undefined,
-        };
-      }
-    }
+    // The expanded commit's details come from the same builder every other
+    // conversion site uses, so the render path cannot drop a field the panel
+    // reads (a hand-built literal without committer/commitDate silently lost
+    // the "Committed by" line on every re-render).
+    const commitDetails = this.getExpandedCommitDetails();
 
     return this._getThreePanelHtmlContent(
       webview,
@@ -3920,6 +3997,8 @@ export class GitToolWindowProvider
     // so a full re-render cannot repaint an N-commit selection as one commit
     // or undo the empty-selection placeholder.
     const detailsPanelModel = buildSelectionDetailsModel(this, commitDetails);
+    // True only while `_renderForGesture` is on the stack.
+    const restoreFocus = this._restoreFocusOnNextRender;
 
     // Clear the scroll target after rendering so it's only used once
     this._scrollToCommitHash = undefined;
@@ -3994,7 +4073,7 @@ export class GitToolWindowProvider
 </head>
 <body>
 ${bodyMarkup}
-${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDetailsModel })}
+${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDetailsModel, restoreFocus })}
 
   <script nonce="${nonce}" src="${this.getWebviewBundleUri(webview)}"></script>
 </body>
@@ -4879,7 +4958,8 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     return buildMultiCommitDetailsPanelModel(
       commitDetailsList,
       this.getSelectedRepoProject(),
-      this._multiSelectionLoaded
+      this._multiSelectionLoaded,
+      this.getDetailsGroupBy()
     );
   }
 

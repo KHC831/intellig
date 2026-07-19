@@ -23,7 +23,10 @@ const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
 
-function mkCommit(hash: string): ICommitNode['commit'] {
+function mkCommit(
+  hash: string,
+  overrides: Partial<Record<string, unknown>> = {}
+): ICommitNode['commit'] {
   return {
     hash,
     shortHash: hash.slice(0, 7),
@@ -33,6 +36,7 @@ function mkCommit(hash: string): ICommitNode['commit'] {
     parents: [],
     authorDate: new Date(0),
     commitDate: new Date(0),
+    ...overrides,
   } as unknown as ICommitNode['commit'];
 }
 
@@ -44,7 +48,10 @@ interface Internals {
     expandedCommit?: string;
   };
   _pendingChangedFiles?: Array<{ path: string; status: string }>;
-  _handleWebviewMessage(message: { type: string; commitHash?: string }): void;
+  _handleWebviewMessage(message: { type: string; commitHash?: string; tab?: string }): void;
+  _getHtmlContent(webview: vscode.Webview): string;
+  _isLoading: boolean;
+  _hasRepository: boolean;
 }
 
 function makeProvider(): {
@@ -86,7 +93,7 @@ function mockWebview(): never {
 }
 
 /** The details model the rendered document seeds its panel with. */
-function detailsModelFromHtml(html: string): { kind?: string; count?: number } | undefined {
+function detailsModelFromHtml(html: string): Record<string, unknown> | undefined {
   const m = html.match(/id="intellig-init"\s+data-init="([^"]*)"/);
   if (!m) {
     return undefined;
@@ -96,8 +103,7 @@ function detailsModelFromHtml(html: string): { kind?: string; count?: number } |
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
-  return (JSON.parse(json) as { initialDetails?: { kind?: string; count?: number } })
-    .initialDetails;
+  return (JSON.parse(json) as { initialDetails?: Record<string, unknown> }).initialDetails;
 }
 
 function lastDetailsModel(
@@ -275,12 +281,9 @@ describe('multi-commit details panel carries real files', () => {
     }
   });
 
-  // No current path reaches these states: the single-commit loads are started
-  // from `fireDidSelectCommit`, whose only call site is `selectCommit`, and
-  // range/add-range/toggle never fire it. These pin the guard that makes the
-  // SELECTION — not the expanded commit — authoritative, so the public
-  // `selectCommits` (no production caller today) or any other future
-  // multi-select entry point cannot land a single-commit load over a range.
+  // These pin the guard that makes the SELECTION — not the expanded commit —
+  // authoritative, so a single-commit load in flight when the user grows the
+  // selection into a range cannot land over that range.
   it('a late containing-branches load cannot repaint a range as one commit', () => {
     const h = makeProvider();
     provider = h.provider;
@@ -500,6 +503,411 @@ describe('multi-commit details panel carries real files', () => {
       new RegExp(`first 1 of ${rendered} selected commits`),
       'both numbers in the notice must describe the rendered list'
     );
+  });
+});
+
+/** Whether the rendered document tells the webview it may restore focus. */
+function restoreFocusFromHtml(html: string): boolean {
+  const m = html.match(/id="intellig-init"\s+data-init="([^"]*)"/);
+  if (!m) {
+    return false;
+  }
+  const json = m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  return (JSON.parse(json) as { restoreFocus?: boolean }).restoreFocus === true;
+}
+
+/**
+ * A full re-render destroys the focused element. The webview persists a focus
+ * claim to restore it, but that claim outlives the window — so the host says
+ * which renders answer a user gesture and are allowed to hand focus back.
+ */
+describe('gesture-caused renders tell the webview to restore focus', () => {
+  let provider: GitToolWindowProvider;
+
+  afterEach(() => {
+    provider?.dispose();
+  });
+
+  /** Put the provider past its loading / no-repo screens so renders emit the island. */
+  function ready(internals: Internals): void {
+    internals._isLoading = false;
+    internals._hasRepository = true;
+  }
+
+  /** The document the LAST render actually assigned to the webview. */
+  function renderedHtml(provider: GitToolWindowProvider): string {
+    return (provider as unknown as { _view: { webview: { html: string } } })._view.webview.html;
+  }
+
+  /** Force an ambient (non-gesture) re-render, as a .git watcher tick does. */
+  function ambientRender(provider: GitToolWindowProvider): string {
+    (provider as unknown as { _render(): void })._render();
+    return renderedHtml(provider);
+  }
+
+  it('marks the render a ctrl-click toggle triggers', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    ready(h.internals);
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: B });
+
+    assert.strictEqual(
+      restoreFocusFromHtml(renderedHtml(provider)),
+      true,
+      'the toggle re-render must let the focused commit row get focus back'
+    );
+  });
+
+  it('leaves an ambient re-render unmarked', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    ready(h.internals);
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+
+    assert.strictEqual(
+      restoreFocusFromHtml(ambientRender(provider)),
+      false,
+      'a watcher tick or load-more must not pull focus anywhere'
+    );
+  });
+
+  it('does not let the mark outlive the render it describes', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    ready(h.internals);
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: B });
+    assert.strictEqual(restoreFocusFromHtml(renderedHtml(provider)), true, 'sanity: marked');
+
+    assert.strictEqual(
+      restoreFocusFromHtml(ambientRender(provider)),
+      false,
+      'the next ambient render must not inherit the gesture mark'
+    );
+  });
+
+  it('does not arm on a tab change that changes no tab', () => {
+    // A click on the ALREADY-ACTIVE tab (the click handler has no same-tab
+    // guard, and Home/End on the first/last tab computes next === current)
+    // produces no render. An arm-then-render latch stayed armed, and the next
+    // ambient render — a .git watcher tick — spent it, stealing focus from
+    // wherever the user had moved on to. That is the class the gate exists for.
+    const h = makeProvider();
+    provider = h.provider;
+    ready(h.internals);
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    assert.strictEqual(provider.getActiveTab(), 'log', 'sanity: log is active');
+
+    h.internals._handleWebviewMessage({ type: 'tabChange', tab: 'log' });
+
+    assert.strictEqual(
+      restoreFocusFromHtml(ambientRender(provider)),
+      false,
+      'a gesture that produced no render must not leave a claim for a later one'
+    );
+  });
+});
+
+/**
+ * Every graph-node → details conversion goes through the shared builder, so a
+ * render path cannot quietly omit a field the panel reads. The render path used
+ * to hand-build the literal without `committer`/`commitDate`, and the dimmed
+ * "Committed by X / on <date>" line — the one a rebased, cherry-picked or
+ * amended commit exists to show — vanished on every full re-render.
+ */
+describe('a full re-render keeps the committer line', () => {
+  let provider: GitToolWindowProvider;
+
+  afterEach(() => {
+    provider?.dispose();
+  });
+
+  it('renders the committed line for a commit whose committer differs', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._extendedLogState.commitNodes = [
+      {
+        commit: mkCommit(A, {
+          committer: { name: 'Rebaser', email: 'r@x' },
+          commitDate: new Date(86_400_000),
+        }),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ] as unknown as ICommitNode[];
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    // The real render path, not the test-only override seam: the loading and
+    // no-repository screens short-circuit before it.
+    h.internals._isLoading = false;
+    h.internals._hasRepository = true;
+
+    const model = detailsModelFromHtml(h.internals._getHtmlContent(mockWebview()));
+
+    assert.strictEqual(model?.kind, 'single', 'sanity: a single-commit model');
+    const committed = model?.committed as { name?: string; dateStr?: string } | undefined;
+    assert.ok(committed, 'the committed line must survive a full re-render');
+    assert.strictEqual(committed?.name, 'Rebaser');
+    assert.ok(committed?.dateStr, 'a differing commit time is dated');
+  });
+});
+
+/**
+ * A multi-commit selection presents in GRAPH order, not click order.
+ *
+ * The selection is held in a Set, whose iteration order is insertion order, so
+ * a ctrl-built selection rendered its blocks in the sequence the user happened
+ * to click and the load cap sliced that arbitrary sequence. IntelliJ feeds the
+ * details panel from VcsLogGraphTable.getSelection(), which is
+ * getModel().createSelection(getSelectedRows()) — JTable returns selected rows
+ * in ascending row order regardless of click order — and
+ * VcsLogCommitSelectionListenerForDetails.onDetailsLoaded renders that list in
+ * order, taking the first MAX_COMMITS_TO_LOAD.
+ */
+describe('multi-commit details follow graph order, not click order', () => {
+  let provider: GitToolWindowProvider;
+
+  afterEach(() => {
+    provider?.dispose();
+  });
+
+  it('renders the commit blocks in graph order', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    // Click the LAST row first, then ctrl-click the first.
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: C });
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: A });
+
+    const model = lastDetailsModel(h.messages);
+    assert.strictEqual(model?.kind, 'multi', 'sanity: two selected');
+    const order = (model?.commits as Array<{ shortHash: string }>).map((c) => c.shortHash);
+    assert.deepStrictEqual(
+      order,
+      [A.slice(0, 7), C.slice(0, 7)],
+      'the panel lists commits as the graph does'
+    );
+  });
+
+  it('asks the loader for the commits in graph order', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    const asked: string[][] = [];
+    provider.onDidSelectCommits(({ hashes }) => asked.push(hashes));
+
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: C });
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: A });
+
+    assert.deepStrictEqual(
+      asked[asked.length - 1],
+      [A, C],
+      'the cap slices in graph order, so which commits load cannot depend on click sequence'
+    );
+  });
+});
+
+/**
+ * Group By is a global, persisted preference, not per-panel state
+ * (`intellig.detailsGroupBy`). The combined tree ignored it, so a user set to
+ * Flat saw flat paths for one commit and a directory tree for two. IntelliJ's
+ * log changes browser carries the shared GroupBy group — VcsLogChangesBrowser
+ * .createLastToolbarActions returns empty precisely so as not to DUPLICATE
+ * 'ChangesView.GroupBy' — and that same browser serves multi-commit selections.
+ */
+describe('the combined file tree honors the persisted Group By', () => {
+  let provider: GitToolWindowProvider;
+
+  afterEach(() => {
+    provider?.dispose();
+  });
+
+  it('renders flat paths in the multi panel when the preference is flat', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    provider.setDetailsGroupBy('flat');
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: B });
+
+    provider.updateMultiCommitDetails(
+      [A, B],
+      new Map([
+        [A, [{ path: 'src/deep/nested/a.ts', status: 'modified' as const }]],
+        [B, [{ path: 'src/deep/nested/b.ts', status: 'added' as const }]],
+      ]),
+      [A, B],
+      new Map()
+    );
+
+    const model = lastDetailsModel(h.messages);
+    assert.strictEqual(model?.kind, 'multi', 'sanity: two selected');
+    const tree = model?.fileTree as Array<{ kind: string; fileName?: string }>;
+    assert.deepStrictEqual(
+      tree.map((n) => n.kind),
+      ['file', 'file'],
+      'flat grouping produces leaves only, no directory nodes'
+    );
+    assert.deepStrictEqual(
+      tree.map((n) => n.fileName),
+      ['src/deep/nested/a.ts', 'src/deep/nested/b.ts'],
+      'each leaf is labelled with its full path'
+    );
+  });
+});
+
+/**
+ * A selection that SHRINKS to one commit is a single-commit selection like any
+ * other: the commit it lands on owns the panel, so its changed files have to be
+ * loaded. Only `selectCommit` used to ask for them, and no shrink gesture goes
+ * through it — every survivor rendered as "Changed Files (0)" forever.
+ *
+ * The payload carries the hash it was loaded for, so the panel can tell "not
+ * loaded yet" from "loaded for this commit and genuinely empty" instead of every
+ * mutator having to remember to clear it.
+ */
+describe('shrinking a selection to one commit loads that commit files', () => {
+  let provider: GitToolWindowProvider;
+
+  afterEach(() => {
+    provider?.dispose();
+  });
+
+  /** Hashes the host asked the single-commit loader for. */
+  function requestedSingles(p: GitToolWindowProvider): string[] {
+    const asked: string[] = [];
+    p.onDidSelectCommit((hash) => asked.push(hash));
+    return asked;
+  }
+
+  it('ctrl+click deselecting the expanded commit loads the survivor', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: B });
+    const asked = requestedSingles(provider);
+
+    // B is the expanded commit; deselecting it falls back to survivor A.
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: B });
+
+    assert.deepStrictEqual(h.internals._extendedLogState.expandedCommit, A, 'sanity: A survives');
+    assert.deepStrictEqual(asked, [A], "the survivor's files must be loaded");
+  });
+
+  it('ctrl+click deselecting a non-expanded commit loads the one left', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: B });
+    const asked = requestedSingles(provider);
+
+    // A is not the expanded commit, so the survivor branch never runs — but the
+    // payload was already dropped when the two-commit selection formed.
+    h.internals._handleWebviewMessage({ type: 'toggleCommitSelection', commitHash: A });
+
+    assert.deepStrictEqual(h.internals._extendedLogState.expandedCommit, B, 'sanity: B survives');
+    assert.deepStrictEqual(asked, [B], "the survivor's files must be loaded");
+  });
+
+  it('shift+click on the anchor itself loads that commit', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: B });
+    const asked = requestedSingles(provider);
+
+    // Anchor is B, so the range is just B — a one-commit selection.
+    h.internals._handleWebviewMessage({ type: 'rangeSelectCommit', commitHash: B });
+
+    assert.strictEqual(h.internals._extendedLogState.selectedCommits.size, 1, 'sanity: one left');
+    assert.deepStrictEqual(asked, [B], 'the range tip owns the panel and needs its files');
+  });
+
+  it('shift+ctrl+click on the anchor alone loads that commit', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: B });
+    const asked = requestedSingles(provider);
+
+    h.internals._handleWebviewMessage({ type: 'addRangeSelectCommit', commitHash: B });
+
+    assert.strictEqual(h.internals._extendedLogState.selectedCommits.size, 1, 'sanity: one left');
+    assert.deepStrictEqual(asked, [B], 'the range tip owns the panel and needs its files');
+  });
+
+  it('does not re-ask for files already loaded for the selected commit', () => {
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    provider.updateCommitDetails(A, [{ path: 'src/a.ts', status: 'modified' }]);
+    const asked = requestedSingles(provider);
+
+    provider.setDetailsGroupBy('flat');
+
+    assert.deepStrictEqual(asked, [], 'a repaint of the same commit needs no reload');
+  });
+
+  it('never paints one commit containing-branches under another', () => {
+    // Same pin as the changed files: the branch list is loaded per commit and
+    // must not describe a commit it was not loaded for.
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    provider.updateContainingBranches(A, ['main', 'release/1.x']);
+
+    h.internals._extendedLogState.selectedCommits = new Set([B]);
+    h.internals._extendedLogState.expandedCommit = B;
+    provider.setDetailsGroupBy('flat');
+
+    const model = lastDetailsModel(h.messages);
+    assert.strictEqual(model?.kind, 'single', 'sanity: a single-commit model');
+    assert.strictEqual(
+      model?.containingBranches,
+      null,
+      "A's branch list must not describe B — null is the still-loading shape"
+    );
+  });
+
+  it('never paints one commit containing-branches under another on a files load', () => {
+    // The changed-files payload has ONE accessor, so every read is gated by
+    // construction. The branch list must be too: this is the second read site,
+    // and a pin that holds only where someone remembered to check it is the
+    // arrangement the tag exists to retire.
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    provider.updateContainingBranches(A, ['main', 'release/1.x']);
+    // The branch list stays pinned to A while the panel moves to B, then B's
+    // changed-files load lands and repaints through the second read site.
+    h.internals._extendedLogState.selectedCommits = new Set([B]);
+    h.internals._extendedLogState.expandedCommit = B;
+
+    provider.updateCommitDetails(B, [{ path: 'src/b.ts', status: 'modified' }]);
+
+    const model = lastDetailsModel(h.messages);
+    assert.strictEqual(model?.kind, 'single', 'sanity: a single-commit model');
+    assert.strictEqual(
+      model?.containingBranches,
+      null,
+      "A's branch list must not describe B on the files-load repaint either"
+    );
+  });
+
+  it('never paints one commit files under another', () => {
+    // Structural pin rather than a live gesture: the payload is tagged with the
+    // commit it was loaded for, so a mutator that leaves a stale payload behind
+    // cannot mis-attribute it.
+    const h = makeProvider();
+    provider = h.provider;
+    h.internals._handleWebviewMessage({ type: 'selectCommit', commitHash: A });
+    provider.updateCommitDetails(A, [{ path: 'src/a.ts', status: 'modified' }]);
+
+    h.internals._extendedLogState.selectedCommits = new Set([B]);
+    h.internals._extendedLogState.expandedCommit = B;
+    provider.setDetailsGroupBy('flat');
+
+    const model = lastDetailsModel(h.messages);
+    assert.strictEqual(model?.kind, 'single', 'sanity: a single-commit model');
+    assert.strictEqual(model?.changedFilesCount, 0, "A's files must not describe B");
   });
 });
 

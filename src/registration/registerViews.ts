@@ -21,6 +21,7 @@ import {
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
 import type { IChangedFile } from '../git-core/interfaces/IGitToolWindowProvider';
 import { createMultiCommitFilesLoader } from './multiCommitFilesLoad';
+import { createSingleCommitFilesLoader } from './singleCommitFilesLoad';
 import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
 import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/commitGraph';
@@ -1121,49 +1122,51 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Both wirings live there as a single unit so the dropdown can never
     // update one view while silently desyncing the other.
 
-    // Wire up onDidSelectCommit to fetch changed files for the selected commit
-    const commitSelectListener = ctx.gitToolWindowProvider.onDidSelectCommit(async (hash) => {
+    // Single-commit selection: load the clicked commit's files. The loader owns
+    // the contract the multi arm already keeps — every failure publishes a
+    // reason, so an unreadable commit is never painted as an empty changeset
+    // and the panel's request latch is always released.
+    const loadSingleCommitFiles = createSingleCommitFilesLoader({
       // In the merged "all roots" log the clicked commit may belong to a repo
       // other than the context repo, so resolve by the commit's own recorded
       // root first. Then fall back to the selected (context) repo, the
       // active-editor's repo, and finally cold-start discovery.
-      let repo =
-        (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
-        ctx.gitToolWindowProvider?.getSelectedRepository() ??
-        (await resolveRepo(gitService, { preferActive: true, silent: true }));
-      if (!repo) {
+      resolveRepo: async (hash) => {
+        const repo =
+          (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
+          ctx.gitToolWindowProvider?.getSelectedRepository() ??
+          (await resolveRepo(gitService, { preferActive: true, silent: true }));
+        if (repo) {
+          return repo;
+        }
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-          repo = await gitService.getRepository(workspaceFolders[0].uri);
+          return await gitService.getRepository(workspaceFolders[0].uri);
         }
-      }
-      if (!repo) {
-        return;
-      }
+        return undefined;
+      },
+      loadChangedFiles: (repo, hash) => loadCommitChangedFiles(gitService, repo, hash),
+      publish: (hash, files, error) => {
+        ctx.gitToolWindowProvider?.updateCommitDetails(hash, files, error);
+      },
       // Fetch the "Contained in branches" list in parallel with the diff so a
       // slow branch query never delays the changed-files render. Each posts its
       // own partial details update; getContainingBranches degrades to [] on
       // failure, so this never rejects.
-      void gitService
-        .getContainingBranches(repo, hash)
-        .then((branches) => {
-          ctx.gitToolWindowProvider?.updateContainingBranches(hash, branches);
-        })
-        // getContainingBranches itself never rejects, but updateContainingBranches
-        // posts to the webview — swallow any throw there so it can't surface as an
-        // unhandled rejection.
-        .catch(() => {});
-
-      try {
-        const changedFiles = await loadCommitChangedFiles(gitService, repo, hash);
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.updateCommitDetails(hash, changedFiles);
-        }
-      } catch (error) {
-        if (ctx.gitToolWindowProvider) {
-          ctx.gitToolWindowProvider.updateCommitDetails(hash, [], error);
-        }
-      }
+      onRepoResolved: (repo, hash) => {
+        void gitService
+          .getContainingBranches(repo, hash)
+          .then((branches) => {
+            ctx.gitToolWindowProvider?.updateContainingBranches(hash, branches);
+          })
+          // getContainingBranches itself never rejects, but updateContainingBranches
+          // posts to the webview — swallow any throw there so it can't surface as an
+          // unhandled rejection.
+          .catch(() => {});
+      },
+    });
+    const commitSelectListener = ctx.gitToolWindowProvider.onDidSelectCommit((hash) => {
+      void loadSingleCommitFiles(hash);
     });
     ctx.context.subscriptions.push(commitSelectListener);
 

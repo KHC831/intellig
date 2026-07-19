@@ -163,20 +163,34 @@ export function getFileName(path: string): string {
 }
 
 /**
- * Merge changed files from multiple commit details into a single deduplicated list.
- * When the same file appears in multiple commits, the last occurrence's status is kept.
- * Files are sorted alphabetically by path.
+ * Merge changed files from multiple commit details into a single deduplicated
+ * list, sorted alphabetically by path.
  *
- * @param commitDetailsList - Array of commit details to merge files from
+ * `commitDetailsList` arrives in graph order — NEWEST FIRST — and a path
+ * touched by several of the selected commits gets one row, owned by the newest
+ * commit that touched it. That is the selection's latest state of the file: a
+ * path the newest commit deleted and an older one added is deleted, and showing
+ * the add would report the opposite of what the selection did while offering a
+ * diff of a change that was undone.
+ *
+ * Each entry names the commit its record came from, so the row can be diffed
+ * and right-clicked against the same commit whose status it displays.
+ *
+ * @param commitDetailsList - Commit details to merge files from, newest first
  * @returns Deduplicated and sorted array of changed files
  */
-export function mergeChangedFiles(commitDetailsList: ICommitDetails[]): IChangedFile[] {
-  const fileMap = new Map<string, IChangedFile>();
+export function mergeChangedFiles(
+  commitDetailsList: ICommitDetails[]
+): Array<IChangedFile & { commitHash: string }> {
+  const fileMap = new Map<string, IChangedFile & { commitHash: string }>();
 
   for (const details of commitDetailsList) {
     for (const file of details.changedFiles) {
-      // Later commits override earlier ones for the same path
-      fileMap.set(file.path, { ...file });
+      // Newest first, so the first entry for a path is the one that wins;
+      // later (older) commits do not overwrite it.
+      if (!fileMap.has(file.path)) {
+        fileMap.set(file.path, { ...file, commitHash: details.hash });
+      }
     }
   }
 

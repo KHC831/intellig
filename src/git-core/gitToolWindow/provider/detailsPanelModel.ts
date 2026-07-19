@@ -198,6 +198,11 @@ function annotateTree(nodes: readonly FileTreeNode[]): DetailsTreeNode[] {
     if (file.status === 'renamed' && file.oldPath) {
       annotated.oldPath = file.oldPath;
     }
+    // Set only by the multi-commit merge, where each file names its own commit.
+    const owner = (file as IChangedFile & { commitHash?: string }).commitHash;
+    if (owner !== undefined) {
+      annotated.commitHash = owner;
+    }
     // Carry per-file line counts when present (a commit-details file leaf shows
     // a "(+N | -M)" stat); absent for binary / no-line-change files.
     if (typeof file.additions === 'number' || typeof file.deletions === 'number') {
@@ -323,7 +328,11 @@ export const MULTI_DETAILS_COMMIT_CAP = 20;
 export function buildMultiCommitDetailsPanelModel(
   commitDetailsList: ICommitDetails[],
   project?: IDetailsProject,
-  loadedHashes?: ReadonlySet<string>
+  loadedHashes?: ReadonlySet<string>,
+  // The multi panel carries no toggle of its own, but Group By is a global
+  // persisted preference — a user set to Flat must not get a directory tree
+  // back just because they selected a second commit.
+  groupBy?: DetailsGroupBy
 ): DetailsPanelModel {
   const mergedFiles = mergeChangedFiles(commitDetailsList);
   const skippedCommits = loadedHashes
@@ -346,7 +355,7 @@ export function buildMultiCommitDetailsPanelModel(
       summary: truncateSummary(d.message, 60),
     })),
     changedFilesCount: mergedFiles.length,
-    fileTree: buildAnnotatedTree(mergedFiles),
+    fileTree: buildAnnotatedTree(mergedFiles, groupBy),
     projectName: project?.name,
     projectPath: project?.path,
   };

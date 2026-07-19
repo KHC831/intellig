@@ -379,8 +379,12 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
         item.className = 'changed-file-item';
         item.setAttribute('data-path', node.path);
         item.setAttribute('data-status', node.status);
-        if (commitHash !== undefined) {
-          item.setAttribute('data-commit-hash', commitHash);
+        // The panel's own hash in the single-commit tree; the merged file's
+        // owning commit in the combined one. Without it the row's context menu
+        // and double-click-to-diff both no-op on a row that looks interactive.
+        const owner = node.commitHash ?? commitHash;
+        if (owner !== undefined) {
+          item.setAttribute('data-commit-hash', owner);
         }
         item.setAttribute('role', 'treeitem');
         item.setAttribute('tabindex', '0');
