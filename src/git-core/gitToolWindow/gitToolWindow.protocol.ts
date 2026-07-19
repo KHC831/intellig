@@ -17,7 +17,6 @@ type Fields = Omit<IWebviewMessage, 'type'>;
 
 /** Webview → host messages. */
 export type GitToolWindowInbound =
-  | ({ type: 'refresh' } & Fields)
   | ({ type: 'focusUndockedPanel' } & Fields)
   | ({ type: 'selectCommit' } & Fields)
   | ({ type: 'toggleCommitSelection' } & Fields)
@@ -61,7 +60,6 @@ export type GitToolWindowOutbound =
   | { type: 'syncSelection'; anchorHash: string | null; selectedHashes: string[] };
 
 export const GIT_TOOL_WINDOW_INBOUND_TYPES = [
-  'refresh',
   'focusUndockedPanel',
   'selectCommit',
   'toggleCommitSelection',

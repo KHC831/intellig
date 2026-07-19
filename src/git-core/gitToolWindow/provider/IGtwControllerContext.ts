@@ -109,6 +109,8 @@ export interface IGtwControllerContext {
   getDetailsPanelModel(details: ICommitDetails): DetailsPanelModel;
   /** Build the empty/placeholder details-panel render-model. */
   getDetailsPanelPlaceholderModel(): DetailsPanelModel;
+  /** Build the details-panel render-model for a multi-commit selection. */
+  getMultiCommitDetailsPanelModel(detailsList: ICommitDetails[]): DetailsPanelModel;
   /**
    * Whether issue/PR auto-linking is enabled. Delegates to the provider's
    * config read so the `intellig.commitMessageIssueLinks` flag lookup stays

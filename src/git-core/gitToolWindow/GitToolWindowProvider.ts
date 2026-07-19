@@ -1849,6 +1849,10 @@ export class GitToolWindowProvider
     return buildDetailsPanelPlaceholderModel();
   }
 
+  getMultiCommitDetailsPanelModel(detailsList: ICommitDetails[]): DetailsPanelModel {
+    return this._getMultiCommitDetailsPanelModel(detailsList);
+  }
+
   /**
    * host-side mirror of "right-click on a non-selected
    * commit moves selection to that commit". Called by the webview when
@@ -2110,9 +2114,6 @@ export class GitToolWindowProvider
       return;
     }
     switch (msg.type) {
-      case 'refresh':
-        this.refresh();
-        break;
       case 'focusUndockedPanel':
         // Sidebar placeholder button while the log is undocked.
         void this.revealLogHost();

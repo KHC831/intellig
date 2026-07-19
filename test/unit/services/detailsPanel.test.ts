@@ -47,7 +47,7 @@ function renderMulti(
  */
 function makeCommitDetails(overrides?: Partial<ICommitDetails>): ICommitDetails {
   return {
-    hash: 'abc1234567890abcdef1234567890abcdef123456',
+    hash: 'abc1234567890abcdef1234567890abcdef12345',
     message: 'Fix authentication bug',
     author: { name: 'John Doe', email: 'john@example.com' },
     date: new Date('2024-01-15T10:30:00Z'),
@@ -229,7 +229,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
 
     it('should display the full commit hash', () => {
-      const hash = 'abc1234567890abcdef1234567890abcdef123456';
+      const hash = 'abc1234567890abcdef1234567890abcdef12345';
       const details = makeCommitDetails({ hash });
       const html = renderDetails(provider, details);
 
@@ -567,7 +567,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
 
     it('should pass the commit hash as data-commit-hash attribute', () => {
-      const hash = 'abc1234567890abcdef1234567890abcdef123456';
+      const hash = 'abc1234567890abcdef1234567890abcdef12345';
       const details = makeCommitDetails({
         hash,
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
@@ -1294,7 +1294,7 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     treeProvider.dispose();
   });
 
-  const TREE_FIXTURE_HASH = 'abc1234567890abcdef1234567890abcdef123456';
+  const TREE_FIXTURE_HASH = 'abc1234567890abcdef1234567890abcdef12345';
 
   /** The fixed multi-directory Changed_File set described in the suite docblock. */
   function makeTreeFixtureFiles(): ICommitDetails['changedFiles'] {
@@ -1441,7 +1441,7 @@ describe('commitNodeToBaseDetails', () => {
   const makeNode = (commit: Partial<ICommit>): ICommitNode =>
     ({
       commit: {
-        hash: 'abc1234567890abcdef1234567890abcdef123456',
+        hash: 'abc1234567890abcdef1234567890abcdef12345',
         shortHash: 'abc1234',
         message: 'Rebased change',
         author: { name: 'John Doe', email: 'john@example.com' },

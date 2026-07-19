@@ -2092,6 +2092,8 @@
     "check:repo-resolution": "bash scripts/check-repo-resolution.sh",
     "check:git-dir-resolved": "bash scripts/check-git-dir-resolved.sh",
     "check:tab-styles-wired": "node scripts/check-tab-styles-wired.mjs",
+    "check:protocol-reachability": "node scripts/check-protocol-reachability.mjs",
+    "check:src-greppable": "node scripts/check-src-greppable.mjs",
     "check:git-dir-markers": "bash scripts/check-git-dir-markers.sh",
     "check:palette-coherence": "node scripts/check-palette-coherence.mjs",
     "check:spine-registration": "node scripts/check-spine-registration.mjs",

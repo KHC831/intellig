@@ -187,16 +187,18 @@ describe('GitToolWindowProvider undock to editor panel', () => {
     assert.strictEqual(view.webview._posted.length, 1);
   });
 
-  it('handles messages arriving from the panel webview', (done) => {
+  it('handles messages arriving from the panel webview', () => {
     resolveSidebar();
     const panel = makePanel();
     provider.attachPanel(panel as never);
+    let grouping: string | undefined;
+    (provider as unknown as { setDetailsGroupBy: (g: string) => void }).setDetailsGroupBy = (g) => {
+      grouping = g;
+    };
 
-    const disposable = provider.onDidRequestRefresh(() => {
-      disposable.dispose();
-      done();
-    });
-    panel._fireMessage({ type: 'refresh' });
+    panel._fireMessage({ type: 'setDetailsGroupBy', groupBy: 'flat' });
+
+    assert.strictEqual(grouping, 'flat', 'a panel message reaches the host handler');
   });
 
   it('is attachable without the sidebar ever resolving', () => {

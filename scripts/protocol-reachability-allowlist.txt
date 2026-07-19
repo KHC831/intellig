@@ -1,0 +1,7 @@
+# Protocol message types exempt from check-protocol-reachability.
+#
+# Format: <protocol-basename> <type>   # justification
+#
+# An entry here asserts the type is reachable by a route the guard cannot see.
+# It is NOT a parking spot for dead code — investigate first; an unreachable
+# type is far more often a wiring bug than a real exception.

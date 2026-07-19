@@ -74,11 +74,9 @@ export function selectCommits(
   } else {
     ctx.extendedLogState.anchorHash = known.has(anchor) ? anchor : null;
   }
-  // For N>=2, focus the details pane on the FIRST
-  // surviving hash so the panel can't show a stale commit that's no
-  // longer in the selection. For N=1, use that single hash. For N=0,
-  // leave whatever was there (the pane will switch to the placeholder
-  // on the next render).
+  // Keep `expandedCommit` on the first surviving hash so single-commit
+  // consumers (and the N=1 render) never point at a commit that left the
+  // selection. For N=0 leave it alone — the next render shows the placeholder.
   if (filtered.length >= 1) {
     ctx.extendedLogState.expandedCommit = filtered[0];
   }
@@ -94,6 +92,21 @@ export function selectCommits(
   // interpolation bugs and partial-update extension cases.
   ctx.postSyncSelection();
   ctx.postMenuStateUpdate();
+
+  // A selection of two or more commits is its own presentation: a count, the
+  // per-commit summaries and the combined file tree. Rendering the first
+  // commit's details instead would misreport an N-commit selection as one
+  // commit (reference: CommitDetailsListPanel renders a block per commit).
+  if (filtered.length >= 2 && ctx.hasView()) {
+    const detailsList = filtered
+      .map((hash) => ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash))
+      .filter((node): node is NonNullable<typeof node> => node !== undefined)
+      .map((node) => ({ ...commitNodeToBaseDetails(node), changedFiles: [] }));
+    ctx.postToWebview({
+      type: 'updateDetailsPanel',
+      model: ctx.getMultiCommitDetailsPanelModel(detailsList),
+    });
+  }
 }
 
 /**
