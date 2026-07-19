@@ -48,6 +48,38 @@ export interface IConflictSideNames {
   theirs?: string;
 }
 
+/** Best-effort names for the raw git stages: stage 2 (ours) and stage 3 (theirs). */
+export interface IStageNames {
+  ours?: string;
+  theirs?: string;
+}
+
+/**
+ * Map the two git stages onto the user-facing yours/theirs sides. Generic so
+ * one reversal decision can carry names AND contents together — a caller that
+ * evaluates {@link isReversedOperation} once and routes everything through this
+ * cannot label one side while showing the other's data.
+ */
+export function orderStagesByUserSide<T>(
+  reversed: boolean,
+  stage2: T,
+  stage3: T
+): { yours: T; theirs: T } {
+  return reversed ? { yours: stage3, theirs: stage2 } : { yours: stage2, theirs: stage3 };
+}
+
+/**
+ * Disambiguate identical side names — e.g. a `git pull` of a same-named branch
+ * ("Merge branch 'main' of … into main") would otherwise show two "Accept
+ * from main" buttons with no way to tell local from incoming.
+ */
+export function disambiguateSideNames(names: IConflictSideNames): IConflictSideNames {
+  if (names.yours !== undefined && names.yours === names.theirs) {
+    return { yours: `${names.yours} (current)`, theirs: `${names.theirs} (incoming)` };
+  }
+  return names;
+}
+
 /**
  * Button label + confirm-sentence subject for accepting one side. Uses the
  * resolved ref name ("Accept from main" / "the changes from main") when present,
@@ -83,23 +115,34 @@ export async function resolveConflictSideNames(
   shortenSha: ShortenSha,
   nameRev: NameRev
 ): Promise<IConflictSideNames> {
-  const current = currentBranch?.trim() || (await detachedHeadName(gitDir, shortenSha));
-  const { ours, theirs } = await resolveStageNames(gitDir, operation, current, shortenSha, nameRev);
+  const stageNames = await resolveConflictStageNames(
+    gitDir,
+    operation,
+    currentBranch,
+    shortenSha,
+    nameRev
+  );
 
   // Map git stages → user sides through the one reversal predicate.
   const reversed = isReversedOperation(operation);
-  let yours = reversed ? theirs : ours;
-  let theirsName = reversed ? ours : theirs;
+  return disambiguateSideNames(orderStagesByUserSide(reversed, stageNames.ours, stageNames.theirs));
+}
 
-  // Disambiguate identical names — e.g. a `git pull` of a same-named branch
-  // ("Merge branch 'main' of … into main") would otherwise show two "Accept
-  // from main" buttons with no way to tell local from incoming.
-  if (yours !== undefined && yours === theirsName) {
-    yours = `${yours} (current)`;
-    theirsName = `${theirsName} (incoming)`;
-  }
-
-  return { yours, theirs: theirsName };
+/**
+ * Names for the raw git stages of an in-progress conflict: stage 2 (ours) and
+ * stage 3 (theirs); undefined where no ref resolves. Callers that also load
+ * stage CONTENTS pair these per stage and run one reversal mapping over both
+ * (see the merge window's assignMergePanes).
+ */
+export async function resolveConflictStageNames(
+  gitDir: string,
+  operation: IConflictOpContext['operation'],
+  currentBranch: string | undefined,
+  shortenSha: ShortenSha,
+  nameRev: NameRev
+): Promise<IStageNames> {
+  const current = currentBranch?.trim() || (await detachedHeadName(gitDir, shortenSha));
+  return resolveStageNames(gitDir, operation, current, shortenSha, nameRev);
 }
 
 /** Names for stage 2 (ours) and stage 3 (theirs); undefined where no ref resolves. */

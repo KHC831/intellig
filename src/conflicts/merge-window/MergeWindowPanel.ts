@@ -4,17 +4,46 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { BaseWebviewPanel } from '../../utils/BaseWebviewPanel';
 import { assertNever } from '../../utils/assertNever';
-import { asMergeWindowInbound, type MergeWindowOutbound } from './mergeWindow.protocol';
+import {
+  asMergeWindowInbound,
+  type MergeWindowConfirmAction,
+  type MergeWindowOutbound,
+} from './mergeWindow.protocol';
 import { IGitService, IRepository } from '../../git-core/interfaces/IGitService';
 import { GitCli } from '../../git-core/gitCli';
 import { sanitizeGitError } from '../../git-core/gitError';
 import { atomicWriteFileSync } from '../../utils/atomicWrite';
 import { escapeHtml } from '../../utils/escapeHtml';
 import { getLogger } from '../../utils/logger';
-import { loadMergeStageContents } from './mergeStages';
+import { assignMergePanes, loadMergeStageContents } from './mergeStages';
+import { IStageNames } from '../conflictSideNames';
+import { IConflictOpContext } from '../interfaces/IConflictResolutionService';
 import { mergeWindowStyles } from './mergeWindowHtml';
 import { buildCodiconFontFaceCss } from '../../git-core/gitToolWindow/provider/stylesBuilder';
 import { detectEol, normalizeToLf, restoreEol } from './mergeWindowText';
+import { loadPersisted, savePersisted, type PersistedSlot } from '../../utils/persistedState';
+
+/** "1 change and 2 conflicts" — zero parts drop out; never empty for a real confirm. */
+export function unprocessedPhrase(changes: number, conflicts: number): string {
+  const parts: string[] = [];
+  if (changes > 0) {
+    parts.push(`${changes} ${changes === 1 ? 'change' : 'changes'}`);
+  }
+  if (conflicts > 0) {
+    parts.push(`${conflicts} ${conflicts === 1 ? 'conflict' : 'conflicts'}`);
+  }
+  return parts.join(' and ') || 'no changes';
+}
+
+/**
+ * The conflict operation and raw stage names the pane assignment maps to
+ * user sides. Kept raw (per git stage) so the panel can run stage contents
+ * and names through one reversal decision.
+ */
+export interface IMergeWindowConflictContext {
+  readonly stageNames: IStageNames;
+  readonly operation: IConflictOpContext['operation'] | undefined;
+}
 
 /**
  * The IntelliG merge window: an IntelliJ-style three-pane conflict resolver
@@ -36,8 +65,7 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       repository: IRepository;
       relPath: string;
       absolutePath: string;
-      leftLabel: string;
-      rightLabel: string;
+      conflictContext: IMergeWindowConflictContext;
       gitCli: GitCli;
       gitService: IGitService;
       onApplied: (relPath: string) => void;
@@ -79,8 +107,27 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       case 'abort':
         await this._abort(msg.modified === true);
         return;
+      case 'confirm':
+        // A malformed requestId cannot be answered; drop rather than reply
+        // with an id the webview never issued.
+        if (typeof msg.requestId !== 'number') {
+          getLogger()
+            .child({ component: 'MergeWindowPanel' })
+            .error("merge window posted 'confirm' without a numeric requestId; ignoring");
+          return;
+        }
+        await this._confirm(msg.requestId, msg.action, msg.changes, msg.conflicts);
+        return;
       case 'state':
         this._modified = msg.modified === true;
+        // VS Code cannot veto a webview tab close (IntelliJ's close-confirm
+        // has no equivalent hook), so the latest modified result is
+        // persisted and offered for restore when the file reopens.
+        if (!this._modified) {
+          this._saveUnsavedResult(undefined);
+        } else if (typeof msg.resultText === 'string') {
+          this._saveUnsavedResult(msg.resultText);
+        }
         return;
       case 'log': {
         const logger = getLogger().child({ component: 'MergeWindowPanel' });
@@ -94,6 +141,46 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       default:
         assertNever(msg);
     }
+  }
+
+  private get _unsavedResultSlot(): PersistedSlot<string> {
+    return {
+      key: `intellig.mergeWindow.unsavedResult:${this._opts.repository.rootUri.fsPath}:${this._opts.relPath}`,
+      version: 1,
+      // Not readString: an empty result (everything deleted) is restorable too.
+      validate: (raw) => (typeof raw === 'string' ? raw : undefined),
+    };
+  }
+
+  private _saveUnsavedResult(text: string | undefined): void {
+    void savePersisted(this._context.workspaceState, this._unsavedResultSlot, text);
+  }
+
+  /**
+   * Offer the result text a previously closed window left behind. Explicit
+   * discard drops the copy; dismissing the prompt keeps it for a later
+   * reopen without restoring now.
+   */
+  private async _promptForSavedResult(): Promise<string | undefined> {
+    const saved = loadPersisted(this._context.workspaceState, this._unsavedResultSlot);
+    if (typeof saved !== 'string') {
+      return undefined;
+    }
+    const restore = 'Restore';
+    const discard = 'Discard Saved Result';
+    const choice = await vscode.window.showInformationMessage(
+      `${path.basename(this._opts.absolutePath)} has an unsaved merge result from a closed merge window. Restore it?`,
+      { modal: true },
+      restore,
+      discard
+    );
+    if (choice === restore) {
+      return saved;
+    }
+    if (choice === discard) {
+      this._saveUnsavedResult(undefined);
+    }
+    return undefined;
   }
 
   private async _sendInit(): Promise<void> {
@@ -118,17 +205,25 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       }
       this._eol = detectEol(eolSource);
 
+      // One reversal decision assigns contents and labels together — a
+      // rebase/unstash/unshelve swaps both, so the pane titled with the
+      // user's branch always shows the user's content.
+      const { stageNames, operation } = this._opts.conflictContext;
+      const panes = assignMergePanes(stages, stageNames, operation);
+      const restoredResult = await this._promptForSavedResult();
+
       await this.postMessage({
         type: 'init',
-        left: normalizeToLf(stages.ours),
-        base: normalizeToLf(stages.base),
-        right: normalizeToLf(stages.theirs),
-        leftLabel: this._opts.leftLabel,
-        rightLabel: this._opts.rightLabel,
+        left: normalizeToLf(panes.left.content),
+        base: normalizeToLf(panes.base),
+        right: normalizeToLf(panes.right.content),
+        leftLabel: panes.left.label,
+        rightLabel: panes.right.label,
         fileName: path.basename(absolutePath),
         // IntelliJ's "Automatically apply non-conflicting changes" (opt-in,
         // off by default there too).
         autoApplyNonConflicting: readConfig('mergeWindow.autoApplyNonConflicting'),
+        ...(restoredResult !== undefined ? { restoredResult: normalizeToLf(restoredResult) } : {}),
       });
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
@@ -152,8 +247,36 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       void vscode.window.showErrorMessage(`Failed to apply merge result: ${sanitizeGitError(raw)}`);
       return;
     }
+    this._saveUnsavedResult(undefined);
     onApplied(relPath);
     this.dispose();
+  }
+
+  /**
+   * The webview asks before a destructive toolbar action: a whole-side
+   * accept over a modified result (IntelliJ's
+   * MergeUtil.showConfirmDiscardChangesDialog) or an Apply with changes
+   * still unresolved (IntelliJ's handleResolvedCase counted confirm). The
+   * answer rides back on the same requestId.
+   */
+  private async _confirm(
+    requestId: number,
+    action: MergeWindowConfirmAction,
+    changes?: number,
+    conflicts?: number
+  ): Promise<void> {
+    let message: string;
+    let confirmLabel: string;
+    if (action === 'applyUnresolved') {
+      message = `There are ${unprocessedPhrase(changes ?? 0, conflicts ?? 0)} left unprocessed. Save changes and mark the conflict resolved anyway?`;
+      confirmLabel = 'Apply Changes and Mark Resolved';
+    } else {
+      const actionName = action === 'acceptLeft' ? 'Accept Yours' : 'Accept Theirs';
+      message = `There are unsaved changes in the result file. Discard changes and ${actionName.toLowerCase()} anyway?`;
+      confirmLabel = `Discard Changes and ${actionName}`;
+    }
+    const choice = await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel);
+    await this.postMessage({ type: 'confirmResult', requestId, confirmed: choice !== undefined });
   }
 
   private async _abort(modified: boolean): Promise<void> {
@@ -167,6 +290,7 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         return;
       }
     }
+    this._saveUnsavedResult(undefined);
     this.dispose();
   }
 

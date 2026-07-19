@@ -57,9 +57,24 @@ export function buildMergeWindowDom(doc: Document): void {
     }),
     el(doc, 'span', { className: 'sep' }),
     el(doc, 'button', {
+      id: 'btn-nc-left',
+      title: 'Apply non-conflicting changes from the left side',
+      text: 'Apply Left',
+    }),
+    el(doc, 'button', {
       id: 'btn-nc-all',
       title: 'Apply all non-conflicting changes',
       text: 'Apply Non-Conflicting',
+    }),
+    el(doc, 'button', {
+      id: 'btn-nc-right',
+      title: 'Apply non-conflicting changes from the right side',
+      text: 'Apply Right',
+    }),
+    el(doc, 'button', {
+      id: 'btn-magic-all',
+      title: 'Resolve all conflicts whose side changes do not overlap',
+      text: 'Resolve Simple Conflicts',
     }),
     el(doc, 'button', {
       id: 'btn-reset',

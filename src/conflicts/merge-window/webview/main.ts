@@ -21,7 +21,12 @@
 // connectors.
 
 import type * as Monaco from 'monaco-editor';
-import type { MergeWindowInitMessage, MergeWindowInbound } from '../mergeWindow.protocol';
+import type {
+  MergeWindowInitMessage,
+  MergeWindowInbound,
+  MergeWindowConfirmAction,
+  MergeWindowConfirmResultMessage,
+} from '../mergeWindow.protocol';
 import { ComparisonPolicy } from '../../../diff-engine/comparison/ComparisonPolicy';
 import { MergeConflictTypeKind } from '../../../diff-engine/util/MergeConflictType';
 import { Side } from '../../../diff-engine/util/Side';
@@ -190,6 +195,7 @@ class MergeWindow {
     this.wireToolbar();
     this.wireMagicGlyph();
     this.wireThemeSync();
+    this.wireConfirmResults();
     // The "Conflict i / n" ordinal follows the caret.
     this.resultEditor.onDidChangeCursorPosition(() => this.updateCounter());
     window.addEventListener('resize', () => this.layoutGutters());
@@ -204,6 +210,15 @@ class MergeWindow {
     this.renderAll();
     if (init.autoApplyNonConflicting === true) {
       this.applyNonConflicted();
+    }
+    // A result left behind by a closed window rides in through the regular
+    // Monaco→document replay, so it lands as one undoable user edit and
+    // flags the content modified (Abort confirms before discarding it).
+    if (
+      typeof init.restoredResult === 'string' &&
+      init.restoredResult !== this.resultDoc.getText()
+    ) {
+      this.resultEditor.getModel()?.setValue(init.restoredResult);
     }
   }
 
@@ -255,6 +270,10 @@ class MergeWindow {
       } finally {
         this.replayingFromMonaco = false;
       }
+      // IntelliJ marks the model on every result-document change
+      // (MergeThreesideViewer.onBeforeDocumentChange), so hand-typed edits
+      // count as discardable work for the Abort/Accept confirms.
+      this.model.contentModified = true;
       this.assertInSync();
       this.scheduleRender();
     });
@@ -359,12 +378,13 @@ class MergeWindow {
   }
 
   /**
-   * IntelliJ's Apply All Non-Conflicting Changes: every non-conflicting
-   * change lands in the result as one undo step; conflicts stay untouched.
-   * Scrolls to the first change still unresolved, like IntelliJ.
+   * IntelliJ's Apply Non-Conflicting Changes (left / all / right): the
+   * side's non-conflicting changes land in the result as one undo step;
+   * conflicts stay untouched. Scrolls to the first change still
+   * unresolved, like IntelliJ.
    */
-  private applyNonConflicted(): void {
-    this.model.applyNonConflictedChanges(ThreeSide.BASE);
+  private applyNonConflicted(side: ThreeSide = ThreeSide.BASE): void {
+    this.model.applyNonConflictedChanges(side);
     const model = this.resultEditor.getModel();
     const lineCount = model ? model.getLineCount() : 1;
     const first = this.model.getUnresolvedChanges()[0];
@@ -374,30 +394,93 @@ class MergeWindow {
     this.scheduleRender();
   }
 
+  private nextConfirmRequestId = 1;
+  private readonly pendingConfirms = new Map<number, (confirmed: boolean) => void>();
+
+  /** Resolves pending host-modal confirmations as their answers arrive. */
+  private wireConfirmResults(): void {
+    window.addEventListener('message', (event: MessageEvent) => {
+      const msg = event.data as Partial<MergeWindowConfirmResultMessage> | undefined;
+      if (!msg || msg.type !== 'confirmResult' || typeof msg.requestId !== 'number') {
+        return;
+      }
+      const resolve = this.pendingConfirms.get(msg.requestId);
+      if (resolve) {
+        this.pendingConfirms.delete(msg.requestId);
+        resolve(msg.confirmed === true);
+      }
+    });
+  }
+
+  /** Round-trips a destructive-action confirmation through a host modal. */
+  private confirmWithHost(
+    action: MergeWindowConfirmAction,
+    counts?: { changes: number; conflicts: number }
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      const requestId = this.nextConfirmRequestId++;
+      this.pendingConfirms.set(requestId, resolve);
+      post({ type: 'confirm', requestId, action, ...counts });
+    });
+  }
+
+  /**
+   * IntelliJ's handleResolvedCase: Apply is always offered; with changes
+   * still unresolved it confirms with counts, then marks everything
+   * resolved and saves the result exactly as shown.
+   */
+  private async applyResult(): Promise<void> {
+    const unresolved = this.model.getUnresolvedChanges();
+    if (unresolved.length > 0) {
+      const conflicts = unresolved.filter((c) => c.isConflict).length;
+      const changes = unresolved.length - conflicts;
+      if (!(await this.confirmWithHost('applyUnresolved', { changes, conflicts }))) {
+        return;
+      }
+      this.model.executeMergeCommand(
+        unresolved.map((c) => c.index),
+        () => this.model.markAllChangesResolved()
+      );
+      this.scheduleRender();
+    }
+    post({ type: 'apply', resultText: this.resultDoc.getText() });
+  }
+
+  /**
+   * IntelliJ's handleAcceptSide: replacing the result with a whole side is
+   * destructive, so a modified result needs an explicit discard confirm
+   * first (MergeUtil.showConfirmDiscardChangesDialog).
+   */
+  private async acceptWholeSide(side: Side): Promise<void> {
+    if (this.model.contentModified) {
+      const action = side === Side.LEFT ? 'acceptLeft' : 'acceptRight';
+      if (!(await this.confirmWithHost(action))) {
+        return;
+      }
+    }
+    this.model.acceptRevisionForSide(side);
+    this.scheduleRender();
+  }
+
   private wireToolbar(): void {
     const on = (id: string, handler: () => void): void => {
       mustGet(id).addEventListener('click', handler);
     };
-    on('btn-accept-left', () => {
-      this.model.acceptRevisionForSide(Side.LEFT);
-      this.scheduleRender();
-    });
-    on('btn-accept-right', () => {
-      this.model.acceptRevisionForSide(Side.RIGHT);
-      this.scheduleRender();
-    });
+    on('btn-accept-left', () => void this.acceptWholeSide(Side.LEFT));
+    on('btn-accept-right', () => void this.acceptWholeSide(Side.RIGHT));
     on('btn-reset', () => this.resetChanges());
+    on('btn-nc-left', () => this.applyNonConflicted(ThreeSide.LEFT));
     on('btn-nc-all', () => this.applyNonConflicted());
+    on('btn-nc-right', () => this.applyNonConflicted(ThreeSide.RIGHT));
+    // IntelliJ's MagicResolvedConflictsAction: bulk-resolve every conflict
+    // whose side changes do not overlap, in one undo step.
+    on('btn-magic-all', () => {
+      this.model.resolveAllChangesAutomatically();
+      this.scheduleRender();
+    });
     on('btn-prev', () => this.navigate(-1));
     on('btn-next', () => this.navigate(1));
-    on('btn-apply', () => {
-      // Greyed out until every change is resolved; guard against
-      // programmatic clicks on the disabled button too.
-      if ((mustGet('btn-apply') as HTMLButtonElement).disabled) {
-        return;
-      }
-      post({ type: 'apply', resultText: this.resultDoc.getText() });
-    });
+    on('btn-apply', () => void this.applyResult());
     on('btn-abort', () => {
       post({ type: 'abort', modified: this.model.contentModified });
     });
@@ -851,18 +934,33 @@ class MergeWindow {
     banner.classList.toggle('visible', total > 0 && unresolved === 0);
 
     (mustGet('btn-reset') as HTMLButtonElement).disabled = unresolved === total || total === 0;
-    (mustGet('btn-apply') as HTMLButtonElement).disabled = unresolved > 0;
     // Prev/Next fall back to non-conflicting changes once conflicts are gone,
     // so they only grey out when nothing unresolved remains at all.
     (mustGet('btn-prev') as HTMLButtonElement).disabled = unresolved === 0;
     (mustGet('btn-next') as HTMLButtonElement).disabled = unresolved === 0;
+    (mustGet('btn-nc-left') as HTMLButtonElement).disabled = !this.model.hasNonConflictedChanges(
+      ThreeSide.LEFT
+    );
     (mustGet('btn-nc-all') as HTMLButtonElement).disabled = !this.model.hasNonConflictedChanges(
       ThreeSide.BASE
     );
+    (mustGet('btn-nc-right') as HTMLButtonElement).disabled = !this.model.hasNonConflictedChanges(
+      ThreeSide.RIGHT
+    );
+    (mustGet('btn-magic-all') as HTMLButtonElement).disabled =
+      !this.model.hasAutoResolvableConflictedChanges();
 
     this.layoutGutters();
 
-    post({ type: 'state', unresolved, total, modified: this.model.contentModified });
+    // The text rides along while modified so the host can persist it — a
+    // closed tab (which VS Code cannot veto) is then restorable on reopen.
+    post({
+      type: 'state',
+      unresolved,
+      total,
+      modified: this.model.contentModified,
+      ...(this.model.contentModified ? { resultText: this.resultDoc.getText() } : {}),
+    });
   }
 
   //

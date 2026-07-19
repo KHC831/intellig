@@ -9,7 +9,13 @@ import { IGitService, IRepository, RepositoryState } from '../git-core/interface
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { inferReopenOperation, isReversedOperation } from './conflictReversal';
-import { resolveConflictSideNames, IConflictSideNames } from './conflictSideNames';
+import {
+  resolveConflictStageNames,
+  orderStagesByUserSide,
+  disambiguateSideNames,
+  IConflictSideNames,
+  IStageNames,
+} from './conflictSideNames';
 import { sanitizeGitError } from '../git-core/gitError';
 import { withAutostashParked } from '../git-core/rebaseAutostash';
 import { IMergeView } from './interfaces/IMergeView';
@@ -219,6 +225,16 @@ export class ConflictResolutionService implements IConflictResolutionService {
     repo: IRepository,
     operation?: IConflictOpContext['operation']
   ): Promise<IConflictSideNames> {
+    const { operation: op, stageNames } = await this.getConflictStageContext(repo, operation);
+    return disambiguateSideNames(
+      orderStagesByUserSide(isReversedOperation(op), stageNames.ours, stageNames.theirs)
+    );
+  }
+
+  async getConflictStageContext(
+    repo: IRepository,
+    operation?: IConflictOpContext['operation']
+  ): Promise<{ operation: IConflictOpContext['operation']; stageNames: IStageNames }> {
     const op =
       operation ??
       inferReopenOperation(this._opByRepo.get(repo.rootUri.fsPath), this.getRepositoryState(repo));
@@ -247,7 +263,14 @@ export class ConflictResolutionService implements IConflictResolutionService {
       }
       return name.replace(/^(?:remotes|tags)\//, '');
     };
-    return resolveConflictSideNames(gitDir, op, repo.head?.name, shortenSha, nameRev);
+    const stageNames = await resolveConflictStageNames(
+      gitDir,
+      op,
+      repo.head?.name,
+      shortenSha,
+      nameRev
+    );
+    return { operation: op, stageNames };
   }
 
   /**

@@ -23,6 +23,8 @@ interface IMergeWindowFixture {
   editors: StubEditor[];
   flush(): Promise<void>;
   click(id: string): Promise<void>;
+  /** Delivers a host → webview message. */
+  deliver(data: unknown): void;
   /** Clicks the nth action icon of that kind in a side pane's action strip. */
   clickAction(pane: 'left' | 'right', kind: ActionKind, nth?: number): Promise<void>;
   /** The action icons of that kind in a side pane's divider-hugging strip. */
@@ -123,6 +125,9 @@ function bootMergeWindow(
       el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
       await flush();
     },
+    deliver: (data: unknown): void => {
+      dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    },
     actionButtons,
     clickAction: async (
       pane: 'left' | 'right',
@@ -194,10 +199,11 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     );
     assert.strictEqual(f.document.getElementById('btn-prev')?.textContent, 'Prev');
     assert.strictEqual(f.document.getElementById('btn-next')?.textContent, 'Next');
-    // Apply stays greyed out until every change is resolved.
+    // Apply is always offered (IntelliJ parity); with changes unresolved it
+    // confirms with counts instead of greying out.
     assert.strictEqual(
       (f.document.getElementById('btn-apply') as HTMLButtonElement).disabled,
-      true
+      false
     );
     // Left strip: the left-side change + the conflict; right strip: conflict
     // only. The connector dividers themselves carry no buttons.
@@ -328,6 +334,112 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     assert.strictEqual(f.counterText(), 'All changes processed');
   });
 
+  it('Accept on a pristine result needs no discard confirmation', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    await f.click('btn-accept-left');
+    assert.strictEqual(f.resultText(), LEFT);
+    assert.ok(
+      !f.posted.some((m) => (m as { type?: string }).type === 'confirm'),
+      'no confirm round trip for an untouched result'
+    );
+  });
+
+  it('Accept over a modified result waits for the host confirm; declining keeps the result', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+    await f.clickAction('left', 'apply', 0); // modifies the result
+
+    await f.click('btn-accept-left');
+    assert.strictEqual(f.resultText(), AFTER_NC_APPLY, 'nothing is discarded before the answer');
+    const confirm = f.posted.find((m) => (m as { type?: string }).type === 'confirm') as
+      | { requestId: number; action: string }
+      | undefined;
+    assert.ok(confirm, 'a modified result must trigger a confirm request');
+    assert.strictEqual(confirm.action, 'acceptLeft');
+
+    f.deliver({ type: 'confirmResult', requestId: confirm.requestId, confirmed: false });
+    await f.flush();
+    assert.strictEqual(f.resultText(), AFTER_NC_APPLY, 'declining keeps the merge result');
+  });
+
+  it('Apply stays enabled with unresolved changes and asks with counts first', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const applyBtn = f.document.getElementById('btn-apply') as HTMLButtonElement;
+    assert.strictEqual(applyBtn.disabled, false, 'Apply is never hard-disabled');
+
+    await f.click('btn-apply');
+    assert.ok(
+      !f.posted.some((m) => (m as { type?: string }).type === 'apply'),
+      'nothing applies before the user answers'
+    );
+    const confirm = f.posted.find(
+      (m) => (m as { type?: string; action?: string }).action === 'applyUnresolved'
+    ) as { requestId: number; changes: number; conflicts: number } | undefined;
+    assert.ok(confirm, 'unresolved changes must trigger a counted confirm');
+    assert.strictEqual(confirm.changes, 1, 'one plain change left');
+    assert.strictEqual(confirm.conflicts, 1, 'one conflict left');
+
+    f.deliver({ type: 'confirmResult', requestId: confirm.requestId, confirmed: false });
+    await f.flush();
+    assert.ok(
+      !f.posted.some((m) => (m as { type?: string }).type === 'apply'),
+      'declining continues the merge'
+    );
+  });
+
+  it('confirming a partially-resolved Apply marks all resolved and applies as shown', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    await f.click('btn-apply');
+    const confirm = f.posted.find(
+      (m) => (m as { type?: string; action?: string }).action === 'applyUnresolved'
+    ) as { requestId: number };
+    f.deliver({ type: 'confirmResult', requestId: confirm.requestId, confirmed: true });
+    await f.flush();
+
+    const apply = f.posted.find((m) => (m as { type?: string }).type === 'apply') as
+      | { resultText: string }
+      | undefined;
+    assert.ok(apply, 'confirming applies the result');
+    assert.strictEqual(apply.resultText, BASE, 'the file saves exactly as shown in Result');
+  });
+
+  it('Apply with everything resolved needs no confirmation', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+    await f.clickAction('left', 'apply', 0); // the plain change
+    await f.clickAction('left', 'apply', 0); // the conflict, left side
+    await f.clickAction('right', 'ignore', 0); // the conflict, right side
+
+    await f.click('btn-apply');
+    const apply = f.posted.find((m) => (m as { type?: string }).type === 'apply');
+    assert.ok(apply, 'a fully resolved merge applies straight away');
+    assert.ok(
+      !f.posted.some((m) => (m as { action?: string }).action === 'applyUnresolved'),
+      'no confirm when nothing is unresolved'
+    );
+  });
+
+  it('confirming the discard accepts the whole side', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+    await f.clickAction('right', 'apply', 0);
+
+    await f.click('btn-accept-left');
+    const confirm = f.posted.find((m) => (m as { type?: string }).type === 'confirm') as {
+      requestId: number;
+      action: string;
+    };
+    f.deliver({ type: 'confirmResult', requestId: confirm.requestId, confirmed: true });
+    await f.flush();
+    assert.strictEqual(f.resultText(), LEFT, 'confirming discards the result and takes Yours');
+  });
+
   it('a resolved change shows a revert icon that restores the base', async () => {
     f = bootMergeWindow(LEFT, BASE, RIGHT);
     await f.flush();
@@ -357,6 +469,78 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     assert.ok(classes.some((c) => c.includes('merge-resolved-top')));
     assert.ok(classes.some((c) => c.includes('merge-conflict')));
     assert.ok(!classes.some((c) => c.includes('merge-resolved ') || c === 'merge-resolved'));
+  });
+
+  it('plain typing in the result marks the content modified (Abort must confirm)', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    f.editors[1].getModel().applyRawEdits([{ offset: 0, end: 2, text: 'XX' }]);
+    await f.flush();
+
+    await f.click('btn-abort');
+    const abort = f.posted.find((m) => (m as { type?: string }).type === 'abort') as {
+      modified: boolean;
+    };
+    assert.strictEqual(abort.modified, true, 'hand-typed edits are discardable work');
+  });
+
+  it('state posts carry the result text once the result is modified', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    await f.clickAction('left', 'apply', 0);
+    const states = f.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{
+      modified: boolean;
+      resultText?: string;
+    }>;
+    const last = states[states.length - 1];
+    assert.strictEqual(last.modified, true);
+    assert.strictEqual(
+      last.resultText,
+      AFTER_NC_APPLY,
+      'the host needs the text to persist for restore'
+    );
+  });
+
+  it('an init with a restored result seeds the result editor as a modified state', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT, { restoredResult: 'restored text\n' });
+    await f.flush();
+
+    assert.strictEqual(f.resultText(), 'restored text\n');
+    const states = f.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{
+      modified: boolean;
+    }>;
+    assert.strictEqual(
+      states[states.length - 1]?.modified,
+      true,
+      'a restored result counts as modified (Abort must confirm)'
+    );
+  });
+
+  it('Resolve Simple Conflicts magic-resolves every auto-resolvable conflict', async () => {
+    f = bootMergeWindow('version: 2.0.0', 'version: 1.0.0', 'version: 1.0.4');
+    await f.flush();
+
+    const btn = f.document.getElementById('btn-magic-all') as HTMLButtonElement;
+    assert.ok(btn, 'the toolbar carries a Resolve Simple Conflicts action');
+    assert.strictEqual(btn.disabled, false, 'enabled while an auto-resolvable conflict exists');
+
+    await f.click('btn-magic-all');
+    assert.strictEqual(f.resultText(), 'version: 2.0.4');
+    assert.strictEqual(f.counterText(), 'All changes processed');
+    assert.strictEqual(btn.disabled, true, 'greys out once nothing is auto-resolvable');
+
+    await f.undo();
+    assert.strictEqual(f.resultText(), 'version: 1.0.0', 'the bulk resolve is one undo step');
+  });
+
+  it('Resolve Simple Conflicts greys out when the only conflict truly collides', async () => {
+    f = bootMergeWindow('conf left', 'conf base', 'conf right');
+    await f.flush();
+
+    const btn = f.document.getElementById('btn-magic-all') as HTMLButtonElement;
+    assert.strictEqual(btn.disabled, true, 'a same-word conflict cannot be magic-resolved');
   });
 
   it('the result gutter wand magic-resolves a conflict on demand', async () => {
@@ -464,6 +648,23 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
       (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled,
       false
     );
+  });
+
+  it('Apply Non-Conflicting ships left and right side variants like IntelliJ', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const leftBtn = f.document.getElementById('btn-nc-left') as HTMLButtonElement;
+    const rightBtn = f.document.getElementById('btn-nc-right') as HTMLButtonElement;
+    assert.ok(leftBtn, 'left-side variant exists');
+    assert.ok(rightBtn, 'right-side variant exists');
+    assert.strictEqual(leftBtn.disabled, false, 'a left-side change is pending');
+    assert.strictEqual(rightBtn.disabled, true, 'no right-side-only change exists');
+
+    await f.click('btn-nc-left');
+    assert.strictEqual(f.resultText(), AFTER_NC_APPLY, 'only left-side changes land');
+    assert.strictEqual(leftBtn.disabled, true, 'greys out once applied');
+    assert.strictEqual(f.counterText(), 'Conflict 1 / 1', 'the conflict stays untouched');
   });
 
   it('auto-applies non-conflicting changes on open when the host asks', async () => {

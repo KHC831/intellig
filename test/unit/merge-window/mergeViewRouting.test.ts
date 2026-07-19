@@ -47,7 +47,7 @@ describe('MergeView merge-window routing', () => {
     const repo = fakeRepo('/repo');
     return new RoutingProbe(vscode.Uri.file('/ext'), fakeGitService(repo), {
       context: { extensionUri: vscode.Uri.file('/ext') } as vscode.ExtensionContext,
-      getSideNames: () => Promise.resolve({}),
+      getConflictContext: () => Promise.resolve({ stageNames: {}, operation: undefined }),
     });
   }
 

@@ -30,6 +30,12 @@ import {
 } from './resolveConflictsDialog.protocol';
 export type { ConflictFileStatus } from './resolveConflictsDialog.protocol';
 import { initIslandHtml } from '../utils/webviewInit';
+import {
+  loadPersisted,
+  savePersisted,
+  readBoolean,
+  type PersistedSlot,
+} from '../utils/persistedState';
 import { sanitizeGitError } from '../git-core/gitError';
 import { AUTOSTASH_PARKED_WARNING } from '../git-core/rebaseAutostash';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
@@ -53,6 +59,13 @@ export { IConflictOpContext } from './interfaces/IConflictResolutionService';
  * Human-readable label per operation — used for the title bar and the Abort
  * button. Matches the IntelliJ labels (see INTELLIJ_REFERENCE.md).
  */
+/** globalState slot for IntelliJ's app-level GROUP_MULTIFILE_MERGE_BY_DIRECTORY. */
+const GROUP_BY_DIRECTORY_SLOT: PersistedSlot<boolean> = {
+  key: 'intellig.resolveConflictsDialog.groupByDirectory',
+  version: 1,
+  validate: readBoolean,
+};
+
 const OP_LABELS: Record<IConflictOpContext['operation'], string> = {
   merge: 'Merge',
   rebase: 'Rebase',
@@ -105,6 +118,25 @@ body {
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 .file-row:last-child { border-bottom: none; }
+.file-row:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.dir-header {
+  padding: 4px 12px;
+  font-weight: bold;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  user-select: none;
+}
 
 .file-status {
   width: 16px;
@@ -364,6 +396,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel<ResolveConflictsDia
       hasUnresolved: !this.allResolved(),
       yoursLabel: this._acceptButtonLabel('yours'),
       theirsLabel: this._acceptButtonLabel('theirs'),
+      groupByDirectory: loadPersisted(this._context.globalState, GROUP_BY_DIRECTORY_SLOT) === true,
     };
     return `<div id="root"></div>${initIslandHtml(init)}`;
   }
@@ -452,6 +485,11 @@ ${this._getBodyHtml()}
         break;
       case 'skip':
         await this._runExclusive(() => this._handleSkip());
+        break;
+      case 'setGroupByDirectory':
+        // Pure UI preference (IntelliJ's GROUP_MULTIFILE_MERGE_BY_DIRECTORY,
+        // app-level) — no git state touched, so no exclusive lock.
+        await savePersisted(this._context.globalState, GROUP_BY_DIRECTORY_SLOT, msg.value === true);
         break;
       default:
         assertNever(msg);

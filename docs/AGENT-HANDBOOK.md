@@ -67,10 +67,12 @@ WORK on it.
 
 Do not relitigate these; do not "helpfully" reintroduce them:
 
-- **Merge window**: NO bulk-apply / "Apply Non-Conflicting" button of any
-  kind. NOTHING auto-applied on open (IntelliJ default). Apply stays
-  disabled until every change is resolved. Per-change gutter/strip actions
-  only.
+- **Merge window**: NOTHING auto-applied on open unless the opt-in
+  `intellig.mergeWindow.autoApplyNonConflicting` setting is on (IntelliJ
+  default off). Toolbar matches IntelliJ's `MergeThreesideViewer`: Apply
+  Non-Conflicting + Resolve Simple Conflicts bulk actions, Accept
+  Yours/Theirs with a discard confirm over a modified result, Apply always
+  enabled with a counted confirm while changes are unresolved.
 - **Destructive-op confirms**: IntelliJ-style MINIMAL confirms — one
   modal for reset/drop/force-push class operations, never double-confirms.
   Force push defaults to `--force-with-lease`.

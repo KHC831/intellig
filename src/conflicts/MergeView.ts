@@ -9,8 +9,7 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { isConflictedStatus } from '../git-core/gitParser';
 import { canonicalizeFsPath, repoRelativePath } from '../utils/repoRelativePath';
 import { ensureSyntheticMergeBase } from './syntheticMergeBase';
-import { IConflictSideNames } from './conflictSideNames';
-import { MergeWindowPanel } from './merge-window/MergeWindowPanel';
+import { MergeWindowPanel, IMergeWindowConflictContext } from './merge-window/MergeWindowPanel';
 import { getLogger } from '../utils/logger';
 
 /**
@@ -20,7 +19,8 @@ import { getLogger } from '../utils/logger';
  */
 export interface IMergeWindowDeps {
   context: vscode.ExtensionContext;
-  getSideNames: (repository: IRepository) => Promise<IConflictSideNames>;
+  /** Raw stage names + operation; the panel maps them to panes via the reversal predicate. */
+  getConflictContext: (repository: IRepository) => Promise<IMergeWindowConflictContext>;
 }
 
 /**
@@ -196,9 +196,11 @@ export class MergeView implements IMergeView {
   }
 
   /**
-   * Open the IntelliG merge window for the conflicted file. Side labels come
-   * from the conflict-operation context (rebase swaps ours/theirs there);
-   * label resolution is best-effort and never blocks opening.
+   * Open the IntelliG merge window for the conflicted file. The conflict
+   * context (operation + stage names) drives the panel's pane assignment
+   * (rebase swaps ours/theirs); its resolution is best-effort and never
+   * blocks opening — the panel then falls back to the forward mapping with
+   * generic labels.
    */
   protected async _openMergeWindow(
     repository: IRepository,
@@ -216,11 +218,11 @@ export class MergeView implements IMergeView {
       existing.reveal(vscode.ViewColumn.Active);
       return;
     }
-    let names: IConflictSideNames = {};
+    let conflictContext: IMergeWindowConflictContext = { stageNames: {}, operation: undefined };
     try {
-      names = await deps.getSideNames(repository);
+      conflictContext = await deps.getConflictContext(repository);
     } catch (err) {
-      getLogger().debug('merge window: side-name resolution failed', {
+      getLogger().debug('merge window: conflict-context resolution failed', {
         err: err instanceof Error ? err.message : String(err),
       });
     }
@@ -228,8 +230,7 @@ export class MergeView implements IMergeView {
       repository,
       relPath,
       absolutePath,
-      leftLabel: names.yours ? `Yours (${names.yours})` : 'Yours',
-      rightLabel: names.theirs ? `Theirs (${names.theirs})` : 'Theirs',
+      conflictContext,
       gitCli,
       gitService: this._gitService,
       onApplied: (applied): void => {

@@ -39,17 +39,29 @@ function render(init: IResolveConflictsDialogInit): void {
 
   root.append(el('div', { className: 'header', textContent: init.headerText }));
 
+  // Statuses live in this map (updated by updateFileStatus) so the list can
+  // re-render on a grouping toggle without losing later resolutions.
+  const statuses = new Map<string, ConflictFileStatus>(init.files.map((f) => [f.path, f.status]));
+  let grouped = init.groupByDirectory === true;
+
   const fileList = el('div', { className: 'file-list' });
   fileList.setAttribute('data-role', 'file-list');
-  const buildRow = (path: string, status: ConflictFileStatus): HTMLDivElement => {
+  const buildRow = (path: string, displayName: string): HTMLDivElement => {
+    const status = statuses.get(path) ?? 'unresolved';
     const row = el('div', { className: 'file-row' });
     row.setAttribute('data-row-path', path);
+    row.tabIndex = 0;
+    row.addEventListener('dblclick', () => {
+      if (statuses.get(path) !== 'resolved') {
+        send({ type: 'openMergeView', path });
+      }
+    });
     row.append(
       el('span', {
         className: 'file-status ' + status,
         textContent: status === 'resolved' ? '✓' : '⚠',
       }),
-      el('span', { className: 'file-path', textContent: path })
+      el('span', { className: 'file-path', textContent: displayName })
     );
     const actions = el('span', { className: 'file-actions' });
     if (status === 'resolved') {
@@ -78,23 +90,87 @@ function render(init: IResolveConflictsDialogInit): void {
     row.append(actions);
     return row;
   };
-  if (init.files.length > 0) {
-    for (const f of init.files) {
-      fileList.append(buildRow(f.path, f.status));
+
+  const rebuildList = (): void => {
+    fileList.textContent = '';
+    if (init.files.length === 0) {
+      const empty = el('div', { className: 'file-row' });
+      empty.append(
+        el('span', {
+          className: 'file-path',
+          textContent: init.continueVisible
+            ? 'All conflicts resolved — click Continue to finish.'
+            : 'No conflicted files.',
+        })
+      );
+      fileList.append(empty);
+      return;
     }
-  } else {
-    const empty = el('div', { className: 'file-row' });
-    empty.append(
-      el('span', {
-        className: 'file-path',
-        textContent: init.continueVisible
-          ? 'All conflicts resolved — click Continue to finish.'
-          : 'No conflicted files.',
-      })
-    );
-    fileList.append(empty);
-  }
-  root.append(fileList);
+    if (!grouped) {
+      for (const f of init.files) {
+        fileList.append(buildRow(f.path, f.path));
+      }
+      return;
+    }
+    // Group by directory, first-seen order; root-level files carry no header.
+    const dirOf = (p: string): string => {
+      const i = p.lastIndexOf('/');
+      return i < 0 ? '' : p.slice(0, i);
+    };
+    const byDir = new Map<string, string[]>();
+    for (const f of init.files) {
+      const dir = dirOf(f.path);
+      const bucket = byDir.get(dir) ?? [];
+      bucket.push(f.path);
+      byDir.set(dir, bucket);
+    }
+    for (const [dir, paths] of byDir) {
+      if (dir !== '') {
+        fileList.append(el('div', { className: 'dir-header', textContent: dir }));
+      }
+      for (const p of paths) {
+        fileList.append(buildRow(p, p.slice(dir === '' ? 0 : dir.length + 1)));
+      }
+    }
+  };
+  rebuildList();
+
+  // Roving keyboard access: arrows walk the rows, Enter merges the focused one.
+  fileList.addEventListener('keydown', (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const row = target.closest('[data-row-path]');
+    if (!(row instanceof HTMLElement)) {
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const rows = Array.from(fileList.querySelectorAll('[data-row-path]'));
+      const next = rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (next instanceof HTMLElement) {
+        next.focus();
+      }
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      const path = row.getAttribute('data-row-path');
+      if (path && statuses.get(path) !== 'resolved') {
+        send({ type: 'openMergeView', path });
+      }
+    }
+  });
+
+  // IntelliJ's persisted "Group files by directory" list option.
+  const toggle = el('input', { id: 'group-by-dir', type: 'checkbox' });
+  toggle.checked = grouped;
+  toggle.addEventListener('change', () => {
+    grouped = toggle.checked;
+    send({ type: 'setGroupByDirectory', value: grouped });
+    rebuildList();
+  });
+  const toggleLabel = el('label', { className: 'group-toggle' });
+  toggleLabel.append(toggle, document.createTextNode('Group files by directory'));
+  root.append(toggleLabel, fileList);
 
   if (init.hasUnresolved) {
     const bulkActions = el('div', { className: 'bulk-actions' });
@@ -166,6 +242,7 @@ function render(init: IResolveConflictsDialogInit): void {
       return;
     }
     if (msg.type === 'updateFileStatus') {
+      statuses.set(msg.path, msg.status);
       const row = document.querySelector('[data-row-path="' + CSS.escape(msg.path) + '"]');
       if (!row) {
         return;

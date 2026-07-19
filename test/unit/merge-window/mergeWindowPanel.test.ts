@@ -3,7 +3,10 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { MergeWindowPanel } from '../../../src/conflicts/merge-window/MergeWindowPanel';
+import {
+  MergeWindowPanel,
+  IMergeWindowConflictContext,
+} from '../../../src/conflicts/merge-window/MergeWindowPanel';
 import { MergeView } from '../../../src/conflicts/MergeView';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { GitCli } from '../../../src/git-core/gitCli';
@@ -33,14 +36,30 @@ function capturePanels(): { created: IMockPanel[]; restore(): void } {
   };
 }
 
-function fakeContext(): vscode.ExtensionContext {
-  return { extensionUri: vscode.Uri.file('/ext') } as vscode.ExtensionContext;
+function fakeContext(store: Map<string, unknown> = new Map()): vscode.ExtensionContext {
+  const workspaceState = {
+    get: <T>(key: string): T | undefined => store.get(key) as T | undefined,
+    update: (key: string, value: unknown): Promise<void> => {
+      if (value === undefined) {
+        store.delete(key);
+      } else {
+        store.set(key, value);
+      }
+      return Promise.resolve();
+    },
+  };
+  return {
+    extensionUri: vscode.Uri.file('/ext'),
+    workspaceState,
+  } as unknown as vscode.ExtensionContext;
 }
 
 function buildPanel(
   absolutePath: string,
   stagedPaths: string[][],
-  gitCli: GitCli = {} as GitCli
+  gitCli: GitCli = {} as GitCli,
+  conflictContext: IMergeWindowConflictContext = { stageNames: {}, operation: 'merge' },
+  store: Map<string, unknown> = new Map()
 ): { panel: PanelProbe; applied: string[] } {
   const applied: string[] = [];
   const repository = { rootUri: vscode.Uri.file('/repo') } as IRepository;
@@ -52,12 +71,11 @@ function buildPanel(
       },
     }),
   } as unknown as IGitService;
-  const panel = new PanelProbe(fakeContext(), {
+  const panel = new PanelProbe(fakeContext(store), {
     repository,
     relPath: path.basename(absolutePath),
     absolutePath,
-    leftLabel: 'Yours',
-    rightLabel: 'Theirs',
+    conflictContext,
     gitCli,
     gitService,
     onApplied: (rel): void => {
@@ -165,6 +183,46 @@ describe('MergeWindowPanel', () => {
     }
   });
 
+  it('a forward operation labels the panes from the stage names unswapped', async () => {
+    const capture = capturePanels();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), {
+        stageNames: { ours: 'main', theirs: 'feature' },
+        operation: 'merge',
+      });
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[0]);
+      assert.strictEqual(init.left, 'ours\n');
+      assert.strictEqual(init.leftLabel, 'Yours (main)');
+      assert.strictEqual(init.right, 'theirs\n');
+      assert.strictEqual(init.rightLabel, 'Theirs (feature)');
+      panel.dispose();
+    } finally {
+      capture.restore();
+      resetMockConfiguration();
+    }
+  });
+
+  it('a rebase swaps pane CONTENT together with the labels (reversed operation)', async () => {
+    const capture = capturePanels();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), {
+        stageNames: { ours: 'main', theirs: 'feature' },
+        operation: 'rebase',
+      });
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[0]);
+      assert.strictEqual(init.left, 'theirs\n', 'Yours pane must hold stage 3 on a rebase');
+      assert.strictEqual(init.leftLabel, 'Yours (feature)');
+      assert.strictEqual(init.right, 'ours\n');
+      assert.strictEqual(init.rightLabel, 'Theirs (main)');
+      panel.dispose();
+    } finally {
+      capture.restore();
+      resetMockConfiguration();
+    }
+  });
+
   it('the auto-apply setting defaults to off (IntelliJ parity)', async () => {
     const capture = capturePanels();
     try {
@@ -176,6 +234,219 @@ describe('MergeWindowPanel', () => {
     } finally {
       capture.restore();
       resetMockConfiguration();
+    }
+  });
+
+  it("a 'confirm' request shows a modal and posts the user's consent back", async () => {
+    const capture = capturePanels();
+    const prompts: string[] = [];
+    const originalWarn = vscode.window.showWarningMessage;
+    (vscode.window as { showWarningMessage: unknown }).showWarningMessage = async (
+      message: string,
+      _opts: unknown,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      prompts.push(message);
+      return items[0];
+    };
+    try {
+      const { panel } = buildPanel('/repo/x.txt', []);
+      await panel.deliver({ type: 'confirm', requestId: 7, action: 'acceptLeft' });
+      const posted = (capture.created[0].webview as unknown as { _posted: unknown[] })._posted;
+      const result = posted.find((m) => (m as { type?: string }).type === 'confirmResult') as {
+        requestId: number;
+        confirmed: boolean;
+      };
+      assert.ok(result, 'the host must answer the confirm request');
+      assert.strictEqual(result.requestId, 7);
+      assert.strictEqual(result.confirmed, true);
+      assert.ok(/unsaved changes/i.test(prompts[0] ?? ''), 'modal warns about unsaved changes');
+      panel.dispose();
+    } finally {
+      (vscode.window as { showWarningMessage: unknown }).showWarningMessage = originalWarn;
+      capture.restore();
+    }
+  });
+
+  it('a partially-resolved Apply confirm spells out the unprocessed counts', async () => {
+    const capture = capturePanels();
+    const prompts: string[] = [];
+    const originalWarn = vscode.window.showWarningMessage;
+    (vscode.window as { showWarningMessage: unknown }).showWarningMessage = async (
+      message: string,
+      _opts: unknown,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      prompts.push(message);
+      return items[0];
+    };
+    try {
+      const { panel } = buildPanel('/repo/x.txt', []);
+      await panel.deliver({
+        type: 'confirm',
+        requestId: 9,
+        action: 'applyUnresolved',
+        changes: 2,
+        conflicts: 1,
+      });
+      const posted = (capture.created[0].webview as unknown as { _posted: unknown[] })._posted;
+      const result = posted.find((m) => (m as { type?: string }).type === 'confirmResult') as {
+        confirmed: boolean;
+      };
+      assert.ok(result?.confirmed, 'choosing the apply button confirms');
+      assert.ok(
+        /2 changes and 1 conflict left unprocessed/.test(prompts[0] ?? ''),
+        `counts must be spelled out, got: ${prompts[0]}`
+      );
+      panel.dispose();
+    } finally {
+      (vscode.window as { showWarningMessage: unknown }).showWarningMessage = originalWarn;
+      capture.restore();
+    }
+  });
+
+  it('dismissing the confirm modal posts confirmed=false', async () => {
+    const capture = capturePanels();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', []);
+      await panel.deliver({ type: 'confirm', requestId: 3, action: 'acceptRight' });
+      const posted = (capture.created[0].webview as unknown as { _posted: unknown[] })._posted;
+      const result = posted.find((m) => (m as { type?: string }).type === 'confirmResult') as {
+        requestId: number;
+        confirmed: boolean;
+      };
+      assert.ok(result, 'the host must answer even a dismissed confirm');
+      assert.strictEqual(result.requestId, 3);
+      assert.strictEqual(result.confirmed, false);
+      panel.dispose();
+    } finally {
+      capture.restore();
+    }
+  });
+
+  it('a modified state persists the result text; back-to-pristine clears it', async () => {
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], {} as GitCli, undefined, store);
+      await panel.deliver({
+        type: 'state',
+        unresolved: 1,
+        total: 2,
+        modified: true,
+        resultText: 'half-merged\n',
+      });
+      assert.deepStrictEqual([...store.values()], [{ v: 1, data: 'half-merged\n' }]);
+      assert.ok(
+        [...store.keys()][0].includes('x.txt'),
+        'the persisted result is keyed by the file'
+      );
+
+      await panel.deliver({ type: 'state', unresolved: 2, total: 2, modified: false });
+      assert.strictEqual(store.size, 0, 'undoing back to pristine drops the saved result');
+      panel.dispose();
+    } finally {
+      capture.restore();
+    }
+  });
+
+  it('a successful apply clears the persisted merge result', async () => {
+    const capture = capturePanels();
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const target = path.join(tmpDir, `apply-clears-${process.pid}.txt`);
+    const store = new Map<string, unknown>();
+    try {
+      const { panel } = buildPanel(target, [], {} as GitCli, undefined, store);
+      await panel.deliver({
+        type: 'state',
+        unresolved: 0,
+        total: 2,
+        modified: true,
+        resultText: 'merged\n',
+      });
+      assert.strictEqual(store.size, 1);
+      await panel.deliver({ type: 'apply', resultText: 'merged\n' });
+      assert.strictEqual(store.size, 0, 'an applied result needs no restore copy');
+    } finally {
+      capture.restore();
+      fs.rmSync(target, { force: true });
+    }
+  });
+
+  it('reopening with a persisted result offers a restore and seeds init with it', async () => {
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    const originalInfo = vscode.window.showInformationMessage;
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async (
+      _message: string,
+      _opts: unknown,
+      ...items: string[]
+    ): Promise<string | undefined> => items.find((i) => /restore/i.test(i));
+    try {
+      {
+        const { panel } = buildPanel(
+          '/repo/x.txt',
+          [],
+          stubStagesGitCli('x.txt'),
+          undefined,
+          store
+        );
+        await panel.deliver({
+          type: 'state',
+          unresolved: 1,
+          total: 2,
+          modified: true,
+          resultText: 'half-merged\n',
+        });
+        panel.dispose();
+      }
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[1]);
+      assert.strictEqual(init.restoredResult, 'half-merged\n');
+      panel.dispose();
+    } finally {
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
+      capture.restore();
+    }
+  });
+
+  it('declining the restore drops the persisted result and opens clean', async () => {
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    const originalInfo = vscode.window.showInformationMessage;
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async (
+      _message: string,
+      _opts: unknown,
+      ...items: string[]
+    ): Promise<string | undefined> => items.find((i) => /discard/i.test(i));
+    try {
+      {
+        const { panel } = buildPanel(
+          '/repo/x.txt',
+          [],
+          stubStagesGitCli('x.txt'),
+          undefined,
+          store
+        );
+        await panel.deliver({
+          type: 'state',
+          unresolved: 1,
+          total: 2,
+          modified: true,
+          resultText: 'half-merged\n',
+        });
+        panel.dispose();
+      }
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[1]);
+      assert.strictEqual(init.restoredResult, undefined, 'declining must not seed the result');
+      assert.strictEqual(store.size, 0, 'declining discards the saved copy');
+      panel.dispose();
+    } finally {
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
+      capture.restore();
     }
   });
 
@@ -212,7 +483,7 @@ describe('MergeView merge-window per-file dedup', () => {
     } as unknown as IGitService;
     return new MergeView(vscode.Uri.file('/ext'), gitService, {
       context: fakeContext(),
-      getSideNames: () => Promise.resolve({}),
+      getConflictContext: () => Promise.resolve({ stageNames: {}, operation: undefined }),
     });
   }
 

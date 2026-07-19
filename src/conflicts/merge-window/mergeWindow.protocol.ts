@@ -21,10 +21,25 @@ export type MergeWindowInitMessage = {
   readonly fileName: string;
   /** IntelliJ's "Automatically apply non-conflicting changes" (opt-in). */
   readonly autoApplyNonConflicting?: boolean;
+  /**
+   * Result text saved when a previous merge window for this file closed
+   * with unsaved edits; seeds the result editor (as a modified state).
+   */
+  readonly restoredResult?: string;
+};
+
+/** Destructive toolbar actions the webview must have confirmed by a host modal. */
+export type MergeWindowConfirmAction = 'acceptLeft' | 'acceptRight' | 'applyUnresolved';
+
+/** Host → webview: the user's answer to a `confirm` request. */
+export type MergeWindowConfirmResultMessage = {
+  readonly type: 'confirmResult';
+  readonly requestId: number;
+  readonly confirmed: boolean;
 };
 
 /** Everything the host may post to the merge-window webview. */
-export type MergeWindowOutbound = MergeWindowInitMessage;
+export type MergeWindowOutbound = MergeWindowInitMessage | MergeWindowConfirmResultMessage;
 
 /** Everything the webview may post back to the host. */
 export type MergeWindowInbound =
@@ -32,15 +47,34 @@ export type MergeWindowInbound =
   | { readonly type: 'apply'; readonly resultText: string }
   | { readonly type: 'abort'; readonly modified: boolean }
   | {
+      readonly type: 'confirm';
+      readonly requestId: number;
+      readonly action: MergeWindowConfirmAction;
+      /** Unresolved plain changes ('applyUnresolved' only). */
+      readonly changes?: number;
+      /** Unresolved conflicts ('applyUnresolved' only). */
+      readonly conflicts?: number;
+    }
+  | {
       readonly type: 'state';
       readonly unresolved: number;
       readonly total: number;
       readonly modified: boolean;
+      /** The current result text, present while modified — the host persists
+       * it so a closed tab (which VS Code cannot veto) can be restored. */
+      readonly resultText?: string;
     }
   | { readonly type: 'log'; readonly level: 'warn' | 'error'; readonly text: string };
 
 /** Runtime discriminant set — the host guard rejects an unknown type before dispatch. */
-export const MERGE_WINDOW_INBOUND_TYPES = ['ready', 'apply', 'abort', 'state', 'log'] as const;
+export const MERGE_WINDOW_INBOUND_TYPES = [
+  'ready',
+  'apply',
+  'abort',
+  'confirm',
+  'state',
+  'log',
+] as const;
 
 /**
  * Narrow an untrusted wire message to {@link MergeWindowInbound} by its

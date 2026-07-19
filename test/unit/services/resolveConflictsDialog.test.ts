@@ -46,11 +46,26 @@ import { installWarningMessageTracker, restoreMessageFunctions } from '../../typ
  * Factory for a minimal mock `ExtensionContext` — mirrors the helper used
  * elsewhere in the unit-test suite.
  */
+function makeMemento(): vscode.Memento {
+  const store = new Map<string, unknown>();
+  return {
+    get: <T>(key: string): T | undefined => store.get(key) as T | undefined,
+    update: (key: string, value: unknown): Promise<void> => {
+      if (value === undefined) {
+        store.delete(key);
+      } else {
+        store.set(key, value);
+      }
+      return Promise.resolve();
+    },
+  } as unknown as vscode.Memento;
+}
+
 function makeContext(): vscode.ExtensionContext {
   return {
     subscriptions: [],
-    workspaceState: {} as vscode.Memento,
-    globalState: {} as vscode.Memento,
+    workspaceState: makeMemento(),
+    globalState: makeMemento(),
     extensionPath: '/tmp/ext',
     storagePath: undefined,
     globalStoragePath: '/tmp/global',

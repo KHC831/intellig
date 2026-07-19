@@ -9,6 +9,9 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { GitCli } from '../../git-core/gitCli';
 import { readUnmergedStages, IStageBlob } from '../conflictStageModel';
+import { IConflictOpContext } from '../interfaces/IConflictResolutionService';
+import { isReversedOperation } from '../conflictReversal';
+import { orderStagesByUserSide, disambiguateSideNames, IStageNames } from '../conflictSideNames';
 
 export interface IMergeStageContents {
   readonly base: string;
@@ -59,4 +62,47 @@ export async function loadMergeStageContents(
     readBlob(entry.stage3),
   ]);
   return { base, ours, theirs };
+}
+
+/** One side pane of the merge window: what it shows and what it is titled. */
+export interface IMergePane {
+  readonly content: string;
+  readonly label: string;
+}
+
+/** The three merge-window panes with contents and labels already side-mapped. */
+export interface IMergePaneAssignment {
+  readonly left: IMergePane;
+  readonly right: IMergePane;
+  readonly base: string;
+}
+
+/**
+ * Map the loaded git stages onto the merge window's panes: left = Yours,
+ * right = Theirs. Content and name travel PAIRED per stage through one
+ * {@link orderStagesByUserSide} call over one {@link isReversedOperation}
+ * decision, so a reversed operation (rebase/unstash/unshelve — where git
+ * swaps ours/theirs, per IntelliJ's GitMergeUtil.loadMergeData isReversed
+ * handling) can never label a pane with one stage while showing the other's
+ * content.
+ */
+export function assignMergePanes(
+  stages: IMergeStageContents,
+  stageNames: IStageNames,
+  operation: IConflictOpContext['operation'] | undefined
+): IMergePaneAssignment {
+  const { yours, theirs } = orderStagesByUserSide(
+    isReversedOperation(operation),
+    { content: stages.ours, name: stageNames.ours },
+    { content: stages.theirs, name: stageNames.theirs }
+  );
+  const names = disambiguateSideNames({ yours: yours.name, theirs: theirs.name });
+  return {
+    left: { content: yours.content, label: names.yours ? `Yours (${names.yours})` : 'Yours' },
+    right: {
+      content: theirs.content,
+      label: names.theirs ? `Theirs (${names.theirs})` : 'Theirs',
+    },
+    base: stages.base,
+  };
 }

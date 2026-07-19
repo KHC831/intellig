@@ -1387,7 +1387,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         sideNamesService
           ? {
               context: ctx.context,
-              getSideNames: (repo) => sideNamesService.getConflictSideNames(repo),
+              getConflictContext: (repo) => sideNamesService.getConflictStageContext(repo),
             }
           : undefined
       );

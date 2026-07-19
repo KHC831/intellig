@@ -25,6 +25,8 @@ export interface IResolveConflictsDialogInit {
   hasUnresolved: boolean;
   yoursLabel: string;
   theirsLabel: string;
+  /** Persisted "Group files by directory" preference (IntelliJ's GROUP_MULTIFILE_MERGE_BY_DIRECTORY). */
+  groupByDirectory: boolean;
 }
 
 /** Webview → host messages. */
@@ -39,7 +41,9 @@ export type ResolveConflictsDialogInbound =
   | { type: 'abort' }
   | { type: 'continue' }
   /** Skip This Commit — rebase-only; drops the conflicting commit. */
-  | { type: 'skip' };
+  | { type: 'skip' }
+  /** Persist the "Group files by directory" preference. */
+  | { type: 'setGroupByDirectory'; value: boolean };
 
 /** Host → webview messages. */
 export type ResolveConflictsDialogOutbound = {
@@ -58,6 +62,7 @@ export const RESOLVE_CONFLICTS_DIALOG_INBOUND_TYPES = [
   'abort',
   'continue',
   'skip',
+  'setGroupByDirectory',
 ] as const;
 
 /**

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { IRepository } from '../../git-core/interfaces/IGitService';
 import type { IPreApplyState } from '../../git-core/ops/preservedChanges';
-import { IConflictSideNames } from '../conflictSideNames';
+import { IConflictSideNames, IStageNames } from '../conflictSideNames';
 
 /**
  * Operation context carried through a conflict-producing git op. Describes the
@@ -285,6 +285,18 @@ export interface IConflictResolutionService {
     repo: IRepository,
     operation?: IConflictOpContext['operation']
   ): Promise<IConflictSideNames>;
+
+  /**
+   * The resolved operation plus the RAW stage names (stage 2 = ours,
+   * stage 3 = theirs, unswapped). For consumers that pair names with stage
+   * contents and run one reversal mapping over both — the merge window's
+   * pane assignment. Uses the recorded operation when `operation` is
+   * omitted. Never throws.
+   */
+  getConflictStageContext(
+    repo: IRepository,
+    operation?: IConflictOpContext['operation']
+  ): Promise<{ operation: IConflictOpContext['operation']; stageNames: IStageNames }>;
 
   /**
    * Event fired when conflicts change

@@ -236,15 +236,16 @@ sequenceDiagram
 
     U->>MV: open conflicted file
     MV->>MV: registry check (one window per file, reveal existing)
-    MV->>P: construct (labels via conflictSideNames)
+    MV->>P: construct (operation + stage names via getConflictStageContext)
     P->>W: HTML (CSP+nonce, Monaco AMD loader, bundle)
     W->>P: ready
     P->>G: loadMergeStageContents (:1/:2/:3, cat-file)
     Note over P: missing base (add/add) → conflict-marked\nworking file, IN MEMORY (no index write)
+    Note over P: assignMergePanes — ONE reversal decision maps stage\ncontents AND labels to panes (rebase/unstash/unshelve swap both)
     P->>W: init {left, base, right, labels} (LF-normalized)
     W->>W: MergeConflictModel.rediff — NOTHING auto-applied
     U->>W: per-change apply/ignore/revert/wand, hand edits, undo
-    U->>W: Apply (enabled only at unresolved === 0)
+    U->>W: Apply (confirms with counts while unresolved > 0)
     W->>P: apply {resultText}
     P->>G: atomicWriteFileSync (EOL restored) + stage
     P->>MV: onApplied → registry/tracking cleanup, onDidResolve
@@ -294,9 +295,23 @@ Webview side (`webview/main.ts`, bundled by esbuild to
   stored cursor. Reset = IntelliJ's `RevertConflictResolutionAction`: one
   undoable command over FULLY resolved changes only.
 
-HARD PRODUCT RULES (user-locked; do not regress): no bulk-apply /
-"Apply Non-Conflicting" action of any kind; nothing auto-applied on open;
-Apply stays disabled until every change is resolved.
+Toolbar semantics follow IntelliJ's `MergeThreesideViewer`: Accept
+Yours/Theirs confirm before discarding a modified result
+(`MergeUtil.showConfirmDiscardChangesDialog`); Apply is always enabled and
+confirms with unresolved counts before marking everything resolved
+(`handleResolvedCase`); Apply Non-Conflicting and Resolve Simple Conflicts
+are the bulk actions; nothing is auto-applied on open unless the opt-in
+`intellig.mergeWindow.autoApplyNonConflicting` setting is on. Destructive
+confirms run as HOST modals via the `confirm`/`confirmResult` protocol
+round trip — the webview never destroys work before the answer.
+
+Known divergence (VS Code platform limit): IntelliJ vetoes closing the
+merge dialog behind an exit confirm; VS Code has no hook to veto a webview
+tab close, so closing the merge-window TAB cannot prompt. Instead the
+webview streams the modified result text with its `state` posts, the host
+persists it in `workspaceState` keyed by repo root + path, and reopening
+the file offers Restore / Discard Saved Result. Apply, a confirmed Abort,
+and undoing back to pristine all drop the saved copy.
 
 ## Section 8. Conflicts subsystem (native path)
 

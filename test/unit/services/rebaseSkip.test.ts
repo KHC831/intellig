@@ -60,9 +60,17 @@ interface GitServiceGitCliTestSurface {
  * tests under test/unit/services.
  */
 function makeContext(): vscode.ExtensionContext {
+  const store = new Map<string, unknown>();
   return {
     subscriptions: [],
     extensionUri: vscode.Uri.file('/tmp/ext'),
+    globalState: {
+      get: (key: string): unknown => store.get(key),
+      update: (key: string, value: unknown): Promise<void> => {
+        store.set(key, value);
+        return Promise.resolve();
+      },
+    },
   } as unknown as vscode.ExtensionContext;
 }
 

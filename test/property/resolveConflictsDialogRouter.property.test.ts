@@ -32,9 +32,17 @@ function makeDialog(messages: {
   count: (key: string) => number;
   record: (key: string) => void;
 }): ResolveConflictsDialog {
+  const globalStore = new Map<string, unknown>();
   const ctx = {
     subscriptions: [],
     extensionUri: vscode.Uri.file('/tmp/ext'),
+    globalState: {
+      get: (key: string): unknown => globalStore.get(key),
+      update: (key: string, value: unknown): Promise<void> => {
+        globalStore.set(key, value);
+        return Promise.resolve();
+      },
+    },
   } as unknown as vscode.ExtensionContext;
 
   const repo: IRepository = {
