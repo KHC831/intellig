@@ -1,16 +1,24 @@
 /**
- * Pure validation for the persisted Create Patch from Local Changes pick set
- * (destinations + Reverse). The slot's validator must reject junk and
- * option-only sets so a corrupt blob degrades to the default instead of
- * reopening the pick with no destination checked.
+ * Persistence for the Create Patch from Local Changes flow.
+ *
+ * Destinations (file / clipboard) persist; Reverse deliberately does NOT —
+ * IntelliJ's CreatePatchCommitExecutor calls `myPanel.setReversePatch(false)`
+ * every time the panel opens, so a stale tick can never silently invert the
+ * next patch. The destination directory persists instead (its `vcs.patch.path`
+ * property), seeding the save dialog.
  */
 import '../../setup';
 import * as assert from 'assert';
+import * as path from 'path';
+import * as vscode from 'vscode';
 import {
-  CREATE_LOCAL_PATCH_PICKS_SLOT,
-  validateCreateLocalPatchPicks,
-  type CreateLocalPatchPick,
-} from '../../../src/commands/registration/commitRepoCoreCommands';
+  PATCH_DESTINATIONS_SLOT,
+  LAST_PATCH_DIR_SLOT,
+  validatePatchDestinations,
+  patchSaveDefaultUri,
+  rememberPatchDir,
+  type PatchDestination,
+} from '../../../src/patches/createPatchFlow';
 import { loadPersisted, savePersisted } from '../../../src/utils/persistedState';
 import type { MementoLike } from '../../../src/utils/persistedState';
 
@@ -32,47 +40,74 @@ function makeMemento(): MementoLike & { store: Map<string, unknown> } {
   };
 }
 
-describe('validateCreateLocalPatchPicks', () => {
-  it('accepts a destination-carrying pick set and dedupes it', () => {
-    assert.deepStrictEqual(validateCreateLocalPatchPicks(['file', 'file', 'reverse']), [
-      'file',
-      'reverse',
-    ]);
-    assert.deepStrictEqual(validateCreateLocalPatchPicks(['clipboard']), ['clipboard']);
-    assert.deepStrictEqual(validateCreateLocalPatchPicks(['file', 'clipboard', 'reverse']), [
-      'file',
-      'clipboard',
-      'reverse',
-    ]);
+describe('validatePatchDestinations', () => {
+  it('accepts a destination-carrying set and dedupes it', () => {
+    assert.deepStrictEqual(validatePatchDestinations(['file', 'file']), ['file']);
+    assert.deepStrictEqual(validatePatchDestinations(['clipboard']), ['clipboard']);
+    assert.deepStrictEqual(validatePatchDestinations(['file', 'clipboard']), ['file', 'clipboard']);
   });
 
-  it('rejects an options-only set (no destination)', () => {
-    assert.strictEqual(validateCreateLocalPatchPicks(['reverse']), undefined);
-    assert.strictEqual(validateCreateLocalPatchPicks([]), undefined);
+  it('rejects a set carrying `reverse` so the option can never be restored', () => {
+    assert.strictEqual(validatePatchDestinations(['file', 'reverse']), undefined);
+    assert.strictEqual(validatePatchDestinations(['reverse']), undefined);
   });
 
-  it('rejects junk shapes', () => {
-    assert.strictEqual(validateCreateLocalPatchPicks('file'), undefined);
-    assert.strictEqual(validateCreateLocalPatchPicks(['file', 'save-to-cloud']), undefined);
-    assert.strictEqual(validateCreateLocalPatchPicks([1, 2]), undefined);
-    assert.strictEqual(validateCreateLocalPatchPicks({ file: true }), undefined);
-    assert.strictEqual(validateCreateLocalPatchPicks(null), undefined);
+  it('rejects an empty set and junk shapes', () => {
+    assert.strictEqual(validatePatchDestinations([]), undefined);
+    assert.strictEqual(validatePatchDestinations('file'), undefined);
+    assert.strictEqual(validatePatchDestinations(['file', 'save-to-cloud']), undefined);
+    assert.strictEqual(validatePatchDestinations([1, 2]), undefined);
+    assert.strictEqual(validatePatchDestinations({ file: true }), undefined);
+    assert.strictEqual(validatePatchDestinations(null), undefined);
   });
 
-  it('round-trips through the persisted slot and drops a corrupt blob', async () => {
+  it('drops a legacy blob that persisted the Reverse tick', async () => {
     const memento = makeMemento();
-    const picks: CreateLocalPatchPick[] = ['clipboard', 'reverse'];
-    await savePersisted(memento, CREATE_LOCAL_PATCH_PICKS_SLOT, picks);
-    assert.deepStrictEqual(loadPersisted(memento, CREATE_LOCAL_PATCH_PICKS_SLOT), [
-      'clipboard',
-      'reverse',
-    ]);
 
-    memento.store.set(CREATE_LOCAL_PATCH_PICKS_SLOT.key, { v: 1, data: ['reverse'] });
+    memento.store.set(PATCH_DESTINATIONS_SLOT.key, { v: 1, data: ['file', 'reverse'] });
+
     assert.strictEqual(
-      loadPersisted(memento, CREATE_LOCAL_PATCH_PICKS_SLOT),
+      loadPersisted(memento, PATCH_DESTINATIONS_SLOT),
       undefined,
-      'an options-only persisted blob must fall back to the default'
+      'a persisted Reverse must not survive into the reopened pick'
     );
+  });
+
+  it('round-trips destinations through the persisted slot', async () => {
+    const memento = makeMemento();
+    const destinations: PatchDestination[] = ['clipboard'];
+
+    await savePersisted(memento, PATCH_DESTINATIONS_SLOT, destinations);
+
+    assert.deepStrictEqual(loadPersisted(memento, PATCH_DESTINATIONS_SLOT), ['clipboard']);
+  });
+});
+
+describe('patch save destination', () => {
+  const repoRoot = vscode.Uri.file(path.join(path.sep, 'repo'));
+
+  it('seeds the save dialog under the repo root when nothing is remembered', () => {
+    const uri = patchSaveDefaultUri(makeMemento(), repoRoot, 'changes.patch');
+
+    assert.strictEqual(uri.fsPath, path.join(repoRoot.fsPath, 'changes.patch'));
+  });
+
+  it('seeds the save dialog in the last used directory once one is remembered', async () => {
+    const memento = makeMemento();
+    const lastDir = path.join(path.sep, 'elsewhere', 'patches');
+    await rememberPatchDir(memento, vscode.Uri.file(path.join(lastDir, 'previous.patch')));
+
+    const uri = patchSaveDefaultUri(memento, repoRoot, 'changes.patch');
+
+    assert.strictEqual(uri.fsPath, path.join(lastDir, 'changes.patch'));
+  });
+
+  it('falls back to the repo root when the remembered value is junk', () => {
+    const memento = makeMemento();
+    memento.store.set(LAST_PATCH_DIR_SLOT.key, { v: 1, data: 42 });
+
+    const uri = patchSaveDefaultUri(memento, repoRoot, 'changes.patch');
+
+    assert.strictEqual(uri.fsPath, path.join(repoRoot.fsPath, 'changes.patch'));
   });
 });

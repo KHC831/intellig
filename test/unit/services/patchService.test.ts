@@ -52,6 +52,7 @@ import type {
   IConflictOpContext,
   IConflictedFile,
 } from '../../../src/conflicts/interfaces/IConflictResolutionService';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 interface RecordedExec {
   args: string[];
@@ -149,9 +150,20 @@ function applyCalls(git: { _exec: RecordedExec[] }): RecordedExec[] {
 }
 
 function makeContext(): vscode.ExtensionContext {
+  const state = new Map<string, unknown>();
   return {
     subscriptions: [],
     extensionUri: vscode.Uri.file('/tmp/ext'),
+    // Dialogs read persisted settings on construction; a real host always
+    // supplies this, so the stub must too.
+    workspaceState: {
+      get: <T>(key: string): T | undefined => state.get(key) as T | undefined,
+      update: (key: string, value: unknown): Thenable<void> => {
+        state.set(key, value);
+        return Promise.resolve();
+      },
+      keys: (): readonly string[] => [...state.keys()],
+    },
   } as unknown as vscode.ExtensionContext;
 }
 
@@ -585,18 +597,15 @@ describe('PatchService.applyPatch', () => {
 });
 
 describe('PatchService.createPatchFromLocalChanges', () => {
-  it('default: runs `git diff` then `git diff --cached` and concatenates', async () => {
-    const git = makeMockGitService([
-      { exitCode: 0, stdout: 'UNSTAGED_DIFF\n', stderr: '' },
-      { exitCode: 0, stdout: 'STAGED_DIFF\n', stderr: '' },
-    ]);
+  it('default: runs a single `git diff HEAD` (one base, one block per file)', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'HEAD_DIFF\n', stderr: '' }]);
     const svc = new PatchService(git);
     const repo = makeRepo();
 
     const patch = await svc.createPatchFromLocalChanges(repo, {});
-    assert.strictEqual(patch, 'UNSTAGED_DIFF\nSTAGED_DIFF\n');
-    assert.deepStrictEqual(git._exec[0].args, ['diff']);
-    assert.deepStrictEqual(git._exec[1].args, ['diff', '--cached']);
+    assert.strictEqual(patch, 'HEAD_DIFF\n');
+    assert.strictEqual(git._exec.length, 1);
+    assert.deepStrictEqual(git._exec[0].args, ['diff', 'HEAD']);
   });
 
   it('stagedOnly: runs only `git diff --cached`', async () => {
@@ -611,16 +620,12 @@ describe('PatchService.createPatchFromLocalChanges', () => {
   });
 
   it('appends `-- file1 file2` when files are specified', async () => {
-    const git = makeMockGitService([
-      { exitCode: 0, stdout: 'U\n', stderr: '' },
-      { exitCode: 0, stdout: 'S\n', stderr: '' },
-    ]);
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'U\n', stderr: '' }]);
     const svc = new PatchService(git);
     const repo = makeRepo();
 
     await svc.createPatchFromLocalChanges(repo, { files: ['a.ts', 'b.ts'] });
-    assert.deepStrictEqual(git._exec[0].args, ['diff', '--', 'a.ts', 'b.ts']);
-    assert.deepStrictEqual(git._exec[1].args, ['diff', '--cached', '--', 'a.ts', 'b.ts']);
+    assert.deepStrictEqual(git._exec[0].args, ['diff', 'HEAD', '--', 'a.ts', 'b.ts']);
   });
 
   it('toClipboard: writes the patch text to the VS Code clipboard', async () => {
@@ -642,6 +647,58 @@ describe('PatchService.createPatchFromLocalChanges', () => {
       });
       assert.strictEqual(clipboardValue, 'CLIP\n');
       assert.strictEqual(patch, 'CLIP\n');
+    } finally {
+      (vscode.env.clipboard as unknown as { writeText: typeof originalWrite }).writeText =
+        originalWrite;
+    }
+  });
+
+  it('an empty diff never touches the clipboard or writes a file', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: '', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    let clipboardWrites = 0;
+    const originalWrite = vscode.env.clipboard.writeText;
+    (vscode.env.clipboard as unknown as { writeText: (v: string) => Promise<void> }).writeText =
+      async () => {
+        clipboardWrites++;
+      };
+    const outPath = path.join(fs.mkdtempSync(path.join(SCRATCH_ROOT, 'patch-empty-')), 'x.patch');
+
+    try {
+      const patch = await svc.createPatchFromLocalChanges(repo, {
+        toClipboard: true,
+        outputPath: outPath,
+      });
+      assert.strictEqual(patch, '');
+      assert.strictEqual(clipboardWrites, 0, 'a clean tree must not wipe the clipboard');
+      assert.strictEqual(fs.existsSync(outPath), false, 'no 0-byte patch file');
+    } finally {
+      (vscode.env.clipboard as unknown as { writeText: typeof originalWrite }).writeText =
+        originalWrite;
+    }
+  });
+
+  it('a failing git diff throws (stderr surfaced) instead of reading as no changes', async () => {
+    const git = makeMockGitService([
+      { exitCode: 128, stdout: '', stderr: 'fatal: bad revision HEAD' },
+    ]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    let clipboardWrites = 0;
+    const originalWrite = vscode.env.clipboard.writeText;
+    (vscode.env.clipboard as unknown as { writeText: (v: string) => Promise<void> }).writeText =
+      async () => {
+        clipboardWrites++;
+      };
+    try {
+      await assert.rejects(
+        () => svc.createPatchFromLocalChanges(repo, { toClipboard: true }),
+        /bad revision/
+      );
+      assert.strictEqual(clipboardWrites, 0, 'the clipboard survives a failed diff');
     } finally {
       (vscode.env.clipboard as unknown as { writeText: typeof originalWrite }).writeText =
         originalWrite;
@@ -1162,18 +1219,15 @@ describe('PatchService.applyPatch — conflict scoping against real git output s
 });
 
 describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
-  it('adds -R to both diff legs when reverse is set', async () => {
-    const git = makeMockGitService([
-      { exitCode: 0, stdout: 'diff-a', stderr: '' },
-      { exitCode: 0, stdout: 'diff-b', stderr: '' },
-    ]);
+  it('adds -R to the single HEAD diff when reverse is set', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'diff-a', stderr: '' }]);
     const svc = new PatchService(git);
     const repo = makeRepo();
 
     await svc.createPatchFromLocalChanges(repo, { reverse: true });
 
-    assert.deepStrictEqual(git._exec[0].args, ['diff', '-R']);
-    assert.deepStrictEqual(git._exec[1].args, ['diff', '--cached', '-R']);
+    assert.strictEqual(git._exec.length, 1);
+    assert.deepStrictEqual(git._exec[0].args, ['diff', 'HEAD', '-R']);
   });
 
   it('adds -R to the cached leg in stagedOnly mode', async () => {

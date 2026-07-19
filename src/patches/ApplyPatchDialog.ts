@@ -13,9 +13,10 @@
  *   - Strip-path numeric input (-p<N>). Default 1.
  *   - Base-dir text input (--directory). Blank by default.
  *   - "Use git am (preserve author)" checkbox.
- *   - Diff preview pane (first ~20 hunks) — populated on demand via a Preview
- *     button that issues a `check` pass and surfaces the patch body.
- *   - Apply + Cancel buttons.
+ *   - Preview button: runs a `--check` apply per file and lists the per-file
+ *     verdict, above a capped dump of the patch body. Re-runnable, since the
+ *     verdict describes the working tree at the moment it ran.
+ *   - Apply + Cancel buttons; Apply is gated on the form validating.
  *
  * On `--3way` conflicts the dialog delegates to
  * `IConflictResolutionService.openResolveConflictsDialog(repo, conflicts,
@@ -23,6 +24,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { assertNever } from '../utils/assertNever';
@@ -39,6 +41,13 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import { sanitizeGitError } from '../git-core/gitError';
 import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
 import { filterPatchByFiles, splitPatchByFile, validateStripLevel } from './PatchService';
+import {
+  APPLY_PATCH_SETTINGS_SLOT,
+  previewFileResult,
+  type IApplyPatchSettings,
+  type IPatchPreviewFile,
+} from './applyPatchSettings';
+import { loadPersisted, savePersisted } from '../utils/persistedState';
 
 /**
  * Constructor options for {@link ApplyPatchDialog}.
@@ -83,6 +92,8 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
   /** Current patch path displayed in the dialog (may be `undefined`). */
   private _patchPath: string | undefined;
   private _busy = false;
+  private readonly _workspaceState: vscode.Memento;
+  private readonly _settings: IApplyPatchSettings;
 
   constructor(context: vscode.ExtensionContext, options: IApplyPatchDialogOptions) {
     super(context, VIEW_TYPE, TITLE, vscode.ViewColumn.One);
@@ -91,6 +102,8 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
     this._conflictResolutionService = options.conflictResolutionService;
     this._onApplyComplete = options.onApplyComplete;
     this._patchPath = options.initialPatchPath;
+    this._workspaceState = context.workspaceState;
+    this._settings = loadPersisted(context.workspaceState, APPLY_PATCH_SETTINGS_SLOT) ?? {};
 
     this._render();
   }
@@ -186,6 +199,34 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
         color: var(--vscode-descriptionForeground);
         margin-left: 148px;
       }
+      .check-list:not(:empty) {
+        margin: 8px 0;
+        padding: 6px 8px;
+        border: 1px solid var(--vscode-panel-border);
+        max-height: 140px;
+        overflow: auto;
+      }
+      .check {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 12px;
+      }
+      .check.ok .check-icon { color: var(--vscode-testing-iconPassed, #89d185); }
+      .check.bad .check-icon { color: var(--vscode-testing-iconFailed, #f14c4c); }
+      .check-msg { color: var(--vscode-descriptionForeground); }
+      .check-list[data-stale] { opacity: 0.6; }
+      .stale {
+        color: var(--vscode-editorWarning-foreground);
+        font-style: italic;
+        margin-bottom: 4px;
+      }
+      .validation:not(:empty) {
+        color: var(--vscode-inputValidation-errorForeground, var(--vscode-editorError-foreground));
+        font-size: 12px;
+        padding: 4px 0;
+      }
     `;
   }
 
@@ -193,6 +234,9 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
     const init: IApplyPatchDialogInit = {
       patchPath: this._patchPath ?? '',
       previewLineCap: PREVIEW_LINE_CAP,
+      stripLevel: this._settings.stripLevel ?? 1,
+      baseDir: this._settings.baseDir ?? '',
+      useAm: this._settings.useAm ?? false,
     };
     return `<div id="root"></div>${initIslandHtml(init)}`;
   }
@@ -273,11 +317,24 @@ ${this._getBodyHtml()}
   }
 
   /**
+   * Merge `changes` into the remembered dialog settings and persist them, so
+   * the next open starts from the user's last form rather than the defaults.
+   */
+  private async _rememberSettings(changes: IApplyPatchSettings): Promise<void> {
+    Object.assign(this._settings, changes);
+    await savePersisted(this._workspaceState, APPLY_PATCH_SETTINGS_SLOT, this._settings);
+  }
+
+  /**
    * Show a file-open dialog filtered to `.patch` / `.diff` files. Updates the
    * dialog's internal patch path on selection.
    */
   private async _handleBrowse(): Promise<void> {
     const uri = await vscode.window.showOpenDialog({
+      defaultUri:
+        this._settings.lastPatchDir === undefined
+          ? this._repo.rootUri
+          : vscode.Uri.file(this._settings.lastPatchDir),
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
@@ -291,6 +348,7 @@ ${this._getBodyHtml()}
       return;
     }
     this._patchPath = uri[0].fsPath;
+    await this._rememberSettings({ lastPatchDir: path.dirname(this._patchPath) });
     await this.postMessage({
       type: 'patchPathChosen',
       patchPath: this._patchPath,
@@ -298,7 +356,10 @@ ${this._getBodyHtml()}
   }
 
   /**
-   * Load the patch contents for preview. Capped at PREVIEW_LINE_CAP lines.
+   * Load the patch for preview: the (capped) body plus a per-file `--check`
+   * verdict, so the user sees which files will actually apply before
+   * committing to it. Re-run on demand, which is also how a preview that went
+   * stale against the working tree is refreshed.
    */
   private async _handlePreview(
     msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>
@@ -312,7 +373,8 @@ ${this._getBodyHtml()}
           ? lines.slice(0, PREVIEW_LINE_CAP).join('\n') +
             `\n\n… (${overflow} more ${overflow === 1 ? 'line' : 'lines'} truncated)`
           : text;
-      await this.postMessage({ type: 'preview', content: capped });
+      const files = await this._runPreviewChecks(text, msg);
+      await this.postMessage({ type: 'preview', content: capped, files });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       await this.postMessage({
@@ -323,6 +385,43 @@ ${this._getBodyHtml()}
   }
 
   /**
+   * Run a `--check` apply per file in the patch and collect the verdicts.
+   *
+   * Checking each file separately (rather than reading git's prose from one
+   * whole-patch run) is what makes the result attributable to a file. Checks
+   * mutate nothing. A headerless patch yields a single whole-patch verdict.
+   */
+  private async _runPreviewChecks(
+    content: string,
+    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>
+  ): Promise<IPatchPreviewFile[]> {
+    const common = {
+      useAm: msg.useAm,
+      stripLevel: msg.stripLevel,
+      baseDir: msg.baseDir,
+      check: true,
+    };
+    const segments = splitPatchByFile(content);
+    if (segments.length === 0) {
+      const result = await this._patchService.applyPatch(this._repo, {
+        ...common,
+        patchContent: content,
+      });
+      return [previewFileResult('(whole patch)', result)];
+    }
+
+    const verdicts: IPatchPreviewFile[] = [];
+    for (const segment of segments) {
+      const result = await this._patchService.applyPatch(this._repo, {
+        ...common,
+        patchContent: filterPatchByFiles(content, [segment.path]),
+      });
+      verdicts.push(previewFileResult(segment.path, result));
+    }
+    return verdicts;
+  }
+
+  /**
    * Build the {@link IApplyPatchOptions} bag from a webview apply message
    * and invoke the PatchService. Handles success, conflict, and hard-error
    * paths.
@@ -330,6 +429,11 @@ ${this._getBodyHtml()}
   private async _handleApply(
     msg: Extract<ApplyPatchDialogInbound, { type: 'apply' }>
   ): Promise<void> {
+    await this._rememberSettings({
+      stripLevel: msg.stripLevel,
+      baseDir: msg.baseDir,
+      useAm: msg.useAm,
+    });
     let applyOptions: IApplyPatchOptions;
     try {
       applyOptions = await this._buildApplyOptions(msg);

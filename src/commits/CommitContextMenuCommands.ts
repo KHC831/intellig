@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import { patchSaveDefaultUri, rememberPatchDir } from '../patches/createPatchFlow';
 import { readConfig } from '../config/configKeys';
 import * as os from 'os';
 import * as path from 'path';
@@ -1959,13 +1960,18 @@ export class CommitContextMenuCommands {
     }
 
     const saveUri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(`${hash.substring(0, 8)}.patch`),
+      defaultUri: patchSaveDefaultUri(
+        this._context?.workspaceState,
+        repo.rootUri,
+        `${hash.substring(0, 8)}.patch`
+      ),
       filters: { 'Patch Files': ['patch'], 'All Files': ['*'] },
     });
 
     if (!saveUri) {
       return;
     }
+    await rememberPatchDir(this._context?.workspaceState, saveUri);
 
     // Route the user-picked save through atomicWriteFile so a partial
     // write (EBUSY on a Windows-locked file, ENOSPC on a full disk,

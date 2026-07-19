@@ -1,4 +1,9 @@
 import * as vscode from 'vscode';
+import {
+  promptCreatePatchChoice,
+  patchSaveDefaultUri,
+  rememberPatchDir,
+} from '../../patches/createPatchFlow';
 import * as fs from 'fs';
 import * as path from 'path';
 import { formatActionFailureToast } from '../../git-core/gitError';
@@ -494,47 +499,41 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
     pickerPlaceholder: 'Select a repository',
     failureTitle: 'Failed to create patch',
     run: async ({ services, repo, paths }) => {
-      const target = await vscode.window.showQuickPick(
-        [
-          { label: '$(file) Save to file…', id: 'file' as const },
-          { label: '$(clippy) Copy to clipboard', id: 'clipboard' as const },
-        ],
-        { placeHolder: 'Where should the patch be written?' }
-      );
-      if (!target) {
+      const choice = await promptCreatePatchChoice(ctx.context.workspaceState, {
+        offerReverse: true,
+        placeHolder: 'Where should the patch be written?',
+      });
+      if (!choice) {
         return;
       }
+      const toClipboard = choice.destinations.includes('clipboard');
 
       try {
-        if (target.id === 'clipboard') {
-          const patch = await services.patchService.createPatchFromLocalChanges(repo, {
-            files: paths,
-            toClipboard: true,
+        let outputPath: string | undefined;
+        if (choice.destinations.includes('file')) {
+          const basename =
+            paths.length === 1 ? paths[0].substring(paths[0].lastIndexOf('/') + 1) : 'changes';
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: patchSaveDefaultUri(
+              ctx.context.workspaceState,
+              repo.rootUri,
+              `${basename}.patch`
+            ),
+            filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+            saveLabel: 'Save Patch',
           });
-          if (!patch || patch.trim().length === 0) {
-            void vscode.window.showInformationMessage(
-              'No local changes to diff for the selected file(s).'
-            );
+          if (!uri) {
             return;
           }
-          void vscode.window.showInformationMessage('Patch copied to clipboard.');
-          return;
+          await rememberPatchDir(ctx.context.workspaceState, uri);
+          outputPath = uri.fsPath;
         }
 
-        const basename =
-          paths.length === 1 ? paths[0].substring(paths[0].lastIndexOf('/') + 1) : 'changes';
-        const defaultUri = vscode.Uri.joinPath(repo.rootUri, `${basename}.patch`);
-        const uri = await vscode.window.showSaveDialog({
-          defaultUri,
-          filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
-          saveLabel: 'Save Patch',
-        });
-        if (!uri) {
-          return;
-        }
         const patch = await services.patchService.createPatchFromLocalChanges(repo, {
           files: paths,
-          outputPath: uri.fsPath,
+          toClipboard,
+          outputPath,
+          reverse: choice.reverse,
         });
         if (!patch || patch.trim().length === 0) {
           void vscode.window.showInformationMessage(
@@ -542,7 +541,13 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
           );
           return;
         }
-        void vscode.window.showInformationMessage(`Patch saved to ${uri.fsPath}`);
+        void vscode.window.showInformationMessage(
+          outputPath
+            ? toClipboard
+              ? `Patch saved to ${outputPath} (also copied to clipboard).`
+              : `Patch saved to ${outputPath}`
+            : 'Patch copied to clipboard.'
+        );
       } catch (error) {
         // PatchWriteFailed means the service has already surfaced a
         // sanitised toast — swallowing here avoids a second banner for one

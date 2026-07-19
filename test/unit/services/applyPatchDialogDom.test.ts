@@ -15,10 +15,20 @@ import { ApplyPatchDialog } from '../../../src/patches/ApplyPatchDialog';
 import { IPatchService } from '../../../src/patches/interfaces/IPatchService';
 
 function makeContext(): vscode.ExtensionContext {
+  const state = new Map<string, unknown>();
   return {
     subscriptions: [],
     extensionUri: vscode.Uri.file('/tmp/ext'),
     asAbsolutePath: (rel: string): string => `/tmp/ext/${rel}`,
+    // The dialog reads its remembered form state on construction.
+    workspaceState: {
+      get: <T>(key: string): T | undefined => state.get(key) as T | undefined,
+      update: (key: string, value: unknown): Thenable<void> => {
+        state.set(key, value);
+        return Promise.resolve();
+      },
+      keys: (): readonly string[] => [...state.keys()],
+    },
   } as unknown as vscode.ExtensionContext;
 }
 

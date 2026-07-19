@@ -27,6 +27,10 @@ import { looksLikePatchConflictText, parseAppliedPatchFiles } from '../git-core/
 import { sanitizeGitError } from '../git-core/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { getLogger, type Logger } from '../utils/logger';
+import { validateStripLevel } from './applyPatchValidation';
+
+// Re-exported so the established `from './PatchService'` import path keeps working.
+export { validateStripLevel };
 
 /**
  * Thrown when `createPatchFromLocalChanges` fails writing the patch
@@ -231,47 +235,47 @@ export class PatchService implements IPatchService {
   ): Promise<string> {
     const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
 
-    // Build the diff argv. When stagedOnly is set, only the index-vs-HEAD diff
-    // is emitted. Otherwise we concatenate staged + unstaged so "Create Patch
-    // from Local Changes" actually contains everything the user has.
-    const baseArgs: string[][] = [];
-    if (options.stagedOnly) {
-      baseArgs.push(['diff', '--cached']);
-    } else {
-      // Unstaged + staged, in that order. Mirrors what IntelliJ's "Create
-      // Patch" produces for a default changelist.
-      baseArgs.push(['diff']);
-      baseArgs.push(['diff', '--cached']);
+    // One diff invocation, one base. `git diff HEAD` compares HEAD to the
+    // worktree, so a file that is both staged and dirty yields a SINGLE
+    // coherent block — concatenating `diff` + `diff --cached` produced two
+    // blocks with contradictory bases that `git apply` rejects. Mirrors
+    // IntelliJ's one-change-per-file patch. `--cached` remains the explicit
+    // staged-only mode.
+    const argv = options.stagedOnly ? ['diff', '--cached'] : ['diff', 'HEAD'];
+    if (options.reverse) {
+      argv.push('-R');
+    }
+    if (options.files && options.files.length > 0) {
+      argv.push('--', ...options.files);
+    }
+    const result = await gitCli.exec(argv, {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: false,
+    });
+    // Fail closed on a capped diff: the captured stdout is a prefix of the
+    // real diff, so the patch would be silently corrupt (apply/am would fail
+    // downstream). Refuse to deliver rather than write junk.
+    if (result.truncated) {
+      const msg = 'diff exceeds the capture limit; patch not written';
+      // sanitize-exempt: non-error-data: fixed literal, carries no git output
+      void vscode.window.showErrorMessage(`Failed to create patch: ${msg}`);
+      throw new PatchWriteFailed(msg);
     }
 
-    const sections: string[] = [];
-    for (const args of baseArgs) {
-      const argv = [...args];
-      if (options.reverse) {
-        argv.push('-R');
-      }
-      if (options.files && options.files.length > 0) {
-        argv.push('--', ...options.files);
-      }
-      const result = await gitCli.exec(argv, {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: false,
-      });
-      // Fail closed on a capped diff: the captured stdout is a prefix of the
-      // real diff, so the patch would be silently corrupt (apply/am would fail
-      // downstream). Refuse to deliver rather than write junk.
-      if (result.truncated) {
-        const msg = 'diff exceeds the capture limit; patch not written';
-        // sanitize-exempt: non-error-data: fixed literal, carries no git output
-        void vscode.window.showErrorMessage(`Failed to create patch: ${msg}`);
-        throw new PatchWriteFailed(msg);
-      }
-      if (result.exitCode === 0 && result.stdout) {
-        sections.push(result.stdout);
-      }
+    // A failing diff surfaces to the caller's toast path — silently treating
+    // it as "no local changes" hid real errors (and delivery below would
+    // have wiped the clipboard first).
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || result.stdout || 'git diff failed');
     }
 
-    const patch = sections.join('');
+    const patch = result.stdout;
+
+    // Nothing to deliver: bail BEFORE the side effects so a clean tree can
+    // never wipe the clipboard or leave a 0-byte patch file behind.
+    if (patch.trim().length === 0) {
+      return '';
+    }
 
     // Deliver via the requested channel(s). Both flags can be set — we honor
     // each independently so a power user can save+copy in one go.
@@ -524,6 +528,31 @@ export function splitPatchByFile(content: string): IPatchFileSegment[] {
 }
 
 /**
+ * First line of a `git format-patch` mailbox: `From <sha> Mon Sep 17 …`.
+ * This is what `git am`'s format detection keys on; a patch that loses it
+ * fails with "Patch format detection failed" before a hunk is ever read.
+ */
+const MAILBOX_FIRST_LINE = /^From \S+ /;
+
+/**
+ * Return the mailbox envelope preceding the first `diff --git` header, or
+ * `undefined` when `content` is a plain unified diff.
+ *
+ * The envelope carries the author, date and commit message `git am` turns
+ * into a commit, so it must survive per-file subsetting. The trailing
+ * diffstat inside it may name files the subset dropped; `git apply` skips
+ * non-diff lines, so a stale summary is harmless.
+ */
+export function extractMailboxPreamble(content: string): string | undefined {
+  const firstHeader = content.search(/^diff --git /m);
+  if (firstHeader <= 0) {
+    return undefined;
+  }
+  const preamble = content.slice(0, firstHeader);
+  return MAILBOX_FIRST_LINE.test(preamble) ? preamble : undefined;
+}
+
+/**
  * Reassemble a unified patch keeping only the blocks for `selectedPaths`.
  *
  * This is the engine behind per-file Apply-Patch selection. It mirrors
@@ -541,10 +570,16 @@ export function splitPatchByFile(content: string): IPatchFileSegment[] {
  */
 export function filterPatchByFiles(content: string, selectedPaths: string[]): string {
   const wanted = new Set(selectedPaths);
-  return splitPatchByFile(content)
+  const kept = splitPatchByFile(content)
     .filter((segment) => wanted.has(segment.path))
     .map((segment) => segment.content)
     .join('');
+  if (kept.length === 0) {
+    return '';
+  }
+  // A mailbox source stays a mailbox: `git am` rejects a subset stripped of
+  // its `From …` envelope outright.
+  return (extractMailboxPreamble(content) ?? '') + kept;
 }
 
 /**
@@ -591,33 +626,6 @@ export function validateBaseDir(baseDir: string | undefined, repoRoot: string): 
   const rootWithSep = normRoot.endsWith(path.sep) ? normRoot : normRoot + path.sep;
   if (resolved !== normRoot && !resolved.startsWith(rootWithSep)) {
     return `baseDir must stay inside the repository root (${normRoot})`;
-  }
-  return undefined;
-}
-
-/**
- * Validate an `IApplyPatchOptions.stripLevel` input.
- *
- * Rules: must be a finite non-negative integer, and reasonably small
- * (`≤ 20`) so a typo doesn't turn into `git apply -p999999` which strips the
- * whole path and silently no-ops. Returns `undefined` when valid, an error
- * message when invalid.
- */
-export function validateStripLevel(stripLevel: number | undefined): string | undefined {
-  if (stripLevel === undefined) {
-    return undefined;
-  }
-  if (typeof stripLevel !== 'number' || !Number.isFinite(stripLevel)) {
-    return 'stripLevel must be a finite number';
-  }
-  if (!Number.isInteger(stripLevel)) {
-    return 'stripLevel must be an integer';
-  }
-  if (stripLevel < 0) {
-    return 'stripLevel must be >= 0';
-  }
-  if (stripLevel > 20) {
-    return 'stripLevel must be <= 20';
   }
   return undefined;
 }

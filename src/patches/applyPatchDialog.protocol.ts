@@ -3,17 +3,37 @@
  */
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
+/** Per-file verdict of the preview `--check` pass. */
+export interface IPatchPreviewFileWire {
+  path: string;
+  ok: boolean;
+  message?: string;
+}
+
 /** Initial state the host bakes into the body island; the entry reads it on boot. */
 export interface IApplyPatchDialogInit {
   patchPath: string;
   previewLineCap: number;
+  /** Remembered form state, so the dialog reopens where the user left it. */
+  stripLevel: number;
+  baseDir: string;
+  useAm: boolean;
 }
 
 /** Webview → host messages. */
 export type ApplyPatchDialogInbound =
   | { type: 'cancel' }
   | { type: 'browse' }
-  | { type: 'preview'; patchPath?: string; useClipboard?: boolean }
+  | {
+      // Carries the same options as `apply` so the preview's `--check` pass
+      // reflects exactly what applying would do.
+      type: 'preview';
+      patchPath?: string;
+      useClipboard?: boolean;
+      useAm?: boolean;
+      stripLevel?: number;
+      baseDir?: string;
+    }
   | {
       type: 'apply';
       patchPath?: string;
@@ -26,7 +46,7 @@ export type ApplyPatchDialogInbound =
 /** Host → webview messages. */
 export type ApplyPatchDialogOutbound =
   | { type: 'patchPathChosen'; patchPath: string }
-  | { type: 'preview'; content: string }
+  | { type: 'preview'; content: string; files: IPatchPreviewFileWire[] }
   | { type: 'error'; message: string };
 
 export const APPLY_PATCH_DIALOG_INBOUND_TYPES = ['cancel', 'browse', 'preview', 'apply'] as const;

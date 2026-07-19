@@ -10,6 +10,7 @@ import type {
   ApplyPatchDialogOutbound,
 } from '../applyPatchDialog.protocol';
 import { INIT_ELEMENT_ID, parseInitIsland } from '../../utils/webviewInit';
+import { applyBlockedReason } from '../applyPatchValidation';
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 
@@ -80,7 +81,7 @@ function render(init: IApplyPatchDialogInit): void {
     id: 'stripLevel',
     min: '0',
     max: '10',
-    value: '1',
+    value: String(init.stripLevel),
   });
   root.append(
     row([
@@ -93,12 +94,18 @@ function render(init: IApplyPatchDialogInit): void {
   root.append(
     row([
       el('label', { className: 'block', htmlFor: 'baseDir', textContent: 'Base directory:' }),
-      el('input', { type: 'text', id: 'baseDir', placeholder: '(repository root)' }),
+      el('input', {
+        type: 'text',
+        id: 'baseDir',
+        placeholder: '(repository root)',
+        value: init.baseDir,
+      }),
     ])
   );
 
   const amLabel = el('label');
   const amInput = el('input', { type: 'checkbox', id: 'useAm' });
+  amInput.checked = init.useAm;
   amLabel.append(amInput, ' Use ', el('code', { textContent: 'git am' }), ' (preserve author)');
   root.append(row([amLabel]));
 
@@ -112,10 +119,14 @@ function render(init: IApplyPatchDialogInit): void {
       }),
       el('span', {
         className: 'hint',
-        textContent: 'Shows the first ' + init.previewLineCap + ' lines of the patch.',
+        textContent:
+          'Checks each file and shows the first ' + init.previewLineCap + ' lines of the patch.',
       }),
     ])
   );
+
+  // Per-file `--check` verdicts, above the raw body.
+  root.append(el('div', { className: 'check-list', id: 'checkList' }));
 
   const previewPane = el('div', { className: 'preview', id: 'preview' });
   previewPane.append(
@@ -125,6 +136,8 @@ function render(init: IApplyPatchDialogInit): void {
     })
   );
   root.append(previewPane);
+
+  root.append(el('div', { className: 'validation', id: 'validation' }));
 
   root.append(
     row(
@@ -156,6 +169,63 @@ function render(init: IApplyPatchDialogInit): void {
       useClipboard: src === 'clipboard',
     };
   };
+  const stripLevel = (): number => {
+    const input = document.getElementById('stripLevel') as HTMLInputElement | null;
+    return input && input.value ? parseInt(input.value, 10) : 1;
+  };
+  const baseDir = (): string | undefined => {
+    const input = document.getElementById('baseDir') as HTMLInputElement | null;
+    return input && input.value ? input.value : undefined;
+  };
+  const useAm = (): boolean => {
+    const input = document.getElementById('useAm') as HTMLInputElement | null;
+    return !!(input && input.checked);
+  };
+  const optionsPayload = (): {
+    patchPath?: string;
+    useClipboard: boolean;
+    useAm: boolean;
+    stripLevel: number;
+    baseDir?: string;
+  } => ({ ...basePayload(), useAm: useAm(), stripLevel: stripLevel(), baseDir: baseDir() });
+
+  // Apply stays disabled while the form carries a reason not to run, shown
+  // inline rather than as a toast after the fact.
+  const refreshValidation = (): void => {
+    const reason = applyBlockedReason({
+      useClipboard: source() === 'clipboard',
+      patchPath: patchPath(),
+      stripLevel: stripLevel(),
+    });
+    const banner = document.getElementById('validation');
+    if (banner) {
+      banner.textContent = reason ?? '';
+    }
+    const applyBtn = document.getElementById('applyBtn') as HTMLButtonElement | null;
+    if (applyBtn) {
+      applyBtn.disabled = reason !== undefined;
+    }
+  };
+
+  // A preview describes the tree as it was when it ran; any change to the
+  // inputs (or to the tree itself) can invalidate it, so say so rather than
+  // letting a stale verdict look current.
+  const markPreviewStale = (): void => {
+    const list = document.getElementById('checkList');
+    if (list && list.childElementCount > 0) {
+      list.setAttribute('data-stale', 'true');
+      const note = document.getElementById('staleNote');
+      if (!note) {
+        list.prepend(
+          el('div', {
+            id: 'staleNote',
+            className: 'stale',
+            textContent: 'Inputs changed since this preview — run Preview again to re-check.',
+          })
+        );
+      }
+    }
+  };
 
   (document.getElementById('browseBtn') as HTMLButtonElement).addEventListener('click', () => {
     post({ type: 'browse' });
@@ -165,23 +235,38 @@ function render(init: IApplyPatchDialogInit): void {
     post({ type: 'cancel' });
   };
   const apply = (): void => {
-    const stripLevelEl = document.getElementById('stripLevel') as HTMLInputElement | null;
-    const baseDirEl = document.getElementById('baseDir') as HTMLInputElement | null;
-    const useAmEl = document.getElementById('useAm') as HTMLInputElement | null;
-    post({
-      type: 'apply',
-      ...basePayload(),
-      useAm: !!(useAmEl && useAmEl.checked),
-      stripLevel: stripLevelEl && stripLevelEl.value ? parseInt(stripLevelEl.value, 10) : 1,
-      baseDir: baseDirEl && baseDirEl.value ? baseDirEl.value : undefined,
-    });
+    if (
+      applyBlockedReason({
+        useClipboard: source() === 'clipboard',
+        patchPath: patchPath(),
+        stripLevel: stripLevel(),
+      })
+    ) {
+      return;
+    }
+    post({ type: 'apply', ...optionsPayload() });
   };
 
   (document.getElementById('cancelBtn') as HTMLButtonElement).addEventListener('click', cancel);
   (document.getElementById('previewBtn') as HTMLButtonElement).addEventListener('click', () => {
-    post({ type: 'preview', ...basePayload() });
+    post({ type: 'preview', ...optionsPayload() });
   });
   (document.getElementById('applyBtn') as HTMLButtonElement).addEventListener('click', apply);
+
+  // Any form change re-gates Apply and retires a now-stale preview verdict.
+  ['stripLevel', 'baseDir', 'useAm', 'patchPath'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('input', () => {
+        refreshValidation();
+        markPreviewStale();
+      });
+      input.addEventListener('change', () => {
+        refreshValidation();
+        markPreviewStale();
+      });
+    }
+  });
 
   // Dialog keyboard contract: Cmd/Ctrl+Enter → Apply; Esc → Cancel.
   document.addEventListener('keydown', (e) => {
@@ -210,8 +295,12 @@ function render(init: IApplyPatchDialogInit): void {
       if (browse) {
         browse.disabled = disabled;
       }
+      refreshValidation();
+      markPreviewStale();
     });
   });
+
+  refreshValidation();
 
   // Host → webview messages.
   window.addEventListener('message', (ev: MessageEvent) => {
@@ -224,10 +313,28 @@ function render(init: IApplyPatchDialogInit): void {
       if (input) {
         input.value = msg.patchPath;
       }
+      refreshValidation();
+      markPreviewStale();
     } else if (msg.type === 'preview') {
       const pane = document.getElementById('preview');
       if (pane) {
         pane.textContent = msg.content;
+      }
+      const list = document.getElementById('checkList');
+      if (list) {
+        list.textContent = '';
+        list.removeAttribute('data-stale');
+        msg.files.forEach((file) => {
+          const rowEl = el('div', { className: file.ok ? 'check ok' : 'check bad' });
+          rowEl.append(
+            el('span', { className: 'check-icon', textContent: file.ok ? '✓' : '✗' }),
+            el('span', { className: 'check-path', textContent: file.path })
+          );
+          if (file.message) {
+            rowEl.append(el('span', { className: 'check-msg', textContent: file.message }));
+          }
+          list.append(rowEl);
+        });
       }
     } else if (msg.type === 'error') {
       const pane = document.getElementById('preview');
