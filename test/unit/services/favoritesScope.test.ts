@@ -9,7 +9,7 @@ import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { createFavoritesStore, FAVORITES_SLOT } from '../../../src/branches/BranchTreeProvider';
-import { savePersisted, loadPersisted } from '../../../src/utils/persistedState';
+import { loadPersisted } from '../../../src/utils/persistedState';
 
 function makeMemento(): vscode.Memento {
   const store = new Map<string, unknown>();
@@ -31,13 +31,16 @@ function makeMemento(): vscode.Memento {
 }
 
 describe('favorites store scope (workspace-level, git4idea parity)', () => {
+  const REPO = '/work/alpha';
+
   it('writes favorites to the workspace memento, not the legacy global one', () => {
     const workspaceState = makeMemento();
     const globalState = makeMemento();
     const store = createFavoritesStore(workspaceState, globalState);
     try {
-      store.write(['main']);
-      assert.deepStrictEqual(loadPersisted(workspaceState, FAVORITES_SLOT), ['main']);
+      store.setFavorite('local', REPO, 'feature/x', true);
+
+      assert.ok(loadPersisted(workspaceState, FAVORITES_SLOT), 'workspace slot holds the star');
       assert.strictEqual(
         loadPersisted(globalState, FAVORITES_SLOT),
         undefined,
@@ -48,21 +51,20 @@ describe('favorites store scope (workspace-level, git4idea parity)', () => {
     }
   });
 
-  it('seeds the workspace slot from legacy globalState once', async () => {
+  it('seeds the workspace slot from the legacy global name list once', async () => {
     const workspaceState = makeMemento();
     const globalState = makeMemento();
-    await savePersisted(globalState, FAVORITES_SLOT, ['release', 'main']);
+    await globalState.update(FAVORITES_SLOT.key, ['release']);
 
     const store = createFavoritesStore(workspaceState, globalState);
     try {
-      assert.deepStrictEqual(
-        store.read().sort(),
-        ['main', 'release'],
+      assert.strictEqual(
+        store.isFavorite('local', REPO, 'release'),
+        true,
         'legacy global favorites must be visible after migration'
       );
-      assert.deepStrictEqual(
-        loadPersisted(workspaceState, FAVORITES_SLOT)?.sort(),
-        ['main', 'release'],
+      assert.ok(
+        loadPersisted(workspaceState, FAVORITES_SLOT),
         'migration must persist into workspaceState'
       );
     } finally {
@@ -70,21 +72,21 @@ describe('favorites store scope (workspace-level, git4idea parity)', () => {
     }
   });
 
-  it('does not re-seed once the workspace slot exists (un-star-all sticks)', async () => {
+  it('does not re-seed once the workspace slot exists (un-starring sticks)', async () => {
     const workspaceState = makeMemento();
     const globalState = makeMemento();
-    await savePersisted(globalState, FAVORITES_SLOT, ['release']);
+    await globalState.update(FAVORITES_SLOT.key, ['release']);
 
     const first = createFavoritesStore(workspaceState, globalState);
-    first.write([]); // user un-stars everything in this workspace
+    first.setFavorite('local', REPO, 'release', false);
     first.dispose();
 
     const second = createFavoritesStore(workspaceState, globalState);
     try {
-      assert.deepStrictEqual(
-        second.read(),
-        [],
-        'an emptied workspace set must not be re-populated from the legacy global slot'
+      assert.strictEqual(
+        second.isFavorite('local', REPO, 'release'),
+        false,
+        'an un-starred branch must not be re-populated from the legacy global slot'
       );
     } finally {
       second.dispose();
@@ -94,13 +96,13 @@ describe('favorites store scope (workspace-level, git4idea parity)', () => {
   it('leaves the legacy global slot intact for other workspaces to migrate from', async () => {
     const workspaceState = makeMemento();
     const globalState = makeMemento();
-    await savePersisted(globalState, FAVORITES_SLOT, ['release']);
+    await globalState.update(FAVORITES_SLOT.key, ['release']);
 
     const store = createFavoritesStore(workspaceState, globalState);
     store.dispose();
 
     assert.deepStrictEqual(
-      loadPersisted(globalState, FAVORITES_SLOT),
+      globalState.get(FAVORITES_SLOT.key),
       ['release'],
       'migration reads the legacy slot; it must not delete it'
     );

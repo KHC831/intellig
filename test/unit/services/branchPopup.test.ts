@@ -48,7 +48,10 @@ import {
   updateFavoritesList,
   updateRecentLru,
 } from '../../../src/branches/BranchPopup';
-import { BranchTreeProvider, type IFavoritesStore } from '../../../src/branches/BranchTreeProvider';
+import {
+  BranchTreeProvider,
+  InMemoryFavoritesStore as ProductionInMemoryFavoritesStore,
+} from '../../../src/branches/BranchTreeProvider';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
@@ -442,6 +445,28 @@ describe('BranchPopup — buildRemoteBranchActionMenu', () => {
 describe('BranchPopup — buildLocalBranchActionMenu', () => {
   const items = buildLocalBranchActionMenu(localDevelop, 'main');
 
+  // git4idea GitUpdateSelectedBranchAction (branches.update = "Update"),
+  // registered in the branch popup for LOCAL branches only
+  // (`disabledForRemote = true`).
+  it('offers Update, routed to the branch update command', () => {
+    const update = items.find((i) => label(i).includes('Update'));
+
+    assert.ok(update, `Update entry missing; labels: ${items.map((i) => label(i)).join(', ')}`);
+    assert.strictEqual(update?.commandId, 'intellig.branch.update');
+  });
+
+  it('places Update before Push, matching the update-then-publish order', () => {
+    const labels = items.map((i) => label(i));
+    const updateAt = labels.findIndex((l) => l.includes('Update'));
+    const pushAt = labels.findIndex((l) => l.includes('Push'));
+
+    assert.ok(
+      updateAt >= 0 && pushAt >= 0,
+      'both entries must exist for the order to mean anything'
+    );
+    assert.ok(updateAt < pushAt, 'Update should precede Push');
+  });
+
   it('includes IntelliJ-parity entries: Checkout, New Branch from…, Rename…, Delete, Compare, Merge into Current, Rebase Current onto…, Push…', () => {
     const labels = items.map((i) => label(i));
     assert.ok(
@@ -512,6 +537,7 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
       'intellig.branch.mergeIntoCurrent',
       'intellig.branch.rebaseCurrentOnto',
       'intellig.branch.push',
+      'intellig.branch.update',
     ]);
     // `Set Upstream…` is handled inline by the popup (nested QuickPick), so it
     // intentionally carries no commandId — every OTHER entry must route to a
@@ -1496,22 +1522,16 @@ describe('BranchPopup — buildSectionedItems settings toggles', () => {
 // appeared on the other.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class InMemoryFavoritesStore implements IFavoritesStore {
-  private _data: string[];
-  private readonly _onDidChangeFavorites = new EventEmitter<void>();
-  readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
+/**
+ * Favorites double: the production in-memory store, so these specs exercise
+ * the real resolution rules (defaults, exclusions, repo scoping).
+ */
+class InMemoryFavoritesStore extends ProductionInMemoryFavoritesStore {
   constructor(initial: string[] = []) {
-    this._data = [...initial];
-  }
-  read(): string[] {
-    return [...this._data];
-  }
-  write(favorites: string[]): void {
-    this._data = [...favorites];
-    this._onDidChangeFavorites.fire();
-  }
-  dispose(): void {
-    this._onDidChangeFavorites.dispose();
+    super();
+    for (const name of initial) {
+      this.setFavorite('local', '', name, true);
+    }
   }
 }
 
@@ -1527,7 +1547,9 @@ describe('BranchPopup — favorites share the injected store with the branch tre
 
     tree.toggleFavorite('feature/auth');
 
-    assert.deepStrictEqual(popup.getFavorites(), ['feature/auth']);
+    // The resolved list also carries the predefined defaults; what matters is
+    // that the tree's star crossed the shared store.
+    assert.ok(popup.getFavorites().includes('feature/auth'));
     popup.dispose();
     tree.dispose();
   });
@@ -1541,7 +1563,7 @@ describe('BranchPopup — favorites share the injected store with the branch tre
     // A tree over the same store loads the popup's star at construction.
     const tree = new BranchTreeProvider(mkFavoritesGitService(), undefined, store);
     assert.strictEqual(tree.isFavorite('release'), true);
-    assert.deepStrictEqual(store.read(), ['release']);
+    assert.ok(store.isFavorite('local', '', 'release'), 'the star landed in the shared store');
     popup.dispose();
     tree.dispose();
   });
@@ -1594,7 +1616,12 @@ describe('BranchPopup — legacy favorites migration', () => {
     const store = new InMemoryFavoritesStore(['main', 'release']);
     const popup = new BranchPopup(mkFavoritesGitService(), ws, undefined, store);
 
-    assert.deepStrictEqual(store.read(), ['main', 'release', 'develop']);
+    assert.deepStrictEqual(store.favoriteNames('local', '').sort(), [
+      'develop',
+      'main',
+      'master',
+      'release',
+    ]);
     popup.dispose();
   });
 
@@ -1604,7 +1631,7 @@ describe('BranchPopup — legacy favorites migration', () => {
     const popup = new BranchPopup(mkFavoritesGitService(), ws, undefined, store);
 
     assert.strictEqual(ws.get(FAVORITE_BRANCHES_STATE_KEY), undefined);
-    assert.deepStrictEqual(store.read(), ['main']);
+    assert.ok(store.isFavorite('local', '', 'main'), 'the legacy star survived the migration');
     popup.dispose();
   });
 
@@ -1613,7 +1640,7 @@ describe('BranchPopup — legacy favorites migration', () => {
     const store = new InMemoryFavoritesStore(['kept']);
     const popup = new BranchPopup(mkFavoritesGitService(), ws, undefined, store);
 
-    assert.deepStrictEqual(store.read(), ['kept']);
+    assert.ok(store.isFavorite('local', '', 'kept'), 'the pre-existing star is untouched');
     popup.dispose();
   });
 });

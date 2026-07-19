@@ -29,6 +29,7 @@ import * as assert from 'assert';
 import {
   BranchTreeProvider,
   CONTEXT_VALUES,
+  InMemoryFavoritesStore,
   type BranchTreeItem,
   type IFavoritesStore,
 } from '../../../src/branches/BranchTreeProvider';
@@ -44,7 +45,6 @@ import type { IBranch, IRepository } from '../../../src/git-core/interfaces/IGit
 import type { IncomingOutgoingFetcher } from '../../../src/branches/BranchPopup';
 import type { IIncomingOutgoing } from '../../../src/git-core/ops/IncomingOutgoingOps';
 import { repoDisplayName } from '../../../src/sync/updateProject';
-import { EventEmitter } from '../../mocks/vscode';
 
 const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
 const SHORT_SHA = 'abc1234';
@@ -558,24 +558,26 @@ describe('UI fix #37 — BranchTreeProvider folder grouping', () => {
  *     so favorites survive across sessions.
  */
 describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
-  class InMemoryStore implements IFavoritesStore {
-    private _data: string[];
+  /**
+   * The production in-memory store, plus a write counter — these specs assert
+   * the tree does not re-persist on a no-op toggle.
+   */
+  class InMemoryStore extends InMemoryFavoritesStore {
     public writes = 0;
-    private readonly _onDidChangeFavorites = new EventEmitter<void>();
-    readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
     constructor(initial: string[] = []) {
-      this._data = [...initial];
+      super();
+      for (const name of initial) {
+        super.setFavorite('local', '', name, true);
+      }
     }
-    read(): string[] {
-      return [...this._data];
-    }
-    write(favorites: string[]): void {
+    override setFavorite(
+      type: 'local' | 'remote',
+      repoPath: string,
+      name: string,
+      favorite: boolean
+    ): void {
       this.writes += 1;
-      this._data = [...favorites];
-      this._onDidChangeFavorites.fire();
-    }
-    dispose(): void {
-      this._onDidChangeFavorites.dispose();
+      super.setFavorite(type, repoPath, name, favorite);
     }
   }
 
@@ -612,8 +614,10 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
   });
 
   it('omits the HEAD root node when HEAD is detached', async () => {
+    // A non-default branch name keeps this spec about detached HEAD alone —
+    // `main` would be starred by default and add a Favorites category.
     const provider = providerWith(
-      [{ name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: false }],
+      [{ name: 'topic', type: 'local', commit: 'b'.repeat(40), isHead: false }],
       detachedRepo('a'.repeat(40))
     );
     const root = await provider.getChildren();
@@ -645,7 +649,7 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     assert.strictEqual(provider.isFavorite('feature'), false);
     provider.toggleFavorite('feature');
     assert.strictEqual(provider.isFavorite('feature'), true);
-    assert.deepStrictEqual(store.read(), ['feature'], 'favorite persisted to the store');
+    assert.ok(store.isFavorite('local', '/test', 'feature'), 'favorite persisted to the store');
   });
 
   it('toggleFavorite a second time removes the favorite and persists the removal', () => {
@@ -658,7 +662,7 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     assert.strictEqual(provider.isFavorite('feature'), true, 'loaded from store on construction');
     provider.toggleFavorite('feature');
     assert.strictEqual(provider.isFavorite('feature'), false);
-    assert.deepStrictEqual(store.read(), []);
+    assert.strictEqual(store.isFavorite('local', '/test', 'feature'), false);
   });
 
   it('loads persisted favorites from the store on construction', () => {
@@ -692,15 +696,17 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     );
   });
 
-  it('omits the Favorites category when there are no favorites', async () => {
+  it('omits the Favorites category when no ref is starred', async () => {
+    // `main`/`master` are starred out of the box, so a repo without them has
+    // nothing in Favorites (GitBranchManager.getDefaultBranchNames).
     const provider = providerWith([
-      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+      { name: 'topic', type: 'local', commit: 'b'.repeat(40), isHead: true },
     ]);
     const root = await provider.getChildren();
     assert.strictEqual(root.filter((c) => c.label === 'Favorites').length, 0);
   });
 
-  it('Favorites category lists only the starred local branches as leaf rows', async () => {
+  it('Favorites category lists the starred branches, defaults included, as leaf rows', async () => {
     const provider = providerWith(
       [
         { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
@@ -713,10 +719,12 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     const root = await provider.getChildren();
     const favCategory = root.find((c) => c.label === 'Favorites')!;
     const favs = await provider.getChildren(favCategory);
-    assert.strictEqual(favs.length, 1);
-    assert.strictEqual(favs[0].itemType, 'local-branch');
-    assert.strictEqual(favs[0].branch?.name, 'release');
-    assert.strictEqual(favs[0].isFavorite, true);
+    assert.deepStrictEqual(
+      favs.map((f) => f.branch?.name).sort(),
+      ['main', 'release'],
+      'the explicit star plus the predefined default'
+    );
+    assert.ok(favs.every((f) => f.itemType === 'local-branch' && f.isFavorite));
   });
 
   // --- favorite marking in the Local section ---
@@ -846,7 +854,8 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(sections[0].label, 'dev', 'HEAD node reflects THIS repo, not repoA');
     assert.deepStrictEqual(
       sections.slice(1).map((s) => s.label),
-      ['Local', 'Remote', 'Tags']
+      ['Local', 'Remote', 'Tags'],
+      'repoB holds only `dev`, so no default is starred and Favorites stays hidden'
     );
   });
 
@@ -1032,12 +1041,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
   it('tags a favorite leaf with its owning repository', async () => {
     const repoA = repoAt('alpha', 'main');
     const repoB = repoAt('beta', 'dev');
-    const favStore: IFavoritesStore = {
-      read: () => ['main'],
-      write: () => {},
-      onDidChangeFavorites: new EventEmitter<void>().event,
-      dispose: () => {},
-    };
+    const favStore: IFavoritesStore = new InMemoryFavoritesStore();
     const provider = multiRepoProvider(
       [repoA, repoB],
       new Map([
@@ -1106,7 +1110,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(root[0].itemType, 'head', 'flat layout still starts with the HEAD node');
     assert.deepStrictEqual(
       root.filter((n) => n.itemType === 'category').map((n) => n.label),
-      ['Local', 'Remote', 'Tags']
+      ['Favorites', 'Local', 'Remote', 'Tags']
     );
   });
 
@@ -1143,7 +1147,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(root[0].label, 'main', 'HEAD reflects the scoped repo (repoA)');
     assert.deepStrictEqual(
       root.filter((n) => n.itemType === 'category').map((n) => n.label),
-      ['Local', 'Remote', 'Tags'],
+      ['Favorites', 'Local', 'Remote', 'Tags'],
       'scoped tree is the flat HEAD/Local/Remote/Tags layout of the selected repo'
     );
 

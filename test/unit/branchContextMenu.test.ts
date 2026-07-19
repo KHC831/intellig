@@ -302,11 +302,12 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.remoteBranch');
     });
 
-    it('should have exactly 11 menu items', () => {
+    it('should have exactly 12 menu items', () => {
       // Pull into Current Using Rebase / Using Merge sit directly in the menu
       // (the former "Tracked Branch" submenu was flattened away). Track Branch
-      // is no longer a menu entry.
-      assert.strictEqual(entries.length, 11, `Expected 11 items, got ${entries.length}`);
+      // is no longer a menu entry. Toggle Favorite is present because remote
+      // refs are first-class favorites (git4idea GitBranchManager).
+      assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
     });
 
     it('should include Focus on Graph in section inline@1', () => {
@@ -403,7 +404,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.remoteBranch.deleteRemote should be at 5_manage@1');
     });
 
-    it('should have 6 distinct group sections in correct order', () => {
+    it('should have 7 distinct group sections in correct order', () => {
       const sections = [...new Set(entries.map((e) => parseGroup(e.group).section))];
       assert.deepStrictEqual(sections.sort(), [
         '1_branchOps',
@@ -411,6 +412,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         '3_integrate',
         '4_pull',
         '5_manage',
+        '6_favorite',
         'inline',
       ]);
     });

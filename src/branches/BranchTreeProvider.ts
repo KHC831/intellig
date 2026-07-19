@@ -66,51 +66,174 @@ export const CONTEXT_VALUES = {
 } as const;
 
 /**
- * Memento key under which the favorite-branch set is persisted.
- * Mirrors git4idea's per-repo `GitRepositoryModel.favoriteRefs`
- * (`GitFavoriteRefs`), reduced here to local-branch names.
+ * Memento key under which favorite refs are persisted.
+ * Mirrors git4idea's `DvcsBranchSettings` (favorites + excluded-from-favorite),
+ * keyed by repository path so a star in one root stays in that root.
  */
 const FAVORITES_MEMENTO_KEY = 'intellig.branchTree.favorites';
 
-/** Persisted slot for the favorite-branch set (globalState). */
-export const FAVORITES_SLOT: PersistedSlot<string[]> = {
-  key: FAVORITES_MEMENTO_KEY,
-  version: 1,
-  validate: readStringArray,
-};
+/** Which ref namespace a favorite belongs to (git4idea GitBranchType). */
+export type FavoriteRefType = 'local' | 'remote';
 
 /**
- * Persistence seam for the favorite-branch set (git4idea parity:
- * `GitFavoriteRefs` / `GitRepositoryModel.favoriteRefs`). Favorites are
- * keyed by local-branch name. Constructor-injected so favorite state
- * survives across sessions in production (Memento-backed) while unit
- * tests drive an in-memory double.
+ * One starred (or explicitly un-starred) ref. `repoPath` is the repository
+ * root; the empty string is the all-repositories bucket that legacy, unscoped
+ * favorites migrate into (DvcsBranchInfo.repoPath).
+ */
+export interface IFavoriteRef {
+  repoPath: string;
+  type: FavoriteRefType;
+  name: string;
+}
+
+/** Persisted favorites state: explicit stars plus explicit un-stars. */
+export interface IFavoritesState {
+  favorites: IFavoriteRef[];
+  excluded: IFavoriteRef[];
+}
+
+/**
+ * Names starred out of the box (GitBranchManager.getDefaultBranchNames).
+ * A default applies to every repository until explicitly excluded.
+ */
+const PREDEFINED_FAVORITES: Readonly<Record<FavoriteRefType, readonly string[]>> = {
+  local: ['master', 'main'],
+  remote: ['origin/master', 'origin/main'],
+};
+
+function isPredefinedFavorite(type: FavoriteRefType, name: string): boolean {
+  return PREDEFINED_FAVORITES[type].includes(name);
+}
+
+function readFavoriteRefs(raw: unknown): IFavoriteRef[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const refs: IFavoriteRef[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+    const { repoPath, type, name } = entry as Record<string, unknown>;
+    if (
+      typeof repoPath === 'string' &&
+      (type === 'local' || type === 'remote') &&
+      typeof name === 'string' &&
+      name.length > 0
+    ) {
+      refs.push({ repoPath, type, name });
+    }
+  }
+  return refs;
+}
+
+/** Persisted slot for the favorites state. */
+export const FAVORITES_SLOT: PersistedSlot<IFavoritesState> = {
+  key: FAVORITES_MEMENTO_KEY,
+  version: 2,
+  validate: (raw) => {
+    if (typeof raw !== 'object' || raw === null) {
+      return undefined;
+    }
+    const favorites = readFavoriteRefs((raw as Record<string, unknown>).favorites);
+    const excluded = readFavoriteRefs((raw as Record<string, unknown>).excluded);
+    return favorites && excluded ? { favorites, excluded } : undefined;
+  },
+};
+
+/** An entry matches when the repo agrees, or when it is an all-repos star. */
+function matches(
+  ref: IFavoriteRef,
+  type: FavoriteRefType,
+  repoPath: string,
+  name: string
+): boolean {
+  return (
+    ref.type === type && ref.name === name && (ref.repoPath === repoPath || ref.repoPath === '')
+  );
+}
+
+/**
+ * Persistence seam for favorite refs (git4idea parity: `DvcsBranchManager` +
+ * `DvcsBranchSettings`). Resolution follows DvcsBranchManager.isFavorite: an
+ * explicit star wins, then an explicit exclusion, then the predefined
+ * defaults. Constructor-injected so favorites survive across sessions in
+ * production (Memento-backed) while unit tests drive an in-memory double.
  *
- * Observable: {@link onDidChangeFavorites} fires whenever {@link write}
- * mutates the set, so every surface sharing the store (Branches tree,
- * branch popup) stays live-consistent within a session — a star added on
- * one surface repaints the other without a window reload. `dispose` tears
- * down the change emitter; the store's owner (the extension) calls it, not
- * the injected consumers.
+ * Observable: {@link onDidChangeFavorites} fires whenever a mutation lands, so
+ * every surface sharing the store (Branches tree, branch popup) stays
+ * live-consistent within a session. `dispose` tears down the change emitter;
+ * the store's owner (the extension) calls it, not the injected consumers.
  */
 export interface IFavoritesStore {
-  read(): string[];
-  write(favorites: string[]): void;
+  isFavorite(type: FavoriteRefType, repoPath: string, name: string): boolean;
+  setFavorite(type: FavoriteRefType, repoPath: string, name: string, favorite: boolean): void;
+  /** Resolved favorite names for a repository: defaults plus stars, minus exclusions. */
+  favoriteNames(type: FavoriteRefType, repoPath: string): string[];
   readonly onDidChangeFavorites: vscode.Event<void>;
   dispose(): void;
 }
 
 /**
  * Shared base for the {@link IFavoritesStore} implementations. Owns the
- * change-emitter plumbing (the observable {@link onDidChangeFavorites} and its
- * teardown) so each backing store only supplies {@link read} / {@link write}
- * and fires {@link _fireChange} after a mutation.
+ * change-emitter plumbing and the favorite/excluded resolution rules, so a
+ * backing store only supplies state {@link _load} / {@link _save}.
  */
 abstract class FavoritesStoreBase implements IFavoritesStore {
   private readonly _onDidChangeFavorites = new vscode.EventEmitter<void>();
   readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
-  abstract read(): string[];
-  abstract write(favorites: string[]): void;
+
+  protected abstract _load(): IFavoritesState;
+  protected abstract _save(state: IFavoritesState): void;
+
+  isFavorite(type: FavoriteRefType, repoPath: string, name: string): boolean {
+    const state = this._load();
+    if (state.favorites.some((ref) => matches(ref, type, repoPath, name))) {
+      return true;
+    }
+    if (state.excluded.some((ref) => matches(ref, type, repoPath, name))) {
+      return false;
+    }
+    return isPredefinedFavorite(type, name);
+  }
+
+  setFavorite(type: FavoriteRefType, repoPath: string, name: string, favorite: boolean): void {
+    const state = this._load();
+    const without = (refs: IFavoriteRef[]): IFavoriteRef[] =>
+      refs.filter((ref) => !matches(ref, type, repoPath, name));
+    const next: IFavoritesState = favorite
+      ? {
+          favorites: isPredefinedFavorite(type, name)
+            ? without(state.favorites)
+            : [...without(state.favorites), { repoPath, type, name }],
+          excluded: without(state.excluded),
+        }
+      : {
+          favorites: without(state.favorites),
+          excluded: isPredefinedFavorite(type, name)
+            ? [...without(state.excluded), { repoPath, type, name }]
+            : without(state.excluded),
+        };
+    this._save(next);
+    this._fireChange();
+  }
+
+  favoriteNames(type: FavoriteRefType, repoPath: string): string[] {
+    const state = this._load();
+    const names = new Set<string>(PREDEFINED_FAVORITES[type]);
+    for (const ref of state.favorites) {
+      if (ref.type === type && (ref.repoPath === repoPath || ref.repoPath === '')) {
+        names.add(ref.name);
+      }
+    }
+    for (const ref of state.excluded) {
+      if (ref.type === type && (ref.repoPath === repoPath || ref.repoPath === '')) {
+        names.delete(ref.name);
+      }
+    }
+    return [...names];
+  }
+
   protected _fireChange(): void {
     this._onDidChangeFavorites.fire();
   }
@@ -124,60 +247,82 @@ abstract class FavoritesStoreBase implements IFavoritesStore {
  * supplied (tests, and as a safe default that keeps favorites for the
  * lifetime of the provider). Production wires {@link MementoFavoritesStore}.
  */
-class InMemoryFavoritesStore extends FavoritesStoreBase {
-  private _data: string[] = [];
-  read(): string[] {
-    // Defensive copy — the caller must not mutate the backing array by
-    // reference (the Memento-backed store also hands back a fresh array).
-    return [...this._data];
+export class InMemoryFavoritesStore extends FavoritesStoreBase {
+  private _state: IFavoritesState = { favorites: [], excluded: [] };
+  protected _load(): IFavoritesState {
+    return this._state;
   }
-  write(favorites: string[]): void {
-    this._data = favorites;
-    this._fireChange();
+  protected _save(state: IFavoritesState): void {
+    this._state = state;
   }
 }
 
 /**
  * {@link IFavoritesStore} backed by a VS Code {@link vscode.Memento}
  * (the extension's workspaceState) so favorites persist across sessions
- * per workspace — the analogue of git4idea persisting `favoriteRefs` in
- * the PROJECT-level repository model (starring `main` in one project must
- * not star `main` everywhere).
+ * per workspace — the analogue of git4idea persisting branch settings in
+ * PROJECT-level state (starring `main` in one project must not star `main`
+ * everywhere).
  */
 class MementoFavoritesStore extends FavoritesStoreBase {
   constructor(private readonly _memento: vscode.Memento) {
     super();
   }
-  read(): string[] {
-    return loadPersisted(this._memento, FAVORITES_SLOT) ?? [];
+  protected _load(): IFavoritesState {
+    return loadPersisted(this._memento, FAVORITES_SLOT) ?? { favorites: [], excluded: [] };
   }
-  write(favorites: string[]): void {
-    void savePersisted(this._memento, FAVORITES_SLOT, favorites);
-    this._fireChange();
+  protected _save(state: IFavoritesState): void {
+    void savePersisted(this._memento, FAVORITES_SLOT, state);
   }
 }
 
 /**
+ * Read any pre-repo-scope payload as all-repository LOCAL stars. The old slot
+ * held a bare (or version-1 enveloped) array of local branch names, which had
+ * no repository dimension — so those stars keep applying everywhere.
+ */
+function migrateFlatFavorites(raw: unknown): IFavoritesState | undefined {
+  const names = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'object' && raw !== null && (raw as { v?: unknown }).v === 1
+      ? (raw as { data?: unknown }).data
+      : undefined;
+  const flat = readStringArray(names);
+  if (!flat) {
+    return undefined;
+  }
+  return {
+    favorites: flat.map((name) => ({ repoPath: '', type: 'local' as const, name })),
+    excluded: [],
+  };
+}
+
+/**
  * Build the shared, Memento-backed favorites store — the single source of
- * truth for starred branches across the Branches tree and the branch popup
- * (git4idea parity: one `GitRepositoryModel.favoriteRefs`, project-scoped).
- * Persists to `workspaceState`. Favorites once lived in globalState; when the
- * workspace slot has never been written and the legacy global slot has data,
- * it seeds the workspace once (the legacy slot is left intact so other
- * workspaces can run the same one-time migration).
+ * truth for starred refs across the Branches tree and the branch popup
+ * (git4idea parity: one project-level `DvcsBranchSettings`). Persists to
+ * `workspaceState`. Favorites once lived in globalState as a flat name list;
+ * both the legacy location and the legacy shape are migrated once, leaving the
+ * legacy slot intact so other workspaces can run the same migration.
  */
 export function createFavoritesStore(
   workspaceState: vscode.Memento,
   legacyGlobalState?: vscode.Memento
 ): IFavoritesStore {
-  // "Never written" is a RAW-key check, not loadPersisted: the slot validator
-  // rejects an empty array, so a deliberately un-starred-everything workspace
-  // would otherwise read as unwritten and get re-seeded on every activation.
-  // persisted-state-exempt: presence probe only — no payload is read or written here; the actual reads/writes go through loadPersisted/savePersisted below.
-  const workspaceUntouched = workspaceState.get(FAVORITES_SLOT.key) === undefined;
-  if (legacyGlobalState && workspaceUntouched) {
-    const legacy = loadPersisted(legacyGlobalState, FAVORITES_SLOT);
-    if (legacy !== undefined) {
+  // RAW-key reads: the current slot validator rejects the legacy shapes, so a
+  // migration probe cannot go through loadPersisted.
+  // persisted-state-exempt: migration probe only — the steady-state reads and writes below go through loadPersisted/savePersisted.
+  const workspaceRaw = workspaceState.get(FAVORITES_SLOT.key);
+  if (workspaceRaw !== undefined) {
+    const migrated = migrateFlatFavorites(workspaceRaw);
+    if (migrated) {
+      void savePersisted(workspaceState, FAVORITES_SLOT, migrated);
+    }
+  } else if (legacyGlobalState) {
+    // persisted-state-exempt: migration probe only — see above.
+    const legacyRaw = legacyGlobalState.get(FAVORITES_SLOT.key);
+    const legacy = migrateFlatFavorites(legacyRaw) ?? FAVORITES_SLOT.validate(legacyRaw);
+    if (legacy) {
       void savePersisted(workspaceState, FAVORITES_SLOT, legacy);
     }
   }
@@ -571,7 +716,8 @@ export class BranchTreeProvider
    * IFavoritesStore.onDidChangeFavorites} (including this provider's own
    * writes), so the tree stays live-consistent with the branch popup.
    */
-  private _favorites: Set<string>;
+  /** Repo path the favorite lookups are scoped to ('' before a repo is known). */
+  private _favoritesRepoPath = '';
 
   /**
    * Active search query (IntelliJ speed-search analogue). When set, every
@@ -589,7 +735,6 @@ export class BranchTreeProvider
     this._incomingOutgoingFetcher = incomingOutgoingFetcher;
     this._ownsFavoritesStore = favoritesStore === undefined;
     this._favoritesStore = favoritesStore ?? new InMemoryFavoritesStore();
-    this._favorites = new Set(this._favoritesStore.read());
     this._onDidChangeTreeData = new vscode.EventEmitter<BranchTreeItem | undefined | null | void>();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this._logger = getLogger().child({ component: 'BranchTreeProvider' });
@@ -602,7 +747,6 @@ export class BranchTreeProvider
         if (this._disposed) {
           return;
         }
-        this._favorites = new Set(this._favoritesStore.read());
         this.refresh();
       })
     );
@@ -618,6 +762,7 @@ export class BranchTreeProvider
           return;
         }
         this._currentRepository = repo;
+        this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
         this.refresh();
       })
     );
@@ -673,10 +818,12 @@ export class BranchTreeProvider
     });
     if (repo) {
       this._currentRepository = repo;
+      this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
     } else {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
         this._currentRepository = await this._gitService.getRepository(workspaceFolders[0].uri);
+        this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
       }
     }
     this.refresh();
@@ -701,6 +848,7 @@ export class BranchTreeProvider
    */
   setRepository(repo: IRepository): void {
     this._currentRepository = repo;
+    this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
     this._repositoryScope = 'repository';
     this.refresh();
   }
@@ -723,11 +871,22 @@ export class BranchTreeProvider
   }
 
   /**
-   * Whether `branchName` (a local-branch full name) is starred.
-   * git4idea parity: `GitRepositoryModel.favoriteRefs.contains(ref)`.
+   * Whether any ref that actually EXISTS in `repo` is starred. Gating on the
+   * stored names alone would show an empty Favorites category, since the
+   * predefined defaults are listed whether or not the repo has those branches.
    */
-  isFavorite(branchName: string): boolean {
-    return this._favorites.has(branchName);
+  private async _hasAnyFavorite(repo: IRepository): Promise<boolean> {
+    const branches = await this._gitService.getBranches(repo);
+    return branches.some((b) => this.isFavorite(b.name, b.type === 'remote' ? 'remote' : 'local'));
+  }
+
+  /**
+   * Whether `branchName` is starred for the current repository. REMOTE refs
+   * are first-class favorites, as in git4idea (GitBranchManager).
+   */
+
+  isFavorite(branchName: string, type: FavoriteRefType = 'local'): boolean {
+    return this._favoritesStore.isFavorite(type, this._favoritesRepoPath, branchName);
   }
 
   /**
@@ -737,14 +896,10 @@ export class BranchTreeProvider
    * the branch popup sees the same toggle). Mirrors git4idea's
    * `toggle_favorite` action (SPACE / star click).
    */
-  toggleFavorite(branchName: string): void {
-    const next = new Set(this._favoritesStore.read());
-    if (next.has(branchName)) {
-      next.delete(branchName);
-    } else {
-      next.add(branchName);
-    }
-    this._favoritesStore.write([...next]);
+  toggleFavorite(branchName: string, type: FavoriteRefType = 'local'): void {
+    const repoPath = this._favoritesRepoPath;
+    const next = !this._favoritesStore.isFavorite(type, repoPath, branchName);
+    this._favoritesStore.setFavorite(type, repoPath, branchName, next);
   }
 
   /**
@@ -914,8 +1069,8 @@ export class BranchTreeProvider
       );
     }
 
-    // Favorites section — only when at least one branch is starred.
-    if (this._favorites.size > 0) {
+    // Favorites section — only when a ref that exists here is starred.
+    if (await this._hasAnyFavorite(repo)) {
       nodes.push(
         new BranchTreeItem(
           'Favorites',
@@ -996,7 +1151,9 @@ export class BranchTreeProvider
   private async _getFavoriteBranches(repo: IRepository): Promise<BranchTreeItem[]> {
     const branches = await this._gitService.getBranches(repo);
     let favorites = branches.filter(
-      (b) => b.type === 'local' && this._favorites.has(b.name) && this._matchesSearch(b.name)
+      (b) =>
+        this.isFavorite(b.name, b.type === 'remote' ? 'remote' : 'local') &&
+        this._matchesSearch(b.name)
     );
     if (this._incomingOutgoingFetcher) {
       favorites = await enrichBranchesWithIncomingOutgoing(
@@ -1322,7 +1479,7 @@ export class BranchTreeProvider
             undefined,
             undefined,
             undefined,
-            this._favorites.has(branch.name), // isFavorite
+            this.isFavorite(branch.name), // isFavorite
             repo
           )
         );
@@ -1339,7 +1496,7 @@ export class BranchTreeProvider
             undefined,
             undefined,
             undefined,
-            false,
+            this.isFavorite(branch.name, 'remote'), // isFavorite
             repo
           )
         );
@@ -1375,7 +1532,7 @@ export class BranchTreeProvider
  * Create a new BranchTreeProvider instance.
  *
  * @param gitService - The Git service to use
- * @param favoritesStore - Shared favorites store (e.g. globalState-backed via
+ * @param favoritesStore - Shared favorites store (workspaceState-backed via
  *   {@link createFavoritesStore}), the same instance the branch popup uses so
  *   stars stay consistent across both surfaces. When omitted, favorites live
  *   only for the provider's lifetime.

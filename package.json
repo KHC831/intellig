@@ -1077,6 +1077,11 @@
           "group": "6_favorite@1"
         },
         {
+          "command": "intellig.branch.toggleFavorite",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "6_favorite@1"
+        },
+        {
           "command": "intellig.branch.update",
           "when": "viewItem == intellig.localBranchCurrent",
           "group": "2_sync@1"

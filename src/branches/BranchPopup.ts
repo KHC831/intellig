@@ -28,7 +28,7 @@ import {
   type PersistedSlot,
 } from '../utils/persistedState';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
-import type { IFavoritesStore } from './BranchTreeProvider';
+import type { FavoriteRefType, IFavoritesStore } from './BranchTreeProvider';
 import type { IIncomingOutgoing } from '../git-core/ops/IncomingOutgoingOps';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -141,6 +141,7 @@ export type BranchAction =
   | 'local.mergeIntoCurrent'
   | 'local.rebaseCurrentOnto'
   | 'local.push'
+  | 'local.update'
   | 'local.setUpstream'
   // Tag specific
   | 'tag.checkoutDetached'
@@ -769,6 +770,18 @@ export function buildLocalBranchActionMenu(
       isAction: true,
     },
     {
+      // git4idea GitUpdateSelectedBranchAction (branches.update): fast-forwards
+      // the branch from its tracked remote. Local-only there
+      // (`disabledForRemote = true`); the command reports when the branch has
+      // no tracking info or an update is already running.
+      label: '$(sync) Update',
+      description: `Update ${branch.name} from its tracked remote branch`,
+      action: 'local.update',
+      commandId: 'intellig.branch.update',
+      branch,
+      isAction: true,
+    },
+    {
       label: '$(cloud-upload) Push…',
       description: `Push ${branch.name} to its upstream remote`,
       action: 'local.push',
@@ -1110,7 +1123,7 @@ export class BranchPopup {
         remoteBranches,
         tags,
         recentBranchNames,
-        favoriteBranchNames: this.getFavorites(),
+        favoriteBranchNames: this.getFavorites(repo.rootUri.fsPath),
         currentBranchName,
         showTags: settings.showTags,
         showRecentBranches: settings.showRecentBranches,
@@ -1173,9 +1186,10 @@ export class BranchPopup {
         if (!branch) {
           return;
         }
-        const currentFavs = this.getFavorites();
-        const isFav = currentFavs.includes(branch.name);
-        await this.updateFavorites(branch.name, !isFav);
+        const type: FavoriteRefType = branch.type === 'remote' ? 'remote' : 'local';
+        const repoPath = repo.rootUri.fsPath;
+        const isFav = this._favoritesStore?.isFavorite(type, repoPath, branch.name) ?? false;
+        await this.updateFavorites(branch.name, !isFav, type, repoPath);
         refreshItems();
       });
 
@@ -1196,21 +1210,28 @@ export class BranchPopup {
    * Public so extension-level commands / tests can flip favorites without
    * going through the QuickPick UI.
    */
-  public updateFavorites(branchName: string, favorite: boolean): Promise<void> {
-    if (!this._favoritesStore) {
-      return Promise.resolve();
-    }
-    const updated = updateFavoritesList(this._favoritesStore.read(), branchName, favorite);
-    this._favoritesStore.write(updated);
+  public updateFavorites(
+    branchName: string,
+    favorite: boolean,
+    type: FavoriteRefType = 'local',
+    repoPath: string = this._currentRepository?.rootUri.fsPath ?? ''
+  ): Promise<void> {
+    this._favoritesStore?.setFavorite(type, repoPath, branchName, favorite);
     return Promise.resolve();
   }
 
   /**
-   * Read the current favorites list from the shared store. Returns a
-   * defensive copy so callers can't mutate the stored array by reference.
+   * Resolved favorite names (local + remote) for the current repository —
+   * the flat list the picker matches rows against.
    */
-  public getFavorites(): string[] {
-    return this._favoritesStore ? [...this._favoritesStore.read()] : [];
+  public getFavorites(repoPath: string = this._currentRepository?.rootUri.fsPath ?? ''): string[] {
+    if (!this._favoritesStore) {
+      return [];
+    }
+    return [
+      ...this._favoritesStore.favoriteNames('local', repoPath),
+      ...this._favoritesStore.favoriteNames('remote', repoPath),
+    ];
   }
 
   /**
@@ -1228,8 +1249,11 @@ export class BranchPopup {
     if (legacy.length === 0) {
       return;
     }
-    const merged = [...new Set([...this._favoritesStore.read(), ...legacy])];
-    this._favoritesStore.write(merged);
+    // Pre-unification stars were local names with no repository dimension:
+    // carry them into the all-repositories bucket.
+    for (const name of new Set(legacy)) {
+      this._favoritesStore.setFavorite('local', '', name, true);
+    }
     void savePersisted(this._workspaceState, FAVORITES_LEGACY_SLOT, undefined);
   }
 

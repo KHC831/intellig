@@ -132,9 +132,9 @@ let commitToolWindow: CommitToolWindow | undefined;
 let branchPopup: BranchPopup | undefined;
 
 /**
- * Shared favorites store (globalState-backed) — the single source of truth
- * for starred branches across the Branches tree and the branch popup
- * (git4idea parity: one `GitRepositoryModel.favoriteRefs`). Created once in
+ * Shared favorites store (workspaceState-backed) — the single source of truth
+ * for starred refs across the Branches tree and the branch popup
+ * (git4idea parity: one project-level `DvcsBranchSettings`). Created once in
  * activate and injected into both surfaces so a star on either appears on the
  * other.
  */

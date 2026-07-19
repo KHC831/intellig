@@ -1262,15 +1262,18 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     );
     ctx.context.subscriptions.push(branchSearchCommand, branchClearSearchCommand);
 
-    // `intellig.branch.toggleFavorite` — star/unstar the selected local
-    // branch. Mirrors git4idea's toggle_favorite action; the provider
-    // persists the favorite set and refreshes the tree.
+    // `intellig.branch.toggleFavorite` — star/unstar the selected ref.
+    // Mirrors git4idea's toggle_favorite action, which treats REMOTE refs as
+    // first-class favorites; the provider persists and refreshes the tree.
     const toggleFavoriteCommand = vscode.commands.registerCommand(
       'intellig.branch.toggleFavorite',
-      (item?: { branch?: { name?: string } }) => {
+      (item?: { branch?: { name?: string; type?: string } }) => {
         const branchName = item?.branch?.name;
         if (typeof branchName === 'string' && branchName.length > 0) {
-          branchTreeProvider.toggleFavorite(branchName);
+          branchTreeProvider.toggleFavorite(
+            branchName,
+            item?.branch?.type === 'remote' ? 'remote' : 'local'
+          );
         }
       }
     );
