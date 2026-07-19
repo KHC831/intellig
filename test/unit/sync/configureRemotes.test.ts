@@ -1,13 +1,13 @@
 /**
  * Unit tests for the Configure Remotes flow (IntelliJ GitConfigureRemotesDialog
- * as a QuickPick wizard).
+ * as a QuickPick list over a define-remote dialog).
  *
  * Covers:
  *  - `validateRemoteName` / `validateRemoteUrl` input validation.
  *  - `sortRemotesOriginFirst` ordering (origin first, then alphabetical).
  *  - `runConfigureRemotesFlow`: listing, add (with origin proposal and
- *    fetch-after-add), rename, change-URL, remove (single modal confirm),
- *    cancellation at each prompt, error surfacing, and the loop-back-to-list
+ *    fetch-after-add), edit (rename + URL in one dialog), remove (single modal
+ *    confirm), cancellation, error surfacing, and the loop-back-to-list
  *    behaviour that mirrors IntelliJ's stays-open dialog.
  */
 
@@ -23,10 +23,13 @@ import { SpawnFailedError } from '../../../src/git-core/errors';
 import {
   runConfigureRemotesFlow,
   sortRemotesOriginFirst,
-  validateRemoteName,
-  validateRemoteUrl,
   IConfigureRemotesDeps,
 } from '../../../src/sync/configureRemotes';
+import { validateRemoteName, validateRemoteUrl } from '../../../src/sync/remoteValidation';
+import type {
+  IDefineRemoteRequest,
+  IDefineRemoteResult,
+} from '../../../src/sync/defineRemoteDialog.protocol';
 import { IGitService, IRemote, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
@@ -41,12 +44,11 @@ interface MockHarness {
   deps: IConfigureRemotesDeps;
   opCalls: OpCall[];
   quickPickItemLabels: string[][];
-  inputBoxOptions: Array<{ value?: string; prompt?: string }>;
+  defineRequests: IDefineRemoteRequest[];
   infoMessages: string[];
   errorMessages: string[];
   warnMessages: string[];
   fetchedRemotes: string[];
-  probedUrls: string[];
   remotesChangedCalls: number;
 }
 
@@ -62,29 +64,28 @@ function createRepo(): IRepository {
 
 /**
  * Scripted-response harness. Each quickPickResponses entry is a label
- * substring used to select an item (undefined = Esc); inputResponses feed
- * showInputBox in order (undefined = Esc).
+ * substring used to select an item (undefined = Esc); defineResponses feed the
+ * define-remote dialog in order (undefined = Cancel).
  */
 function createHarness(options: {
   remotes: IRemote[];
   quickPickResponses: Array<string | undefined>;
-  inputResponses?: Array<string | undefined>;
+  defineResponses?: Array<IDefineRemoteResult | undefined>;
   warnResponse?: string;
   addError?: Error;
+  renameError?: Error;
   getRemotesError?: Error;
   fetchError?: Error;
-  /** Scripted probe outcomes, consumed in order. Present = probe seam wired. */
-  probeResults?: Array<{ ok: boolean; message?: string }>;
 }): MockHarness {
   const opCalls: OpCall[] = [];
   const quickPickItemLabels: string[][] = [];
-  const inputBoxOptions: Array<{ value?: string; prompt?: string }> = [];
+  const defineRequests: IDefineRemoteRequest[] = [];
   const infoMessages: string[] = [];
   const errorMessages: string[] = [];
   const warnMessages: string[] = [];
   const fetchedRemotes: string[] = [];
   let quickPickIndex = 0;
-  let inputIndex = 0;
+  let defineIndex = 0;
   let remotes = options.remotes;
 
   const gitService = {
@@ -111,33 +112,32 @@ function createHarness(options: {
     },
     renameRemote: (_r: IRepository, oldName: string, newName: string) => {
       opCalls.push({ op: 'rename', args: [oldName, newName] });
+      if (options.renameError) {
+        return errAsync(new SpawnFailedError(options.renameError.message));
+      }
+      remotes = remotes.map((rm) => (rm.name === oldName ? { ...rm, name: newName } : rm));
       return okAsync(undefined);
     },
   } as unknown as IGitService;
 
-  let probeIndex = 0;
-  const probedUrls: string[] = [];
   const harness: MockHarness = {
     opCalls,
     quickPickItemLabels,
-    inputBoxOptions,
+    defineRequests,
     infoMessages,
     errorMessages,
     warnMessages,
     fetchedRemotes,
-    probedUrls,
     remotesChangedCalls: 0,
     deps: {
       repo: createRepo(),
       gitService,
-      probeRemoteUrl: options.probeResults
-        ? async (url: string) => {
-            probedUrls.push(url);
-            const result = options.probeResults?.[probeIndex] ?? { ok: true };
-            probeIndex += 1;
-            return result;
-          }
-        : undefined,
+      defineRemote: async (request: IDefineRemoteRequest) => {
+        defineRequests.push(request);
+        const response = options.defineResponses?.[defineIndex];
+        defineIndex += 1;
+        return response;
+      },
       showQuickPick: async (items: Array<{ label: string }>) => {
         quickPickItemLabels.push(items.map((i) => i.label));
         const response = options.quickPickResponses[quickPickIndex];
@@ -146,12 +146,6 @@ function createHarness(options: {
           return undefined;
         }
         return items.find((i) => i.label.includes(response));
-      },
-      showInputBox: async (opts: { value?: string; prompt?: string }) => {
-        inputBoxOptions.push(opts);
-        const value = options.inputResponses?.[inputIndex];
-        inputIndex += 1;
-        return value;
       },
       showInformationMessage: async (msg: string) => {
         infoMessages.push(msg);
@@ -260,6 +254,12 @@ describe('sortRemotesOriginFirst', () => {
 
 // ─── runConfigureRemotesFlow ─────────────────────────────────────────────────
 
+const GOOD_DEFINE: IDefineRemoteResult = {
+  name: 'upstream',
+  url: 'https://example.com/upstream.git',
+  fetch: true,
+};
+
 describe('runConfigureRemotesFlow', () => {
   it('lists remotes origin-first with URLs plus an Add item, exits on Esc', async () => {
     const h = createHarness({
@@ -282,46 +282,83 @@ describe('runConfigureRemotesFlow', () => {
     assert.strictEqual(h.opCalls.length, 0);
   });
 
-  it('adds a remote, fetches it, refreshes, and loops back to the list', async () => {
+  it('collects the new remote in one define dialog instead of sequential prompts', async () => {
     const h = createHarness({
       remotes: [ORIGIN],
       quickPickResponses: ['Add Remote', undefined],
-      inputResponses: ['upstream', 'https://example.com/upstream.git'],
+      defineResponses: [GOOD_DEFINE],
     });
+
     await runConfigureRemotesFlow(h.deps);
+
+    assert.strictEqual(h.defineRequests.length, 1);
     assert.deepStrictEqual(h.opCalls, [
       { op: 'add', args: ['upstream', 'https://example.com/upstream.git'] },
     ]);
+  });
+
+  it('fetches, refreshes, and loops back to the list after an add', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['Add Remote', undefined],
+      defineResponses: [GOOD_DEFINE],
+    });
+
+    await runConfigureRemotesFlow(h.deps);
+
     assert.deepStrictEqual(h.fetchedRemotes, ['upstream']);
     assert.strictEqual(h.remotesChangedCalls, 1);
     assert.ok(h.infoMessages.some((m) => m.includes('upstream')));
-    // Looped back: the remotes list was shown a second time.
-    assert.strictEqual(h.quickPickItemLabels.length, 2);
+    assert.strictEqual(h.quickPickItemLabels.length, 2, 'looped back to the list');
+  });
+
+  it('skips the post-add fetch when the dialog cleared the fetch option', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['Add Remote', undefined],
+      defineResponses: [{ ...GOOD_DEFINE, fetch: false }],
+    });
+
+    await runConfigureRemotesFlow(h.deps);
+
+    assert.deepStrictEqual(h.fetchedRemotes, []);
+  });
+
+  it('hands the dialog the taken names so it can reject a duplicate', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN, UPSTREAM],
+      quickPickResponses: ['Add Remote', undefined],
+      defineResponses: [undefined],
+    });
+
+    await runConfigureRemotesFlow(h.deps);
+
+    assert.deepStrictEqual(h.defineRequests[0].existingNames, ['origin', 'upstream']);
   });
 
   it('proposes "origin" as the name when no origin exists, empty otherwise', async () => {
     const noOrigin = createHarness({
       remotes: [UPSTREAM],
       quickPickResponses: ['Add Remote'],
-      inputResponses: [undefined],
+      defineResponses: [undefined],
     });
     await runConfigureRemotesFlow(noOrigin.deps);
-    assert.strictEqual(noOrigin.inputBoxOptions[0].value, 'origin');
+    assert.strictEqual(noOrigin.defineRequests[0].name, 'origin');
 
     const withOrigin = createHarness({
       remotes: [ORIGIN],
       quickPickResponses: ['Add Remote'],
-      inputResponses: [undefined],
+      defineResponses: [undefined],
     });
     await runConfigureRemotesFlow(withOrigin.deps);
-    assert.strictEqual(withOrigin.inputBoxOptions[0].value ?? '', '');
+    assert.strictEqual(withOrigin.defineRequests[0].name, '');
   });
 
   it('surfaces a fetch failure as a warning while the add still succeeds', async () => {
     const h = createHarness({
       remotes: [],
       quickPickResponses: ['Add Remote', undefined],
-      inputResponses: ['origin', 'https://example.com/origin.git'],
+      defineResponses: [{ name: 'origin', url: 'https://example.com/origin.git', fetch: true }],
       fetchError: new Error('could not resolve host'),
     });
     await runConfigureRemotesFlow(h.deps);
@@ -330,105 +367,92 @@ describe('runConfigureRemotesFlow', () => {
     assert.strictEqual(h.errorMessages.length, 0);
   });
 
-  it('cancelling the name prompt returns to the list without adding', async () => {
+  it('cancelling the define dialog returns to the list without adding', async () => {
     const h = createHarness({
       remotes: [ORIGIN],
       quickPickResponses: ['Add Remote', undefined],
-      inputResponses: [undefined],
+      defineResponses: [undefined],
     });
     await runConfigureRemotesFlow(h.deps);
     assert.strictEqual(h.opCalls.length, 0);
     assert.strictEqual(h.quickPickItemLabels.length, 2);
   });
 
-  // GitDefineRemoteDialog runs `git ls-remote <url>` on OK and refuses to
-  // create/update a remote whose URL is inaccessible.
-  it('blocks the add when the URL probe fails and the user gives up', async () => {
+  // GitConfigureRemotesDialog.editRemote opens the same define dialog prefilled
+  // with the current name + URL, then renames and re-points in one go.
+  it('prefills the define dialog with the edited remote and exempts its own name', async () => {
     const h = createHarness({
       remotes: [ORIGIN],
-      quickPickResponses: ['Add Remote', undefined],
-      inputResponses: ['upstream', 'https://bad.example/repo.git', undefined],
-      probeResults: [{ ok: false, message: 'could not read from remote repository' }],
+      quickPickResponses: ['origin', 'Edit', undefined],
+      defineResponses: [undefined],
     });
+
     await runConfigureRemotesFlow(h.deps);
-    assert.deepStrictEqual(h.probedUrls, ['https://bad.example/repo.git']);
-    assert.strictEqual(h.opCalls.length, 0, 'the remote must NOT be created');
-    assert.ok(
-      h.errorMessages.some((m) => /not (accessible|reachable)/i.test(m)),
-      `error explains the inaccessible URL: ${JSON.stringify(h.errorMessages)}`
+
+    assert.deepStrictEqual(
+      {
+        name: h.defineRequests[0].name,
+        url: h.defineRequests[0].url,
+        originalName: h.defineRequests[0].originalName,
+      },
+      { name: 'origin', url: 'https://example.com/origin.git', originalName: 'origin' }
     );
   });
 
-  it('re-prompts the URL after a failed probe and adds once a good URL passes', async () => {
+  it('renames before re-pointing the URL so the URL lands on the new name', async () => {
     const h = createHarness({
       remotes: [ORIGIN],
-      quickPickResponses: ['Add Remote', undefined],
-      inputResponses: ['upstream', 'https://bad.example/repo.git', 'https://good.example/repo.git'],
-      probeResults: [{ ok: false, message: 'no route to host' }, { ok: true }],
+      quickPickResponses: ['origin', 'Edit', undefined],
+      defineResponses: [{ name: 'upstream', url: 'https://example.com/new.git', fetch: false }],
     });
+
     await runConfigureRemotesFlow(h.deps);
-    assert.deepStrictEqual(h.probedUrls, [
-      'https://bad.example/repo.git',
-      'https://good.example/repo.git',
-    ]);
+
     assert.deepStrictEqual(h.opCalls, [
-      { op: 'add', args: ['upstream', 'https://good.example/repo.git'] },
-    ]);
-    // The retry input is prefilled with the failing URL for correction.
-    assert.strictEqual(h.inputBoxOptions[2].value, 'https://bad.example/repo.git');
-  });
-
-  it('blocks a URL change when the probe fails', async () => {
-    const h = createHarness({
-      remotes: [ORIGIN],
-      quickPickResponses: ['origin', 'Change URL', undefined],
-      inputResponses: ['https://typo.example/origin.git', undefined],
-      probeResults: [{ ok: false, message: 'could not resolve host' }],
-    });
-    await runConfigureRemotesFlow(h.deps);
-    assert.deepStrictEqual(h.probedUrls, ['https://typo.example/origin.git']);
-    assert.strictEqual(h.opCalls.length, 0, 'the URL must NOT be changed');
-    assert.ok(h.errorMessages.some((m) => /not (accessible|reachable)/i.test(m)));
-  });
-
-  it('changes the URL when the probe passes', async () => {
-    const h = createHarness({
-      remotes: [ORIGIN],
-      quickPickResponses: ['origin', 'Change URL', undefined],
-      inputResponses: ['https://new.example/origin.git'],
-      probeResults: [{ ok: true }],
-    });
-    await runConfigureRemotesFlow(h.deps);
-    assert.deepStrictEqual(h.opCalls, [
-      { op: 'setUrl', args: ['origin', 'https://new.example/origin.git'] },
+      { op: 'rename', args: ['origin', 'upstream'] },
+      { op: 'setUrl', args: ['upstream', 'https://example.com/new.git'] },
     ]);
   });
 
-  it('renames a remote through the action menu', async () => {
+  it('changes only the URL when the name was left alone', async () => {
     const h = createHarness({
       remotes: [ORIGIN],
-      quickPickResponses: ['origin', 'Rename', undefined],
-      inputResponses: ['upstream'],
+      quickPickResponses: ['origin', 'Edit', undefined],
+      defineResponses: [{ name: 'origin', url: 'https://example.com/new.git', fetch: false }],
     });
-    await runConfigureRemotesFlow(h.deps);
-    assert.deepStrictEqual(h.opCalls, [{ op: 'rename', args: ['origin', 'upstream'] }]);
-    assert.strictEqual(h.remotesChangedCalls, 1);
-    // Rename prompt is prefilled with the current name.
-    assert.strictEqual(h.inputBoxOptions[0].value, 'origin');
-  });
 
-  it('changes a remote URL through the action menu', async () => {
-    const h = createHarness({
-      remotes: [ORIGIN],
-      quickPickResponses: ['origin', 'Change URL', undefined],
-      inputResponses: ['https://example.com/new.git'],
-    });
     await runConfigureRemotesFlow(h.deps);
+
     assert.deepStrictEqual(h.opCalls, [
       { op: 'setUrl', args: ['origin', 'https://example.com/new.git'] },
     ]);
-    // URL prompt is prefilled with the current URL.
-    assert.strictEqual(h.inputBoxOptions[0].value, 'https://example.com/origin.git');
+  });
+
+  it('runs no git command when the edit dialog returns unchanged values', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['origin', 'Edit', undefined],
+      defineResponses: [{ name: 'origin', url: 'https://example.com/origin.git', fetch: false }],
+    });
+
+    await runConfigureRemotesFlow(h.deps);
+
+    assert.deepStrictEqual(h.opCalls, []);
+    assert.strictEqual(h.remotesChangedCalls, 0);
+  });
+
+  it('leaves the URL untouched when the rename fails', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['origin', 'Edit', undefined],
+      defineResponses: [{ name: 'upstream', url: 'https://example.com/new.git', fetch: false }],
+      renameError: new Error('fatal: remote upstream already exists'),
+    });
+
+    await runConfigureRemotesFlow(h.deps);
+
+    assert.deepStrictEqual(h.opCalls, [{ op: 'rename', args: ['origin', 'upstream'] }]);
+    assert.strictEqual(h.errorMessages.length, 1);
   });
 
   it('removes a remote after one modal confirm', async () => {
@@ -467,13 +491,12 @@ describe('runConfigureRemotesFlow', () => {
     const h = createHarness({
       remotes: [ORIGIN],
       quickPickResponses: ['Add Remote', undefined],
-      inputResponses: ['upstream', 'https://example.com/u.git'],
+      defineResponses: [GOOD_DEFINE],
       addError: new Error('fatal: remote upstream already exists'),
     });
     await runConfigureRemotesFlow(h.deps);
     assert.strictEqual(h.errorMessages.length, 1);
     assert.ok(h.errorMessages[0].includes('already exists'));
-    // Flow loops back to the list after the error.
     assert.strictEqual(h.quickPickItemLabels.length, 2);
     assert.deepStrictEqual(h.fetchedRemotes, []);
   });

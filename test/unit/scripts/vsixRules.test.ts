@@ -150,6 +150,7 @@ describe('scripts/lib/vsix-rules.sh — shared .vsix content rules', () => {
         'media/webview/resetDialog.js',
         'media/webview/rebaseDialog.js',
         'media/webview/applyPatchDialog.js',
+        'media/webview/defineRemoteDialog.js',
         'media/webview/resolveConflictsDialog.js',
         'media/webview/pushDialog.js',
         'media/webview/rebaseProgressView.js',

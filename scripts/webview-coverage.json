@@ -46,6 +46,10 @@
       "status": "tested",
       "note": "bundled Push entry booted in jsdom; repo table + overflow + action bar + patchRow/patchOverflow (syncPatchScript.test.ts, pushDialog.test.ts)"
     },
+    "src/sync/webview/defineRemoteDialog.ts": {
+      "status": "tested",
+      "note": "bundled Define Remote entry booted in jsdom; name+url validation gating, submit payload, busy/error host messages (defineRemoteDialogEntry.test.ts)"
+    },
     "src/patches/webview/applyPatchDialog.ts": {
       "status": "tested",
       "note": "bundled Apply Patch entry booted in jsdom; builds patch inputs + apply/cancel + host-message handling (syncPatchScript.test.ts, applyPatchDialogDom.test.ts)"

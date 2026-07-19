@@ -104,6 +104,12 @@ const DIALOGS: DialogUnderAudit[] = [
     keyboardContract: true,
   },
   {
+    name: 'DefineRemoteDialog',
+    file: 'src/sync/DefineRemoteDialog.ts',
+    entryFile: 'src/sync/webview/defineRemoteDialog.ts',
+    keyboardContract: true,
+  },
+  {
     name: 'ResolveConflictsDialog',
     file: 'src/conflicts/ResolveConflictsDialog.ts',
     entryFile: 'src/conflicts/webview/resolveConflictsDialog.ts',

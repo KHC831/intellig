@@ -72,6 +72,7 @@ const DEFAULT_ENTRIES = [
   'patches/webview/applyPatchDialog.ts',
   'conflicts/webview/resolveConflictsDialog.ts',
   'sync/webview/pushDialog.ts',
+  'sync/webview/defineRemoteDialog.ts',
   'rebase/webview/rebaseProgressView.ts',
   'rebase/webview/rebaseEditor.ts',
   'commits/webview/commitDialog.ts',

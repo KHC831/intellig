@@ -35,6 +35,7 @@ import {
   type UpdateMethod,
 } from '../../sync/updateProject';
 import { runConfigureRemotesFlow } from '../../sync/configureRemotes';
+import { showDefineRemoteDialog } from '../../sync/DefineRemoteDialog';
 import { isValidPushHash } from '../../sync/PushDialog';
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
 import { buildUpdateNotification } from '../../ui-shell/updateNotification';
@@ -602,7 +603,8 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   });
 
   // Configure Remotes — IntelliJ's GitConfigureRemotesDialog as a QuickPick
-  // wizard (add / rename / change-URL / remove; see sync/configureRemotes.ts).
+  // list over the define-remote dialog (add / edit / remove; see
+  // sync/configureRemotes.ts).
   const configureRemotesCommand = registerRepoCommand(ctx, {
     id: 'intellig.configureRemotes',
     failureTitle: 'Failed to configure remotes',
@@ -613,7 +615,23 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         repo,
         gitService,
         showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
-        showInputBox: (options) => vscode.window.showInputBox(options),
+        defineRemote: (request) =>
+          showDefineRemoteDialog(ctx.context, {
+            request,
+            // `probeRemoteUrl` is a concrete-GitService capability (ADR-001:
+            // the IGitService composite is frozen), so narrow to the role shape.
+            probeUrl: (url) =>
+              (
+                gitService as unknown as {
+                  probeRemoteUrl: (r: typeof repo, u: string) => ResultAsync<void, GitError>;
+                }
+              )
+                .probeRemoteUrl(repo, url)
+                .match(
+                  () => ({ ok: true }),
+                  (e) => ({ ok: false, message: e.message })
+                ),
+          }),
         showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
         showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
         showWarningMessage: (msg, options, ...items) =>
@@ -634,27 +652,6 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
               )
           );
         },
-        // `probeRemoteUrl` is a concrete-GitService capability (ADR-001:
-        // the IGitService composite is frozen), so narrow to the role shape.
-        probeRemoteUrl: async (url) =>
-          vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: 'Checking remote URL…',
-              cancellable: false,
-            },
-            () =>
-              (
-                gitService as unknown as {
-                  probeRemoteUrl: (r: typeof repo, u: string) => ResultAsync<void, GitError>;
-                }
-              )
-                .probeRemoteUrl(repo, url)
-                .match(
-                  () => ({ ok: true }),
-                  (e) => ({ ok: false, message: e.message })
-                )
-          ),
         onRemotesChanged: async () => {
           // Remote changes alter remote-tracking refs and the branch tree;
           // reload-then-refresh like the other mutation sites.

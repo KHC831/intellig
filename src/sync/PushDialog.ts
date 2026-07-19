@@ -173,6 +173,40 @@ export function classifyPushError(stderr: string): PushErrorKind {
 }
 
 /**
+ * Row-banner text for a failed push. A classified failure gets a one-liner
+ * naming the target — matching IntelliJ's push notifications
+ * (`push.notification.description.rejected.by.remote`,
+ * `push.rejected.merge.needed`, `push.failed.error.message` in
+ * git4idea GitBundle.properties) — because the banner also carries the retry
+ * affordances the user must still see. The raw git output goes to the log, never
+ * the UI; only an unclassified failure falls back to it (sanitized).
+ */
+export function pushErrorBannerMessage(
+  kind: PushErrorKind,
+  sanitized: string,
+  targetBranch: string
+): string {
+  switch (kind) {
+    case 'rejected-non-ff':
+      return (
+        `Push to '${targetBranch}' was rejected: the remote has commits you don't have. ` +
+        'Remote changes need to be merged before pushing.'
+      );
+    case 'rejected-stale-lease':
+      return `Force push with lease to '${targetBranch}' was rejected: the remote was updated after your last fetch.`;
+    case 'rejected-protected':
+      return `Push to '${targetBranch}' was rejected: the remote protects that branch.`;
+    case 'auth':
+      return 'Push failed: the remote rejected your credentials.';
+    case 'hook':
+      return 'Push failed: the pre-push hook rejected the push.';
+    case 'other':
+    default:
+      return sanitized;
+  }
+}
+
+/**
  * Pick the default primary action based on divergence state. Per design
  * spec section 4, when the selected branch has local divergence from its upstream
  * (ahead > 0 AND behind > 0), flip the default from `push` to
@@ -391,9 +425,16 @@ export async function runPushRow(
   } catch (err) {
     const raw = err instanceof Error ? err.message : 'Unknown error';
     // Scrub any `user:token@host` credentials leaked by git stderr before the
-    // error lands in a row banner / toast.
-    const message = sanitizeGitError(raw);
-    return { ok: false, error: { kind: classifyPushError(raw), message } };
+    // error lands in the log, a row banner, or a toast.
+    const sanitized = sanitizeGitError(raw);
+    const kind = classifyPushError(raw);
+    getLogger()
+      .child({ component: 'PushDialog' })
+      .warn('push failed', { kind, target: row.targetBranch, detail: sanitized });
+    return {
+      ok: false,
+      error: { kind, message: pushErrorBannerMessage(kind, sanitized, row.targetBranch) },
+    };
   }
 }
 

@@ -74,10 +74,13 @@ function render(init: IPushDialogInit): void {
   const headRow = el('tr');
   const th0 = el('th');
   th0.setAttribute('style', 'width:30px');
+  // Revision rows render a commit hash in the source cell, so the label follows
+  // the rows rather than claiming they are all branches.
+  const anyRevisionRow = init.rows.some((r) => r.sourceHash);
   headRow.append(
     th0,
     el('th', { textContent: 'Repository' }),
-    el('th', { textContent: 'Branch' }),
+    el('th', { textContent: anyRevisionRow ? 'Source' : 'Branch' }),
     el('th', { textContent: 'Target' }),
     el('th', { textContent: 'Commits' })
   );

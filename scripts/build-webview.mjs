@@ -42,6 +42,7 @@ const PANEL_ENTRIES = [
     out: 'resolveConflictsDialog',
   },
   { in: join(root, 'src/sync/webview/pushDialog.ts'), out: 'pushDialog' },
+  { in: join(root, 'src/sync/webview/defineRemoteDialog.ts'), out: 'defineRemoteDialog' },
   { in: join(root, 'src/rebase/webview/rebaseProgressView.ts'), out: 'rebaseProgressView' },
   { in: join(root, 'src/rebase/webview/rebaseEditor.ts'), out: 'rebaseEditor' },
   { in: join(root, 'src/commits/webview/commitDialog.ts'), out: 'commitDialog' },

@@ -1,20 +1,23 @@
 /**
  * Configure Remotes — IntelliJ's GitConfigureRemotesDialog expressed as a
- * looping QuickPick wizard (this repo's dialog idiom). The list shows every
- * remote origin-first with its fetch URL; actions are add / rename /
- * change-URL / remove, and the flow returns to the list after each action
- * (the IntelliJ dialog stays open until OK). Remove takes exactly ONE modal
- * confirm per the minimal destructive-op policy; a newly-defined remote is
- * fetched right away (GitDefineRemoteDialog's fetch checkbox defaults on).
+ * looping QuickPick list (this repo's dialog idiom) over the Define Remote
+ * dialog. The list shows every remote origin-first with its fetch URL; actions
+ * are add / edit / remove, and the flow returns to the list after each action
+ * (the IntelliJ dialog stays open until OK). Name and URL are always collected
+ * together in the define dialog, which also owns the reachability probe.
+ * Remove takes exactly ONE modal confirm per the minimal destructive-op
+ * policy; a newly-defined remote is fetched right away when the dialog's fetch
+ * checkbox is left on.
  *
  * Dependency-injected so unit tests drive the whole flow headlessly; the
  * command wrapper in `commitRepoCoreCommands.ts` wires the real
- * `vscode.window` helpers.
+ * `vscode.window` helpers and the define dialog.
  */
 
 import * as vscode from 'vscode';
 import { sanitizeGitError } from '../git-core/gitError';
 import type { IGitService, IRemote, IRepository } from '../git-core/interfaces/IGitService';
+import type { IDefineRemoteRequest, IDefineRemoteResult } from './defineRemoteDialog.protocol';
 
 /** Ordering used by IntelliJ's remotes table: origin first, then by name. */
 export function sortRemotesOriginFirst(remotes: IRemote[]): IRemote[] {
@@ -29,56 +32,9 @@ export function sortRemotesOriginFirst(remotes: IRemote[]): IRemote[] {
   });
 }
 
-/**
- * Remote-name validation for input boxes. Mirrors GitRefNameValidator's
- * rules (remotes share the ref-name charset) plus uniqueness against the
- * repo's existing remotes; `originalName` exempts an unchanged edit.
- */
-export function validateRemoteName(
-  name: string,
-  existingNames: string[],
-  originalName?: string
-): string | undefined {
-  if (!name || name.trim().length === 0) {
-    return 'Remote name cannot be empty';
-  }
-  if (/\s/.test(name)) {
-    return 'Remote name cannot contain whitespace';
-  }
-  if (/[~^:?*[\\]/.test(name)) {
-    return 'Remote name cannot contain any of ~ ^ : ? * [ \\';
-  }
-  if (name.includes('..')) {
-    return 'Remote name cannot contain consecutive dots';
-  }
-  if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) {
-    return 'Remote name cannot start with -, ., or /';
-  }
-  if (name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')) {
-    return 'Remote name cannot end with ., /, or .lock';
-  }
-  for (let i = 0; i < name.length; i++) {
-    const code = name.charCodeAt(i);
-    if (code < 0x20 || code === 0x7f) {
-      return 'Remote name cannot contain control characters';
-    }
-  }
-  if (name !== originalName && existingNames.includes(name)) {
-    return `Remote '${name}' already exists`;
-  }
-  return undefined;
-}
-
-/** Remote-URL validation: non-blank and not option-shaped. */
-export function validateRemoteUrl(url: string): string | undefined {
-  if (!url || url.trim().length === 0) {
-    return 'Remote URL cannot be empty';
-  }
-  if (url.startsWith('-')) {
-    return 'Remote URL cannot start with -';
-  }
-  return undefined;
-}
+// Validation lives in a vscode-free module so the dialog's webview entry
+// enforces the same rules the flow does.
+export { validateRemoteName, validateRemoteUrl } from './remoteValidation';
 
 /** Injected seams for {@link runConfigureRemotesFlow}. */
 export interface IConfigureRemotesDeps {
@@ -88,7 +44,12 @@ export interface IConfigureRemotesDeps {
     items: vscode.QuickPickItem[],
     options: vscode.QuickPickOptions
   ) => Thenable<vscode.QuickPickItem | undefined>;
-  showInputBox: (options: vscode.InputBoxOptions) => Thenable<string | undefined>;
+  /**
+   * Collect a remote's name + URL in one dialog (GitDefineRemoteDialog). The
+   * dialog owns validation and the `git ls-remote` reachability probe, so it
+   * resolves only with values that are safe to hand to git.
+   */
+  defineRemote: (request: IDefineRemoteRequest) => Promise<IDefineRemoteResult | undefined>;
   showInformationMessage: (message: string) => Thenable<string | undefined>;
   showErrorMessage: (message: string) => Thenable<string | undefined>;
   /** Modal confirm helper (`vscode.window.showWarningMessage` shape). */
@@ -103,57 +64,12 @@ export interface IConfigureRemotesDeps {
    * itself succeeded.
    */
   fetchRemote?: (remoteName: string) => Promise<void>;
-  /**
-   * URL reachability probe (GitDefineRemoteDialog runs `git ls-remote <url>`
-   * on OK and refuses to create/update an inaccessible remote). When wired,
-   * add and change-URL block on a failed probe and re-prompt.
-   */
-  probeRemoteUrl?: (url: string) => Promise<{ ok: boolean; message?: string }>;
   /** Refresh hook invoked after every successful mutation. */
   onRemotesChanged?: () => Promise<void> | void;
 }
 
 const ADD_LABEL = '$(add) Add Remote…';
-
-/**
- * Prompt for a remote URL and, when the probe seam is wired, verify the URL
- * is reachable before accepting it — re-prompting (prefilled with the failing
- * value) until a URL passes or the user cancels. Mirrors
- * GitDefineRemoteDialog, whose OK runs `git ls-remote` and does not close on
- * an inaccessible URL.
- *
- * @returns the accepted trimmed URL, or `undefined` on cancel.
- */
-async function promptVerifiedUrl(
-  deps: IConfigureRemotesDeps,
-  options: { title: string; initialValue?: string; placeHolder?: string }
-): Promise<string | undefined> {
-  let value = options.initialValue;
-  for (;;) {
-    const url = await deps.showInputBox({
-      title: options.title,
-      prompt: 'Remote URL',
-      value,
-      placeHolder: options.placeHolder,
-      validateInput: (input: string) => validateRemoteUrl(input.trim()),
-    });
-    if (!url || url.trim().length === 0) {
-      return undefined;
-    }
-    const trimmed = url.trim();
-    if (!deps.probeRemoteUrl) {
-      return trimmed;
-    }
-    const probe = await deps.probeRemoteUrl(trimmed);
-    if (probe.ok) {
-      return trimmed;
-    }
-    void deps.showErrorMessage(
-      `Remote URL is not accessible: ${sanitizeGitError(probe.message ?? 'unknown error')}`
-    );
-    value = trimmed;
-  }
-}
+const EDIT_LABEL = '$(edit) Edit…';
 
 /**
  * The Configure Remotes wizard. Loops the remotes list until the user
@@ -211,43 +127,46 @@ export async function runConfigureRemotesFlow(deps: IConfigureRemotesDeps): Prom
 async function addRemoteFlow(deps: IConfigureRemotesDeps, existing: IRemote[]): Promise<void> {
   const existingNames = existing.map((r) => r.name);
   // GitConfigureRemotesDialog proposes "origin" when the repo has none.
-  const proposedName = existingNames.includes('origin') ? '' : 'origin';
-  const name = await deps.showInputBox({
-    title: 'Add Remote',
-    prompt: 'Remote name',
-    value: proposedName,
-    validateInput: (value: string) => validateRemoteName(value.trim(), existingNames),
+  const defined = await deps.defineRemote({
+    title: 'Define Remote',
+    name: existingNames.includes('origin') ? '' : 'origin',
+    url: '',
+    existingNames,
   });
-  if (!name || name.trim().length === 0) {
-    return;
-  }
-  const url = await promptVerifiedUrl(deps, {
-    title: 'Add Remote',
-    placeHolder: 'e.g., https://example.com/repo.git',
-  });
-  if (!url) {
+  if (!defined) {
     return;
   }
 
-  const trimmedName = name.trim();
-  const ok = await runRemoteOp(deps, `Failed to add remote '${trimmedName}'`, () =>
-    deps.gitService.addRemote(deps.repo, trimmedName, url)
+  const ok = await runRemoteOp(deps, `Failed to add remote '${defined.name}'`, () =>
+    deps.gitService.addRemote(deps.repo, defined.name, defined.url)
   );
   if (!ok) {
     return;
   }
-  void deps.showInformationMessage(`Added remote: ${trimmedName}`);
+  void deps.showInformationMessage(`Added remote: ${defined.name}`);
   await notifyChanged(deps);
-  if (deps.fetchRemote) {
-    try {
-      await deps.fetchRemote(trimmedName);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      void deps.showWarningMessage(
-        `Remote '${trimmedName}' was added, but the initial fetch failed: ${sanitizeGitError(msg)}`,
-        { modal: false }
-      );
-    }
+  await fetchIfRequested(deps, defined);
+}
+
+/**
+ * Fetch a just-defined remote when the dialog's fetch checkbox stayed on. The
+ * define itself already succeeded, so a fetch failure is only a warning.
+ */
+async function fetchIfRequested(
+  deps: IConfigureRemotesDeps,
+  defined: IDefineRemoteResult
+): Promise<void> {
+  if (!defined.fetch || !deps.fetchRemote) {
+    return;
+  }
+  try {
+    await deps.fetchRemote(defined.name);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    void deps.showWarningMessage(
+      `Remote '${defined.name}' was defined, but the initial fetch failed: ${sanitizeGitError(msg)}`,
+      { modal: false }
+    );
   }
 }
 
@@ -256,54 +175,16 @@ async function editRemoteFlow(
   existing: IRemote[],
   remote: IRemote
 ): Promise<void> {
-  const action = await deps.showQuickPick(
-    [{ label: '$(edit) Rename…' }, { label: '$(link) Change URL…' }, { label: '$(trash) Remove' }],
-    {
-      title: `Remote '${remote.name}'`,
-      placeHolder: remote.fetchUrl ?? '',
-    }
-  );
+  const action = await deps.showQuickPick([{ label: EDIT_LABEL }, { label: '$(trash) Remove' }], {
+    title: `Remote '${remote.name}'`,
+    placeHolder: remote.fetchUrl ?? '',
+  });
   if (!action) {
     return;
   }
 
-  if (action.label.includes('Rename')) {
-    const existingNames = existing.map((r) => r.name);
-    const newName = await deps.showInputBox({
-      title: `Rename Remote '${remote.name}'`,
-      prompt: 'New remote name',
-      value: remote.name,
-      validateInput: (value: string) =>
-        validateRemoteName(value.trim(), existingNames, remote.name),
-    });
-    if (!newName || newName.trim().length === 0 || newName.trim() === remote.name) {
-      return;
-    }
-    const ok = await runRemoteOp(deps, `Failed to rename remote '${remote.name}'`, () =>
-      deps.gitService.renameRemote(deps.repo, remote.name, newName.trim())
-    );
-    if (ok) {
-      void deps.showInformationMessage(`Renamed remote: ${remote.name} → ${newName.trim()}`);
-      await notifyChanged(deps);
-    }
-    return;
-  }
-
-  if (action.label.includes('Change URL')) {
-    const newUrl = await promptVerifiedUrl(deps, {
-      title: `Change URL of Remote '${remote.name}'`,
-      initialValue: remote.fetchUrl ?? '',
-    });
-    if (!newUrl || newUrl === remote.fetchUrl) {
-      return;
-    }
-    const ok = await runRemoteOp(deps, `Failed to change URL of remote '${remote.name}'`, () =>
-      deps.gitService.setRemoteUrl(deps.repo, remote.name, newUrl)
-    );
-    if (ok) {
-      void deps.showInformationMessage(`Updated URL of remote: ${remote.name}`);
-      await notifyChanged(deps);
-    }
+  if (action.label === EDIT_LABEL) {
+    await applyRemoteEdit(deps, existing, remote);
     return;
   }
 
@@ -323,6 +204,51 @@ async function editRemoteFlow(
     void deps.showInformationMessage(`Removed remote: ${remote.name}`);
     await notifyChanged(deps);
   }
+}
+
+/**
+ * Apply an edit from the define dialog: rename first, then re-point the URL
+ * under the NEW name (GitConfigureRemotesDialog.changeRemote). A failed rename
+ * leaves the URL alone so the remote never ends up half-updated.
+ */
+async function applyRemoteEdit(
+  deps: IConfigureRemotesDeps,
+  existing: IRemote[],
+  remote: IRemote
+): Promise<void> {
+  const oldUrl = remote.fetchUrl ?? '';
+  const defined = await deps.defineRemote({
+    title: `Edit Remote '${remote.name}'`,
+    name: remote.name,
+    url: oldUrl,
+    existingNames: existing.map((r) => r.name),
+    originalName: remote.name,
+  });
+  if (!defined || (defined.name === remote.name && defined.url === oldUrl)) {
+    return;
+  }
+
+  if (defined.name !== remote.name) {
+    const renamed = await runRemoteOp(deps, `Failed to rename remote '${remote.name}'`, () =>
+      deps.gitService.renameRemote(deps.repo, remote.name, defined.name)
+    );
+    if (!renamed) {
+      return;
+    }
+  }
+  if (defined.url !== oldUrl) {
+    const repointed = await runRemoteOp(
+      deps,
+      `Failed to change URL of remote '${defined.name}'`,
+      () => deps.gitService.setRemoteUrl(deps.repo, defined.name, defined.url)
+    );
+    if (!repointed) {
+      return;
+    }
+  }
+  void deps.showInformationMessage(`Updated remote: ${defined.name}`);
+  await notifyChanged(deps);
+  await fetchIfRequested(deps, defined);
 }
 
 /** Run one remote mutation; toast a sanitized error and report success. */

@@ -2064,3 +2064,84 @@ describe('updateAndRetryRejectedRows', () => {
     assert.strictEqual(results.get('/a')?.error?.kind, 'auth');
   });
 });
+
+// ─── Row-banner message ──────────────────────────────────────────────────────
+
+describe('classified push failures surface a concise banner message', () => {
+  const RAW_NON_FF = [
+    'Git command failed: git push --end-of-options origin HEAD:refs/heads/dev',
+    'To https://example.com/remote.git',
+    ' ! [rejected]        dev -> dev (non-fast-forward)',
+    'hint: Updates were rejected because the tip of your current branch is behind',
+    'hint: its remote counterpart. Integrate the remote changes before pushing again.',
+  ].join('\n');
+
+  async function pushError(err: Error, row = makeRow()): Promise<IPushRowResult> {
+    const gitService = makeGitService({ pushError: err });
+    return runPushRow({ gitService, protectedBranches: [] }, row, 'push', makeOverflow());
+  }
+
+  it('names the rejected target instead of echoing the git invocation', async () => {
+    const result = await pushError(new SpawnFailedError(RAW_NON_FF));
+
+    assert.strictEqual(
+      result.error?.message,
+      "Push to 'feature' was rejected: the remote has commits you don't have. " +
+        'Remote changes need to be merged before pushing.'
+    );
+  });
+
+  it('keeps the git command line out of the banner on a rejection', async () => {
+    const result = await pushError(new SpawnFailedError(RAW_NON_FF));
+
+    assert.ok(
+      !/git push|--end-of-options/.test(result.error?.message ?? ''),
+      result.error?.message
+    );
+  });
+
+  it('explains a refused lease as a remote that moved since the last fetch', async () => {
+    const result = await pushError(
+      new SpawnFailedError('! [rejected] dev -> dev (stale info)\nhint: ...')
+    );
+
+    assert.strictEqual(
+      result.error?.message,
+      "Force push with lease to 'feature' was rejected: the remote was updated after your last fetch."
+    );
+  });
+
+  it('reports an auth failure without the credential-helper hint wall', async () => {
+    const result = await pushError(
+      new SpawnFailedError('remote: Authentication failed\nhint: see gh auth login')
+    );
+
+    assert.strictEqual(result.error?.message, 'Push failed: the remote rejected your credentials.');
+  });
+
+  it('reports a declined pre-push hook as a hook rejection', async () => {
+    const result = await pushError(
+      new SpawnFailedError('error: failed to push some refs\npre-push hook declined')
+    );
+
+    assert.strictEqual(result.error?.message, 'Push failed: the pre-push hook rejected the push.');
+  });
+
+  it('reports a server-side protected-branch rejection against the target', async () => {
+    const result = await pushError(
+      new SpawnFailedError('remote: GH006: Protected branch update failed for refs/heads/main')
+    );
+
+    assert.strictEqual(
+      result.error?.message,
+      "Push to 'feature' was rejected: the remote protects that branch."
+    );
+  });
+
+  it('falls back to the sanitized git output when the failure is unclassified', async () => {
+    const result = await pushError(new SpawnFailedError('fatal: the disk is on fire'));
+
+    assert.strictEqual(result.error?.kind, 'other');
+    assert.ok(result.error?.message.includes('the disk is on fire'), result.error?.message);
+  });
+});

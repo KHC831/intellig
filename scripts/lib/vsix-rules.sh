@@ -86,6 +86,7 @@ VSIX_REQUIRED_FILES=(
   'media/webview/applyPatchDialog.js'
   'media/webview/resolveConflictsDialog.js'
   'media/webview/pushDialog.js'
+  'media/webview/defineRemoteDialog.js'
   'media/webview/rebaseProgressView.js'
   'media/webview/rebaseEditor.js'
   'media/webview/commitDialog.js'
