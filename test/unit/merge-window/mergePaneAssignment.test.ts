@@ -9,6 +9,7 @@ const STAGES: IMergeStageContents = {
   base: 'base\n',
   ours: 'stage2\n',
   theirs: 'stage3\n',
+  stageShas: { base: '1'.repeat(40), ours: '2'.repeat(40), theirs: '3'.repeat(40) },
 };
 
 describe('merge window pane assignment (stages → panes via the reversal predicate)', () => {

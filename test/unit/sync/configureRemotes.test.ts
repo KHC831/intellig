@@ -74,6 +74,7 @@ function createHarness(options: {
   warnResponse?: string;
   addError?: Error;
   renameError?: Error;
+  setUrlError?: Error;
   getRemotesError?: Error;
   fetchError?: Error;
 }): MockHarness {
@@ -108,6 +109,9 @@ function createHarness(options: {
     },
     setRemoteUrl: (_r: IRepository, name: string, url: string) => {
       opCalls.push({ op: 'setUrl', args: [name, url] });
+      if (options.setUrlError) {
+        return errAsync(new SpawnFailedError(options.setUrlError.message));
+      }
       return okAsync(undefined);
     },
     renameRemote: (_r: IRepository, oldName: string, newName: string) => {
@@ -453,6 +457,32 @@ describe('runConfigureRemotesFlow', () => {
 
     assert.deepStrictEqual(h.opCalls, [{ op: 'rename', args: ['origin', 'upstream'] }]);
     assert.strictEqual(h.errorMessages.length, 1);
+  });
+
+  it('still notifies listeners when the rename lands but the URL change fails', async () => {
+    const h = createHarness({
+      remotes: [ORIGIN],
+      quickPickResponses: ['origin', 'Edit', undefined],
+      defineResponses: [{ name: 'upstream', url: 'https://example.com/new.git', fetch: false }],
+      setUrlError: new Error('fatal: could not set url'),
+    });
+
+    await runConfigureRemotesFlow(h.deps);
+
+    assert.deepStrictEqual(h.opCalls, [
+      { op: 'rename', args: ['origin', 'upstream'] },
+      { op: 'setUrl', args: ['upstream', 'https://example.com/new.git'] },
+    ]);
+    assert.strictEqual(h.errorMessages.length, 1, 'the URL failure is toasted');
+    assert.ok(
+      h.remotesChangedCalls > 0,
+      'the landed rename must reach the branches tree and push dialog'
+    );
+    assert.strictEqual(
+      h.infoMessages.filter((m) => m.startsWith('Updated remote')).length,
+      0,
+      'a partial edit must not claim success'
+    );
   });
 
   it('removes a remote after one modal confirm', async () => {

@@ -63,6 +63,22 @@ interface IGitServiceWithCli extends IGitService {
   gitCli: GitCli;
 }
 
+/** git's hard-coded empty tree — the base for a repo with no commits. */
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/**
+ * The revision a working-tree diff is taken against: `HEAD` normally, the
+ * empty tree when HEAD is unborn. Probed with `rev-parse --verify`, never by
+ * reading status prose.
+ */
+async function resolveDiffBase(gitCli: GitCli, repo: IRepository): Promise<string> {
+  const head = await gitCli.exec(['rev-parse', '--verify', '--quiet', 'HEAD'], {
+    cwd: repo.rootUri.fsPath,
+    throwOnError: false,
+  });
+  return head.exitCode === 0 && head.stdout.trim().length > 0 ? 'HEAD' : EMPTY_TREE_SHA;
+}
+
 /**
  * Concrete Patch Service.
  */
@@ -240,8 +256,11 @@ export class PatchService implements IPatchService {
     // coherent block — concatenating `diff` + `diff --cached` produced two
     // blocks with contradictory bases that `git apply` rejects. Mirrors
     // IntelliJ's one-change-per-file patch. `--cached` remains the explicit
-    // staged-only mode.
-    const argv = options.stagedOnly ? ['diff', '--cached'] : ['diff', 'HEAD'];
+    // staged-only mode. On an unborn HEAD (a fresh repo whose first commit
+    // has not landed) `HEAD` does not resolve, so the base becomes the empty
+    // tree — the first commit's content still yields one coherent block.
+    const base = options.stagedOnly ? undefined : await resolveDiffBase(gitCli, repo);
+    const argv = base === undefined ? ['diff', '--cached'] : ['diff', base];
     if (options.reverse) {
       argv.push('-R');
     }

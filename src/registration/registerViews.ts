@@ -1267,10 +1267,13 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // first-class favorites; the provider persists and refreshes the tree.
     const toggleFavoriteCommand = vscode.commands.registerCommand(
       'intellig.branch.toggleFavorite',
-      (item?: { branch?: { name?: string; type?: string } }) => {
+      (item?: { branch?: { name?: string; type?: string }; repository?: IRepository }) => {
         const branchName = item?.branch?.name;
         if (typeof branchName === 'string' && branchName.length > 0) {
+          // The row carries its owning repo in the grouped multi-repo layout;
+          // without it the star would land under the selected repo instead.
           branchTreeProvider.toggleFavorite(
+            item?.repository ?? branchTreeProvider.getRepository(),
             branchName,
             item?.branch?.type === 'remote' ? 'remote' : 'local'
           );

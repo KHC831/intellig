@@ -85,9 +85,16 @@ function buildPanel(
   return { panel, applied };
 }
 
-/** A gitCli whose exec serves one conflicted path's three index stages. */
-function stubStagesGitCli(relPath: string): GitCli {
-  const shas = { base: '1'.repeat(40), ours: '2'.repeat(40), theirs: '3'.repeat(40) };
+/**
+ * A gitCli whose exec serves one conflicted path's three index stages.
+ * `salt` varies the stage blob SHAs, i.e. makes it a DIFFERENT conflict.
+ */
+function stubStagesGitCli(relPath: string, salt = '1'): GitCli {
+  const shas = {
+    base: salt.repeat(40),
+    ours: (salt + '2').repeat(20),
+    theirs: (salt + '3').repeat(20),
+  };
   return {
     exec: (args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
       if (args[0] === 'ls-files') {
@@ -130,6 +137,10 @@ async function initMessageOf(panel: IMockPanel): Promise<Record<string, unknown>
 class PanelProbe extends MergeWindowPanel {
   deliver(message: unknown): Promise<void> {
     return Promise.resolve(this._onMessage(message));
+  }
+  /** Persist writes are debounced; force the pending one out for assertions. */
+  flushPersist(): void {
+    this._flushUnsavedResult();
   }
   get html(): string {
     return this._panel.webview.html;
@@ -328,7 +339,9 @@ describe('MergeWindowPanel', () => {
     const capture = capturePanels();
     const store = new Map<string, unknown>();
     try {
-      const { panel } = buildPanel('/repo/x.txt', [], {} as GitCli, undefined, store);
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      await initMessageOf(capture.created[0]);
       await panel.deliver({
         type: 'state',
         unresolved: 1,
@@ -336,15 +349,57 @@ describe('MergeWindowPanel', () => {
         modified: true,
         resultText: 'half-merged\n',
       });
-      assert.deepStrictEqual([...store.values()], [{ v: 1, data: 'half-merged\n' }]);
+      panel.flushPersist();
+      assert.deepStrictEqual(
+        [...store.values()].map((v) => (v as { data: { text: string } }).data.text),
+        ['half-merged\n']
+      );
       assert.ok(
         [...store.keys()][0].includes('x.txt'),
         'the persisted result is keyed by the file'
       );
 
       await panel.deliver({ type: 'state', unresolved: 2, total: 2, modified: false });
+      panel.flushPersist();
       assert.strictEqual(store.size, 0, 'undoing back to pristine drops the saved result');
       panel.dispose();
+    } finally {
+      capture.restore();
+    }
+  });
+
+  it('coalesces per-keystroke result posts into one write and flushes on dispose', async () => {
+    const capture = capturePanels();
+    let writes = 0;
+    const store = new (class extends Map<string, unknown> {
+      override set(key: string, value: unknown): this {
+        writes += 1;
+        return super.set(key, value);
+      }
+    })();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      await initMessageOf(capture.created[0]);
+
+      for (let i = 0; i < 25; i++) {
+        await panel.deliver({
+          type: 'state',
+          unresolved: 1,
+          total: 2,
+          modified: true,
+          resultText: `keystroke ${i}\n`,
+        });
+      }
+      assert.strictEqual(writes, 0, '25 keystrokes must not each write the whole file');
+
+      panel.dispose();
+      assert.strictEqual(writes, 1, 'dispose flushes exactly one write');
+      assert.strictEqual(
+        ([...store.values()][0] as { data: { text: string } }).data.text,
+        'keystroke 24\n',
+        'the flushed value is the LATEST text, never a stale one'
+      );
     } finally {
       capture.restore();
     }
@@ -356,7 +411,15 @@ describe('MergeWindowPanel', () => {
     const target = path.join(tmpDir, `apply-clears-${process.pid}.txt`);
     const store = new Map<string, unknown>();
     try {
-      const { panel } = buildPanel(target, [], {} as GitCli, undefined, store);
+      const { panel } = buildPanel(
+        target,
+        [],
+        stubStagesGitCli(path.basename(target)),
+        undefined,
+        store
+      );
+      await panel.deliver({ type: 'ready' });
+      await initMessageOf(capture.created[0]);
       await panel.deliver({
         type: 'state',
         unresolved: 0,
@@ -364,6 +427,7 @@ describe('MergeWindowPanel', () => {
         modified: true,
         resultText: 'merged\n',
       });
+      panel.flushPersist();
       assert.strictEqual(store.size, 1);
       await panel.deliver({ type: 'apply', resultText: 'merged\n' });
       assert.strictEqual(store.size, 0, 'an applied result needs no restore copy');
@@ -391,6 +455,8 @@ describe('MergeWindowPanel', () => {
           undefined,
           store
         );
+        await panel.deliver({ type: 'ready' });
+        await initMessageOf(capture.created[0]);
         await panel.deliver({
           type: 'state',
           unresolved: 1,
@@ -429,6 +495,8 @@ describe('MergeWindowPanel', () => {
           undefined,
           store
         );
+        await panel.deliver({ type: 'ready' });
+        await initMessageOf(capture.created[0]);
         await panel.deliver({
           type: 'state',
           unresolved: 1,
@@ -443,6 +511,62 @@ describe('MergeWindowPanel', () => {
       const init = await initMessageOf(capture.created[1]);
       assert.strictEqual(init.restoredResult, undefined, 'declining must not seed the result');
       assert.strictEqual(store.size, 0, 'declining discards the saved copy');
+      panel.dispose();
+    } finally {
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
+      capture.restore();
+    }
+  });
+
+  it('drops a saved result whose index stages no longer match (a later, unrelated conflict)', async () => {
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    let prompts = 0;
+    const originalInfo = vscode.window.showInformationMessage;
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async (
+      _message: string,
+      _opts: unknown,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      prompts += 1;
+      return items.find((i) => /restore/i.test(i));
+    };
+    try {
+      {
+        const { panel } = buildPanel(
+          '/repo/x.txt',
+          [],
+          stubStagesGitCli('x.txt', '1'),
+          undefined,
+          store
+        );
+        await panel.deliver({ type: 'ready' });
+        await initMessageOf(capture.created[0]);
+        await panel.deliver({
+          type: 'state',
+          unresolved: 1,
+          total: 2,
+          modified: true,
+          resultText: 'abandoned\n',
+        });
+        panel.dispose();
+      }
+      assert.strictEqual(store.size, 1, 'the abandoned result is on disk');
+
+      // The path conflicts again later with entirely different stage blobs.
+      const { panel } = buildPanel(
+        '/repo/x.txt',
+        [],
+        stubStagesGitCli('x.txt', '9'),
+        undefined,
+        store
+      );
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[1]);
+
+      assert.strictEqual(prompts, 0, 'a stale result is never offered');
+      assert.strictEqual(init.restoredResult, undefined, 'the editor opens on the new conflict');
+      assert.strictEqual(store.size, 0, 'the stale result is cleared, not left to resurface');
       panel.dispose();
     } finally {
       (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;

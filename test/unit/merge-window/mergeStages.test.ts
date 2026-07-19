@@ -50,7 +50,12 @@ describe('merge window stage loading', () => {
 
     const contents = await loadMergeStageContents(cli, '/repo', 'a.txt');
     assert.ok(contents);
-    assert.deepStrictEqual(contents, { base: 'base', ours: 'ours', theirs: 'theirs' });
+    assert.deepStrictEqual(contents, {
+      base: 'base',
+      ours: 'ours',
+      theirs: 'theirs',
+      stageShas: { base: SHA1, ours: SHA2, theirs: SHA3 },
+    });
   });
 
   it('treats a missing stage as empty content', async () => {
@@ -60,7 +65,12 @@ describe('merge window stage loading', () => {
 
     const contents = await loadMergeStageContents(cli, '/repo', 'a.txt');
     assert.ok(contents);
-    assert.deepStrictEqual(contents, { base: 'base', ours: 'ours', theirs: '' });
+    assert.deepStrictEqual(contents, {
+      base: 'base',
+      ours: 'ours',
+      theirs: '',
+      stageShas: { base: SHA1, ours: SHA2, theirs: '' },
+    });
   });
 
   it('falls back to the conflict-marked working file when the base stage is missing', async () => {
@@ -78,7 +88,12 @@ describe('merge window stage loading', () => {
       fs.writeFileSync(path.join(root, 'a.txt'), marked);
       const contents = await loadMergeStageContents(cli, root, 'a.txt');
       assert.ok(contents);
-      assert.deepStrictEqual(contents, { base: marked, ours: 'ours', theirs: 'theirs' });
+      assert.deepStrictEqual(contents, {
+        base: marked,
+        ours: 'ours',
+        theirs: 'theirs',
+        stageShas: { base: '', ours: SHA2, theirs: SHA3 },
+      });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -93,7 +108,12 @@ describe('merge window stage loading', () => {
       'a.txt'
     );
     assert.ok(contents);
-    assert.deepStrictEqual(contents, { base: '', ours: 'ours', theirs: 'theirs' });
+    assert.deepStrictEqual(contents, {
+      base: '',
+      ours: 'ours',
+      theirs: 'theirs',
+      stageShas: { base: '', ours: SHA2, theirs: SHA3 },
+    });
   });
 
   it('returns undefined when the path has no unmerged entry', async () => {

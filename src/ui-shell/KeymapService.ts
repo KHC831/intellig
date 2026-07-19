@@ -34,7 +34,7 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [];
  *
  * IntelliG conveniences WITHOUT a reference default (the reference keymap
  * binds nothing for these actions; do not present them as IntelliJ defaults):
- * - Annotate (Blame): Ctrl+Alt+Shift+A · Show History: Ctrl+H
+ * - Annotate (Blame): Ctrl+Alt+Shift+A
  * - Branch popup: Ctrl+Shift+` · Refresh: Ctrl+Shift+R
  * - Unstage: Ctrl+Alt+Shift+Z (deliberate move off the Rollback chord)
  */

@@ -278,19 +278,11 @@ export async function gatherCheckinContext(
   const normalizing = coreAutoCrlf === 'true' || coreAutoCrlf === 'input';
   const crlfFiles = sampledFiles.filter((f) => f.hasCrlf);
   if (warnAboutCrlf !== false && !normalizing && crlfFiles.length > 0) {
-    let excluded: ReadonlySet<string>;
-    try {
-      const result = await gitCli.exec(
-        ['check-attr', '-z', 'text', 'crlf', '--', ...crlfFiles.map((f) => f.path)],
-        { cwd: repo.rootUri.fsPath }
-      );
-      excluded =
-        result.exitCode === 0
-          ? parseLineAttrPaths(result.stdout)
-          : new Set(crlfFiles.map((f) => f.path));
-    } catch {
-      excluded = new Set(crlfFiles.map((f) => f.path));
-    }
+    const excluded = await readAttributedPaths(
+      gitCli,
+      repo.rootUri.fsPath,
+      crlfFiles.map((f) => f.path)
+    );
     for (const f of crlfFiles) {
       if (excluded.has(f.path)) {
         f.hasCrlf = false;
@@ -310,6 +302,73 @@ export async function gatherCheckinContext(
     warnAboutCrlf,
     largeFileWarningBytes: readConfig('largeFileWarningMb') * 1024 * 1024,
   };
+}
+
+/**
+ * argv budget for one `check-attr` spawn. A normalization-scale commit can
+ * carry tens of thousands of paths; one argv would blow ARG_MAX (~256 KiB on
+ * darwin) and the spawn would fail with E2BIG, which the fail-graceful arm
+ * would read as "every path is attributed" — silently suppressing the warning
+ * for exactly the commit that needs it.
+ */
+const CHECK_ATTR_MAX_ARG_BYTES = 96 * 1024;
+const CHECK_ATTR_MAX_PATHS = 500;
+
+/** Split `paths` into batches that fit one spawn's argv. */
+export function chunkPathsForArgv(
+  paths: readonly string[],
+  maxBytes = CHECK_ATTR_MAX_ARG_BYTES,
+  maxPaths = CHECK_ATTR_MAX_PATHS
+): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let bytes = 0;
+  for (const p of paths) {
+    // +1 for the NUL argv separator the kernel counts per argument.
+    const size = Buffer.byteLength(p, 'utf8') + 1;
+    if (current.length > 0 && (bytes + size > maxBytes || current.length >= maxPaths)) {
+      chunks.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(p);
+    bytes += size;
+  }
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+  return chunks;
+}
+
+/**
+ * Paths whose text/crlf attribute is specified, merged across the batched
+ * `check-attr` spawns. A batch that fails contributes ITS OWN paths as
+ * excluded, keeping the reference's fail-graceful-by-not-warning behavior
+ * (GitCrlfProblemsDetector) scoped to the batch that actually failed.
+ */
+async function readAttributedPaths(
+  gitCli: GitCli,
+  cwd: string,
+  paths: readonly string[]
+): Promise<ReadonlySet<string>> {
+  const excluded = new Set<string>();
+  for (const batch of chunkPathsForArgv(paths)) {
+    try {
+      const result = await gitCli.exec(['check-attr', '-z', 'text', 'crlf', '--', ...batch], {
+        cwd,
+      });
+      if (result.exitCode === 0) {
+        for (const p of parseLineAttrPaths(result.stdout)) {
+          excluded.add(p);
+        }
+      } else {
+        batch.forEach((p) => excluded.add(p));
+      }
+    } catch {
+      batch.forEach((p) => excluded.add(p));
+    }
+  }
+  return excluded;
 }
 
 /**

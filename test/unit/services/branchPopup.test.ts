@@ -1545,7 +1545,7 @@ describe('BranchPopup — favorites share the injected store with the branch tre
     const tree = new BranchTreeProvider(mkFavoritesGitService(), undefined, store);
     const popup = new BranchPopup(mkFavoritesGitService(), undefined, undefined, store);
 
-    tree.toggleFavorite('feature/auth');
+    tree.toggleFavorite(undefined, 'feature/auth');
 
     // The resolved list also carries the predefined defaults; what matters is
     // that the tree's star crossed the shared store.
@@ -1562,7 +1562,7 @@ describe('BranchPopup — favorites share the injected store with the branch tre
 
     // A tree over the same store loads the popup's star at construction.
     const tree = new BranchTreeProvider(mkFavoritesGitService(), undefined, store);
-    assert.strictEqual(tree.isFavorite('release'), true);
+    assert.strictEqual(tree.isFavorite(undefined, 'release'), true);
     assert.ok(store.isFavorite('local', '', 'release'), 'the star landed in the shared store');
     popup.dispose();
     tree.dispose();
@@ -1581,7 +1581,7 @@ describe('BranchPopup — favorites share the injected store with the branch tre
     await popup.updateFavorites('release', true);
 
     assert.strictEqual(
-      tree.isFavorite('release'),
+      tree.isFavorite(undefined, 'release'),
       true,
       'the existing tree instance must see a star added via the popup'
     );

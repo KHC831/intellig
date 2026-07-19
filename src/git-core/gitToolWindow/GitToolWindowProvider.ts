@@ -4832,17 +4832,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     return this._getSelectedRepoRemote();
   }
 
-  /**
-   * Controller-context view over the selected repository's display identity —
-   * its root basename and home-abbreviated root path — for the changed-files
-   * heading. Undefined when no repository is selected.
-   */
-  /**
-   * Whether a hex run from a commit message names a commit in the LOADED
-   * graph window. Only such runs become clickable refs, so an ordinary hex
-   * word (a colour, a digest) never looks like a link; a real commit outside
-   * the loaded window stays plain until it loads.
-   */
+  /** How the details panel currently groups changed files. */
   public getDetailsGroupBy(): DetailsGroupBy {
     return this._detailsGroupBy;
   }
@@ -4862,6 +4852,12 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     this.postDetailsForExpandedCommit();
   }
 
+  /**
+   * Whether a hex run from a commit message names a commit in the LOADED
+   * graph window. Only such runs become clickable refs, so an ordinary hex
+   * word (a colour, a digest) never looks like a link; a real commit outside
+   * the loaded window stays plain until it loads.
+   */
   public isKnownCommitHash(hash: string): boolean {
     const prefix = hash.toLowerCase();
     return this._extendedLogState.commitNodes.some((node) =>
@@ -4869,6 +4865,11 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     );
   }
 
+  /**
+   * Controller-context view over the selected repository's display identity —
+   * its root basename and home-abbreviated root path — for the changed-files
+   * heading. Undefined when no repository is selected.
+   */
   public getSelectedRepoProject(): { name: string; path: string } | undefined {
     const repo = this.getSelectedRepository();
     if (!repo) {

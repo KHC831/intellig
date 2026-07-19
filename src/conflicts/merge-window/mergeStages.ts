@@ -17,6 +17,12 @@ export interface IMergeStageContents {
   readonly base: string;
   readonly ours: string;
   readonly theirs: string;
+  /**
+   * Blob SHA per stage ('' when the stage is absent). Identifies WHICH
+   * conflict these contents came from, so a consumer can tell a later,
+   * unrelated conflict on the same path apart from this one.
+   */
+  readonly stageShas: { readonly base: string; readonly ours: string; readonly theirs: string };
 }
 
 export async function loadMergeStageContents(
@@ -61,7 +67,16 @@ export async function loadMergeStageContents(
     readBlob(entry.stage2),
     readBlob(entry.stage3),
   ]);
-  return { base, ours, theirs };
+  return {
+    base,
+    ours,
+    theirs,
+    stageShas: {
+      base: entry.stage1?.sha ?? '',
+      ours: entry.stage2?.sha ?? '',
+      theirs: entry.stage3?.sha ?? '',
+    },
+  };
 }
 
 /** One side pane of the merge window: what it shows and what it is titled. */

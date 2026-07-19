@@ -125,6 +125,21 @@ describe('createPatchFromLocalChanges — real git', () => {
     assert.ok(patch.includes('f.txt'));
     assert.ok(!patch.includes('other.txt'), 'unselected files stay out of the patch');
   });
+
+  it('emits an appliable patch on an unborn HEAD (a repo with no commits)', async () => {
+    const root = initRepo('patch-unborn-');
+    fs.writeFileSync(path.join(root, 'f.txt'), 'a\nb\n');
+    git(root, 'add', 'f.txt');
+    // Staged, then dirtied — the same staged+dirty shape as a normal repo.
+    fs.writeFileSync(path.join(root, 'f.txt'), 'a\nb\nc\n');
+
+    const patch = await makeService().createPatchFromLocalChanges(repoOf(root), {});
+
+    assert.ok(patch.includes('f.txt'), `first-commit content must be in the patch:\n${patch}`);
+    assert.ok(patch.includes('+c'), 'the worktree edit is included, not just the index');
+    const err = applyCheckError(initRepo('patch-unborn-target-'), patch);
+    assert.strictEqual(err, undefined, `unborn-HEAD patch must apply: ${err}`);
+  });
 });
 
 /**

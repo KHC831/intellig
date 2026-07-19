@@ -641,37 +641,44 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
 
   it('toggleFavorite marks a branch favorite and writes through to the store', () => {
     const store = new InMemoryStore();
+    const repo = attachedRepo('main', 'b'.repeat(40));
     const provider = providerWith(
       [{ name: 'feature', type: 'local', commit: 'c'.repeat(40), isHead: false }],
-      attachedRepo('main', 'b'.repeat(40)),
+      repo,
       store
     );
-    assert.strictEqual(provider.isFavorite('feature'), false);
-    provider.toggleFavorite('feature');
-    assert.strictEqual(provider.isFavorite('feature'), true);
+    assert.strictEqual(provider.isFavorite(repo, 'feature'), false);
+    provider.toggleFavorite(repo, 'feature');
+    assert.strictEqual(provider.isFavorite(repo, 'feature'), true);
     assert.ok(store.isFavorite('local', '/test', 'feature'), 'favorite persisted to the store');
   });
 
   it('toggleFavorite a second time removes the favorite and persists the removal', () => {
     const store = new InMemoryStore(['feature']);
+    const repo = attachedRepo('main', 'b'.repeat(40));
     const provider = providerWith(
       [{ name: 'feature', type: 'local', commit: 'c'.repeat(40), isHead: false }],
-      attachedRepo('main', 'b'.repeat(40)),
+      repo,
       store
     );
-    assert.strictEqual(provider.isFavorite('feature'), true, 'loaded from store on construction');
-    provider.toggleFavorite('feature');
-    assert.strictEqual(provider.isFavorite('feature'), false);
+    assert.strictEqual(
+      provider.isFavorite(repo, 'feature'),
+      true,
+      'loaded from store on construction'
+    );
+    provider.toggleFavorite(repo, 'feature');
+    assert.strictEqual(provider.isFavorite(repo, 'feature'), false);
     assert.strictEqual(store.isFavorite('local', '/test', 'feature'), false);
   });
 
   it('loads persisted favorites from the store on construction', () => {
+    const repo = attachedRepo('main', 'b'.repeat(40));
     const provider = providerWith(
       [{ name: 'release', type: 'local', commit: 'c'.repeat(40), isHead: false }],
-      attachedRepo('main', 'b'.repeat(40)),
+      repo,
       new InMemoryStore(['release'])
     );
-    assert.strictEqual(provider.isFavorite('release'), true);
+    assert.strictEqual(provider.isFavorite(repo, 'release'), true);
   });
 
   // --- favorites section ---
@@ -1208,6 +1215,85 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.ok(
       root.every((n) => n.itemType === 'repository'),
       'every root node is a repository node once scope is all'
+    );
+  });
+
+  // --- favorites are per-repository in the grouped layout ---
+
+  it('stars a branch under the repo the row belongs to, not the selected repo', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const favStore: IFavoritesStore = new InMemoryFavoritesStore();
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [
+          repoB,
+          [
+            { name: 'dev', type: 'local', commit: 'c'.repeat(40), isHead: true },
+            { name: 'ship-it', type: 'local', commit: 'd'.repeat(40), isHead: false },
+          ],
+        ],
+      ]),
+      favStore
+    );
+
+    provider.toggleFavorite(repoB, 'ship-it');
+
+    assert.strictEqual(
+      favStore.isFavorite('local', repoB.rootUri.fsPath, 'ship-it'),
+      true,
+      'the star lands under the row owner repo'
+    );
+    assert.strictEqual(
+      favStore.isFavorite('local', repoA.rootUri.fsPath, 'ship-it'),
+      false,
+      'the star must not leak into the selected repo'
+    );
+  });
+
+  it('renders each repo Favorites section from that repo own stars', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const favStore: IFavoritesStore = new InMemoryFavoritesStore();
+    // Same branch name exists in both repos; only repoB's copy is starred.
+    favStore.setFavorite('local', repoB.rootUri.fsPath, 'ship-it', true);
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [
+          repoA,
+          [
+            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+            { name: 'ship-it', type: 'local', commit: 'b'.repeat(40), isHead: false },
+          ],
+        ],
+        [
+          repoB,
+          [
+            { name: 'dev', type: 'local', commit: 'c'.repeat(40), isHead: true },
+            { name: 'ship-it', type: 'local', commit: 'd'.repeat(40), isHead: false },
+          ],
+        ],
+      ]),
+      favStore
+    );
+
+    const root = await provider.getChildren();
+    const favNames = async (repoNode: BranchTreeItem): Promise<string[]> => {
+      const sections = await provider.getChildren(repoNode);
+      const favCategory = sections.find((s) => s.label === 'Favorites');
+      if (!favCategory) {
+        return [];
+      }
+      return (await provider.getChildren(favCategory)).map((l) => l.branch?.name ?? '');
+    };
+
+    assert.ok((await favNames(root[1])).includes('ship-it'), 'repoB Favorites shows its own star');
+    assert.ok(
+      !(await favNames(root[0])).includes('ship-it'),
+      'repoA Favorites must not show repoB star'
     );
   });
 });

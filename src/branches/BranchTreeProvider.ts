@@ -141,6 +141,11 @@ export const FAVORITES_SLOT: PersistedSlot<IFavoritesState> = {
   },
 };
 
+/** Store key for a repository; '' is the all-repositories bucket. */
+function favoritesRepoPath(repo: IRepository | undefined): string {
+  return repo?.rootUri.fsPath ?? '';
+}
+
 /** An entry matches when the repo agrees, or when it is an all-repos star. */
 function matches(
   ref: IFavoriteRef,
@@ -711,15 +716,6 @@ export class BranchTreeProvider
   private readonly _ownsFavoritesStore: boolean;
 
   /**
-   * In-memory mirror of the favorite local-branch names, re-synced from
-   * {@link _favoritesStore} whenever it fires {@link
-   * IFavoritesStore.onDidChangeFavorites} (including this provider's own
-   * writes), so the tree stays live-consistent with the branch popup.
-   */
-  /** Repo path the favorite lookups are scoped to ('' before a repo is known). */
-  private _favoritesRepoPath = '';
-
-  /**
    * Active search query (IntelliJ speed-search analogue). When set, every
    * section renders only refs whose FULL name contains it
    * (case-insensitive); folder grouping is built from the survivors.
@@ -762,7 +758,6 @@ export class BranchTreeProvider
           return;
         }
         this._currentRepository = repo;
-        this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
         this.refresh();
       })
     );
@@ -818,12 +813,10 @@ export class BranchTreeProvider
     });
     if (repo) {
       this._currentRepository = repo;
-      this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
     } else {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
         this._currentRepository = await this._gitService.getRepository(workspaceFolders[0].uri);
-        this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
       }
     }
     this.refresh();
@@ -848,7 +841,6 @@ export class BranchTreeProvider
    */
   setRepository(repo: IRepository): void {
     this._currentRepository = repo;
-    this._favoritesRepoPath = this._currentRepository?.rootUri.fsPath ?? '';
     this._repositoryScope = 'repository';
     this.refresh();
   }
@@ -877,27 +869,37 @@ export class BranchTreeProvider
    */
   private async _hasAnyFavorite(repo: IRepository): Promise<boolean> {
     const branches = await this._gitService.getBranches(repo);
-    return branches.some((b) => this.isFavorite(b.name, b.type === 'remote' ? 'remote' : 'local'));
+    return branches.some((b) =>
+      this.isFavorite(repo, b.name, b.type === 'remote' ? 'remote' : 'local')
+    );
   }
 
   /**
-   * Whether `branchName` is starred for the current repository. REMOTE refs
-   * are first-class favorites, as in git4idea (GitBranchManager).
+   * Whether `branchName` is starred in `repo`. Favorites are per-repository
+   * (git4idea DvcsBranchInfo.repoPath), so the owning repo travels with every
+   * lookup; `undefined` resolves against the all-repositories bucket. REMOTE
+   * refs are first-class favorites, as in git4idea (GitBranchManager).
    */
-
-  isFavorite(branchName: string, type: FavoriteRefType = 'local'): boolean {
-    return this._favoritesStore.isFavorite(type, this._favoritesRepoPath, branchName);
+  isFavorite(
+    repo: IRepository | undefined,
+    branchName: string,
+    type: FavoriteRefType = 'local'
+  ): boolean {
+    return this._favoritesStore.isFavorite(type, favoritesRepoPath(repo), branchName);
   }
 
   /**
-   * Toggle the favorite (star) state of a local branch by writing the new
-   * set through {@link _favoritesStore}. The store's change event re-syncs
-   * {@link _favorites} and refreshes the tree (a single source of truth, so
-   * the branch popup sees the same toggle). Mirrors git4idea's
-   * `toggle_favorite` action (SPACE / star click).
+   * Toggle the favorite (star) state of a ref in `repo` by writing the new
+   * set through {@link _favoritesStore}. The store's change event refreshes
+   * the tree (a single source of truth, so the branch popup sees the same
+   * toggle). Mirrors git4idea's `toggle_favorite` action (SPACE / star click).
    */
-  toggleFavorite(branchName: string, type: FavoriteRefType = 'local'): void {
-    const repoPath = this._favoritesRepoPath;
+  toggleFavorite(
+    repo: IRepository | undefined,
+    branchName: string,
+    type: FavoriteRefType = 'local'
+  ): void {
+    const repoPath = favoritesRepoPath(repo);
     const next = !this._favoritesStore.isFavorite(type, repoPath, branchName);
     this._favoritesStore.setFavorite(type, repoPath, branchName, next);
   }
@@ -1152,7 +1154,7 @@ export class BranchTreeProvider
     const branches = await this._gitService.getBranches(repo);
     let favorites = branches.filter(
       (b) =>
-        this.isFavorite(b.name, b.type === 'remote' ? 'remote' : 'local') &&
+        this.isFavorite(repo, b.name, b.type === 'remote' ? 'remote' : 'local') &&
         this._matchesSearch(b.name)
     );
     if (this._incomingOutgoingFetcher) {
@@ -1479,7 +1481,7 @@ export class BranchTreeProvider
             undefined,
             undefined,
             undefined,
-            this.isFavorite(branch.name), // isFavorite
+            this.isFavorite(repo, branch.name), // isFavorite
             repo
           )
         );
@@ -1496,7 +1498,7 @@ export class BranchTreeProvider
             undefined,
             undefined,
             undefined,
-            this.isFavorite(branch.name, 'remote'), // isFavorite
+            this.isFavorite(repo, branch.name, 'remote'), // isFavorite
             repo
           )
         );

@@ -89,19 +89,6 @@ export function extractCommitHash(arg: unknown): string | undefined {
 }
 
 /**
- * Resolve the repository that CONTAINS `hash`, NON-interactively.
- *
- * For a commit-scoped action (diff/compare/apply) the target repo is determined
- * by the commit, not the user. {@link pickRepositoryForCommit} prompts with a
- * blind "Choose Repository" QuickPick in a multi-repo workspace and never
- * verifies the pick holds the commit — so a wrong pick runs the op against a
- * repo without the commit and yields a BLANK diff / empty result. This resolver
- * mirrors `resolveRepoForCommitDiff` (registration/wiring.ts): single-repo is
- * auto-selected; multi-repo returns the first repo whose `getCommit(hash)`
- * succeeds; and it surfaces an error (rather than prompting) when no open repo
- * contains the commit.
- */
-/**
  * The context a details-panel file action carries: which commit, which file
  * was clicked, and which repository owns the commit. Every field is optional —
  * a palette invocation supplies none of them and the handler falls back to its
@@ -153,6 +140,19 @@ export async function resolveRepoForCommitFile(
   return resolveRepoContainingCommit(ctx, hash);
 }
 
+/**
+ * Resolve the repository that CONTAINS `hash`, NON-interactively.
+ *
+ * For a commit-scoped action (diff/compare/apply) the target repo is determined
+ * by the commit, not the user. {@link pickRepositoryForCommit} prompts with a
+ * blind "Choose Repository" QuickPick in a multi-repo workspace and never
+ * verifies the pick holds the commit — so a wrong pick runs the op against a
+ * repo without the commit and yields a BLANK diff / empty result. This resolver
+ * mirrors `resolveRepoForCommitDiff` (registration/wiring.ts): single-repo is
+ * auto-selected; multi-repo returns the first repo whose `getCommit(hash)`
+ * succeeds; and it surfaces an error (rather than prompting) when no open repo
+ * contains the commit.
+ */
 export async function resolveRepoContainingCommit(
   ctx: ICommandContext,
   hash: string

@@ -209,7 +209,9 @@ async function editRemoteFlow(
 /**
  * Apply an edit from the define dialog: rename first, then re-point the URL
  * under the NEW name (GitConfigureRemotesDialog.changeRemote). A failed rename
- * leaves the URL alone so the remote never ends up half-updated.
+ * leaves the URL alone. Once any mutation has landed, listeners are notified
+ * even if a later step fails — otherwise the branches tree and push dialog
+ * keep showing the old name until some unrelated refresh.
  */
 async function applyRemoteEdit(
   deps: IConfigureRemotesDeps,
@@ -243,6 +245,11 @@ async function applyRemoteEdit(
       () => deps.gitService.setRemoteUrl(deps.repo, defined.name, defined.url)
     );
     if (!repointed) {
+      // The rename may already have landed; publish it (runRemoteOp toasted
+      // the URL failure) rather than claim success or leave stale views.
+      if (defined.name !== remote.name) {
+        await notifyChanged(deps);
+      }
       return;
     }
   }

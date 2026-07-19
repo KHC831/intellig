@@ -98,6 +98,12 @@ function makeMockGitService(
         if (!opts?.scriptStashCreate && args[0] === 'stash' && args[1] === 'create') {
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         }
+        if (args[0] === 'rev-parse' && args.includes('HEAD')) {
+          // Born HEAD by default, WITHOUT consuming a scripted response, so
+          // diff-focused tests script only the diff exec.
+          const stdout = `${'a'.repeat(40)}\n`;
+          return { exitCode: 0, stdout, stderr: '', combined: stdout };
+        }
         if (args[0] === 'status') {
           // Porcelain -z synthesized from `statusFiles` so the shared am
           // session op (which reads status through the CLI) sees the same
@@ -596,6 +602,11 @@ describe('PatchService.applyPatch', () => {
   });
 });
 
+/** The diff invocations only — the HEAD-base probe runs first and is noise here. */
+function diffExecs(git: { _exec: RecordedExec[] }): string[][] {
+  return git._exec.filter((e) => e.args[0] === 'diff').map((e) => e.args);
+}
+
 describe('PatchService.createPatchFromLocalChanges', () => {
   it('default: runs a single `git diff HEAD` (one base, one block per file)', async () => {
     const git = makeMockGitService([{ exitCode: 0, stdout: 'HEAD_DIFF\n', stderr: '' }]);
@@ -604,8 +615,7 @@ describe('PatchService.createPatchFromLocalChanges', () => {
 
     const patch = await svc.createPatchFromLocalChanges(repo, {});
     assert.strictEqual(patch, 'HEAD_DIFF\n');
-    assert.strictEqual(git._exec.length, 1);
-    assert.deepStrictEqual(git._exec[0].args, ['diff', 'HEAD']);
+    assert.deepStrictEqual(diffExecs(git), [['diff', 'HEAD']], 'exactly one diff invocation');
   });
 
   it('stagedOnly: runs only `git diff --cached`', async () => {
@@ -625,7 +635,7 @@ describe('PatchService.createPatchFromLocalChanges', () => {
     const repo = makeRepo();
 
     await svc.createPatchFromLocalChanges(repo, { files: ['a.ts', 'b.ts'] });
-    assert.deepStrictEqual(git._exec[0].args, ['diff', 'HEAD', '--', 'a.ts', 'b.ts']);
+    assert.deepStrictEqual(diffExecs(git), [['diff', 'HEAD', '--', 'a.ts', 'b.ts']]);
   });
 
   it('toClipboard: writes the patch text to the VS Code clipboard', async () => {
@@ -1226,8 +1236,7 @@ describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
 
     await svc.createPatchFromLocalChanges(repo, { reverse: true });
 
-    assert.strictEqual(git._exec.length, 1);
-    assert.deepStrictEqual(git._exec[0].args, ['diff', 'HEAD', '-R']);
+    assert.deepStrictEqual(diffExecs(git), [['diff', 'HEAD', '-R']], 'exactly one diff invocation');
   });
 
   it('adds -R to the cached leg in stagedOnly mode', async () => {

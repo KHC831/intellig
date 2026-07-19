@@ -14,6 +14,7 @@ import {
   formatCheckinProblems,
   recommendedAutoCrlfValue,
   runBeforeCommitChecks,
+  chunkPathsForArgv,
 } from '../../../src/commits/CheckinChecks';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -416,10 +417,91 @@ describe('gatherCheckinContext — CRLF gitattributes exclusion', () => {
     }
   });
 
+  it('batches a huge path list across several check-attr spawns and merges the results', async () => {
+    fs.mkdirSync(TMP_ROOT, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(TMP_ROOT, 'attr-batch-'));
+    const paths: string[] = [];
+    for (let i = 0; i < 1200; i++) {
+      const rel = `f${String(i).padStart(4, '0')}.ts`;
+      fs.writeFileSync(path.join(dir, rel), 'a\r\nb\r\n');
+      paths.push(rel);
+    }
+    const repo = {
+      rootUri: Uri.file(dir),
+      state: 'idle',
+      head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    } as unknown as IRepository;
+    const attrBatches: string[][] = [];
+    const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', combined: stdout });
+    // Only the FIRST path of each batch is attributed, so a dropped batch is
+    // visible in the merged result rather than masked by a blanket answer.
+    const exec = async (args: string[]) => {
+      if (args[0] !== 'check-attr') {
+        return ok(args[0] === 'symbolic-ref' ? 'refs/heads/main' : '');
+      }
+      const batch = args.slice(args.indexOf('--') + 1);
+      attrBatches.push(batch);
+      return ok(`${batch[0]}\0text\0auto\0`);
+    };
+    const git = {
+      getStatus: async (): Promise<IFileStatus[]> =>
+        paths.map((p) => ({ path: p, indexStatus: ' ', workTreeStatus: 'M' }) as IFileStatus),
+      gitCli: { exec },
+    } as unknown as IGitService;
+
+    const ctx = await gatherCheckinContext(git, repo, paths);
+
+    assert.ok(
+      attrBatches.length > 1,
+      `1200 paths must span several spawns, got ${attrBatches.length}`
+    );
+    assert.deepStrictEqual(
+      attrBatches.flat().sort(),
+      [...paths].sort(),
+      'every path is checked exactly once across the batches'
+    );
+    const cleared = ctx.files.filter((f) => f.hasCrlf === false).map((f) => f.path);
+    assert.deepStrictEqual(
+      cleared.sort(),
+      attrBatches.map((b) => b[0]).sort(),
+      'each batch attributed answer lands in the merged exclusion set'
+    );
+  });
+
   it('skips check-attr when core.autocrlf already normalizes', async () => {
     const { repo, git, execCalls } = makeAttrFixture({ autoCrlf: 'input' });
     await gatherCheckinContext(git, repo, PATHS);
     assert.ok(!execCalls.some((a) => a[0] === 'check-attr'), 'no check-attr spawn needed');
+  });
+});
+
+describe('chunkPathsForArgv', () => {
+  it('keeps every batch under the byte budget without dropping or duplicating paths', () => {
+    const paths = Array.from({ length: 300 }, (_, i) => `${'d'.repeat(120)}/f${i}.ts`);
+    const chunks = chunkPathsForArgv(paths, 4096, 1000);
+
+    assert.ok(chunks.length > 1, 'a long list must split');
+    for (const chunk of chunks) {
+      const bytes = chunk.reduce((n, p) => n + Buffer.byteLength(p, 'utf8') + 1, 0);
+      assert.ok(bytes <= 4096, `batch of ${bytes} bytes exceeds the budget`);
+    }
+    assert.deepStrictEqual(chunks.flat(), paths, 'order and membership are preserved');
+  });
+
+  it('caps a batch by path count even when the paths are tiny', () => {
+    const paths = Array.from({ length: 25 }, (_, i) => `f${i}`);
+    const chunks = chunkPathsForArgv(paths, 1024 * 1024, 10);
+
+    assert.deepStrictEqual(
+      chunks.map((c) => c.length),
+      [10, 10, 5]
+    );
+  });
+
+  it('never emits an empty batch for an empty list', () => {
+    assert.deepStrictEqual(chunkPathsForArgv([], 4096, 10), []);
   });
 });
 

@@ -35,6 +35,19 @@ export function unprocessedPhrase(changes: number, conflicts: number): string {
   return parts.join(' and ') || 'no changes';
 }
 
+/** How long the host coalesces per-keystroke result posts before persisting. */
+const PERSIST_DEBOUNCE_MS = 400;
+
+/**
+ * A restorable merge result, bound to the index stages it was produced
+ * from. Offering it against different stages would seed an unrelated later
+ * conflict on the same path with the wrong content.
+ */
+interface IUnsavedMergeResult {
+  readonly text: string;
+  readonly stages: string;
+}
+
 /**
  * The conflict operation and raw stage names the pane assignment maps to
  * user sides. Kept raw (per git stage) so the panel can run stage contents
@@ -58,6 +71,9 @@ export interface IMergeWindowConflictContext {
 export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
   private _eol: '\n' | '\r\n' = '\n';
   private _modified = false;
+  private _stageIdentity = '';
+  private _pendingResult: { text: string | undefined } | undefined;
+  private _persistTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -143,27 +159,81 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
     }
   }
 
-  private get _unsavedResultSlot(): PersistedSlot<string> {
+  private get _unsavedResultSlot(): PersistedSlot<IUnsavedMergeResult> {
     return {
       key: `intellig.mergeWindow.unsavedResult:${this._opts.repository.rootUri.fsPath}:${this._opts.relPath}`,
-      version: 1,
-      // Not readString: an empty result (everything deleted) is restorable too.
-      validate: (raw) => (typeof raw === 'string' ? raw : undefined),
+      version: 2,
+      validate: (raw): IUnsavedMergeResult | undefined => {
+        if (typeof raw !== 'object' || raw === null) {
+          return undefined;
+        }
+        const { text, stages } = raw as Record<string, unknown>;
+        // An empty result (everything deleted) is restorable too, so only the
+        // type is checked, not the length.
+        return typeof text === 'string' && typeof stages === 'string'
+          ? { text, stages }
+          : undefined;
+      },
     };
   }
 
   private _saveUnsavedResult(text: string | undefined): void {
-    void savePersisted(this._context.workspaceState, this._unsavedResultSlot, text);
+    // The webview posts state per keystroke; writing the whole conflicted
+    // file to the Memento each time is the same write amplification a
+    // refresh storm causes. Coalesce and let dispose() flush the tail.
+    this._pendingResult = { text };
+    if (this._persistTimer) {
+      clearTimeout(this._persistTimer);
+    }
+    this._persistTimer = setTimeout(() => {
+      this._persistTimer = undefined;
+      this._flushUnsavedResult();
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  /** Drop the saved result immediately — user-explicit, never coalesced. */
+  private _clearUnsavedResult(): void {
+    this._pendingResult = { text: undefined };
+    this._flushUnsavedResult();
+  }
+
+  /** Write the coalesced result now. Idempotent when nothing is pending. */
+  protected _flushUnsavedResult(): void {
+    if (this._persistTimer) {
+      clearTimeout(this._persistTimer);
+      this._persistTimer = undefined;
+    }
+    const pending = this._pendingResult;
+    if (!pending) {
+      return;
+    }
+    this._pendingResult = undefined;
+    const value =
+      pending.text === undefined ? undefined : { text: pending.text, stages: this._stageIdentity };
+    void savePersisted(this._context.workspaceState, this._unsavedResultSlot, value);
+  }
+
+  override dispose(): void {
+    // A closed tab must not lose the latest text the debounce was holding.
+    this._flushUnsavedResult();
+    super.dispose();
   }
 
   /**
    * Offer the result text a previously closed window left behind. Explicit
    * discard drops the copy; dismissing the prompt keeps it for a later
-   * reopen without restoring now.
+   * reopen without restoring now. A result saved against DIFFERENT index
+   * stages belongs to a conflict that has since been resolved another way —
+   * it is dropped rather than offered for an unrelated later conflict on the
+   * same path.
    */
   private async _promptForSavedResult(): Promise<string | undefined> {
     const saved = loadPersisted(this._context.workspaceState, this._unsavedResultSlot);
-    if (typeof saved !== 'string') {
+    if (!saved) {
+      return undefined;
+    }
+    if (saved.stages !== this._stageIdentity) {
+      this._clearUnsavedResult();
       return undefined;
     }
     const restore = 'Restore';
@@ -175,10 +245,10 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       discard
     );
     if (choice === restore) {
-      return saved;
+      return saved.text;
     }
     if (choice === discard) {
-      this._saveUnsavedResult(undefined);
+      this._clearUnsavedResult();
     }
     return undefined;
   }
@@ -204,6 +274,8 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         // Deleted from the worktree — fall back to the "ours" stage.
       }
       this._eol = detectEol(eolSource);
+      const { base, ours, theirs } = stages.stageShas;
+      this._stageIdentity = `${base}:${ours}:${theirs}`;
 
       // One reversal decision assigns contents and labels together — a
       // rebase/unstash/unshelve swaps both, so the pane titled with the
@@ -247,7 +319,7 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
       void vscode.window.showErrorMessage(`Failed to apply merge result: ${sanitizeGitError(raw)}`);
       return;
     }
-    this._saveUnsavedResult(undefined);
+    this._clearUnsavedResult();
     onApplied(relPath);
     this.dispose();
   }
@@ -290,7 +362,7 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         return;
       }
     }
-    this._saveUnsavedResult(undefined);
+    this._clearUnsavedResult();
     this.dispose();
   }
 
