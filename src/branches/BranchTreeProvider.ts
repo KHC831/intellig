@@ -146,16 +146,57 @@ function favoritesRepoPath(repo: IRepository | undefined): string {
   return repo?.rootUri.fsPath ?? '';
 }
 
-/** An entry matches when the repo agrees, or when it is an all-repos star. */
-function matches(
+/**
+ * An entry addressed to exactly this repository. This is the WRITE-path rule
+ * (git4idea `BranchStorage.add/remove/contains` resolve their target by
+ * strict `repoPath` equality — platform/dvcs-impl/shared/src/com/intellij/
+ * dvcs/branch/BranchStorage.kt `find()`), so a mutation in one root never
+ * rewrites another root's entry.
+ */
+function matchesExact(
   ref: IFavoriteRef,
   type: FavoriteRefType,
   repoPath: string,
   name: string
 ): boolean {
-  return (
-    ref.type === type && ref.name === name && (ref.repoPath === repoPath || ref.repoPath === '')
-  );
+  return ref.type === type && ref.name === name && ref.repoPath === repoPath;
+}
+
+/**
+ * An all-repositories entry, which applies to every root on the READ path
+ * (git4idea fans `repoPath == ""` out across roots in
+ * `DvcsBranchManager.collectBranchesByRoot`).
+ */
+function matchesAllRepos(ref: IFavoriteRef, type: FavoriteRefType, name: string): boolean {
+  return ref.type === type && ref.name === name && ref.repoPath === '';
+}
+
+/**
+ * Resolve whether a ref reads as starred in `repoPath`. A repository-scoped
+ * entry outranks an all-repositories one, so un-starring in a single root
+ * shadows a shared star there and leaves it standing everywhere else;
+ * predefined defaults apply last (DvcsBranchManager.isFavorite ordering).
+ */
+function resolveFavorite(
+  favorites: readonly IFavoriteRef[],
+  excluded: readonly IFavoriteRef[],
+  type: FavoriteRefType,
+  repoPath: string,
+  name: string
+): boolean {
+  if (favorites.some((ref) => matchesExact(ref, type, repoPath, name))) {
+    return true;
+  }
+  if (excluded.some((ref) => matchesExact(ref, type, repoPath, name))) {
+    return false;
+  }
+  if (favorites.some((ref) => matchesAllRepos(ref, type, name))) {
+    return true;
+  }
+  if (excluded.some((ref) => matchesAllRepos(ref, type, name))) {
+    return false;
+  }
+  return isPredefinedFavorite(type, name);
 }
 
 /**
@@ -193,50 +234,44 @@ abstract class FavoritesStoreBase implements IFavoritesStore {
 
   isFavorite(type: FavoriteRefType, repoPath: string, name: string): boolean {
     const state = this._load();
-    if (state.favorites.some((ref) => matches(ref, type, repoPath, name))) {
-      return true;
-    }
-    if (state.excluded.some((ref) => matches(ref, type, repoPath, name))) {
-      return false;
-    }
-    return isPredefinedFavorite(type, name);
+    return resolveFavorite(state.favorites, state.excluded, type, repoPath, name);
   }
 
+  /**
+   * Record the star state for `repoPath` only. Entries owned by other roots
+   * — including the shared all-repositories bucket — are left verbatim; the
+   * new state is expressed by adding the repository-scoped entry that flips
+   * the resolution, exactly as git4idea's strict-equality storage does.
+   */
   setFavorite(type: FavoriteRefType, repoPath: string, name: string, favorite: boolean): void {
     const state = this._load();
     const without = (refs: IFavoriteRef[]): IFavoriteRef[] =>
-      refs.filter((ref) => !matches(ref, type, repoPath, name));
-    const next: IFavoritesState = favorite
-      ? {
-          favorites: isPredefinedFavorite(type, name)
-            ? without(state.favorites)
-            : [...without(state.favorites), { repoPath, type, name }],
-          excluded: without(state.excluded),
-        }
-      : {
-          favorites: without(state.favorites),
-          excluded: isPredefinedFavorite(type, name)
-            ? [...without(state.excluded), { repoPath, type, name }]
-            : without(state.excluded),
-        };
+      refs.filter((ref) => !matchesExact(ref, type, repoPath, name));
+    const favorites = without(state.favorites);
+    const excluded = without(state.excluded);
+    const entry: IFavoriteRef = { repoPath, type, name };
+    const readsFavorite = resolveFavorite(favorites, excluded, type, repoPath, name);
+    const next: IFavoritesState =
+      favorite === readsFavorite
+        ? { favorites, excluded }
+        : favorite
+          ? { favorites: [...favorites, entry], excluded }
+          : { favorites, excluded: [...excluded, entry] };
     this._save(next);
     this._fireChange();
   }
 
   favoriteNames(type: FavoriteRefType, repoPath: string): string[] {
     const state = this._load();
-    const names = new Set<string>(PREDEFINED_FAVORITES[type]);
+    const candidates = new Set<string>(PREDEFINED_FAVORITES[type]);
     for (const ref of state.favorites) {
       if (ref.type === type && (ref.repoPath === repoPath || ref.repoPath === '')) {
-        names.add(ref.name);
+        candidates.add(ref.name);
       }
     }
-    for (const ref of state.excluded) {
-      if (ref.type === type && (ref.repoPath === repoPath || ref.repoPath === '')) {
-        names.delete(ref.name);
-      }
-    }
-    return [...names];
+    return [...candidates].filter((name) =>
+      resolveFavorite(state.favorites, state.excluded, type, repoPath, name)
+    );
   }
 
   protected _fireChange(): void {
@@ -867,8 +902,7 @@ export class BranchTreeProvider
    * stored names alone would show an empty Favorites category, since the
    * predefined defaults are listed whether or not the repo has those branches.
    */
-  private async _hasAnyFavorite(repo: IRepository): Promise<boolean> {
-    const branches = await this._gitService.getBranches(repo);
+  private _hasAnyFavorite(repo: IRepository, branches: readonly IBranch[]): boolean {
     return branches.some((b) =>
       this.isFavorite(repo, b.name, b.type === 'remote' ? 'remote' : 'local')
     );
@@ -1048,11 +1082,21 @@ export class BranchTreeProvider
     const head = repo.head;
     const currentBranchName = head?.name?.replace('refs/heads/', '');
 
+    // One branch read serves every node in this pass (HEAD resolution and
+    // the Favorites gate); best-effort, so a failed read still renders the
+    // categories.
+    let branches: IBranch[] = [];
+    try {
+      branches = await this._gitService.getBranches(repo);
+    } catch {
+      branches = [];
+    }
+
     // HEAD root node. Only when HEAD is attached to a branch — detached
     // and empty states are surfaced inside Local (synthetic detached row
     // or nothing), so a top HEAD node there would be misleading.
     if (currentBranchName) {
-      const currentBranch = await this._findCurrentBranch(repo, currentBranchName);
+      const currentBranch = this._findCurrentBranch(branches, currentBranchName);
       nodes.push(
         new BranchTreeItem(
           currentBranchName,
@@ -1072,7 +1116,7 @@ export class BranchTreeProvider
     }
 
     // Favorites section — only when a ref that exists here is starred.
-    if (await this._hasAnyFavorite(repo)) {
+    if (this._hasAnyFavorite(repo, branches)) {
       nodes.push(
         new BranchTreeItem(
           'Favorites',
@@ -1129,19 +1173,14 @@ export class BranchTreeProvider
   /**
    * Resolve the {@link IBranch} for the current branch name so the HEAD
    * node carries a real ref (selection → graph navigation). Returns
-   * `undefined` (best-effort) if the branch list can't be loaded or the
-   * branch isn't found — the HEAD node still renders by name.
+   * `undefined` (best-effort) when the branch isn't in the list — the HEAD
+   * node still renders by name.
    */
-  private async _findCurrentBranch(
-    repo: IRepository,
+  private _findCurrentBranch(
+    branches: readonly IBranch[],
     currentBranchName: string
-  ): Promise<IBranch | undefined> {
-    try {
-      const branches = await this._gitService.getBranches(repo);
-      return branches.find((b) => b.type === 'local' && (b.name === currentBranchName || b.isHead));
-    } catch {
-      return undefined;
-    }
+  ): IBranch | undefined {
+    return branches.find((b) => b.type === 'local' && (b.name === currentBranchName || b.isHead));
   }
 
   /**
@@ -1174,10 +1213,13 @@ export class BranchTreeProvider
         new BranchTreeItem(
           branch.name,
           vscode.TreeItemCollapsibleState.None,
-          'local-branch',
+          // The section admits REMOTE refs too; each row keeps its own kind so
+          // the right-click menu matches the ref (a local menu on origin/main
+          // would offer a Checkout that detaches HEAD).
+          branch.type === 'remote' ? 'remote-branch' : 'local-branch',
           branch,
           undefined,
-          branch.name === currentBranchName || branch.isHead,
+          branch.type !== 'remote' && (branch.name === currentBranchName || branch.isHead),
           undefined,
           undefined,
           undefined,

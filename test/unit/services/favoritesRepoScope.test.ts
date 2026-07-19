@@ -192,6 +192,73 @@ describe('favorites: repository scoping', () => {
   });
 });
 
+describe('favorites: all-repository entries on the write path', () => {
+  // BranchStorage.add/remove/contains match repoPath by strict equality
+  // (platform/dvcs-impl/shared/.../BranchStorage.kt find()); only the
+  // list-building read fans an all-repositories entry out across roots.
+  it('un-starring in one repository leaves the all-repository star for the others', () => {
+    const memento = makeMemento({ [FAVORITES_SLOT.key]: ['feature/legacy'] });
+    const store = createFavoritesStore(memento);
+    try {
+      store.setFavorite('local', REPO_A, 'feature/legacy', false);
+
+      assert.strictEqual(store.isFavorite('local', REPO_A, 'feature/legacy'), false);
+      assert.strictEqual(
+        store.isFavorite('local', REPO_B, 'feature/legacy'),
+        true,
+        'the all-repository star still applies to every other root'
+      );
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('re-starring in that repository restores it without disturbing the others', () => {
+    const memento = makeMemento({ [FAVORITES_SLOT.key]: ['feature/legacy'] });
+    const store = createFavoritesStore(memento);
+    try {
+      store.setFavorite('local', REPO_A, 'feature/legacy', false);
+      store.setFavorite('local', REPO_A, 'feature/legacy', true);
+
+      assert.strictEqual(store.isFavorite('local', REPO_A, 'feature/legacy'), true);
+      assert.strictEqual(store.isFavorite('local', REPO_B, 'feature/legacy'), true);
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('a repo-scoped un-star survives a restart', () => {
+    const memento = makeMemento({ [FAVORITES_SLOT.key]: ['feature/legacy'] });
+    const store = createFavoritesStore(memento);
+    try {
+      store.setFavorite('local', REPO_A, 'feature/legacy', false);
+    } finally {
+      store.dispose();
+    }
+
+    const reopened = createFavoritesStore(memento);
+    try {
+      assert.strictEqual(reopened.isFavorite('local', REPO_A, 'feature/legacy'), false);
+      assert.strictEqual(reopened.isFavorite('local', REPO_B, 'feature/legacy'), true);
+    } finally {
+      reopened.dispose();
+    }
+  });
+
+  it('drops an un-starred all-repository name from that repository name list only', () => {
+    const memento = makeMemento({ [FAVORITES_SLOT.key]: ['feature/legacy'] });
+    const store = createFavoritesStore(memento);
+    try {
+      store.setFavorite('local', REPO_A, 'feature/legacy', false);
+
+      assert.ok(!store.favoriteNames('local', REPO_A).includes('feature/legacy'));
+      assert.ok(store.favoriteNames('local', REPO_B).includes('feature/legacy'));
+    } finally {
+      store.dispose();
+    }
+  });
+});
+
 describe('favorites: migration from the flat name list', () => {
   it('carries legacy favorites over as all-repository stars', () => {
     // Legacy shape: a bare (un-enveloped) array of local branch names.

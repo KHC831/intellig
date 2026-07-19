@@ -141,6 +141,12 @@ function render(init: IResolveConflictsDialogInit): void {
     if (!(target instanceof HTMLElement)) {
       return;
     }
+    // Keys aimed at an in-row control belong to that control — the browser
+    // already turns Enter on a button into a click, and resolving the row here
+    // too would fire the action twice.
+    if (target.closest('button, a, input, select, textarea, [contenteditable]')) {
+      return;
+    }
     const row = target.closest('[data-row-path]');
     if (!(row instanceof HTMLElement)) {
       return;

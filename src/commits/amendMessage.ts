@@ -41,17 +41,28 @@ export async function loadHeadCommitMessage(
 /** See module doc. One instance per commit surface. */
 export class AmendMessageTracker {
   private _amendData?: { beforeAmendMessage: string; amendMessage: string };
+  /**
+   * Bumped by every toggle. The HEAD read is asynchronous and toggles are not
+   * serialized, so a result that lands after a later toggle is stale and must
+   * be dropped — applying it would overwrite the draft with HEAD's message.
+   */
+  private _toggleSequence = 0;
 
   /**
    * Entering amend: returns the text the composer should show (HEAD's
    * message), or undefined to leave the composer untouched (no HEAD message,
-   * or the draft already equals it). Saves the draft for {@link exitAmend}.
+   * the draft already equals it, or a later toggle superseded this load).
+   * Saves the draft for {@link exitAmend}.
    */
   async enterAmend(
     currentMessage: string,
     loadHead: () => Promise<string | undefined>
   ): Promise<string | undefined> {
+    const token = ++this._toggleSequence;
     const amendMessage = await loadHead();
+    if (token !== this._toggleSequence) {
+      return undefined;
+    }
     if (amendMessage === undefined || amendMessage === currentMessage) {
       return undefined;
     }
@@ -64,6 +75,7 @@ export class AmendMessageTracker {
    * shows the unedited amend message, else undefined (user edits win).
    */
   exitAmend(currentMessage: string): string | undefined {
+    this._toggleSequence++;
     const data = this._amendData;
     this._amendData = undefined;
     if (!data || data.amendMessage !== currentMessage) {

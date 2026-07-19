@@ -42,12 +42,12 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
 import { filterPatchByFiles, splitPatchByFile, validateStripLevel } from './PatchService';
 import {
-  APPLY_PATCH_SETTINGS_SLOT,
+  applyPatchSettingsSlot,
   previewFileResult,
   type IApplyPatchSettings,
   type IPatchPreviewFile,
 } from './applyPatchSettings';
-import { loadPersisted, savePersisted } from '../utils/persistedState';
+import { loadPersisted, savePersisted, type PersistedSlot } from '../utils/persistedState';
 
 /**
  * Constructor options for {@link ApplyPatchDialog}.
@@ -94,6 +94,7 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
   private _busy = false;
   private readonly _workspaceState: vscode.Memento;
   private readonly _settings: IApplyPatchSettings;
+  private readonly _settingsSlot: PersistedSlot<IApplyPatchSettings>;
 
   constructor(context: vscode.ExtensionContext, options: IApplyPatchDialogOptions) {
     super(context, VIEW_TYPE, TITLE, vscode.ViewColumn.One);
@@ -103,7 +104,8 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
     this._onApplyComplete = options.onApplyComplete;
     this._patchPath = options.initialPatchPath;
     this._workspaceState = context.workspaceState;
-    this._settings = loadPersisted(context.workspaceState, APPLY_PATCH_SETTINGS_SLOT) ?? {};
+    this._settingsSlot = applyPatchSettingsSlot(this._repo.rootUri.fsPath);
+    this._settings = loadPersisted(context.workspaceState, this._settingsSlot) ?? {};
 
     this._render();
   }
@@ -297,8 +299,19 @@ ${this._getBodyHtml()}
       case 'browse':
         await this._handleBrowse();
         return;
+      // Preview and apply share the guard: two previews would race each
+      // other's `--check` verdicts, and a preview started before an apply
+      // would report on a tree the apply has already changed.
       case 'preview':
-        await this._handlePreview(msg);
+        if (this._busy) {
+          return;
+        }
+        this._busy = true;
+        try {
+          await this._handlePreview(msg);
+        } finally {
+          this._busy = false;
+        }
         return;
       case 'apply':
         if (this._busy) {
@@ -322,7 +335,7 @@ ${this._getBodyHtml()}
    */
   private async _rememberSettings(changes: IApplyPatchSettings): Promise<void> {
     Object.assign(this._settings, changes);
-    await savePersisted(this._workspaceState, APPLY_PATCH_SETTINGS_SLOT, this._settings);
+    await savePersisted(this._workspaceState, this._settingsSlot, this._settings);
   }
 
   /**

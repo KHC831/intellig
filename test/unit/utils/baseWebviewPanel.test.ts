@@ -194,6 +194,19 @@ describe('BaseWebviewPanel', () => {
     }
   });
 
+  it('drops a postMessage sent after dispose', async () => {
+    // Await-then-post paths (a modal, an awaited ls-remote) can land after the
+    // user closed the tab; the webview is gone by then.
+    const panel = new TestPanel(ctx);
+    const webview = panel.getPanel().webview as vscode.Webview & { _posted: unknown[] };
+    panel.dispose();
+
+    const delivered = await panel.postMessage({ type: 'late' });
+
+    assert.strictEqual(delivered, false, 'delivery must report failure, not throw');
+    assert.deepStrictEqual(webview._posted, [], 'nothing reaches a disposed webview');
+  });
+
   it('escapes HTML special characters in the title', () => {
     const panel = new TestPanel(ctx, 'A & B <c> "d"');
     try {

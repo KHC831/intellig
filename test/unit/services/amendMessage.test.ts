@@ -83,6 +83,35 @@ describe('AmendMessageTracker', () => {
     assert.strictEqual(tracker.exitAmend('head msg edited'), undefined);
   });
 
+  it('discards a HEAD load that a later toggle superseded', async () => {
+    // Check then un-check while the HEAD read is still in flight. Applying the
+    // late result would put HEAD's message in the composer with the draft gone,
+    // and Commit would then create a NEW commit carrying HEAD's message.
+    const tracker = new AmendMessageTracker();
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const entering = tracker.enterAmend('draft', async () => {
+      await gate;
+      return 'head msg';
+    });
+    assert.strictEqual(tracker.exitAmend('draft'), undefined, 'nothing to restore yet');
+    release();
+
+    assert.strictEqual(
+      await entering,
+      undefined,
+      'the superseded load must not reach the composer'
+    );
+    assert.strictEqual(
+      tracker.exitAmend('draft'),
+      undefined,
+      'and it must not have recorded amend state either'
+    );
+  });
+
   it('exitAmend without a prior enter is a no-op', () => {
     const tracker = new AmendMessageTracker();
     assert.strictEqual(tracker.exitAmend('whatever'), undefined);

@@ -1,0 +1,4 @@
+# Fences exempt from the check:all chain, one per line, with justification.
+# Everything else must be invoked by check:all — see check-all-complete.mjs.
+
+check:patch-coverage  needs a c8 report (npm run coverage) that the headless gate does not produce; run in the coverage lane

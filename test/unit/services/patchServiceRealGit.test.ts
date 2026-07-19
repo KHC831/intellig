@@ -205,6 +205,84 @@ describe('filterPatchByFiles — mailbox (git am) sources, real git', () => {
     assert.strictEqual(git(base, 'log', '-1', '--pretty=%s').trim(), 'Touch both files');
   });
 
+  /**
+   * A two-commit mailbox. Commit 1 touches `a.txt` and `shared.txt`;
+   * commit 2 touches `b.txt`. Subsetting must keep each commit's own
+   * envelope with its own files.
+   */
+  function twoCommitMailbox(): { patch: string; base: string } {
+    const root = initRepo('patch-mbox2-');
+    for (const name of ['a.txt', 'shared.txt', 'b.txt']) {
+      fs.writeFileSync(path.join(root, name), `${name} v1\n`);
+    }
+    git(root, 'add', 'a.txt', 'shared.txt', 'b.txt');
+    git(root, 'commit', '-qm', 'base');
+    const base = cloneAtHead(root, 'patch-mbox2-base-');
+
+    fs.writeFileSync(path.join(root, 'a.txt'), 'a.txt v2\n');
+    fs.writeFileSync(path.join(root, 'shared.txt'), 'shared.txt v2\n');
+    git(root, 'add', 'a.txt', 'shared.txt');
+    git(root, 'commit', '-qm', 'First commit subject');
+
+    fs.writeFileSync(path.join(root, 'b.txt'), 'b.txt v2\n');
+    git(root, 'add', 'b.txt');
+    git(root, 'commit', '-qm', 'Second commit subject');
+
+    const outDir = mkdtemp('patch-mbox2-out-');
+    git(root, 'format-patch', '-2', '-o', outDir);
+    const files = fs
+      .readdirSync(outDir)
+      .filter((n) => n.endsWith('.patch'))
+      .sort();
+    assert.strictEqual(files.length, 2, 'format-patch produced two mailbox files');
+    const patch = files.map((n) => fs.readFileSync(path.join(outDir, n), 'utf8')).join('');
+    return { patch, base };
+  }
+
+  it('keeps each commit envelope with its own files when subsetting a multi-commit mailbox', () => {
+    const { patch, base } = twoCommitMailbox();
+
+    // Deselect one file of commit 1; commit 2 keeps its only file.
+    const subset = filterPatchByFiles(patch, ['a.txt', 'b.txt']);
+
+    const patchFile = path.join(mkdtemp('patch-am2-'), 'subset.patch');
+    fs.writeFileSync(patchFile, subset);
+    git(base, 'am', patchFile);
+
+    assert.deepStrictEqual(
+      git(base, 'log', '-2', '--pretty=%s')
+        .trim()
+        .split('\n')
+        .map((s) => s.trim()),
+      ['Second commit subject', 'First commit subject'],
+      'both commits land, each under its own message'
+    );
+    assert.strictEqual(fs.readFileSync(path.join(base, 'a.txt'), 'utf8'), 'a.txt v2\n');
+    assert.strictEqual(fs.readFileSync(path.join(base, 'b.txt'), 'utf8'), 'b.txt v2\n');
+    assert.strictEqual(
+      fs.readFileSync(path.join(base, 'shared.txt'), 'utf8'),
+      'shared.txt v1\n',
+      'the deselected file was never applied'
+    );
+  });
+
+  it('drops a commit whose files were all deselected', () => {
+    const { patch, base } = twoCommitMailbox();
+
+    const subset = filterPatchByFiles(patch, ['b.txt']);
+
+    const patchFile = path.join(mkdtemp('patch-am3-'), 'subset.patch');
+    fs.writeFileSync(patchFile, subset);
+    git(base, 'am', patchFile);
+
+    assert.strictEqual(git(base, 'log', '-1', '--pretty=%s').trim(), 'Second commit subject');
+    assert.strictEqual(
+      git(base, 'rev-list', '--count', 'HEAD').trim(),
+      '2',
+      'only the base commit and the one kept commit exist'
+    );
+  });
+
   it('a plain (non-mailbox) patch subset gains no envelope', () => {
     const plain =
       'diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-old\n+new\n' +

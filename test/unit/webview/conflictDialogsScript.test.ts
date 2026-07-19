@@ -237,6 +237,23 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
       );
     });
 
+    it('Enter on an in-row button fires only that button', () => {
+      // The browser already turns Enter on a focused button into a click; the
+      // roving handler must not ALSO resolve the row and fire a second action.
+      h = boot();
+      const row = h.document.querySelector('[data-row-path="src/a.ts"]') as HTMLElement;
+      const button = row.querySelector('button') as HTMLElement;
+      assert.ok(button, 'the row carries in-row action buttons');
+
+      button.dispatchEvent(new h.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+      assert.deepStrictEqual(
+        h.posted.filter((m) => (m as { type?: string }).type === 'openMergeView'),
+        [],
+        'the roving handler ignores keys aimed at an interactive control'
+      );
+    });
+
     it('Enter on a resolved row does nothing', () => {
       h = boot();
       const resolved = h.document.querySelector('[data-row-path="src/b.ts"]') as HTMLElement;

@@ -197,10 +197,13 @@ export class MergeView implements IMergeView {
 
   /**
    * Open the IntelliG merge window for the conflicted file. The conflict
-   * context (operation + stage names) drives the panel's pane assignment
-   * (rebase swaps ours/theirs); its resolution is best-effort and never
-   * blocks opening — the panel then falls back to the forward mapping with
-   * generic labels.
+   * context (operation + stage names) decides the panel's pane assignment:
+   * git4idea derives the same thing from the repository state
+   * (`GitMergeUtil.isReverseRoot` returns true while REBASING —
+   * plugins/git4idea/backend/src/merge/GitMergeUtil.java:468), and it is never
+   * a guess there. Neither is it here: an unresolved probe is retried once and
+   * then reported, because defaulting to the forward mapping would label the
+   * other side's content "Yours" for the whole rebase.
    */
   protected async _openMergeWindow(
     repository: IRepository,
@@ -218,15 +221,18 @@ export class MergeView implements IMergeView {
       existing.reveal(vscode.ViewColumn.Active);
       return;
     }
-    let conflictContext: IMergeWindowConflictContext = { stageNames: {}, operation: undefined };
+    let conflictContext: IMergeWindowConflictContext;
     try {
-      conflictContext = await deps.getConflictContext(repository);
+      conflictContext = await this._resolveConflictContext(deps, repository);
     } catch (err) {
-      getLogger().debug('merge window: conflict-context resolution failed', {
-        err: err instanceof Error ? err.message : String(err),
-      });
+      const raw = err instanceof Error ? err.message : String(err);
+      getLogger().warn('merge window: conflict-context resolution failed', { err: raw });
+      void vscode.window.showErrorMessage(
+        `Failed to determine the conflict sides: ${sanitizeGitError(raw)}`
+      );
+      return;
     }
-    const panel = new MergeWindowPanel(deps.context, {
+    const panel = this._createMergeWindowPanel(deps.context, {
       repository,
       relPath,
       absolutePath,
@@ -244,6 +250,29 @@ export class MergeView implements IMergeView {
         this._openMergeWindows.delete(windowKey);
       }
     });
+  }
+
+  /**
+   * Resolve the conflict context, retrying once so a transient probe failure
+   * (a busy index, a momentary lock) does not cost the user the window.
+   */
+  private async _resolveConflictContext(
+    deps: IMergeWindowDeps,
+    repository: IRepository
+  ): Promise<IMergeWindowConflictContext> {
+    try {
+      return await deps.getConflictContext(repository);
+    } catch {
+      return await deps.getConflictContext(repository);
+    }
+  }
+
+  /** Panel construction seam, so tests can observe opening without a webview. */
+  protected _createMergeWindowPanel(
+    context: vscode.ExtensionContext,
+    opts: ConstructorParameters<typeof MergeWindowPanel>[1]
+  ): MergeWindowPanel {
+    return new MergeWindowPanel(context, opts);
   }
 
   /**

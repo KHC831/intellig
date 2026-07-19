@@ -477,6 +477,68 @@ describe('MergeWindowPanel', () => {
     }
   });
 
+  it('dismissing the restore prompt keeps the saved result for a later reopen', async () => {
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    const originalInfo = vscode.window.showInformationMessage;
+    // Dismissing (Esc / clicking away) resolves undefined — neither Restore
+    // nor Discard.
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage =
+      async (): Promise<string | undefined> => undefined;
+    try {
+      {
+        const { panel } = buildPanel(
+          '/repo/x.txt',
+          [],
+          stubStagesGitCli('x.txt'),
+          undefined,
+          store
+        );
+        await panel.deliver({ type: 'ready' });
+        await initMessageOf(capture.created[0]);
+        await panel.deliver({
+          type: 'state',
+          unresolved: 1,
+          total: 2,
+          modified: true,
+          resultText: 'half-merged\n',
+        });
+        panel.dispose();
+      }
+      {
+        // Reopen: dismiss the prompt, then the fresh webview reports its
+        // pristine render state.
+        const { panel } = buildPanel(
+          '/repo/x.txt',
+          [],
+          stubStagesGitCli('x.txt'),
+          undefined,
+          store
+        );
+        await panel.deliver({ type: 'ready' });
+        await initMessageOf(capture.created[1]);
+        await panel.deliver({ type: 'state', unresolved: 2, total: 2, modified: false });
+        panel.flushPersist();
+        assert.strictEqual(store.size, 1, 'a dismissed prompt must not erase the saved result');
+        panel.dispose();
+      }
+
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[2]);
+      assert.strictEqual(
+        init.restoredResult,
+        undefined,
+        'this reopen dismisses too, so nothing is seeded'
+      );
+      assert.strictEqual(store.size, 1, 'the result is still there to offer again');
+      panel.dispose();
+    } finally {
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
+      capture.restore();
+    }
+  });
+
   it('declining the restore drops the persisted result and opens clean', async () => {
     const capture = capturePanels();
     const store = new Map<string, unknown>();

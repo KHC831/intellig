@@ -3,8 +3,7 @@
  * cherry-pick / revert / unshelve / unstash operation leaves the working tree
  * in a conflicted state.
  *
- * Layout (matches IntelliJ "Resolve Conflicts" dialog, see
- * INTELLIJ_REFERENCE.md section "Resolve Conflicts dialog"):
+ * Layout (matches IntelliJ's "Resolve Conflicts" dialog):
  *
  * ```
  * ┌ Resolve Conflicts — merge from 'feature/x' ──────────────────────────┐
@@ -55,10 +54,6 @@ import { acceptLabels } from './conflictSideNames';
  */
 export { IConflictOpContext } from './interfaces/IConflictResolutionService';
 
-/**
- * Human-readable label per operation — used for the title bar and the Abort
- * button. Matches the IntelliJ labels (see INTELLIJ_REFERENCE.md).
- */
 /** globalState slot for IntelliJ's app-level GROUP_MULTIFILE_MERGE_BY_DIRECTORY. */
 const GROUP_BY_DIRECTORY_SLOT: PersistedSlot<boolean> = {
   key: 'intellig.resolveConflictsDialog.groupByDirectory',
@@ -66,6 +61,10 @@ const GROUP_BY_DIRECTORY_SLOT: PersistedSlot<boolean> = {
   validate: readBoolean,
 };
 
+/**
+ * Human-readable label per operation — used for the title bar and the Abort
+ * button. Matches the IntelliJ labels.
+ */
 const OP_LABELS: Record<IConflictOpContext['operation'], string> = {
   merge: 'Merge',
   rebase: 'Rebase',

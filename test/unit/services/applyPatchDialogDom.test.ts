@@ -135,3 +135,64 @@ describe('ApplyPatchDialog — rendered DOM (script-built)', () => {
     }
   });
 });
+
+describe('ApplyPatchDialog — concurrent request guard', () => {
+  interface IDialogInternals {
+    _onMessage(message: unknown): Promise<void>;
+    _readPatchContent(patchPath?: string, useClipboard?: boolean): Promise<string>;
+    _runPreviewChecks(content: string, msg: unknown): Promise<unknown[]>;
+  }
+
+  /** A dialog whose patch read is held open until the returned gate is released. */
+  function gatedDialog(): {
+    inner: IDialogInternals;
+    reads: () => number;
+    release: () => void;
+  } {
+    const dialog = makeDialog('/x.patch');
+    const inner = dialog as unknown as IDialogInternals;
+    let reads = 0;
+    let open = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    inner._readPatchContent = async (): Promise<string> => {
+      reads++;
+      await gate;
+      return 'diff --git a/x.ts b/x.ts\n';
+    };
+    inner._runPreviewChecks = async (): Promise<unknown[]> => [];
+    return { inner, reads: () => reads, release: (): void => open() };
+  }
+
+  const previewMsg = {
+    type: 'preview',
+    patchPath: '/x.patch',
+    useClipboard: false,
+    useAm: false,
+    stripLevel: 1,
+  };
+
+  it('drops a second preview while the first is still running', async () => {
+    const { inner, reads, release } = gatedDialog();
+
+    const first = inner._onMessage(previewMsg);
+    const second = inner._onMessage(previewMsg);
+
+    assert.strictEqual(reads(), 1, 'the racing preview must not start a second check pass');
+    release();
+    await Promise.all([first, second]);
+  });
+
+  it('drops a preview issued while an apply is running', async () => {
+    const { inner, reads, release } = gatedDialog();
+
+    const applying = inner._onMessage({ ...previewMsg, type: 'apply' });
+    const preview = inner._onMessage(previewMsg);
+
+    assert.strictEqual(reads(), 0, 'apply does not go through the preview read');
+    release();
+    await Promise.all([applying, preview]);
+    assert.strictEqual(reads(), 0, 'the preview was dropped, not queued behind the apply');
+  });
+});

@@ -24,6 +24,8 @@ import * as path from 'path';
 
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
 const INTELLIJ_GATE = "config.intellig.keymapPreset == 'intellij'";
+/** The one view-scoped binding that stays live under the default preset. */
+const IN_VIEW_FIND = 'intellig.toolWindow.jumpToHash';
 
 interface PackageKeybinding {
   command: string;
@@ -40,20 +42,24 @@ function keybindings(): PackageKeybinding[] {
 }
 
 describe('keybinding gating (keymapPreset default = stock VS Code)', () => {
-  it('gates every binding on the preset, so `default` really binds nothing', () => {
+  it('gates every binding on the preset except the in-view find', () => {
     const ungated = keybindings().filter((kb) => !(kb.when ?? '').includes(INTELLIJ_GATE));
     assert.deepStrictEqual(
       ungated.map((kb) => kb.command).sort(),
-      [],
-      `the default preset promises zero bindings; ungated: ${JSON.stringify(
+      [IN_VIEW_FIND],
+      `the default preset binds nothing outside our own views; ungated: ${JSON.stringify(
         ungated.map((kb) => `${kb.command} (${kb.key})`)
       )}`
     );
   });
 
-  it('the ungated in-view find stays scoped to our own log surface', () => {
-    const find = keybindings().find((kb) => kb.command === 'intellig.toolWindow.jumpToHash');
+  it('the in-view find is ungated AND stays scoped to our own log surface', () => {
+    const find = keybindings().find((kb) => kb.command === IN_VIEW_FIND);
     assert.ok(find, 'jumpToHash binding must exist');
+    assert.ok(
+      !(find.when ?? '').includes(INTELLIJ_GATE),
+      `the in-view find must not carry the preset gate; when="${find.when}"`
+    );
     assert.ok(
       /focusedView|activeWebviewPanelId/.test(find.when ?? ''),
       `jumpToHash must remain view-scoped, got when="${find.when}"`
@@ -62,7 +68,7 @@ describe('keybinding gating (keymapPreset default = stock VS Code)', () => {
 
   it('gated bindings keep their non-preset guards (terminal/debug scoping intact)', () => {
     for (const kb of keybindings()) {
-      if (kb.command === 'intellig.toolWindow.jumpToHash') {
+      if (kb.command === IN_VIEW_FIND) {
         continue;
       }
       assert.ok(

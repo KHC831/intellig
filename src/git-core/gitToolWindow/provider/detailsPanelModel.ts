@@ -17,6 +17,7 @@
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
 import type { ICommitNode } from '../../commitGraph';
+import type { ICommit } from '../../interfaces/IGitService';
 import { buildFileTree, type FileTreeNode } from '../html/fileTree';
 import { getFileStatusColor, getFileName, mergeChangedFiles } from './htmlBuilders';
 import { findIssueReferences, issueUrl } from '../../../utils/hostingLinks';
@@ -235,19 +236,36 @@ function buildAnnotatedTree(
 export function commitNodeToBaseDetails(
   node: ICommitNode
 ): Omit<ICommitDetails, 'changedFiles' | 'changedFilesError' | 'containingBranches'> {
+  return commitToBaseDetails(
+    node.commit,
+    (node.branches || []).map((ref) => ref.name),
+    node.tags || []
+  );
+}
+
+/**
+ * The same conversion for a bare commit — the History tab has no graph node,
+ * so its refs come in separately. One builder keeps every details surface on
+ * an identical field set.
+ */
+export function commitToBaseDetails(
+  commit: ICommit,
+  branches: string[] = [],
+  tags: string[] = []
+): Omit<ICommitDetails, 'changedFiles' | 'changedFilesError' | 'containingBranches'> {
   return {
-    hash: node.commit.hash,
-    message: node.commit.message,
-    body: node.commit.body,
-    author: { name: node.commit.author.name, email: node.commit.author.email },
-    committer: node.commit.committer
-      ? { name: node.commit.committer.name, email: node.commit.committer.email }
+    hash: commit.hash,
+    message: commit.message,
+    body: commit.body,
+    author: { name: commit.author.name, email: commit.author.email },
+    committer: commit.committer
+      ? { name: commit.committer.name, email: commit.committer.email }
       : undefined,
-    date: node.commit.authorDate,
-    commitDate: node.commit.commitDate,
-    parents: node.commit.parents || [],
-    branches: (node.branches || []).map((ref) => ref.name),
-    tags: node.tags || [],
+    date: commit.authorDate,
+    commitDate: commit.commitDate,
+    parents: commit.parents || [],
+    branches,
+    tags,
   };
 }
 

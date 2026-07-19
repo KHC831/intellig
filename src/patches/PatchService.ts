@@ -589,6 +589,18 @@ export function extractMailboxPreamble(content: string): string | undefined {
  */
 export function filterPatchByFiles(content: string, selectedPaths: string[]): string {
   const wanted = new Set(selectedPaths);
+  const sections = splitMailboxByCommit(content);
+  if (!sections) {
+    return filterOneSection(content, wanted);
+  }
+  // Each commit is filtered against its OWN envelope; a commit left with no
+  // selected file drops out entirely rather than leaking its `From …` header
+  // into the previous commit's tail.
+  return sections.map((section) => filterOneSection(section, wanted)).join('');
+}
+
+/** Filter one plain diff or one mailbox commit section. */
+function filterOneSection(content: string, wanted: Set<string>): string {
   const kept = splitPatchByFile(content)
     .filter((segment) => wanted.has(segment.path))
     .map((segment) => segment.content)
@@ -599,6 +611,25 @@ export function filterPatchByFiles(content: string, selectedPaths: string[]): st
   // A mailbox source stays a mailbox: `git am` rejects a subset stripped of
   // its `From …` envelope outright.
   return (extractMailboxPreamble(content) ?? '') + kept;
+}
+
+/**
+ * Boundary between commits in a `git format-patch` mailbox. The envelope
+ * opens with the commit's full object name, which is what distinguishes it
+ * from a `From:` author header or a quoted "From " line inside a message.
+ */
+const MAILBOX_COMMIT_BOUNDARY = /(?=^From [0-9a-f]{40} )/m;
+
+/**
+ * Split a multi-commit mailbox into one section per commit, or `undefined`
+ * when `content` is not a mailbox at all (a plain unified diff).
+ */
+function splitMailboxByCommit(content: string): string[] | undefined {
+  const sections = content.split(MAILBOX_COMMIT_BOUNDARY).filter((s) => s.length > 0);
+  if (sections.length === 0 || !/^From [0-9a-f]{40} /.test(sections[0])) {
+    return undefined;
+  }
+  return sections;
 }
 
 /**

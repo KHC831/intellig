@@ -71,6 +71,8 @@ export interface IMergeWindowConflictContext {
 export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
   private _eol: '\n' | '\r\n' = '\n';
   private _modified = false;
+  /** Whether the user has edited at all in THIS session — gates the erase. */
+  private _everModified = false;
   private _stageIdentity = '';
   private _pendingResult: { text: string | undefined } | undefined;
   private _persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -139,10 +141,17 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         // VS Code cannot veto a webview tab close (IntelliJ's close-confirm
         // has no equivalent hook), so the latest modified result is
         // persisted and offered for restore when the file reopens.
-        if (!this._modified) {
+        if (this._modified) {
+          this._everModified = true;
+          if (typeof msg.resultText === 'string') {
+            this._saveUnsavedResult(msg.resultText);
+          }
+        } else if (this._everModified) {
+          // Only a modified→pristine transition (an undo back to the start)
+          // erases the slot. A fresh webview posts its pristine render state
+          // too, and that must not wipe a result the user chose to keep by
+          // dismissing the restore prompt.
           this._saveUnsavedResult(undefined);
-        } else if (typeof msg.resultText === 'string') {
-          this._saveUnsavedResult(msg.resultText);
         }
         return;
       case 'log': {

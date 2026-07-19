@@ -8,7 +8,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import {
-  APPLY_PATCH_SETTINGS_SLOT,
+  applyPatchSettingsSlot,
   validateApplyPatchSettings,
   previewFileResult,
   type IApplyPatchSettings,
@@ -69,9 +69,23 @@ describe('validateApplyPatchSettings', () => {
     const memento = makeMemento();
     const settings: IApplyPatchSettings = { stripLevel: 0, useAm: false };
 
-    await savePersisted(memento, APPLY_PATCH_SETTINGS_SLOT, settings);
+    await savePersisted(memento, applyPatchSettingsSlot('/work/alpha'), settings);
 
-    assert.deepStrictEqual(loadPersisted(memento, APPLY_PATCH_SETTINGS_SLOT), settings);
+    assert.deepStrictEqual(loadPersisted(memento, applyPatchSettingsSlot('/work/alpha')), settings);
+  });
+
+  it('keeps one repository settings out of another', async () => {
+    // baseDir becomes `git apply --directory`; repo A's subdirectory is
+    // meaningless (or destructive) in repo B.
+    const memento = makeMemento();
+
+    await savePersisted(memento, applyPatchSettingsSlot('/work/alpha'), { baseDir: 'alpha-sub' });
+
+    assert.strictEqual(
+      loadPersisted(memento, applyPatchSettingsSlot('/work/beta')),
+      undefined,
+      'repo B starts from the defaults'
+    );
   });
 });
 

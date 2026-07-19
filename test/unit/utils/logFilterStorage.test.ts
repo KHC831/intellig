@@ -76,6 +76,13 @@ describe('logFilterStorage — persistence round-trip', () => {
     }
   });
 
+  it('round-trips a multi-author selection', () => {
+    const state = memento();
+    saveLogFilter(state, { authors: ['Alice', 'Bob', 'Carol'] });
+
+    assert.deepStrictEqual(loadLogFilter(state), { authors: ['Alice', 'Bob', 'Carol'] });
+  });
+
   it('drops unknown fields instead of resurrecting them', () => {
     const state = memento({
       'intellig.logFilter': { author: 'Alice', futureField: 'x' },

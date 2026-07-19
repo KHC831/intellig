@@ -9,6 +9,7 @@ import type { IGitService, IRepository } from '../../services';
 import type { LogContextAction } from '../../ui-shell/GitToolWindowProvider';
 import type { ICommandContext } from './CommandContext';
 import { registerBareCommand } from './commandSpine';
+import { buildIntelligGitUri } from './explorerCommands';
 import {
   extractCommitHash,
   extractCommitFileArg,
@@ -197,7 +198,7 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
         // The details-panel menu already names the file — diff it directly;
         // only a file-less (palette) invocation falls back to the picker.
         if (clickedPath) {
-          await _openFileDiffAtRevision(clickedPath, hash, parent);
+          await _openFileDiffAtRevision(clickedPath, hash, parent, repo.rootUri.fsPath);
           return;
         }
         await _openCommitFileDiff(repo, hash, parent, gitService);
@@ -261,8 +262,10 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       }
       // The clicked row already names the file; open it without a picker.
       if (clickedPath) {
-        const uri = vscode.Uri.parse(`intellig-git:${clickedPath}?${encodeURIComponent(hash)}`);
-        await vscode.commands.executeCommand('vscode.open', uri);
+        await vscode.commands.executeCommand(
+          'vscode.open',
+          buildIntelligGitUri(clickedPath, hash, repoRoot)
+        );
         return;
       }
       const repo = await resolveRepoForCommitFile(ctx, hash, repoRoot);
@@ -853,10 +856,11 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
   async function _openFileDiffAtRevision(
     filePath: string,
     commitHash: string,
-    parentRef: string
+    parentRef: string,
+    repoRootFsPath: string
   ): Promise<void> {
-    const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(parentRef)}`);
-    const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(commitHash)}`);
+    const leftUri = buildIntelligGitUri(filePath, parentRef, repoRootFsPath);
+    const rightUri = buildIntelligGitUri(filePath, commitHash, repoRootFsPath);
     // Bare (re-throws); the caller owns error reporting.
     await openRevisionDiff({
       leftUri,

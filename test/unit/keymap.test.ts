@@ -185,12 +185,18 @@ describe('keybinding block coherence', () => {
     assert.deepStrictEqual(offenders, [], `mac chord prefixes swallowed: ${offenders.join(', ')}`);
   });
 
-  it('gates every binding on the keymap preset', () => {
+  it('gates every binding on the keymap preset except the in-view find', () => {
+    // The in-log find is scoped to our own webview by its when-clause, so it
+    // shadows nothing under the default preset and stays live there.
     const ungated = keybindings()
       .filter((k) => !k.when?.includes(PRESET_GATE))
       .map((k) => `${k.command} (${k.key})`);
 
-    assert.deepStrictEqual(ungated, [], `ungated bindings: ${ungated.join(', ')}`);
+    assert.deepStrictEqual(
+      ungated,
+      ['intellig.toolWindow.jumpToHash (ctrl+f)'],
+      `unexpected ungated bindings: ${ungated.join(', ')}`
+    );
   });
 
   it('binds nothing to intellig.showHistory (IntelliJ ships no default shortcut)', () => {

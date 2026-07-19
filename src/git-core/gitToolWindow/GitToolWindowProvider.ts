@@ -82,6 +82,7 @@ import {
   buildDetailsPanelPlaceholderModel,
   buildMultiCommitDetailsPanelModel,
   commitNodeToBaseDetails,
+  commitToBaseDetails,
   type DetailsPanelModel,
 } from './provider/detailsPanelModel';
 import { assertNever } from '../../utils/assertNever';
@@ -2202,13 +2203,17 @@ export class GitToolWindowProvider
         const command =
           typeof msg.action === 'string' ? commandByFileAction[msg.action] : undefined;
         if (command && msg.commitHash) {
-          // Pin the owning repo alongside the clicked file so the command acts
-          // on this row's context instead of re-resolving (and re-prompting)
-          // by hash — several roots can hold the same hash.
+          // Pin the repo that OWNS this commit so the command acts on the
+          // row's context instead of re-resolving (and re-prompting) by hash.
+          // In merged scope the selected repo is an arbitrary one, so prefer
+          // the commit's own root; an ambiguous answer leaves the pin unset
+          // and the command's own hash-probing resolver decides.
           void vscode.commands.executeCommand(command, {
             hash: msg.commitHash,
             path: msg.path,
-            repoRoot: this.getSelectedRepository()?.rootUri.fsPath,
+            repoRoot:
+              this.getRepoRootForCommit(msg.commitHash) ??
+              this.getSelectedRepository()?.rootUri.fsPath,
           });
         }
         break;
@@ -4621,14 +4626,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
       return buildDetailsPanelPlaceholderModel();
     }
     const commitDetails: ICommitDetails = {
-      hash: commit.hash,
-      message: commit.message,
-      body: commit.body,
-      author: { name: commit.author.name, email: commit.author.email },
-      date: commit.authorDate,
-      parents: commit.parents || [],
-      branches: [],
-      tags: [],
+      ...commitToBaseDetails(commit),
       changedFiles: state.affectedPathsError
         ? []
         : state.affectedPaths.map((p) => ({ path: p.path, status: p.status, oldPath: p.oldPath })),

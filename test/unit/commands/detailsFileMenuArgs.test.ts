@@ -205,6 +205,45 @@ describe('details-panel file menu consumes the clicked file and repo', () => {
   });
 });
 
+describe('no-picker fast paths carry the repo root in the revision URI', () => {
+  afterEach(() => {
+    restoreMessageFunctions();
+  });
+
+  // Without repoRoot the content provider guesses a root; a wrong-root
+  // `git show` looks like an absent file and renders a blank document.
+  it('Open Repository Version pins the repo on the opened URI', async () => {
+    const gitService = makeGitService();
+
+    const { opened, quickPicks } = await runCommand(
+      'intellig.commit.showFileInRevision',
+      { hash: HASH, path: CLICKED, repoRoot: ROOT_B },
+      gitService
+    );
+
+    assert.strictEqual(quickPicks, 0, 'the clicked row needs no file picker');
+    assert.strictEqual(opened.length, 1);
+    assert.match(opened[0], /repoRoot=/, `URI lost the repo root: ${opened[0]}`);
+    assert.ok(opened[0].includes(encodeURIComponent(ROOT_B)), 'the pinned root is repo B');
+  });
+
+  it('Show Diff pins the repo on both sides of the diff', async () => {
+    const gitService = makeGitService();
+
+    const { opened, quickPicks } = await runCommand(
+      'intellig.commit.showDiff',
+      { hash: HASH, path: CLICKED, repoRoot: ROOT_B },
+      gitService
+    );
+
+    assert.strictEqual(quickPicks, 0, 'the clicked row needs no file picker');
+    assert.strictEqual(opened.length, 2, 'left and right revisions');
+    for (const uri of opened) {
+      assert.match(uri, /repoRoot=/, `diff side lost the repo root: ${uri}`);
+    }
+  });
+});
+
 describe('the details panel relays the owning repository with the file action', () => {
   it('threads the selected repo root so the command need not re-resolve it', () => {
     const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
@@ -238,6 +277,88 @@ describe('the details panel relays the owning repository with the file action', 
       hash: HASH,
       path: CLICKED,
       repoRoot: Uri.file(ROOT_B).fsPath,
+    });
+  });
+});
+
+describe('the details panel relays the repository that owns the commit', () => {
+  /** Drive one file action and return the argument the command received. */
+  function relayedArg(
+    setup: (provider: GitToolWindowProvider) => void,
+    hash: string = HASH
+  ): unknown {
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    setup(provider);
+
+    const relayed: Array<{ id: string; arg: unknown }> = [];
+    const cmds = vscode.commands as unknown as {
+      executeCommand: (id: string, ...a: unknown[]) => Thenable<unknown>;
+    };
+    const original = cmds.executeCommand;
+    cmds.executeCommand = ((id: string, arg: unknown): Thenable<unknown> => {
+      relayed.push({ id, arg });
+      return Promise.resolve(undefined);
+    }) as typeof cmds.executeCommand;
+
+    try {
+      (provider as unknown as { _handleWebviewMessage(m: unknown): void })._handleWebviewMessage({
+        type: 'fileContextAction',
+        action: 'showDiff',
+        commitHash: hash,
+        path: CLICKED,
+      });
+    } finally {
+      cmds.executeCommand = original;
+      provider.dispose();
+    }
+    return relayed[0]?.arg;
+  }
+
+  function mkCommit(
+    hash: string,
+    repoRoot: string
+  ): Parameters<GitToolWindowProvider['updateLogState']>[0][number] {
+    return {
+      hash,
+      shortHash: hash.slice(0, 7),
+      message: 'm',
+      author: { name: 'a', email: 'a@x' },
+      committer: { name: 'a', email: 'a@x' },
+      parents: [],
+      authorDate: new Date(0),
+      commitDate: new Date(0),
+      repoRoot,
+    } as unknown as Parameters<GitToolWindowProvider['updateLogState']>[0][number];
+  }
+
+  it('pins the commit owner, not the arbitrarily-selected repo, in merged scope', () => {
+    const arg = relayedArg((provider) => {
+      // Merged scope: repo A is "selected", but the clicked commit is B's.
+      provider.setAvailableRepositories([
+        { rootUri: Uri.file(ROOT_A), state: 'idle', remotes: [], submodules: [] },
+        { rootUri: Uri.file(ROOT_B), state: 'idle', remotes: [], submodules: [] },
+      ] as unknown as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.updateLogState([mkCommit(HASH, Uri.file(ROOT_B).fsPath)]);
+    });
+
+    assert.deepStrictEqual(arg, {
+      hash: HASH,
+      path: CLICKED,
+      repoRoot: Uri.file(ROOT_B).fsPath,
+    });
+  });
+
+  it('leaves the pin to the selected repo when the commit owner is unknown', () => {
+    const arg = relayedArg((provider) => {
+      provider.setAvailableRepositories([
+        { rootUri: Uri.file(ROOT_A), state: 'idle', remotes: [], submodules: [] },
+      ] as unknown as Parameters<typeof provider.setAvailableRepositories>[0]);
+    });
+
+    assert.deepStrictEqual(arg, {
+      hash: HASH,
+      path: CLICKED,
+      repoRoot: Uri.file(ROOT_A).fsPath,
     });
   });
 });

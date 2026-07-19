@@ -40,6 +40,7 @@ function validateLogFilter(raw: unknown): ILogFilter | undefined {
   assign('branches', readStringArray(src.branches));
   assign('branchesNone', readBoolean(src.branchesNone));
   assign('author', readString(src.author));
+  assign('authors', readStringArray(src.authors));
   assign('since', readDate(src.since));
   assign('until', readDate(src.until));
   assign('path', readString(src.path));

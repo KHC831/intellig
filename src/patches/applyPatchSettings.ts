@@ -53,12 +53,18 @@ export function validateApplyPatchSettings(raw: unknown): IApplyPatchSettings | 
   return out;
 }
 
-/** Persisted Apply Patch dialog settings. */
-export const APPLY_PATCH_SETTINGS_SLOT: PersistedSlot<IApplyPatchSettings> = {
-  key: 'intellig.patch.applySettings',
-  version: 1,
-  validate: validateApplyPatchSettings,
-};
+/**
+ * Persisted Apply Patch dialog settings, scoped to one repository. `baseDir`
+ * becomes `git apply --directory`, so a workspace-wide slot would offer repo
+ * A's subdirectory while applying into repo B.
+ */
+export function applyPatchSettingsSlot(repoRoot: string): PersistedSlot<IApplyPatchSettings> {
+  return {
+    key: `intellig.patch.applySettings:${repoRoot}`,
+    version: 1,
+    validate: validateApplyPatchSettings,
+  };
+}
 
 /** Per-file verdict of a preview `--check` pass. */
 export interface IPatchPreviewFile {

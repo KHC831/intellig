@@ -83,6 +83,10 @@ class TestView extends BaseWebviewView {
   public getDisposed(): boolean {
     return this._disposed;
   }
+
+  public callPostMessage(message: unknown): Thenable<boolean> {
+    return this.postMessage(message);
+  }
 }
 
 interface FakeWebview {
@@ -502,6 +506,23 @@ describe('BaseWebviewView', () => {
 
       assert.strictEqual(view.getDisposed(), true);
       assert.strictEqual(view.getView(), undefined);
+    });
+
+    it('drops a postMessage sent after dispose', async () => {
+      const view = new TestView(Uri.file('/ext'));
+      const fake = makeFakeView();
+      view.resolveWebviewView(
+        fake as unknown as vscode.WebviewView,
+        {} as vscode.WebviewViewResolveContext,
+        {} as vscode.CancellationToken
+      );
+      fake.webview._posted.length = 0;
+      view.dispose();
+
+      const delivered = await view.callPostMessage({ type: 'late' });
+
+      assert.strictEqual(delivered, false, 'delivery must report failure, not throw');
+      assert.deepStrictEqual(fake.webview._posted, [], 'nothing reaches a disposed view');
     });
 
     it('drains _disposables on dispose', () => {

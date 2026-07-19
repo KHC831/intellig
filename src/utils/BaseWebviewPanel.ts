@@ -100,8 +100,15 @@ export abstract class BaseWebviewPanel<TOutbound = unknown> {
    * Post a message to the webview. Typed to the panel's declared outbound union
    * (`TOutbound`) so the host can only send on-contract messages; subclasses
    * that have not yet declared a protocol default to `unknown`.
+   *
+   * Resolves `false` once the panel is disposed — await-then-post paths (a
+   * modal, an awaited network call) can complete after the user closed the
+   * tab, and the delivery result lets those callers skip their failure toast.
    */
   postMessage(message: TOutbound): Thenable<boolean> {
+    if (this._disposed) {
+      return Promise.resolve(false);
+    }
     return this._panel.webview.postMessage(message);
   }
 

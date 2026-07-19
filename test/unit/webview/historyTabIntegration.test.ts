@@ -90,6 +90,33 @@ describe('History tab — real provider end-to-end', () => {
     );
   });
 
+  it('carries the committer line into the history details model', async () => {
+    // Amended/rebased commits carry a committer distinct from the author; the
+    // History details docblock promises the Log tab's model, which shows it.
+    const amended = {
+      ...sampleCommit(),
+      committer: { name: 'Bob', email: 'bob@example.com' },
+      commitDate: new Date('2024-05-06T12:00:00Z'),
+    } as unknown as ICommit;
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    provider.setAvailableRepositories([REPO] as Parameters<
+      typeof provider.setAvailableRepositories
+    >[0]);
+    provider.attachGitService(
+      createMockGitService(REPO, {
+        getFileHistory: async () => [amended],
+        getCommitDiff: async () => [],
+        getContainingBranches: async () => [],
+        getBranches: async () => [],
+      } as unknown as Partial<IGitService>)
+    );
+    await provider.loadFileHistory('src/a.ts');
+
+    const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
+
+    assert.ok(html.includes('Bob'), 'the committer reaches the rendered history details');
+  });
+
   it('populates #history-details-panel when the entry runs', async () => {
     const provider = await driveToHistory();
     const html = provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
