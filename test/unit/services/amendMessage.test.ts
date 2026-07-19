@@ -72,6 +72,20 @@ describe('AmendMessageTracker', () => {
     assert.strictEqual(await tracker.enterAmend('draft', loadHead(undefined)), undefined);
   });
 
+  it('enterAmend leaves the draft alone when HEAD has an empty message', async () => {
+    // A commit made with --allow-empty-message reads back as '' (or as
+    // whitespace). Swapping that in would silently erase the user's draft.
+    const tracker = new AmendMessageTracker();
+    assert.strictEqual(await tracker.enterAmend('draft', loadHead('')), undefined);
+    assert.strictEqual(await tracker.enterAmend('draft', loadHead('   \n\n')), undefined);
+  });
+
+  it('a blank HEAD message leaves nothing to restore on exit', async () => {
+    const tracker = new AmendMessageTracker();
+    await tracker.enterAmend('draft', loadHead(''));
+    assert.strictEqual(tracker.exitAmend('draft'), undefined, 'the draft was never replaced');
+  });
+
   it('enterAmend is a no-op when the draft already equals the HEAD message', async () => {
     const tracker = new AmendMessageTracker();
     assert.strictEqual(await tracker.enterAmend('same', loadHead('same')), undefined);

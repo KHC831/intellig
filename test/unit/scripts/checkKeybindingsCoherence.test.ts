@@ -6,7 +6,9 @@
  * binding whose when-clause scopes it to an intellig view/panel (the
  * structural rule: the next scoped binding is legal, the next global one
  * fails), and (e) fails a keybinding whose command is registered via
- * registerTreeItemCommand (the dead-gesture arg contract).
+ * registerTreeItemCommand (the dead-gesture arg contract), and (f) fails a
+ * binding that lands on a core VS Code editor chord without a text-input
+ * carve-out — on the platform-specific chord as well as the shared one.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -17,7 +19,7 @@ const SCRIPT = path.join(process.cwd(), 'scripts/check-keybindings-coherence.mjs
 const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
 
 interface IFixture {
-  keybindings: { command: string; key: string; when?: string }[];
+  keybindings: { command: string; key?: string; mac?: string; when?: string }[];
   src?: Record<string, string>;
 }
 
@@ -94,6 +96,52 @@ describe('check-keybindings-coherence guard', () => {
       ],
     });
     assert.strictEqual(status, 1, 'scoping to a foreign view must not sanction an ungated binding');
+  });
+
+  it('fails a core editor chord bound without a text-input carve-out', () => {
+    const { status, stderr } = runFixture({
+      keybindings: [
+        { command: 'intellig.foo.bar', key: 'ctrl+q', mac: 'ctrl+k', when: GATED_WHEN },
+      ],
+    });
+    assert.strictEqual(status, 1, `a core mac chord must fail; ${stderr}`);
+    assert.ok(stderr.includes('deleteAllRight'), `failure must name the core command; ${stderr}`);
+  });
+
+  it('accepts a core editor chord that yields inside text inputs', () => {
+    const { status, stderr } = runFixture({
+      keybindings: [
+        {
+          command: 'intellig.foo.bar',
+          key: 'ctrl+q',
+          mac: 'ctrl+k',
+          when: `${GATED_WHEN} && !textInputFocus`,
+        },
+      ],
+    });
+    assert.strictEqual(status, 0, `the carve-out must satisfy the rule; ${stderr}`);
+  });
+
+  it('checks the shared `key` on every platform, not just the mac override', () => {
+    // No `mac`, so `key` is what mac binds too — ctrl+t is transposeLetters.
+    const { status, stderr } = runFixture({
+      keybindings: [{ command: 'intellig.foo.bar', key: 'ctrl+t', when: GATED_WHEN }],
+    });
+    assert.strictEqual(status, 1, `a shared key must be checked per platform; ${stderr}`);
+    assert.ok(stderr.includes('transposeLetters'));
+  });
+
+  it('exempts a view-scoped binding on a core chord (no editor can have focus)', () => {
+    const { status } = runFixture({
+      keybindings: [
+        {
+          command: 'intellig.some.inViewGesture',
+          key: 'ctrl+l',
+          when: "focusedView == 'intellig.toolWindow'",
+        },
+      ],
+    });
+    assert.strictEqual(status, 0, 'our own view having focus rules out an editor keystroke');
   });
 
   it('fails a keybinding whose command is a registerTreeItemCommand target', () => {

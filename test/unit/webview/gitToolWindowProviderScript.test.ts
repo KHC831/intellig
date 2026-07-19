@@ -152,6 +152,40 @@ describe('webview: Git tool-window full document (jsdom)', () => {
     assert.ok(drift < 60_000, `"Last 24 Hours" means exactly 24h ago, got drift ${drift}ms`);
   });
 
+  it('the date preset travels with the filter so the host can name it', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const preset = h.document.querySelector<HTMLElement>(
+      '[data-action="pickDateFilter"][data-range="7d"]'
+    )!;
+    preset.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { datePreset: string | null } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    assert.strictEqual(applies[applies.length - 1]?.filter.datePreset, '7d');
+  });
+
+  it('an explicit custom range clears the preset', () => {
+    h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
+    const preset = h.document.querySelector<HTMLElement>(
+      '[data-action="pickDateFilter"][data-range="7d"]'
+    )!;
+    preset.dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+
+    const box = h.document.getElementById('filter-after-enabled') as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+    h.document
+      .querySelector<HTMLElement>('[data-action="applyDateCustom"]')!
+      .dispatchEvent(new h.window.MouseEvent('click', { bubbles: true }));
+
+    const applies = h.posted.filter(
+      (m): m is { type: string; filter: { datePreset: string | null } } =>
+        !!m && (m as { type?: string }).type === 'applyLogFilter'
+    );
+    assert.strictEqual(applies[applies.length - 1]?.filter.datePreset, null);
+  });
+
   it('checking a custom date bound seeds today instead of an empty field', () => {
     h = bootWebviewEntry(ENTRY, { bodyHtml: bodyOf(fullHtml()) });
     const box = h.document.getElementById('filter-after-enabled') as HTMLInputElement;

@@ -335,6 +335,7 @@ class MergeWindow {
     const change = this.model.changeByIndex(index);
     this.model.executeMergeCommand([change.index], () => {
       this.model.replaceChange(change.index, side, false);
+      return true;
     });
     this.scheduleRender();
   }
@@ -343,6 +344,7 @@ class MergeWindow {
     const change = this.model.changeByIndex(index);
     this.model.executeMergeCommand([change.index], () => {
       this.model.ignoreChange(change.index, side, false);
+      return true;
     });
     this.scheduleRender();
   }
@@ -363,6 +365,7 @@ class MergeWindow {
         for (const change of resolved) {
           this.model.resetResolvedChange(change.index);
         }
+        return true;
       }
     );
     this.scheduleRender();
@@ -373,6 +376,7 @@ class MergeWindow {
     const change = this.model.changeByIndex(index);
     this.model.executeMergeCommand([change.index], () => {
       this.model.resetResolvedChange(change.index);
+      return true;
     });
     this.scheduleRender();
   }
@@ -439,7 +443,10 @@ class MergeWindow {
       }
       this.model.executeMergeCommand(
         unresolved.map((c) => c.index),
-        () => this.model.markAllChangesResolved()
+        () => {
+          this.model.markAllChangesResolved();
+          return true;
+        }
       );
       this.scheduleRender();
     }
@@ -534,7 +541,7 @@ class MergeWindow {
         return;
       }
       this.model.executeMergeCommand([index], () => {
-        this.model.resolveChangeAutomatically(index, ThreeSide.BASE);
+        return this.model.resolveChangeAutomatically(index, ThreeSide.BASE) !== undefined;
       });
       this.scheduleRender();
     });

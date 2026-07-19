@@ -16,7 +16,12 @@
 //       — a binding that only fires inside our own surface cannot shadow a
 //       VS Code default anywhere else, and IS the sanctioned shape for
 //       in-view gestures (the log view's ctrl+f find).
-//    b) ARG CONTRACT: a command registered through `registerTreeItemCommand`
+//    b) CORE EDITOR CHORDS: extension keybindings outrank VS Code's core
+//       editor defaults, so binding a core chord steals it from the user
+//       WHILE TYPING (mac ctrl+k/ctrl+t/ctrl+d took kill-line, transpose and
+//       forward-delete). A binding on a core chord must yield inside text
+//       inputs via a `!textInputFocus` / `!editorTextFocus` carve-out.
+//    c) ARG CONTRACT: a command registered through `registerTreeItemCommand`
 //       resolves its target from the CLICKED TREE ITEM; a keybinding invokes
 //       with no argument, so the handler silently returns — a guaranteed
 //       dead gesture (ctrl+d → branch.compareWithCurrent never did anything
@@ -28,7 +33,14 @@
 //       (`focusedView == 'intellig.…'` / `activeWebviewPanelId ==
 //       'intellig.…'`). The next scoped in-view binding is legal by
 //       construction; the next global ungated one fails at introduction.
-//    b) Collect every keybinding command id; scan production source for
+//    b) Each entry's EFFECTIVE chord per platform (`mac`/`win`/`linux`,
+//       falling back to `key`) is looked up in CORE_EDITOR_CHORDS below — a
+//       maintained table of the core VS Code editor bindings that fire while
+//       a text input has focus. A hit without a text-input carve-out fails,
+//       so the next binding that lands on a core chord fails at introduction.
+//       View-scoped bindings are exempt: they only fire when one of our own
+//       views has focus, so no editor can be receiving the keystroke.
+//    c) Collect every keybinding command id; scan production source for
 //       `registerTreeItemCommand` call blocks and the `id: '<cmd>'` they
 //       register. A keybinding whose command id is registered that way fails.
 //
@@ -55,6 +67,48 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const GATE = "keymapPreset == 'intellij'";
+
+/**
+ * Core VS Code editor chords that fire while a text input has focus, per
+ * platform. Binding one of these without a carve-out steals it mid-typing.
+ * Maintenance: add a chord when VS Code core takes one over; the value is the
+ * core command, quoted in the failure message so the cost is visible.
+ */
+const CORE_EDITOR_CHORDS = {
+  mac: {
+    'ctrl+a': 'cursorHome',
+    'ctrl+b': 'cursorLeft',
+    'ctrl+d': 'deleteRight',
+    'ctrl+e': 'cursorEnd',
+    'ctrl+f': 'cursorRight',
+    'ctrl+h': 'deleteLeft',
+    'ctrl+k': 'deleteAllRight',
+    'ctrl+n': 'cursorDown',
+    'ctrl+o': 'lineBreakInsert',
+    'ctrl+p': 'cursorUp',
+    'ctrl+t': 'transposeLetters',
+  },
+  win: {
+    'ctrl+backspace': 'deleteWordLeft',
+    'ctrl+d': 'addSelectionToNextFindMatch',
+    'ctrl+delete': 'deleteWordRight',
+    'ctrl+enter': 'insertLineAfter',
+    'ctrl+k': 'chord leader (ctrl+k …)',
+    'ctrl+l': 'expandLineSelection',
+    'ctrl+shift+enter': 'insertLineBefore',
+    'ctrl+shift+k': 'deleteLines',
+  },
+};
+CORE_EDITOR_CHORDS.linux = CORE_EDITOR_CHORDS.win;
+
+/** A binding yields to the editor only by negating a text-focus context key. */
+const TEXT_INPUT_CARVE_OUT_RE = /!\s*(textInputFocus|editorTextFocus)/;
+
+/** The chord this entry actually binds on `platform` (platform key or `key`). */
+function chordFor(kb, platform) {
+  const chord = kb?.[platform] ?? kb?.key;
+  return typeof chord === 'string' ? chord.trim().toLowerCase() : undefined;
+}
 
 /**
  * An ungated binding is sanctioned only when its `when` scopes it to one of
@@ -86,7 +140,22 @@ function main() {
     );
   }
 
-  // Arm (b): tree-item arg contract.
+  // Arm (b): core editor chords must yield inside text inputs.
+  for (const kb of keybindings) {
+    const when = kb?.when ?? '';
+    if (INTELLIG_VIEW_SCOPE_RE.test(when)) continue;
+    if (TEXT_INPUT_CARVE_OUT_RE.test(when)) continue;
+    for (const platform of ['mac', 'win', 'linux']) {
+      const chord = chordFor(kb, platform);
+      const core = chord !== undefined ? CORE_EDITOR_CHORDS[platform][chord] : undefined;
+      if (core === undefined) continue;
+      failures.push(
+        `${kb.command} binds ${platform} ${chord}, which VS Code core uses for ${core} — add a !textInputFocus carve-out so it yields while typing`
+      );
+    }
+  }
+
+  // Arm (c): tree-item arg contract.
   const treeItemIds = collectTreeItemCommandIds(srcDir);
   for (const kb of keybindings) {
     if (treeItemIds.has(kb.command)) {

@@ -17,6 +17,7 @@ fresh empty `[Unreleased]` block is added on top.
 
 ### Changed
 
+- IntelliJ-preset chords now yield while you are typing, so Ctrl+K, Ctrl+T and Ctrl+D keep their editor meanings inside a text input.
 - IntelliG no longer binds keyboard shortcuts out of the box: set `intellig.keymapPreset` to `intellij` for the IntelliJ-style chords. The old always-on bindings shadowed VS Code defaults like Delete Line, Go to Symbol, New Terminal, and the Ctrl+K chord leader.
 - Under the `intellij` preset: Move to Another Changelist is Alt+Shift+M (IntelliJ's current gesture, was F6), the VCS popup is Ctrl+V on mac, and the Commit tool window gains Cmd+0 on mac.
 - Blame now ignores whitespace-only changes by default, matching IntelliJ; turn `intellig.blame.ignoreWhitespace` off to get the old attribution.

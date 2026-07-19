@@ -141,7 +141,10 @@ export class MergeTestBuilder {
           : affected;
     this.model.executeMergeCommand(
       list?.map((c) => c.index),
-      f
+      () => {
+        f();
+        return true;
+      }
     );
   }
 

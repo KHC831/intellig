@@ -63,7 +63,15 @@ export class AmendMessageTracker {
     if (token !== this._toggleSequence) {
       return undefined;
     }
-    if (amendMessage === undefined || amendMessage === currentMessage) {
+    // A blank HEAD message (a commit made with --allow-empty-message) is not
+    // something to swap in — it would erase the draft. Reference:
+    // AmendCommitHandlerImpl.setAmendMessage takes the message only
+    // `takeIf { it.isNotBlank() }`.
+    if (
+      amendMessage === undefined ||
+      amendMessage.trim().length === 0 ||
+      amendMessage === currentMessage
+    ) {
       return undefined;
     }
     this._amendData = { beforeAmendMessage: currentMessage, amendMessage };

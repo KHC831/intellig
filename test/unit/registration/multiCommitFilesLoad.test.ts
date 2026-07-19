@@ -29,11 +29,13 @@ interface Published {
   hashes: readonly string[];
   filesByHash: ReadonlyMap<string, IChangedFile[]>;
   loadedHashes: readonly string[];
+  errorsByHash: ReadonlyMap<string, string>;
 }
 
 /** A loader whose per-commit loads block until the test releases them. */
 function makeGatedLoader(): {
   handle: (hashes: readonly string[]) => Promise<void>;
+  invalidate: () => void;
   started: string[];
   inFlight: () => number;
   peakInFlight: () => number;
@@ -46,7 +48,7 @@ function makeGatedLoader(): {
   let inFlight = 0;
   let peakInFlight = 0;
 
-  const handle = createMultiCommitFilesLoader({
+  const loader = createMultiCommitFilesLoader({
     resolveRepo: async () => REPO,
     loadChangedFiles: async (_repo, hash) => {
       started.push(hash);
@@ -56,12 +58,13 @@ function makeGatedLoader(): {
       inFlight -= 1;
       return [{ path: `${hash}.ts`, status: 'modified' as const }];
     },
-    publish: (hashes, filesByHash, loadedHashes) =>
-      published.push({ hashes, filesByHash, loadedHashes }),
+    publish: (hashes, filesByHash, loadedHashes, errorsByHash) =>
+      published.push({ hashes, filesByHash, loadedHashes, errorsByHash }),
   });
 
   return {
-    handle,
+    handle: loader.load,
+    invalidate: loader.invalidate,
     started,
     inFlight: () => inFlight,
     peakInFlight: () => peakInFlight,
@@ -137,11 +140,11 @@ describe('multi-commit changed-files load', () => {
 
   it('publishes the commits the cap allowed, not the whole selection', async () => {
     const loadedFor: Published[] = [];
-    const handle = createMultiCommitFilesLoader({
+    const { load: handle } = createMultiCommitFilesLoader({
       resolveRepo: async () => REPO,
       loadChangedFiles: async (_repo, hash) => [{ path: `${hash}.ts`, status: 'modified' }],
-      publish: (hashes, filesByHash, loadedHashes) =>
-        loadedFor.push({ hashes, filesByHash, loadedHashes }),
+      publish: (hashes, filesByHash, loadedHashes, errorsByHash) =>
+        loadedFor.push({ hashes, filesByHash, loadedHashes, errorsByHash }),
     });
     const selection = hashes('a', MULTI_DETAILS_COMMIT_CAP + 5);
 
@@ -159,7 +162,7 @@ describe('multi-commit changed-files load', () => {
   it('lets one unreadable commit contribute no files instead of blanking the tree', async () => {
     const published: Published[] = [];
     const selection = hashes('a', 3);
-    const handle = createMultiCommitFilesLoader({
+    const { load: handle } = createMultiCommitFilesLoader({
       resolveRepo: async () => REPO,
       loadChangedFiles: async (_repo, hash) => {
         if (hash === selection[1]) {
@@ -167,8 +170,8 @@ describe('multi-commit changed-files load', () => {
         }
         return [{ path: `${hash}.ts`, status: 'modified' }];
       },
-      publish: (hashes, filesByHash, loadedHashes) =>
-        published.push({ hashes, filesByHash, loadedHashes }),
+      publish: (hashes, filesByHash, loadedHashes, errorsByHash) =>
+        published.push({ hashes, filesByHash, loadedHashes, errorsByHash }),
     });
 
     await handle(selection);
@@ -176,5 +179,78 @@ describe('multi-commit changed-files load', () => {
     assert.strictEqual(published.length, 1);
     assert.deepStrictEqual(published[0].filesByHash.get(selection[1]), []);
     assert.strictEqual(published[0].filesByHash.get(selection[0])?.length, 1);
+  });
+
+  it('records the reason a commit contributed no files', () => {
+    // The panel reports the first per-commit failure so a diff that broke is
+    // not presented as "no changes".
+    const published: Published[] = [];
+    const selection = hashes('a', 2);
+    const { load } = createMultiCommitFilesLoader({
+      resolveRepo: async () => REPO,
+      loadChangedFiles: async (_repo, hash) => {
+        if (hash === selection[1]) {
+          throw new Error('bad object');
+        }
+        return [{ path: `${hash}.ts`, status: 'modified' }];
+      },
+      publish: (hashes, filesByHash, loadedHashes, errorsByHash) =>
+        published.push({ hashes, filesByHash, loadedHashes, errorsByHash }),
+    });
+
+    return load(selection).then(() => {
+      assert.match(published[0].errorsByHash.get(selection[1]) ?? '', /bad object/);
+      assert.strictEqual(published[0].errorsByHash.has(selection[0]), false, 'only the failure');
+    });
+  });
+
+  it('contains a resolveRepo rejection to its own commit and still publishes', async () => {
+    // resolveRepo used to be awaited outside the try, so a rejection escaped
+    // the worker, rejected mapWithLimit, and left the whole selection unpainted.
+    const published: Published[] = [];
+    const selection = hashes('a', 3);
+    const { load } = createMultiCommitFilesLoader({
+      resolveRepo: async (hash) => {
+        if (hash === selection[1]) {
+          throw new Error('repo lookup exploded');
+        }
+        return REPO;
+      },
+      loadChangedFiles: async (_repo, hash) => [{ path: `${hash}.ts`, status: 'modified' }],
+      publish: (hashes, filesByHash, loadedHashes, errorsByHash) =>
+        published.push({ hashes, filesByHash, loadedHashes, errorsByHash }),
+    });
+
+    await load(selection);
+
+    assert.strictEqual(published.length, 1, 'the selection must still paint');
+    assert.strictEqual(published[0].filesByHash.get(selection[0])?.length, 1);
+    assert.match(published[0].errorsByHash.get(selection[1]) ?? '', /repo lookup exploded/);
+  });
+
+  it('invalidate() stops an in-flight load from issuing more git', async () => {
+    // Shrinking a 20-commit selection to one fires no new load, so only an
+    // explicit invalidate can stop the 20 diffs already queued.
+    const h = makeGatedLoader();
+
+    const run = h.handle(hashes('a', 12));
+    await settle();
+    const startedBeforeInvalidate = h.started.length;
+    assert.strictEqual(
+      startedBeforeInvalidate,
+      MULTI_DETAILS_LOAD_CONCURRENCY,
+      'sanity: the load filled the concurrency window'
+    );
+
+    h.invalidate();
+    await h.drain();
+    await run;
+
+    assert.strictEqual(
+      h.started.length,
+      startedBeforeInvalidate,
+      'no further git calls after invalidate'
+    );
+    assert.deepStrictEqual(h.published, [], 'an invalidated load never paints');
   });
 });

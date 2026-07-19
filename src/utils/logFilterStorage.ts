@@ -54,6 +54,12 @@ function validateLogFilter(raw: unknown): ILogFilter | undefined {
   assign('minParents', readNumber(src.minParents));
   assign('maxParents', readNumber(src.maxParents));
   assign('logRange', readString(src.logRange));
+  // A preset only names the instant already stored in `since`; an unknown
+  // value, or one with no `since`, leaves the range reading as custom.
+  const datePreset = readString(src.datePreset);
+  if (filter.since !== undefined && (datePreset === '24h' || datePreset === '7d')) {
+    filter.datePreset = datePreset;
+  }
 
   return Object.keys(filter).length > 0 ? filter : undefined;
 }

@@ -1175,12 +1175,26 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
         ctx.gitToolWindowProvider?.getSelectedRepository(),
       loadChangedFiles: (repo, hash) => loadCommitChangedFiles(gitService, repo, hash),
-      publish: (hashes, filesByHash, loadedHashes) => {
-        ctx.gitToolWindowProvider?.updateMultiCommitDetails(hashes, filesByHash, loadedHashes);
+      publish: (hashes, filesByHash, loadedHashes, errorsByHash) => {
+        ctx.gitToolWindowProvider?.updateMultiCommitDetails(
+          hashes,
+          filesByHash,
+          loadedHashes,
+          errorsByHash
+        );
       },
     });
     const commitsSelectListener = ctx.gitToolWindowProvider.onDidSelectCommits(({ hashes }) => {
-      void loadMultiCommitFiles(hashes);
+      // Every selection change abandons the in-flight load first; only a
+      // multi-commit selection starts a new one.
+      loadMultiCommitFiles.invalidate();
+      if (hashes.length >= 2) {
+        void loadMultiCommitFiles.load(hashes).catch(() => {
+          // Nothing to surface: per-commit failures already ride in the
+          // published error map, and an unhandled rejection here would kill
+          // the whole selection's paint.
+        });
+      }
     });
     ctx.context.subscriptions.push(commitsSelectListener);
 

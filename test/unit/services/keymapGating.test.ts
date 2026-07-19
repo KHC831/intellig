@@ -79,6 +79,28 @@ describe('keybinding gating (keymapPreset default = stock VS Code)', () => {
   });
 });
 
+describe('core editor chords yield inside text inputs', () => {
+  // The reference keymap's chords are kept, but VS Code core owns them while
+  // a text input has focus (mac ctrl+k/ctrl+t/ctrl+d are kill-line, transpose
+  // and forward-delete; win ctrl+k opens a chord and ctrl+shift+k deletes a
+  // line). check-keybindings-coherence fences the class.
+  for (const command of [
+    'intellig.commit',
+    'intellig.push',
+    'intellig.updateProject',
+    'intellig.explorer.compareWithRepoVersion',
+  ]) {
+    it(`${command} carries the !textInputFocus carve-out`, () => {
+      const kb = keybindings().find((b) => b.command === command);
+      assert.ok(kb, `${command} binding must exist`);
+      assert.ok(
+        (kb.when ?? '').includes('!textInputFocus'),
+        `${command} must yield while typing; when="${kb.when}"`
+      );
+    });
+  }
+});
+
 describe('keybinding gestures match the reference keymap', () => {
   it('Move to Another Changelist is alt+shift+m (ChangesView.Move), not F6', () => {
     const move = keybindings().find((kb) => kb.command === 'intellig.changelist.moveFilesTo');

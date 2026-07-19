@@ -221,9 +221,13 @@ export class MergeConflictModel {
     }
     const affected = autoResolvableChanges.map((change) => change.index);
     const success = this.executeMergeCommand(affected, () => {
+      let applied = 0;
       for (const change of autoResolvableChanges) {
-        this.resolveChangeAutomatically(change.index, ThreeSide.BASE);
+        if (this.resolveChangeAutomatically(change.index, ThreeSide.BASE) !== undefined) {
+          applied++;
+        }
       }
+      return applied > 0;
     });
     if (success) {
       this.reviewed = false;
@@ -237,6 +241,7 @@ export class MergeConflictModel {
       this.resetAllChanges();
       this.replaceAllChanges(side);
       this.markReviewed();
+      return true;
     });
   }
 
@@ -410,11 +415,16 @@ export class MergeConflictModel {
   /** Applies every non-conflicting change from the given side, as one undo step. */
   applyNonConflictedChanges(side: ThreeSide): void {
     this.executeMergeCommand(undefined, () => {
+      let applied = 0;
       for (const change of this.getAllChanges()) {
-        if (!change.isConflict) {
-          this.resolveChangeAutomatically(change.index, side);
+        if (
+          !change.isConflict &&
+          this.resolveChangeAutomatically(change.index, side) !== undefined
+        ) {
+          applied++;
         }
       }
+      return applied > 0;
     });
   }
 
@@ -441,12 +451,20 @@ export class MergeConflictModel {
     this.resultModel.dispose();
   }
 
-  executeMergeCommand(affectedIndexes: readonly number[] | undefined, task: () => void): boolean {
-    const success = this.resultModel.executeMergeCommand(affectedIndexes, task);
-    if (success) {
+  /**
+   * `task` returns whether it actually changed the result. Only then does the
+   * content count as modified — a command that applied nothing leaves no work
+   * to restore, so it must not raise the restore prompt on the next open.
+   */
+  executeMergeCommand(
+    affectedIndexes: readonly number[] | undefined,
+    task: () => boolean
+  ): boolean {
+    const applied = this.resultModel.executeMergeCommand(affectedIndexes, task);
+    if (applied) {
       this.contentModified = true;
     }
-    return success;
+    return applied;
   }
 
   changeByIndex(index: number): TextMergeChange {

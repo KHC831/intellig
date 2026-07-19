@@ -117,6 +117,10 @@ export interface IGtwControllerContext {
    * multi-commit selection, or undefined while they are still in flight.
    */
   getMultiChangedFiles(hash: string): IChangedFile[] | undefined;
+  /** Why `hash` contributed no files to the current selection, if it failed. */
+  getMultiChangedFilesError(hash: string): string | undefined;
+  /** Details for the expanded commit, or undefined when none is expanded. */
+  getExpandedCommitDetails(): ICommitDetails | undefined;
   /**
    * Ask the host to load changed files for a multi-commit selection. A no-op
    * when they are already cached for exactly that selection; returns whether

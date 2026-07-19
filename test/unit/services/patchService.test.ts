@@ -616,7 +616,11 @@ describe('PatchService.createPatchFromLocalChanges', () => {
 
     const patch = await svc.createPatchFromLocalChanges(repo, {});
     assert.strictEqual(patch, 'HEAD_DIFF\n');
-    assert.deepStrictEqual(diffExecs(git), [['diff', 'HEAD']], 'exactly one diff invocation');
+    assert.deepStrictEqual(
+      diffExecs(git),
+      [['diff', 'HEAD', '--binary', '--no-textconv']],
+      'exactly one diff invocation'
+    );
   });
 
   it('stagedOnly: runs only `git diff --cached`', async () => {
@@ -627,7 +631,7 @@ describe('PatchService.createPatchFromLocalChanges', () => {
     const patch = await svc.createPatchFromLocalChanges(repo, { stagedOnly: true });
     assert.strictEqual(patch, 'STAGED_DIFF\n');
     assert.strictEqual(git._exec.length, 1);
-    assert.deepStrictEqual(git._exec[0].args, ['diff', '--cached']);
+    assert.deepStrictEqual(git._exec[0].args, ['diff', '--cached', '--binary', '--no-textconv']);
   });
 
   it('appends `-- file1 file2` when files are specified', async () => {
@@ -636,7 +640,9 @@ describe('PatchService.createPatchFromLocalChanges', () => {
     const repo = makeRepo();
 
     await svc.createPatchFromLocalChanges(repo, { files: ['a.ts', 'b.ts'] });
-    assert.deepStrictEqual(diffExecs(git), [['diff', 'HEAD', '--', 'a.ts', 'b.ts']]);
+    assert.deepStrictEqual(diffExecs(git), [
+      ['diff', 'HEAD', '--binary', '--no-textconv', '--', 'a.ts', 'b.ts'],
+    ]);
   });
 
   it('toClipboard: writes the patch text to the VS Code clipboard', async () => {
@@ -1237,7 +1243,11 @@ describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
 
     await svc.createPatchFromLocalChanges(repo, { reverse: true });
 
-    assert.deepStrictEqual(diffExecs(git), [['diff', 'HEAD', '-R']], 'exactly one diff invocation');
+    assert.deepStrictEqual(
+      diffExecs(git),
+      [['diff', 'HEAD', '--binary', '--no-textconv', '-R']],
+      'exactly one diff invocation'
+    );
   });
 
   it('adds -R to the cached leg in stagedOnly mode', async () => {
@@ -1247,7 +1257,13 @@ describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
 
     await svc.createPatchFromLocalChanges(repo, { stagedOnly: true, reverse: true });
 
-    assert.deepStrictEqual(git._exec[0].args, ['diff', '--cached', '-R']);
+    assert.deepStrictEqual(git._exec[0].args, [
+      'diff',
+      '--cached',
+      '--binary',
+      '--no-textconv',
+      '-R',
+    ]);
   });
 
   it('keeps -R ahead of the file scope separator', async () => {
@@ -1261,7 +1277,15 @@ describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
       files: ['a.ts'],
     });
 
-    assert.deepStrictEqual(git._exec[0].args, ['diff', '--cached', '-R', '--', 'a.ts']);
+    assert.deepStrictEqual(git._exec[0].args, [
+      'diff',
+      '--cached',
+      '--binary',
+      '--no-textconv',
+      '-R',
+      '--',
+      'a.ts',
+    ]);
   });
 });
 

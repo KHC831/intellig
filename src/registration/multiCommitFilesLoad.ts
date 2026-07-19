@@ -24,13 +24,25 @@ export interface IMultiCommitFilesLoadDeps {
   /**
    * Hand the finished load to the panel. `loadedHashes` is the subset the cap
    * allowed, so the panel can describe what it is showing against what it was
-   * asked for.
+   * asked for; `errorsByHash` carries the reason each failed commit
+   * contributed nothing, so an unreadable diff is not painted as "no changes".
    */
   publish(
     hashes: readonly string[],
     filesByHash: ReadonlyMap<string, IChangedFile[]>,
-    loadedHashes: readonly string[]
+    loadedHashes: readonly string[],
+    errorsByHash: ReadonlyMap<string, string>
   ): void;
+}
+
+export interface IMultiCommitFilesLoader {
+  load(hashes: readonly string[]): Promise<void>;
+  /**
+   * Abandon whatever is in flight. A selection that shrinks below two commits
+   * fires no new load, so without this the queued diffs for the selection the
+   * user just left run to completion.
+   */
+  invalidate(): void;
 }
 
 /**
@@ -43,34 +55,43 @@ export interface IMultiCommitFilesLoadDeps {
  */
 export function createMultiCommitFilesLoader(
   deps: IMultiCommitFilesLoadDeps
-): (hashes: readonly string[]) => Promise<void> {
+): IMultiCommitFilesLoader {
   const guard = createStalenessGuard();
 
-  return async (hashes: readonly string[]): Promise<void> => {
-    const generation = guard.bump();
-    const loadedHashes = hashes.slice(0, MULTI_DETAILS_COMMIT_CAP);
-    const filesByHash = new Map<string, IChangedFile[]>();
+  return {
+    invalidate: (): void => {
+      guard.bump();
+    },
 
-    await mapWithLimit(loadedHashes, MULTI_DETAILS_LOAD_CONCURRENCY, async (hash) => {
+    load: async (hashes: readonly string[]): Promise<void> => {
+      const generation = guard.bump();
+      const loadedHashes = hashes.slice(0, MULTI_DETAILS_COMMIT_CAP);
+      const filesByHash = new Map<string, IChangedFile[]>();
+      const errorsByHash = new Map<string, string>();
+
+      await mapWithLimit(loadedHashes, MULTI_DETAILS_LOAD_CONCURRENCY, async (hash) => {
+        if (!guard.isCurrent(generation)) {
+          return;
+        }
+        // Everything per-commit is contained: one commit that cannot be
+        // resolved or read contributes no files and its own reason, rather
+        // than rejecting the fan-out and leaving the selection unpainted.
+        try {
+          const repo = await deps.resolveRepo(hash);
+          if (!repo || !guard.isCurrent(generation)) {
+            return;
+          }
+          filesByHash.set(hash, await deps.loadChangedFiles(repo, hash));
+        } catch (err) {
+          filesByHash.set(hash, []);
+          errorsByHash.set(hash, err instanceof Error ? err.message : String(err));
+        }
+      });
+
       if (!guard.isCurrent(generation)) {
         return;
       }
-      const repo = await deps.resolveRepo(hash);
-      if (!repo || !guard.isCurrent(generation)) {
-        return;
-      }
-      try {
-        filesByHash.set(hash, await deps.loadChangedFiles(repo, hash));
-      } catch {
-        // One unreadable commit must not blank the whole combined tree;
-        // it simply contributes no files.
-        filesByHash.set(hash, []);
-      }
-    });
-
-    if (!guard.isCurrent(generation)) {
-      return;
-    }
-    deps.publish(hashes, filesByHash, loadedHashes);
+      deps.publish(hashes, filesByHash, loadedHashes, errorsByHash);
+    },
   };
 }

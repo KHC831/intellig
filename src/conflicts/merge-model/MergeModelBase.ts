@@ -235,9 +235,18 @@ export abstract class MergeModelBase<S extends MergeModelState> {
     this.exitBulkChangeUpdateBlock();
   }
 
-  executeMergeCommand(affectedChanges: readonly number[] | undefined, task: () => void): boolean {
+  /**
+   * Runs `task` as one undoable command. The task reports whether it actually
+   * changed the result; callers use that to decide whether the content now
+   * holds work worth preserving.
+   */
+  executeMergeCommand(
+    affectedChanges: readonly number[] | undefined,
+    task: () => boolean
+  ): boolean {
     const allAffectedChanges =
       affectedChanges !== undefined ? this.collectAffectedChanges(affectedChanges) : [];
+    let applied = false;
     this.undoManager.executeCommand(() => {
       if (this.insideCommand) {
         throw new Error('nested merge command');
@@ -251,7 +260,7 @@ export abstract class MergeModelBase<S extends MergeModelState> {
       try {
         this.registerUndoRedo(true, allAffectedChanges);
         try {
-          task();
+          applied = task();
         } finally {
           this.registerUndoRedo(false, allAffectedChanges);
         }
@@ -260,7 +269,7 @@ export abstract class MergeModelBase<S extends MergeModelState> {
         this.insideCommand = false;
       }
     });
-    return true;
+    return applied;
   }
 
   private registerUndoRedo(undo: boolean, affectedChanges: readonly number[]): void {

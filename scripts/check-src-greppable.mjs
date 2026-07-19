@@ -105,19 +105,36 @@ function trackedFiles() {
 }
 
 const offenders = [];
+const skipped = [];
 
 for (const file of trackedFiles()) {
   const relative = path.relative(root, file);
   if (allowlist.has(relative)) {
     continue;
   }
-  const bytes = readFileSync(file);
+  // A tracked path can be absent from the working tree (a plain `rm`, a paused
+  // rebase). The guard's subject is working-tree content, and content that is
+  // not there cannot be grep-invisible, so skip it rather than die on ENOENT.
+  let bytes;
+  try {
+    bytes = readFileSync(file);
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      skipped.push(relative);
+      continue;
+    }
+    throw err;
+  }
   const index = bytes.indexOf(0);
   if (index !== -1) {
     // Report the line so the fix site is obvious.
     const line = bytes.subarray(0, index).toString('utf8').split('\n').length;
     offenders.push(`${relative}:${line} contains a literal NUL byte`);
   }
+}
+
+for (const relative of skipped) {
+  console.log(`check-src-greppable: skipped ${relative} — tracked but not in the working tree`);
 }
 
 if (offenders.length > 0) {

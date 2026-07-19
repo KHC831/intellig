@@ -127,6 +127,35 @@ describe('check-src-greppable guard', () => {
     assert.doesNotMatch(result.output, /DS_Store/);
   });
 
+  it('skips a tracked file missing from the working tree', () => {
+    // A plain `rm` of a tracked file, or a paused rebase, leaves `git
+    // ls-files` naming a path that is not on disk. The guard's subject is
+    // working-tree content, so an absent file cannot be grep-invisible.
+    const root = makeFixture({
+      'a.ts': 'export const a = 1;\n',
+      'gone.ts': 'export const gone = 2;\n',
+    });
+    fs.rmSync(path.join(root, 'gone.ts'));
+
+    const result = runGuard(root);
+
+    assert.strictEqual(result.code, 0, `a deleted tracked file must not crash: ${result.output}`);
+    assert.ok(result.output.includes('gone.ts'), `the skip must be visible: ${result.output}`);
+  });
+
+  it('still reports a real offender alongside a missing file', () => {
+    const root = makeFixture({
+      'gone.ts': 'export const gone = 2;\n',
+      'bad.ts': 'export const key = `' + NUL + '`;\n',
+    });
+    fs.rmSync(path.join(root, 'gone.ts'));
+
+    const result = runGuard(root);
+
+    assert.strictEqual(result.code, 1, 'the missing file must not mask the offender');
+    assert.ok(result.output.includes('bad.ts'));
+  });
+
   it('reports the offending line number', () => {
     const root = makeFixture({ 'a.ts': `const a = 1;\nconst b = '${NUL}';\n` });
 

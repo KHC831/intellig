@@ -6,7 +6,8 @@
  * ("Up to date with upstream. No incoming commits.") regardless of the real
  * incoming count. These tests pin the production triggers:
  *   - activating the Incoming tab refreshes it,
- *   - a fetch while the Incoming tab is visible refreshes it.
+ *   - a fetch while the Incoming tab is visible refreshes it,
+ *   - double-clicking a row routes to that commit in the Log tab.
  */
 
 import '../../../setup';
@@ -136,5 +137,35 @@ describe('Incoming tab — refresh wiring', () => {
     h.fireFetch({ repo: REPO, result: {} });
     await flush();
     assert.strictEqual(h.ioCalls(), 0, 'no incoming compute when the tab is not visible');
+  });
+
+  it('double-clicking a row jumps to that commit in the Log tab', async () => {
+    // The tab calls its optional jumpToCommit hook; the provider must supply
+    // one, as it does for the Update Info tab, or the gesture is a no-op.
+    const h = makeProvider();
+    await h.provider.focusTab('incoming');
+    await flush();
+
+    const focused: string[] = [];
+    const scrolled: string[] = [];
+    const p = h.provider as unknown as {
+      focusTab: (tab: string) => Promise<void>;
+      scrollToCommit: (hash: string) => void;
+    };
+    p.focusTab = async (tab: string): Promise<void> => {
+      focused.push(tab);
+    };
+    p.scrollToCommit = (hash: string): void => {
+      scrolled.push(hash);
+    };
+
+    await h.tab().handleMessage({
+      type: 'incoming.jumpToCommit',
+      hash: INCOMING.hash,
+    } as never);
+    await flush();
+
+    assert.deepStrictEqual(focused, ['log'], 'the jump must focus the Log tab');
+    assert.deepStrictEqual(scrolled, [INCOMING.hash], 'and scroll it to the commit');
   });
 });

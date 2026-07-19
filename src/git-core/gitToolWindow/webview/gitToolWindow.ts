@@ -148,6 +148,7 @@ function main(vscode: IVsCodeApi): void {
       authors: readJsonList('data-f-authors', row.getAttribute('data-f-author') || ''),
       since: row.getAttribute('data-f-since') || '',
       until: row.getAttribute('data-f-until') || '',
+      datePreset: row.getAttribute('data-f-date-preset') || '',
     };
     function branchLeaf(name: string): string {
       const parts = String(name).split('/').filter(Boolean);
@@ -289,6 +290,7 @@ function main(vscode: IVsCodeApi): void {
           paths: filterState.paths.slice(),
           since: filterState.since || null,
           until: filterState.until || null,
+          datePreset: filterState.datePreset || null,
           searchRegex: readToggle('filter-search-regex'),
           searchCaseSensitive: readToggle('filter-search-case'),
         },
@@ -480,14 +482,17 @@ function main(vscode: IVsCodeApi): void {
         if (range === '24h') {
           filterState.since = daysAgoIso(1);
           filterState.until = '';
+          filterState.datePreset = '24h';
           setPopValue('date', 'Last 24 Hours');
         } else if (range === '7d') {
           filterState.since = daysAgoIso(7);
           filterState.until = '';
+          filterState.datePreset = '7d';
           setPopValue('date', 'Last 7 Days');
         } else {
           filterState.since = '';
           filterState.until = '';
+          filterState.datePreset = '';
           setPopValue('date', dateLabel());
         }
         closeAllPopups();
@@ -512,6 +517,8 @@ function main(vscode: IVsCodeApi): void {
         }
         filterState.since = afterOn && afterOn.checked && afterDate ? afterDate.value : '';
         filterState.until = beforeOn && beforeOn.checked && beforeDate ? beforeDate.value : '';
+        // An explicit range replaces whatever preset was active.
+        filterState.datePreset = '';
         setPopValue('date', dateLabel());
         closeAllPopups();
         applyFilters();
@@ -1326,7 +1333,7 @@ function main(vscode: IVsCodeApi): void {
     if (messageHash) {
       const hash = messageHash.getAttribute('data-commit-hash');
       if (hash) {
-        post({ type: 'selectCommit', commitHash: hash });
+        post({ type: 'selectCommit', commitHash: hash, viaHashLink: true });
       }
       return;
     }
@@ -2075,6 +2082,38 @@ function main(vscode: IVsCodeApi): void {
       buttons[next].focus();
       post({ type: 'tabChange', tab: tab });
     });
+
+    // A tab change re-renders the whole document, so the focus set above dies
+    // with the old DOM and the next arrow press has nothing to move from.
+    // Remember that the strip owned focus and restore it to the active tab on
+    // the next boot.
+    strip.addEventListener('focusin', function () {
+      const state = (vscode.getState() || {}) as Record<string, unknown>;
+      state.tabStripFocused = true;
+      vscode.setState(state);
+    });
+    strip.addEventListener('focusout', function (event) {
+      const to = (event as FocusEvent).relatedTarget;
+      if (to instanceof Node && strip.contains(to)) {
+        return;
+      }
+      // A null relatedTarget covers two opposite cases: alt-tabbing away (the
+      // strip keeps the focus it will want back on return) and clicking a
+      // non-focusable region of the page, which blurs to <body> and IS the
+      // user moving focus away. Only the document's own focus separates them.
+      if (to === null && !document.hasFocus()) {
+        return;
+      }
+      const state = (vscode.getState() || {}) as Record<string, unknown>;
+      state.tabStripFocused = false;
+      vscode.setState(state);
+    });
+
+    const restored = (vscode.getState() || {}) as { tabStripFocused?: boolean };
+    if (restored.tabStripFocused === true) {
+      const active = strip.querySelector<HTMLElement>('[data-tab][tabindex="0"]');
+      active?.focus();
+    }
   })();
 
   // ─── Console tab behavior ────────────────────────────────────────
@@ -2095,19 +2134,49 @@ function main(vscode: IVsCodeApi): void {
       return;
     }
 
-    const persisted = (vscode.getState() || {}) as { consoleScrollTop?: number };
-    if (typeof persisted.consoleScrollTop === 'number') {
+    // Sticky bottom: a console that is at the bottom FOLLOWS new output, and
+    // one the user scrolled up stays where they left it. Every git command
+    // rebuilds the webview, so "at the bottom" has to survive the reboot as
+    // its own flag — restoring a saved offset alone left the log frozen above
+    // every subsequent line.
+    const BOTTOM_EPSILON = 4;
+    const maxScrollTop = (): number => Math.max(0, log.scrollHeight - log.clientHeight);
+    const isAtBottom = (): boolean => maxScrollTop() - log.scrollTop <= BOTTOM_EPSILON;
+    const scrollToBottom = (): void => {
+      log.scrollTop = maxScrollTop();
+    };
+
+    const persisted = (vscode.getState() || {}) as {
+      consoleScrollTop?: number;
+      consolePinnedToBottom?: boolean;
+    };
+    // Absent state is a fresh console: pin it.
+    let pinned = persisted.consolePinnedToBottom !== false;
+    if (pinned) {
+      scrollToBottom();
+    } else if (typeof persisted.consoleScrollTop === 'number') {
       log.scrollTop = persisted.consoleScrollTop;
-    } else {
-      // No remembered position: show the newest output.
-      log.scrollTop = log.scrollHeight - log.clientHeight;
     }
 
+    // Position alone decides: land at the bottom and the log follows again,
+    // scroll away and it stays put. That holds for programmatic scrolls too,
+    // so no event bookkeeping is needed.
     log.addEventListener('scroll', function () {
+      pinned = isAtBottom();
       const state = (vscode.getState() || {}) as Record<string, unknown>;
       state.consoleScrollTop = log.scrollTop;
+      state.consolePinnedToBottom = pinned;
       vscode.setState(state);
     });
+
+    // New output appended while pinned keeps the newest line in view.
+    if (typeof MutationObserver === 'function') {
+      new MutationObserver(function () {
+        if (pinned) {
+          scrollToBottom();
+        }
+      }).observe(log, { childList: true, subtree: true });
+    }
   })();
 
   // ─── Incoming tab behavior ───────────────────────────────────────

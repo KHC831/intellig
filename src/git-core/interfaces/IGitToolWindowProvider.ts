@@ -64,6 +64,9 @@ export interface ILogState {
 /**
  * Log filter options
  */
+/** Relative date presets the log filter offers alongside a custom range. */
+export type DatePreset = '24h' | '7d';
+
 export interface ILogFilter {
   branch?: string;
   /** Multi-select branches — union (show commits from ANY). */
@@ -79,6 +82,12 @@ export interface ILogFilter {
   authors?: string[];
   since?: Date;
   until?: Date;
+  /**
+   * The relative preset `since` came from ('24h' / '7d'). Keeps the popup
+   * showing "Last 24 Hours" and keeps Apply from re-rounding the instant to
+   * the date input's midnight.
+   */
+  datePreset?: DatePreset;
   path?: string;
   /** Multi-select paths — union (commits touching ANY). */
   paths?: string[];
@@ -137,7 +146,7 @@ export { IChangelist, IFileChange };
  */
 export type WebviewMessage =
   | { type: 'branchClick'; branchName: string }
-  | { type: 'selectCommit'; commitHash: string }
+  | { type: 'selectCommit'; commitHash: string; viaHashLink?: boolean }
   | { type: 'toggleCommitSelection'; commitHash: string }
   | { type: 'commitContextMenu'; action: string; commitHashes: string[] }
   | { type: 'doubleClickFile'; commitHash: string; path: string }

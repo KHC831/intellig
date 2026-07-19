@@ -30,6 +30,12 @@ export interface IWebviewLogFilter {
   paths?: string[];
   since?: string | null;
   until?: string | null;
+  /**
+   * Which relative preset produced `since` ('24h' / '7d'), so reopening the
+   * popup shows the preset selected instead of a custom bound rounded to
+   * midnight. Absent for an explicit custom range.
+   */
+  datePreset?: string | null;
   searchRegex?: boolean;
   searchCaseSensitive?: boolean;
 }
@@ -46,6 +52,11 @@ export interface IWebviewMessage {
   changelistId?: string;
   commitHash?: string;
   commitHashes?: string[];
+  /**
+   * Set by `selectCommit` when the click came from a hash link in a commit
+   * message: the target is usually off-screen, so the host scrolls to it.
+   */
+  viaHashLink?: boolean;
   action?: string;
   files?: string[];
   targetChangelistId?: string;

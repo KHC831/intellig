@@ -96,17 +96,18 @@ describe('renderIncomingTabBody', () => {
  * the empty state uses classes something actually defines.
  */
 /** A populated (non-loading, has-upstream) incoming state. */
-function makeLoadedState(): IIncomingTabState {
+function makeLoadedState(overrides: Partial<IIncomingTabState> = {}): IIncomingTabState {
   return {
     branch: 'main',
     upstream: 'origin/main',
-    incomingCount: 1,
+    incomingCount: 2,
     outgoingCount: 0,
     noUpstream: false,
-    commits: [makeCommit('abc1234def5678', 'Add feature')],
+    commits: [makeCommit('abc1234def5678', 'Add feature'), makeCommit('99f0000aaaa111', 'Fix bug')],
     selectedCommit: undefined,
     error: undefined,
     loading: false,
+    ...overrides,
   };
 }
 
@@ -139,5 +140,33 @@ describe('incoming tab styling + semantics', () => {
 
   it('carries the full hash on each row so the webview can post a selection', () => {
     assert.match(renderIncomingTabBody(makeLoadedState()), /data-hash="abc1234def5678"/);
+  });
+
+  it('marks the selected row so the selection is visible', () => {
+    const state = makeLoadedState({ selectedCommit: 'abc1234def5678' });
+
+    const html = renderIncomingTabBody(state);
+
+    assert.match(
+      html,
+      /class="incoming-commit-row incoming-selected"[^>]*data-hash="abc1234def5678"/,
+      `the selected row must carry the class the stylesheet paints:\n${html}`
+    );
+  });
+
+  it('marks only the selected row', () => {
+    const state = makeLoadedState({ selectedCommit: 'abc1234def5678' });
+
+    const html = renderIncomingTabBody(state);
+
+    assert.strictEqual(
+      (html.match(/incoming-selected/g) ?? []).length,
+      1,
+      'exactly one row is selected'
+    );
+  });
+
+  it('marks no row when nothing is selected', () => {
+    assert.ok(!renderIncomingTabBody(makeLoadedState()).includes('incoming-selected'));
   });
 });

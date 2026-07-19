@@ -1925,7 +1925,7 @@
         "command": "intellig.commit",
         "key": "ctrl+k",
         "mac": "ctrl+k",
-        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && !textInputFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.shelve.silent",
@@ -1949,13 +1949,13 @@
         "command": "intellig.push",
         "key": "ctrl+shift+k",
         "mac": "ctrl+shift+k",
-        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && !textInputFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.updateProject",
         "key": "ctrl+t",
         "mac": "ctrl+t",
-        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && !textInputFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.openGitToolWindow",
@@ -2009,7 +2009,7 @@
         "command": "intellig.explorer.compareWithRepoVersion",
         "key": "ctrl+d",
         "mac": "ctrl+d",
-        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
+        "when": "!inDebugMode && !terminalFocus && !textInputFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.revertFile",

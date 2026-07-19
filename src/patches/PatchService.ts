@@ -279,6 +279,14 @@ export class PatchService implements IPatchService {
     // tree — the first commit's content still yields one coherent block.
     const base = options.stagedOnly ? undefined : await resolveDiffBase(gitCli, repo);
     const argv = base === undefined ? ['diff', '--cached'] : ['diff', base];
+    // A modified binary is otherwise a "Binary files differ" stub that
+    // `git apply` rejects outright, taking the patch's text hunks down with
+    // it. --no-textconv is separately required: a textconv-configured repo
+    // renders the blob as unappliable prose even with --binary. IntelliJ
+    // likewise always writes binaries (PatchWriter.java:77 →
+    // BinaryPatchWriter.writeBinaries; the includeBinaries opt-out overload
+    // is deprecated, PatchWriter.java:127).
+    argv.push('--binary', '--no-textconv');
     if (options.reverse) {
       argv.push('-R');
     }

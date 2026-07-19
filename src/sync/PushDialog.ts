@@ -151,7 +151,13 @@ export function isProtectedTarget(
  */
 export function classifyPushError(stderr: string): PushErrorKind {
   const msg = stderr.toLowerCase();
-  if (/protected branch/.test(msg) || /refusing to (allow|overwrite)/.test(msg)) {
+  // "refusing to …" needs branch/ref context: GitHub uses the same opener to
+  // refuse a workflow-file push made without the `workflow` token scope, which
+  // is not protection and whose only explanation is git's own text.
+  if (
+    /protected branch/.test(msg) ||
+    /refusing to (allow|overwrite)\b[^\n]*\b(branch|ref)\b/.test(msg)
+  ) {
     return 'rejected-protected';
   }
   if (/\(stale info\)/.test(msg)) {
@@ -182,9 +188,18 @@ export function classifyPushError(stderr: string): PushErrorKind {
  * (`push.notification.description.rejected.by.remote`,
  * `push.rejected.merge.needed`, `push.failed.error.message` in
  * git4idea GitBundle.properties) — because the banner also carries the retry
- * affordances the user must still see. The raw git output goes to the log, never
- * the UI; only an unclassified failure falls back to it (sanitized).
+ * affordances the user must still see. The REJECTED_* kinds stay canned, but
+ * auth and hook failures append git's own (sanitized) text — a hook's reason
+ * for declining is the only actionable content, and git4idea likewise shows
+ * canned text only for the rejected results while ERROR carries the git
+ * message (GitPushResultNotification.java:308).
  */
+/** One-liner plus git's own text, which alone says WHY the push failed. */
+function withGitDetail(oneLiner: string, sanitized: string): string {
+  const detail = sanitized.trim();
+  return detail.length > 0 ? `${oneLiner}\n${detail}` : oneLiner;
+}
+
 export function pushErrorBannerMessage(
   kind: PushErrorKind,
   sanitized: string,
@@ -201,9 +216,9 @@ export function pushErrorBannerMessage(
     case 'rejected-protected':
       return `Push to '${targetBranch}' was rejected: the remote protects that branch.`;
     case 'auth':
-      return 'Push failed: the remote rejected your credentials.';
+      return withGitDetail('Push failed: the remote rejected your credentials.', sanitized);
     case 'hook':
-      return 'Push failed: the pre-push hook rejected the push.';
+      return withGitDetail('Push failed: the pre-push hook rejected the push.', sanitized);
     case 'other':
     default:
       return sanitized;

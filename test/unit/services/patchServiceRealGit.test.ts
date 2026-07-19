@@ -140,6 +140,63 @@ describe('createPatchFromLocalChanges — real git', () => {
     const err = applyCheckError(initRepo('patch-unborn-target-'), patch);
     assert.strictEqual(err, undefined, `unborn-HEAD patch must apply: ${err}`);
   });
+
+  it('a modified binary alongside modified text yields a patch that applies whole', async () => {
+    const root = initRepo('patch-binary-');
+    const bin = path.join(root, 'blob.bin');
+    const txt = path.join(root, 'f.txt');
+    fs.writeFileSync(bin, Buffer.from([0, 1, 2, 0, 255, 7, 0, 9]));
+    fs.writeFileSync(txt, 'line1\nline2\n');
+    git(root, 'add', 'blob.bin', 'f.txt');
+    git(root, 'commit', '-qm', 'base');
+    fs.writeFileSync(bin, Buffer.from([0, 9, 9, 0, 254, 7, 0, 1, 42]));
+    fs.writeFileSync(txt, 'line1 edited\nline2\n');
+
+    const patch = await makeService().createPatchFromLocalChanges(repoOf(root), {});
+
+    // Without --binary git emits only a "Binary files differ" stub, which
+    // `git apply` refuses — taking the text hunks down with it.
+    assert.ok(
+      patch.includes('GIT binary patch'),
+      `binary content must be in the patch, not a stub:\n${patch}`
+    );
+    const clean = cloneAtHead(root, 'patch-binary-target-');
+    const err = applyCheckError(clean, patch);
+    assert.strictEqual(err, undefined, `binary+text patch must apply: ${err}`);
+
+    // …and it must actually reproduce both sides once applied.
+    const patchFile = path.join(mkdtemp('patch-binary-file-'), 'x.patch');
+    fs.writeFileSync(patchFile, patch);
+    git(clean, 'apply', patchFile);
+    assert.deepStrictEqual(
+      [...fs.readFileSync(path.join(clean, 'blob.bin'))],
+      [...fs.readFileSync(bin)],
+      'the binary must round-trip byte for byte'
+    );
+    assert.strictEqual(fs.readFileSync(path.join(clean, 'f.txt'), 'utf8'), 'line1 edited\nline2\n');
+  });
+
+  it('emits real binary content even when a textconv filter is configured', async () => {
+    const root = initRepo('patch-textconv-');
+    const bin = path.join(root, 'blob.bin');
+    fs.writeFileSync(bin, Buffer.from([0, 1, 2, 0, 255]));
+    fs.writeFileSync(path.join(root, '.gitattributes'), '*.bin diff=hexdump\n');
+    git(root, 'add', 'blob.bin', '.gitattributes');
+    git(root, 'commit', '-qm', 'base');
+    git(root, 'config', 'diff.hexdump.textconv', 'od -c');
+    fs.writeFileSync(bin, Buffer.from([9, 9, 2, 0, 254, 3]));
+
+    const patch = await makeService().createPatchFromLocalChanges(repoOf(root), {});
+
+    // textconv turns the binary into human-readable text hunks that apply to
+    // nothing; --no-textconv keeps the appliable hex payload.
+    assert.ok(
+      patch.includes('GIT binary patch'),
+      `textconv must not replace the binary payload:\n${patch}`
+    );
+    const err = applyCheckError(cloneAtHead(root, 'patch-textconv-target-'), patch);
+    assert.strictEqual(err, undefined, `textconv-repo patch must apply: ${err}`);
+  });
 });
 
 /**

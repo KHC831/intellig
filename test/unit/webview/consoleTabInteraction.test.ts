@@ -117,10 +117,10 @@ describe('Console tab scroll behaviour', () => {
     assert.strictEqual(log.scrollTop, 800, 'scrolled to the bottom of the 1000/200 range');
   });
 
-  it('restores a persisted scroll offset instead of snapping to the top or the bottom', () => {
+  it('restores the offset of a console the user had scrolled up', () => {
     const harness = bootWebviewEntry(ENTRY, {
       bodyHtml: renderConsoleTabBody(entries()),
-      initialState: { consoleScrollTop: 120 },
+      initialState: { consoleScrollTop: 120, consolePinnedToBottom: false },
       beforeBoot: withScrollRange(),
     });
     harnesses.push(harness);
@@ -128,6 +128,52 @@ describe('Console tab scroll behaviour', () => {
     const log = harness.document.querySelector('.console-log') as HTMLElement;
     assert.ok(log, 'sanity: console log rendered');
     assert.strictEqual(log.scrollTop, 120, 'restored, not bottom-pinned to 800');
+  });
+
+  it('re-pins a console that was left at the bottom, ignoring its stale offset', () => {
+    // The saved offset belongs to the PREVIOUS, shorter log. Honouring it
+    // would park the view above everything that arrived since.
+    const harness = bootWebviewEntry(ENTRY, {
+      bodyHtml: renderConsoleTabBody(entries()),
+      initialState: { consoleScrollTop: 300, consolePinnedToBottom: true },
+      beforeBoot: withScrollRange(),
+    });
+    harnesses.push(harness);
+
+    const log = harness.document.querySelector('.console-log') as HTMLElement;
+    assert.strictEqual(log.scrollTop, 800, 'follows the newest output');
+  });
+
+  it('records that the user scrolled away from the bottom', () => {
+    const harness = bootConsole();
+
+    const log = harness.document.querySelector('.console-log') as HTMLElement;
+    Object.defineProperty(log, 'scrollTop', { value: 240, writable: true, configurable: true });
+    log.dispatchEvent(new harness.window.Event('scroll', { bubbles: true }));
+
+    assert.strictEqual(
+      (harness.readState() as { consolePinnedToBottom?: boolean } | undefined)
+        ?.consolePinnedToBottom,
+      false,
+      'scrolling up must stop the log from following new output'
+    );
+  });
+
+  it('re-pins when the user scrolls back to the bottom', () => {
+    const harness = bootConsole();
+
+    const log = harness.document.querySelector('.console-log') as HTMLElement;
+    Object.defineProperty(log, 'scrollTop', { value: 240, writable: true, configurable: true });
+    log.dispatchEvent(new harness.window.Event('scroll', { bubbles: true }));
+    Object.defineProperty(log, 'scrollTop', { value: 800, writable: true, configurable: true });
+    log.dispatchEvent(new harness.window.Event('scroll', { bubbles: true }));
+
+    assert.strictEqual(
+      (harness.readState() as { consolePinnedToBottom?: boolean } | undefined)
+        ?.consolePinnedToBottom,
+      true,
+      'returning to the bottom resumes following'
+    );
   });
 
   it('persists the scroll offset as the user scrolls', () => {

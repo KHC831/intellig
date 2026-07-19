@@ -23,15 +23,20 @@ function renderDate(d: Date): string {
 }
 
 /**
- * Render a single commit row for the incoming list.
+ * Render a single commit row for the incoming list. The selected row carries
+ * `incoming-selected`, which the tab's stylesheet paints.
  */
-function renderCommitRow(commit: ICommit): string {
+function renderCommitRow(commit: ICommit, selectedCommit: string | undefined): string {
   const shortHash = escapeHtml(commit.hash.slice(0, 7));
   const author = escapeHtml(commit.author.name);
   const date = escapeHtml(renderDate(commit.authorDate));
   const subject = escapeHtml(commit.message.split('\n')[0]);
+  const rowClass =
+    commit.hash === selectedCommit
+      ? 'incoming-commit-row incoming-selected'
+      : 'incoming-commit-row';
   return `
-    <div class="incoming-commit-row" data-hash="${escapeHtml(commit.hash)}" role="listitem">
+    <div class="${rowClass}" data-hash="${escapeHtml(commit.hash)}" role="listitem">
       <span class="incoming-commit-hash">${shortHash}</span>
       <span class="incoming-commit-subject">${subject}</span>
       <span class="incoming-commit-author">${author}</span>
@@ -84,7 +89,7 @@ export function renderIncomingTabBody(state?: IIncomingTabState): string {
     </div>`;
   }
 
-  const rows = state.commits.map(renderCommitRow).join('');
+  const rows = state.commits.map((c) => renderCommitRow(c, state.selectedCommit)).join('');
   const count = state.commits.length;
   const upstream = state.upstream ? escapeHtml(state.upstream) : 'upstream';
   return `

@@ -13,6 +13,7 @@ import {
   ILogState,
   IConsoleEntry,
   ILogFilter,
+  DatePreset,
   ICommitDetails,
   IChangedFile,
 } from '../../services/interfaces';
@@ -98,6 +99,7 @@ import {
   addRangeSelectCommit as handleAddRangeSelectCommit,
   selectCommit as handleSelectCommit,
   postDetailsForSelection,
+  buildSelectionDetailsModel,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import {
@@ -391,6 +393,12 @@ const LOG_FILTER_OPTIONS_TTL_MS = 3000;
 /**
  * Git Tool Window Provider implementation.
  */
+/** Button text for each relative date preset (also the filter-row value). */
+const DATE_PRESET_LABELS: Record<DatePreset, string> = {
+  '24h': 'Last 24 Hours',
+  '7d': 'Last 7 Days',
+};
+
 export class GitToolWindowProvider
   extends BaseWebviewView
   implements IGitToolWindowProvider, IGtwControllerContext
@@ -505,6 +513,8 @@ export class GitToolWindowProvider
    * selection that asked for them is still the live one.
    */
   private _multiChangedFiles = new Map<string, IChangedFile[]>();
+  /** Why a commit in the current selection contributed no files, keyed by hash. */
+  private _multiChangedFileErrors = new Map<string, string>();
   private _multiSelectionKey: string | undefined;
   /** Commits in the current selection whose files were NOT loaded (the cap). */
   private _multiSelectionLoaded: ReadonlySet<string> | undefined;
@@ -890,6 +900,11 @@ export class GitToolWindowProvider
         },
         getRepo: (): import('../interfaces/IGitService').IRepository | undefined => {
           return this.getSelectedRepository();
+        },
+        jumpToCommit: (hash: string): void => {
+          // Focus the Log tab, then scroll+select the commit there — the same
+          // route the Update Info tab's jump takes.
+          void this.focusTab('log').then(() => this.scrollToCommit(hash));
         },
       }
     );
@@ -1564,6 +1579,19 @@ export class GitToolWindowProvider
     if (this._extendedLogState.expandedCommit !== hash) {
       return;
     }
+    // The selection, not the expanded commit, decides who owns the panel. No
+    // current path lands here — these loads follow `fireDidSelectCommit`,
+    // which only `selectCommit` fires — but `selectCommits` is public with no
+    // production caller, and a future multi-select entry point that started a
+    // load would otherwise repaint a range as one commit.
+    //
+    // The payload is dropped with the paint, so any such caller must arrange
+    // its own reload: shrinking a selection back to one commit (via
+    // `toggleCommitSelection`) does not fire the select event, and a dropped
+    // payload would otherwise leave a permanent "Changed Files (0)".
+    if (this._extendedLogState.selectedCommits.size >= 2) {
+      return;
+    }
 
     // Store the changed files and error for use in the next render
     this._pendingChangedFiles = changedFiles;
@@ -1600,6 +1628,12 @@ export class GitToolWindowProvider
    */
   public updateContainingBranches(hash: string, branches: string[]): void {
     if (this._extendedLogState.expandedCommit !== hash) {
+      return;
+    }
+    // See updateCommitDetails: a range selection owns the panel, and the
+    // expanded-commit match alone does not exclude one. Unreachable today for
+    // the same reason, and kept for the same future multi-select callers.
+    if (this._extendedLogState.selectedCommits.size >= 2) {
       return;
     }
     this._pendingContainingBranches = branches;
@@ -2092,6 +2126,11 @@ export class GitToolWindowProvider
     return this._multiChangedFiles.get(hash);
   }
 
+  /** Why `hash` contributed no files to the current selection, if it failed. */
+  getMultiChangedFilesError(hash: string): string | undefined {
+    return this._multiChangedFileErrors.get(hash);
+  }
+
   /**
    * Ask the host to load changed files for a multi-commit selection, unless
    * they are already cached for exactly this selection.
@@ -2110,10 +2149,13 @@ export class GitToolWindowProvider
     // selection land as stale instead of painting over the new one.
     this._multiSelectionKey = key;
     this._multiChangedFiles.clear();
+    this._multiChangedFileErrors.clear();
     this._multiSelectionLoaded = undefined;
-    if (hashes.length >= 2) {
-      this._onDidSelectCommits.fire({ hashes: [...hashes] });
-    }
+    // Fired for EVERY selection change, including one too small to need a
+    // load: the listener invalidates whatever is in flight, so shrinking a
+    // large selection stops its remaining git calls instead of letting them
+    // run to completion and be discarded at the paint seam.
+    this._onDidSelectCommits.fire({ hashes: [...hashes] });
     return false;
   }
 
@@ -2130,12 +2172,14 @@ export class GitToolWindowProvider
   public updateMultiCommitDetails(
     hashes: readonly string[],
     filesByHash: ReadonlyMap<string, IChangedFile[]>,
-    loadedHashes: readonly string[] = hashes
+    loadedHashes: readonly string[],
+    errorsByHash: ReadonlyMap<string, string>
   ): void {
     if (this._selectionKeyOf(hashes) !== this._multiSelectionKey) {
       return;
     }
     this._multiChangedFiles = new Map(filesByHash);
+    this._multiChangedFileErrors = new Map(errorsByHash);
     this._multiSelectionLoaded = new Set(loadedHashes);
     postDetailsForSelection(this);
   }
@@ -2153,23 +2197,37 @@ export class GitToolWindowProvider
     if (!this.hasView()) {
       return;
     }
+    if (!this._extendedLogState.expandedCommit) {
+      return;
+    }
+    const commitDetails = this.getExpandedCommitDetails();
+    this.postToWebview({
+      type: 'updateDetailsPanel',
+      model: commitDetails
+        ? this._getDetailsPanelModel(commitDetails)
+        : buildDetailsPanelPlaceholderModel(),
+    });
+  }
+
+  /**
+   * Details for the currently expanded commit, or undefined when none is
+   * expanded (or it has scrolled out of the loaded set).
+   *
+   * Carries the already-loaded payload, as updateContainingBranches does:
+   * callers also repaint the panel for a commit whose files are in hand (a
+   * Group By switch), and an empty list there empties the tree until the user
+   * reselects the commit.
+   */
+  getExpandedCommitDetails(): ICommitDetails | undefined {
     const expanded = this._extendedLogState.expandedCommit;
     if (!expanded) {
-      return;
+      return undefined;
     }
     const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === expanded);
     if (!node) {
-      this.postToWebview({
-        type: 'updateDetailsPanel',
-        model: buildDetailsPanelPlaceholderModel(),
-      });
-      return;
+      return undefined;
     }
-    // Carry the already-loaded payload, as updateContainingBranches does:
-    // this path also repaints the panel for a commit whose files are in hand
-    // (a Group By switch), and posting an empty list there empties the tree
-    // until the user reselects the commit.
-    const commitDetails: ICommitDetails = {
+    return {
       ...commitNodeToBaseDetails(node),
       changedFiles: this._pendingChangedFiles ?? [],
       changedFilesError: this._pendingChangedFilesError
@@ -2179,10 +2237,6 @@ export class GitToolWindowProvider
         ? { containingBranches: this._pendingContainingBranches }
         : {}),
     };
-    this.postToWebview({
-      type: 'updateDetailsPanel',
-      model: this._getDetailsPanelModel(commitDetails),
-    });
   }
 
   /**
@@ -2218,7 +2272,7 @@ export class GitToolWindowProvider
         break;
       case 'selectCommit':
         if (msg.commitHash) {
-          this._handleCommitSelection(msg.commitHash);
+          this._handleCommitSelection(msg.commitHash, msg.viaHashLink === true);
         }
         break;
       case 'toggleCommitSelection':
@@ -2598,6 +2652,11 @@ export class GitToolWindowProvider
       if (until) {
         filter.until = until;
       }
+      // Only meaningful alongside the instant it produced, so an unknown value
+      // (or one with no `since`) is simply dropped and the range reads custom.
+      if (since && (webviewFilter.datePreset === '24h' || webviewFilter.datePreset === '7d')) {
+        filter.datePreset = webviewFilter.datePreset;
+      }
 
       // Check if filter is empty
       if (this._isLogFilterEmpty(filter)) {
@@ -2714,13 +2773,46 @@ export class GitToolWindowProvider
   /**
    * Handle commit selection in Log view
    */
-  private _handleCommitSelection(commitHash: string): void {
+  private _handleCommitSelection(commitHash: string, viaHashLink = false): void {
     // A hash from a commit message is usually abbreviated, while selection
     // matches full object names — expand it against the loaded graph first.
-    const node = this._extendedLogState.commitNodes.find((n) =>
-      n.commit.hash.toLowerCase().startsWith(commitHash.toLowerCase())
+    const target = this._expandCommitHashPrefix(commitHash);
+    this.selectCommit(target);
+    if (viaHashLink) {
+      // The link's target is almost never the row the user is looking at, so
+      // selecting alone leaves it off-screen and the jump reads as a no-op.
+      // (vcs-log CommitPresentationUtil navigates as well as selects.)
+      this.scrollToCommit(target);
+    }
+  }
+
+  /**
+   * Expand an abbreviated hash against the loaded graph.
+   *
+   * In a merged multi-root window a short prefix can match commits in more
+   * than one root; the one in the same root as the commit whose message
+   * carries the link wins, as CommitPresentationUtil.parseTargetCommit does
+   * before falling back to the first match.
+   */
+  private _expandCommitHashPrefix(commitHash: string): string {
+    const prefix = commitHash.toLowerCase();
+    const matches = this._extendedLogState.commitNodes.filter((n) =>
+      n.commit.hash.toLowerCase().startsWith(prefix)
     );
-    this.selectCommit(node ? node.commit.hash : commitHash);
+    if (matches.length === 0) {
+      return commitHash;
+    }
+    const expanded = this._extendedLogState.expandedCommit;
+    const preferredRoot = expanded ? (this._commitRepoRoots.get(expanded) ?? undefined) : undefined;
+    const sameRoot =
+      preferredRoot === undefined
+        ? undefined
+        : matches.find(
+            (n) =>
+              (n.commit.repoRoot ?? this._commitRepoRoots.get(n.commit.hash) ?? undefined) ===
+              preferredRoot
+          );
+    return (sameRoot ?? matches[0]).commit.hash;
   }
 
   /**
@@ -3823,10 +3915,11 @@ export class GitToolWindowProvider
       this._scrollToCommitHash
     );
     // The Details Panel is built client-side via createElement from this model;
-    // #details-panel ships empty and the inline script fills it on load.
-    const detailsPanelModel = commitDetails
-      ? this._getDetailsPanelModel(commitDetails)
-      : buildDetailsPanelPlaceholderModel();
+    // #details-panel ships empty and the inline script fills it on load. The
+    // model comes from the same selection-driven source the message path uses,
+    // so a full re-render cannot repaint an N-commit selection as one commit
+    // or undo the empty-selection placeholder.
+    const detailsPanelModel = buildSelectionDetailsModel(this, commitDetails);
 
     // Clear the scroll target after rendering so it's only used once
     this._scrollToCommitHash = undefined;
@@ -4263,7 +4356,9 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
       authors.length > 1
         ? `${authors.length} users`
         : this._escapeHtml(authors[0] ?? author) || 'All';
-    const dateLabel = this._escapeHtml(this._dateFilterLabel(filter?.since, filter?.until));
+    const dateLabel = this._escapeHtml(
+      this._dateFilterLabel(filter?.since, filter?.until, filter?.datePreset)
+    );
     const repoLabel = this._escapeHtml(this._repoScopeLabel());
 
     // The Repository filter scopes the log to a subset of a multi-root
@@ -4279,7 +4374,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
         : '';
 
     return `
-        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-search="${search}" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-branches-none="${branchesNone}" data-f-author="${this._escapeHtml(author)}" data-f-authors="${this._escapeHtml(JSON.stringify(authors))}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}">
+        <div class="log-filter-row" role="group" aria-label="Log filters" data-f-search="${search}" data-f-branch="${this._escapeHtml(branch)}" data-f-branches="${this._escapeHtml(JSON.stringify(branches))}" data-f-branches-none="${branchesNone}" data-f-author="${this._escapeHtml(author)}" data-f-authors="${this._escapeHtml(JSON.stringify(authors))}" data-f-path="${this._escapeHtml(path)}" data-f-paths="${this._escapeHtml(JSON.stringify(paths))}" data-f-since="${sinceAttr}" data-f-until="${untilAttr}" data-f-date-preset="${this._escapeHtml(filter?.datePreset ?? '')}">
           <div class="log-filter-search">
             <input type="text" id="filter-search" class="log-filter-search-input" data-action="filterSearchKeydown" placeholder="Message or hash" value="${searchInputValue}" aria-label="Search by message or hash" autocomplete="off" />
             <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Match by regular expression" aria-label="Match by regular expression" aria-pressed="${searchRegex}">.*</button>
@@ -4288,7 +4383,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
           </div>
           ${this._getFilterPopupHtml('branch', 'Branch', branchLabel, this._getBranchPopupBodyHtml())}
           ${this._getFilterPopupHtml('user', 'User', authorLabel, this._getUserPopupBodyHtml(author))}
-          ${this._getFilterPopupHtml('date', 'Date', dateLabel, this._getDatePopupBodyHtml(filter?.since, filter?.until))}
+          ${this._getFilterPopupHtml('date', 'Date', dateLabel, this._getDatePopupBodyHtml(filter?.since, filter?.until, filter?.datePreset))}
           ${repoPopup}
         </div>`;
   }
@@ -4349,16 +4444,26 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * After/Before checkboxes each gating a date input that is disabled until its
    * box is checked.
    */
-  private _getDatePopupBodyHtml(since: Date | undefined, until: Date | undefined): string {
-    const sinceVal = this._toDateInputValue(since);
-    const untilVal = this._toDateInputValue(until);
+  private _getDatePopupBodyHtml(
+    since: Date | undefined,
+    until: Date | undefined,
+    datePreset?: DatePreset
+  ): string {
+    // A preset owns the whole date filter, so the custom bounds stay unchecked
+    // and closed: pre-checking "After" with the preset's instant rounded to a
+    // date input widened the range to that day's midnight on a bare Apply.
+    const isPreset = datePreset !== undefined;
+    const sinceVal = isPreset ? '' : this._toDateInputValue(since);
+    const untilVal = isPreset ? '' : this._toDateInputValue(until);
     const hasSince = sinceVal !== '';
     const hasUntil = untilVal !== '';
     const customOpen = hasSince || hasUntil;
+    const presetSelected = (preset: DatePreset): string =>
+      datePreset === preset ? ' aria-checked="true" class="log-filter-popup-item selected"' : '';
     return `
               <button type="button" class="log-filter-popup-item" data-action="pickDateFilter" data-range="all">All</button>
-              <button type="button" class="log-filter-popup-item" data-action="pickDateFilter" data-range="24h">Last 24 Hours</button>
-              <button type="button" class="log-filter-popup-item" data-action="pickDateFilter" data-range="7d">Last 7 Days</button>
+              <button type="button"${presetSelected('24h') || ' class="log-filter-popup-item"'} data-action="pickDateFilter" data-range="24h">Last 24 Hours</button>
+              <button type="button"${presetSelected('7d') || ' class="log-filter-popup-item"'} data-action="pickDateFilter" data-range="7d">Last 7 Days</button>
               <button type="button" class="log-filter-popup-item" data-action="dateSelectCustom">Select…</button>
               <div class="log-filter-date-custom" id="filter-date-custom"${customOpen ? '' : ' hidden'}>
                 <label class="log-filter-date-bound">
@@ -4417,7 +4522,16 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * Human-readable Date-button value. `since`+`until` → "after – before";
    * one bound → "Since X" / "Until X"; neither → "All".
    */
-  private _dateFilterLabel(since: Date | undefined, until: Date | undefined): string {
+  private _dateFilterLabel(
+    since: Date | undefined,
+    until: Date | undefined,
+    datePreset?: DatePreset
+  ): string {
+    // A preset keeps its own name: rendering "Since <date>" both loses which
+    // preset is active and reads as a midnight-bound custom range.
+    if (datePreset !== undefined) {
+      return DATE_PRESET_LABELS[datePreset];
+    }
     const s = this._toDateInputValue(since);
     const u = this._toDateInputValue(until);
     if (s && u) {

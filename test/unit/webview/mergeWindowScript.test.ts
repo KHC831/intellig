@@ -690,6 +690,56 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     assert.strictEqual(f.counterText(), 'Conflict 1 / 1');
   });
 
+  it('auto-apply that applies nothing leaves the content unmodified', async () => {
+    // Conflict-only merge: auto-apply has no candidate, so the result still
+    // equals the base and there is no work to restore on the next open.
+    f = bootMergeWindow('version: 2.0.0', 'version: 1.0.0', 'version: 1.0.4', {
+      autoApplyNonConflicting: true,
+    });
+    await f.flush();
+
+    const states = f.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{
+      modified: boolean;
+    }>;
+    assert.ok(
+      states.every((s) => s.modified === false),
+      'an untouched merge must never report modified (it would prompt "Restore it?" on reopen)'
+    );
+  });
+
+  it('auto-apply that applies nothing posts no result text over a dismissed restore', async () => {
+    // The host offered a saved result and the user declined it, so init
+    // carries no restoredResult. A modified state post here would write the
+    // untouched base back over the saved result the user chose to keep.
+    f = bootMergeWindow('version: 2.0.0', 'version: 1.0.0', 'version: 1.0.4', {
+      autoApplyNonConflicting: true,
+    });
+    await f.flush();
+
+    const states = f.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{
+      resultText?: string;
+    }>;
+    assert.ok(
+      states.every((s) => s.resultText === undefined),
+      'no result text may be persisted when nothing was applied'
+    );
+  });
+
+  it('auto-apply that does change content still marks it modified', async () => {
+    // The normal auto-apply flow: real work landed, so it is restorable and
+    // MAY overwrite a saved result the user declined — that is intended.
+    f = bootMergeWindow(LEFT, BASE, RIGHT, { autoApplyNonConflicting: true });
+    await f.flush();
+
+    const states = f.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{
+      modified: boolean;
+      resultText?: string;
+    }>;
+    const last = states[states.length - 1];
+    assert.strictEqual(last.modified, true);
+    assert.strictEqual(last.resultText, AFTER_NC_APPLY);
+  });
+
   it('a one-sided change paints only on its own side and the result', async () => {
     f = bootMergeWindow(LEFT, BASE, RIGHT);
     await f.flush();

@@ -1,6 +1,8 @@
 import { computeRangeSelection } from '../multiSelect';
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import { buildDetailsPanelPlaceholderModel, commitNodeToBaseDetails } from './detailsPanelModel';
+import type { DetailsPanelModel } from './detailsPanelModel';
+import type { ICommitDetails } from '../../../services/interfaces';
 
 /**
  * Webview message handlers extracted from the Git tool window provider's
@@ -126,26 +128,49 @@ export function postDetailsForSelection(ctx: IGtwControllerContext): void {
     // selection; dropping it here keeps every empty-selection entry point
     // from having to remember to.
     ctx.clearPendingChangedFiles();
-    ctx.postToWebview({ type: 'updateDetailsPanel', model: buildDetailsPanelPlaceholderModel() });
-    return;
   }
 
-  if (selected.length < 2) {
-    ctx.postDetailsForExpandedCommit();
-    return;
+  ctx.postToWebview({ type: 'updateDetailsPanel', model: buildSelectionDetailsModel(ctx) });
+}
+
+/**
+ * The details-panel model for the CURRENT selection — the single source both
+ * the message path and the full HTML render read.
+ *
+ * Selection size, not the expanded commit, decides the presentation: zero
+ * selected is the placeholder, two or more is the multi-commit model, one is
+ * that commit's details. A render path that only knew about the expanded
+ * commit repainted an N-commit selection as a single commit, and undid the
+ * empty-selection placeholder, on every full re-render (a `.git` watcher tick,
+ * load-more, repo switch, undock).
+ *
+ * `expandedOverride` lets the render path pass details it already has in hand
+ * for the single-commit case; it never overrides the empty or multi shapes.
+ */
+export function buildSelectionDetailsModel(
+  ctx: IGtwControllerContext,
+  expandedOverride?: ICommitDetails
+): DetailsPanelModel {
+  const selected = Array.from(ctx.extendedLogState.selectedCommits);
+
+  if (selected.length === 0) {
+    return buildDetailsPanelPlaceholderModel();
   }
 
-  const detailsList = selected
-    .map((hash) => ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash))
-    .filter((node): node is NonNullable<typeof node> => node !== undefined)
-    .map((node) => ({
-      ...commitNodeToBaseDetails(node),
-      changedFiles: ctx.getMultiChangedFiles(node.commit.hash) ?? [],
-    }));
-  ctx.postToWebview({
-    type: 'updateDetailsPanel',
-    model: ctx.getMultiCommitDetailsPanelModel(detailsList),
-  });
+  if (selected.length >= 2) {
+    const detailsList = selected
+      .map((hash) => ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash))
+      .filter((node): node is NonNullable<typeof node> => node !== undefined)
+      .map((node) => ({
+        ...commitNodeToBaseDetails(node),
+        changedFiles: ctx.getMultiChangedFiles(node.commit.hash) ?? [],
+        changedFilesError: ctx.getMultiChangedFilesError(node.commit.hash),
+      }));
+    return ctx.getMultiCommitDetailsPanelModel(detailsList);
+  }
+
+  const details = expandedOverride ?? ctx.getExpandedCommitDetails();
+  return details ? ctx.getDetailsPanelModel(details) : buildDetailsPanelPlaceholderModel();
 }
 
 /**

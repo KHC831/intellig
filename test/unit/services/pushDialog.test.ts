@@ -36,6 +36,7 @@ import {
   buildPushOptions,
   DEFAULT_PUSH_OVERFLOW,
   classifyPushError,
+  pushErrorBannerMessage,
   defaultPrimaryAction,
   IPushDialogOptions,
   IPushOverflowState,
@@ -428,6 +429,73 @@ describe('PushDialog — pure helpers', () => {
     });
     it('falls back to other for unknown errors', () => {
       assert.strictEqual(classifyPushError('some weird git thing'), 'other');
+    });
+    it('does not read a missing workflow scope as branch protection', () => {
+      // GitHub refuses a push that touches .github/workflows when the token
+      // lacks the workflow scope. It is not a protected branch, and the canned
+      // protected-branch banner would hide the only text that explains it.
+      assert.strictEqual(
+        classifyPushError(
+          '! [remote rejected] main -> main (refusing to allow an OAuth App to ' +
+            'create or update workflow `.github/workflows/ci.yml` without `workflow` scope)'
+        ),
+        'other'
+      );
+      assert.strictEqual(
+        classifyPushError(
+          'refusing to allow a Personal Access Token to create or update ' +
+            'workflow `.github/workflows/release.yml` without `workflow` scope'
+        ),
+        'other'
+      );
+    });
+  });
+
+  describe('pushErrorBannerMessage', () => {
+    it('keeps the git text for an auth failure', () => {
+      // git4idea shows canned text only for the REJECTED_* results; ERROR
+      // carries git's own message (GitPushResultNotification.java:308).
+      const banner = pushErrorBannerMessage(
+        'auth',
+        'remote: Invalid username or password.',
+        'origin/main'
+      );
+      assert.ok(banner.includes('credentials'), `keeps the one-liner: ${banner}`);
+      assert.ok(
+        banner.includes('remote: Invalid username or password.'),
+        `must carry git's own text: ${banner}`
+      );
+    });
+
+    it('keeps the hook output that says WHY the push was rejected', () => {
+      const banner = pushErrorBannerMessage(
+        'hook',
+        'remote: pre-push hook failed: commit message must reference an issue',
+        'origin/main'
+      );
+      assert.ok(banner.includes('pre-push hook'), `keeps the one-liner: ${banner}`);
+      assert.ok(
+        banner.includes('must reference an issue'),
+        `the hook's reason is the only actionable text: ${banner}`
+      );
+    });
+
+    it('leaves the REJECTED_* banners canned (they carry retry affordances)', () => {
+      for (const kind of [
+        'rejected-non-ff',
+        'rejected-stale-lease',
+        'rejected-protected',
+      ] as const) {
+        const banner = pushErrorBannerMessage(kind, 'raw git noise here', 'origin/main');
+        assert.ok(!banner.includes('raw git noise here'), `${kind} stays canned: ${banner}`);
+      }
+    });
+
+    it('degrades to the plain one-liner when there is no git text', () => {
+      assert.strictEqual(
+        pushErrorBannerMessage('auth', '', 'origin/main'),
+        'Push failed: the remote rejected your credentials.'
+      );
     });
   });
 
@@ -2111,20 +2179,28 @@ describe('classified push failures surface a concise banner message', () => {
     );
   });
 
-  it('reports an auth failure without the credential-helper hint wall', async () => {
+  it('reports an auth failure and keeps the remote text under the one-liner', async () => {
     const result = await pushError(
       new SpawnFailedError('remote: Authentication failed\nhint: see gh auth login')
     );
 
-    assert.strictEqual(result.error?.message, 'Push failed: the remote rejected your credentials.');
+    assert.strictEqual(
+      result.error?.message,
+      'Push failed: the remote rejected your credentials.\n' +
+        'remote: Authentication failed\nhint: see gh auth login'
+    );
   });
 
-  it('reports a declined pre-push hook as a hook rejection', async () => {
+  it('reports a declined pre-push hook and keeps the hook output', async () => {
     const result = await pushError(
       new SpawnFailedError('error: failed to push some refs\npre-push hook declined')
     );
 
-    assert.strictEqual(result.error?.message, 'Push failed: the pre-push hook rejected the push.');
+    assert.strictEqual(
+      result.error?.message,
+      'Push failed: the pre-push hook rejected the push.\n' +
+        'error: failed to push some refs\npre-push hook declined'
+    );
   });
 
   it('reports a server-side protected-branch rejection against the target', async () => {

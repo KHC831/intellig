@@ -246,6 +246,12 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
 
     it('should render commit details when provided', () => {
       const commitDetails = makeCommitDetails();
+      // The details panel follows the SELECTION, so a commit whose details the
+      // render carries is a selected commit — an empty selection renders the
+      // placeholder no matter what details are passed.
+      (
+        provider as unknown as { _extendedLogState: { selectedCommits: Set<string> } }
+      )._extendedLogState.selectedCommits = new Set([commitDetails.hash]);
       const html = provider._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
         [],
