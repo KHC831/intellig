@@ -19,16 +19,44 @@ import * as path from 'path';
 export const SCRATCH_ROOT = path.resolve(__dirname, '../../workspace-notes/tmp');
 
 /**
+ * Errno codes that mean "something wrote into the tree while we were deleting
+ * it" rather than "this delete cannot succeed" — Finder recreating .DS_Store
+ * inside a directory the recursive delete has already walked is the case that
+ * actually killed a run. Worth exactly one retry; anything else is a real fault.
+ */
+const TRANSIENT_SWEEP_CODES = new Set(['ENOTEMPTY', 'EBUSY']);
+
+/**
  * Empty the scratch root (removing every entry, keeping — and if needed
  * creating — the root itself). Guarded to only ever sweep a
  * `workspace-notes/tmp` path, so a bad resolution can't delete real files.
+ *
+ * Retries once on a concurrent-write errno so an OS process touching the tree
+ * mid-sweep can't fail the whole suite; a second failure propagates.
  */
-export function cleanScratchRoot(root: string = SCRATCH_ROOT): void {
+export function cleanScratchRoot(
+  root: string = SCRATCH_ROOT,
+  // Injected so the retry can be fault-tested: `fs.rmSync` is a
+  // non-configurable module property, so it cannot be stubbed in place.
+  removeTree: (target: string) => void = defaultRemoveTree
+): void {
   if (path.basename(root) !== 'tmp' || path.basename(path.dirname(root)) !== 'workspace-notes') {
     throw new Error(`refusing to sweep ${root}: not a workspace-notes/tmp directory`);
   }
-  fs.rmSync(root, { recursive: true, force: true });
+  try {
+    removeTree(root);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === undefined || !TRANSIENT_SWEEP_CODES.has(code)) {
+      throw error;
+    }
+    removeTree(root);
+  }
   fs.mkdirSync(root, { recursive: true });
+}
+
+function defaultRemoveTree(target: string): void {
+  fs.rmSync(target, { recursive: true, force: true });
 }
 
 /** Mocha global fixture: heal leaks from a previous interrupted run. */

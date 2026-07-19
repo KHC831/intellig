@@ -72,6 +72,7 @@ const PROTOCOL_WEBVIEWS = {
   rebaseEditor: 'src/rebase/webview',
   applyPatchDialog: 'src/patches/webview',
   pushDialog: 'src/sync/webview',
+  defineRemoteDialog: 'src/sync/webview',
   gitToolWindow: 'src/git-core/gitToolWindow/webview',
   gitToolWindowTabs: 'src/git-core/gitToolWindow/webview',
 };
