@@ -335,6 +335,75 @@ describe('MergeWindowPanel', () => {
     }
   });
 
+  it('a pristine result is never persisted, so reopening prompts for nothing', async () => {
+    // With auto-apply on, the window reports modified=true and a result that
+    // differs from the base — but none of it is the user's work. Persisting it
+    // makes every reopen ask to restore a result reopening reproduces.
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      await initMessageOf(capture.created[0]);
+
+      await panel.deliver({
+        type: 'state',
+        unresolved: 1,
+        total: 2,
+        modified: true,
+        pristine: true,
+        resultText: 'base plus auto-applied\n',
+      });
+      panel.flushPersist();
+
+      assert.strictEqual(store.size, 0, 'nothing the user authored, nothing to restore');
+      panel.dispose();
+    } finally {
+      capture.restore();
+    }
+  });
+
+  it('a pristine post leaves a result kept by dismissing the restore prompt alone', async () => {
+    // A FRESH webview also reports pristine, so erasing on that signal would
+    // discard the very result the user chose to keep. Skipping the write is
+    // what makes both cases right.
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      await initMessageOf(capture.created[0]);
+      await panel.deliver({
+        type: 'state',
+        unresolved: 1,
+        total: 2,
+        modified: true,
+        resultText: 'real work\n',
+      });
+      panel.flushPersist();
+      assert.strictEqual(store.size, 1, 'the user work is saved');
+
+      await panel.deliver({
+        type: 'state',
+        unresolved: 2,
+        total: 2,
+        modified: true,
+        pristine: true,
+        resultText: 'base plus auto-applied\n',
+      });
+      panel.flushPersist();
+
+      assert.deepStrictEqual(
+        [...store.values()].map((v) => (v as { data: { text: string } }).data.text),
+        ['real work\n'],
+        'the kept result survives a fresh window reporting pristine'
+      );
+      panel.dispose();
+    } finally {
+      capture.restore();
+    }
+  });
+
   it('a modified state persists the result text; a later pristine post cannot wipe it', async () => {
     const capture = capturePanels();
     const store = new Map<string, unknown>();

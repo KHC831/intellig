@@ -265,8 +265,25 @@ function render(init: IResolveConflictsDialogInit): void {
       if (!bulkActions.isConnected) {
         root.insertBefore(bulkActions, footer);
       }
-    } else {
-      bulkActions.remove();
+      return;
+    }
+    // The button that resolves the LAST file lives in this row, so removing it
+    // destroys the element the user just pressed. Hand focus to Continue rather
+    // than letting it fall to <body>: everything is resolved, so that is where
+    // they are going next.
+    const losingFocus =
+      document.activeElement instanceof HTMLElement && bulkActions.contains(document.activeElement);
+    bulkActions.remove();
+    if (losingFocus) {
+      // Continue first; it is where a user who just resolved everything is
+      // going. It may be absent (an operation that cannot continue), so fall
+      // back to whatever the footer does offer rather than leaving <body>.
+      const target =
+        footer.querySelector('[data-action="continue"]:not([disabled])') ??
+        footer.querySelector('button:not([disabled])');
+      if (target instanceof HTMLElement) {
+        target.focus();
+      }
     }
   };
   syncBulkVisibility();
@@ -301,7 +318,9 @@ function render(init: IResolveConflictsDialogInit): void {
       if (row instanceof HTMLElement) {
         paintRow(row, msg.path);
       }
-      syncBulkVisibility();
+      // Settle Continue's enabled state BEFORE the bulk row may hand focus to
+      // it: a disabled button cannot take focus, and the handoff would silently
+      // drop to <body>.
       // The status map is authoritative; re-reading DOM classes to answer the
       // same question is a second source of truth waiting to drift.
       const continueBtn = document.querySelector('[data-action="continue"]');
@@ -312,6 +331,7 @@ function render(init: IResolveConflictsDialogInit): void {
           continueBtn.setAttribute('disabled', 'disabled');
         }
       }
+      syncBulkVisibility();
     }
   });
 }

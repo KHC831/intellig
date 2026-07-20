@@ -990,6 +990,54 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     );
   });
 
+  it('reports the auto-applied result as PRISTINE, so no restore is offered', async () => {
+    // The host drops a saved result that carries no user work. It used to
+    // decide that by comparing against the base, which is only right when
+    // auto-apply is off: auto-apply routes through the same command path a
+    // user edit does, so the window reports `modified` and the result no
+    // longer equals the base. Reopening then prompts to restore work nobody
+    // did — every single time.
+    f = bootMergeWindow(LEFT, BASE, RIGHT, { autoApplyNonConflicting: true });
+    await f.flush();
+
+    const state = f.posted.filter(
+      (m): m is { type: string; modified: boolean; pristine?: boolean } =>
+        (m as { type?: string }).type === 'state'
+    );
+    const last = state[state.length - 1];
+    assert.ok(last, 'the window reports its state');
+    assert.strictEqual(last.modified, true, 'auto-apply does mark the content modified');
+    assert.strictEqual(last.pristine, true, 'but nothing here is the user’s work');
+  });
+
+  it('reports a user edit after auto-apply as NOT pristine', async () => {
+    // Control: the erase must not swallow real work merely because auto-apply
+    // ran first.
+    f = bootMergeWindow(LEFT, BASE, RIGHT, { autoApplyNonConflicting: true });
+    await f.flush();
+    // Resolve the conflict auto-apply deliberately left alone.
+    await f.clickAction('left', 'apply', 0);
+    await f.flush();
+
+    const state = f.posted.filter(
+      (m): m is { type: string; pristine?: boolean } => (m as { type?: string }).type === 'state'
+    );
+    assert.strictEqual(state[state.length - 1].pristine, false);
+  });
+
+  it('reports an untouched no-autoapply window as pristine', async () => {
+    // Control: with auto-apply off the result equals the base, which the old
+    // base comparison already handled — so this case passes either way and
+    // proves only that the new signal agrees with the old one.
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const state = f.posted.filter(
+      (m): m is { type: string; pristine?: boolean } => (m as { type?: string }).type === 'state'
+    );
+    assert.strictEqual(state[state.length - 1].pristine, true);
+  });
+
   it('auto-apply never touches conflicts, even simple ones', async () => {
     f = bootMergeWindow('version: 2.0.0', 'version: 1.0.0', 'version: 1.0.4', {
       autoApplyNonConflicting: true,

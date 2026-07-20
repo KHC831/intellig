@@ -60,6 +60,13 @@ export type MergeWindowInbound =
       readonly unresolved: number;
       readonly total: number;
       readonly modified: boolean;
+      /**
+       * True while the result still equals what the window produced on its
+       * own — the base, plus any non-conflicting changes auto-apply landed.
+       *  cannot answer this: auto-apply routes through the same
+       * command path a user edit does and sets it.
+       */
+      readonly pristine?: boolean;
       /** The current result text, present while modified — the host persists
        * it so a closed tab (which VS Code cannot veto) can be restored. */
       readonly resultText?: string;

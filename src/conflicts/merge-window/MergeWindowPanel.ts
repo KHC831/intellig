@@ -139,6 +139,14 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         // VS Code cannot veto a webview tab close (IntelliJ's close-confirm
         // has no equivalent hook), so the latest modified result is
         // persisted and offered for restore when the file reopens.
+        if (msg.pristine === true) {
+          // Nothing the user authored: the result is the base plus whatever
+          // auto-apply landed, which reopening reproduces. Skip the write
+          // rather than erasing — a fresh webview reports pristine too, and a
+          // result the user kept by dismissing the restore prompt must survive
+          // that.
+          return;
+        }
         if (this._modified && typeof msg.resultText === 'string') {
           this._saveUnsavedResult(msg.resultText);
         }

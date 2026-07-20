@@ -232,6 +232,8 @@ class MergeWindow {
    * Apply/Abort.
    */
   private restoredTextOnly = false;
+  /** The result as the window first produced it (base + any auto-apply). */
+  private pristineText: string | undefined;
 
   constructor(init: IInitMessage) {
     const language = languageForFile(init.fileName);
@@ -310,10 +312,15 @@ class MergeWindow {
     // With the auto-apply option on (IntelliJ's "Automatically apply
     // non-conflicting changes", off by default), the non-conflicting changes
     // land immediately; conflicts always wait for the user.
-    this.renderAll();
     if (init.autoApplyNonConflicting === true) {
       this.applyNonConflicted();
     }
+    // What the window produced on its own. Auto-apply runs through the same
+    // command path a user edit does, so `contentModified` is already true here
+    // and cannot tell "untouched" from "the user merged something". Captured
+    // before the first render so every state post carries the right answer.
+    this.pristineText = this.resultDoc.getText();
+    this.renderAll();
     // A result left behind by a closed window rides in through the regular
     // Monaco→document replay, so it lands as one undoable user edit and
     // flags the content modified (Abort confirms before discarding it). The
@@ -1086,6 +1093,7 @@ class MergeWindow {
       unresolved,
       total,
       modified: this.model.contentModified,
+      pristine: this.pristineText !== undefined && this.resultDoc.getText() === this.pristineText,
       ...(this.model.contentModified ? { resultText: this.resultDoc.getText() } : {}),
     });
   }

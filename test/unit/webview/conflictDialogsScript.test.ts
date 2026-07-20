@@ -96,15 +96,24 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
       canContinue: true,
     };
 
-    function makeDialog(context = makeExtensionContext()): ResolveConflictsDialog {
+    /** Two unresolved files: the bulk row survives resolving only one. */
+    const twoUnresolved = [
+      { path: 'src/a.ts', resolved: false },
+      { path: 'src/b.ts', resolved: false },
+    ];
+
+    function makeDialog(
+      context = makeExtensionContext(),
+      files: { path: string; resolved: boolean }[] = [
+        { path: 'src/a.ts', resolved: false },
+        { path: 'src/b.ts', resolved: true },
+      ]
+    ): ResolveConflictsDialog {
       const repo = attachedRepo();
       return new ResolveConflictsDialog(
         context,
         repo,
-        [
-          { path: 'src/a.ts', resolved: false },
-          { path: 'src/b.ts', resolved: true },
-        ],
+        files,
         opContext,
         {} as IConflictResolutionService,
         stubMergeView(),
@@ -240,6 +249,54 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
         bulk() !== null && !(bulk() as HTMLElement).hidden,
         true,
         'the bulk row returns when something is unresolved again'
+      );
+    });
+
+    it('keeps keyboard focus somewhere usable when the bulk row removes itself', () => {
+      // The bulk row holds the button that resolves the LAST unresolved file,
+      // so pressing it destroys the element that has focus. Falling to <body>
+      // ends keyboard navigation right after the most common gesture in the
+      // dialog.
+      h = boot();
+      const bulkBtn = h.document.querySelector(
+        '.bulk-actions [data-action="acceptAllYours"]'
+      ) as HTMLElement;
+      bulkBtn.focus();
+      assert.strictEqual(h.document.activeElement, bulkBtn);
+
+      h.post({ type: 'updateFileStatus', path: 'src/a.ts', status: 'resolved' });
+
+      assert.strictEqual(
+        h.document.querySelector('.bulk-actions'),
+        null,
+        'nothing unresolved, so the row is gone'
+      );
+      const active = h.document.activeElement;
+      assert.notStrictEqual(active, h.document.body, 'focus must not fall to <body>');
+      assert.strictEqual(
+        active?.getAttribute('data-action'),
+        'continue',
+        'a user who just resolved everything is heading for Continue'
+      );
+    });
+
+    it('leaves focus alone while the bulk row survives a partial resolve', () => {
+      // Control: with something still unresolved the row stays, nothing is
+      // destroyed, and focus is not this code path's business. A fixture that
+      // only did this would pass before the fix.
+      h = boot(extractWebviewScript(html(makeDialog(undefined, twoUnresolved))).bodyHtml);
+      const bulkBtn = h.document.querySelector(
+        '.bulk-actions [data-action="acceptAllYours"]'
+      ) as HTMLElement;
+      bulkBtn.focus();
+
+      h.post({ type: 'updateFileStatus', path: 'src/a.ts', status: 'resolved' });
+
+      assert.ok(h.document.querySelector('.bulk-actions'), 'the row stays');
+      assert.strictEqual(
+        h.document.activeElement,
+        bulkBtn,
+        'focus stays exactly where the user left it'
       );
     });
 
