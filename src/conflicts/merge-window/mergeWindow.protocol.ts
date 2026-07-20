@@ -64,7 +64,12 @@ export type MergeWindowInbound =
        * it so a closed tab (which VS Code cannot veto) can be restored. */
       readonly resultText?: string;
     }
-  | { readonly type: 'log'; readonly level: 'warn' | 'error'; readonly text: string };
+  | {
+      readonly type: 'log';
+      /** 'fatal' means the webview cannot continue: the host toasts and closes it. */
+      readonly level: 'warn' | 'error' | 'fatal';
+      readonly text: string;
+    };
 
 /** Runtime discriminant set — the host guard rejects an unknown type before dispatch. */
 export const MERGE_WINDOW_INBOUND_TYPES = [

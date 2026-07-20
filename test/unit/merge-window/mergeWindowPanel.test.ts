@@ -335,7 +335,7 @@ describe('MergeWindowPanel', () => {
     }
   });
 
-  it('a modified state persists the result text; back-to-pristine clears it', async () => {
+  it('a modified state persists the result text; a later pristine post cannot wipe it', async () => {
     const capture = capturePanels();
     const store = new Map<string, unknown>();
     try {
@@ -359,9 +359,14 @@ describe('MergeWindowPanel', () => {
         'the persisted result is keyed by the file'
       );
 
+      // The merge model never returns to pristine once edited, so a
+      // modified=false post can only come from a FRESH webview rendering its
+      // initial state — it must not erase a result kept by dismissing the
+      // restore prompt. A result that carries no merge work is dropped when
+      // it is offered, by comparing it against the base.
       await panel.deliver({ type: 'state', unresolved: 2, total: 2, modified: false });
       panel.flushPersist();
-      assert.strictEqual(store.size, 0, 'undoing back to pristine drops the saved result');
+      assert.strictEqual(store.size, 1, 'a pristine render state erases nothing');
       panel.dispose();
     } finally {
       capture.restore();
@@ -470,6 +475,56 @@ describe('MergeWindowPanel', () => {
       await panel.deliver({ type: 'ready' });
       const init = await initMessageOf(capture.created[1]);
       assert.strictEqual(init.restoredResult, 'half-merged\n');
+      panel.dispose();
+    } finally {
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
+      capture.restore();
+    }
+  });
+
+  it('offers no restore for a result identical to the base stage', async () => {
+    const capture = capturePanels();
+    const store = new Map<string, unknown>();
+    let prompts = 0;
+    const originalInfo = vscode.window.showInformationMessage;
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async (
+      _message: string,
+      _opts: unknown,
+      ...items: string[]
+    ): Promise<string | undefined> => {
+      prompts++;
+      return items.find((i) => /restore/i.test(i));
+    };
+    try {
+      {
+        // Editing and then undoing back to the start leaves the model flagged
+        // modified (it never returns to pristine), so the base text itself is
+        // what gets persisted.
+        const { panel } = buildPanel(
+          '/repo/x.txt',
+          [],
+          stubStagesGitCli('x.txt'),
+          undefined,
+          store
+        );
+        await panel.deliver({ type: 'ready' });
+        await initMessageOf(capture.created[0]);
+        await panel.deliver({
+          type: 'state',
+          unresolved: 2,
+          total: 2,
+          modified: true,
+          resultText: 'base\n',
+        });
+        panel.dispose();
+      }
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'), undefined, store);
+      await panel.deliver({ type: 'ready' });
+      const init = await initMessageOf(capture.created[1]);
+
+      assert.strictEqual(prompts, 0, 'nothing was merged, so there is nothing to restore');
+      assert.strictEqual(init.restoredResult, undefined, 'the window opens on the conflict');
+      assert.strictEqual(store.size, 0, 'the useless slot is dropped, not left to re-prompt');
       panel.dispose();
     } finally {
       (vscode.window as { showInformationMessage: unknown }).showInformationMessage = originalInfo;
@@ -636,6 +691,36 @@ describe('MergeWindowPanel', () => {
     }
   });
 
+  it('surfaces a fatal webview failure as a toast and closes the dead panel', async () => {
+    const capture = capturePanels();
+    const errors: string[] = [];
+    const originalError = vscode.window.showErrorMessage;
+    (vscode.window as { showErrorMessage: unknown }).showErrorMessage = (
+      message: string
+    ): Thenable<string | undefined> => {
+      errors.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], stubStagesGitCli('x.txt'));
+      let disposed = false;
+      capture.created[0].onDidDispose(() => {
+        disposed = true;
+      });
+
+      // A half-built webview can neither Apply nor Abort; leaving the tab open
+      // reads as a hung merge.
+      await panel.deliver({ type: 'log', level: 'fatal', text: 'boom' });
+
+      assert.strictEqual(errors.length, 1, 'the user must be told the window died');
+      assert.ok(/merge window/i.test(errors[0]), `unexpected toast: ${errors[0]}`);
+      assert.strictEqual(disposed, true, 'the dead panel must close');
+    } finally {
+      (vscode.window as { showErrorMessage: unknown }).showErrorMessage = originalError;
+      capture.restore();
+    }
+  });
+
   it("rejects an 'apply' with a missing resultText instead of writing an empty file", async () => {
     const capture = capturePanels();
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -660,12 +745,14 @@ describe('MergeView merge-window per-file dedup', () => {
     resetMockConfiguration();
   });
 
-  function buildView(): MergeView {
+  function buildView(relPath = 'a.txt'): MergeView {
     const repo = { rootUri: vscode.Uri.file('/repo') } as IRepository;
     const gitService = {
       getRepository: () => Promise.resolve(repo),
       getRepositories: () => [repo],
-      gitCli: {},
+      // The dedup key includes the conflict's index-stage identity, so the
+      // view needs a git CLI that reports real unmerged stages.
+      gitCli: stubStagesGitCli(relPath),
     } as unknown as IGitService;
     return new MergeView(vscode.Uri.file('/ext'), gitService, {
       context: fakeContext(),

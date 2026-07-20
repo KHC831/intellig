@@ -1,0 +1,28 @@
+# Webview entries that do not yet install the global fatal reporter.
+#
+# Each needs THREE coordinated changes, not just the two listeners:
+#   1. a 'fatal' level in the entry's own *.protocol.ts log message,
+#   2. a host handler that toasts and disposes on it,
+#   3. the listeners themselves.
+# That is a per-surface slice, so the entries below are recorded here rather
+# than migrated blind. A NEW entry may not be added to this list: the fence is
+# the gate for anything written from now on.
+#
+# Remove a line when its surface migrates. When the list is empty, delete it
+# and the allowlist load in check-webview-fatal-reporter.mjs.
+
+src/branches/webview/main.ts
+src/commits/webview/commitDialog.ts
+src/commits/webview/commitMessageDialog.ts
+src/commits/webview/commitToolWindow.ts
+src/conflicts/webview/main.ts
+src/conflicts/webview/resolveConflictsDialog.ts
+src/git-core/gitToolWindow/webview/gitToolWindow.ts
+src/patches/webview/applyPatchDialog.ts
+src/rebase/webview/rebaseDialog.ts
+src/rebase/webview/rebaseEditor.ts
+src/rebase/webview/rebaseProgressView.ts
+src/shelf/webview/main.ts
+src/sync/webview/defineRemoteDialog.ts
+src/sync/webview/pushDialog.ts
+src/ui-shell/webview/resetDialog.ts

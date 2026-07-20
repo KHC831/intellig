@@ -1053,6 +1053,7 @@ function main(vscode: IVsCodeApi): void {
     }
     scrollRowIntoViewIfNeeded(commitRow);
     commitRow.classList.add('highlight-scroll');
+    // async-guard-exempt: removes a class from an element captured above; nothing here can throw.
     setTimeout(function (): void {
       commitRow.classList.remove('highlight-scroll');
     }, 2000);
@@ -1166,6 +1167,7 @@ function main(vscode: IVsCodeApi): void {
 
     graphPanel.scrollTop = saved;
     if (typeof requestAnimationFrame === 'function') {
+      // async-guard-exempt: a single scrollTop write on an element captured above.
       requestAnimationFrame(function (): void {
         graphPanel.scrollTop = saved;
       });

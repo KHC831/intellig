@@ -201,6 +201,7 @@ function render(init: IRebaseEditorInit): void {
     // synchronous scrollTop set before its first layout pass. Exactly one retry.
     list.scrollTop = saved;
     if (typeof requestAnimationFrame === 'function') {
+      // async-guard-exempt: a single scrollTop write on an element captured above.
       requestAnimationFrame(() => {
         list.scrollTop = saved;
       });

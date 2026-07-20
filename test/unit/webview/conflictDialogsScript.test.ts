@@ -201,6 +201,88 @@ describe('webview: conflict dialog scripts (jsdom)', () => {
       dialog.dispose();
     });
 
+    it('an unresolved status patch restores the row actions', () => {
+      h = boot();
+      // b.ts boots resolved. Unresolving it (an unstash/unshelve reversal, a
+      // failed accept) must give the row its actions back, not leave it
+      // labelled "resolved" and permanently unactionable.
+      h.post({ type: 'updateFileStatus', path: 'src/b.ts', status: 'unresolved' });
+
+      const row = h.document.querySelector('[data-row-path="src/b.ts"]') as HTMLElement;
+      assert.strictEqual(row.querySelector('.resolved-label'), null, 'the resolved label must go');
+      assert.deepStrictEqual(
+        Array.from(row.querySelectorAll('button')).map((b) => b.getAttribute('data-action')),
+        ['acceptYours', 'acceptTheirs', 'openMergeView']
+      );
+      assert.strictEqual(
+        (h.document.querySelector('[data-action="continue"]') as HTMLElement).hasAttribute(
+          'disabled'
+        ),
+        true,
+        'an unresolved file must re-disable Continue'
+      );
+    });
+
+    it('keeps the bulk row in step with what is still unresolved', () => {
+      h = boot();
+      const bulk = (): HTMLElement | null => h.document.querySelector('.bulk-actions');
+      assert.ok(bulk(), 'a.ts is unresolved, so the bulk row is offered');
+
+      h.post({ type: 'updateFileStatus', path: 'src/a.ts', status: 'resolved' });
+      assert.strictEqual(
+        bulk() === null || (bulk() as HTMLElement).hidden,
+        true,
+        'nothing is unresolved, so Accept-All must not be offered'
+      );
+
+      h.post({ type: 'updateFileStatus', path: 'src/a.ts', status: 'unresolved' });
+      assert.strictEqual(
+        bulk() !== null && !(bulk() as HTMLElement).hidden,
+        true,
+        'the bulk row returns when something is unresolved again'
+      );
+    });
+
+    it('keeps focus on the row when a status patch rebuilds its buttons', () => {
+      h = boot();
+      // Keyboard-navigate to a row's Merge… button and resolve from there; the
+      // host then pushes updateFileStatus, which rebuilds .file-actions and
+      // destroys the focused button.
+      const btn = h.document.querySelector(
+        '[data-row-path="src/a.ts"] [data-action="openMergeView"]'
+      ) as HTMLElement;
+      btn.focus();
+      assert.strictEqual(h.document.activeElement, btn);
+
+      h.post({ type: 'updateFileStatus', path: 'src/a.ts', status: 'resolved' });
+
+      const active = h.document.activeElement;
+      assert.strictEqual(
+        active?.getAttribute('data-row-path'),
+        'src/a.ts',
+        'focus must land back on the row, not fall to <body>'
+      );
+    });
+
+    it('keeps keyboard focus on the same row across a re-render', () => {
+      h = boot();
+      const row = h.document.querySelector('[data-row-path="src/b.ts"]') as HTMLElement;
+      row.focus();
+      assert.strictEqual(h.document.activeElement, row);
+
+      // Toggling grouping replaces every row element.
+      const toggle = h.document.getElementById('group-by-dir') as HTMLInputElement;
+      toggle.checked = true;
+      toggle.dispatchEvent(new h.window.Event('change', { bubbles: true }));
+
+      const active = h.document.activeElement;
+      assert.strictEqual(
+        active?.getAttribute('data-row-path'),
+        'src/b.ts',
+        'focus must land on the same file, not fall to <body>'
+      );
+    });
+
     it('double-clicking an unresolved row asks the host to open the merge view', () => {
       h = boot();
       const row = h.document.querySelector('[data-row-path="src/a.ts"]') as HTMLElement;

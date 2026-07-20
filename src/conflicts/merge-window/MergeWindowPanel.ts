@@ -15,7 +15,7 @@ import { sanitizeGitError } from '../../git-core/gitError';
 import { atomicWriteFileSync } from '../../utils/atomicWrite';
 import { escapeHtml } from '../../utils/escapeHtml';
 import { getLogger } from '../../utils/logger';
-import { assignMergePanes, loadMergeStageContents } from './mergeStages';
+import { assignMergePanes, loadMergeStageContents, stageIdentityOf } from './mergeStages';
 import { IStageNames } from '../conflictSideNames';
 import { IConflictOpContext } from '../interfaces/IConflictResolutionService';
 import { mergeWindowStyles } from './mergeWindowHtml';
@@ -71,8 +71,6 @@ export interface IMergeWindowConflictContext {
 export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
   private _eol: '\n' | '\r\n' = '\n';
   private _modified = false;
-  /** Whether the user has edited at all in THIS session — gates the erase. */
-  private _everModified = false;
   private _stageIdentity = '';
   private _pendingResult: { text: string | undefined } | undefined;
   private _persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -141,22 +139,22 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         // VS Code cannot veto a webview tab close (IntelliJ's close-confirm
         // has no equivalent hook), so the latest modified result is
         // persisted and offered for restore when the file reopens.
-        if (this._modified) {
-          this._everModified = true;
-          if (typeof msg.resultText === 'string') {
-            this._saveUnsavedResult(msg.resultText);
-          }
-        } else if (this._everModified) {
-          // Only a modified→pristine transition (an undo back to the start)
-          // erases the slot. A fresh webview posts its pristine render state
-          // too, and that must not wipe a result the user chose to keep by
-          // dismissing the restore prompt.
-          this._saveUnsavedResult(undefined);
+        if (this._modified && typeof msg.resultText === 'string') {
+          this._saveUnsavedResult(msg.resultText);
         }
         return;
       case 'log': {
         const logger = getLogger().child({ component: 'MergeWindowPanel' });
-        if (msg.level === 'error') {
+        if (msg.level === 'fatal') {
+          // A half-built webview can neither Apply nor Abort, so leaving the
+          // tab open reads as a hung merge. Say so and close it.
+          logger.error(String(msg.text));
+          void vscode.window.showErrorMessage(
+            `The merge window for ${path.basename(this._opts.absolutePath)} could not run. ` +
+              'The conflict is unchanged; reopen it to try again.'
+          );
+          this.dispose();
+        } else if (msg.level === 'error') {
           logger.error(String(msg.text));
         } else {
           logger.warn(String(msg.text));
@@ -234,14 +232,16 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
    * reopen without restoring now. A result saved against DIFFERENT index
    * stages belongs to a conflict that has since been resolved another way —
    * it is dropped rather than offered for an unrelated later conflict on the
-   * same path.
+   * same path. A result identical to the base carries no merge work (the
+   * model stays flagged modified even after an undo back to the start), so it
+   * is dropped rather than prompted for.
    */
-  private async _promptForSavedResult(): Promise<string | undefined> {
+  private async _promptForSavedResult(baseText: string): Promise<string | undefined> {
     const saved = loadPersisted(this._context.workspaceState, this._unsavedResultSlot);
     if (!saved) {
       return undefined;
     }
-    if (saved.stages !== this._stageIdentity) {
+    if (saved.stages !== this._stageIdentity || normalizeToLf(saved.text) === baseText) {
       this._clearUnsavedResult();
       return undefined;
     }
@@ -283,20 +283,20 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
         // Deleted from the worktree — fall back to the "ours" stage.
       }
       this._eol = detectEol(eolSource);
-      const { base, ours, theirs } = stages.stageShas;
-      this._stageIdentity = `${base}:${ours}:${theirs}`;
+      this._stageIdentity = stageIdentityOf(stages.stageShas);
 
       // One reversal decision assigns contents and labels together — a
       // rebase/unstash/unshelve swaps both, so the pane titled with the
       // user's branch always shows the user's content.
       const { stageNames, operation } = this._opts.conflictContext;
       const panes = assignMergePanes(stages, stageNames, operation);
-      const restoredResult = await this._promptForSavedResult();
+      const baseText = normalizeToLf(panes.base);
+      const restoredResult = await this._promptForSavedResult(baseText);
 
       await this.postMessage({
         type: 'init',
         left: normalizeToLf(panes.left.content),
-        base: normalizeToLf(panes.base),
+        base: baseText,
         right: normalizeToLf(panes.right.content),
         leftLabel: panes.left.label,
         rightLabel: panes.right.label,

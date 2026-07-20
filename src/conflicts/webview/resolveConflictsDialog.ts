@@ -46,8 +46,70 @@ function render(init: IResolveConflictsDialogInit): void {
 
   const fileList = el('div', { className: 'file-list' });
   fileList.setAttribute('data-role', 'file-list');
-  const buildRow = (path: string, displayName: string): HTMLDivElement => {
+
+  /**
+   * Paint a row from the status map. Both statuses run through here, so an
+   * 'unresolved' patch restores the row's actions instead of stranding it
+   * behind a stale "resolved" label.
+   */
+  /**
+   * Which file's row currently owns keyboard focus, including focus sitting on
+   * a control INSIDE the row. Any rebuild of that row's contents destroys the
+   * focused element, so callers capture before and restore after.
+   */
+  const focusedRowPath = (): string | null | undefined =>
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest('[data-row-path]')?.getAttribute('data-row-path')
+      : undefined;
+
+  const refocusRow = (rowPath: string | null | undefined): void => {
+    if (rowPath === undefined || rowPath === null) {
+      return;
+    }
+    const next = fileList.querySelector(`[data-row-path="${CSS.escape(rowPath)}"]`);
+    if (next instanceof HTMLElement) {
+      next.focus();
+    }
+  };
+
+  const paintRow = (row: HTMLElement, path: string): void => {
+    // Rebuilding .file-actions below destroys a focused button in this row.
+    const hadFocus = focusedRowPath() === path;
     const status = statuses.get(path) ?? 'unresolved';
+    const statusEl = row.querySelector('.file-status');
+    if (statusEl) {
+      statusEl.className = 'file-status ' + status;
+      statusEl.textContent = status === 'resolved' ? '✓' : '⚠';
+    }
+    const actions = row.querySelector('.file-actions');
+    if (!actions) {
+      return;
+    }
+    actions.textContent = '';
+    if (status === 'resolved') {
+      actions.append(el('span', { className: 'resolved-label', textContent: 'resolved' }));
+      if (hadFocus) {
+        row.focus();
+      }
+      return;
+    }
+    const btn = (cls: string, action: string, text: string): HTMLButtonElement => {
+      const b = el('button', { className: 'btn' + (cls ? ' ' + cls : ''), textContent: text });
+      b.setAttribute('data-action', action);
+      b.setAttribute('data-path', path);
+      return b;
+    };
+    actions.append(
+      btn('secondary', 'acceptYours', init.yoursLabel),
+      btn('secondary', 'acceptTheirs', init.theirsLabel),
+      btn('', 'openMergeView', 'Merge…')
+    );
+    if (hadFocus) {
+      row.focus();
+    }
+  };
+
+  const buildRow = (path: string, displayName: string): HTMLDivElement => {
     const row = el('div', { className: 'file-row' });
     row.setAttribute('data-row-path', path);
     row.tabIndex = 0;
@@ -57,42 +119,20 @@ function render(init: IResolveConflictsDialogInit): void {
       }
     });
     row.append(
-      el('span', {
-        className: 'file-status ' + status,
-        textContent: status === 'resolved' ? '✓' : '⚠',
-      }),
-      el('span', { className: 'file-path', textContent: displayName })
+      el('span', { className: 'file-status' }),
+      el('span', { className: 'file-path', textContent: displayName }),
+      el('span', { className: 'file-actions' })
     );
-    const actions = el('span', { className: 'file-actions' });
-    if (status === 'resolved') {
-      actions.append(el('span', { className: 'resolved-label', textContent: 'resolved' }));
-    } else {
-      const btn = (
-        cls: string,
-        action: string,
-        text: string,
-        title?: string
-      ): HTMLButtonElement => {
-        const b = el('button', { className: 'btn' + (cls ? ' ' + cls : ''), textContent: text });
-        b.setAttribute('data-action', action);
-        b.setAttribute('data-path', path);
-        if (title) {
-          b.setAttribute('title', title);
-        }
-        return b;
-      };
-      actions.append(
-        btn('secondary', 'acceptYours', init.yoursLabel),
-        btn('secondary', 'acceptTheirs', init.theirsLabel),
-        btn('', 'openMergeView', 'Merge…')
-      );
-    }
-    row.append(actions);
+    paintRow(row, path);
     return row;
   };
 
   const rebuildList = (): void => {
+    // Every row element is replaced below, so the focused one dies and focus
+    // falls to <body>; remember which file had it and hand it back after.
+    const focusedPath = focusedRowPath();
     fileList.textContent = '';
+    const restoreFocus = (): void => refocusRow(focusedPath);
     if (init.files.length === 0) {
       const empty = el('div', { className: 'file-row' });
       empty.append(
@@ -110,6 +150,7 @@ function render(init: IResolveConflictsDialogInit): void {
       for (const f of init.files) {
         fileList.append(buildRow(f.path, f.path));
       }
+      restoreFocus();
       return;
     }
     // Group by directory, first-seen order; root-level files carry no header.
@@ -132,6 +173,7 @@ function render(init: IResolveConflictsDialogInit): void {
         fileList.append(buildRow(p, p.slice(dir === '' ? 0 : dir.length + 1)));
       }
     }
+    restoreFocus();
   };
   rebuildList();
 
@@ -178,25 +220,19 @@ function render(init: IResolveConflictsDialogInit): void {
   toggleLabel.append(toggle, document.createTextNode('Group files by directory'));
   root.append(toggleLabel, fileList);
 
-  if (init.hasUnresolved) {
-    const bulkActions = el('div', { className: 'bulk-actions' });
-    const bulkBtn = (action: string, text: string, title: string): HTMLButtonElement => {
-      const b = el('button', { className: 'btn secondary', textContent: text });
-      b.setAttribute('data-action', action);
-      b.setAttribute('title', title);
-      return b;
-    };
-    bulkActions.append(
-      el('span', { textContent: 'For all remaining files:' }),
-      bulkBtn('acceptAllYours', init.yoursLabel, 'Take your side for every unresolved file'),
-      bulkBtn(
-        'acceptAllTheirs',
-        init.theirsLabel,
-        'Take the incoming side for every unresolved file'
-      )
-    );
-    root.append(bulkActions);
-  }
+  const bulkActions = el('div', { className: 'bulk-actions' });
+  const bulkBtn = (action: string, text: string, title: string): HTMLButtonElement => {
+    const b = el('button', { className: 'btn secondary', textContent: text });
+    b.setAttribute('data-action', action);
+    b.setAttribute('title', title);
+    return b;
+  };
+  bulkActions.append(
+    el('span', { textContent: 'For all remaining files:' }),
+    bulkBtn('acceptAllYours', init.yoursLabel, 'Take your side for every unresolved file'),
+    bulkBtn('acceptAllTheirs', init.theirsLabel, 'Take the incoming side for every unresolved file')
+  );
+  const hasUnresolved = (): boolean => [...statuses.values()].some((s) => s !== 'resolved');
 
   const footer = el('div', { className: 'footer' });
   if (init.canAbort) {
@@ -222,6 +258,18 @@ function render(init: IResolveConflictsDialogInit): void {
     footer.append(b);
   }
   root.append(footer);
+
+  /** Offering "for all remaining files" with nothing remaining reads as breakage. */
+  const syncBulkVisibility = (): void => {
+    if (hasUnresolved()) {
+      if (!bulkActions.isConnected) {
+        root.insertBefore(bulkActions, footer);
+      }
+    } else {
+      bulkActions.remove();
+    }
+  };
+  syncBulkVisibility();
 
   document.addEventListener('click', (e) => {
     const t = e.target;
@@ -249,35 +297,16 @@ function render(init: IResolveConflictsDialogInit): void {
     }
     if (msg.type === 'updateFileStatus') {
       statuses.set(msg.path, msg.status);
-      const row = document.querySelector('[data-row-path="' + CSS.escape(msg.path) + '"]');
-      if (!row) {
-        return;
+      const row = fileList.querySelector('[data-row-path="' + CSS.escape(msg.path) + '"]');
+      if (row instanceof HTMLElement) {
+        paintRow(row, msg.path);
       }
-      const statusEl = row.querySelector('.file-status');
-      if (statusEl) {
-        statusEl.classList.remove('unresolved', 'resolved');
-        statusEl.classList.add(msg.status);
-        statusEl.textContent = msg.status === 'resolved' ? '✓' : '⚠';
-      }
-      const actionsEl = row.querySelector('.file-actions');
-      if (actionsEl && msg.status === 'resolved') {
-        actionsEl.textContent = '';
-        const lbl = document.createElement('span');
-        lbl.className = 'resolved-label';
-        lbl.textContent = 'resolved';
-        actionsEl.appendChild(lbl);
-      }
-      const rows = document.querySelectorAll('[data-row-path]');
-      let allResolved = rows.length > 0;
-      rows.forEach((r) => {
-        const s = r.querySelector('.file-status');
-        if (!s || !s.classList.contains('resolved')) {
-          allResolved = false;
-        }
-      });
+      syncBulkVisibility();
+      // The status map is authoritative; re-reading DOM classes to answer the
+      // same question is a second source of truth waiting to drift.
       const continueBtn = document.querySelector('[data-action="continue"]');
       if (continueBtn) {
-        if (allResolved) {
+        if (statuses.size > 0 && !hasUnresolved()) {
           continueBtn.removeAttribute('disabled');
         } else {
           continueBtn.setAttribute('disabled', 'disabled');

@@ -25,6 +25,54 @@ export interface IMergeStageContents {
   readonly stageShas: { readonly base: string; readonly ours: string; readonly theirs: string };
 }
 
+/**
+ * The stage SHAs as one comparable string. Two conflicts on the same path
+ * share an identity only when they are the same conflict, so callers that
+ * cache or restore per path use this to tell them apart.
+ */
+export function stageIdentityOf(stageShas: IMergeStageContents['stageShas']): string {
+  return `${stageShas.base}:${stageShas.ours}:${stageShas.theirs}`;
+}
+
+/**
+ * Outcome of reading a path's stage identity. "No longer conflicted" and "the
+ * index could not be read" are DIFFERENT facts and callers act on them
+ * differently: the first says an open window is stale, the second says nothing
+ * at all. Collapsing them to `undefined` made a resolved path look unreadable.
+ */
+export type StageIdentityRead =
+  | { readonly kind: 'identity'; readonly identity: string }
+  | { readonly kind: 'notConflicted' }
+  | { readonly kind: 'unreadable' };
+
+/**
+ * The stage identity of a conflicted path, read from the index alone (no blob
+ * contents).
+ */
+export async function readStageIdentity(
+  gitCli: GitCli,
+  repoRoot: string,
+  relPath: string
+): Promise<StageIdentityRead> {
+  let entry;
+  try {
+    entry = (await readUnmergedStages(gitCli, repoRoot, relPath)).get(relPath);
+    // eslint-disable-next-line no-restricted-syntax -- an unreadable index is reported as its own outcome; the caller decides, because it cannot be distinguished from "resolved" here.
+  } catch {
+    return { kind: 'unreadable' };
+  }
+  return entry
+    ? {
+        kind: 'identity',
+        identity: stageIdentityOf({
+          base: entry.stage1?.sha ?? '',
+          ours: entry.stage2?.sha ?? '',
+          theirs: entry.stage3?.sha ?? '',
+        }),
+      }
+    : { kind: 'notConflicted' };
+}
+
 export async function loadMergeStageContents(
   gitCli: GitCli,
   repoRoot: string,

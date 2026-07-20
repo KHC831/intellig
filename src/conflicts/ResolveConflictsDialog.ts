@@ -392,7 +392,6 @@ export class ResolveConflictsDialog extends BaseWebviewPanel<ResolveConflictsDia
       skipVisible: this._opContext.operation === 'rebase' && this._opContext.canContinue === true,
       continueVisible: this._opContext.canContinue,
       allResolved: this.allResolved(),
-      hasUnresolved: !this.allResolved(),
       yoursLabel: this._acceptButtonLabel('yours'),
       theirsLabel: this._acceptButtonLabel('theirs'),
       groupByDirectory: loadPersisted(this._context.globalState, GROUP_BY_DIRECTORY_SLOT) === true,

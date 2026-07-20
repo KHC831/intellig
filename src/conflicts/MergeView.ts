@@ -10,6 +10,7 @@ import { isConflictedStatus } from '../git-core/gitParser';
 import { canonicalizeFsPath, repoRelativePath } from '../utils/repoRelativePath';
 import { ensureSyntheticMergeBase } from './syntheticMergeBase';
 import { MergeWindowPanel, IMergeWindowConflictContext } from './merge-window/MergeWindowPanel';
+import { readStageIdentity } from './merge-window/mergeStages';
 import { getLogger } from '../utils/logger';
 
 /**
@@ -47,12 +48,15 @@ export class MergeView implements IMergeView {
   private readonly _shownFiles = new Map<string, IShownConflictFile>();
 
   /**
-   * Open merge windows keyed by the file's canonical absolute path. One
-   * window per file: a second `show()` reveals the existing window instead
-   * of stacking a duplicate whose stale stage data would, on Apply, silently
-   * overwrite a resolution completed in the first. (The native-editor path
-   * gets this dedup from VS Code itself.) Entries are dropped on panel
-   * dispose.
+   * Open merge windows keyed by the file's canonical absolute path AND the
+   * index-stage identity of the conflict it was opened for. One window per
+   * conflict: a second `show()` for the SAME conflict reveals the existing
+   * window instead of stacking a duplicate whose stale stage data would, on
+   * Apply, silently overwrite a resolution completed in the first. A path
+   * that re-conflicts (a later commit in a rebase sequence) carries different
+   * stages, so it cannot reach the earlier window's content at all. (The
+   * native-editor path gets this dedup from VS Code itself.) Entries are
+   * dropped on panel dispose.
    */
   private readonly _openMergeWindows = new Map<string, MergeWindowPanel>();
 
@@ -215,11 +219,45 @@ export class MergeView implements IMergeView {
     if (!deps) {
       return;
     }
-    const windowKey = canonicalizeFsPath(absolutePath);
-    const existing = this._openMergeWindows.get(windowKey);
+    const canonicalPath = canonicalizeFsPath(absolutePath);
+    // The stage identity is read from the index alone (no blob contents), so
+    // the same path re-conflicting later cannot reuse the earlier window. An
+    // unreadable identity reuses nothing: rebuilding a window costs a redraw,
+    // reusing a stale one costs the user's resolution.
+    const stageRead = await readStageIdentity(gitCli, repository.rootUri.fsPath, relPath);
+    if (stageRead.kind === 'unreadable') {
+      // The index says nothing, so this conflict cannot be compared with the
+      // one an open window holds. Reveal that window rather than act on a
+      // fact we do not have: opening a second is a duplicate, and disposing it
+      // would destroy an unsaved resolution over a transient lock. NOT the
+      // same as 'notConflicted', which is real information (see below).
+      const openForPath = [...this._openMergeWindows].find(([key]) =>
+        key.startsWith(`${canonicalPath}${WINDOW_KEY_SEP}`)
+      );
+      if (openForPath) {
+        openForPath[1].reveal(vscode.ViewColumn.Active);
+        return;
+      }
+    }
+    // 'notConflicted' means the path was resolved elsewhere, so any window
+    // open on it holds superseded content: it gets no identity to match, and
+    // the supersede loop below disposes it.
+    const stageIdentity = stageRead.kind === 'identity' ? stageRead.identity : undefined;
+    const windowKey = mergeWindowKey(canonicalPath, stageIdentity);
+    const existing =
+      stageRead.kind === 'identity' ? this._openMergeWindows.get(windowKey) : undefined;
     if (existing) {
       existing.reveal(vscode.ViewColumn.Active);
       return;
+    }
+    // A window still open on a SUPERSEDED conflict for this path shows stale
+    // content and must not outlive it. Only reached with a known identity, so
+    // "superseded" is a fact here, never an assumption.
+    for (const [key, panel] of [...this._openMergeWindows]) {
+      if (key !== windowKey && key.startsWith(`${canonicalPath}${WINDOW_KEY_SEP}`)) {
+        this._openMergeWindows.delete(key);
+        panel.dispose();
+      }
     }
     let conflictContext: IMergeWindowConflictContext;
     try {
@@ -240,14 +278,20 @@ export class MergeView implements IMergeView {
       gitCli,
       gitService: this._gitService,
       onApplied: (applied): void => {
-        this._shownFiles.delete(windowKey);
+        this._shownFiles.delete(canonicalPath);
         this._onDidResolve.fire(applied);
       },
     });
     this._openMergeWindows.set(windowKey, panel);
     panel.onDidDispose(() => {
+      // A superseded window was already unregistered above; only the window
+      // still owning this key speaks for the file.
       if (this._openMergeWindows.get(windowKey) === panel) {
         this._openMergeWindows.delete(windowKey);
+        // Closed without applying means the conflict is still unresolved, so
+        // markResolved() must not be able to stage its conflict markers via
+        // the sole-entry fallback. On Apply the entry is already gone.
+        this._shownFiles.delete(canonicalPath);
       }
     });
   }
@@ -425,6 +469,17 @@ export class MergeView implements IMergeView {
     }
     this._openMergeWindows.clear();
   }
+}
+
+/**
+ * Separator for the open-window cache key. NUL cannot occur in a path or a
+ * blob SHA, so no path/identity pair can spoof another's key.
+ */
+const WINDOW_KEY_SEP = '\0';
+
+/** Cache key for an open merge window: which file, and which conflict on it. */
+function mergeWindowKey(canonicalPath: string, stageIdentity: string | undefined): string {
+  return `${canonicalPath}${WINDOW_KEY_SEP}${stageIdentity ?? ''}`;
 }
 
 /** A conflict file opened via `show()` that has not been staged yet. */

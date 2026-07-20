@@ -17,6 +17,9 @@ import { createMonacoStub, StubEditor } from '../../helpers/monacoStub';
 type ActionKind = 'apply' | 'ignore' | 'revert';
 
 interface IMergeWindowFixture {
+  /** Make the NEXT post to the host throw, as a failing postMessage would. */
+  failNextPost(): void;
+  window: JSDOM['window'];
   document: Document;
   posted: unknown[];
   /** [left, result, right] */
@@ -69,8 +72,13 @@ function bootMergeWindow(
   g.document = dom.window.document;
   g.MutationObserver = dom.window.MutationObserver;
   g.monaco = stub;
+  let failNextPost = false;
   g.acquireVsCodeApi = (): { postMessage(m: unknown): void } => ({
     postMessage: (m: unknown): void => {
+      if (failNextPost) {
+        failNextPost = false;
+        throw new Error('postMessage failed');
+      }
       posted.push(m);
     },
   });
@@ -115,6 +123,10 @@ function bootMergeWindow(
   };
 
   return {
+    failNextPost: (): void => {
+      failNextPost = true;
+    },
+    window: dom.window,
     document: doc,
     posted,
     editors,
@@ -516,6 +528,304 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
       true,
       'a restored result counts as modified (Abort must confirm)'
     );
+  });
+
+  it('does not escalate a benign ResizeObserver warning to fatal', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    // automaticLayout puts a ResizeObserver on all three editors, and Chromium
+    // dispatches this loop warning as a window ErrorEvent. Treating it as
+    // fatal destroys a live merge over a benign browser message.
+    f.window.dispatchEvent(
+      new f.window.ErrorEvent('error', {
+        message: 'ResizeObserver loop completed with undelivered notifications.',
+      })
+    );
+    await f.flush();
+
+    const logs = f.posted.filter((m) => (m as { type?: string }).type === 'log');
+    assert.deepStrictEqual(logs, [], 'a ResizeObserver loop warning is not reportable at all');
+  });
+
+  it('reports an uncaught error at a non-disposing level while the panel still works', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    f.window.dispatchEvent(new f.window.ErrorEvent('error', { message: 'something threw' }));
+    await f.flush();
+
+    const logs = f.posted.filter((m) => (m as { type?: string }).type === 'log') as Array<{
+      level: string;
+    }>;
+    assert.strictEqual(logs.length, 1, 'it is still reported');
+    assert.strictEqual(
+      logs[0].level,
+      'error',
+      '"something threw" is not "the panel cannot continue" — Apply still works'
+    );
+  });
+
+  it('escalates to fatal when the panel is provably unusable', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    // No Apply button means the user cannot act on the merge at all.
+    f.document.getElementById('btn-apply')?.remove();
+    f.window.dispatchEvent(new f.window.ErrorEvent('error', { message: 'skeleton gone' }));
+    await f.flush();
+
+    const fatal = f.posted.filter(
+      (m) => (m as { type?: string }).type === 'log' && (m as { level?: string }).level === 'fatal'
+    );
+    assert.strictEqual(fatal.length, 1, 'an unusable panel must still be closed');
+  });
+
+  it('reports a constructor failure as fatal — the panel never built', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+    const before = f.posted.length;
+
+    // Rebuild with the result pane gone: mustGet throws inside the
+    // constructor, so no MergeWindow exists and the tab is dead. This is the
+    // ORIGINAL fatal producer, distinct from the global net's escalation.
+    f.document.getElementById('result-editor')?.remove();
+    f.deliver({
+      type: 'init',
+      left: LEFT,
+      base: BASE,
+      right: RIGHT,
+      leftLabel: 'Yours (main)',
+      rightLabel: 'Theirs (feature)',
+      fileName: 'a.txt',
+    });
+    await f.flush();
+
+    const logs = f.posted
+      .slice(before)
+      .filter((m) => (m as { type?: string }).type === 'log') as Array<{
+      level: string;
+      text: string;
+    }>;
+    assert.strictEqual(logs.length, 1, 'a failed boot must be reported');
+    assert.strictEqual(
+      logs[0].level,
+      'fatal',
+      'the host must toast and close a panel that never built'
+    );
+    assert.match(logs[0].text, /failed to initialize/);
+  });
+
+  it('a failed post does not wedge the reporter shut', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    // The re-entrancy flag must not survive a throwing post: `reportedLevels`
+    // already bounds the recursion, so leaving it latched only costs the
+    // escalation that follows.
+    f.failNextPost();
+    f.window.dispatchEvent(new f.window.ErrorEvent('error', { message: 'post dies' }));
+    await f.flush();
+
+    f.document.getElementById('btn-apply')?.remove();
+    f.window.dispatchEvent(new f.window.ErrorEvent('error', { message: 'now unusable' }));
+    await f.flush();
+
+    const fatal = f.posted.filter(
+      (m) => (m as { type?: string }).type === 'log' && (m as { level?: string }).level === 'fatal'
+    );
+    assert.strictEqual(fatal.length, 1, 'a transient post failure must not silence a later fatal');
+  });
+
+  it('coalesces repeated errors per severity but still escalates later', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    const levels = (): string[] =>
+      f.posted
+        .filter((m) => (m as { type?: string }).type === 'log')
+        .map((m) => (m as { level: string }).level);
+
+    for (let i = 0; i < 3; i++) {
+      f.window.dispatchEvent(new f.window.ErrorEvent('error', { message: `boom ${i}` }));
+    }
+    await f.flush();
+    assert.deepStrictEqual(levels(), ['error'], 'repeats at one severity are noise');
+
+    // The panel later becomes genuinely unusable. A blanket once-latch would
+    // swallow this, leaving the tab dead with nothing reported — exactly the
+    // symptom the fatal level exists to prevent.
+    f.document.getElementById('btn-apply')?.remove();
+    f.window.dispatchEvent(new f.window.ErrorEvent('error', { message: 'now unusable' }));
+    await f.flush();
+    assert.deepStrictEqual(
+      levels(),
+      ['error', 'fatal'],
+      'escalation must survive an earlier error'
+    );
+  });
+
+  it('reports a throw from an event listener, not just a scheduled callback', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    // The resize listener re-lays the gutters; per-call-site guards never
+    // covered the event-handler family, so this died with nothing posted.
+    f.document.getElementById('gutter-left')?.remove();
+    f.window.dispatchEvent(new f.window.Event('resize'));
+    await f.flush();
+
+    // Reported, but NOT fatal: the merge is still applyable, so this must not
+    // close the window.
+    const logs = f.posted.filter((m) => (m as { type?: string }).type === 'log') as Array<{
+      level: string;
+    }>;
+    assert.strictEqual(logs.length, 1, 'a throw in an event listener must reach the host');
+    assert.strictEqual(logs[0].level, 'error');
+  });
+
+  it('reports a throw inside the queued render instead of dying silently', async () => {
+    f = bootMergeWindow(LEFT, BASE, RIGHT);
+    await f.flush();
+
+    // The queued render runs in a microtask: a throw there escapes the boot
+    // try/catch entirely, so the window would go inert mid-session with the
+    // host none the wiser.
+    f.document.getElementById('banner')?.remove();
+    await f.clickAction('left', 'apply', 0);
+
+    const logs = f.posted.filter((m) => (m as { type?: string }).type === 'log') as Array<{
+      level: string;
+      text: string;
+    }>;
+    assert.strictEqual(logs.length, 1, 'the host must hear about a dead render');
+    assert.strictEqual(logs[0].level, 'error', 'a stale view is not an unusable panel');
+    assert.match(logs[0].text, /render/, 'the label names the failing operation');
+  });
+
+  describe('restored result: text-only session', () => {
+    // Seeding the restored text through Monaco replays as ONE whole-document
+    // replace, which collapses every model change range to zero length at EOF.
+    // Per-change and bulk actions would then target meaningless ranges, so the
+    // restored session offers only free-text editing plus Apply/Abort.
+    const RESTORED = 'a\nL\nc\nR\n';
+
+    it('offers no per-change or bulk actions', async () => {
+      f = bootMergeWindow(LEFT, BASE, RIGHT, { restoredResult: RESTORED });
+      await f.flush();
+
+      assert.strictEqual(f.resultText(), RESTORED);
+      assert.strictEqual(f.actionButtons('left', 'apply').length, 0);
+      assert.strictEqual(f.actionButtons('left', 'ignore').length, 0);
+      assert.strictEqual(f.actionButtons('right', 'apply').length, 0);
+      assert.strictEqual(f.actionButtons('right', 'ignore').length, 0);
+
+      const disabled = (id: string): boolean =>
+        (f.document.getElementById(id) as HTMLButtonElement).disabled;
+      for (const id of [
+        'btn-accept-left',
+        'btn-accept-right',
+        'btn-reset',
+        'btn-prev',
+        'btn-next',
+        'btn-nc-left',
+        'btn-nc-all',
+        'btn-nc-right',
+        'btn-magic-all',
+      ]) {
+        assert.strictEqual(disabled(id), true, `${id} must be disabled in a restored session`);
+      }
+      // Apply and Abort are the whole point of reopening the window.
+      assert.strictEqual(disabled('btn-apply'), false);
+      const banner = f.document.getElementById('banner');
+      assert.match(
+        banner?.textContent ?? '',
+        /restored/i,
+        'the banner must say the session is text-only'
+      );
+      assert.strictEqual(banner?.classList.contains('visible'), true);
+    });
+
+    // The `.disabled` assertions above prove the controls are unREACHABLE; this
+    // proves their handlers are also INERT if one were ever reached. Neither
+    // alone is the proof, so both are kept.
+    it('no toolbar action can mutate the restored text', async () => {
+      f = bootMergeWindow(LEFT, BASE, RIGHT, { restoredResult: RESTORED });
+      await f.flush();
+
+      for (const id of [
+        // Accept Yours/Theirs replace the whole result — the most destructive
+        // pair on the toolbar, so they are exercised too.
+        'btn-accept-left',
+        'btn-accept-right',
+        'btn-nc-left',
+        'btn-nc-all',
+        'btn-nc-right',
+        'btn-magic-all',
+        'btn-reset',
+      ]) {
+        await f.click(id);
+      }
+      assert.strictEqual(f.resultText(), RESTORED, 'the restored text must survive every action');
+    });
+
+    it('Apply sends the restored text with no unresolved-count confirm', async () => {
+      f = bootMergeWindow(LEFT, BASE, RIGHT, { restoredResult: RESTORED });
+      await f.flush();
+
+      await f.click('btn-apply');
+
+      // The change ranges collapsed on restore, so any count derived from them
+      // describes nothing; asking the user to confirm it would be a lie, and a
+      // cautious user cancelling could not apply their own text at all.
+      assert.deepStrictEqual(
+        f.posted.filter((m) => (m as { type?: string }).type === 'confirm'),
+        [],
+        'a restored session must not raise the unresolved-count modal'
+      );
+      const applies = f.posted.filter((m) => (m as { type?: string }).type === 'apply');
+      assert.strictEqual(applies.length, 1);
+      assert.strictEqual(
+        (applies[0] as { resultText: string }).resultText,
+        RESTORED,
+        'Apply must carry the restored text verbatim'
+      );
+    });
+
+    it('no non-button mutation path can reach the merge model', async () => {
+      f = bootMergeWindow(LEFT, BASE, RIGHT, { restoredResult: RESTORED });
+      await f.flush();
+
+      // The result gutter wand is a mousedown handler, not a button, so a
+      // disabled toolbar says nothing about it.
+      f.editors[1].clickGlyphMargin(2);
+      await f.flush();
+      assert.strictEqual(f.resultText(), RESTORED, 'the magic wand must be inert');
+
+      // Keyboard undo/redo route to the model's undo manager, bypassing every
+      // button. They may edit TEXT (that is the user's own undo) but must not
+      // resurrect change-driven actions.
+      await f.undo();
+      await f.redo();
+      assert.strictEqual(f.actionButtons('left', 'apply').length, 0);
+      assert.strictEqual(f.actionButtons('right', 'apply').length, 0);
+      assert.strictEqual(
+        (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled,
+        true,
+        'a restored session stays text-only across undo/redo'
+      );
+
+      // A stray host confirmResult must not complete an accept nobody started.
+      f.deliver({ type: 'confirmResult', requestId: 1, confirmed: true });
+      await f.flush();
+      assert.strictEqual(f.resultText(), RESTORED);
+    });
+
+    it('the counter reports no navigable changes', async () => {
+      f = bootMergeWindow(LEFT, BASE, RIGHT, { restoredResult: RESTORED });
+      await f.flush();
+      assert.strictEqual(f.counterText(), '');
+    });
   });
 
   it('Resolve Simple Conflicts magic-resolves every auto-resolvable conflict', async () => {

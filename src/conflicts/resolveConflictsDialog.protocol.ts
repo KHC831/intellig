@@ -22,7 +22,6 @@ export interface IResolveConflictsDialogInit {
   skipVisible: boolean;
   continueVisible: boolean;
   allResolved: boolean;
-  hasUnresolved: boolean;
   yoursLabel: string;
   theirsLabel: string;
   /** Persisted "Group files by directory" preference (IntelliJ's GROUP_MULTIFILE_MERGE_BY_DIRECTORY). */

@@ -89,6 +89,7 @@ export function bootWebviewEntry(
     HTMLElement: g.HTMLElement,
     requestAnimationFrame: g.requestAnimationFrame,
     navigator: g.navigator,
+    CSS: g.CSS,
   };
   g.window = dom.window;
   g.document = dom.window.document;
@@ -100,6 +101,12 @@ export function bootWebviewEntry(
     writable: true,
   });
   g.MutationObserver = dom.window.MutationObserver;
+  // jsdom ships no `CSS` object, but the Chromium webview does and entries use
+  // CSS.escape to build attribute selectors. Without it those code paths throw
+  // here and nowhere else, which hides real bugs behind a green suite.
+  g.CSS = dom.window.CSS ?? {
+    escape: (value: string): string => value.replace(/[^\w-]/g, (ch) => '\\' + ch),
+  };
   // The browser exposes the DOM constructors as globals; mirror them so an
   // entry's realm-sensitive `instanceof Element` / `instanceof Node` checks
   // match the jsdom nodes the test dispatches (the module runs in Node's realm
@@ -142,6 +149,7 @@ export function bootWebviewEntry(
       g.document = saved.document;
       g.MutationObserver = saved.MutationObserver;
       g.acquireVsCodeApi = saved.acquireVsCodeApi;
+      g.CSS = saved.CSS;
       g.Element = saved.Element;
       g.Node = saved.Node;
       g.HTMLElement = saved.HTMLElement;

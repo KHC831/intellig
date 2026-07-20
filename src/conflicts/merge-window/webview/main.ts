@@ -62,8 +62,103 @@ function post(message: MergeWindowInbound): void {
   vscodeApi.postMessage(message);
 }
 
-function logToHost(level: 'warn' | 'error', text: string): void {
+function logToHost(level: 'warn' | 'error' | 'fatal', text: string): void {
   post({ type: 'log', level, text });
+}
+
+/**
+ * One global net for everything that throws outside a call this file already
+ * wraps: event listeners, MutationObserver callbacks, Monaco's onMouseDown,
+ * scheduled callbacks, and rejected promises. Without it a half-built or
+ * mid-session failure leaves a tab the user can neither Apply nor Abort, with
+ * nothing reported. Per-call-site guards can only ever cover the sites someone
+ * remembered; this covers the ones nobody did.
+ *
+ * Installed first thing in boot(), before any DOM work can throw. Fenced by
+ * `check:webview-fatal-reporter`.
+ *
+ * "Something threw" and "the panel cannot continue" are DIFFERENT facts, and
+ * only the second may close the window: reporting everything as fatal would
+ * destroy a live merge over a stray page error. So the net reports at 'error'
+ * and escalates only when the panel is provably unusable. The explicit
+ * construction failure in boot() stays fatal on its own account.
+ */
+
+/** Chromium dispatches this benign layout notice as a window ErrorEvent, and
+ * `automaticLayout` puts a ResizeObserver on all three editors. */
+const BENIGN_ERROR = /^ResizeObserver loop/;
+
+/**
+ * Severities already reported. Repeats at one severity are noise, but a later
+ * ESCALATION must still get through: a blanket once-per-session latch would
+ * swallow the fatal that closes a dead panel just because something benign
+ * threw earlier.
+ */
+const reportedLevels = new Set<'error' | 'fatal'>();
+
+/**
+ * Set while posting, so an error raised BY the post cannot re-enter this
+ * handler as it unwinds. It is cleared even on that path: `reportedLevels`
+ * already stops the re-entrant call (its severity is in the set by then), so
+ * clearing costs nothing and keeps a transient post failure from wedging the
+ * reporter shut for the rest of the session.
+ */
+let reportingUncaught = false;
+
+/**
+ * Provably unusable: without Apply the user cannot act on the merge at all,
+ * so the tab is dead weight. Anything short of that stays recoverable — the
+ * result text is intact and Apply/Abort still work.
+ */
+function panelIsUnusable(): boolean {
+  return document.getElementById('btn-apply') === null;
+}
+
+function reportUncaught(text: string): void {
+  if (reportingUncaught) {
+    return;
+  }
+  const level = panelIsUnusable() ? 'fatal' : 'error';
+  if (reportedLevels.has(level)) {
+    return;
+  }
+  reportedLevels.add(level);
+  reportingUncaught = true;
+  try {
+    logToHost(level, text);
+  } finally {
+    reportingUncaught = false;
+  }
+}
+
+function installFatalReporter(): void {
+  window.addEventListener('error', (event: ErrorEvent): void => {
+    const message = event.message || String(event.error);
+    if (BENIGN_ERROR.test(message)) {
+      return;
+    }
+    reportUncaught(`merge window: ${message}`);
+  });
+  window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent): void => {
+    reportUncaught(`merge window: unhandled rejection: ${String(event.reason)}`);
+  });
+}
+
+/**
+ * Belt-and-braces over the global reporter: wrapping a scheduled callback
+ * names the failing operation in the message, which a bare stack does not.
+ */
+function guardContinuation(label: string, fn: () => void): () => void {
+  return (): void => {
+    try {
+      fn();
+      // eslint-disable-next-line no-restricted-syntax -- the whole point is to report an otherwise-silent async failure to the host.
+    } catch (err) {
+      // Same severity decision as the global net: a failed render leaves the
+      // view stale, not the panel dead, so it must not close a live merge.
+      reportUncaught(`merge window: ${label} failed: ${String(err)}`);
+    }
+  };
 }
 
 function languageForFile(fileName: string): string {
@@ -129,6 +224,14 @@ class MergeWindow {
   /** Conflicts sorted by result line, memoized until the next mutation, so the
    * caret-driven counter/navigation don't re-scan and re-sort per keystroke. */
   private conflictsMemo: TextMergeChange[] | undefined;
+  /**
+   * A result restored from a closed window seeds Monaco as one whole-document
+   * replacement, which collapses every model change range to zero length at
+   * EOF. Change-driven actions would then target ranges that no longer
+   * describe anything, so the session degrades to free-text editing plus
+   * Apply/Abort.
+   */
+  private restoredTextOnly = false;
 
   constructor(init: IInitMessage) {
     const language = languageForFile(init.fileName);
@@ -213,12 +316,16 @@ class MergeWindow {
     }
     // A result left behind by a closed window rides in through the regular
     // Monaco→document replay, so it lands as one undoable user edit and
-    // flags the content modified (Abort confirms before discarding it).
+    // flags the content modified (Abort confirms before discarding it). The
+    // whole-document replacement leaves the change ranges meaningless, so the
+    // session continues as text-only.
     if (
       typeof init.restoredResult === 'string' &&
       init.restoredResult !== this.resultDoc.getText()
     ) {
+      this.restoredTextOnly = true;
       this.resultEditor.getModel()?.setValue(init.restoredResult);
+      this.renderAll();
     }
   }
 
@@ -434,6 +541,13 @@ class MergeWindow {
    * resolved and saves the result exactly as shown.
    */
   private async applyResult(): Promise<void> {
+    if (this.restoredTextOnly) {
+      // The change ranges collapsed when the restored text replaced the whole
+      // document, so any count taken from them describes nothing. The text IS
+      // the result here; send it as shown.
+      post({ type: 'apply', resultText: this.resultDoc.getText() });
+      return;
+    }
     const unresolved = this.model.getUnresolvedChanges();
     if (unresolved.length > 0) {
       const conflicts = unresolved.filter((c) => c.isConflict).length;
@@ -745,10 +859,12 @@ class MergeWindow {
       return;
     }
     this.renderQueued = true;
-    queueMicrotask(() => {
-      this.renderQueued = false;
-      this.renderAll();
-    });
+    queueMicrotask(
+      guardContinuation('render', () => {
+        this.renderQueued = false;
+        this.renderAll();
+      })
+    );
   }
 
   /** The chunk text of a side of a change, or null when the side is empty.
@@ -918,6 +1034,10 @@ class MergeWindow {
   }
 
   private renderAll(): void {
+    if (this.restoredTextOnly) {
+      this.renderRestoredTextOnly();
+      return;
+    }
     const texts = this.paneTexts();
     const innerBySide = new Map<number, IMergeInnerDifferences | null>();
     for (const change of this.model.getAllChanges()) {
@@ -967,6 +1087,50 @@ class MergeWindow {
       total,
       modified: this.model.contentModified,
       ...(this.model.contentModified ? { resultText: this.resultDoc.getText() } : {}),
+    });
+  }
+
+  /** Change-driven toolbar actions, all unavailable in a restored session. */
+  private static readonly CHANGE_ACTION_BUTTONS = [
+    'btn-accept-left',
+    'btn-accept-right',
+    'btn-reset',
+    'btn-prev',
+    'btn-next',
+    'btn-nc-left',
+    'btn-nc-all',
+    'btn-nc-right',
+    'btn-magic-all',
+  ];
+
+  /**
+   * Render for a restored result: no highlights, no connectors, no per-change
+   * icons, every change-driven action greyed out, and a banner saying why.
+   * Apply and Abort stay live — they are the reason the window reopened.
+   */
+  private renderRestoredTextOnly(): void {
+    this.magicGlyphLines.clear();
+    for (const collection of this.decorationsCollections()) {
+      collection.set([]);
+    }
+    for (const id of MergeWindow.CHANGE_ACTION_BUTTONS) {
+      (mustGet(id) as HTMLButtonElement).disabled = true;
+    }
+    mustGet('counter').textContent = '';
+    const banner = mustGet('banner');
+    banner.textContent =
+      'Restored merge result — edit the text directly, then press Apply. ' +
+      'Per-change actions are unavailable for a restored result.';
+    banner.classList.add('visible');
+
+    this.layoutGutters();
+
+    post({
+      type: 'state',
+      unresolved: 0,
+      total: 0,
+      modified: true,
+      resultText: this.resultDoc.getText(),
     });
   }
 
@@ -1049,6 +1213,10 @@ class MergeWindow {
     for (const old of Array.from(stripBody.querySelectorAll('.action-btn, .action-band'))) {
       old.remove();
     }
+
+    if (this.restoredTextOnly) {
+      return;
+    }
     for (const change of this.model.getAllChanges()) {
       // A strip paints and acts on only the changes its own side owns. The
       // unchanged side of a one-sided change paints nothing (no pane block,
@@ -1126,6 +1294,10 @@ class MergeWindow {
         ctx = null;
       }
       ctx?.clearRect(0, 0, width, height);
+    }
+
+    if (this.restoredTextOnly) {
+      return;
     }
 
     for (const change of this.model.getAllChanges()) {
@@ -1218,6 +1390,8 @@ export function __getMergeWindowForTest(): unknown {
 }
 
 export function boot(): void {
+  // Before any DOM work: a throw during skeleton construction must report too.
+  installFatalReporter();
   // The panel ships an empty body; the whole skeleton is DOM-built here
   // (createElement, the repo-wide webview convention).
   buildMergeWindowDom(document);
@@ -1228,7 +1402,7 @@ export function boot(): void {
       try {
         mergeWindowForTest = new MergeWindow(message as IInitMessage);
       } catch (err) {
-        logToHost('error', `merge window failed to initialize: ${String(err)}`);
+        logToHost('fatal', `merge window failed to initialize: ${String(err)}`);
       }
     }
   });
