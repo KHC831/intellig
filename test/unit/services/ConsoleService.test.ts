@@ -1068,4 +1068,58 @@ describe('ConsoleService streaming entry identity', () => {
 
     assert.strictEqual(provider.entries.length, 2, 're-registration replays each entry once');
   });
+
+  /**
+   * Three mechanisms that behaved correctly but that no case would have
+   * noticed losing. `_head` was pinned and its `_tail` twin was not, on a
+   * symmetric pair six lines apart — the shape most likely to rot.
+   */
+  it('keeps the NEWEST output visible once a long stream starts eliding', () => {
+    // Emptying the tail leaves the start of a clone and the elision marker,
+    // with progress and errors silently gone: the half a user is reading.
+    const { service } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+
+    // ONE chunk that trips elision. A second chunk would rebuild the tail from
+    // `_tail + text` and mask an emptied initial slice.
+    handler.onData('HEADMARK' + 'x'.repeat(500_000) + 'TAILMARK');
+
+    const output = service.getEntries()[0].output;
+    assert.ok(output.includes('TAILMARK'), 'the newest output must survive elision');
+    assert.ok(output.includes('HEADMARK'), 'and the head is kept as well');
+  });
+
+  it('gives concurrent streams distinct entry ids', () => {
+    // Ids key the pending-update map. Duplicates make two live git commands
+    // overwrite each other's output.
+    const { service } = connectedService(10);
+    service.startStreaming('git fetch');
+    service.startStreaming('git clone');
+
+    const ids = service.getEntries().map((e) => e.id);
+    assert.strictEqual(new Set(ids).size, ids.length, `ids must be distinct, got ${ids.join()}`);
+  });
+
+  it('posts one provider update for a burst of chunks', async () => {
+    // The per-entry map is what bounds this: it is drained once, so a burst
+    // lands as a single update. The `_pendingRefresh` early return bounds the
+    // number of TIMERS rather than the number of updates, and is therefore not
+    // observable here — removing it leaves this count at 1. Pinning the
+    // observable invariant, not that guard.
+    const { service, provider } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+
+    for (let i = 0; i < 50; i++) {
+      handler.onData(`chunk ${i}\n`);
+    }
+    // Count AFTER the timers drain: without the coalesce each chunk schedules
+    // its own timer, so the updates arrive late rather than during the burst.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(
+      provider.updateCount <= 2,
+      `50 chunks must coalesce, got ${provider.updateCount} updates`
+    );
+    assert.ok(provider.updateCount > 0, 'and the coalesced update must still arrive');
+  });
 });
