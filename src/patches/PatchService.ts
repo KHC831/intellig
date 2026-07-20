@@ -708,14 +708,20 @@ function parsePerSideNames(block: string): { old: string; new: string } | undefi
   // Strip only when BOTH sides carry the prefix git pairs them in: `a/` on the
   // old side and `b/` on the new. An unprefixed patch of a file in a real
   // top-level `b/` directory emits `b/` on both sides, which fails this test
-  // and so keeps its directory. A side that is /dev/null carries no prefix to
-  // judge, so the other side decides alone.
-  const oldPrefixed = oldToken === '/dev/null' || oldToken.startsWith('a/');
-  const newPrefixed = newToken === '/dev/null' || newToken.startsWith('b/');
-  const prefixed = oldPrefixed && newPrefixed;
+  // and so keeps its directory.
+  //
+  // An add or a delete puts /dev/null on one side, leaving nothing to pair
+  // against. Judging from the surviving side alone is the greedy read this arm
+  // exists to avoid: `+++ b/new.txt` is a `b/` prefix or a real `b/` directory
+  // and one side cannot tell which. Decline instead, so the header arm answers
+  // it with both names in hand.
+  if (oldToken === '/dev/null' || newToken === '/dev/null') {
+    return undefined;
+  }
+  const prefixed = oldToken.startsWith('a/') && newToken.startsWith('b/');
   return {
-    old: prefixed && oldToken !== '/dev/null' ? stripPatchPathPrefix(oldToken) : oldToken,
-    new: prefixed && newToken !== '/dev/null' ? stripPatchPathPrefix(newToken) : newToken,
+    old: prefixed ? stripPatchPathPrefix(oldToken) : oldToken,
+    new: prefixed ? stripPatchPathPrefix(newToken) : newToken,
   };
 }
 
@@ -733,9 +739,15 @@ function parseGitDiffHeaderNames(header: string): { old: string; new: string } |
   for (const pattern of GIT_DIFF_HEADER_PATTERNS) {
     const match = header.match(pattern);
     if (match) {
+      const oldToken = unquoteCStylePath(match[1]);
+      const newToken = unquoteCStylePath(match[2]);
+      // Strip only the pair git writes. The last-resort arm also matches an
+      // unprefixed header, where `b/new.txt b/new.txt` names a real top-level
+      // `b/` directory on both sides rather than a prefix on either.
+      const prefixed = oldToken.startsWith('a/') && newToken.startsWith('b/');
       return {
-        old: stripPatchPathPrefix(unquoteCStylePath(match[1])),
-        new: stripPatchPathPrefix(unquoteCStylePath(match[2])),
+        old: prefixed ? stripPatchPathPrefix(oldToken) : oldToken,
+        new: prefixed ? stripPatchPathPrefix(newToken) : newToken,
       };
     }
   }

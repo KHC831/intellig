@@ -409,6 +409,56 @@ describe('splitPatchByFile — pure renames', () => {
       );
     });
 
+    it('keeps a real top-level `b/` directory when --no-prefix ADDS a file', () => {
+      // Verbatim `git diff --cached --no-prefix` adding a file into a real
+      // top-level `b/` directory. The old side is /dev/null, so it carries no
+      // prefix to pair against and the new side cannot be judged alone: the
+      // header names both sides and is the only two-sided evidence here.
+      const patch =
+        'diff --git b/new.txt b/new.txt\n' +
+        'new file mode 100644\n' +
+        'index 0000000..d5f7fc3\n' +
+        '--- /dev/null\n' +
+        '+++ b/new.txt\n' +
+        '@@ -0,0 +1 @@\n+added\n';
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['b/new.txt']
+      );
+    });
+
+    it('still strips the prefix on a PREFIXED add', () => {
+      // Control: declining to judge a one-sided block must not leave every add
+      // unstripped. Here the header pairs `a/`+`b/`, so the prefix is real.
+      const patch =
+        'diff --git a/new.txt b/new.txt\n' +
+        'new file mode 100644\n' +
+        'index 0000000..d5f7fc3\n' +
+        '--- /dev/null\n' +
+        '+++ b/new.txt\n' +
+        '@@ -0,0 +1 @@\n+added\n';
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['new.txt']
+      );
+    });
+
+    it('keeps a real top-level `b/` directory when --no-prefix DELETES a file', () => {
+      // The mirror case: the new side is /dev/null, so the old side would be
+      // judging alone.
+      const patch =
+        'diff --git b/gone.txt b/gone.txt\n' +
+        'deleted file mode 100644\n' +
+        'index d5f7fc3..0000000\n' +
+        '--- b/gone.txt\n' +
+        '+++ /dev/null\n' +
+        '@@ -1 +0,0 @@\n-gone\n';
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['b/gone.txt']
+      );
+    });
+
     it('keeps a real top-level `a/` directory under --no-prefix', () => {
       // The mirror of the `b/` case: an unprefixed patch whose file lives in a
       // real `a/` directory must not lose it either.
