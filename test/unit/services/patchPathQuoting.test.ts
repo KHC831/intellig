@@ -263,6 +263,168 @@ describe('splitPatchByFile — pure renames', () => {
       ['new n.txt']
     );
   });
+
+  /**
+   * The CONDITION these cases pin: a path holding a ` b/` segment — a space
+   * immediately before `b/` — in a block carrying neither rename lines nor
+   * `---`/`+++` lines. With no other source of names the header decides, and
+   * the greedy patterns backtrack past the true boundary.
+   *
+   * Binary blocks and pure mode changes are the reachable instances TODAY, not
+   * the definition. A third shape satisfying both conditions would fail the
+   * same way, so re-derive from the condition rather than extending the list by
+   * analogy. Fixtures are verbatim `git diff` (git 2.50.1).
+   */
+  describe('blocks whose only source of names is the header', () => {
+    // Two DIFFERENT files, each under a directory whose name ends in ` b`, so
+    // both headers contain a literal ' b/' and admit several readings.
+    const TWO_BINARIES_WITH_B_SEGMENT =
+      'diff --git a/x b/pic.bin b/x b/pic.bin\n' +
+      'index b6f8b9a..bcbd643 100644\n' +
+      'Binary files a/x b/pic.bin and b/x b/pic.bin differ\n' +
+      'diff --git a/z b/pic.bin b/z b/pic.bin\n' +
+      'index ed0d458..7d4e16a 100644\n' +
+      'Binary files a/z b/pic.bin and b/z b/pic.bin differ\n';
+
+    it('keeps two binaries under ` b`-suffixed directories apart', () => {
+      assert.deepStrictEqual(
+        splitPatchByFile(TWO_BINARIES_WITH_B_SEGMENT).map((s) => s.path),
+        ['x b/pic.bin', 'z b/pic.bin']
+      );
+    });
+
+    it('offers one pick row per binary rather than fusing them', () => {
+      assert.deepStrictEqual(uniquePatchPaths(TWO_BINARIES_WITH_B_SEGMENT), [
+        { path: 'x b/pic.bin', count: 1 },
+        { path: 'z b/pic.bin', count: 1 },
+      ]);
+    });
+
+    it('applies only the selected binary', () => {
+      // Selecting one row must not drag the other file along: the two headers
+      // differ only in a segment the greedy reading discarded.
+      const filtered = filterPatchByFiles(TWO_BINARIES_WITH_B_SEGMENT, ['x b/pic.bin']);
+
+      assert.strictEqual((filtered.match(/^diff --git /gm) ?? []).length, 1);
+      assert.ok(filtered.includes('a/x b/pic.bin'));
+      assert.ok(!filtered.includes('a/z b/pic.bin'), 'the unselected binary stays out');
+    });
+
+    it('keeps the directory of a pure mode change on a ` b/`-segment path', () => {
+      // A mode change is the other block with neither rename lines nor
+      // per-side lines, so it reaches the header arm exactly as a binary does.
+      // Verbatim `git diff` after chmod +x on both files.
+      const patch =
+        'diff --git a/plain.sh b/plain.sh\n' +
+        'old mode 100644\n' +
+        'new mode 100755\n' +
+        'diff --git a/x b/tool.sh b/x b/tool.sh\n' +
+        'old mode 100644\n' +
+        'new mode 100755\n';
+
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['plain.sh', 'x b/tool.sh']
+      );
+      assert.ok(
+        filterPatchByFiles(patch, ['x b/tool.sh']).includes('new mode 100755'),
+        'the mode change is selectable by its true path'
+      );
+    });
+
+    it('still separates two plain binaries', () => {
+      // Negative control: no ' b/' segment, so this shape parses correctly even
+      // with the header arm greedy. It fails only if the arm breaks outright.
+      const patch =
+        'diff --git a/logo.bin b/logo.bin\n' +
+        'index 0a1b2c3..3c2b1a0 100644\n' +
+        'Binary files a/logo.bin and b/logo.bin differ\n' +
+        'diff --git a/pic.bin b/pic.bin\n' +
+        'index b6f8b9a..bcbd643 100644\n' +
+        'Binary files a/pic.bin and b/pic.bin differ\n';
+
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['logo.bin', 'pic.bin']
+      );
+    });
+
+    it('still separates a binary from its namesake in a real `b/` directory', () => {
+      // Negative control: a genuine top-level `b/` directory is NOT the
+      // trigger — the header has one reading because there is one space.
+      const patch =
+        'diff --git a/b/pic.bin b/b/pic.bin\n' +
+        'index 0a1b2c3..3c2b1a0 100644\n' +
+        'Binary files a/b/pic.bin and b/b/pic.bin differ\n' +
+        'diff --git a/pic.bin b/pic.bin\n' +
+        'index b6f8b9a..bcbd643 100644\n' +
+        'Binary files a/pic.bin and b/pic.bin differ\n';
+
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['b/pic.bin', 'pic.bin']
+      );
+    });
+  });
+
+  describe('--no-prefix blocks that carry no rename lines', () => {
+    // Verbatim `git diff --no-prefix` of a MODIFICATION to a file in a real
+    // top-level `b/` directory. There are no rename lines, so the rename arm
+    // cannot help and the per-side arm sees `--- b/moved.txt`.
+    const NO_PREFIX_MODIFICATION =
+      'diff --git b/moved.txt b/moved.txt\n' +
+      'index 4cb29ea..18e24a3 100644\n' +
+      '--- b/moved.txt\n' +
+      '+++ b/moved.txt\n' +
+      '@@ -1,3 +1,3 @@\n one\n-two\n+CHANGED\n three\n';
+
+    it('keeps the real `b/` directory in the path', () => {
+      assert.deepStrictEqual(
+        splitPatchByFile(NO_PREFIX_MODIFICATION).map((s) => s.path),
+        ['b/moved.txt']
+      );
+    });
+
+    it('is selectable by its true path', () => {
+      // The defect was silent: the row said `moved.txt`, so selecting the file
+      // the user actually saw applied nothing at all.
+      const filtered = filterPatchByFiles(NO_PREFIX_MODIFICATION, ['b/moved.txt']);
+
+      assert.ok(filtered.length > 0, 'the block survives selection by its true path');
+      assert.ok(filtered.includes('+CHANGED'));
+    });
+
+    it('still strips a genuine a/-b/ prefix pair', () => {
+      // Negative control: the ordinary prefixed shape must keep being stripped.
+      const patch =
+        'diff --git a/kept.txt b/kept.txt\n' +
+        'index 4cb29ea..18e24a3 100644\n' +
+        '--- a/kept.txt\n' +
+        '+++ b/kept.txt\n' +
+        '@@ -1 +1 @@\n-a\n+b\n';
+
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['kept.txt']
+      );
+    });
+
+    it('keeps a real top-level `a/` directory under --no-prefix', () => {
+      // The mirror of the `b/` case: an unprefixed patch whose file lives in a
+      // real `a/` directory must not lose it either.
+      const patch =
+        'diff --git a/moved.txt a/moved.txt\n' +
+        'index 4cb29ea..18e24a3 100644\n' +
+        '--- a/moved.txt\n' +
+        '+++ a/moved.txt\n' +
+        '@@ -1 +1 @@\n-a\n+b\n';
+
+      assert.deepStrictEqual(
+        splitPatchByFile(patch).map((s) => s.path),
+        ['a/moved.txt']
+      );
+    });
+  });
 });
 
 describe('parseAppliedPatchFiles — the three quoting conventions of one run', () => {

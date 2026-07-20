@@ -599,12 +599,17 @@ export interface IPatchFileSegment {
  * resort in a three-arm ladder, each step admitting more ambiguity than the
  * one above it:
  *   1. {@link parseRenameNames} (`rename from`/`rename to`) — one path per
- *      line AND no `a/`-`b/` prefix, so it survives `--no-prefix` too;
- *   2. {@link parsePerSideNames} (`---`/`+++`) — one path per line, but its
- *      prefix is indistinguishable from a real top-level `a/` or `b/`
- *      directory when the patch was made with `--no-prefix`;
- *   3. this header — two paths on one line, ambiguous whenever a name
- *      contains a ` b/` segment.
+ *      line AND no `a/`-`b/` prefix, so it survives `--no-prefix` too. Only a
+ *      rename carries these lines;
+ *   2. {@link parsePerSideNames} (`---`/`+++`) — one path per line. A prefix
+ *      is stripped only when the two sides carry the PAIR git writes (`a/`
+ *      then `b/`), so an unprefixed patch of a file in a real top-level `a/`
+ *      or `b/` directory keeps its directory;
+ *   3. {@link resolveAmbiguousHeaderNames} — the header read by pairing the
+ *      two sides rather than greedily, which is what a binary block needs:
+ *      it has neither of the sources above;
+ *   4. this header's regex arms — the greedy last resort, reached only when
+ *      pairing found no single answer.
  * The same order upstream applies: header names fill in only when the
  * content parser left them null (`GitPatchParser.applyPatchInfo` :124-129),
  * and the rename form overrides both (:101-112).
@@ -633,11 +638,14 @@ const GIT_DIFF_HEADER_PATTERNS = [
  * "this form has non-ambiguous parsing, prefer it to other sources").
  *
  * The two disagree under `--no-prefix` (or `diff.noprefix=true`): a rename
- * into a top-level directory named `b` emits `+++ b/moved.txt`, which is
- * indistinguishable from a stripped `b/` prefix, so the per-side arm eats the
- * real directory. `rename to` never carries a prefix, so it is right in both
- * modes. Where both are present and unambiguous they agree, which is what
- * makes preferring this one strictly safer rather than merely different.
+ * into a top-level directory named `b` emits `+++ b/moved.txt`. `rename to`
+ * never carries a prefix, so it is right in both modes. Where both are present
+ * and unambiguous they agree, which is what makes preferring this one strictly
+ * safer rather than merely different.
+ *
+ * Rename lines exist only for renames, so this arm is no remedy for the same
+ * ambiguity in a plain modification — {@link parsePerSideNames} handles that
+ * case on its own.
  */
 function parseRenameNames(block: string): { old: string; new: string } | undefined {
   let oldName: string | undefined;
@@ -675,8 +683,8 @@ function parseRenameNames(block: string): { old: string; new: string } | undefin
  * ordinary removed/added content lines once hunks start.
  */
 function parsePerSideNames(block: string): { old: string; new: string } | undefined {
-  let oldName: string | undefined;
-  let newName: string | undefined;
+  let oldToken: string | undefined;
+  let newToken: string | undefined;
   for (const line of block.split('\n')) {
     if (line.startsWith('@@')) {
       break;
@@ -687,16 +695,28 @@ function parsePerSideNames(block: string): { old: string; new: string } | undefi
     }
     const tab = line.indexOf('\t');
     const token = line.slice(4, tab === -1 ? undefined : tab);
-    const name = token === '/dev/null' ? token : stripPatchPathPrefix(unquoteCStylePath(token));
-    if (side === 'old' && oldName === undefined) {
-      oldName = name;
-    } else if (side === 'new' && newName === undefined) {
-      newName = name;
+    const value = token === '/dev/null' ? token : unquoteCStylePath(token);
+    if (side === 'old' && oldToken === undefined) {
+      oldToken = value;
+    } else if (side === 'new' && newToken === undefined) {
+      newToken = value;
     }
   }
-  return oldName !== undefined && newName !== undefined
-    ? { old: oldName, new: newName }
-    : undefined;
+  if (oldToken === undefined || newToken === undefined) {
+    return undefined;
+  }
+  // Strip only when BOTH sides carry the prefix git pairs them in: `a/` on the
+  // old side and `b/` on the new. An unprefixed patch of a file in a real
+  // top-level `b/` directory emits `b/` on both sides, which fails this test
+  // and so keeps its directory. A side that is /dev/null carries no prefix to
+  // judge, so the other side decides alone.
+  const oldPrefixed = oldToken === '/dev/null' || oldToken.startsWith('a/');
+  const newPrefixed = newToken === '/dev/null' || newToken.startsWith('b/');
+  const prefixed = oldPrefixed && newPrefixed;
+  return {
+    old: prefixed && oldToken !== '/dev/null' ? stripPatchPathPrefix(oldToken) : oldToken,
+    new: prefixed && newToken !== '/dev/null' ? stripPatchPathPrefix(newToken) : newToken,
+  };
 }
 
 /**
@@ -720,6 +740,61 @@ function parseGitDiffHeaderNames(header: string): { old: string; new: string } |
     }
   }
   return undefined;
+}
+
+/**
+ * Every way `a/<old> b/<new>` can be read out of an unquoted `diff --git`
+ * header, in the order the split points appear.
+ *
+ * A name containing a literal ` b/` makes several splits well-formed, which is
+ * why the regex arms above take the greedy one and can be wrong. Enumerating
+ * instead lets {@link resolveAmbiguousHeaderNames} judge the candidates.
+ */
+function enumerateHeaderReadings(rest: string): { old: string; new: string }[] {
+  const readings: { old: string; new: string }[] = [];
+  if (!rest.startsWith('a/')) {
+    return readings;
+  }
+  for (let i = rest.indexOf(' '); i !== -1; i = rest.indexOf(' ', i + 1)) {
+    const right = rest.slice(i + 1);
+    if (right.startsWith('b/')) {
+      readings.push({ old: rest.slice(2, i), new: right.slice(2) });
+    }
+  }
+  return readings;
+}
+
+/**
+ * Pick the right reading of an ambiguous `diff --git` header, or `undefined`
+ * when the header genuinely cannot be resolved from the patch text.
+ *
+ * The trigger is a path holding a ` b/` SEGMENT — a space immediately before
+ * `b/` — in a block carrying neither rename lines nor `---`/`+++` lines. The
+ * greedy patterns above backtrack group 1 to the LAST space followed by `b/`,
+ * so `a/x b/pic.bin b/x b/pic.bin` reads as old `x b/pic.bin b/x`, new
+ * `pic.bin`. A header with one space has one available split and greed cannot
+ * err, which is why a plain `b/` directory parses correctly. Binary blocks and
+ * pure mode changes are the two shapes that reach here, since the ladder above
+ * has nothing to offer either.
+ *
+ * Upstream git4idea has no disambiguator here, so completing the ladder cannot
+ * close this; the resolution has to come from a property of the header itself.
+ *
+ * That property is the pairing: for anything other than a rename the two sides
+ * name the SAME path, and a rename that reaches this arm at all is one git
+ * declined to mark as a rename. So when exactly one reading has matching sides,
+ * it is the intended one. When several do, or none does, the header is
+ * genuinely ambiguous and is reported rather than guessed at — a wrong guess
+ * silently applies a file the user did not choose.
+ */
+function resolveAmbiguousHeaderNames(header: string): { old: string; new: string } | undefined {
+  const rest = header.slice('diff --git '.length);
+  const readings = enumerateHeaderReadings(rest);
+  if (readings.length === 1) {
+    return readings[0];
+  }
+  const paired = readings.filter((reading) => reading.old === reading.new);
+  return paired.length === 1 ? paired[0] : undefined;
 }
 
 /**
@@ -749,9 +824,14 @@ export function splitPatchByFile(content: string): IPatchFileSegment[] {
   for (const block of blocks) {
     const header = block.slice(0, block.indexOf('\n') === -1 ? undefined : block.indexOf('\n'));
     // Precedence: rename lines, then per-side lines, then the header. Each
-    // step down admits more ambiguity than the one above it.
+    // step down admits more ambiguity than the one above it. The header is
+    // resolved by pairing before the greedy patterns get a say, so a name
+    // containing ` b/` is read correctly instead of plausibly.
     const names =
-      parseRenameNames(block) ?? parsePerSideNames(block) ?? parseGitDiffHeaderNames(header);
+      parseRenameNames(block) ??
+      parsePerSideNames(block) ??
+      resolveAmbiguousHeaderNames(header) ??
+      parseGitDiffHeaderNames(header);
     if (!names) {
       continue;
     }
