@@ -168,6 +168,17 @@ describe('source-scan lexer', () => {
       );
     });
 
+    it('does not let an escaped quote terminate a string', () => {
+      // The escape branch has two jobs: preserving an escaped newline, and
+      // stopping `\'` from closing the literal. Only the first is observable
+      // through the newline invariants, so without this the branch could be
+      // deleted and the rest of the line would silently become code.
+      const views = scanSource("const s = 'it\\'s secretBody';\n");
+
+      assert.ok(!views.code.includes('secretBody'), 'the literal runs to the real closing quote');
+      assert.ok(views.codeWithStrings.includes('secretBody'), 'and its body is still readable');
+    });
+
     it('blanks code in the comments view', () => {
       const views = scanSource('const uniqueIdentifier = 1;\n');
 

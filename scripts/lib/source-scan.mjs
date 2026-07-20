@@ -15,9 +15,13 @@
  * Regex literals are lexed as their own context, so a quote character inside
  * one (`/["']/`) cannot open string mode. Their bodies are masked like string
  * bodies. Whether a `/` opens a regex or is division is decided from the last
- * significant token, which is the standard heuristic rather than a parse: after
- * an identifier, number, `)` or `]` a `/` is division, otherwise it opens a
- * regex. The one shape that misreads is a regex immediately after `)`, as in
+ * significant token, which is the standard heuristic rather than a parse: a `/`
+ * following a token that PRODUCES A VALUE divides, and otherwise opens a regex.
+ * That covers identifiers, numbers, `)`, `]` and a postfix `++` / `--`, but not
+ * the keywords in REGEX_PRECEDING_KEYWORDS, which look like identifiers yet
+ * produce no value. `return /re/` is a regex, not a division; dropping that
+ * branch as redundant would blind the scanner to the rest of the line.
+ * The one shape that misreads is a regex immediately after `)`, as in
  * `if (x) /re/.test(y)`, which is treated as division; that direction leaves
  * the body scanned as code rather than blanking real code.
  *
