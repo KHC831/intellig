@@ -16,6 +16,7 @@ import { assertNever } from '../utils/assertNever';
 import { escapeHtml } from '../utils/escapeHtml';
 import { initIslandHtml } from '../utils/webviewInit';
 import { sanitizeGitError } from '../git-core/gitError';
+import { validateRemoteName, validateRemoteUrl } from './remoteValidation';
 import {
   asDefineRemoteDialogInbound,
   type IDefineRemoteDialogInit,
@@ -59,19 +60,24 @@ export class DefineRemoteDialog extends BaseWebviewPanel<DefineRemoteDialogOutbo
     }
     return new Promise<IDefineRemoteResult | undefined>((resolve) => {
       this._resolve = resolve;
-      this._panel.onDidDispose(
-        () => {
-          this._finish(undefined);
-        },
-        null,
-        this._disposables
-      );
       this._render();
       this._panel.reveal(vscode.ViewColumn.Active);
     });
   }
 
-  private _finish(value: IDefineRemoteResult | undefined): void {
+  /**
+   * Settle the promise on any teardown, including the user closing the tab.
+   * The base class drains `_disposables` from its own onDidDispose listener,
+   * so a subscription registered there would be disposed mid-delivery and
+   * never fire — resolving from dispose() is the reliable seam.
+   */
+  override dispose(): void {
+    this._settle(undefined);
+    super.dispose();
+  }
+
+  /** Resolve without tearing down (dispose drives teardown). */
+  private _settle(value: IDefineRemoteResult | undefined): void {
     if (this._resolved) {
       return;
     }
@@ -81,6 +87,10 @@ export class DefineRemoteDialog extends BaseWebviewPanel<DefineRemoteDialogOutbo
     if (r) {
       r(value);
     }
+  }
+
+  private _finish(value: IDefineRemoteResult | undefined): void {
+    this._settle(value);
     this.dispose();
   }
 
@@ -221,6 +231,15 @@ export class DefineRemoteDialog extends BaseWebviewPanel<DefineRemoteDialogOutbo
    */
   private async _handleSubmit(candidate: IDefineRemoteResult): Promise<void> {
     if (this._probing) {
+      return;
+    }
+    // The webview validates for feedback, but it is a separate scripting
+    // context: these values become git arguments, so the host re-checks them.
+    const invalid =
+      validateRemoteName(candidate.name, this._request.existingNames, this._request.originalName) ??
+      validateRemoteUrl(candidate.url);
+    if (invalid) {
+      await this.postMessage({ type: 'error', message: invalid });
       return;
     }
     if (!this._probeUrl) {

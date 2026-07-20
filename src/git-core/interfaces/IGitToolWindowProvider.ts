@@ -130,6 +130,12 @@ export interface IConsoleEntry {
   output: string;
   exitCode?: number;
   isError: boolean;
+  /**
+   * Stable identity for an entry whose output arrives over time. The provider
+   * stores a COPY of each entry, so a streaming entry can only be updated in
+   * place if both sides can name it.
+   */
+  id?: string;
 }
 
 // ─── Backward-Compatible Types ───────────────────────────────────────────────
@@ -205,6 +211,18 @@ export interface IGitToolWindowProvider extends vscode.WebviewViewProvider {
    * Clear console entries (preserved for backward compatibility)
    */
   clearConsole(): void;
+
+  /**
+   * Update an already-added console entry in place. Streamed output arrives
+   * after `addConsoleEntry`, and the provider holds a snapshot, so without this
+   * the stored copy keeps the empty string the stream started with.
+   */
+  updateConsoleEntry(update: {
+    id: string;
+    output: string;
+    exitCode?: number;
+    isError?: boolean;
+  }): void;
 
   /**
    * Event fired when the state changes

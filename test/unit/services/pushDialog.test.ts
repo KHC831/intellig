@@ -866,6 +866,167 @@ describe('PushDialog — lifecycle', () => {
     assert.strictEqual(gitService.pushCalls[0].options?.tags, undefined);
   });
 
+  it('does not accept a push submit while the Pull dialog is still open', async () => {
+    installMessageTrackers();
+    const gitService = makeGitService();
+    gitService.push = (repo: IRepository, options?: IPushOptions) => {
+      gitService.pushCalls.push({ repo, options });
+      return errAsync(new SpawnFailedError('! [rejected] main -> main (non-fast-forward)'));
+    };
+    let releasePull: () => void = () => {};
+    const pullDialog = {
+      show: () =>
+        new Promise<undefined>((resolve) => {
+          releasePull = () => resolve(undefined);
+        }),
+    } as unknown as PullDialog;
+
+    const { dialog } = makeDialog({
+      repos: [makeRepo('/repo-a')],
+      gitService,
+      pullDialogAccessor: () => pullDialog,
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    const pushesBeforePull = gitService.pushCalls.length;
+
+    await dialog.simulateMessage({ type: 'pullAndRetry', rowId: '/repo-a' });
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.strictEqual(
+      gitService.pushCalls.length,
+      pushesBeforePull,
+      'a push must not run underneath an open Pull dialog'
+    );
+
+    releasePull();
+    await new Promise((r) => setTimeout(r, 0));
+    dialog.dispose();
+  });
+
+  it('fires onPushComplete for a row that succeeded even while another row still errors', async () => {
+    // The dialog correctly stays open, but a push really happened — the
+    // refresh-on-success callback must still fire.
+    installMessageTrackers();
+    const repoA = makeRepo('/repo-a', { name: 'refs/heads/a', ahead: 2, behind: 3 });
+    const repoB = makeRepo('/repo-b', { name: 'refs/heads/b' });
+    const gitService = makeGitService();
+    let call = 0;
+    gitService.push = (repo: IRepository, options?: IPushOptions) => {
+      gitService.pushCalls.push({ repo, options });
+      call++;
+      if (repo.rootUri.fsPath === '/repo-b') {
+        return errAsync(new SpawnFailedError('fatal: Authentication failed for remote'));
+      }
+      if (call <= 2) {
+        return errAsync(new SpawnFailedError('! [rejected] a -> a (non-fast-forward)'));
+      }
+      return okAsync(undefined);
+    };
+    let completions = 0;
+    const { dialog } = makeDialog({
+      repos: [repoA, repoB],
+      gitService,
+      onPushComplete: () => {
+        completions++;
+      },
+    });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    assert.strictEqual(completions, 0, 'nothing succeeded yet');
+
+    await dialog.simulateMessage({ type: 'forceWithLease-row', rowId: '/repo-a' });
+
+    assert.strictEqual(completions, 1, 'a successful push must notify even if a row still errors');
+    assert.strictEqual(dialog.disposed(), false, 'and the dialog still stays open');
+    dialog.dispose();
+  });
+
+  it('a per-row force retry does not close the dialog while another row still has an error', async () => {
+    // 2 repos: A fails non-ff, B fails auth. Forcing A must not dispose the
+    // dialog — B's failure banner would vanish with it, unreported.
+    installMessageTrackers();
+    const repoA = makeRepo('/repo-a', { name: 'refs/heads/a', ahead: 2, behind: 3 });
+    const repoB = makeRepo('/repo-b', { name: 'refs/heads/b' });
+    const gitService = makeGitService();
+    let call = 0;
+    gitService.push = (repo: IRepository, options?: IPushOptions) => {
+      gitService.pushCalls.push({ repo, options });
+      call++;
+      if (repo.rootUri.fsPath === '/repo-b') {
+        return errAsync(new SpawnFailedError('fatal: Authentication failed for remote'));
+      }
+      if (call <= 2) {
+        return errAsync(new SpawnFailedError('! [rejected] a -> a (non-fast-forward)'));
+      }
+      return okAsync(undefined);
+    };
+
+    const { dialog } = makeDialog({ repos: [repoA, repoB], gitService });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.ok(
+      dialog.rows.every((r) => r.error),
+      'precondition: both rows failed'
+    );
+
+    await dialog.simulateMessage({ type: 'forceWithLease-row', rowId: '/repo-a' });
+
+    assert.strictEqual(dialog.disposed(), false, 'the dialog stays open while a row still errors');
+    const rowB = dialog.rows.find((r) => r.id === '/repo-b');
+    assert.ok(rowB?.error, "the other row's failure banner survives");
+    dialog.dispose();
+  });
+
+  it('a user-chosen primary action survives an unrelated row edit', async () => {
+    // A diverged row defaults to forceWithLease; the user deliberately picks
+    // plain Push. Any later row edit must not silently re-arm the force push.
+    installMessageTrackers();
+    const { dialog } = makeDialog({ repos: [makeRepo('/repo-a', { ahead: 2, behind: 3 })] });
+    await dialog.waitUntilPopulated();
+    assert.strictEqual(dialog.primaryAction, 'forceWithLease', 'precondition: default is force');
+
+    await dialog.simulateMessage({ type: 'updateOverflow', action: 'push' });
+    assert.strictEqual(dialog.primaryAction, 'push', 'the user choice took effect');
+
+    await dialog.simulateMessage({
+      type: 'updateRow',
+      rowId: '/repo-a',
+      rowPatch: { targetBranch: 'feature-renamed' },
+    });
+
+    assert.strictEqual(
+      dialog.primaryAction,
+      'push',
+      'an unrelated row edit must not clobber the user-chosen action'
+    );
+    dialog.dispose();
+  });
+
+  it('preselectForce survives the first row edit', async () => {
+    installMessageTrackers();
+    const { dialog } = makeDialog({
+      repos: [makeRepo('/repo-a', { ahead: 2, behind: 0 })],
+      preselectForce: 'force-with-lease',
+    });
+    await dialog.waitUntilPopulated();
+    assert.strictEqual(dialog.primaryAction, 'forceWithLease');
+
+    await dialog.simulateMessage({
+      type: 'updateRow',
+      rowId: '/repo-a',
+      rowPatch: { targetBranch: 'feature-renamed' },
+    });
+
+    assert.strictEqual(
+      dialog.primaryAction,
+      'forceWithLease',
+      'a caller-preselected force action must not be reset by a row edit'
+    );
+    dialog.dispose();
+  });
+
   it('target edit through updateRow produces a refspec in the push options', async () => {
     installMessageTrackers();
     const { dialog, gitService } = makeDialog({ repos: [makeRepo('/repo-a')] });

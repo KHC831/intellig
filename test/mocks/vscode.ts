@@ -7,33 +7,76 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-// Mock EventEmitter
-export class EventEmitter<T> {
-  private listeners: ((e: T) => void)[] = [];
+// Mock EventEmitter — mirrors the real API: `event` accepts thisArgs and a
+// disposables sink, and `fire` delivers to a snapshot, skipping subscriptions
+// disposed during that delivery.
+interface Subscription<T> {
+  listener: (e: T) => void;
+  thisArgs: unknown;
+  disposed: boolean;
+}
 
-  event = (listener: (e: T) => void): { dispose: () => void } => {
-    this.listeners.push(listener);
-    return {
+export class EventEmitter<T> {
+  private subscriptions: Subscription<T>[] = [];
+  /** Errors thrown by listeners during delivery — the real Emitter reports these to onUnexpectedError. */
+  readonly listenerErrors: unknown[] = [];
+
+  event = (
+    listener: (e: T) => void,
+    thisArgs?: unknown,
+    disposables?: { dispose: () => void }[]
+  ): { dispose: () => void } => {
+    const subscription: Subscription<T> = { listener, thisArgs, disposed: false };
+    this.subscriptions.push(subscription);
+    const disposable = {
       dispose: () => {
-        const index = this.listeners.indexOf(listener);
+        if (subscription.disposed) {
+          return;
+        }
+        subscription.disposed = true;
+        const index = this.subscriptions.indexOf(subscription);
         if (index >= 0) {
-          this.listeners.splice(index, 1);
+          this.subscriptions.splice(index, 1);
         }
       },
     };
+    disposables?.push(disposable);
+    return disposable;
   };
 
+  /** Live subscription count — the seam leak-detection specs assert on. */
+  get listenerCount(): number {
+    return this.subscriptions.length;
+  }
+
   fire(data: T): void {
-    this.listeners.forEach((listener) => listener(data));
+    for (const subscription of [...this.subscriptions]) {
+      if (subscription.disposed) {
+        continue;
+      }
+      try {
+        subscription.listener.call(subscription.thisArgs, data);
+        // eslint-disable-next-line no-restricted-syntax -- the real Emitter routes a listener error to onUnexpectedError and keeps delivering; swallowing here preserves that so one bad subscriber cannot starve its siblings under test.
+      } catch (err) {
+        this.listenerErrors.push(err);
+      }
+    }
   }
 
   dispose(): void {
-    this.listeners = [];
+    for (const subscription of this.subscriptions) {
+      subscription.disposed = true;
+    }
+    this.subscriptions = [];
   }
 }
 
 // Mock Event type
-export type Event<T> = (listener: (e: T) => void) => { dispose: () => void };
+export type Event<T> = (
+  listener: (e: T) => void,
+  thisArgs?: unknown,
+  disposables?: { dispose: () => void }[]
+) => { dispose: () => void };
 
 // Mock ConfigurationTarget enum
 export enum ConfigurationTarget {
@@ -854,7 +897,7 @@ export const window = {
 
     const postedMessages: unknown[] = [];
 
-    const webview: Webview & { _posted: unknown[] } = {
+    const webview: Webview & { _posted: unknown[]; _messageEmitter: EventEmitter<unknown> } = {
       html: '',
       options: _options ?? {},
       cspSource: 'vscode-webview://mock',
@@ -865,6 +908,7 @@ export const window = {
       },
       asWebviewUri: (localResource: Uri): Uri => localResource,
       _posted: postedMessages,
+      _messageEmitter: messageEmitter,
     };
 
     let disposeCallCount = 0;
@@ -875,6 +919,7 @@ export const window = {
       _revealCallCount: number;
       _fireMessage: (message: unknown) => void;
       _fireViewState: (visible?: boolean) => void;
+      _disposeEmitter: EventEmitter<void>;
     } = {
       viewType,
       title,
@@ -896,6 +941,7 @@ export const window = {
       },
       _disposeCallCount: 0,
       _revealCallCount: 0,
+      _disposeEmitter: disposeEmitter,
       _fireMessage: (message: unknown): void => {
         messageEmitter.fire(message);
       },

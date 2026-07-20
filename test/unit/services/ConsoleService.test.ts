@@ -5,10 +5,14 @@
 import '../../setup';
 import * as assert from 'assert';
 import type * as vscode from 'vscode';
-import { ConsoleService, createConsoleService } from '../../../src/ui-shell/ConsoleService';
+import {
+  ConsoleService,
+  createConsoleService,
+  capConsoleOutput,
+} from '../../../src/ui-shell/ConsoleService';
 import { GitCli, IGitCommandResult } from '../../../src/git-core/gitCli';
 import { IConsoleEntry, IGitToolWindowProvider } from '../../../src/services/interfaces';
-import { EventEmitter } from '../../mocks/vscode';
+import { EventEmitter, window as mockWindow } from '../../mocks/vscode';
 
 // Stub OutputChannel that records written lines and reveal calls so tests
 // can assert what the Console surface emitted.
@@ -48,6 +52,7 @@ class StubOutputChannel {
 class MockGitToolWindowProvider implements Partial<IGitToolWindowProvider> {
   public entries: Array<Omit<IConsoleEntry, 'timestamp'>> = [];
   public refreshCount = 0;
+  public updateCount = 0;
   public clearCount = 0;
 
   addConsoleEntry(entry: Omit<IConsoleEntry, 'timestamp'>): void {
@@ -57,6 +62,26 @@ class MockGitToolWindowProvider implements Partial<IGitToolWindowProvider> {
   clearConsole(): void {
     this.entries = [];
     this.clearCount++;
+  }
+
+  updateConsoleEntry(update: {
+    id: string;
+    output: string;
+    exitCode?: number;
+    isError?: boolean;
+  }): void {
+    this.updateCount++;
+    const entry = this.entries.find((e) => e.id === update.id);
+    if (!entry) {
+      return;
+    }
+    entry.output = update.output;
+    if (update.exitCode !== undefined) {
+      entry.exitCode = update.exitCode;
+    }
+    if (update.isError !== undefined) {
+      entry.isError = update.isError;
+    }
   }
 
   refresh(): void {
@@ -76,6 +101,10 @@ class MockGitCli {
 
   fireCommandExecuted(command: string, args: string[], result: IGitCommandResult): void {
     this._onCommandExecuted.fire({ command, args, result });
+  }
+
+  get listenerCount(): number {
+    return this._onCommandExecuted.listenerCount;
   }
 
   dispose(): void {
@@ -247,6 +276,24 @@ describe('ConsoleService', () => {
   });
 
   describe('connectToGitCli', () => {
+    it('registers no listener once the service is disposed', () => {
+      // dispose() drains _disposables, so a subscription pushed afterwards has
+      // no owner left to unregister it: the emitter would hold the retired
+      // service alive for the emitter's lifetime.
+      const mockGitCli = new MockGitCli();
+      consoleService.dispose();
+
+      consoleService.connectToGitCli(mockGitCli as unknown as GitCli);
+
+      assert.strictEqual(
+        mockGitCli.listenerCount,
+        0,
+        'a disposed service must not subscribe to the GitCli emitter'
+      );
+
+      mockGitCli.dispose();
+    });
+
     it('should capture Git command output from GitCli', () => {
       const mockGitCli = new MockGitCli();
       consoleService.connectToGitCli(mockGitCli as unknown as GitCli);
@@ -342,10 +389,12 @@ describe('ConsoleService', () => {
       const mockProvider = new MockGitToolWindowProvider();
       consoleService.connectToToolWindow(mockProvider as unknown as IGitToolWindowProvider);
 
+      // connectToToolWindow clears before replaying, so measure the delta.
+      const clearsAfterConnect = mockProvider.clearCount;
       consoleService.logCommand('git status', 'output');
       consoleService.clear();
 
-      assert.strictEqual(mockProvider.clearCount, 1);
+      assert.strictEqual(mockProvider.clearCount - clearsAfterConnect, 1);
       assert.strictEqual(mockProvider.entries.length, 0);
     });
   });
@@ -509,14 +558,25 @@ describe('ConsoleService', () => {
       assert.strictEqual(entries[0].exitCode, 1);
     });
 
-    it('should refresh tool window on streaming updates', () => {
+    it('should push one coalesced entry update per window on streaming updates', async () => {
+      // Not refresh(): the provider holds a snapshot copy, so a bare refresh
+      // re-renders the empty output the stream started with. The targeted
+      // update seam is what actually surfaces streamed bytes.
       const mockProvider = new MockGitToolWindowProvider();
       consoleService.connectToToolWindow(mockProvider as unknown as IGitToolWindowProvider);
+      const before = mockProvider.updateCount;
 
       const handler = consoleService.startStreaming('git clone');
       handler.onData('output');
+      handler.onData('more output');
 
-      assert.ok(mockProvider.refreshCount > 0);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      assert.strictEqual(
+        mockProvider.updateCount - before,
+        1,
+        'two chunks inside one window produce a single entry update'
+      );
     });
   });
 
@@ -651,9 +711,361 @@ describe('ConsoleService output cap', () => {
     assert.ok(entry.output.endsWith('TAIL_MARKER'), 'tail survives');
   });
 
-  it('marks the elision so truncated output never reads as complete', () => {
+  it('states the exact number of characters elided', () => {
     const entry = serviceWithEntry('x'.repeat(5_000_000));
 
-    assert.match(entry.output, /truncated|…/);
+    // 5,000,000 in, 10,000 retained => exactly 4,990,000 dropped.
+    assert.ok(
+      entry.output.includes('… 4990000 characters truncated …'),
+      `marker must carry the true count, got: ${entry.output.slice(2990, 3060)}`
+    );
+  });
+
+  it('never splits a surrogate pair when slicing', () => {
+    // Emoji are 2 code units, so a fixed code-unit cut lands mid-pair.
+    const output = 'a' + '😀'.repeat(7000);
+
+    const capped = capConsoleOutput(output);
+
+    assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(capped), 'no lone high surrogate');
+    assert.ok(!/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(capped), 'no lone low surrogate');
+    assert.ok(!capped.includes('\uFFFD'), 'no replacement characters');
+  });
+});
+
+describe('capConsoleOutput boundaries', () => {
+  const CAP = 10000;
+  const THRESHOLD = CAP * 1.2;
+
+  it('returns an output at the elision threshold unchanged', () => {
+    const output = 'x'.repeat(THRESHOLD);
+
+    assert.strictEqual(capConsoleOutput(output), output);
+  });
+
+  it('elides one character past the threshold to an exact string', () => {
+    const output = 'x'.repeat(THRESHOLD + 1);
+
+    const capped = capConsoleOutput(output);
+
+    // 12001 in, 3000 head + 7000 tail retained => exactly 2001 dropped.
+    assert.strictEqual(
+      capped,
+      `${'x'.repeat(3000)}\n… 2001 characters truncated …\n${'x'.repeat(7000)}`
+    );
+  });
+
+  it('retains a 30% head and a 70% tail around the marker', () => {
+    const head = 'H'.repeat(3000);
+    const tail = 'T'.repeat(7000);
+    const output = `${head}${'x'.repeat(100_000)}${tail}`;
+
+    const capped = capConsoleOutput(output);
+
+    assert.ok(capped.startsWith(head), 'the 30% head is retained verbatim');
+    assert.ok(capped.endsWith(tail), 'the 70% tail is retained verbatim');
+    assert.match(capped, /… \d+ characters truncated …/);
+  });
+
+  it('is idempotent — capping an already-capped output changes nothing', () => {
+    const capped = capConsoleOutput('x'.repeat(5_000_000));
+
+    assert.strictEqual(capConsoleOutput(capped), capped);
+  });
+
+  it('handles an empty output', () => {
+    assert.strictEqual(capConsoleOutput(''), '');
+  });
+});
+
+describe('ConsoleService streaming entry identity', () => {
+  const created: ConsoleService[] = [];
+
+  afterEach(() => {
+    // Every service holds a coalescing timer; leaving them pending leaks into
+    // sibling suites and can keep the process alive.
+    while (created.length > 0) {
+      created.pop()?.dispose();
+    }
+  });
+
+  function connectedService(maxEntries: number): {
+    service: ConsoleService;
+    provider: MockGitToolWindowProvider;
+  } {
+    const service = new ConsoleService(
+      maxEntries,
+      new StubOutputChannel() as unknown as vscode.OutputChannel
+    );
+    const provider = new MockGitToolWindowProvider();
+    service.connectToToolWindow(provider as unknown as IGitToolWindowProvider);
+    created.push(service);
+    return { service, provider };
+  }
+
+  it('streams into its own entry when the entry cap has already been reached', () => {
+    const { service } = connectedService(3);
+    service.logCommand('git one', 'a');
+    service.logCommand('git two', 'b');
+    service.logCommand('git three', 'c');
+
+    const handler = service.startStreaming('git clone');
+    handler.onData('CLONE_BYTES');
+    handler.onComplete(0);
+
+    const entries = service.getEntries();
+    const streamed = entries.find((e) => e.command === 'git clone');
+    assert.ok(streamed, 'the streaming entry survives the trim');
+    assert.strictEqual(
+      streamed.output,
+      'CLONE_BYTES',
+      'streamed bytes land on the streaming entry'
+    );
+    assert.strictEqual(streamed.exitCode, 0, 'exit code stamps the streaming entry');
+  });
+
+  it('streams into its own entry when a later command trims the array beneath it', () => {
+    const { service } = connectedService(2);
+
+    const handler = service.startStreaming('git clone');
+    service.logCommand('git two', 'b');
+    service.logCommand('git three', 'c');
+
+    handler.onData('CLONE_BYTES');
+    handler.onComplete(0);
+
+    const entries = service.getEntries();
+    const other = entries.find((e) => e.command !== 'git clone');
+    assert.ok(other, 'a non-streaming entry is present');
+    assert.ok(
+      !other.output.includes('CLONE_BYTES'),
+      'streamed bytes must never append to an unrelated command'
+    );
+    assert.strictEqual(other.exitCode, undefined, 'exit code must not stamp an unrelated command');
+  });
+
+  it('does not resurrect a streaming entry after clear()', () => {
+    const { service } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+    service.clear();
+
+    handler.onData('CLONE_BYTES');
+    handler.onComplete(0);
+
+    assert.deepStrictEqual(service.getEntries(), [], 'clear() stays cleared');
+  });
+
+  it('caps streamed output so a chatty clone cannot grow an entry without bound', () => {
+    const { service } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+
+    for (let i = 0; i < 50; i++) {
+      handler.onData('x'.repeat(100_000));
+    }
+
+    const entry = service.getEntries()[0];
+    assert.ok(
+      entry.output.length < 20000,
+      `streamed output must stay bounded, got ${entry.output.length}`
+    );
+  });
+
+  it('caps streamed output appended via onError too', () => {
+    const { service } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+
+    handler.onData('x'.repeat(5_000_000));
+    handler.onError(new Error('boom'));
+
+    const entry = service.getEntries()[0];
+    assert.ok(entry.output.length < 20000, 'output stays bounded after onError');
+    assert.ok(entry.output.includes('boom'), 'the error reason survives at the tail');
+  });
+
+  it('delivers streamed bytes to the PROVIDER, not just to its own entry', async () => {
+    // The provider stores a COPY taken when the stream started (output ''), so
+    // a bare refresh() re-renders that snapshot forever. Assert the user-visible
+    // side actually receives the bytes.
+    const { service, provider } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+
+    handler.onData('CLONE_BYTES');
+    handler.onComplete(0);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    const providerEntry = provider.entries.find((e) => e.command === 'git clone');
+    assert.ok(providerEntry, 'the provider has the streaming entry');
+    assert.ok(
+      providerEntry.output.includes('CLONE_BYTES'),
+      `provider output must carry the stream, got ${JSON.stringify(providerEntry.output)}`
+    );
+    assert.strictEqual(providerEntry.exitCode, 0, 'and the exit code');
+  });
+
+  it('delivers the failure flag to the provider when a stream exits non-zero', async () => {
+    // isError is what colours the row red. It travels the same seam as the
+    // bytes, so a regression that stopped propagating it would otherwise be
+    // invisible to every spec here.
+    const { service, provider } = connectedService(10);
+    const handler = service.startStreaming('git push');
+
+    handler.onData('rejected');
+    handler.onComplete(1);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    const providerEntry = provider.entries.find((e) => e.command === 'git push');
+    assert.ok(providerEntry, 'the provider has the streaming entry');
+    assert.strictEqual(providerEntry.isError, true, 'a failed stream must arrive flagged');
+  });
+
+  it('does not force a full data reload for a console-only stream update', async () => {
+    const { service, provider } = connectedService(10);
+    const refreshesBefore = provider.refreshCount;
+
+    const handler = service.startStreaming('git clone');
+    for (let i = 0; i < 50; i++) {
+      handler.onData('chunk');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    assert.strictEqual(
+      provider.refreshCount,
+      refreshesBefore,
+      'a console-only update must not fire the provider-wide refresh'
+    );
+    assert.ok(provider.updateCount > 0, 'it goes through the targeted update seam instead');
+  });
+
+  it('coalesces tool-window updates across a burst of chunks', async () => {
+    const { service, provider } = connectedService(10);
+    const before = provider.updateCount;
+
+    const handler = service.startStreaming('git clone');
+    for (let i = 0; i < 200; i++) {
+      handler.onData('chunk');
+    }
+
+    const during = provider.updateCount - before;
+    assert.ok(during <= 5, `a 200-chunk burst must not update per chunk, got ${during}`);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.ok(provider.updateCount - before > 0, 'the burst is still flushed to the tool window');
+    const entry = provider.entries.find((e) => e.command === 'git clone');
+    assert.ok(entry && entry.output.length > 0, 'and the flushed update carries the bytes');
+  });
+
+  it('reports the true elided total across a long stream', () => {
+    const { service } = connectedService(10);
+    const handler = service.startStreaming('git clone');
+    for (let i = 0; i < 50; i++) {
+      handler.onData('x'.repeat(100_000));
+    }
+
+    // Cross-check the streamed result against the one-shot cap over the same
+    // input. A loose lower bound would let a 990k accounting error pass.
+    const entry = service.getEntries()[0];
+    assert.strictEqual(
+      entry.output,
+      capConsoleOutput('x'.repeat(50 * 100_000)),
+      'a stream must land byte-identical to logging the same bytes at once'
+    );
+  });
+
+  it('no path on a disposed service builds an OutputChannel or regrows entries', () => {
+    // _getOutputChannel() is reachable from logCommand, logError, startStreaming,
+    // showConsole and connectToToolWindow — not only the stream callbacks.
+    let created = 0;
+    const win = mockWindow as unknown as { createOutputChannel: unknown };
+    const originalCreate = win.createOutputChannel;
+    win.createOutputChannel = (): unknown => {
+      created++;
+      return new StubOutputChannel();
+    };
+    try {
+      const service = new ConsoleService(
+        10,
+        new StubOutputChannel() as unknown as vscode.OutputChannel
+      );
+      const provider = new MockGitToolWindowProvider();
+      service.dispose();
+
+      service.logCommand('git status', 'out', 0);
+      service.logError('git status', new Error('boom'));
+      const handler = service.startStreaming('git clone');
+      handler.onData('bytes');
+      handler.onComplete(0);
+      service.showConsole();
+      service.connectToToolWindow(provider as unknown as IGitToolWindowProvider);
+
+      assert.strictEqual(created, 0, 'a disposed service must never build an OutputChannel');
+      assert.strictEqual(service.getEntries().length, 0, 'entries must not regrow after dispose');
+      assert.strictEqual(provider.entries.length, 0, 'a provider must not re-attach after dispose');
+    } finally {
+      win.createOutputChannel = originalCreate;
+    }
+  });
+
+  it('does not resurrect the output channel after dispose', () => {
+    // dispose() drops the channel; a late chunk from an in-flight stream must
+    // not lazily create a replacement that nothing will ever dispose.
+    let created = 0;
+    const win = mockWindow as unknown as { createOutputChannel: unknown };
+    const originalCreate = win.createOutputChannel;
+    win.createOutputChannel = (): unknown => {
+      created++;
+      return new StubOutputChannel();
+    };
+    try {
+      const service = new ConsoleService(
+        10,
+        new StubOutputChannel() as unknown as vscode.OutputChannel
+      );
+      const handler = service.startStreaming('git clone');
+      service.dispose();
+
+      handler.onData('late');
+      handler.onComplete(0);
+      handler.onError(new Error('late failure'));
+
+      assert.strictEqual(created, 0, 'a disposed service must not create an OutputChannel');
+    } finally {
+      win.createOutputChannel = originalCreate;
+    }
+  });
+
+  it('ignores late streaming callbacks after dispose', () => {
+    // Asserting only on getEntries() would be tautological: dispose() empties
+    // them and onData never touched them. Assert the observable side effects.
+    const channel = new StubOutputChannel();
+    const service = new ConsoleService(10, channel as unknown as vscode.OutputChannel);
+    const provider = new MockGitToolWindowProvider();
+    service.connectToToolWindow(provider as unknown as IGitToolWindowProvider);
+    const handler = service.startStreaming('git clone');
+    const appendsBefore = channel.lines.length;
+    const refreshesBefore = provider.refreshCount;
+    service.dispose();
+
+    handler.onData('late');
+    handler.onComplete(0);
+    handler.onError(new Error('late failure'));
+
+    assert.strictEqual(channel.lines.length, appendsBefore, 'nothing is appended after dispose');
+    assert.strictEqual(provider.refreshCount, refreshesBefore, 'no refresh is scheduled');
+    assert.deepStrictEqual(service.getEntries(), []);
+  });
+
+  it('does not duplicate entries when the tool window re-registers', () => {
+    const service = new ConsoleService(
+      100,
+      new StubOutputChannel() as unknown as vscode.OutputChannel
+    );
+    service.logCommand('git one', 'a');
+    service.logCommand('git two', 'b');
+
+    const provider = new MockGitToolWindowProvider();
+    service.connectToToolWindow(provider as unknown as IGitToolWindowProvider);
+    service.connectToToolWindow(provider as unknown as IGitToolWindowProvider);
+
+    assert.strictEqual(provider.entries.length, 2, 're-registration replays each entry once');
   });
 });

@@ -116,6 +116,24 @@ describe('GitToolWindowProvider', () => {
     });
   });
 
+  describe('updateConsoleEntry', () => {
+    it('should fire onDidChangeState event, like its sibling mutators', (done) => {
+      provider.addConsoleEntry({
+        id: 'stream-1',
+        command: 'git clone',
+        output: '',
+        isError: false,
+      });
+
+      const disposable = provider.onDidChangeState(() => {
+        disposable.dispose();
+        done();
+      });
+
+      provider.updateConsoleEntry({ id: 'stream-1', output: 'bytes', exitCode: 0 });
+    });
+  });
+
   describe('setHasRepository', () => {
     it('should set hasRepository to true', () => {
       provider.setHasRepository(true);

@@ -71,22 +71,25 @@ export class CommitMessageDialog extends BaseWebviewPanel<CommitMessageDialogOut
     }
     return new Promise<string | undefined>((resolve) => {
       this._resolve = resolve;
-      // If the user closes the panel via the tab's X (or the host
-      // disposes it for any reason), resolve with undefined so the
-      // caller's `if (msg === undefined) return;` branch fires.
-      this._panel.onDidDispose(
-        () => {
-          this._finish(undefined);
-        },
-        null,
-        this._disposables
-      );
       this._render();
       this._panel.reveal(vscode.ViewColumn.Active);
     });
   }
 
-  private _finish(value: string | undefined): void {
+  /**
+   * Settle the promise on any teardown, including the user closing the tab
+   * via the X. The base class drains `_disposables` from its own
+   * onDidDispose listener, so a subscription registered there would be
+   * disposed mid-delivery and never fire — resolving from dispose() is the
+   * reliable seam.
+   */
+  override dispose(): void {
+    this._settle(undefined);
+    super.dispose();
+  }
+
+  /** Resolve without tearing down (dispose drives teardown). */
+  private _settle(value: string | undefined): void {
     if (this._resolved) {
       return;
     }
@@ -96,9 +99,10 @@ export class CommitMessageDialog extends BaseWebviewPanel<CommitMessageDialogOut
     if (r) {
       r(value);
     }
-    // Dispose only once — onDidDispose feeds back into _finish via
-    // the `undefined` path, which is a no-op because `_resolved` is
-    // true.
+  }
+
+  private _finish(value: string | undefined): void {
+    this._settle(value);
     this.dispose();
   }
 

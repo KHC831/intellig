@@ -221,3 +221,82 @@ describe('BaseWebviewPanel', () => {
     }
   });
 });
+
+/**
+ * Disposal/leak coverage for the panel envelope.
+ *
+ * These assertions were UNWRITABLE until the `vscode` mock's EventEmitter
+ * honoured the `disposables` sink: every subscription BaseWebviewPanel makes
+ * is registered as `event(cb, null, this._disposables)`, and with the sink
+ * ignored the disposables array stayed empty, so nothing could be observed to
+ * leak or to be released. They pin that dispose() actually releases the
+ * panel's subscriptions rather than merely marking the object disposed.
+ */
+describe('BaseWebviewPanel subscription lifetime', () => {
+  let ctx: vscode.ExtensionContext;
+
+  beforeEach(() => {
+    ctx = makeContext();
+  });
+
+  interface RawPanel {
+    webview: { _messageEmitter: { listenerCount: number } };
+    _fireMessage: (m: unknown) => void;
+    _disposeEmitter: { listenerCount: number };
+  }
+
+  function panelOf(p: BaseWebviewPanel): RawPanel {
+    return (p as unknown as { _panel: unknown })._panel as RawPanel;
+  }
+
+  it('routes an inbound message before dispose', () => {
+    const panel = new TestPanel(ctx);
+
+    panelOf(panel)._fireMessage({ type: 'ping' });
+
+    assert.deepStrictEqual(panel.messagesReceived, [{ type: 'ping' }]);
+    panel.dispose();
+  });
+
+  it('stops routing inbound messages once disposed', () => {
+    const panel = new TestPanel(ctx);
+    panel.dispose();
+
+    panelOf(panel)._fireMessage({ type: 'after-dispose' });
+
+    assert.deepStrictEqual(
+      panel.messagesReceived,
+      [],
+      'a disposed panel must not keep handling webview messages'
+    );
+  });
+
+  it('registers its subscriptions into the disposables it drains', () => {
+    const panel = new TestPanel(ctx);
+    const disposables = (panel as unknown as { _disposables: unknown[] })._disposables;
+
+    assert.ok(
+      disposables.length >= 2,
+      `expected the message and dispose subscriptions to be tracked, got ${disposables.length}`
+    );
+    panel.dispose();
+  });
+
+  it('leaves no listener on the panel emitters after dispose', () => {
+    const panel = new TestPanel(ctx);
+    const raw = panelOf(panel);
+
+    panel.dispose();
+
+    assert.strictEqual(
+      raw.webview._messageEmitter.listenerCount,
+      0,
+      'the message subscription must be released'
+    );
+    assert.strictEqual(
+      raw._disposeEmitter.listenerCount,
+      0,
+      'the dispose subscription must be released'
+    );
+  });
+});

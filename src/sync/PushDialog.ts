@@ -636,6 +636,14 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
   private _rows: IPushRow[] = [];
   private _overflow: IPushOverflowState = { ...DEFAULT_PUSH_OVERFLOW };
   private _primaryAction: PushAction = 'push';
+  /**
+   * True once the primary action is pinned by an explicit choice — the user
+   * picking one from the overflow, or a caller passing `preselectForce`. While
+   * false the action tracks the computed default; once true it must survive
+   * every later row edit, because silently recomputing it can re-arm a force
+   * push the user deliberately turned off.
+   */
+  private _primaryActionPinned = false;
   private _busy = false;
 
   constructor(context: vscode.ExtensionContext, options: IPushDialogOptions) {
@@ -649,8 +657,10 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
     this._populateRows(options.repos, options.preselect);
     if (options.preselectForce === 'force-with-lease') {
       this._primaryAction = 'forceWithLease';
+      this._primaryActionPinned = true;
     } else if (options.preselectForce === 'force') {
       this._primaryAction = 'force';
+      this._primaryActionPinned = true;
     } else {
       this._primaryAction = defaultPrimaryAction(this._rows, this._protectedBranches);
     }
@@ -856,6 +866,7 @@ export class PushDialog extends BaseWebviewPanel<PushDialogOutbound> {
       })),
       primaryAction: this._primaryAction,
       primaryLabel: primaryButtonLabel(this._primaryAction),
+      canSubmit: this._rows.some((r) => r.selected),
       anyProtected,
       overflow: {
         noVerify: this._overflow.noVerify,
@@ -933,8 +944,10 @@ ${this._getBodyHtml()}
         }
         this._updateRow(msg.rowId, msg.rowPatch);
         // A target-edit might flip the default primary action (divergence
-        // vs. protected state), so recompute.
-        this._primaryAction = defaultPrimaryAction(this._rows, this._protectedBranches);
+        // vs. protected state), so recompute — unless the action is pinned.
+        if (!this._primaryActionPinned) {
+          this._primaryAction = defaultPrimaryAction(this._rows, this._protectedBranches);
+        }
         // Send an incremental DOM patch rather than a full
         // _render(). Full re-render steals focus mid-edit and drops
         // keystrokes.
@@ -948,6 +961,7 @@ ${this._getBodyHtml()}
         }
         if (msg.action && isPushAction(msg.action)) {
           this._primaryAction = msg.action;
+          this._primaryActionPinned = true;
         }
         // Incremental patch; same rationale as updateRow above. The
         // user's checkbox / radio is already visually toggled by the time
@@ -975,13 +989,24 @@ ${this._getBodyHtml()}
         const prefilledSource = row.upstreamRemote
           ? { remote: row.upstreamRemote, branch: row.targetBranch }
           : undefined;
-        // Fire-and-forget: Pull dialog drives its own UI. After it closes,
-        // the user can click Push again in this dialog.
-        void dialog.show(row.repo, preset, prefilledSource).then(() => {
-          // Clear the per-row error so the banner goes away; user can retry.
-          this._updateRow(row.id, undefined);
-          this._render();
-        });
+        // The Pull dialog drives its own UI, but this dialog stays busy while
+        // it is open so a push cannot be submitted underneath it.
+        this._busy = true;
+        void dialog
+          .show(row.repo, preset, prefilledSource)
+          .then(() => {
+            // Clear the per-row error so the banner goes away; user can retry.
+            this._updateRow(row.id, undefined);
+          })
+          .catch((err: unknown) => {
+            getLogger()
+              .child({ component: 'PushDialog' })
+              .error('Pull dialog failed', err instanceof Error ? err : undefined);
+          })
+          .finally(() => {
+            this._busy = false;
+            this._render();
+          });
         return;
       }
 
@@ -1046,6 +1071,7 @@ ${this._getBodyHtml()}
     action: PushAction;
     label: string;
     anyProtected: boolean;
+    canSubmit: boolean;
   } {
     const anyProtected = this._rows.some(
       (r) => r.selected && isProtectedTarget(r.targetBranch, this._protectedBranches)
@@ -1054,6 +1080,7 @@ ${this._getBodyHtml()}
       action: this._primaryAction,
       label: primaryButtonLabel(this._primaryAction),
       anyProtected,
+      canSubmit: this._rows.some((r) => r.selected),
     };
   }
 
@@ -1170,10 +1197,27 @@ ${this._getBodyHtml()}
       }
       this._render();
 
-      if (anySuccess && !anyFailure) {
-        // All rows settled successfully — toast, fire callback, dispose. A
-        // revision row names the pushed commit (a detached one has no branch
-        // name at all).
+      // `results` covers only the submitted subset — a per-row force retry
+      // passes a single row. Closing on that subset alone would discard the
+      // banners of rows that are still failing, so settle against every row.
+      const allRowsSettled = this._rows.every((r) => !r.error);
+
+      // A push that really happened must notify its caller even when a
+      // different row is still failing — refresh-on-success is independent of
+      // whether this dialog is finished.
+      if (anySuccess && this._onPushComplete) {
+        try {
+          this._onPushComplete();
+        } catch (err) {
+          getLogger()
+            .child({ component: 'PushDialog' })
+            .error('onPushComplete callback threw', err instanceof Error ? err : undefined);
+        }
+      }
+
+      if (anySuccess && !anyFailure && allRowsSettled) {
+        // Every row is clean — toast and dispose. A revision row names the
+        // pushed commit (a detached one has no branch name at all).
         void vscode.window.showInformationMessage(
           rows.length === 1
             ? rows[0].pushSource
@@ -1181,15 +1225,6 @@ ${this._getBodyHtml()}
               : `Pushed '${rows[0].localBranch}'`
             : `Pushed ${rows.length} repositories`
         );
-        if (this._onPushComplete) {
-          try {
-            this._onPushComplete();
-          } catch (err) {
-            getLogger()
-              .child({ component: 'PushDialog' })
-              .error('onPushComplete callback threw', err instanceof Error ? err : undefined);
-          }
-        }
         this.dispose();
       }
       // On any failure: leave dialog open, per-row banners render, user can retry.

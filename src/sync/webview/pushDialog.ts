@@ -34,14 +34,15 @@ const HINTS = {
 };
 
 function applyPrimary(
-  primary: { label: string; action: string; anyProtected: boolean } | undefined
+  primary: { label: string; action: string; anyProtected: boolean; canSubmit: boolean } | undefined
 ): void {
   if (!primary) {
     return;
   }
-  const btn = document.getElementById('push-btn');
+  const btn = document.getElementById('push-btn') as HTMLButtonElement | null;
   if (btn) {
     btn.textContent = primary.label;
+    btn.disabled = !primary.canSubmit;
   }
   const sel = document.getElementById('action-select') as HTMLSelectElement | null;
   if (sel) {
@@ -65,7 +66,18 @@ function render(init: IPushDialogInit): void {
   }
 
   if (init.empty) {
-    root.append(el('div', { textContent: 'Loading repositories…' }));
+    root.append(el('div', { textContent: 'Nothing to push — no repositories are available.' }));
+    const emptyActions = el('div', { className: 'actions' });
+    const closeBtn = el('button', {
+      id: 'cancel-btn',
+      type: 'button',
+      textContent: 'Cancel',
+    });
+    closeBtn.addEventListener('click', () => {
+      post({ type: 'cancel' });
+    });
+    emptyActions.append(closeBtn);
+    root.append(emptyActions);
     return;
   }
 
@@ -216,7 +228,12 @@ function render(init: IPushDialogInit): void {
   optForce.selected = init.primaryAction === 'force';
   optForce.disabled = init.anyProtected;
   actionSelect.append(optPush, optLease, optForce);
-  const pushBtn = el('button', { id: 'push-btn', type: 'button', textContent: init.primaryLabel });
+  const pushBtn = el('button', {
+    id: 'push-btn',
+    type: 'button',
+    textContent: init.primaryLabel,
+  });
+  pushBtn.disabled = !init.canSubmit;
   actionsBar.append(cancelBtn, actionSelect, pushBtn);
   root.append(actionsBar);
 

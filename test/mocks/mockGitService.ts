@@ -150,8 +150,7 @@ export function createMockGitService(
   // EventEmitter without leaking it onto the public IGitService.
   const testSurface: IGitServiceMockTestSurface = {
     fireChangeRepository: (repo) => repoChange.fire(repo),
-    changeRepositorySubscriberCount: (): number =>
-      (repoChange as unknown as { listeners: unknown[] }).listeners.length,
+    changeRepositorySubscriberCount: (): number => repoChange.listenerCount,
   };
 
   return { ...base, ...overrides, ...testSurface, ...(gitCli ? { gitCli } : {}) };

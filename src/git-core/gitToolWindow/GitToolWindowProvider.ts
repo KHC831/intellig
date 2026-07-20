@@ -1190,6 +1190,42 @@ export class GitToolWindowProvider
   }
 
   /**
+   * Update a streaming entry in place.
+   *
+   * Deliberately narrower than `addConsoleEntry`: it re-renders only while the
+   * Console tab is showing and does NOT fire `_onDidRequestRefresh`, because a
+   * chatty clone emits thousands of chunks and a full data reload per chunk is
+   * the refresh storm this view already paid for once.
+   *
+   * That closes the data half only. The render itself still reassigns
+   * `webview.html`, so a visible Console tab reloads the document on each
+   * flush and console scroll still resets mid-clone. Appending streamed bytes
+   * over `postMessage` is the remaining half.
+   */
+  public updateConsoleEntry(update: {
+    id: string;
+    output: string;
+    exitCode?: number;
+    isError?: boolean;
+  }): void {
+    const entry = this._consoleEntries.find((e) => e.id === update.id);
+    if (!entry) {
+      return;
+    }
+    entry.output = update.output;
+    if (update.exitCode !== undefined) {
+      entry.exitCode = update.exitCode;
+    }
+    if (update.isError !== undefined) {
+      entry.isError = update.isError;
+    }
+    if (this._tabRouter.getActiveTab() === 'console') {
+      this._render();
+    }
+    this._onDidChangeState.fire();
+  }
+
+  /**
    * Clear console entries
    */
   public clearConsole(): void {

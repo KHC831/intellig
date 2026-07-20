@@ -854,6 +854,14 @@ export class StashTagHistoryOps {
  * defaults to basic regex, so `foo.bar` matches `fooxbar` and an unbalanced
  * bracket is a regex error instead of a searchable string.
  * `--regexp-ignore-case` follows the "Match case" toggle (OFF by default).
+ *
+ * "Match case" belongs to the TEXT search: IntelliJ's user filter is a VcsUser
+ * identity selection, not a case-toggleable text match. git has only one
+ * global `--regexp-ignore-case`, so when the text search is case-sensitive AND
+ * an author filter is present, the author patterns carry their own
+ * case-insensitivity as extended-regexp character classes. That forces regex
+ * mode for the invocation, so a non-regex search text is regex-escaped to stay
+ * literal.
  */
 function pushPatternFilterArgs(
   args: string[],
@@ -870,17 +878,52 @@ function pushPatternFilterArgs(
   if (!grep && authorList.length === 0) {
     return;
   }
-  const regexMode = Boolean(grep) && options?.regex === true;
+  const explicitRegex = Boolean(grep) && options?.regex === true;
+  // A case-sensitive search cannot also carry a case-insensitive author via the
+  // global flag, so the author leg becomes a character class — which needs ERE.
+  const caseExpandAuthors = options?.caseSensitive === true && authorList.length > 0;
+  const regexMode = explicitRegex || caseExpandAuthors;
+
   for (const author of authorList) {
-    args.push(`--author=${regexMode ? escapeExtendedRegex(author) : author}`);
+    const escaped = regexMode ? escapeExtendedRegex(author) : author;
+    args.push(`--author=${caseExpandAuthors ? caseInsensitiveRegex(escaped) : escaped}`);
   }
   if (grep) {
-    args.push(`--grep=${grep}`);
+    // Only an explicit regex search is passed through; otherwise keep it
+    // literal, whether by --fixed-strings or by escaping it into ERE.
+    args.push(`--grep=${explicitRegex ? grep : regexMode ? escapeExtendedRegex(grep) : grep}`);
   }
   if (!options?.caseSensitive) {
     args.push('--regexp-ignore-case');
   }
   args.push(regexMode ? '--extended-regexp' : '--fixed-strings');
+}
+
+/**
+ * Rewrite each cased character as a character class that ignores case.
+ *
+ * The class is built from the deduped set {char, lower, upper} rather than
+ * {lower, upper}: for a titlecase digraph (ǅ, ǈ, ǋ, ǲ) lower and upper are BOTH
+ * different from the character itself, so a {lower, upper} class excluded the
+ * very string the user typed and the filter returned nothing. Including the
+ * original closes that whole class — "expansion narrower than the literal" —
+ * rather than enumerating the four code points that exhibit it. Costs nothing
+ * on ASCII, where {a, a, A} dedupes to [aA].
+ *
+ * Not covered: Greek final sigma (ς / σ / Σ). A DELIBERATE omission — git's own
+ * --regexp-ignore-case does not fold ς to σ either, so pairing them here would
+ * make our Match-case-ON path match MORE than git's Match-case-OFF path, which
+ * is a worse inconsistency than the gap.
+ */
+function caseInsensitiveRegex(pattern: string): string {
+  let out = '';
+  for (const ch of pattern) {
+    const variants = [...new Set([ch, ch.toLowerCase(), ch.toUpperCase()])].filter(
+      (v) => v.length === 1
+    );
+    out += variants.length > 1 ? `[${variants.join('')}]` : ch;
+  }
+  return out;
 }
 
 /** Escape POSIX-extended-regex metacharacters so the value matches literally. */

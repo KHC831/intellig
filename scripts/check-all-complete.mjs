@@ -85,6 +85,31 @@ for (const name of Object.keys(scripts)) {
   }
 }
 
+// Reverse direction: every `check:*` the chain INVOKES must be defined.
+// The chain entry and the script definition are two halves of one edit that sit
+// far apart in package.json, so a union merge of the chain alone yields a chain
+// calling scripts that do not exist — which surfaces only as npm's "Missing
+// script" once the gate is already running.
+const undefinedInChain = [];
+for (const match of chain.matchAll(/npm run (check:[A-Za-z0-9:_-]+)/g)) {
+  const name = match[1];
+  if (!(name in scripts) && !undefinedInChain.includes(name)) {
+    undefinedInChain.push(name);
+  }
+}
+
+if (undefinedInChain.length > 0) {
+  console.error('check-all-complete: check:all invokes scripts that are not defined\n');
+  for (const name of undefinedInChain) {
+    console.error(
+      `  - ${name}: invoked by the check:all chain but absent from "scripts". ` +
+        `Add its definition, or remove it from the chain.`
+    );
+  }
+  console.error('');
+  process.exit(1);
+}
+
 if (missing.length > 0) {
   console.error('check-all-complete: fences defined but never run by check:all\n');
   for (const name of missing) {

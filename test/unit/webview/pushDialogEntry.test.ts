@@ -38,6 +38,7 @@ function init(rows: IPushRowView[]): IPushDialogInit {
     primaryAction: 'push',
     primaryLabel: 'Push',
     anyProtected: false,
+    canSubmit: rows.some((r) => r.selected),
     overflow: { noVerify: false, pushTags: false, tagScope: 'all' },
   };
 }
@@ -77,5 +78,64 @@ describe('webview: push dialog source column header', () => {
     h = boot([row(), row({ id: 'r2', sourceHash: 'beebeeb1234567890' })]);
 
     assert.strictEqual(headerTexts(h)[2], 'Source');
+  });
+});
+
+describe('webview: push dialog empty state', () => {
+  let h: IWebviewEntryHarness;
+
+  afterEach(() => {
+    if (h) {
+      h.dispose();
+    }
+  });
+
+  function bootEmpty(): IWebviewEntryHarness {
+    return bootWebviewEntry('sync/webview/pushDialog', {
+      bodyHtml: `<div id="root"></div>${initIslandHtml({ ...init([]), empty: true })}`,
+    });
+  }
+
+  it('states that there is nothing to push rather than claiming to be loading', () => {
+    h = bootEmpty();
+
+    const text = h.document.getElementById('root')?.textContent ?? '';
+    assert.ok(!/Loading/i.test(text), `empty state must not read as a spinner, got: ${text}`);
+    assert.match(text, /nothing to push|no repositories/i);
+  });
+
+  it('offers a Cancel affordance so the dialog is dismissable', () => {
+    h = bootEmpty();
+
+    const buttons = Array.from(h.document.querySelectorAll('button'));
+    assert.ok(
+      buttons.some((b) => /cancel|close/i.test(b.textContent ?? '')),
+      'an empty dialog must still be closable from its own UI'
+    );
+  });
+});
+
+describe('webview: push dialog submit gating', () => {
+  let h: IWebviewEntryHarness;
+
+  afterEach(() => {
+    if (h) {
+      h.dispose();
+    }
+  });
+
+  it('disables the push button when no row is selected', () => {
+    h = boot([row({ selected: false })]);
+
+    const btn = h.document.getElementById('push-btn') as HTMLButtonElement | null;
+    assert.ok(btn, 'push button exists');
+    assert.strictEqual(btn.disabled, true, 'submitting nothing must not be offered');
+  });
+
+  it('enables the push button when at least one row is selected', () => {
+    h = boot([row({ selected: true })]);
+
+    const btn = h.document.getElementById('push-btn') as HTMLButtonElement | null;
+    assert.strictEqual(btn?.disabled, false);
   });
 });

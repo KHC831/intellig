@@ -417,8 +417,7 @@ describe('BaseWebviewView', () => {
 
     it('drains per-resolve listeners on view dispose (no accumulation across re-resolve cycles)', () => {
       const view = new TestView(Uri.file('/ext'));
-      const messageListenerCount = (f: FakeView): number =>
-        (f.webview._messageEmitter as unknown as { listeners: unknown[] }).listeners.length;
+      const messageListenerCount = (f: FakeView): number => f.webview._messageEmitter.listenerCount;
 
       try {
         // A sidebar view hidden then re-shown is re-resolved each cycle. Each

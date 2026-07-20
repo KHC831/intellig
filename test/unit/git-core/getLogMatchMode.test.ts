@@ -308,3 +308,115 @@ describe('StashTagHistoryOps.getLog — filter fields cannot inject a flag (safe
     );
   });
 });
+
+/**
+ * The Match-case toggle belongs to the TEXT search. IntelliJ's user filter is a
+ * VcsUser identity selection (GitLogProvider.kt USER_FILTER), never a
+ * case-toggleable text match, so a user who ticks Match case to find "FIX" in
+ * commit messages must not silently narrow the author filter too.
+ *
+ * git has a single global --regexp-ignore-case, so the author leg carries its
+ * own case-insensitivity as an extended-regexp character class instead.
+ */
+describe('StashTagHistoryOps.getLog — author case-insensitivity is independent of Match case', () => {
+  function authorArgs(args: string[]): string[] {
+    return args.filter((a) => a.startsWith('--author='));
+  }
+
+  it('keeps the author filter case-insensitive when Match case is on', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'alice', grep: 'FIX', caseSensitive: true });
+
+    const args = calls[0];
+    assert.ok(
+      !args.includes('--regexp-ignore-case'),
+      'the text search stays case-sensitive as requested'
+    );
+    assert.deepStrictEqual(
+      authorArgs(args),
+      ['--author=[aA][lL][iI][cC][eE]'],
+      'the author pattern carries its own case-insensitivity'
+    );
+    assert.ok(args.includes('--extended-regexp'), 'a character class needs regex mode');
+    assert.ok(
+      args.includes('--grep=FIX'),
+      'the literal search text is preserved (no metacharacters to escape)'
+    );
+  });
+
+  it('keeps a literal grep literal when it switches to regex mode for the author', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'alice', grep: 'a.b(c)', caseSensitive: true });
+
+    assert.ok(
+      calls[0].includes('--grep=a\\.b\\(c\\)'),
+      `a non-regex search must stay literal, got ${JSON.stringify(calls[0])}`
+    );
+  });
+
+  it('case-expands every author in a multi-select', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { authors: ['ab', 'cd'], grep: 'x', caseSensitive: true });
+
+    assert.deepStrictEqual(authorArgs(calls[0]), ['--author=[aA][bB]', '--author=[cC][dD]']);
+  });
+
+  it('leaves non-letter characters in an author alone', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'a.b@x.com', grep: 'x', caseSensitive: true });
+
+    assert.deepStrictEqual(authorArgs(calls[0]), ['--author=[aA]\\.[bB]@[xX]\\.[cC][oO][mM]']);
+  });
+
+  it('case-expands non-ASCII letters too', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'Ölaf', grep: 'x', caseSensitive: true });
+
+    assert.deepStrictEqual(
+      authorArgs(calls[0]),
+      ['--author=[Öö][lL][aA][fF]'],
+      'a non-ASCII author expands to a class containing the character itself first'
+    );
+  });
+
+  it('always matches the author string the user actually typed', async () => {
+    // Self-match invariant, asserted as a property rather than a literal: a
+    // titlecase digraph expands to {lower, upper} which EXCLUDES the character
+    // itself, so the filter returned nothing for an author typed exactly.
+    const authors = ['alice', 'Ölaf', 'ǅurađ', 'ǈepa', 'ǋegoš', 'ǲeko', 'A1-b_c'];
+    for (const author of authors) {
+      const { ops, calls } = makeOps();
+      await ops.getLog(repo, { author, grep: 'x', caseSensitive: true });
+
+      const pattern = authorArgs(calls[0])[0].replace('--author=', '');
+      assert.ok(
+        new RegExp(pattern).test(author),
+        `expansion for ${author} must still match ${author} (got ${pattern})`
+      );
+      assert.ok(
+        new RegExp(pattern).test(author.toLowerCase()),
+        `expansion for ${author} must match its lowercase form`
+      );
+      assert.ok(
+        new RegExp(pattern).test(author.toUpperCase()),
+        `expansion for ${author} must match its uppercase form`
+      );
+    }
+  });
+
+  it('does not disturb the case-insensitive default', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'alice', grep: 'FIX' });
+
+    assert.ok(calls[0].includes('--regexp-ignore-case'));
+    assert.deepStrictEqual(authorArgs(calls[0]), ['--author=alice'], 'no expansion needed');
+  });
+
+  it('respects an explicit regex search alongside a case-sensitive author query', async () => {
+    const { ops, calls } = makeOps();
+    await ops.getLog(repo, { author: 'alice', grep: 'fi.*x', regex: true, caseSensitive: true });
+
+    assert.ok(calls[0].includes('--grep=fi.*x'), 'an explicit regex search is left as written');
+    assert.deepStrictEqual(authorArgs(calls[0]), ['--author=[aA][lL][iI][cC][eE]']);
+  });
+});

@@ -105,6 +105,16 @@ export function readNumber(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
+/**
+ * A non-negative integer, else undefined. Counts that reach git as
+ * `--min-parents=<n>`-style arguments need this rather than readNumber: a
+ * negative or fractional value makes git reject the command outright, so a
+ * soured persisted value would break every load until the state is cleared.
+ */
+export function readNonNegativeInteger(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined;
+}
+
 /** A non-empty array of strings, else undefined. */
 export function readStringArray(v: unknown): string[] | undefined {
   if (!Array.isArray(v) || v.length === 0 || !v.every((x): x is string => typeof x === 'string')) {

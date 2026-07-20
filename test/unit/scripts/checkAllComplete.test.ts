@@ -46,6 +46,34 @@ describe('check-all-complete guard', () => {
     assert.strictEqual(runGuard(file).code, 0);
   });
 
+  it('fails a chain entry that resolves to no script definition', () => {
+    // The real shape: a union merge takes the chain but drops the definition,
+    // so `npm run check:all` dies mid-run at npm's "Missing script".
+    const file = makeFixture({
+      'check:alpha': 'node scripts/alpha.mjs',
+      'check:all': 'npm run check:alpha && npm run check:webview-async-guard',
+    });
+
+    const { code, output } = runGuard(file);
+
+    assert.strictEqual(code, 1, 'a chain entry with no definition must fail the guard');
+    assert.match(output, /check:webview-async-guard/);
+    assert.match(output, /not defined|absent/);
+  });
+
+  it('reports every undefined chain entry, not just the first', () => {
+    const file = makeFixture({
+      'check:alpha': 'node scripts/alpha.mjs',
+      'check:all':
+        'npm run check:alpha && npm run check:webview-async-guard && npm run check:ghost',
+    });
+
+    const { output } = runGuard(file);
+
+    assert.match(output, /check:webview-async-guard/);
+    assert.match(output, /check:ghost/);
+  });
+
   it('fails a fence that is defined but never run', () => {
     const file = makeFixture({
       'check:alpha': 'node scripts/alpha.mjs',

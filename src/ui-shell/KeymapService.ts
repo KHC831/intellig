@@ -45,21 +45,21 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.commit',
     key: 'ctrl+k',
     mac: 'ctrl+k',
-    when: '!inDebugMode && !terminalFocus',
+    when: '!inDebugMode && !terminalFocus && !textInputFocus',
   },
   // Push: Ctrl+Shift+K on every platform (Vcs.Push, no macOS override).
   {
     command: 'intellig.push',
     key: 'ctrl+shift+k',
     mac: 'ctrl+shift+k',
-    when: '!inDebugMode && !terminalFocus',
+    when: '!inDebugMode && !terminalFocus && !textInputFocus',
   },
   // Update Project: Ctrl+T on every platform (Vcs.UpdateProject, no macOS override).
   {
     command: 'intellig.updateProject',
     key: 'ctrl+t',
     mac: 'ctrl+t',
-    when: '!inDebugMode && !terminalFocus',
+    when: '!inDebugMode && !terminalFocus && !textInputFocus',
   },
   // Commit and Push: Ctrl+Alt+K — IntelliJ-gated in package.json.
   {
@@ -74,7 +74,7 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.vcsOperationsPopup',
     key: 'alt+`',
     mac: 'ctrl+v',
-    when: '!inDebugMode',
+    when: '!inDebugMode && !terminalFocus',
   },
   // Branch popup: Ctrl+Shift+` — same as default. Listed here so the IntelliJ
   // reference mirror is complete and stays distinct from the VCS Operations
@@ -83,7 +83,7 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.showBranchPopup',
     key: 'ctrl+shift+`',
     mac: 'cmd+shift+`',
-    when: '!inDebugMode',
+    when: '!inDebugMode && !terminalFocus',
   },
   // Annotate (Blame): Ctrl+Alt+Shift+A — IntelliG convenience; the
   // reference Annotate action has no default shortcut.
@@ -100,7 +100,7 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.explorer.compareWithRepoVersion',
     key: 'ctrl+d',
     mac: 'ctrl+d',
-    when: '!inDebugMode && !terminalFocus',
+    when: '!inDebugMode && !terminalFocus && !textInputFocus',
   },
   // Rollback (Revert): Ctrl+Alt+Z
   {
@@ -114,7 +114,7 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.openGitToolWindow',
     key: 'alt+9',
     mac: 'cmd+9',
-    when: '!inDebugMode',
+    when: '!inDebugMode && !terminalFocus',
   },
   // Refresh: Ctrl+Shift+R (same as default)
   {
@@ -135,13 +135,13 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.showShelfList',
     key: 'ctrl+shift+u',
     mac: 'cmd+shift+u',
-    when: 'editorTextFocus',
+    when: '!inDebugMode && !terminalFocus',
   },
   // Open File from Local Changes: F4 — IntelliJ's "Jump to Source".
   {
     command: 'intellig.localChanges.openFile',
     key: 'f4',
-    when: '!inDebugMode',
+    when: '!inDebugMode && !terminalFocus',
   },
   // Move Files to Another Changelist: Alt+Shift+M, and Cmd+Shift+M on macOS —
   // the one action in this set the macOS keymap explicitly overrides.
@@ -156,12 +156,14 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.toolWindow.jumpToHash',
     key: 'ctrl+f',
     mac: 'cmd+f',
+    when: "(focusedView == 'intellig.toolWindow' || activeWebviewPanelId == 'intellig.gitLogPanel') && intellig.toolWindow.activeTab == 'log'",
   },
   // Focus the log text filter: Ctrl+L on every platform (Vcs.Log.FocusTextFilter).
   {
     command: 'intellig.toolWindow.focusTextFilter',
     key: 'ctrl+l',
     mac: 'ctrl+l',
+    when: "(focusedView == 'intellig.toolWindow' || activeWebviewPanelId == 'intellig.gitLogPanel') && intellig.toolWindow.activeTab == 'log'",
   },
   // Shelve Silently: Ctrl+Shift+H (ChangesView.ShelveSilently).
   {
@@ -182,7 +184,7 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     command: 'intellig.showCommitToolWindow',
     key: 'alt+0',
     mac: 'cmd+0',
-    when: '!terminalFocus',
+    when: '!inDebugMode && !terminalFocus',
   },
   // Unstage: Ctrl+Alt+Shift+Z — deliberate move off the Rollback chord.
   {

@@ -55,6 +55,8 @@ export interface IPushDialogInit {
   primaryAction: PushAction;
   primaryLabel: string;
   anyProtected: boolean;
+  /** False when no row is selected — the primary button is offered disabled. */
+  canSubmit: boolean;
   overflow: IPushOverflowState;
 }
 
@@ -77,7 +79,12 @@ export type PushDialogInbound =
   | ({ type: 'forceAnyway-row' } & PushInboundFields);
 
 /** Derived primary-button + select state carried on both outbound patches. */
-type PushPrimaryPayload = { action: PushAction; label: string; anyProtected: boolean };
+type PushPrimaryPayload = {
+  action: PushAction;
+  label: string;
+  anyProtected: boolean;
+  canSubmit: boolean;
+};
 
 /** Host → webview: incremental DOM patches (a full re-render steals focus). */
 export type PushDialogOutbound =

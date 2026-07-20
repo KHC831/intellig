@@ -78,7 +78,7 @@ class MockGitService {
 
   /** TestSurface: number of currently-active onDidChangeRepository subscribers. */
   repoSubscriberCount(): number {
-    return (this._onDidChangeRepository as unknown as { listeners: unknown[] }).listeners.length;
+    return this._onDidChangeRepository.listenerCount;
   }
 
   dispose(): void {

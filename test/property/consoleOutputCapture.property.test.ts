@@ -1,20 +1,9 @@
+import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
+import * as vscode from 'vscode';
 import { IConsoleEntry } from '../../src/git-core/interfaces/IGitToolWindowProvider';
-
-/**
- * Local type for backward compatibility in tests.
- * The IConsoleState interface was removed when the tabbed layout was replaced
- * by the 2-panel layout.
- */
-interface IConsoleState {
-  entries: IConsoleEntry[];
-  maxEntries: number;
-}
-import {
-  IConsoleService,
-  IStreamingOutputHandler,
-} from '../../src/ui-shell/interfaces/IConsoleService';
+import { ConsoleService } from '../../src/ui-shell/ConsoleService';
 
 /**
  * Property-based tests for Console Output Capture.
@@ -70,7 +59,14 @@ describe('Console Output Capture Property Tests', () => {
   /**
    * Arbitrary generator for command output
    */
-  const commandOutputArb: fc.Arbitrary<string> = fc.string({ minLength: 0, maxLength: 1000 });
+  const commandOutputArb: fc.Arbitrary<string> = fc.stringOf(
+    fc.constantFrom(
+      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,-_()[]{}!?*+=#\n\t'.split(
+        ''
+      )
+    ),
+    { minLength: 0, maxLength: 1000 }
+  );
 
   /**
    * Arbitrary generator for exit codes
@@ -126,176 +122,87 @@ describe('Console Output Capture Property Tests', () => {
   );
 
   /**
-   * Mock Console Service that simulates console output capture.
-   * This allows us to test the console output capture properties without actual Git execution.
+   * Build the shipped ConsoleService with an inert OutputChannel, so the
+   * properties below exercise production code rather than a re-implementation.
    */
-  class MockConsoleService implements IConsoleService {
-    private _entries: IConsoleEntry[] = [];
-    private _maxEntries: number;
-    private _listeners: Array<(entry: IConsoleEntry) => void> = [];
-    private _clearListeners: Array<() => void> = [];
+  const makeConsoleService = (maxEntries?: number): ConsoleService => {
+    const channel = {
+      name: 'test',
+      append: (): void => {},
+      appendLine: (): void => {},
+      replace: (): void => {},
+      clear: (): void => {},
+      show: (): void => {},
+      hide: (): void => {},
+      dispose: (): void => {},
+    } as unknown as vscode.OutputChannel;
+    return new ConsoleService(maxEntries ?? 1000, channel);
+  };
 
-    constructor(maxEntries: number = 1000) {
-      this._maxEntries = maxEntries;
-    }
-
-    /**
-     * Log a Git command and its output to the console.
-     */
-    logCommand(
-      command: string,
-      output: string,
-      exitCode?: number,
-      options?: { showConsole?: boolean; isError?: boolean }
-    ): void {
-      const entry: IConsoleEntry = {
-        timestamp: new Date(),
-        command,
-        output,
-        exitCode,
-        isError: options?.isError ?? (exitCode !== undefined && exitCode !== 0),
-      };
-
-      this._addEntry(entry);
-    }
-
-    /**
-     * Log an error to the console.
-     */
-    logError(command: string, error: string | Error): void {
-      const errorMessage = error instanceof Error ? error.message : error;
-      this.logCommand(command, errorMessage, 1, { isError: true });
-    }
-
-    /**
-     * Start streaming output for a command.
-     * Returns a handler that can be used to send output data in real-time.
-     */
-    startStreaming(command: string): IStreamingOutputHandler {
-      const entry: IConsoleEntry = {
-        timestamp: new Date(),
-        command,
-        output: '',
-        isError: false,
-      };
-
-      const entryIndex = this._entries.length;
-      this._addEntry(entry);
-
-      return {
-        onData: (data: string): void => {
-          if (entryIndex < this._entries.length) {
-            this._entries[entryIndex].output += data;
-          }
-        },
-        onComplete: (exitCode: number): void => {
-          if (entryIndex < this._entries.length) {
-            this._entries[entryIndex].exitCode = exitCode;
-            this._entries[entryIndex].isError = exitCode !== 0;
-          }
-        },
-        onError: (error: Error): void => {
-          if (entryIndex < this._entries.length) {
-            this._entries[entryIndex].output += `\nError: ${error.message}`;
-            this._entries[entryIndex].isError = true;
-            this._entries[entryIndex].exitCode = 1;
-          }
-        },
-      };
-    }
-
-    /**
-     * Clear all console entries.
-     */
-    clear(): void {
-      this._entries = [];
-      this._clearListeners.forEach((listener) => listener());
-    }
-
-    /**
-     * Get all console entries.
-     */
-    getEntries(): IConsoleEntry[] {
-      return [...this._entries];
-    }
-
-    /**
-     * Get the console state.
-     */
-    getState(): IConsoleState {
-      return {
-        entries: [...this._entries],
-        maxEntries: this._maxEntries,
-      };
-    }
-
-    /**
-     * Show the console tab (no-op in mock).
-     */
-    showConsole(): void {
-      // No-op in mock
-    }
-
-    /**
-     * Event subscription for new entries.
-     */
-    get onDidAddEntry(): { (listener: (entry: IConsoleEntry) => void): { dispose(): void } } {
-      return (listener: (entry: IConsoleEntry) => void): { dispose(): void } => {
-        this._listeners.push(listener);
-        return {
-          dispose: (): void => {
-            const index = this._listeners.indexOf(listener);
-            if (index >= 0) {
-              this._listeners.splice(index, 1);
-            }
-          },
-        };
-      };
-    }
-
-    /**
-     * Event subscription for clear.
-     */
-    get onDidClear(): { (listener: () => void): { dispose(): void } } {
-      return (listener: () => void): { dispose(): void } => {
-        this._clearListeners.push(listener);
-        return {
-          dispose: (): void => {
-            const index = this._clearListeners.indexOf(listener);
-            if (index >= 0) {
-              this._clearListeners.splice(index, 1);
-            }
-          },
-        };
-      };
-    }
-
-    /**
-     * Dispose of resources.
-     */
-    dispose(): void {
-      this._entries = [];
-      this._listeners = [];
-      this._clearListeners = [];
-    }
-
-    /**
-     * Add an entry to the console.
-     */
-    private _addEntry(entry: IConsoleEntry): void {
-      this._entries.push(entry);
-
-      // Trim entries if exceeding max
-      while (this._entries.length > this._maxEntries) {
-        this._entries.shift();
-      }
-
-      // Notify listeners
-      this._listeners.forEach((listener) => listener(entry));
-    }
-  }
+  /** Secrets the console must never retain verbatim. */
+  const credentialUrlArb: fc.Arbitrary<{ raw: string; secret: string }> = fc
+    .tuple(
+      fc.constantFrom('https', 'http'),
+      fc.stringOf(fc.constantFrom(...'abcdefghij0123456789'.split('')), {
+        minLength: 8,
+        maxLength: 20,
+      })
+    )
+    .map(([scheme, secret]) => ({
+      raw: `fatal: could not read from ${scheme}://user:${secret}@example.com/r.git`,
+      secret,
+    }));
 
   describe('Property 3: Console Output Capture', () => {
+    /**
+     * Property: a credential in the output never survives into a stored entry.
+     * This is the assertion the sanitize pipeline actually owes us — comparing
+     * the stored value against a recomputation of that same pipeline would
+     * hold even if sanitizeGitError returned the empty string.
+     */
+    it('Property: credentials are redacted out of stored output', () => {
+      fc.assert(
+        fc.property(fullCommandArb, credentialUrlArb, (cmdInfo, cred) => {
+          const consoleService = makeConsoleService();
+
+          consoleService.logCommand(cmdInfo.fullCommand, cred.raw, 128, { isError: true });
+
+          const stored = consoleService.getEntries()[0].output;
+          assert.ok(!stored.includes(cred.secret), 'the secret must not be retained');
+          assert.ok(stored.includes('<redacted>'), 'the redaction marker must be present');
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    /**
+     * Property: a home path in the output is collapsed to `~`. Covers the
+     * three POSIX/Windows home-path replacements, which the credential
+     * property alone leaves free to be deleted with the suite still green.
+     */
+    it('Property: home paths are collapsed out of stored output', () => {
+      fc.assert(
+        fc.property(
+          fullCommandArb,
+          fc.stringOf(fc.constantFrom(...'abcdefghijklmnop'.split('')), {
+            minLength: 3,
+            maxLength: 10,
+          }),
+          (cmdInfo, user) => {
+            const consoleService = makeConsoleService();
+            const raw = `error: cannot open /Users/${user}/work/repo/.git/config`;
+
+            consoleService.logCommand(cmdInfo.fullCommand, raw, 1, { isError: true });
+
+            const stored = consoleService.getEntries()[0].output;
+            assert.ok(!stored.includes(`/Users/${user}`), 'the home path must not be retained');
+            assert.ok(stored.includes('~'), 'it is collapsed to ~');
+          }
+        ),
+        { numRuns: 100 }
+      );
+    });
+
     /**
      * Property: Every logged command appears in the console entries.
      */
@@ -303,7 +210,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandResultArb, (cmdResult) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log the command
           consoleService.logCommand(cmdResult.command, cmdResult.output, cmdResult.exitCode, {
@@ -330,7 +237,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandResultArb, (cmdResult) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log the command
           consoleService.logCommand(cmdResult.command, cmdResult.output, cmdResult.exitCode, {
@@ -343,7 +250,7 @@ describe('Console Output Capture Property Tests', () => {
           assert.strictEqual(
             entries[0].output,
             cmdResult.output,
-            'Entry output should match logged output'
+            'Entry output should be stored verbatim for sanitize-invariant text'
           );
         }),
         { numRuns: 100 }
@@ -357,7 +264,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandResultArb, (cmdResult) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log the command
           consoleService.logCommand(cmdResult.command, cmdResult.output, cmdResult.exitCode, {
@@ -385,7 +292,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandSequenceArb, (commands) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log all commands
           commands.forEach((cmd) => {
@@ -426,7 +333,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandResultArb, (cmdResult) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log the command
           consoleService.logCommand(cmdResult.command, cmdResult.output, cmdResult.exitCode, {
@@ -453,7 +360,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandResultArb, (cmdResult) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log the command (let the service determine isError from exitCode)
           consoleService.logCommand(cmdResult.command, cmdResult.output, cmdResult.exitCode);
@@ -484,7 +391,7 @@ describe('Console Output Capture Property Tests', () => {
           exitCodeArb,
           (cmdInfo, chunks, exitCode) => {
             // Setup
-            const consoleService = new MockConsoleService();
+            const consoleService = makeConsoleService();
 
             // Act: Start streaming and send chunks
             const handler = consoleService.startStreaming(cmdInfo.fullCommand);
@@ -532,7 +439,7 @@ describe('Console Output Capture Property Tests', () => {
           fc.string({ minLength: 1, maxLength: 100 }),
           (cmdInfo, chunks, errorMessage) => {
             // Setup
-            const consoleService = new MockConsoleService();
+            const consoleService = makeConsoleService();
 
             // Act: Start streaming, send some chunks, then error
             const handler = consoleService.startStreaming(cmdInfo.fullCommand);
@@ -567,7 +474,7 @@ describe('Console Output Capture Property Tests', () => {
           fc.string({ minLength: 1, maxLength: 200 }),
           (cmdInfo, errorMessage) => {
             // Setup
-            const consoleService = new MockConsoleService();
+            const consoleService = makeConsoleService();
 
             // Act: Log an error
             consoleService.logError(cmdInfo.fullCommand, errorMessage);
@@ -597,7 +504,7 @@ describe('Console Output Capture Property Tests', () => {
           fc.string({ minLength: 1, maxLength: 200 }),
           (cmdInfo, errorMessage) => {
             // Setup
-            const consoleService = new MockConsoleService();
+            const consoleService = makeConsoleService();
 
             // Act: Log an error with Error object
             consoleService.logError(cmdInfo.fullCommand, new Error(errorMessage));
@@ -621,7 +528,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandResultArb, (cmdResult) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
           const beforeTime = new Date();
 
           // Act: Log the command
@@ -653,7 +560,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandSequenceArb, (commands) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log all commands
           commands.forEach((cmd) => {
@@ -693,7 +600,7 @@ describe('Console Output Capture Property Tests', () => {
           gitCommandSequenceArb,
           (maxEntries, commands) => {
             // Setup
-            const consoleService = new MockConsoleService(maxEntries);
+            const consoleService = makeConsoleService(maxEntries);
 
             // Act: Log all commands
             commands.forEach((cmd) => {
@@ -731,7 +638,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandSequenceArb, (commands) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
           const receivedEntries: IConsoleEntry[] = [];
 
           // Subscribe to events
@@ -775,7 +682,7 @@ describe('Console Output Capture Property Tests', () => {
       fc.assert(
         fc.property(gitCommandSequenceArb, (commands) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
           let clearEventFired = false;
 
           // Subscribe to clear event
@@ -806,11 +713,11 @@ describe('Console Output Capture Property Tests', () => {
     /**
      * Property: Console state reflects all logged entries.
      */
-    it('Property: Console state reflects all logged entries', () => {
+    it('Property: Retained entries reflect all logged commands', () => {
       fc.assert(
         fc.property(gitCommandSequenceArb, (commands) => {
           // Setup
-          const consoleService = new MockConsoleService();
+          const consoleService = makeConsoleService();
 
           // Act: Log all commands
           commands.forEach((cmd) => {
@@ -819,24 +726,24 @@ describe('Console Output Capture Property Tests', () => {
             });
           });
 
-          // Assert: State reflects entries
-          const state = consoleService.getState();
+          // Assert: the retained entries reflect every logged command
+          const entries = consoleService.getEntries();
           assert.strictEqual(
-            state.entries.length,
+            entries.length,
             commands.length,
-            'State should have same number of entries as commands'
+            'Should retain one entry per logged command'
           );
 
           for (let i = 0; i < commands.length; i++) {
             assert.strictEqual(
-              state.entries[i].command,
+              entries[i].command,
               commands[i].command,
-              `State entry ${i} command should match`
+              `Entry ${i} command should match`
             );
             assert.strictEqual(
-              state.entries[i].output,
+              entries[i].output,
               commands[i].output,
-              `State entry ${i} output should match`
+              `Entry ${i} output should match`
             );
           }
         }),
