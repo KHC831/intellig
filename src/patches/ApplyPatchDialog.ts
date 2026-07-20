@@ -40,13 +40,23 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
-import { filterPatchByFiles, uniquePatchPaths, validateStripLevel } from './PatchService';
+import {
+  extractMailboxPreamble,
+  filterPatchByFiles,
+  uniquePatchPaths,
+  validateBaseDir,
+  validateStripLevel,
+} from './PatchService';
 import {
   applyPatchSettingsSlot,
   previewFileResult,
+  PREVIEW_CHECK_CONCURRENCY,
+  PREVIEW_FILE_CAP,
   type IApplyPatchSettings,
   type IPatchPreviewFile,
 } from './applyPatchSettings';
+import { createStalenessGuard } from '../registration/stalenessGuard';
+import { mapWithLimit } from '../utils/mapWithLimit';
 import { loadPersisted, savePersisted, type PersistedSlot } from '../utils/persistedState';
 
 /**
@@ -95,6 +105,15 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
   private readonly _workspaceState: vscode.Memento;
   private readonly _settings: IApplyPatchSettings;
   private readonly _settingsSlot: PersistedSlot<IApplyPatchSettings>;
+  /** Supersedes an in-flight preview when a newer one starts. */
+  private readonly _previewGuard = createStalenessGuard();
+  /**
+   * The latest Preview requested while one was already running. Only the most
+   * recent is kept — intermediate clicks describe trees already superseded.
+   */
+  private _pendingPreview:
+    | { msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>; generation: number }
+    | undefined;
 
   constructor(context: vscode.ExtensionContext, options: IApplyPatchDialogOptions) {
     super(context, VIEW_TYPE, TITLE, vscode.ViewColumn.One);
@@ -216,8 +235,14 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
         font-size: 12px;
       }
       .check.ok .check-icon { color: var(--vscode-testing-iconPassed, #89d185); }
-      .check.bad .check-icon { color: var(--vscode-testing-iconFailed, #f14c4c); }
+      .check.conflicts .check-icon { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .check.fails .check-icon { color: var(--vscode-testing-iconFailed, #f14c4c); }
       .check-msg { color: var(--vscode-descriptionForeground); }
+      .check-cap {
+        color: var(--vscode-descriptionForeground);
+        font-style: italic;
+        margin-bottom: 4px;
+      }
       .check-list[data-stale] { opacity: 0.6; }
       .stale {
         color: var(--vscode-editorWarning-foreground);
@@ -302,17 +327,34 @@ ${this._getBodyHtml()}
       // Preview and apply share the guard: two previews would race each
       // other's dry-run verdicts, and a preview started before an apply
       // would report on a tree the apply has already changed.
-      case 'preview':
+      // A newer Preview supersedes the running one: the generation is bumped
+      // BEFORE the mutex, so the in-flight pass sees itself stale and stops
+      // before its next spawn instead of running to completion. The request
+      // is then queued rather than dropped — silently ignoring the click
+      // would leave the user with verdicts they just asked to replace.
+      case 'preview': {
+        const generation = this._previewGuard.bump();
         if (this._busy) {
+          this._pendingPreview = { msg, generation };
+          await this.postMessage({
+            type: 'previewStatus',
+            message: 'Re-running preview…',
+          });
           return;
         }
         this._busy = true;
         try {
-          await this._handlePreview(msg);
+          let next: { msg: typeof msg; generation: number } | undefined = { msg, generation };
+          while (next) {
+            await this._handlePreview(next.msg, next.generation);
+            next = this._pendingPreview;
+            this._pendingPreview = undefined;
+          }
         } finally {
           this._busy = false;
         }
         return;
+      }
       case 'apply':
         if (this._busy) {
           return;
@@ -365,7 +407,25 @@ ${this._getBodyHtml()}
     await this.postMessage({
       type: 'patchPathChosen',
       patchPath: this._patchPath,
+      ...(await this._probeMailboxEnvelope(this._patchPath, false)),
     });
+  }
+
+  /**
+   * Report whether the patch opens with a `git am` envelope, for the form's
+   * pre-flight gate. Best effort: an unreadable patch yields no fact rather
+   * than a wrong one, and the preview/apply paths surface the read error.
+   */
+  private async _probeMailboxEnvelope(
+    patchPath: string | undefined,
+    useClipboard: boolean | undefined
+  ): Promise<{ hasMailboxEnvelope?: boolean }> {
+    try {
+      const text = await this._readPatchContent(patchPath, useClipboard);
+      return { hasMailboxEnvelope: extractMailboxPreamble(text) !== undefined };
+    } catch {
+      return {};
+    }
   }
 
   /**
@@ -375,7 +435,8 @@ ${this._getBodyHtml()}
    * stale against the working tree is refreshed.
    */
   private async _handlePreview(
-    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>
+    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>,
+    generation: number
   ): Promise<void> {
     try {
       const text = await this._readPatchContent(msg.patchPath, msg.useClipboard);
@@ -386,9 +447,24 @@ ${this._getBodyHtml()}
           ? lines.slice(0, PREVIEW_LINE_CAP).join('\n') +
             `\n\n… (${overflow} more ${overflow === 1 ? 'line' : 'lines'} truncated)`
           : text;
-      const files = await this._runPreviewChecks(text, msg);
-      await this.postMessage({ type: 'preview', content: capped, files });
+      const { files, checked, total } = await this._runPreviewChecks(text, msg, generation);
+      // A superseded pass must not paint: its verdicts describe inputs the
+      // user has already replaced, and the queued run will post its own.
+      if (!this._previewGuard.isCurrent(generation)) {
+        return;
+      }
+      await this.postMessage({
+        type: 'preview',
+        content: capped,
+        files,
+        checkedFiles: checked,
+        totalFiles: total,
+        hasMailboxEnvelope: extractMailboxPreamble(text) !== undefined,
+      });
     } catch (error) {
+      if (!this._previewGuard.isCurrent(generation)) {
+        return;
+      }
       const errMsg = error instanceof Error ? error.message : String(error);
       await this.postMessage({
         type: 'error',
@@ -409,11 +485,18 @@ ${this._getBodyHtml()}
    * One verdict per DISTINCT path, matching the per-file selection the apply
    * pick offers: a path carried by several commits applies or conflicts as
    * one unit.
+   *
+   * Each verdict costs a git process, so the pass is bounded three ways: at
+   * most {@link PREVIEW_FILE_CAP} paths, at most
+   * {@link PREVIEW_CHECK_CONCURRENCY} processes in flight, and a staleness
+   * generation so a newer Preview stops the one the user superseded before
+   * its next spawn rather than after all of them.
    */
   private async _runPreviewChecks(
     content: string,
-    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>
-  ): Promise<IPatchPreviewFile[]> {
+    msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>,
+    generation: number
+  ): Promise<{ files: IPatchPreviewFile[]; checked: number; total: number }> {
     const common = {
       useAm: msg.useAm,
       stripLevel: msg.stripLevel,
@@ -426,23 +509,32 @@ ${this._getBodyHtml()}
         ...common,
         patchContent: content,
       });
-      return [previewFileResult('(whole patch)', result)];
+      return { files: [previewFileResult('(whole patch)', result)], checked: 1, total: 1 };
     }
 
-    const verdicts: IPatchPreviewFile[] = [];
-    for (const { path: filePath } of paths) {
-      // Cancelling the dialog must stop the run: each iteration spawns git,
-      // and the panel the verdicts would post to is already gone.
-      if (this._disposed) {
-        break;
+    const checkedPaths = paths.slice(0, PREVIEW_FILE_CAP);
+    const verdicts = await mapWithLimit(
+      checkedPaths,
+      PREVIEW_CHECK_CONCURRENCY,
+      async ({ path: filePath }) => {
+        // Disposal or a newer preview must stop the run before the next
+        // spawn: the panel these verdicts would post to is gone or stale.
+        if (this._disposed || !this._previewGuard.isCurrent(generation)) {
+          return undefined;
+        }
+        const result = await this._patchService.applyPatch(this._repo, {
+          ...common,
+          patchContent: filterPatchByFiles(content, [filePath]),
+        });
+        return previewFileResult(filePath, result);
       }
-      const result = await this._patchService.applyPatch(this._repo, {
-        ...common,
-        patchContent: filterPatchByFiles(content, [filePath]),
-      });
-      verdicts.push(previewFileResult(filePath, result));
-    }
-    return verdicts;
+    );
+
+    const files = verdicts.filter((v): v is IPatchPreviewFile => v !== undefined);
+    // `checked` describes what the CAP admitted, not what survived — a
+    // cancelled pass never paints, so conflating the two would let a
+    // superseded run report itself as merely capped.
+    return { files, checked: checkedPaths.length, total: paths.length };
   }
 
   /**
@@ -453,11 +545,6 @@ ${this._getBodyHtml()}
   private async _handleApply(
     msg: Extract<ApplyPatchDialogInbound, { type: 'apply' }>
   ): Promise<void> {
-    await this._rememberSettings({
-      stripLevel: msg.stripLevel,
-      baseDir: msg.baseDir,
-      useAm: msg.useAm,
-    });
     let applyOptions: IApplyPatchOptions;
     try {
       applyOptions = await this._buildApplyOptions(msg);
@@ -466,6 +553,13 @@ ${this._getBodyHtml()}
       void vscode.window.showErrorMessage(`Apply Patch: ${sanitizeGitError(errMsg)}`);
       return;
     }
+    // Only a form the apply path accepts is worth remembering; persisting
+    // first would re-seed a rejected value on every later open.
+    await this._rememberSettings({
+      stripLevel: msg.stripLevel,
+      baseDir: msg.baseDir,
+      useAm: msg.useAm,
+    });
 
     // Per-file selection: a multi-file patch is presented as a multi-select
     // pick so the user can apply a subset. `'aborted'` means the user
@@ -508,6 +602,7 @@ ${this._getBodyHtml()}
             canAbort: true,
             canContinue: true,
             ...(result.preApplyState ? { preApplyState: result.preApplyState } : {}),
+            ...(result.preApplySnapshotFailed ? { preApplySnapshotFailed: true } : {}),
           }
         );
         // Close the apply dialog once the conflict dialog takes over — the
@@ -711,6 +806,10 @@ ${this._getBodyHtml()}
     const stripErr = validateStripLevel(msg.stripLevel);
     if (stripErr) {
       throw new Error(stripErr);
+    }
+    const baseDirErr = validateBaseDir(msg.baseDir, this._repo.rootUri.fsPath);
+    if (baseDirErr) {
+      throw new Error(baseDirErr);
     }
     if (msg.useClipboard) {
       const content = await vscode.env.clipboard.readText();

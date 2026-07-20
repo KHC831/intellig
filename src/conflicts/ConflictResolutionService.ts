@@ -254,6 +254,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
     const shortenSha = (sha: string): Promise<string | undefined> =>
       run(['rev-parse', '--short', sha]);
     const nameRev = async (sha: string): Promise<string | undefined> => {
+      // git-path-quote-exempt: name-rev yields a ref name, not a path
       const name = await run(['name-rev', '--name-only', '--no-undefined', sha]);
       // name-rev can return an ancestor expression ("main~2") or a prefixed name
       // ("remotes/origin/x", "tags/v1"); only a clean tip name is a useful

@@ -181,6 +181,7 @@ export class WorktreeOps {
    */
   listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError> {
     return ResultAsync.fromPromise(
+      // git-path-quote-exempt: worktree porcelain prints worktree paths verbatim, including spaces and non-ASCII
       this.ctx.gitCli.exec(['worktree', 'list', '--porcelain'], { cwd: repo.rootUri.fsPath }),
       classifyGitCommandError
     ).andThen((result) =>

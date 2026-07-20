@@ -33,11 +33,16 @@ export interface IApplyPatchOptions {
   /**
    * Dry-run mode: `git apply --3way --check`, the apply strategy without
    * `--index`, so the verdict predicts the real apply and nothing is written.
-   * `useAm=true` falls back to `git apply` here (git am has no dry run); the
-   * diff either lands or does not regardless of who commits it.
    *
    * Outcomes mirror a real apply: success for a clean merge, `conflicts` for
    * one that needs markers, `stderr` when the patch cannot apply at all.
+   *
+   * SCOPE: this predicts whether the DIFF applies, nothing more. `useAm=true`
+   * falls back to `git apply` here because git am has no dry run, so a check
+   * run says nothing about the envelope `git am` additionally requires — a
+   * plain unified diff checks clean and then fails the real run with
+   * "Patch format detection failed.". The form gates that case up front
+   * (applyPatchValidation.applyBlockedReason) and applyPatch refuses it.
    */
   check?: boolean;
   /**
@@ -91,6 +96,13 @@ export interface IApplyPatchResult {
    * `git stash create` commit, so dropping it leaves no stash-stack litter.
    */
   preApplyState?: IPreApplyState;
+  /**
+   * The pre-apply working-state snapshot could not be taken, so no rollback
+   * token exists and Abort can only restore the UNRESOLVED paths — files that
+   * applied cleanly stay applied. The dialog surfaces this rather than
+   * reporting a full abort.
+   */
+  preApplySnapshotFailed?: boolean;
 }
 
 /**

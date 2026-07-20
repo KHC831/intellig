@@ -149,45 +149,87 @@ export async function restoreLocalChanges(
 }
 
 /**
- * Pre-apply restore token for a partially-applied patch: the working-state
- * snapshot pinned by SHA (absent when the tree was clean — pre-apply state is
- * then HEAD) plus the on-disk paths the patch touched. Produced by
+ * Pre-apply restore token for a partially-applied patch: where the pre-apply
+ * state lives, plus the on-disk paths the patch touched. Produced by
  * PatchService before a plain 3-way apply; consumed by the Resolve Conflicts
  * dialog's Abort for `operation: 'applyPatch'`.
+ *
+ * The restore source is a TAGGED choice, not an optional SHA. "No SHA" once
+ * meant both "the tree was clean, use HEAD" and "the snapshot failed", and
+ * restoring from HEAD is correct for the first and destroys uncommitted work
+ * for the second. A failed snapshot now produces no token at all, and the
+ * union makes the ambiguous spelling unrepresentable.
  */
-export interface IPreApplyState {
-  /** `git stash create` snapshot of the pre-apply working state, when dirty. */
-  stashSha?: string;
+export type IPreApplyState = {
   /** Repo-relative paths the patch touched (cleanly-applied siblings included). */
   patchPaths: string[];
-}
+} & (
+  | {
+      /**
+       * The tree was clean pre-apply, so HEAD IS the pre-apply state. This is
+       * the only case that licenses restoring from HEAD.
+       */
+      source: 'head';
+    }
+  | {
+      /** `git stash create` snapshot of a dirty pre-apply working state. */
+      source: 'stash';
+      sha: string;
+    }
+);
+
+/**
+ * Outcome of a pre-operation working-state snapshot.
+ *
+ * The three cases are deliberately distinct. "Clean" and "failed" both yield
+ * no SHA, but they license opposite behaviour: restoring from HEAD is exactly
+ * right for a clean tree and destroys uncommitted work for a dirty one, so a
+ * caller that cannot tell them apart cannot safely offer a rollback.
+ */
+export type WorkingStateSnapshot =
+  /** Nothing to preserve — HEAD is the correct restore source. */
+  | { status: 'clean' }
+  /** Snapshot commit written; restore from this tree. */
+  | { status: 'snapshot'; sha: string }
+  /** The snapshot could not be taken; the pre-operation state is unrecoverable. */
+  | { status: 'failed' };
 
 /**
  * Snapshot the current working state WITHOUT disturbing the tree or the stash
  * stack: `git stash create` writes the stash-shaped commit and returns its
  * SHA, but stores no ref — so a bracket that is never restored leaves nothing
  * behind (git4idea's rollback label analog; a `stash push` here would change
- * what the operation applies onto). Returns undefined when the tree is clean
- * or the snapshot fails (callers degrade to HEAD as the restore source).
+ * what the operation applies onto).
+ *
+ * `git stash create` prints an empty SHA for a clean tree and exits non-zero
+ * when it cannot write (an unwritable object store, for one), so the empty
+ * and failed cases are reported separately rather than collapsed.
  */
 export async function createWorkingStateSnapshot(
   gitCli: GitCli,
   cwd: string,
   label: string
-): Promise<string | undefined> {
+): Promise<WorkingStateSnapshot> {
   try {
     const res = await gitCli.exec(['stash', 'create', label], { cwd, throwOnError: false });
     if (res.exitCode !== 0) {
-      return undefined;
+      getLogger().debug('createWorkingStateSnapshot: git stash create failed', {
+        cwd,
+        exitCode: res.exitCode,
+      });
+      return { status: 'failed' };
     }
     const sha = res.stdout.trim();
-    return FULL_SHA_RE.test(sha) ? sha : undefined;
+    if (sha.length === 0) {
+      return { status: 'clean' };
+    }
+    return FULL_SHA_RE.test(sha) ? { status: 'snapshot', sha } : { status: 'failed' };
   } catch (error) {
-    getLogger().debug('createWorkingStateSnapshot failed (degrading to HEAD source)', {
+    getLogger().debug('createWorkingStateSnapshot threw', {
       cwd,
       err: error instanceof Error ? error.message : String(error),
     });
-    return undefined;
+    return { status: 'failed' };
   }
 }
 
@@ -222,7 +264,7 @@ export async function restorePreApplyState(
     };
   }
   try {
-    const source = state.stashSha ?? 'HEAD';
+    const source = state.source === 'stash' ? state.sha : 'HEAD';
     const lsRes = await gitCli.exec(
       buildGitArgs('ls-tree', ['-r', '-z', '--name-only'], [source], state.patchPaths),
       { cwd, throwOnError: true }

@@ -40,6 +40,12 @@ export function applyBlockedReason(form: {
   useClipboard: boolean;
   patchPath?: string;
   stripLevel?: number;
+  useAm?: boolean;
+  /**
+   * Whether the loaded patch opens with a mailbox envelope. `undefined` while
+   * the host has not read the patch yet — an unknown fact cannot block.
+   */
+  hasMailboxEnvelope?: boolean;
 }): string | undefined {
   if (!form.useClipboard && !form.patchPath) {
     return 'Choose a patch file to apply.';
@@ -47,6 +53,13 @@ export function applyBlockedReason(form: {
   const stripError = validateStripLevel(form.stripLevel);
   if (stripError) {
     return `Strip level: ${stripError}`;
+  }
+  // `git am` reads its author/date/message from a mailbox envelope and exits
+  // 128 with "Patch format detection failed." without one. The preview cannot
+  // catch this: `git am` has no dry run, so check mode falls back to
+  // `git apply`, which happily reports a plain diff as appliable.
+  if (form.useAm === true && form.hasMailboxEnvelope === false) {
+    return 'This patch has no mailbox envelope, so “Use git am” cannot apply it. Uncheck it, or choose a patch produced by git format-patch.';
   }
   return undefined;
 }

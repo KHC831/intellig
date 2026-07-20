@@ -247,6 +247,39 @@ describe('PatchService.applyPatch', () => {
     assert.strictEqual(applyCalls(git)[0].args[applyCalls(git)[0].args.length - 1], '/tmp/x.patch');
   });
 
+  it('refuses useAm on a plain diff instead of spawning an am that cannot succeed', async () => {
+    // `git am --3way` exits 128 with "Patch format detection failed." on a
+    // patch with no mailbox envelope, while the preview's `git apply --check`
+    // reports it as appliable. Refuse before the spawn so the two agree.
+    const git = makeMockGitService([{ exitCode: 0, stdout: '', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, {
+      patchContent: 'diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-a\n+b\n',
+      useAm: true,
+    });
+    assert.strictEqual(res.success, false);
+    assert.match(res.stderr ?? '', /mailbox|envelope|format-patch/i);
+    assert.strictEqual(applyCalls(git).length, 0, 'no git process should have spawned');
+  });
+
+  it('allows useAm when the patch carries a mailbox envelope', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'Applying: x\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, {
+      patchContent:
+        'From 1234567890123456789012345678901234567890 Mon Sep 17 00:00:00 2001\n' +
+        'From: A <a@b.c>\nSubject: [PATCH] x\n\n' +
+        'diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-a\n+b\n',
+      useAm: true,
+    });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(applyCalls(git)[0].args[0], 'am');
+  });
+
   it('falls back to `git apply --reverse` when useAm + reverse (git am has no --reverse)', async () => {
     const git = makeMockGitService([{ exitCode: 0, stdout: '', stderr: '' }]);
     const svc = new PatchService(git);
@@ -1318,7 +1351,11 @@ describe('PatchService.applyPatch — pre-apply bracket (rollback token)', () =>
     assert.strictEqual(res.success, false);
     assert.deepStrictEqual(git._exec[0].args, ['stash', 'create', 'IntelliG: before Apply Patch']);
     assert.ok(res.preApplyState, 'a conflict result must carry the pre-apply restore token');
-    assert.strictEqual(res.preApplyState.stashSha, STASH_SHA);
+    assert.strictEqual(res.preApplyState.source, 'stash');
+    assert.strictEqual(
+      res.preApplyState.source === 'stash' ? res.preApplyState.sha : undefined,
+      STASH_SHA
+    );
     assert.deepStrictEqual(
       res.preApplyState.patchPaths.sort(),
       ['sib.ts', 'target.ts'],
@@ -1347,6 +1384,37 @@ describe('PatchService.applyPatch — pre-apply bracket (rollback token)', () =>
     ]);
   });
 
+  it('a FAILED snapshot on a dirty tree offers no rollback token', async () => {
+    // `git stash create` exits non-zero for real (e.g. an unwritable object
+    // store). Reporting that as "tree was clean" would make Abort restore the
+    // patch-touched paths from HEAD, discarding uncommitted work while
+    // reporting success. No snapshot means no Abort offer.
+    const git = makeMockGitService(
+      [
+        { exitCode: 1, stdout: '', stderr: 'error: insufficient permission' }, // stash create failed
+        {
+          exitCode: 1,
+          stdout: '',
+          stderr: "Applied patch to 'target.ts' with conflicts.",
+        },
+      ],
+      [{ path: 'target.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus],
+      { scriptStashCreate: true }
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+
+    assert.strictEqual(res.success, false);
+    assert.ok(res.conflicts && res.conflicts.length > 0, 'the conflict handoff still happens');
+    assert.strictEqual(
+      res.preApplyState,
+      undefined,
+      'a failed snapshot must not be offered as a restorable pre-apply state'
+    );
+  });
+
   it('a clean pre-apply tree yields a token without a stash sha', async () => {
     const git = makeMockGitService(
       [
@@ -1366,7 +1434,7 @@ describe('PatchService.applyPatch — pre-apply bracket (rollback token)', () =>
     const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
 
     assert.ok(res.preApplyState);
-    assert.strictEqual(res.preApplyState.stashSha, undefined);
+    assert.strictEqual(res.preApplyState.source, 'head', 'a clean tree restores from HEAD');
   });
 
   it('hard failure and check mode carry NO restore token', async () => {

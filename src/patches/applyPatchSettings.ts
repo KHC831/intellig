@@ -11,6 +11,7 @@ import { sanitizeGitError } from '../git-core/gitError';
 import type { PersistedSlot } from '../utils/persistedState';
 import type { IApplyPatchResult } from './interfaces/IPatchService';
 import { validateStripLevel } from './applyPatchValidation';
+import { validateBaseDir } from './PatchService';
 
 /** Dialog state that survives a reopen. Every field is independently optional. */
 export interface IApplyPatchSettings {
@@ -27,8 +28,16 @@ export interface IApplyPatchSettings {
  * A single corrupt field drops only itself: losing every remembered setting
  * because one went bad is a worse outcome than reverting that one to its
  * default. A non-object payload is rejected outright.
+ *
+ * `repoRoot` re-checks `baseDir` against the repo it will be applied in. A
+ * value can sour without ever changing — the same stored subdirectory escapes
+ * a different (or moved) root — and only the apply path rejected it, once per
+ * attempt, while the dialog kept re-seeding it. Omitted when no root is known.
  */
-export function validateApplyPatchSettings(raw: unknown): IApplyPatchSettings | undefined {
+export function validateApplyPatchSettings(
+  raw: unknown,
+  repoRoot?: string
+): IApplyPatchSettings | undefined {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return undefined;
   }
@@ -44,7 +53,11 @@ export function validateApplyPatchSettings(raw: unknown): IApplyPatchSettings | 
   ) {
     out.stripLevel = source.stripLevel;
   }
-  if (typeof source.baseDir === 'string' && source.baseDir.length > 0) {
+  if (
+    typeof source.baseDir === 'string' &&
+    source.baseDir.length > 0 &&
+    (repoRoot === undefined || validateBaseDir(source.baseDir, repoRoot) === undefined)
+  ) {
     out.baseDir = source.baseDir;
   }
   if (typeof source.useAm === 'boolean') {
@@ -62,15 +75,39 @@ export function applyPatchSettingsSlot(repoRoot: string): PersistedSlot<IApplyPa
   return {
     key: `intellig.patch.applySettings:${repoRoot}`,
     version: 1,
-    validate: validateApplyPatchSettings,
+    validate: (raw: unknown) => validateApplyPatchSettings(raw, repoRoot),
   };
 }
 
-/** Per-file verdict of a preview dry-run pass. */
+/**
+ * `git apply --check` processes in flight for one preview pass. Matches the
+ * multi-commit changed-files loader's bound — the same trade between a
+ * responsive dialog and process pressure.
+ */
+export const PREVIEW_CHECK_CONCURRENCY = 4;
+
+/**
+ * Files one preview pass will dry-run. A patch can touch thousands; checking
+ * every one costs a git process each and tells the user nothing the first
+ * screenful did not. The pane says how many of how many it checked rather
+ * than presenting the subset as the whole.
+ */
+export const PREVIEW_FILE_CAP = 100;
+
+/**
+ * Per-file verdict of a preview dry-run pass.
+ *
+ * Three outcomes, not two: a file that applies WITH CONFLICTS still lands,
+ * leaving markers to resolve, which is a different next move from one that
+ * will not apply at all. Collapsing them onto a single failure flag paints
+ * both the same.
+ */
+export type PatchPreviewStatus = 'ok' | 'conflicts' | 'fails';
+
 export interface IPatchPreviewFile {
   path: string;
-  ok: boolean;
-  /** Why the file will not apply. Absent when `ok`. */
+  status: PatchPreviewStatus;
+  /** Why the file conflicts or will not apply. Absent when `ok`. */
   message?: string;
 }
 
@@ -82,15 +119,15 @@ export interface IPatchPreviewFile {
  */
 export function previewFileResult(path: string, result: IApplyPatchResult): IPatchPreviewFile {
   if (result.success) {
-    return { path, ok: true };
+    return { path, status: 'ok' };
   }
   if (result.conflicts && result.conflicts.length > 0) {
-    return { path, ok: false, message: 'Applies with conflicts' };
+    return { path, status: 'conflicts', message: 'Applies with conflicts' };
   }
   const reason = result.stderr?.trim();
   return {
     path,
-    ok: false,
+    status: 'fails',
     message: reason ? sanitizeGitError(reason) : 'Does not apply to the current working tree',
   };
 }

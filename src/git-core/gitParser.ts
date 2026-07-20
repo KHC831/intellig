@@ -686,7 +686,7 @@ export function parseHead(
  * every non-ASCII byte as octal, so `é` arrives as `\303\251`). A token without
  * surrounding quotes is returned unchanged.
  */
-function unquoteCStylePath(token: string): string {
+export function unquoteCStylePath(token: string): string {
   if (token.length < 2 || token[0] !== '"' || token[token.length - 1] !== '"') {
     return token;
   }

@@ -205,6 +205,7 @@ export class StagingOps {
     // has staged changes the index keeps its pre-revert content, so the
     // "discarded" hunk silently reappears on the next commit. Refuse rather
     // than leave a stale index behind.
+    // git-path-quote-exempt: output is only tested for emptiness, never parsed
     const staged = await this.ctx.gitCli.exec(['diff', '--cached', '--name-only', '--', path], {
       cwd: repo.rootUri.fsPath,
     });

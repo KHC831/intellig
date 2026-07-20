@@ -184,7 +184,15 @@ describe('e2e — patch apply (real git)', function () {
     assert.ok(fs.existsSync(n), 'the clean new file must be applied before the abort');
     assert.strictEqual(fs.readFileSync(sib, 'utf8'), 'l1-up\nl2\nl3-local\n');
     assert.ok(res.preApplyState, 'the conflict result must carry the restore token');
-    assert.ok(res.preApplyState.stashSha, 'a dirty pre-apply tree must pin a snapshot sha');
+    assert.strictEqual(
+      res.preApplyState.source,
+      'stash',
+      'a dirty pre-apply tree must pin a snapshot'
+    );
+    assert.ok(
+      res.preApplyState.source === 'stash' && res.preApplyState.sha,
+      'the snapshot must carry its sha'
+    );
     assert.deepStrictEqual(
       [...res.preApplyState.patchPaths].sort(),
       ['n.txt', 's.txt', 't.txt'],

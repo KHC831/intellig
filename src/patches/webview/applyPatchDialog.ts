@@ -189,14 +189,28 @@ function render(init: IApplyPatchDialogInit): void {
     baseDir?: string;
   } => ({ ...basePayload(), useAm: useAm(), stripLevel: stripLevel(), baseDir: baseDir() });
 
+  // Whether the loaded patch opens with a `git am` envelope. The host owns
+  // the patch bytes, so this stays unknown until it reports one.
+  let hasMailboxEnvelope: boolean | undefined;
+
+  const formState = (): {
+    useClipboard: boolean;
+    patchPath?: string;
+    stripLevel?: number;
+    useAm: boolean;
+    hasMailboxEnvelope?: boolean;
+  } => ({
+    useClipboard: source() === 'clipboard',
+    patchPath: patchPath(),
+    stripLevel: stripLevel(),
+    useAm: useAm(),
+    hasMailboxEnvelope,
+  });
+
   // Apply stays disabled while the form carries a reason not to run, shown
   // inline rather than as a toast after the fact.
   const refreshValidation = (): void => {
-    const reason = applyBlockedReason({
-      useClipboard: source() === 'clipboard',
-      patchPath: patchPath(),
-      stripLevel: stripLevel(),
-    });
+    const reason = applyBlockedReason(formState());
     const banner = document.getElementById('validation');
     if (banner) {
       banner.textContent = reason ?? '';
@@ -233,13 +247,7 @@ function render(init: IApplyPatchDialogInit): void {
     post({ type: 'cancel' });
   };
   const apply = (): void => {
-    if (
-      applyBlockedReason({
-        useClipboard: source() === 'clipboard',
-        patchPath: patchPath(),
-        stripLevel: stripLevel(),
-      })
-    ) {
+    if (applyBlockedReason(formState())) {
       return;
     }
     post({ type: 'apply', ...optionsPayload() });
@@ -252,17 +260,20 @@ function render(init: IApplyPatchDialogInit): void {
   (document.getElementById('applyBtn') as HTMLButtonElement).addEventListener('click', apply);
 
   // Any form change re-gates Apply and retires a now-stale preview verdict.
+  // Editing the path points at different bytes, so the envelope fact the host
+  // reported no longer describes them.
   ['stripLevel', 'baseDir', 'useAm', 'patchPath'].forEach((id) => {
+    const onChange = (): void => {
+      if (id === 'patchPath') {
+        hasMailboxEnvelope = undefined;
+      }
+      refreshValidation();
+      markPreviewStale();
+    };
     const input = document.getElementById(id);
     if (input) {
-      input.addEventListener('input', () => {
-        refreshValidation();
-        markPreviewStale();
-      });
-      input.addEventListener('change', () => {
-        refreshValidation();
-        markPreviewStale();
-      });
+      input.addEventListener('input', onChange);
+      input.addEventListener('change', onChange);
     }
   });
 
@@ -280,6 +291,9 @@ function render(init: IApplyPatchDialogInit): void {
   // Source radio toggles the file row's enabled state.
   document.querySelectorAll<HTMLInputElement>('input[name="source"]').forEach((r) => {
     r.addEventListener('change', () => {
+      // Switching source swaps which bytes get applied.
+      hasMailboxEnvelope = undefined;
+      refreshValidation();
       const fr = document.querySelector('[data-row="file"]');
       if (!fr) {
         return;
@@ -311,9 +325,12 @@ function render(init: IApplyPatchDialogInit): void {
       if (input) {
         input.value = msg.patchPath;
       }
+      hasMailboxEnvelope = msg.hasMailboxEnvelope;
       refreshValidation();
       markPreviewStale();
     } else if (msg.type === 'preview') {
+      hasMailboxEnvelope = msg.hasMailboxEnvelope;
+      refreshValidation();
       const pane = document.getElementById('preview');
       if (pane) {
         pane.textContent = msg.content;
@@ -322,10 +339,25 @@ function render(init: IApplyPatchDialogInit): void {
       if (list) {
         list.textContent = '';
         list.removeAttribute('data-stale');
+        // Say what was checked against what the patch touches, so a capped
+        // pass does not read as a verdict on the whole patch.
+        if (
+          msg.checkedFiles !== undefined &&
+          msg.totalFiles !== undefined &&
+          msg.checkedFiles < msg.totalFiles
+        ) {
+          list.append(
+            el('div', {
+              className: 'check-cap',
+              textContent: `Checked the first ${msg.checkedFiles} of ${msg.totalFiles} files in this patch.`,
+            })
+          );
+        }
+        const ICONS = { ok: '✓', conflicts: '!', fails: '✗' } as const;
         msg.files.forEach((file) => {
-          const rowEl = el('div', { className: file.ok ? 'check ok' : 'check bad' });
+          const rowEl = el('div', { className: `check ${file.status}` });
           rowEl.append(
-            el('span', { className: 'check-icon', textContent: file.ok ? '✓' : '✗' }),
+            el('span', { className: 'check-icon', textContent: ICONS[file.status] }),
             el('span', { className: 'check-path', textContent: file.path })
           );
           if (file.message) {
@@ -334,6 +366,10 @@ function render(init: IApplyPatchDialogInit): void {
           list.append(rowEl);
         });
       }
+    } else if (msg.type === 'previewStatus') {
+      // The click DID take effect; say so rather than leaving the button
+      // looking inert while the superseded pass unwinds.
+      markPreviewStale(msg.message);
     } else if (msg.type === 'error') {
       const pane = document.getElementById('preview');
       if (pane) {

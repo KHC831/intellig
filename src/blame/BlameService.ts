@@ -266,6 +266,7 @@ export class BlameService implements IBlameService {
     // accepts them in any order. The order here mirrors IntelliJ's menu.
     // Splice via buildGitArgs so a hostile revision/path can't
     // collapse into a flag.
+    // git-path-quote-exempt: blame porcelain is parsed for hunks and commit metadata; its quoted `filename` line is never read
     const flags: string[] = ['--porcelain'];
 
     if (options?.ignoreWhitespace) {

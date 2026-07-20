@@ -34,6 +34,12 @@ export interface IConflictOpContext {
    * falls back to restoring only the unresolved paths.
    */
   preApplyState?: IPreApplyState;
+  /**
+   * Set when the apply could not snapshot the working tree. Abort then has no
+   * pre-apply state to restore and can only revert the unresolved paths, so
+   * the dialog warns instead of reporting the apply as fully undone.
+   */
+  preApplySnapshotFailed?: boolean;
 }
 
 /**

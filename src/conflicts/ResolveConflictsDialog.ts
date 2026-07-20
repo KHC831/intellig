@@ -711,6 +711,24 @@ ${this._getBodyHtml()}
             );
             break;
           }
+          // The apply could not snapshot the working tree, so there is no
+          // pre-apply state to restore: Abort can only revert the unresolved
+          // paths, leaving the cleanly-applied siblings applied and staged.
+          // Say so before and after — a bare "aborted" would claim the apply
+          // was undone while part of it is still on disk and in the index.
+          const degraded = op === 'applyPatch' && this._opContext.preApplySnapshotFailed === true;
+          if (degraded) {
+            const confirm = await vscode.window.showWarningMessage(
+              'IntelliG could not snapshot your working tree before this patch was applied, so ' +
+                'Abort can only revert the files that are still conflicted. Files that applied ' +
+                'cleanly will stay applied and staged.',
+              { modal: true },
+              'Revert Conflicted Files'
+            );
+            if (confirm !== 'Revert Conflicted Files') {
+              return;
+            }
+          }
           // Unshelve / unstash (and a bracket-less apply) leave conflict
           // markers with no git-level "aborting" state, so the service
           // restores just the unresolved paths to HEAD (a bare
@@ -721,6 +739,13 @@ ${this._getBodyHtml()}
               this._unresolvedPaths()
             )
           );
+          if (degraded) {
+            void vscode.window.showWarningMessage(
+              'Reverted the conflicted files only — the rest of the patch is still applied.'
+            );
+            this._close('aborted');
+            return;
+          }
           break;
         }
         default:

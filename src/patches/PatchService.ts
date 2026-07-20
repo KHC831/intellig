@@ -20,9 +20,13 @@ import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
 import { isAmSession, resolveGitDir } from '../git-core/gitDirMarkers';
-import { createWorkingStateSnapshot, type IPreApplyState } from '../git-core/ops/preservedChanges';
+import {
+  createWorkingStateSnapshot,
+  type IPreApplyState,
+  type WorkingStateSnapshot,
+} from '../git-core/ops/preservedChanges';
 import { runAmSessionOp } from '../git-core/ops/amSession';
-import { isConflictedStatus } from '../git-core/gitParser';
+import { isConflictedStatus, unquoteCStylePath } from '../git-core/gitParser';
 import {
   looksLikePatchConflictText,
   parseAppliedPatchFiles,
@@ -141,6 +145,21 @@ export class PatchService implements IPatchService {
     if (stripErr) {
       return { success: false, appliedFiles: [], stderr: `Apply Patch: ${stripErr}` };
     }
+    // `git am` reads author/date/message from a mailbox envelope and exits 128
+    // with "Patch format detection failed." without one. Check mode cannot
+    // catch it (git am has no dry run, so it falls back to `git apply`), so
+    // refuse here rather than let the real run fail on git's own wording.
+    if (options.useAm === true && !options.reverse && !options.check) {
+      const amText = await this._readPatchTextForEnvelopeCheck(options);
+      if (amText !== undefined && extractMailboxPreamble(amText) === undefined) {
+        return {
+          success: false,
+          appliedFiles: [],
+          stderr:
+            'Apply Patch: this patch has no mailbox envelope, so `git am` cannot apply it. Apply it without "Use git am", or use a patch produced by `git format-patch`.',
+        };
+      }
+    }
 
     // Materialize inline content to a temp file. Track it so we can
     // unlink unconditionally in the `finally` block.
@@ -166,14 +185,14 @@ export class PatchService implements IPatchService {
       // the unreferenced snapshot. `git am` needs no bracket (`am --abort`
       // is its rollback), and check mode mutates nothing.
       const ranAmPath = options.useAm === true && !options.reverse;
-      const preApplyStashSha =
+      const preApplySnapshot: WorkingStateSnapshot =
         !options.check && !ranAmPath
           ? await createWorkingStateSnapshot(
               gitCli,
               repo.rootUri.fsPath,
               'IntelliG: before Apply Patch'
             )
-          : undefined;
+          : { status: 'clean' };
 
       // Execute. `throwOnError: false` so we can distinguish conflict
       // from hard error based on the exit code + stderr shape.
@@ -226,9 +245,16 @@ export class PatchService implements IPatchService {
         const touched = this._parseAppliedFiles(result.stdout + '\n' + result.stderr);
         // The restore token rides only the plain-apply conflict arm; am
         // conflicts roll back through `git am --abort` instead.
-        const preApplyState: IPreApplyState | undefined = ranAmPath
-          ? undefined
-          : { stashSha: preApplyStashSha, patchPaths: touched };
+        // A failed snapshot is NOT a clean tree. Restoring from HEAD is right
+        // for a clean tree and destroys uncommitted work for a dirty one, and
+        // the two are indistinguishable once the SHA is gone — so withhold the
+        // token rather than offer an Abort that cannot be honoured.
+        const preApplyState: IPreApplyState | undefined =
+          ranAmPath || preApplySnapshot.status === 'failed'
+            ? undefined
+            : preApplySnapshot.status === 'snapshot'
+              ? { source: 'stash', sha: preApplySnapshot.sha, patchPaths: touched }
+              : { source: 'head', patchPaths: touched };
         return {
           success: false,
           appliedFiles: touched,
@@ -236,6 +262,9 @@ export class PatchService implements IPatchService {
           stderr: sanitizeGitError(result.stderr || result.stdout),
           ...(amSessionActive ? { amSessionActive: true } : {}),
           ...(preApplyState ? { preApplyState } : {}),
+          // Abort can only revert the unresolved paths without a token, so
+          // the caller must say so rather than report a full rollback.
+          ...(preApplySnapshot.status === 'failed' ? { preApplySnapshotFailed: true } : {}),
         };
       }
 
@@ -508,6 +537,27 @@ export class PatchService implements IPatchService {
   private _parseAppliedFiles(output: string): string[] {
     return parseAppliedPatchFiles(output);
   }
+
+  /**
+   * The patch text the envelope pre-flight inspects, or `undefined` when it
+   * cannot be read. An unreadable patch is left to the real run, which
+   * surfaces the I/O error with its own context.
+   */
+  private async _readPatchTextForEnvelopeCheck(
+    options: IApplyPatchOptions
+  ): Promise<string | undefined> {
+    if (options.patchContent !== undefined) {
+      return options.patchContent;
+    }
+    if (options.patchPath === undefined) {
+      return undefined;
+    }
+    try {
+      return await fs.promises.readFile(options.patchPath, 'utf8');
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 /**
@@ -531,11 +581,146 @@ export interface IPatchFileSegment {
 }
 
 /**
- * Matches a `diff --git a/<old> b/<new>` header line. Mirrors IntelliJ
- * PatchReader's `ourGitHeaderLinePattern`
- * (`diff --git\s+(\S+)\s+(\S+).*`) — paths are whitespace-delimited tokens.
+ * Ordered `diff --git` header patterns, mirroring IntelliJ GitPatchParser
+ * (platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/GitPatchParser.java:27-29,
+ * applied as a cascade in `parseNamesFromGitHeaderLine` at :139-155).
+ *
+ * Order is load-bearing. The `a/`…`b/` forms anchor on the prefixes git
+ * always writes, so their greedy groups span embedded spaces; the simple
+ * whitespace-token form runs LAST and only for headers the anchored forms
+ * reject, because it cannot represent a path containing a space (upstream
+ * says as much: "NB: can't handle whitespaces in file names"). Reversing
+ * the order fuses `a/x y.txt b/x y.txt` and `a/z y.txt b/z y.txt` onto the
+ * single name `y.txt`.
+ *
+ * NONE of these arms can resolve a name that itself contains a ` b/`
+ * segment: `diff --git a/x b/y.txt b/x b/y.txt` admits two readings and the
+ * greedy group takes the wrong one. That is why the header is only the LAST
+ * resort in a three-arm ladder, each step admitting more ambiguity than the
+ * one above it:
+ *   1. {@link parseRenameNames} (`rename from`/`rename to`) — one path per
+ *      line AND no `a/`-`b/` prefix, so it survives `--no-prefix` too;
+ *   2. {@link parsePerSideNames} (`---`/`+++`) — one path per line, but its
+ *      prefix is indistinguishable from a real top-level `a/` or `b/`
+ *      directory when the patch was made with `--no-prefix`;
+ *   3. this header — two paths on one line, ambiguous whenever a name
+ *      contains a ` b/` segment.
+ * The same order upstream applies: header names fill in only when the
+ * content parser left them null (`GitPatchParser.applyPatchInfo` :124-129),
+ * and the rename form overrides both (:101-112).
  */
-const GIT_DIFF_HEADER = /^diff --git\s+(\S+)\s+(\S+).*$/;
+const GIT_DIFF_HEADER_PATTERNS = [
+  /^diff --git (a\/.+) (b\/.+)$/,
+  /^diff --git ("a\/.+") ("b\/.+")\s*$/,
+  // git-path-quote-exempt: last-resort arm reached only after the anchored forms reject the header; tokens are decoded by parseGitDiffHeaderNames
+  /^diff --git\s+(\S+)\s+(\S+).*$/,
+] as const;
+
+/**
+ * Recover the (old, new) path pair from a block's `rename from` / `rename to`
+ * lines, or `undefined` when the block is not a rename.
+ *
+ * A 100%-similar rename carries NO hunks, so it has no `---`/`+++` lines at
+ * all and {@link parsePerSideNames} cannot see it — without this arm such a
+ * block falls through to the ambiguous header. These lines name one path
+ * each and, unlike the per-side lines, carry NO `a/`-`b/` prefix and no
+ * trailing tab, so a repo path that genuinely begins with `a/` must survive
+ * unstripped. Names are C-quoted when they carry non-ASCII bytes.
+ *
+ * This form OUTRANKS the per-side lines, matching upstream's
+ * `preferPatchInfoPaths = true` (`ourRenameFromPattern` /
+ * `ourRenameToPattern`, GitPatchParser.java:32-33, read at :101-112 —
+ * "this form has non-ambiguous parsing, prefer it to other sources").
+ *
+ * The two disagree under `--no-prefix` (or `diff.noprefix=true`): a rename
+ * into a top-level directory named `b` emits `+++ b/moved.txt`, which is
+ * indistinguishable from a stripped `b/` prefix, so the per-side arm eats the
+ * real directory. `rename to` never carries a prefix, so it is right in both
+ * modes. Where both are present and unambiguous they agree, which is what
+ * makes preferring this one strictly safer rather than merely different.
+ */
+function parseRenameNames(block: string): { old: string; new: string } | undefined {
+  let oldName: string | undefined;
+  let newName: string | undefined;
+  for (const line of block.split('\n')) {
+    if (line.startsWith('@@')) {
+      break;
+    }
+    const from = line.match(/^\s*rename from\s(.*)$/);
+    if (from && oldName === undefined) {
+      oldName = unquoteCStylePath(from[1].trim());
+      continue;
+    }
+    const to = line.match(/^\s*rename to\s(.*)$/);
+    if (to && newName === undefined) {
+      newName = unquoteCStylePath(to[1].trim());
+    }
+  }
+  return oldName !== undefined && newName !== undefined
+    ? { old: oldName, new: newName }
+    : undefined;
+}
+
+/**
+ * Recover the (old, new) path pair from a block's `--- <old>` / `+++ <new>`
+ * lines, or `undefined` when the block carries neither (a binary patch or a
+ * pure-mode change has no hunk header).
+ *
+ * These lines name ONE side each, so they cannot be misread the way a
+ * two-names-on-one-line header can. git appends a TAB after a name that
+ * carries whitespace, so the value is cut at the first tab before decoding.
+ * `/dev/null` is preserved verbatim for the add/delete arms to interpret.
+ *
+ * Only the lines BEFORE the first hunk are considered: `---`/`+++` also open
+ * ordinary removed/added content lines once hunks start.
+ */
+function parsePerSideNames(block: string): { old: string; new: string } | undefined {
+  let oldName: string | undefined;
+  let newName: string | undefined;
+  for (const line of block.split('\n')) {
+    if (line.startsWith('@@')) {
+      break;
+    }
+    const side = line.startsWith('--- ') ? 'old' : line.startsWith('+++ ') ? 'new' : undefined;
+    if (side === undefined) {
+      continue;
+    }
+    const tab = line.indexOf('\t');
+    const token = line.slice(4, tab === -1 ? undefined : tab);
+    const name = token === '/dev/null' ? token : stripPatchPathPrefix(unquoteCStylePath(token));
+    if (side === 'old' && oldName === undefined) {
+      oldName = name;
+    } else if (side === 'new' && newName === undefined) {
+      newName = name;
+    }
+  }
+  return oldName !== undefined && newName !== undefined
+    ? { old: oldName, new: newName }
+    : undefined;
+}
+
+/**
+ * Recover the (old, new) path pair from a `diff --git` header line, or
+ * `undefined` when no pattern matches.
+ *
+ * Each side is captured as the token git actually wrote, then decoded and
+ * only then stripped of its `a/`/`b/` prefix. That order matters because
+ * git C-quotes the whole token INCLUDING the prefix when the name carries
+ * non-ASCII bytes or a double quote (`"a/caf\303\251 q.txt"`): stripping
+ * first would leave the quote in place and defeat the decoder.
+ */
+function parseGitDiffHeaderNames(header: string): { old: string; new: string } | undefined {
+  for (const pattern of GIT_DIFF_HEADER_PATTERNS) {
+    const match = header.match(pattern);
+    if (match) {
+      return {
+        old: stripPatchPathPrefix(unquoteCStylePath(match[1])),
+        new: stripPatchPathPrefix(unquoteCStylePath(match[2])),
+      };
+    }
+  }
+  return undefined;
+}
 
 /**
  * Split a unified patch into one segment per changed file.
@@ -563,14 +748,17 @@ export function splitPatchByFile(content: string): IPatchFileSegment[] {
   const segments: IPatchFileSegment[] = [];
   for (const block of blocks) {
     const header = block.slice(0, block.indexOf('\n') === -1 ? undefined : block.indexOf('\n'));
-    const match = header.match(GIT_DIFF_HEADER);
-    if (!match) {
+    // Precedence: rename lines, then per-side lines, then the header. Each
+    // step down admits more ambiguity than the one above it.
+    const names =
+      parseRenameNames(block) ?? parsePerSideNames(block) ?? parseGitDiffHeaderNames(header);
+    if (!names) {
       continue;
     }
     // Recover the repo-relative path from the `b/<new>` side, falling back to
     // the `a/<old>` side for pure deletions where the new path is `/dev/null`.
-    const newPath = stripPatchPathPrefix(match[2]);
-    const oldPath = stripPatchPathPrefix(match[1]);
+    const newPath = names.new;
+    const oldPath = names.old;
     const path = newPath === '/dev/null' || newPath.length === 0 ? oldPath : newPath;
     segments.push({ path, content: block });
   }

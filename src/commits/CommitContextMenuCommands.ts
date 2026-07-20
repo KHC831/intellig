@@ -2347,10 +2347,13 @@ export class CommitContextMenuCommands {
     // `getMultiCommitDiff` which returns CUMULATIVE changes across all
     // listed commits — wrong for non-adjacent endpoints where the user
     // explicitly skipped the intermediates.
-    const result = await this._gitCli.exec(['diff', '--name-only', `${oldHash}..${newHash}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: false,
-    });
+    const result = await this._gitCli.exec(
+      ['diff', '--name-only', '-z', `${oldHash}..${newHash}`],
+      {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: false,
+      }
+    );
 
     // Propagate failure as a sanitised toast instead
     // of silently returning undefined.
@@ -2362,10 +2365,9 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    const firstFile = result.stdout
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)[0];
+    // NUL-delimited: a path carrying whitespace or non-ASCII bytes arrives
+    // verbatim rather than C-quoted, so it is never trimmed or unescaped here.
+    const firstFile = result.stdout.split('\0').filter((s) => s.length > 0)[0];
     if (!firstFile) {
       void vscode.window.showInformationMessage(
         `No file changes between ${oldHash.substring(0, 8)} and ${newHash.substring(0, 8)}.`
@@ -2397,15 +2399,14 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
 
     try {
-      const result = await this._gitCli.exec(['ls-tree', '--name-only', '-r', hash], {
+      const result = await this._gitCli.exec(['ls-tree', '--name-only', '-r', '-z', hash], {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       });
 
-      const files = result.stdout
-        .trim()
-        .split('\n')
-        .filter((f) => f.length > 0);
+      // NUL-delimited, so a path carrying whitespace or non-ASCII bytes reaches
+      // the pick as its real name instead of git's C-quoted spelling.
+      const files = result.stdout.split('\0').filter((f) => f.length > 0);
       if (files.length === 0) {
         void vscode.window.showInformationMessage('No files found at this revision.');
         return;

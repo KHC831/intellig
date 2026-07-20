@@ -3,10 +3,14 @@
  */
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
-/** Per-file verdict of the preview dry-run pass. */
+/**
+ * Per-file verdict of the preview dry-run pass. `conflicts` means the file
+ * lands but needs markers resolved — distinct from `fails`, which means it
+ * does not land at all.
+ */
 export interface IPatchPreviewFileWire {
   path: string;
-  ok: boolean;
+  status: 'ok' | 'conflicts' | 'fails';
   message?: string;
 }
 
@@ -45,8 +49,23 @@ export type ApplyPatchDialogInbound =
 
 /** Host → webview messages. */
 export type ApplyPatchDialogOutbound =
-  | { type: 'patchPathChosen'; patchPath: string }
-  | { type: 'preview'; content: string; files: IPatchPreviewFileWire[] }
+  /**
+   * `hasMailboxEnvelope` reports whether the patch opens with a `git am`
+   * envelope, so the form can refuse the am path before the user commits to
+   * it. Absent when the host could not read the patch.
+   */
+  | { type: 'patchPathChosen'; patchPath: string; hasMailboxEnvelope?: boolean }
+  | {
+      type: 'preview';
+      content: string;
+      files: IPatchPreviewFileWire[];
+      /** Paths dry-run, and paths the patch touches. Unequal when capped. */
+      checkedFiles?: number;
+      totalFiles?: number;
+      hasMailboxEnvelope?: boolean;
+    }
+  /** Transient status while a preview runs (e.g. a re-Preview was queued). */
+  | { type: 'previewStatus'; message: string }
   | { type: 'error'; message: string };
 
 export const APPLY_PATCH_DIALOG_INBOUND_TYPES = ['cancel', 'browse', 'preview', 'apply'] as const;

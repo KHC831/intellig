@@ -458,6 +458,7 @@ export class DiffOps {
     // via buildGitArgs so a path that starts with `-` cannot collapse
     // into a flag (e.g., `--git-dir=evil`).
     return ResultAsync.fromPromise(
+      // git-path-quote-exempt: blame porcelain is parsed for hunks and commit metadata; its quoted `filename` line is never read
       this.ctx.gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
         cwd: repo.rootUri.fsPath,
       }),

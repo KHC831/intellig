@@ -1233,6 +1233,7 @@ export class ShelfService implements IShelfService {
     // Diff vs HEAD (not the unstaged working tree) so a STAGED-only binary
     // change is detected too — otherwise it would slip past as a contentless
     // "Binary files differ" text diff and be lost on shelve (no bytes captured).
+    // git-path-quote-exempt: only the byte-count columns are read, never the path
     const numstat = await this._gitCli.exec(['diff', '--numstat', 'HEAD', '--', filePath], {
       cwd,
       throwOnError: false,

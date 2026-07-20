@@ -99,7 +99,7 @@ describe('previewFileResult', () => {
   it('reports a clean check as applying', () => {
     const out = previewFileResult('a.ts', { success: true, appliedFiles: ['a.ts'] });
 
-    assert.deepStrictEqual(out, { path: 'a.ts', ok: true });
+    assert.deepStrictEqual(out, { path: 'a.ts', status: 'ok' });
   });
 
   it('carries the sanitised git reason when a file will not apply', () => {
@@ -109,7 +109,7 @@ describe('previewFileResult', () => {
       stderr: 'error: patch failed: a.ts:1\nerror: a.ts: patch does not apply',
     });
 
-    assert.strictEqual(out.ok, false);
+    assert.strictEqual(out.status, 'fails');
     assert.match(out.message ?? '', /does not apply/);
   });
 
@@ -120,15 +120,45 @@ describe('previewFileResult', () => {
       conflicts: [{ path: 'a.ts', resolved: false }],
     });
 
-    assert.strictEqual(out.ok, false);
+    assert.strictEqual(out.status, 'conflicts');
     assert.match(out.message ?? '', /conflict/i);
   });
 
   it('falls back to a generic reason when git said nothing', () => {
     const out = previewFileResult('a.ts', { success: false, appliedFiles: [] });
 
-    assert.strictEqual(out.ok, false);
+    assert.strictEqual(out.status, 'fails');
     assert.ok((out.message ?? '').length > 0, 'a failure always carries a reason');
+  });
+});
+
+describe('previewFileResult — conflicts are their own verdict', () => {
+  it('a clean check reports status ok', () => {
+    assert.strictEqual(
+      previewFileResult('a.ts', { success: true, appliedFiles: ['a.ts'] }).status,
+      'ok'
+    );
+  });
+
+  it('a conflicted-but-appliable file is NOT painted as a failure', () => {
+    // The user's next move differs: a conflicting file still lands, with
+    // markers to resolve. Sharing the failure verdict with "will not apply"
+    // makes the two indistinguishable in the pane.
+    const out = previewFileResult('a.ts', {
+      success: false,
+      appliedFiles: ['a.ts'],
+      conflicts: [{ path: 'a.ts', resolved: false }],
+    });
+    assert.strictEqual(out.status, 'conflicts');
+  });
+
+  it('a patch that cannot apply reports status fails', () => {
+    const out = previewFileResult('a.ts', {
+      success: false,
+      appliedFiles: [],
+      stderr: 'error: a.ts: patch does not apply',
+    });
+    assert.strictEqual(out.status, 'fails');
   });
 });
 

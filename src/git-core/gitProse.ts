@@ -16,6 +16,8 @@
  * structural channel.
  */
 
+import { unquoteCStylePath } from './gitParser';
+
 /**
  * Does this apply-family error text (stash/shelf/merge/checkout) look like
  * a merge conflict? `conflict` already matches `CONFLICT (content)`,
@@ -43,12 +45,22 @@ export function looksLikePatchConflictText(text: string): boolean {
 
 /**
  * Recover the file list a `git apply` run reported as touched, from its
- * per-file output lines:
+ * per-file output lines (apply.c):
  *  - `patching file <path>` — `git apply --verbose`;
  *  - `Checking patch <path>...` — check mode;
+ *  - `Applied patch <path> cleanly.` — the plain per-file report;
  *  - `Applied patch to '<path>' with conflicts.` / `... cleanly.` — the
- *    3-way fallback's per-file report (apply.c), the shape a plain
+ *    3-way fallback's per-file report, the shape a plain
  *    `git apply --index --3way` actually emits.
+ *
+ * ONE run mixes quoting conventions. The bare-`%s` shapes print the name git
+ * C-quotes when it carries non-ASCII bytes or a double quote; the `to '%s'`
+ * shapes print it raw inside single quotes. A single 3-way apply of
+ * `café x.txt` therefore emits all three spellings of the same file, so the
+ * quoted arms are normalised through {@link unquoteCStylePath} and the raw
+ * arm is taken verbatim — otherwise one file lands as several entries and
+ * inflates both the "N files" toast and the paths a rollback would visit.
+ *
  * Returns [] when no shape matches. PatchService scopes its conflict
  * attribution to this set — missing a shape degrades the scoping to ALL
  * unmerged files, mis-attributing pre-existing unrelated conflicts to
@@ -60,17 +72,22 @@ export function parseAppliedPatchFiles(output: string): string[] {
     const line = raw.trim();
     const patching = line.match(/^patching file (.+)$/i);
     if (patching) {
-      files.add(patching[1]);
+      files.add(unquoteCStylePath(patching[1]));
       continue;
     }
     const checking = line.match(/^Checking patch (.+?)\.\.\.$/);
     if (checking) {
-      files.add(checking[1]);
+      files.add(unquoteCStylePath(checking[1]));
       continue;
     }
-    const applied = line.match(/^Applied patch to '(.+)' (?:with conflicts|cleanly)\.$/);
+    const appliedTo = line.match(/^Applied patch to '(.+)' (?:with conflicts|cleanly)\.$/);
+    if (appliedTo) {
+      files.add(appliedTo[1]);
+      continue;
+    }
+    const applied = line.match(/^Applied patch (.+) cleanly\.$/);
     if (applied) {
-      files.add(applied[1]);
+      files.add(unquoteCStylePath(applied[1]));
     }
   }
   return Array.from(files);

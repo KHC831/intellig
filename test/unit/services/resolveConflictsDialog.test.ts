@@ -1116,7 +1116,8 @@ describe('ResolveConflictsDialog', () => {
   describe('applyPatch Abort — full pre-apply restore (bracket token)', () => {
     const SHA = 'ab12'.repeat(10);
     const PRE_APPLY = {
-      stashSha: SHA,
+      source: 'stash' as const,
+      sha: SHA,
       patchPaths: ['sib.ts', 'target.ts', 'new.ts'],
     };
     const origWarn = vscode.window.showWarningMessage;
@@ -1157,6 +1158,36 @@ describe('ResolveConflictsDialog', () => {
         gitService
       );
     }
+
+    it('warns that Abort was only partial when the pre-apply snapshot failed', async () => {
+      // No token AND a snapshot that failed: abortWorkingTreeConflicts can
+      // only revert the unresolved paths, so the cleanly-applied siblings
+      // stay applied and staged. Reporting a bare "aborted" would tell the
+      // user the apply was undone when part of it is still on disk.
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'target.ts', resolved: false }],
+        {
+          operation: 'applyPatch',
+          canAbort: true,
+          canContinue: true,
+          preApplySnapshotFailed: true,
+        },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'abort',
+      });
+
+      assert.ok(
+        warnMessages.some((m) => /could not|only|still applied|partial/i.test(m)),
+        `the degradation must be surfaced, got: ${JSON.stringify(warnMessages)}`
+      );
+    });
 
     it('confirms naming the cleanly-applied siblings, then restores from the snapshot', async () => {
       // sib.ts + target.ts existed pre-apply; new.ts was created by the patch.
