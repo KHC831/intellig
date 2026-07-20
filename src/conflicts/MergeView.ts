@@ -482,6 +482,16 @@ function mergeWindowKey(canonicalPath: string, stageIdentity: string | undefined
   return `${canonicalPath}${WINDOW_KEY_SEP}${stageIdentity ?? ''}`;
 }
 
+/**
+ * The keying primitives, exposed for their companion spec. The leading `__` +
+ * `ForTest` suffix marks it per the repo's TestSurface idiom; production code
+ * uses the module-local names above.
+ */
+export const __mergeWindowKeyingForTest = {
+  WINDOW_KEY_SEP,
+  mergeWindowKey,
+} as const;
+
 /** A conflict file opened via `show()` that has not been staged yet. */
 export interface IShownConflictFile {
   /** Repository that owns the file. */

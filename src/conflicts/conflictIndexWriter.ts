@@ -1,5 +1,10 @@
 import { GitCli, IGitCommandOptions } from '../git-core/gitCli';
-import { IUnmergedEntry, readUnmergedStages, sideStatus } from './conflictStageModel';
+import {
+  IUnmergedEntry,
+  UnmergedStagesRead,
+  readUnmergedStages,
+  sideStatus,
+} from './conflictStageModel';
 
 /**
  * Layer 1 — the git index plumbing for conflict resolution, behind an interface
@@ -16,8 +21,13 @@ export interface IConflictIndexWriter {
   /**
    * Read the unmerged index stage model — scoped to `filePath` when given,
    * otherwise every unmerged path. Index-only (no working-tree walk).
+   *
+   * Returns a discriminated result: a failed read is NOT an empty index. Each
+   * caller decides, because they differ — a batch that resolves everything must
+   * fail loudly, while a single-file accept can proceed with an unknown entry,
+   * whose ambiguity takeSide already resolves safely.
    */
-  readStages(repoRoot: string, filePath?: string): Promise<Map<string, IUnmergedEntry>>;
+  readStages(repoRoot: string, filePath?: string): Promise<UnmergedStagesRead>;
 
   /**
    * Resolve `filePath` to one side (`--ours`/`--theirs`). Returns `true` when the
@@ -46,7 +56,7 @@ export interface IConflictIndexWriter {
 export class ConflictIndexWriter implements IConflictIndexWriter {
   constructor(private readonly _gitCli: GitCli) {}
 
-  readStages(repoRoot: string, filePath?: string): Promise<Map<string, IUnmergedEntry>> {
+  readStages(repoRoot: string, filePath?: string): Promise<UnmergedStagesRead> {
     return readUnmergedStages(this._gitCli, repoRoot, filePath);
   }
 

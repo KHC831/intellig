@@ -273,14 +273,20 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
   private async _sendInit(): Promise<void> {
     const { repository, relPath, absolutePath, gitCli } = this._opts;
     try {
-      const stages = await loadMergeStageContents(gitCli, repository.rootUri.fsPath, relPath);
-      if (!stages) {
+      const load = await loadMergeStageContents(gitCli, repository.rootUri.fsPath, relPath);
+      if (load.kind !== 'stages') {
+        // Say which of the two happened. Reporting an unreadable index as "no
+        // conflict entries" sends the user to look at a file that is still
+        // conflicted.
         void vscode.window.showInformationMessage(
-          `${path.basename(absolutePath)} has no unmerged conflict entries.`
+          load.kind === 'notConflicted'
+            ? `${path.basename(absolutePath)} has no unmerged conflict entries.`
+            : `Could not read the index for ${path.basename(absolutePath)}: ${sanitizeGitError(load.stderr)}`
         );
         this.dispose();
         return;
       }
+      const stages = load;
 
       // Restore the file's own separator on Apply; the engine works on LF.
       let eolSource = stages.ours;

@@ -419,7 +419,13 @@ export class ConflictResolutionService implements IConflictResolutionService {
   ): Promise<void> {
     const root = repo.rootUri.fsPath;
     await this._withIndexLock(root, async () => {
-      const entry = (await this._indexWriter.readStages(root, filePath)).get(filePath);
+      // An unreadable index leaves the entry unknown, which is what it was
+      // before: takeSide routes an unknown entry to checkout with
+      // throwOnError, so a genuinely absent stage fails loudly rather than
+      // deleting the file. Failing here instead would refuse a resolve the
+      // user can still complete.
+      const stagesRead = await this._indexWriter.readStages(root, filePath);
+      const entry = stagesRead.ok ? stagesRead.stages.get(filePath) : undefined;
       const needsStage = await this._indexWriter.takeSide(root, filePath, flag, entry);
       if (needsStage) {
         await this._gitService.stage(repo, [filePath]).match(
@@ -571,7 +577,14 @@ export class ConflictResolutionService implements IConflictResolutionService {
       // One index-only read of every unmerged path + its stages (git4idea's
       // `git ls-files -u` model) — the canonical conflict set, and the single
       // source for the per-file delete-vs-checkout decision.
-      const stagesByPath = await this._indexWriter.readStages(root);
+      const read = await this._indexWriter.readStages(root);
+      if (!read.ok) {
+        // Returning here would resolve nothing and still report success: the
+        // caller toasts "Accepted … for all conflicted files" on a batch that
+        // did not throw.
+        throw new Error(`cannot read the index stage model: ${read.stderr}`);
+      }
+      const stagesByPath = read.stages;
       if (stagesByPath.size === 0) {
         return;
       }

@@ -27,7 +27,9 @@ import { readUnmergedStages } from './conflictStageModel';
  * Best-effort: callers wrap this so a failure still opens the editor.
  *
  * @returns `true` when a synthetic base was injected, `false` when the file was
- * not an add/add (a base already exists, or a stage is missing).
+ * not an add/add (a base already exists, or a stage is missing) OR when the
+ * index could not be read at all. Both mean "no synthetic base", which is all
+ * this caller acts on.
  */
 export async function ensureSyntheticMergeBase(
   gitCli: GitCli,
@@ -44,7 +46,12 @@ export async function ensureSyntheticMergeBase(
   // Read the index stage model (Layer 0) for this path. add/add = both sides
   // present with no base; an absent stage 2/3 is a delete/modify (no three-way
   // text) and a present stage 1 means the native editor can already diff.
-  const entry = (await readUnmergedStages(gitCli, repoRoot, relPath)).get(relPath);
+  const stagesRead = await readUnmergedStages(gitCli, repoRoot, relPath);
+  // Deliberately unspecced: an unreadable index and a path that is not add/add
+  // both mean "no synthetic base", the caller's only question, and it already
+  // treats this as best-effort. A spec here would pin an equivalence, not a
+  // decision.
+  const entry = stagesRead.ok ? stagesRead.stages.get(relPath) : undefined;
   if (!entry || entry.stage1 || !entry.stage2 || !entry.stage3) {
     return false;
   }

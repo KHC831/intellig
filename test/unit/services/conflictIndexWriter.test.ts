@@ -58,7 +58,7 @@ describe('ConflictIndexWriter.takeSide', () => {
 describe('ConflictResolutionService — injected index writer (fault injection)', () => {
   it('surfaces a writer failure as an accept error instead of throwing', async () => {
     const faultWriter: IConflictIndexWriter = {
-      readStages: async () => new Map([['f.txt', bothStages]]),
+      readStages: async () => ({ ok: true as const, stages: new Map([['f.txt', bothStages]]) }),
       takeSide: async () => {
         throw new Error('index locked');
       },
@@ -103,7 +103,7 @@ describe('ConflictResolutionService.unresolveFile', () => {
   it('restores the conflict through the writer and reports success', async () => {
     const restored: string[] = [];
     const writer: IConflictIndexWriter = {
-      readStages: async () => new Map(),
+      readStages: async () => ({ ok: true as const, stages: new Map() }),
       takeSide: async () => true,
       restoreConflict: async (_root: string, filePath: string) => {
         restored.push(filePath);
@@ -120,7 +120,7 @@ describe('ConflictResolutionService.unresolveFile', () => {
 
   it('surfaces a writer failure as a sanitized error result', async () => {
     const writer: IConflictIndexWriter = {
-      readStages: async () => new Map(),
+      readStages: async () => ({ ok: true as const, stages: new Map() }),
       takeSide: async () => true,
       restoreConflict: async () => {
         throw new Error("error: path 'f.txt' does not have merge information");

@@ -51,6 +51,7 @@ describe('merge window stage loading', () => {
     const contents = await loadMergeStageContents(cli, '/repo', 'a.txt');
     assert.ok(contents);
     assert.deepStrictEqual(contents, {
+      kind: 'stages',
       base: 'base',
       ours: 'ours',
       theirs: 'theirs',
@@ -66,6 +67,7 @@ describe('merge window stage loading', () => {
     const contents = await loadMergeStageContents(cli, '/repo', 'a.txt');
     assert.ok(contents);
     assert.deepStrictEqual(contents, {
+      kind: 'stages',
       base: 'base',
       ours: 'ours',
       theirs: '',
@@ -89,6 +91,7 @@ describe('merge window stage loading', () => {
       const contents = await loadMergeStageContents(cli, root, 'a.txt');
       assert.ok(contents);
       assert.deepStrictEqual(contents, {
+        kind: 'stages',
         base: marked,
         ours: 'ours',
         theirs: 'theirs',
@@ -109,6 +112,7 @@ describe('merge window stage loading', () => {
     );
     assert.ok(contents);
     assert.deepStrictEqual(contents, {
+      kind: 'stages',
       base: '',
       ours: 'ours',
       theirs: 'theirs',
@@ -119,7 +123,7 @@ describe('merge window stage loading', () => {
   it('returns undefined when the path has no unmerged entry', async () => {
     const { cli } = fakeGitCli('', {});
     const contents = await loadMergeStageContents(cli, '/repo', 'clean.txt');
-    assert.strictEqual(contents, undefined);
+    assert.deepStrictEqual(contents, { kind: 'notConflicted' });
   });
 
   it('fails when a present stage blob cannot be read', async () => {

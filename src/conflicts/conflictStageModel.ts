@@ -59,25 +59,44 @@ export function parseUnmergedStages(output: string): Map<string, IUnmergedEntry>
 }
 
 /**
+ * Outcome of reading the index stage model. "Nothing is unmerged" and "the
+ * index could not be read" are DIFFERENT facts: the first is information a
+ * caller may act on, the second is the absence of information. `ls-files` runs
+ * with `throwOnError: false`, so a failed read arrives as a non-zero exit and
+ * never as an exception — a caller that only guards a `catch` is not guarded.
+ */
+export type UnmergedStagesRead =
+  | { readonly ok: true; readonly stages: Map<string, IUnmergedEntry> }
+  | { readonly ok: false; readonly stderr: string };
+
+/**
  * Read the unmerged stage model from the index — index-only, so no whole
- * working-tree `git status` walk. Scoped to `filePath` when given. Returns an
- * empty map when nothing is unmerged (or the read fails).
+ * working-tree `git status` walk. Scoped to `filePath` when given.
+ *
+ * The result is a discriminated union rather than a bare map so a caller
+ * cannot silently treat a failed read as an empty index — that ambiguity
+ * defeated three separate callers.
  */
 export async function readUnmergedStages(
   gitCli: GitCli,
   repoRoot: string,
   filePath?: string
-): Promise<Map<string, IUnmergedEntry>> {
+): Promise<UnmergedStagesRead> {
   const args = ['ls-files', '-u', '-z'];
   if (filePath !== undefined) {
     args.push('--', filePath);
   }
   const result = await gitCli.exec(args, { cwd: repoRoot, throwOnError: false });
   if (result.exitCode !== 0) {
-    return new Map();
+    return { ok: false, stderr: result.stderr };
   }
-  return parseUnmergedStages(result.stdout);
+  return { ok: true, stages: parseUnmergedStages(result.stdout) };
 }
+
+// No flattening helper is provided on purpose. One existed and every caller
+// that reached for it was wrong in a different way; a caller that genuinely
+// wants to degrade writes `read.ok ? read.stages : new Map()` at its own site,
+// where the choice is visible in review.
 
 /**
  * Whether the physical stage for `side` (ours = 2, theirs = 3) is present in the

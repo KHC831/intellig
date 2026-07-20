@@ -46,6 +46,17 @@ export type StageIdentityRead =
   | { readonly kind: 'unreadable' };
 
 /**
+ * Outcome of loading a path's stage CONTENTS. Same three facts as
+ * {@link StageIdentityRead}: an unreadable index is not an unconflicted path,
+ * and telling a user their file "has no unmerged conflict entries" when git
+ * merely could not be read is a lie the window then acts on.
+ */
+export type MergeStageLoad =
+  | ({ readonly kind: 'stages' } & IMergeStageContents)
+  | { readonly kind: 'notConflicted' }
+  | { readonly kind: 'unreadable'; readonly stderr: string };
+
+/**
  * The stage identity of a conflicted path, read from the index alone (no blob
  * contents).
  */
@@ -54,13 +65,19 @@ export async function readStageIdentity(
   repoRoot: string,
   relPath: string
 ): Promise<StageIdentityRead> {
-  let entry;
+  let read;
   try {
-    entry = (await readUnmergedStages(gitCli, repoRoot, relPath)).get(relPath);
+    read = await readUnmergedStages(gitCli, repoRoot, relPath);
     // eslint-disable-next-line no-restricted-syntax -- an unreadable index is reported as its own outcome; the caller decides, because it cannot be distinguished from "resolved" here.
   } catch {
     return { kind: 'unreadable' };
   }
+  // A non-zero exit is the shape a locked index actually takes; the catch above
+  // only covers a failure to spawn.
+  if (!read.ok) {
+    return { kind: 'unreadable' };
+  }
+  const entry = read.stages.get(relPath);
   return entry
     ? {
         kind: 'identity',
@@ -77,11 +94,14 @@ export async function loadMergeStageContents(
   gitCli: GitCli,
   repoRoot: string,
   relPath: string
-): Promise<IMergeStageContents | undefined> {
-  const stages = await readUnmergedStages(gitCli, repoRoot, relPath);
-  const entry = stages.get(relPath);
+): Promise<MergeStageLoad> {
+  const read = await readUnmergedStages(gitCli, repoRoot, relPath);
+  if (!read.ok) {
+    return { kind: 'unreadable', stderr: read.stderr };
+  }
+  const entry = read.stages.get(relPath);
   if (!entry) {
-    return undefined;
+    return { kind: 'notConflicted' };
   }
 
   const readBlob = async (blob: IStageBlob | undefined): Promise<string> => {
@@ -116,6 +136,7 @@ export async function loadMergeStageContents(
     readBlob(entry.stage3),
   ]);
   return {
+    kind: 'stages',
     base,
     ours,
     theirs,

@@ -82,6 +82,14 @@ ELECTRON_RUN_AS_NODE=1 ${shellQuoteSh(toPosixPath(args.nodeBin))} ${shellQuoteSh
   return { scriptPath, scriptBody };
 }
 
+/**
+ * Outcome of reading the conflicted-file set. A failed `git status` is the
+ * absence of information, not the information that nothing is conflicted.
+ */
+type ConflictedFilesRead =
+  | { readonly ok: true; readonly files: string[] }
+  | { readonly ok: false; readonly stderr: string };
+
 export class RebaseService implements IRebaseService {
   private _gitCli: GitCli;
   /**
@@ -370,8 +378,11 @@ export class RebaseService implements IRebaseService {
     }
 
     // Check for conflicts
-    const conflicts = await this.getConflictedFiles(repo);
-    if (conflicts.length > 0) {
+    const conflictRead = await this.getConflictedFiles(repo);
+    // A failed read cannot vouch for a clean tree; report the conflict arm so
+    // the user inspects rather than being told the operation finished.
+    const conflicts = conflictRead.ok ? conflictRead.files : [];
+    if (!conflictRead.ok || conflicts.length > 0) {
       const session = this._sessions.get(repoKey);
       if (session) {
         session.status = 'conflict';
@@ -455,8 +466,11 @@ export class RebaseService implements IRebaseService {
     }
 
     // Check for conflicts
-    const conflicts = await this.getConflictedFiles(repo);
-    if (conflicts.length > 0) {
+    const conflictRead = await this.getConflictedFiles(repo);
+    // A failed read cannot vouch for a clean tree; report the conflict arm so
+    // the user inspects rather than being told the operation finished.
+    const conflicts = conflictRead.ok ? conflictRead.files : [];
+    if (!conflictRead.ok || conflicts.length > 0) {
       const session = this._sessions.get(repoKey);
       if (session) {
         session.status = 'conflict';
@@ -618,8 +632,11 @@ export class RebaseService implements IRebaseService {
     // files behind but STILL exits 0. Inspecting unmerged files before the
     // success path surfaces that pop-conflict instead of reporting a clean
     // completion.
-    const conflicts = await this.getConflictedFiles(repo);
-    if (conflicts.length > 0) {
+    const conflictRead = await this.getConflictedFiles(repo);
+    // A failed read cannot vouch for a clean tree; report the conflict arm so
+    // the user inspects rather than being told the operation finished.
+    const conflicts = conflictRead.ok ? conflictRead.files : [];
+    if (!conflictRead.ok || conflicts.length > 0) {
       // Both a continuable mid-rebase conflict and a terminal autostash pop
       // conflict list the same unmerged files, so both report status
       // 'conflict' (the resolve dialog opens and lists the files in both
@@ -712,8 +729,11 @@ export class RebaseService implements IRebaseService {
     // If stopped-sha exists, we're paused at a commit (could be edit or conflict)
     if (fs.existsSync(stoppedShaPath) && fs.existsSync(messagePath)) {
       // Check if there are no conflicts - if no conflicts and stopped, it's likely an edit pause
-      const conflicts = await this.getConflictedFiles(repo);
-      if (conflicts.length === 0) {
+      const conflictRead = await this.getConflictedFiles(repo);
+      // Only a SUCCESSFUL empty read means "stopped with nothing unmerged", i.e.
+      // an edit pause. An unreadable status leaves the pause unclassified, and
+      // guessing edit offers the wrong affordance for a conflict.
+      if (conflictRead.ok && conflictRead.files.length === 0) {
         return true;
       }
     }
@@ -795,8 +815,9 @@ export class RebaseService implements IRebaseService {
 
     if (result.exitCode !== 0) {
       // Check for conflicts
-      const conflicts = await this.getConflictedFiles(repo);
-      if (conflicts.length > 0) {
+      const conflictRead = await this.getConflictedFiles(repo);
+      const conflicts = conflictRead.ok ? conflictRead.files : [];
+      if (!conflictRead.ok || conflicts.length > 0) {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
         // Reached from --continue/--skip/amend, so a rebase is necessarily still
@@ -847,8 +868,9 @@ export class RebaseService implements IRebaseService {
 
     if (result.exitCode !== 0) {
       // Check for conflicts
-      const conflicts = await this.getConflictedFiles(repo);
-      if (conflicts.length > 0) {
+      const conflictRead = await this.getConflictedFiles(repo);
+      const conflicts = conflictRead.ok ? conflictRead.files : [];
+      if (!conflictRead.ok || conflicts.length > 0) {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
         // Reached from --continue/--skip/amend, so a rebase is necessarily still
@@ -1123,12 +1145,19 @@ export class RebaseService implements IRebaseService {
   }
 
   /**
-   * Get conflicted files in the repository.
+   * Read the conflicted files in the repository.
+   *
+   * Returns a discriminated result rather than a bare array: a failed status
+   * read is NOT a clean tree. Every consumer here treats an empty list as
+   * "finished cleanly" or "paused for an edit", so flattening a failure into
+   * one turns a fault into a reassuring answer — including for the autostash
+   * guard, which exists precisely because git can leave unmerged files behind
+   * and still exit 0.
    *
    * @param repo - The repository
-   * @returns Array of conflicted file paths
+   * @returns the conflicted paths, or a failed read
    */
-  private async getConflictedFiles(repo: IRepository): Promise<string[]> {
+  private async getConflictedFiles(repo: IRepository): Promise<ConflictedFilesRead> {
     const cwd = repo.rootUri.fsPath;
     // `-z` so unmerged paths with non-ASCII / space / newline names come back
     // verbatim (the default newline format C-quotes them, yielding a path that
@@ -1137,13 +1166,16 @@ export class RebaseService implements IRebaseService {
     const result = await this._gitCli.exec(['status', '--porcelain', '-z'], { cwd });
 
     if (result.exitCode !== 0) {
-      return [];
+      return { ok: false, stderr: result.stderr };
     }
 
-    return parseStatus(result.stdout)
-      .filter(isConflictedStatus)
-      .map((file) => file.path)
-      .filter((filePath) => filePath.length > 0);
+    return {
+      ok: true,
+      files: parseStatus(result.stdout)
+        .filter(isConflictedStatus)
+        .map((file) => file.path)
+        .filter((filePath) => filePath.length > 0),
+    };
   }
 
   /**

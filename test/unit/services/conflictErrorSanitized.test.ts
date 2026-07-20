@@ -42,7 +42,7 @@ describe('ConflictResolutionService composes sanitized error strings', () => {
   it('scrubs a home path from acceptCurrent result.error', async () => {
     const service = new ConflictResolutionService(makeGitService(), {
       // Index writer that reports the side needs staging → stage() runs → fails.
-      readStages: async () => new Map(),
+      readStages: async () => ({ ok: true as const, stages: new Map() }),
       takeSide: async () => true,
       restoreConflict: async () => undefined,
     });
