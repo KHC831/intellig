@@ -14,7 +14,7 @@
 function el<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
   tag: K,
-  attrs: { id?: string; className?: string; title?: string; text?: string },
+  attrs: { id?: string; className?: string; title?: string; text?: string; ariaLabel?: string },
   children: readonly HTMLElement[] = []
 ): HTMLElementTagNameMap[K] {
   const node = doc.createElement(tag);
@@ -27,6 +27,11 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (attrs.title !== undefined) {
     node.title = attrs.title;
   }
+  if (attrs.ariaLabel !== undefined) {
+    // Icon-only buttons render their glyph from CSS ::before, so the visible
+    // text node is empty; aria-label carries the accessible name.
+    node.setAttribute('aria-label', attrs.ariaLabel);
+  }
   if (attrs.text !== undefined) {
     node.textContent = attrs.text;
   }
@@ -38,55 +43,59 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 /** Builds the merge window skeleton into the given document's body. */
 export function buildMergeWindowDom(doc: Document): void {
+  // IntelliJ's merge toolbar is a compact icon strip. Each button renders its
+  // glyph from CSS ::before (codicon font or an inlined IntelliJ diff-icon
+  // mask); the visible label lives in the tooltip (title) and the accessible
+  // name in aria-label.
   const toolbar = el(doc, 'div', { id: 'toolbar' }, [
     el(doc, 'button', {
       id: 'btn-accept-left',
-      title: 'Discard the result and take the whole left version',
-      text: 'Accept Yours',
+      title: 'Accept Yours — discard the result and take the whole left version',
+      ariaLabel: 'Accept yours (whole left side)',
     }),
     el(doc, 'span', { className: 'spacer' }),
     el(doc, 'button', {
       id: 'btn-prev',
       title: 'Previous unresolved change (conflicts first)',
-      text: 'Prev',
+      ariaLabel: 'Previous change',
     }),
     el(doc, 'button', {
       id: 'btn-next',
       title: 'Next unresolved change (conflicts first)',
-      text: 'Next',
+      ariaLabel: 'Next change',
     }),
     el(doc, 'span', { className: 'sep' }),
     el(doc, 'button', {
       id: 'btn-nc-left',
       title: 'Apply non-conflicting changes from the left side',
-      text: 'Apply Left',
+      ariaLabel: 'Apply non-conflicting changes from the left',
     }),
     el(doc, 'button', {
       id: 'btn-nc-all',
       title: 'Apply all non-conflicting changes',
-      text: 'Apply Non-Conflicting',
+      ariaLabel: 'Apply all non-conflicting changes',
     }),
     el(doc, 'button', {
       id: 'btn-nc-right',
       title: 'Apply non-conflicting changes from the right side',
-      text: 'Apply Right',
+      ariaLabel: 'Apply non-conflicting changes from the right',
     }),
     el(doc, 'button', {
       id: 'btn-magic-all',
       title: 'Resolve all conflicts whose side changes do not overlap',
-      text: 'Resolve Simple Conflicts',
+      ariaLabel: 'Resolve simple conflicts',
     }),
     el(doc, 'button', {
       id: 'btn-reset',
       title: 'Reset all resolved changes back to unresolved (Cmd/Ctrl+Z undoes the reset)',
-      text: 'Reset',
+      ariaLabel: 'Reset resolved changes',
     }),
     el(doc, 'span', { id: 'counter' }),
     el(doc, 'span', { className: 'spacer' }),
     el(doc, 'button', {
       id: 'btn-accept-right',
-      title: 'Discard the result and take the whole right version',
-      text: 'Accept Theirs',
+      title: 'Accept Theirs — discard the result and take the whole right version',
+      ariaLabel: 'Accept theirs (whole right side)',
     }),
   ]);
 
@@ -144,14 +153,38 @@ export function buildMergeWindowDom(doc: Document): void {
   doc.body.appendChild(bottombar);
 }
 
-// IntelliJ's Diff.Revert icon (expui/diff/revert@14x14.svg), inlined as a CSS
-// mask so it takes the theme's icon color. Only the alpha channel matters.
+// IntelliJ diff toolbar glyphs, inlined as CSS masks so they take the theme's
+// icon color (only the alpha channel — the stroke — matters; the source
+// stroke color is recolored to white here). Paths are the verbatim geometry
+// from platform/icons/src/expui/diff/*.svg.
 const REVERT_ICON_MASK =
   `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' ` +
   `viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M4.66659 12.5H9.45825C11.6444 12.5 13.4166 ` +
   `10.7278 13.4166 8.54167V8.54167C13.4166 6.35554 11.6444 4.58333 9.45825 4.58333H0.5M0.5 ` +
   `4.58333L4.5 0.5M0.5 4.58333L4.5 8.5' stroke='%23fff' stroke-linecap='round' ` +
   `stroke-linejoin='round'/%3E%3C/svg%3E")`;
+
+// applyNotConflictsLeft.svg — chevrons pointing right (apply the left side's
+// non-conflicting changes into the result).
+const APPLY_NC_LEFT_MASK =
+  `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' ` +
+  `viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M8.5 12.5L13 8L8.5 3.5M3.5 12.5L8 8L3.5 3.5' ` +
+  `stroke='%23fff' stroke-linecap='round'/%3E%3C/svg%3E")`;
+
+// applyNotConflicts.svg — chevrons from both sides (apply every side's
+// non-conflicting changes).
+const APPLY_NC_ALL_MASK =
+  `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' ` +
+  `viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4.5 2.5L7.5 5.5L4.5 8.5M0.5 8.5L3.5 5.5L0.5 ` +
+  `2.5' stroke='%23fff' stroke-linecap='round'/%3E%3Cpath d='M11.5 13.5L8.5 10.5L11.5 7.5M15.5 ` +
+  `7.5L12.5 10.5L15.5 13.5' stroke='%23fff' stroke-linecap='round'/%3E%3C/svg%3E")`;
+
+// applyNotConflictsRight.svg — chevrons pointing left (apply the right side's
+// non-conflicting changes into the result).
+const APPLY_NC_RIGHT_MASK =
+  `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' ` +
+  `viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M7.5 3.5L3 8L7.5 12.5M12.5 3.5L8 8L12.5 12.5' ` +
+  `stroke='%23fff' stroke-linecap='round'/%3E%3C/svg%3E")`;
 
 export function mergeWindowStyles(): string {
   return `
@@ -173,10 +206,24 @@ export function mergeWindowStyles(): string {
 }
 html, body { height: 100%; margin: 0; padding: 0; }
 body { display: flex; flex-direction: column; font-family: var(--vscode-font-family); color: var(--vscode-foreground); }
-#toolbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; flex: none; border-bottom: 1px solid var(--vscode-panel-border); flex-wrap: wrap; }
-#toolbar button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 4px 10px; cursor: pointer; border-radius: 3px; }
-#toolbar button:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
-#toolbar button:disabled { opacity: 0.45; cursor: default; }
+#toolbar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; flex: none; border-bottom: 1px solid var(--vscode-panel-border); flex-wrap: wrap; }
+/* Flat icon buttons (IntelliJ toolbar): no button box, glyph from ::before,
+   a subtle hover highlight. The glyph is either a codicon or an inlined
+   IntelliJ diff-icon mask (below). */
+#toolbar button { background: none; color: var(--vscode-icon-foreground, #c5c5c5); border: none; min-width: 26px; height: 24px; padding: 0 4px; cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
+#toolbar button:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31)); }
+#toolbar button:disabled { opacity: 0.4; cursor: default; }
+#btn-prev::before, #btn-next::before, #btn-accept-left::before, #btn-accept-right::before, #btn-magic-all::before { font-family: codicon; font-size: 16px; line-height: 1; display: inline-block; }
+#btn-accept-left::before { content: '\\eab5'; }
+#btn-prev::before { content: '\\eaa1'; }
+#btn-next::before { content: '\\ea9a'; }
+#btn-magic-all::before { content: '\\ec10'; color: var(--vscode-charts-yellow, #d8a03d); }
+#btn-accept-right::before { content: '\\eab6'; }
+#btn-nc-left::before, #btn-nc-all::before, #btn-nc-right::before, #btn-reset::before { content: ''; display: inline-block; width: 16px; height: 16px; background-color: var(--vscode-icon-foreground, #c5c5c5); }
+#btn-nc-left::before { -webkit-mask: ${APPLY_NC_LEFT_MASK} center / 16px 16px no-repeat; mask: ${APPLY_NC_LEFT_MASK} center / 16px 16px no-repeat; }
+#btn-nc-all::before { -webkit-mask: ${APPLY_NC_ALL_MASK} center / 16px 16px no-repeat; mask: ${APPLY_NC_ALL_MASK} center / 16px 16px no-repeat; }
+#btn-nc-right::before { -webkit-mask: ${APPLY_NC_RIGHT_MASK} center / 16px 16px no-repeat; mask: ${APPLY_NC_RIGHT_MASK} center / 16px 16px no-repeat; }
+#btn-reset::before { -webkit-mask: ${REVERT_ICON_MASK} center / 14px 14px no-repeat; mask: ${REVERT_ICON_MASK} center / 14px 14px no-repeat; }
 #toolbar .sep { width: 1px; height: 18px; background: var(--vscode-panel-border); margin: 0 5px; }
 .spacer { flex: 1; }
 #counter { margin: 0 8px; opacity: 0.85; white-space: nowrap; }

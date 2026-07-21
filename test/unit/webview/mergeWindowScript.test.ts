@@ -13,6 +13,10 @@ import '../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import { createMonacoStub, StubEditor } from '../../helpers/monacoStub';
+import {
+  buildMergeWindowDom,
+  mergeWindowStyles,
+} from '../../../src/conflicts/merge-window/mergeWindowHtml';
 
 type ActionKind = 'apply' | 'ignore' | 'revert';
 
@@ -209,8 +213,14 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
       (f.document.getElementById('btn-nc-all') as HTMLButtonElement).disabled,
       false
     );
-    assert.strictEqual(f.document.getElementById('btn-prev')?.textContent, 'Prev');
-    assert.strictEqual(f.document.getElementById('btn-next')?.textContent, 'Next');
+    // Prev/Next are icon-only (glyph from CSS ::before), so the label lives in
+    // the tooltip / accessible name, not a text node.
+    const prev = f.document.getElementById('btn-prev');
+    const next = f.document.getElementById('btn-next');
+    assert.strictEqual(prev?.textContent, '');
+    assert.strictEqual(next?.textContent, '');
+    assert.match(prev?.getAttribute('aria-label') ?? '', /previous/i);
+    assert.match(next?.getAttribute('aria-label') ?? '', /next/i);
     // Apply is always offered (IntelliJ parity); with changes unresolved it
     // confirms with counts instead of greying out.
     assert.strictEqual(
@@ -1261,5 +1271,61 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     await f.flush();
     assert.strictEqual(theme.connectorColorCache.size, 0);
     assert.deepStrictEqual(f.themeCalls, ['vs']);
+  });
+});
+
+/**
+ * Regression fence for the toolbar layout: IntelliJ's merge toolbar is a
+ * compact ICON strip, not a row of wide text buttons. A prior change grew it to
+ * nine full-text buttons ("Apply Left", "Resolve Simple Conflicts", …) that
+ * wrapped and cluttered the header. These pins keep every toolbar action
+ * icon-only (glyph from CSS ::before) with its label in the tooltip + accessible
+ * name — so a regression back to text labels fails here.
+ */
+describe('merge window toolbar — compact icon buttons (no wide text labels)', () => {
+  const TOOLBAR_BUTTON_IDS = [
+    'btn-accept-left',
+    'btn-prev',
+    'btn-next',
+    'btn-nc-left',
+    'btn-nc-all',
+    'btn-nc-right',
+    'btn-magic-all',
+    'btn-reset',
+    'btn-accept-right',
+  ];
+
+  function buildToolbarDoc(): Document {
+    const dom = new JSDOM('<!doctype html><html><body></body></html>');
+    buildMergeWindowDom(dom.window.document);
+    return dom.window.document;
+  }
+
+  it('every toolbar button is icon-only (empty text) with a tooltip and accessible name', () => {
+    const doc = buildToolbarDoc();
+    for (const id of TOOLBAR_BUTTON_IDS) {
+      const btn = doc.getElementById(id);
+      assert.ok(btn, `missing toolbar button #${id}`);
+      assert.strictEqual(
+        btn.textContent,
+        '',
+        `#${id} must be icon-only — no wide text label in the button`
+      );
+      assert.ok((btn.getAttribute('title') ?? '').length > 0, `#${id} needs a tooltip`);
+      assert.ok(
+        (btn.getAttribute('aria-label') ?? '').length > 0,
+        `#${id} needs an aria-label (icon-only buttons have no text accessible name)`
+      );
+    }
+  });
+
+  it('the stylesheet gives every toolbar button a ::before glyph (codicon or masked SVG)', () => {
+    const css = mergeWindowStyles();
+    for (const id of TOOLBAR_BUTTON_IDS) {
+      assert.ok(
+        css.includes(`#${id}::before`),
+        `mergeWindowStyles must emit a ::before glyph rule for #${id}`
+      );
+    }
   });
 });
