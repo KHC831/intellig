@@ -583,7 +583,7 @@ export interface IPatchFileSegment {
 /**
  * Ordered `diff --git` header patterns, mirroring IntelliJ GitPatchParser
  * (platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/GitPatchParser.java:27-29,
- * applied as a cascade in `parseNamesFromGitHeaderLine` at :139-155).
+ * applied as a cascade in `parseNamesFromGitHeaderLine` at :140-157).
  *
  * Order is load-bearing. The `a/`…`b/` forms anchor on the prefixes git
  * always writes, so their greedy groups span embedded spaces; the simple
@@ -612,7 +612,14 @@ export interface IPatchFileSegment {
  *      pairing found no single answer.
  * The same order upstream applies: header names fill in only when the
  * content parser left them null (`GitPatchParser.applyPatchInfo` :124-129),
- * and the rename form overrides both (:101-112).
+ * and the rename form overrides both (:101-112). Prefix stripping and the
+ * `/dev/null`->null mapping both live in `PatchReader.stripPatchNameIfNeeded`
+ * (platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/PatchReader.java:581-585),
+ * fed by `extractFileName` (:552-579) and back-filled from the opposite side in
+ * `readTextPatch` (:326-331). Our per-side and header arms gate the strip on the
+ * `a/`+`b/` PAIR where upstream `trimStart`s each side unconditionally: the one
+ * place we harden past git4idea, whose strip can drop a real top-level `b/`
+ * directory under `--no-prefix`.
  */
 const GIT_DIFF_HEADER_PATTERNS = [
   /^diff --git (a\/.+) (b\/.+)$/,
