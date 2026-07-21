@@ -1037,7 +1037,13 @@ function main(vscode: IVsCodeApi): void {
       const viewportBottom = viewportTop + panel.clientHeight;
       const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
       if (!fullyVisible) {
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Scroll ONLY the graph panel to center the row. `scrollIntoView` also
+        // scrolls the OUTER tab container, which drags the log filter bar up
+        // behind the tab strip.
+        const centered = rowTop - (panel.clientHeight - row.offsetHeight) / 2;
+        const maxTop = panel.scrollHeight - panel.clientHeight;
+        const clamped = Math.max(0, Math.min(centered, maxTop));
+        panel.scrollTo({ top: clamped, behavior: 'smooth' });
       }
     } else {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1060,7 +1066,7 @@ function main(vscode: IVsCodeApi): void {
   }
 
   function jumpToCommitHash(hash: string): void {
-    const targetRow = document.querySelector(
+    const targetRow = document.querySelector<HTMLElement>(
       '.commit-row[data-hash="' + cssEscapeHash(hash) + '"]'
     );
     if (!targetRow) {
@@ -1072,7 +1078,8 @@ function main(vscode: IVsCodeApi): void {
     });
     targetRow.classList.add('selected');
     targetRow.setAttribute('aria-selected', 'true');
-    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Scroll within the graph panel only, so the filter bar stays put.
+    scrollRowIntoViewIfNeeded(targetRow);
     refreshSelectedCount();
     post({ type: 'selectCommit', commitHash: hash });
   }

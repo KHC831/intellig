@@ -11,8 +11,10 @@
  *   - `scrollToCommit` delegates to `scrollRowIntoViewIfNeeded(commitRow)`,
  *   - the shared helper contains the `fullyVisible` visibility gate,
  *   - the early-return for a missing row element is present (Req 2.3), and
- *   - the `scrollIntoView` call is guarded by `if (!fullyVisible)` in the
- *     helper rather than firing unconditionally.
+ *   - the scroll is guarded by `if (!fullyVisible)` in the helper rather than
+ *     firing unconditionally, and it scrolls the graph panel alone
+ *     (`panel.scrollTo`) instead of `scrollIntoView`, which also scrolls the
+ *     outer tab container and drags the log filter bar behind the tab strip.
  */
 
 import '../setup';
@@ -125,11 +127,22 @@ describe('GitToolWindowProvider - inline scrollToCommit visibility guard', () =>
   });
 
   it('helper guards the scroll behind `if (!fullyVisible)` — not an unconditional scroll', () => {
-    const guardedScroll =
-      /if\s*\(\s*!\s*fullyVisible\s*\)\s*\{(?:\s*\/\/[^\n]*\n)*\s*row\.scrollIntoView\s*\(/;
+    const guardedBlock = extractBlockAfter(helperBody, /if\s*\(\s*!\s*fullyVisible\s*\)/);
+    assert.ok(guardedBlock, 'helper must gate the scroll behind an `if (!fullyVisible)` block');
     assert.ok(
-      guardedScroll.test(helperBody),
-      'scrollRowIntoViewIfNeeded must guard scrollIntoView behind `if (!fullyVisible)`'
+      /panel\.scrollTo\s*\(/.test(guardedBlock),
+      'scrollRowIntoViewIfNeeded must scroll the graph panel (panel.scrollTo) inside the `if (!fullyVisible)` guard'
+    );
+  });
+
+  it('scrolls the graph panel alone, not the outer container (no scrollIntoView on the panel path)', () => {
+    // The `if (panel)` branch must NOT use scrollIntoView, which also scrolls
+    // the outer tab container and pushes the log filter bar behind the tab strip.
+    const panelBlock = extractBlockAfter(helperBody, /if\s*\(\s*panel\s*\)/);
+    assert.ok(panelBlock, 'helper must have an `if (panel)` branch');
+    assert.ok(
+      !/scrollIntoView\s*\(/.test(panelBlock),
+      'the panel branch must scroll the panel directly (panel.scrollTo), never scrollIntoView'
     );
   });
 

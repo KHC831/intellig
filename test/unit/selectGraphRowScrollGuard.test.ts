@@ -94,11 +94,22 @@ describe('GitToolWindowProvider - client selectGraphRow scroll visibility guard'
   });
 
   it('shared helper guards the scroll behind `if (!fullyVisible)` — not an unconditional re-center', () => {
-    const guardedScroll =
-      /if\s*\(\s*!\s*fullyVisible\s*\)\s*\{(?:\s*\/\/[^\n]*\n)*\s*row\.scrollIntoView\s*\(/;
+    const guardedBlock = extractBlockAfter(helperBlock, /if\s*\(\s*!\s*fullyVisible\s*\)/);
+    assert.ok(guardedBlock, 'helper must gate the scroll behind an `if (!fullyVisible)` block');
     assert.ok(
-      guardedScroll.test(helperBlock),
-      'scrollRowIntoViewIfNeeded must guard scrollIntoView behind `if (!fullyVisible)`'
+      /panel\.scrollTo\s*\(/.test(guardedBlock),
+      'scrollRowIntoViewIfNeeded must scroll the graph panel (panel.scrollTo) inside the `if (!fullyVisible)` guard'
+    );
+  });
+
+  it('scrolls the graph panel alone (no scrollIntoView on the `if (panel)` path)', () => {
+    // scrollIntoView also scrolls the outer tab container, pushing the log
+    // filter bar behind the tab strip; the panel branch must not use it.
+    const panelBlock = extractBlockAfter(helperBlock, /if\s*\(\s*panel\s*\)/);
+    assert.ok(panelBlock, 'helper must have an `if (panel)` branch');
+    assert.ok(
+      !/scrollIntoView\s*\(/.test(panelBlock),
+      'the panel branch must scroll via panel.scrollTo, never scrollIntoView'
     );
   });
 
