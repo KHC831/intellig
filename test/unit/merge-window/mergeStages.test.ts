@@ -131,4 +131,26 @@ describe('merge window stage loading', () => {
     const { cli } = fakeGitCli(lsOut, {});
     await assert.rejects(() => loadMergeStageContents(cli, '/repo', 'a.txt'));
   });
+
+  it('reports unreadable, not notConflicted, when the index read fails', async () => {
+    // Distinct from the empty-read case above: a non-zero `ls-files` exit is
+    // the index being unreadable, and collapsing it into 'notConflicted' makes
+    // the panel tell the user the file has no conflict when git simply could
+    // not be read.
+    const cli = {
+      exec: (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+        if (args[0] === 'ls-files') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: 'fatal: unable to read index',
+            exitCode: 128,
+          });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      },
+    } as unknown as GitCli;
+
+    const contents = await loadMergeStageContents(cli, '/repo', 'a.txt');
+    assert.deepStrictEqual(contents, { kind: 'unreadable', stderr: 'fatal: unable to read index' });
+  });
 });
