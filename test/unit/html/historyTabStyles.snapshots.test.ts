@@ -50,12 +50,14 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
     const css = historyTabStyles();
 
     // Frozen literal — a leading `auto` track holds the mini commit-graph
-    // gutter (sized to its SVG), the subject is the ONLY slack track
-    // (`minmax(0, 1fr)`), and author/date are capped (`minmax(0, 14ch)` /
-    // `minmax(0, 10ch)`) so no flexible track sits between them. `gap: 8px`
-    // is the single uniform inter-column gap.
+    // gutter (sized to its SVG), the hash track is `max-content` so it fits
+    // git's variable-length `%h` (a large repo abbreviates to 10-12 chars, which
+    // a fixed `7ch` track overflowed into the subject), the subject is the ONLY
+    // slack track (`minmax(0, 1fr)`), and author/date are capped
+    // (`minmax(0, 14ch)` / `minmax(0, 10ch)`) so no flexible track sits between
+    // them. `gap: 8px` is the single uniform inter-column gap.
     const EXPECTED_ROW_RULE =
-      '.history-commit-row { display: grid; grid-template-columns: auto 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }';
+      '.history-commit-row { display: grid; grid-template-columns: auto max-content minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }';
     assert.ok(
       css.includes(EXPECTED_ROW_RULE),
       `historyTabStyles() must emit the exact .history-commit-row grid rule.\nExpected to contain:\n${EXPECTED_ROW_RULE}\nGot:\n${css}`
@@ -66,6 +68,14 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
     assert.ok(
       !css.includes('grid-template-columns: 7ch 1fr 14ch 10ch'),
       'historyTabStyles() must not emit the pre-fix `7ch 1fr 14ch 10ch` grid (re-introduces the wasted author/date gap)'
+    );
+
+    // The hash track must not be a fixed narrow width: git's `%h` grows past
+    // 7 chars in a large repo, and a fixed `7ch` track overflows into the
+    // subject cell (the hash overlapping the commit message).
+    assert.ok(
+      !/grid-template-columns:\s*auto 7ch\b/.test(css),
+      'historyTabStyles() must not fix the hash track at 7ch (a longer %h overlaps the subject)'
     );
   });
 

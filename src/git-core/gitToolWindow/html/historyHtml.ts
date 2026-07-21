@@ -246,7 +246,7 @@ export function historyTabStyles(): string {
     .history-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
     .history-empty, .history-empty-commits { padding: 16px; color: var(--vscode-descriptionForeground); }
     .history-commit-list { flex: 1 1 auto; overflow: auto; }
-    .history-commit-row { display: grid; grid-template-columns: auto 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }
+    .history-commit-row { display: grid; grid-template-columns: auto max-content minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }
     .history-commit-graph { display: inline-flex; align-items: center; min-width: 12px; }
     .history-commit-graph svg { display: block; }
     .history-commit-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
