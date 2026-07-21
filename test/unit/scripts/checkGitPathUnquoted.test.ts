@@ -2,10 +2,13 @@
  * Companion spec for scripts/check-git-path-unquoted.sh.
  *
  * Proves the guard (a) passes against the real tree, (b) has teeth on both
- * halves of the class — a `(\S+)` token capture over git path output, and a
- * `--name-only` / `ls-tree` invocation without `-z` — and (c) honours the
- * `git-path-quote-exempt` escape hatch. Explicit-path mode treats every
- * given file as non-sanctioned so fixtures exercise the teeth.
+ * halves of the class — a whitespace-token capture (`(\S+)`, `(\S*)`, or the
+ * `([^\s]…)` spelling) over git path-output prose, and a `--name-only` /
+ * `ls-tree` invocation without `-z` — (c) looks up `-z` over the WHOLE
+ * enclosing argv array, so a prettier-wrapped element-per-line array whose
+ * `-z` sits on a sibling line passes while one that omits it still fails, and
+ * (d) honours the `git-path-quote-exempt` escape hatch. Explicit-path mode
+ * treats every given file as non-sanctioned so fixtures exercise the teeth.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -53,6 +56,22 @@ describe('check-git-path-unquoted guard', () => {
     );
   });
 
+  it('the ([^\\s]+) spelling of the whitespace token also fails (blind spot closed)', () => {
+    assert.strictEqual(
+      checkSource('const m = line.match(/^diff --git a\\/([^\\s]+) b\\/([^\\s]+)$/);\n'),
+      1,
+      'an equivalent capture spelling must not evade the guard'
+    );
+  });
+
+  it('a (\\S*) capture over a diff --git header fails', () => {
+    assert.strictEqual(
+      checkSource('const GIT_DIFF_HEADER = /^diff --git\\s+(\\S*)\\s+(\\S*).*$/;\n'),
+      1,
+      'the star quantifier is the same whitespace token'
+    );
+  });
+
   it('a --name-only invocation without -z fails', () => {
     assert.strictEqual(
       checkSource("const r = await gitCli.exec(['diff', '--name-only', range], opts);\n"),
@@ -76,6 +95,35 @@ describe('check-git-path-unquoted guard', () => {
       ),
       0,
       '-z is the sanctioned way to read paths back'
+    );
+  });
+
+  it('a prettier-wrapped element-per-line argv keeps -z on a sibling line and passes', () => {
+    assert.strictEqual(
+      checkSource(
+        'const args = [\n' +
+          "  'ls-files',\n" +
+          "  '-u',\n" +
+          "  '-z',\n" +
+          '];\n' +
+          'const r = await gitCli.exec(args, opts);\n'
+      ),
+      0,
+      '-z on a sibling line of the same [ … ] array must count (no false positive)'
+    );
+  });
+
+  it('a wrapped element-per-line argv that omits -z still fails', () => {
+    assert.strictEqual(
+      checkSource(
+        'const args = [\n' +
+          "  'ls-files',\n" +
+          "  '-u',\n" +
+          '];\n' +
+          'const r = await gitCli.exec(args, opts);\n'
+      ),
+      1,
+      'the enclosing-array lookup must not blanket-pass a genuinely missing -z'
     );
   });
 

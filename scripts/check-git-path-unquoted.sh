@@ -22,17 +22,22 @@
 #
 # 2. Heuristic + how it scales
 #    Fail a non-comment line that either:
-#      (a) carries a `(\S+)` capture group alongside a git path-output
-#          fragment on the same line (diff --git, Checking patch, Applied
-#          patch, patching file, ls-tree, name-only); or
-#      (b) invokes git with a path-LISTING subcommand or flag without `-z`
-#          on the same line. Covered: `--name-only`, `--name-status`,
-#          `--numstat`, `--porcelain`, `ls-tree`, `ls-files`, `diff-tree` —
-#          every one of
-#          them emits C-quoted paths for names with non-ASCII bytes or a
-#          double quote, and bare (space-splittable) names otherwise. The
-#          argv arrays in this codebase are written on one line, so
-#          co-location is a sound proxy for "same command".
+#      (a) carries a whitespace-token capture group (`(\S+)`, `(\S*)`, or the
+#          `([^\s]…)` spelling) alongside a git path-output PROSE fragment on
+#          the same line (diff --git, Checking patch, Applied patch, patching
+#          file); or
+#      (b) invokes git with a path-LISTING subcommand or flag without `-z`.
+#          Covered: `--name-only`, `--name-status`, `--numstat`,
+#          `--porcelain`, `ls-tree`, `ls-files`, `diff-tree` — every one emits
+#          C-quoted paths for names with non-ASCII bytes or a double quote,
+#          and bare (space-splittable) names otherwise.
+#    The `-z` for (b) is looked up over the WHOLE enclosing `[ … ]` argv
+#    literal, not just the flag's own physical line, so a prettier-wrapped
+#    element-per-line array whose `-z` sits on a sibling line still passes —
+#    and one that genuinely omits `-z` still fails. `ls-tree` / `--name-only`
+#    are (b) subcommands only: a capture co-located with them is already
+#    caught by (b), so listing them under (a) too would be an untestable
+#    duplicate (no fixture can isolate the (a) reading), and they are not.
 #    Comment-only lines are skipped so the prose in a docblock stays free.
 #    Scope: git-tracked (and new) TS under src/. Escape hatch:
 #    `// git-path-quote-exempt: <reason>` on the same or preceding line —
@@ -59,16 +64,19 @@
 #    that starts parsing the path must delete the marker to pass review.
 #
 # 4. Known false-negative cases
-#    The heuristic is LINE-LOCAL, and these are accepted gaps, not oversights:
-#      - an argv array split across several lines hides the flag from the
-#        `exec` call, so neither line carries both halves;
+#    Accepted gaps, not oversights:
 #      - flags held in a variable (`const args = ['ls-files', '-z']`) are
 #        judged on the DECLARATION line, so the guard verdict is right but
 #        the reported line is not the invocation;
-#      - a path capture using a shape other than `(\S+)` (e.g. `([^\s]+)`,
-#        or a split on whitespace) is not recognised;
+#      - a path capture using a shape other than the recognised whitespace
+#        tokens (a split on whitespace, `.split(/\s+/)`, a named group) is
+#        not recognised;
 #      - a `-z` run whose output is then split on '\n' rather than '\0'
 #        passes, since only the invocation is inspected;
+#      - the enclosing-array `-z` lookup counts `[`/`]` naively, so an
+#        unbalanced bracket inside a STRING literal on a nearby line can widen
+#        or narrow the scanned span; balanced `[...]` on a line nets zero, so
+#        ordinary indexing and type annotations do not perturb it;
 #      - `diff --raw`, `diff --summary`, `whatchanged` and `check-ignore`
 #        also emit quoted paths and are NOT covered. None is used in this
 #        tree today — but "uncovered" and "unused" are separate claims, and
@@ -95,27 +103,50 @@ fi
 fail=0
 for f in $files; do
   hits=$(awk '
+    # Phase 1: buffer every line and its net [ ] bracket delta.
     {
-      line = $0
-      stripped = line
-      sub(/^[ \t]*/, "", stripped)
-      is_comment = (stripped ~ /^\/\// || stripped ~ /^\*/ || stripped ~ /^\/\*/)
-      exempt = (line ~ /git-path-quote-exempt:/ || prev ~ /git-path-quote-exempt:/)
+      L[FNR] = $0
+      t = $0; opens = gsub(/\[/, "[", t)
+      u = $0; closes = gsub(/\]/, "]", u)
+      delta[FNR] = opens - closes
+      n = FNR
+    }
+    END {
+      # depthBefore[i] = count of unclosed "[" entering line i.
+      d = 0
+      for (i = 1; i <= n; i++) { depthBefore[i] = d; d += delta[i] }
 
-      # (a) whitespace-token capture over git path output.
-      token_capture = (index(line, "(\\S+)") > 0)
-      path_context = (line ~ /diff --git|Checking patch|Applied patch|patching file|ls-tree|name-only/)
-      bad_capture = (token_capture && path_context)
+      for (i = 1; i <= n; i++) {
+        line = L[i]
+        stripped = line
+        sub(/^[ \t]*/, "", stripped)
+        is_comment = (stripped ~ /^\/\// || stripped ~ /^\*/ || stripped ~ /^\/\*/)
+        exempt = (line ~ /git-path-quote-exempt:/ || (i > 1 && L[i-1] ~ /git-path-quote-exempt:/))
 
-      # (b) path-listing invocation without NUL delimiting.
-      lists_paths = (line ~ /--name-only|--name-status|--numstat|--porcelain|.ls-tree.|.ls-files.|.diff-tree./)
-      has_z = (line ~ /'"'"'-z'"'"'|"-z"|[ =]-z[ ,)]/)
-      bad_listing = (lists_paths && !has_z)
+        # (a) whitespace-token capture over git path-output prose.
+        token_capture = (line ~ /\(\\S[+*]|\(\[\^\\s\]/)
+        path_context = (line ~ /diff --git|Checking patch|Applied patch|patching file/)
+        bad_capture = (token_capture && path_context)
 
-      if (!is_comment && !exempt && (bad_capture || bad_listing)) {
-        printf "%s:%d: %s\n", FILENAME, FNR, line
+        # (b) path-listing invocation without NUL delimiting, -z looked up
+        # over the whole enclosing [ ... ] argv literal.
+        lists_paths = (line ~ /--name-only|--name-status|--numstat|--porcelain|.ls-tree.|.ls-files.|.diff-tree./)
+        has_z = (line ~ /'"'"'-z'"'"'|"-z"|[ =]-z[ ,)]/)
+        if (lists_paths && !has_z && depthBefore[i] > 0) {
+          lo = i
+          while (lo > 1 && depthBefore[lo] > 0) lo--
+          hi = i
+          while (hi < n && (depthBefore[hi] + delta[hi]) > 0) hi++
+          for (j = lo; j <= hi; j++) {
+            if (L[j] ~ /'"'"'-z'"'"'|"-z"|[ =]-z[ ,)]/) { has_z = 1; break }
+          }
+        }
+        bad_listing = (lists_paths && !has_z)
+
+        if (!is_comment && !exempt && (bad_capture || bad_listing)) {
+          printf "%s:%d: %s\n", FILENAME, i, line
+        }
       }
-      prev = line
     }
   ' "$f")
   if [ -n "$hits" ]; then
