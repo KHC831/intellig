@@ -22,15 +22,21 @@
  *
  * 2. Heuristic + how it scales: scan every `src/**\/webview/*.ts`, find each
  *    `queueMicrotask(` / `setTimeout(` / `requestAnimationFrame(` call, and
- *    require its first argument to be a call to a guard helper (a function
- *    whose name matches /guard/i) rather than a bare `()` / `function` /
- *    `async` callback literal. Scales for free: new webview entries and new
- *    scheduling sites are covered the moment they are written.
+ *    require its first argument to be a call to a guard helper — a `guardX(`
+ *    whose declaration IN THIS FILE has a try/catch body — rather than a bare
+ *    `()` / `function` / `async` callback literal. The name shape alone is not
+ *    enough: a decoy `guardNothing(fn) { return fn; }` matches `^guard[A-Z]`
+ *    while guarding nothing, so the name is resolved to what it refers to and
+ *    the body is read, the same discipline the sibling
+ *    check:webview-fatal-reporter uses for its reporter. Scales for free: new
+ *    webview entries and new scheduling sites are covered when written.
  *
  * 3. Known false-positive cases: a scheduled callback whose body genuinely
- *    cannot throw (a one-line flag flip), and a call passing an already-guarded
- *    named function reference. Both take the escape hatch: a
- *    `// async-guard-exempt: <reason>` comment on the line above.
+ *    cannot throw (a one-line flag flip), a call passing an already-guarded
+ *    named function reference, and a guard helper IMPORTED from another module
+ *    (its body cannot be resolved in this file, so the call reads as unguarded).
+ *    All take the escape hatch: a `// async-guard-exempt: <reason>` comment on
+ *    the line above.
  *
  * 4. Known false-negative cases: a callback passed through a variable that was
  *    built unguarded elsewhere, a scheduler reached via an alias
@@ -90,22 +96,69 @@ function webviewFiles(root) {
   return out.sort();
 }
 
+/** Body of the `{ … }` whose opening brace is at or after `from`. */
+function blockAt(source, from) {
+  const start = source.indexOf('{', from);
+  if (start < 0) {
+    return null;
+  }
+  let depth = 0;
+  for (let i = start; i < source.length; i++) {
+    if (source[i] === '{') {
+      depth++;
+    } else if (source[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        return source.slice(start + 1, i);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `name` resolves to a helper that ACTUALLY guards: its body wraps the
+ * work in try/catch. A name-shaped match is not enough — `guardNothing(fn) {
+ * return fn; }` satisfied `^guard[A-Z]` while guarding nothing. Same class as
+ * the `installTheme` decoy the sibling check:webview-fatal-reporter closes;
+ * resolve the name to a declaration in THIS file and read what its body does.
+ */
+function guardBodyCatches(name, source) {
+  const declared =
+    new RegExp(`function\\s+${name}\\s*\\(`).exec(source) ??
+    new RegExp(`(?:const|let|var)\\s+${name}\\s*(?::[^=]+)?=\\s*(?:async\\s*)?(?:function|\\()`).exec(
+      source
+    );
+  if (!declared) {
+    return false;
+  }
+  const body = blockAt(source, declared.index);
+  if (body === null) {
+    return false;
+  }
+  const clean = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  return /\btry\b/.test(clean) && /\bcatch\b/.test(clean);
+}
+
 /**
  * The callback argument is guarded when it is produced by a helper whose name
- * contains "guard" — `queueMicrotask(guardContinuation('render', () => …))`.
- * A bare arrow/function literal is not.
+ * matches `/^guard[A-Z]/` AND whose body try/catches —
+ * `queueMicrotask(guardContinuation('render', () => …))`. A bare arrow /
+ * function literal is not, and neither is a same-named decoy that does nothing.
  */
-function isGuarded(afterOpenParen) {
+function isGuarded(afterOpenParen, source) {
   // Anchored at the start of the identifier: a substring match let
   // `guardless(() => …)` satisfy the guard.
-  return /^\s*guard[A-Z][\w$]*\s*\(/.test(afterOpenParen);
+  const m = /^\s*(guard[A-Z][\w$]*)\s*\(/.exec(afterOpenParen);
+  return m !== null && guardBodyCatches(m[1], source);
 }
 
 const root = process.argv[2] ?? 'src';
 const violations = [];
 
 for (const file of webviewFiles(root)) {
-  const lines = readFileSync(file, 'utf8').split('\n');
+  const source = readFileSync(file, 'utf8');
+  const lines = source.split('\n');
   lines.forEach((line, i) => {
     const trimmed = line.trim();
     // Comment lines describing the pattern must not trip the guard.
@@ -134,7 +187,7 @@ for (const file of webviewFiles(root)) {
       const rest = line.slice(at + scheduler.length + 1);
       // A call broken across lines carries its callback on the next line.
       const arg = rest.trim() === '' ? (lines[i + 1] ?? '') : rest;
-      if (!isGuarded(arg)) {
+      if (!isGuarded(arg, source)) {
         violations.push(`${file}:${i + 1}: ${scheduler} callback is not wrapped in a guard helper`);
       }
     }

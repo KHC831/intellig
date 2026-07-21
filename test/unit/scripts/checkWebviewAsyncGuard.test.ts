@@ -3,9 +3,11 @@
  *
  * Proves: passes on the real tree; fails on a synthetic webview entry that
  * schedules a bare callback (the shape that let a merge-window render die
- * silently mid-session); accepts a callback wrapped in a guard helper, both
- * inline and split across lines; honors the async-guard-exempt comment; and
- * ignores scheduling outside a `webview` directory and inside comments.
+ * silently mid-session); accepts a callback wrapped in a REAL guard helper
+ * (one whose in-file body try/catches), inline and split across lines, while
+ * REJECTING a same-named decoy that guards nothing and an unresolvable
+ * imported guard; honors the async-guard-exempt comment; and ignores
+ * scheduling outside a `webview` directory and inside comments.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -73,10 +75,25 @@ describe('check-webview-async-guard guard', () => {
     assert.ok(/setTimeout/.test(stderr) && /requestAnimationFrame/.test(stderr), stderr);
   });
 
-  it('accepts a callback wrapped in a guard helper', () => {
+  // A helper whose body actually wraps the work in try/catch, defined in-file
+  // so the guard can resolve what the name refers to. Without this definition
+  // these fixtures would pass on the NAME alone — a green control.
+  const GUARD_DECL =
+    'function guardContinuation(label, fn) {\n' +
+    '  return () => {\n' +
+    '    try {\n' +
+    '      fn();\n' +
+    '    } catch (e) {\n' +
+    '      report(e);\n' +
+    '    }\n' +
+    '  };\n' +
+    '}\n';
+
+  it('accepts a callback wrapped in a real (try/catch) guard helper', () => {
     const root = fixture(
       'guarded',
-      "function f() {\n  queueMicrotask(guardContinuation('render', () => {\n    render();\n  }));\n}\n"
+      GUARD_DECL +
+        "function f() {\n  queueMicrotask(guardContinuation('render', () => {\n    render();\n  }));\n}\n"
     );
     const { status, stderr } = runGuard([root]);
     assert.strictEqual(status, 0, `a guarded callback must pass; ${stderr}`);
@@ -85,10 +102,36 @@ describe('check-webview-async-guard guard', () => {
   it('accepts a guarded callback split across lines', () => {
     const root = fixture(
       'split',
-      "function f() {\n  queueMicrotask(\n    guardContinuation('render', () => {\n      render();\n    })\n  );\n}\n"
+      GUARD_DECL +
+        "function f() {\n  queueMicrotask(\n    guardContinuation('render', () => {\n      render();\n    })\n  );\n}\n"
     );
     const { status, stderr } = runGuard([root]);
     assert.strictEqual(status, 0, `a split guarded call must pass; ${stderr}`);
+  });
+
+  it('fails on a same-named DECOY helper that does not try/catch', () => {
+    const root = fixture(
+      'decoy',
+      'function guardNothing(fn) {\n  return fn;\n}\n' +
+        'function f() {\n  queueMicrotask(guardNothing(() => {\n    render();\n  }));\n}\n'
+    );
+    const { status, stderr } = runGuard([root]);
+    assert.strictEqual(status, 1, 'a name-shaped decoy that guards nothing must not pass');
+    assert.ok(/queueMicrotask/.test(stderr), `should name the scheduler; stderr:\n${stderr}`);
+  });
+
+  it('fails when the guard helper is imported (body unresolvable in-file)', () => {
+    const root = fixture(
+      'imported',
+      "import { guardContinuation } from './helpers';\n" +
+        "function f() {\n  queueMicrotask(guardContinuation('render', () => {\n    render();\n  }));\n}\n"
+    );
+    const { status } = runGuard([root]);
+    assert.strictEqual(
+      status,
+      1,
+      'an unresolvable guard reads as unguarded (exempt is the remedy)'
+    );
   });
 
   it('honors the async-guard-exempt justification comment', () => {
@@ -126,10 +169,18 @@ describe('check-webview-async-guard guard', () => {
     assert.ok(/setTimeout/.test(stderr) && /queueMicrotask/.test(stderr), stderr);
   });
 
-  it('ignores an identifier that merely ends in a scheduler name', () => {
-    const root = fixture('suffix', 'function f() {\n  mySetTimeout(() => { a(); }, 1);\n}\n');
+  it('ignores a longer identifier that contains a scheduler name (boundary check)', () => {
+    // `resetTimeout(` contains the substring `setTimeout(` at index 4, so it
+    // REACHES the word-boundary check — unlike `mySetTimeout`, whose capital S
+    // makes indexOf miss so the check is never exercised (a green control).
+    // `before` ends in a word char, so the guard treats it as a different fn.
+    const root = fixture('suffix', 'function f() {\n  resetTimeout(() => { a(); }, 1);\n}\n');
     const { status } = runGuard([root]);
-    assert.strictEqual(status, 0, 'a different function is not the global');
+    assert.strictEqual(
+      status,
+      0,
+      'a longer identifier that merely contains the name is not the global'
+    );
   });
 
   it('ignores method-form scheduling on an object', () => {
