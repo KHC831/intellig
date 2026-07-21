@@ -10,28 +10,32 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.0] - 2026-07-21
+
 ### Added
 
-- Right-clicking a changed file in the log's details panel now offers Show Diff, Open Repository Version, and Show History for Revision.
-- Right-clicking a revision in the file-history tab now offers Compare with HEAD and Compare With.
+- The log details panel shows the committer, branch/tag chips, and clickable commit-hash links, with a right-click menu on changed files (Show Diff, Open Repository Version, Show History).
+- The file-history tab offers Compare with HEAD and Compare With on a revision.
 
 ### Changed
 
-- IntelliJ-preset chords now yield while you are typing, so Ctrl+K, Ctrl+T and Ctrl+D keep their editor meanings inside a text input.
-- IntelliG no longer binds keyboard shortcuts out of the box: set `intellig.keymapPreset` to `intellij` for the IntelliJ-style chords. The old always-on bindings shadowed VS Code defaults like Delete Line, Go to Symbol, New Terminal, and the Ctrl+K chord leader.
-- Under the `intellij` preset: Move to Another Changelist is Alt+Shift+M (IntelliJ's current gesture, was F6), the VCS popup is Ctrl+V on mac, and the Commit tool window gains Cmd+0 on mac.
-- Blame now ignores whitespace-only changes by default, matching IntelliJ; turn `intellig.blame.ignoreWhitespace` off to get the old attribution.
-- The two moved-line detection settings merged into one: `intellig.blame.detectMovements` (`none`/`within`/`across`). Across-files detection now passes a single `-C` like IntelliJ, and turning it off falls back to within-file detection.
+- IntelliG binds no keyboard shortcuts out of the box: set `intellig.keymapPreset` to `intellij` for the IntelliJ chords, which now yield to the editor while you type.
+- Blame ignores whitespace-only changes by default, and moved-line detection is one setting `intellig.blame.detectMovements` (none/within/across), matching IntelliJ.
+- The merge window toolbar is a compact icon strip instead of a row of wide text buttons.
+- History rewriting pauses on a conflict and resolves through the Resolve Conflicts dialog.
+- The commit tool window updates live without stomping your typing, and clears Amend after a commit.
+- Apply Patch previews each file before applying, and created patches apply cleanly.
+- Push, pull, fetch, branch, and tag actions follow IntelliJ's safety behavior; Push up to Here previews in the dialog.
+- Branch favorites are per-workspace and per-repository.
+- The sidebar keeps a stable view order: Branches, Git, Commit.
 
 ### Fixed
 
-- The IntelliG sidebar keeps its views in a stable order at startup: Branches, Git, Commit. The Commit view's late appearance no longer shuffles the panel.
-- Ctrl+D under the `intellij` preset opens the active file's diff; it previously targeted a branch-compare action that can never run from the keyboard.
-- F4 opens the file last selected in the Commit tool window instead of always asking you to select one.
-- Branch favorites are now per-workspace, like IntelliJ's per-project favorites; existing stars carry over once per workspace.
-- Picking a revision in Show Line History opens that revision's diff instead of an info toast.
-- Selecting text in the merge window shows the selection highlight again, including over conflict-colored lines.
-- "Push All up to Here" now opens the push dialog to preview the push instead of pushing immediately, shows the commit it will push, and can push a commit no local branch contains.
+- The commit hash in file history no longer overlaps the message.
+- Opening a commit from a blame hover no longer pushes the log filter bar behind the tab strip.
+- The git tool window's tab strip stays put while you scroll non-Log tabs.
+- Selecting text in the merge window shows the highlight again, including over conflict colors.
+- Various bug fixes and internal hardening (patch, merge, keymap, push, before-commit checks, and guard-script correctness).
 
 ## [0.4.2] - 2026-07-15
 
