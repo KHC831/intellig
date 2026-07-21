@@ -207,6 +207,77 @@ describe('e2e — conflict resolution commands', function () {
     );
   });
 
+  it('openMergeView opens the IntelliG merge window as an editor tab (default enabled path)', async () => {
+    // The default path (mergeWindow.enabled = true) routes MergeView.show() to
+    // the IntelliG merge WINDOW — a webview panel titled `Merge: <file>` that
+    // opens as an editor tab. Suite-27's other openMergeView test forces the
+    // NATIVE editor (enabled = false) to check stage-1 injection; nothing else
+    // drives the default window end-to-end from a real conflict. This is the
+    // F5 section 6 "opens as an editor tab" box, minus the human-only pixels.
+    const cfg = vscode.workspace.getConfiguration('intellig');
+    await cfg.update('mergeWindow.enabled', true, vscode.ConfigurationTarget.Global);
+    try {
+      fix = await createFixtureRepo({ commits: 1 });
+      const shared = path.join(fix.rootPath, 'shared.txt');
+
+      // A modify/modify conflict on shared.txt (base + two divergent edits) →
+      // stages 1/2/3, the ordinary merge-window case.
+      fs.writeFileSync(shared, 'base\n');
+      await execGit(fix.rootPath, ['add', 'shared.txt']);
+      await execGit(fix.rootPath, ['commit', '-m', 'add shared.txt']);
+
+      await execGit(fix.rootPath, ['checkout', '-b', 'feature']);
+      fs.writeFileSync(shared, 'feature change\n');
+      await execGit(fix.rootPath, ['commit', '-am', 'feature change']);
+
+      await execGit(fix.rootPath, ['checkout', fix.defaultBranch]);
+      fs.writeFileSync(shared, 'main change\n');
+      await execGit(fix.rootPath, ['commit', '-am', 'main change']);
+
+      await execGit(fix.rootPath, ['merge', 'feature'], { allowNonZero: true });
+
+      const repo = await useFixtureWorkspace(fix.rootPath);
+      await getServices()?.gitService.reloadRepository(repo);
+      assert.strictEqual(repo.state, 'merging', 'sanity: extension sees a merge in progress');
+
+      stubs = stubPrompts({});
+
+      await vscode.commands.executeCommand('intellig.merge.openMergeView', vscode.Uri.file(shared));
+
+      // The panel (MergeWindowPanel) is created with title `Merge: shared.txt`
+      // and viewType `intellig.mergeWindow`. Poll the tab model — the webview
+      // opens asynchronously (render + Monaco boot). A regression that routed
+      // to the native editor (or nowhere) would never surface this tab.
+      const expectedLabel = `Merge: ${path.basename(shared)}`;
+      const deadline = Date.now() + 10_000;
+      let mergeTab: vscode.Tab | undefined;
+      for (;;) {
+        mergeTab = vscode.window.tabGroups.all
+          .flatMap((g) => g.tabs)
+          .find(
+            (t) =>
+              t.label === expectedLabel ||
+              (t.input instanceof vscode.TabInputWebview && /mergeWindow/i.test(t.input.viewType))
+          );
+        if (mergeTab || Date.now() > deadline) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      assert.ok(
+        mergeTab,
+        `expected an IntelliG merge-window editor tab labelled "${expectedLabel}"; ` +
+          `open tabs: ${vscode.window.tabGroups.all
+            .flatMap((g) => g.tabs)
+            .map((t) => t.label)
+            .join(', ')}`
+      );
+    } finally {
+      await cfg.update('mergeWindow.enabled', undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
+
   it('openMergeView injects a synthetic stage-1 base for an add/add conflict', async () => {
     // Synthetic stage-1 injection is the NATIVE merge editor's path (it
     // reads stages from the index). The IntelliG merge window — the default
