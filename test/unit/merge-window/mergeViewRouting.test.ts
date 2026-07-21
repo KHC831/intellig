@@ -238,6 +238,28 @@ describe('MergeView merge-window routing', () => {
       assert.strictEqual(created[0].disposed, true, 'it must not outlive the conflict either');
     });
 
+    it('disposes the stale window THEN builds a fresh one when the path is notConflicted', async () => {
+      // notConflicted (the index carries no unmerged stages) still opens a
+      // window: the merge window resolves the WORKING-TREE markers, not the
+      // index stages, so a file staged-but-still-marked is legitimately
+      // re-openable. The stale identity-keyed window is disposed by the
+      // supersede loop; a fresh, identity-less window is then built. Pinning
+      // the BUILD half stops a refactor that returns after the dispose from
+      // silently making the notConflicted path a no-op.
+      let sha = 'a';
+      const { view, created } = buildWithStages(() => sha);
+      await view.show('/repo/a.txt');
+      assert.strictEqual(created.length, 1);
+
+      sha = '';
+      await view.show('/repo/a.txt');
+
+      assert.strictEqual(created[0].disposed, true, 'the stale window is disposed');
+      assert.strictEqual(created.length, 2, 'a fresh window is built after the dispose');
+      assert.strictEqual(created[1].disposed, false, 'the freshly built window stays open');
+      assert.strictEqual(created[1].reveals, 0, 'it is built from scratch, not revealed');
+    });
+
     it('never disposes a live window when the stage probe fails', async () => {
       // A transient index lock makes the identity unreadable. Declining reuse
       // is right; destroying the window the user is working in is not — its
