@@ -1,0 +1,133 @@
+/**
+ * Companion spec for scripts/check-precommit-verify-only.mjs.
+ *
+ * Proves the guard (a) passes on the real, verify-only package.json + hook,
+ * (b) fails when a lint-staged command carries `--write` or `--fix`, (c) fails
+ * when the .husky/pre-commit body rewrites staged content, and (d) passes on
+ * verify-only controls for both arms.
+ *
+ * Each failing case is the mechanism-flip proof for one arm (ADR-007 / #58):
+ * remove the MUTATING scan and the `--write` / hook cases go green, while the
+ * verify-only controls are already green, so the fixtures are discriminating,
+ * not always-red.
+ */
+import * as assert from 'assert';
+import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const SCRIPT = path.join(process.cwd(), 'scripts/check-precommit-verify-only.mjs');
+const TMP_ROOT = path.join(process.cwd(), 'workspace-notes', 'tmp');
+
+function runGuard(args: string[]): { status: number | null; stdout: string; stderr: string } {
+  const r = spawnSync('node', [SCRIPT, ...args], { encoding: 'utf8' });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+function makeFixture(
+  name: string,
+  files: Record<string, string>
+): { dir: string; file: (rel: string) => string } {
+  const dir = fs.mkdtempSync(path.join(TMP_ROOT, `precommit-${name}-`));
+  for (const [rel, content] of Object.entries(files)) {
+    const p = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content, 'utf8');
+  }
+  return { dir, file: (rel: string) => path.join(dir, rel) };
+}
+
+function pkg(lintStaged: unknown): string {
+  return JSON.stringify({ name: 'fx', 'lint-staged': lintStaged }, null, 2);
+}
+
+describe('check-precommit-verify-only guard', () => {
+  before(() => {
+    fs.mkdirSync(TMP_ROOT, { recursive: true });
+  });
+
+  it('passes against the real repo package.json + hook', () => {
+    const { status, stderr } = runGuard([]);
+    assert.strictEqual(status, 0, `guard should pass on the real tree; stderr:\n${stderr}`);
+  });
+
+  it('fails when a lint-staged command carries prettier --write', () => {
+    const fx = makeFixture('write', {
+      'package.json': pkg({ '*.ts': ['prettier --write', 'eslint --max-warnings 0'] }),
+    });
+    try {
+      const { status, stderr } = runGuard([fx.file('package.json')]);
+      assert.strictEqual(status, 1, 'a --write lint-staged entry must fail');
+      assert.ok(/prettier --write/.test(stderr), `should name the command; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a lint-staged command carries eslint --fix', () => {
+    const fx = makeFixture('fix', {
+      'package.json': pkg({ '*.ts': ['prettier --check', 'eslint --fix --max-warnings 0'] }),
+    });
+    try {
+      const { status, stderr } = runGuard([fx.file('package.json')]);
+      assert.strictEqual(status, 1, 'an --fix lint-staged entry must fail');
+      assert.ok(/eslint --fix/.test(stderr), `should name the command; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes on a verify-only lint-staged config (control)', () => {
+    const fx = makeFixture('verify', {
+      'package.json': pkg({
+        '*.ts': ['prettier --check', 'eslint --max-warnings 0'],
+        '*.{json,md}': ['prettier --check --ignore-unknown'],
+      }),
+    });
+    try {
+      const { status, stderr } = runGuard([fx.file('package.json')]);
+      assert.strictEqual(status, 0, `verify-only config must pass; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does NOT match --fix-dry-run (eslint dry run does not write)', () => {
+    const fx = makeFixture('dryrun', {
+      'package.json': pkg({ '*.ts': ['eslint --fix-dry-run --max-warnings 0'] }),
+    });
+    try {
+      const { status } = runGuard([fx.file('package.json')]);
+      assert.strictEqual(status, 0, '--fix-dry-run does not mutate and must pass');
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the pre-commit hook body rewrites staged content', () => {
+    const fx = makeFixture('hook-write', {
+      'package.json': pkg({ '*.ts': ['prettier --check'] }),
+      'pre-commit': 'prettier --write "src/**/*.ts"\nnpx lint-staged\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.file('package.json'), fx.file('pre-commit')]);
+      assert.strictEqual(status, 1, 'a hook that shells prettier --write must fail');
+      assert.ok(/pre-commit rewrites/.test(stderr), `should name the hook; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes on a verify-only pre-commit hook (control)', () => {
+    const fx = makeFixture('hook-verify', {
+      'package.json': pkg({ '*.ts': ['prettier --check'] }),
+      'pre-commit': 'npx lint-staged\n',
+    });
+    try {
+      const { status, stderr } = runGuard([fx.file('package.json'), fx.file('pre-commit')]);
+      assert.strictEqual(status, 0, `verify-only hook must pass; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -12,7 +12,7 @@ Read next: `docs/ARCHITECTURE.md` (what the code is), `docs/AGENT-HANDBOOK.md` (
 - **Compile**: `npm run compile` = tsc typecheck + three esbuild bundles — extension host (`dist/extension.js`), GIT_SEQUENCE_EDITOR entry (`dist/rebaseTodoEditor.js`), merge-window webview (`media/mergeWindow.js`) — + Monaco asset copy (`media/monaco/vs`). `npm run watch` is tsc-only — it rebuilds none of the bundles; use F5 (preLaunchTask compiles) or rerun compile.
 - **Single test file**: `npx mocha --require ts-node/register test/unit/path/to/file.test.ts` (add `--timeout 60000` for property tests). A mocha "Cannot find module" error usually masks a TypeScript error — run `npx tsc -p tsconfig.test.json --noEmit` to see the real one.
 - **Electron lanes** (real VS Code host, not part of `npm test`): `npm run test:ext-host` (activation/registration invariants), `npm run test:e2e` (real git fixtures). `npm run gate:full` runs everything.
-- **Lint only**: `npm run lint`. Husky pre-commit runs prettier + eslint `--fix --max-warnings 0` on staged files (it stashes — the "Backing up original state" lines are normal).
+- **Lint only**: `npm run lint`. **Format/fix pass**: `npm run fix` (prettier `--write` + eslint `--fix` over `src`/`test`) — run it BEFORE the gate so the gate sees final content. Husky pre-commit is VERIFY-ONLY (`prettier --check` + `eslint --max-warnings 0` via lint-staged; it stashes — the "Backing up original state" lines are normal) and cannot rewrite what lands; `check:precommit-verify-only` fences that a mutating (`--write`/`--fix`) command never returns to the hook.
 
 ## Non-negotiable workflow rules
 
