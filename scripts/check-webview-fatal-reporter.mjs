@@ -94,6 +94,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { blockAt } from './lib/source-scan.mjs';
 
 const EXEMPT = 'fatal-reporter-exempt:';
 const REQUIRED = ['error', 'unhandledrejection'];
@@ -124,26 +125,6 @@ function webviewFiles(root) {
 /** Strip line and block comments so prose cannot satisfy (or trip) the checks. */
 function stripComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
-}
-
-/** Body of the `{ … }` whose opening brace is at or after `from`. */
-function blockAt(source, from) {
-  const start = source.indexOf('{', from);
-  if (start < 0) {
-    return null;
-  }
-  let depth = 0;
-  for (let i = start; i < source.length; i++) {
-    if (source[i] === '{') {
-      depth++;
-    } else if (source[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        return source.slice(start + 1, i);
-      }
-    }
-  }
-  return null;
 }
 
 /**

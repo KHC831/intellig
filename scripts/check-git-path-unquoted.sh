@@ -23,21 +23,29 @@
 # 2. Heuristic + how it scales
 #    Fail a non-comment line that either:
 #      (a) carries a whitespace-token capture group (`(\S+)`, `(\S*)`, or the
-#          `([^\s]…)` spelling) alongside a git path-output PROSE fragment on
-#          the same line (diff --git, Checking patch, Applied patch, patching
-#          file); or
+#          `([^\s]…)` spelling) alongside a git path-output fragment on the same
+#          line — a prose header (diff --git, Checking patch, Applied patch,
+#          patching file) OR a path-listing token (`--name-only`,
+#          `--name-status`, `--numstat`, `--porcelain`, `ls-tree`, `ls-files`,
+#          `diff-tree`). A whitespace split truncates a name carrying a space
+#          even when the invocation asked for `-z`, so a capture that CONSUMES a
+#          listing's output is wrong regardless of arm (b)'s verdict on that -z.
+#          The listing form fires only when the capture sits AFTER the listing
+#          token on the line (it reads that output), so an unrelated capture
+#          merely sharing the line with a `-z` listing is not flagged. The
+#          isolating fixture is a `.match(/(\S+)$/)` chained onto an
+#          `ls-tree … -z` call, where (b) passes but (a) fails.
 #      (b) invokes git with a path-LISTING subcommand or flag without `-z`.
-#          Covered: `--name-only`, `--name-status`, `--numstat`,
-#          `--porcelain`, `ls-tree`, `ls-files`, `diff-tree` — every one emits
-#          C-quoted paths for names with non-ASCII bytes or a double quote,
-#          and bare (space-splittable) names otherwise.
+#          Covered: the same listing set; every one emits C-quoted paths for
+#          names with non-ASCII bytes or a double quote, and bare
+#          (space-splittable) names otherwise.
 #    The `-z` for (b) is looked up over the WHOLE enclosing `[ … ]` argv
-#    literal, not just the flag's own physical line, so a prettier-wrapped
-#    element-per-line array whose `-z` sits on a sibling line still passes —
-#    and one that genuinely omits `-z` still fails. `ls-tree` / `--name-only`
-#    are (b) subcommands only: a capture co-located with them is already
-#    caught by (b), so listing them under (a) too would be an untestable
-#    duplicate (no fixture can isolate the (a) reading), and they are not.
+#    literal, not just the flag's own physical line, so a prettier-wrapped array
+#    whose `-z` sits on a sibling line still passes — whether the listing token
+#    sits on the array's opening `[` line or on an inner line — and one that
+#    genuinely omits `-z` still fails. Bracket nesting is counted over a copy
+#    with string bodies and line-comment tails blanked, so a bracket inside a
+#    literal does not perturb the span.
 #    Comment-only lines are skipped so the prose in a docblock stays free.
 #    Scope: git-tracked (and new) TS under src/. Escape hatch:
 #    `// git-path-quote-exempt: <reason>` on the same or preceding line —
@@ -73,10 +81,19 @@
 #        not recognised;
 #      - a `-z` run whose output is then split on '\n' rather than '\0'
 #        passes, since only the invocation is inspected;
-#      - the enclosing-array `-z` lookup counts `[`/`]` naively, so an
-#        unbalanced bracket inside a STRING literal on a nearby line can widen
-#        or narrow the scanned span; balanced `[...]` on a line nets zero, so
-#        ordinary indexing and type annotations do not perturb it;
+#      - the bracket count blanks string bodies and line-comment tails, but not
+#        regex-literal char classes or block-comment interiors, so an unbalanced
+#        bracket inside `/\[/` or a `/* ] */` on a nearby line can still widen or
+#        narrow the scanned span; balanced brackets net zero, so ordinary
+#        indexing, type annotations and char classes do not perturb it;
+#      - the `-z` span scan skips FULL-LINE comments, but a `-z` in a trailing
+#        comment on the listing line itself, or in a `/* … */` block, still
+#        counts, since only whole-line comments are recognised;
+#      - the listing form of arm (a) keys on the capture sitting AFTER the
+#        listing token; a capture literal written earlier on the line and
+#        applied to the output through a variable is missed. This is the
+#        variable-held-capture gap, and prettier splits such a multi-statement
+#        line in two anyway, leaving neither half carrying both halves;
 #      - `diff --raw`, `diff --summary`, `whatchanged` and `check-ignore`
 #        also emit quoted paths and are NOT covered. None is used in this
 #        tree today — but "uncovered" and "unused" are separate claims, and
@@ -103,11 +120,20 @@ fi
 fail=0
 for f in $files; do
   hits=$(awk '
-    # Phase 1: buffer every line and its net [ ] bracket delta.
+    # Phase 1: buffer every line and its net [ ] bracket delta. Count over a
+    # copy with string bodies and any line-comment tail blanked, so a bracket
+    # inside '\''['\'' / "]" or a trailing `// ]` is not read as argv nesting.
     {
       L[FNR] = $0
-      t = $0; opens = gsub(/\[/, "[", t)
-      u = $0; closes = gsub(/\]/, "]", u)
+      st = $0; sub(/^[ \t]*/, "", st)
+      isComment[FNR] = (st ~ /^\/\// || st ~ /^\*/ || st ~ /^\/\*/)
+      # Only a `//` line is wholly comment; a `/* … */` may be followed by code.
+      isLineComment[FNR] = (st ~ /^\/\//)
+      s = $0
+      gsub(/"[^"]*"|'"'"'[^'"'"']*'"'"'|`[^`]*`/, "", s)
+      sub(/\/\/.*/, "", s)
+      t = s; opens = gsub(/\[/, "[", t)
+      u = s; closes = gsub(/\]/, "]", u)
       delta[FNR] = opens - closes
       n = FNR
     }
@@ -118,27 +144,41 @@ for f in $files; do
 
       for (i = 1; i <= n; i++) {
         line = L[i]
-        stripped = line
-        sub(/^[ \t]*/, "", stripped)
-        is_comment = (stripped ~ /^\/\// || stripped ~ /^\*/ || stripped ~ /^\/\*/)
+        is_comment = isComment[i]
         exempt = (line ~ /git-path-quote-exempt:/ || (i > 1 && L[i-1] ~ /git-path-quote-exempt:/))
 
-        # (a) whitespace-token capture over git path-output prose.
-        token_capture = (line ~ /\(\\S[+*]|\(\[\^\\s\]/)
-        path_context = (line ~ /diff --git|Checking patch|Applied patch|patching file/)
-        bad_capture = (token_capture && path_context)
+        # (a) whitespace-token capture over git path output, in two shapes:
+        #   - a capture parsing a PROSE header (diff --git / apply lines); or
+        #   - a capture CONSUMING the output of a path listing, which a (\S+)
+        #     split truncates at the first space even under -z. This one fires
+        #     only when the capture sits AFTER the listing token (it reads that
+        #     output), so an unrelated capture merely sharing the line with a
+        #     -z listing is not flagged.
+        has_capture = (line ~ /\(\\S[+*]|\(\[\^\\s\]/)
+        prose_context = (line ~ /diff --git|Checking patch|Applied patch|patching file/)
+        listing_output_capture = 0
+        if (match(line, /--name-only|--name-status|--numstat|--porcelain|.ls-tree.|.ls-files.|.diff-tree./)) {
+          # A capture anywhere AFTER the listing token consumes its output.
+          after = substr(line, RSTART + RLENGTH)
+          listing_output_capture = (after ~ /\(\\S[+*]|\(\[\^\\s\]/)
+        }
+        bad_capture = (has_capture && prose_context) || listing_output_capture
 
         # (b) path-listing invocation without NUL delimiting, -z looked up
         # over the whole enclosing [ ... ] argv literal.
         lists_paths = (line ~ /--name-only|--name-status|--numstat|--porcelain|.ls-tree.|.ls-files.|.diff-tree./)
         has_z = (line ~ /'"'"'-z'"'"'|"-z"|[ =]-z[ ,)]/)
-        if (lists_paths && !has_z && depthBefore[i] > 0) {
+        if (lists_paths && !has_z) {
+          # Span the enclosing [ ... ] argv literal. The bounds self-collapse to
+          # [i,i] for a single-line call and cover the whole array when the
+          # listing sits on its opening line (depthBefore 0, delta > 0) or inside.
           lo = i
           while (lo > 1 && depthBefore[lo] > 0) lo--
           hi = i
           while (hi < n && (depthBefore[hi] + delta[hi]) > 0) hi++
           for (j = lo; j <= hi; j++) {
-            if (L[j] ~ /'"'"'-z'"'"'|"-z"|[ =]-z[ ,)]/) { has_z = 1; break }
+            # A -z that appears only in a whole-line comment is not a real flag.
+            if (!isLineComment[j] && L[j] ~ /'"'"'-z'"'"'|"-z"|[ =]-z[ ,)]/) { has_z = 1; break }
           }
         }
         bad_listing = (lists_paths && !has_z)

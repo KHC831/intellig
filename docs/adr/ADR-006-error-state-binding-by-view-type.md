@@ -43,8 +43,8 @@ The triage that produced this ADR confirmed:
 - BranchComparisonView's `_state.error` had exactly one production
   reader (`show()` line ~127); the `_showComparisonResults`
   swap/refresh paths silently swallowed the error.
-- HistoryTab's `state.error` is *rendered into HTML* (`state.error ?
-  renderError(state.error) : ''`). The renderer needs synchronous
+- HistoryTab's `state.error` is _rendered into HTML_ (`state.error ?
+renderError(state.error) : ''`). The renderer needs synchronous
   read access during construction, where awaiting a refresh promise is
   the wrong shape. The sideband is structurally the right pattern there.
 
@@ -95,14 +95,14 @@ Use the **VS-Code-built-in error rendering** pattern:
   `getChildren`.
 - These helpers may **propagate rejection up to VS Code**. The host's
   TreeView renderer treats a thrown / rejected `getChildren` as
-  "couldn't load this subtree" and renders an empty state — *that is
-  the channel*. Don't catch the error inside the helper just to
+  "couldn't load this subtree" and renders an empty state — _that is
+  the channel_. Don't catch the error inside the helper just to
   squash it; the user-visible "subtree didn't load" signal is
   intentional.
 - Where a richer signal is warranted (network outage, auth failure,
   user-actionable diagnosis), surface a toast at the **action
   boundary** — the command handler that triggered the refresh, or
-  the explicit "Refresh" action — *not* from inside `getChildren`.
+  the explicit "Refresh" action — _not_ from inside `getChildren`.
   `getChildren` runs whenever the host decides to re-query (expand,
   reveal, theme change, focus shift); a toast there fires
   unpredictably.
@@ -168,7 +168,7 @@ error block is part of that markup.
 - The HTML-rendering exception is now explicit and tied to a structural
   signal (template binding), not author convenience.
 - Reviewers have a one-line check on PRs that touch view error paths:
-  *which UI binding model is this? does the refresh shape match?*
+  _which UI binding model is this? does the refresh shape match?_
 
 ### Negative / costs
 
@@ -177,7 +177,7 @@ error block is part of that markup.
   HTML-rendering views). The compensating discipline is that every
   match is now expected and documented, not a divergence.
 - Adopting a new HTML-rendering view will reproduce the sideband
-  shape. That is fine — the rule is *not* "no sidebands ever," it is
+  shape. That is fine — the rule is _not_ "no sidebands ever," it is
   "sidebands only where the renderer demands one."
 
 ### Neutral

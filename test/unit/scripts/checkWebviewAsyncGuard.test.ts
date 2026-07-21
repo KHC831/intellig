@@ -6,8 +6,11 @@
  * silently mid-session); accepts a callback wrapped in a REAL guard helper
  * (one whose in-file body try/catches), inline and split across lines, while
  * REJECTING a same-named decoy that guards nothing and an unresolvable
- * imported guard; honors the async-guard-exempt comment; and ignores
- * scheduling outside a `webview` directory and inside comments.
+ * imported guard. Resolution runs over the source-scan code view, so a real
+ * guard whose body holds a `}` inside a string still passes and a decoy whose
+ * only try/catch sits inside a string literal still fails. Honors the
+ * async-guard-exempt comment; and ignores scheduling outside a `webview`
+ * directory and inside comments.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -117,6 +120,42 @@ describe('check-webview-async-guard guard', () => {
     );
     const { status, stderr } = runGuard([root]);
     assert.strictEqual(status, 1, 'a name-shaped decoy that guards nothing must not pass');
+    assert.ok(/queueMicrotask/.test(stderr), `should name the scheduler; stderr:\n${stderr}`);
+  });
+
+  it('accepts a real guard helper whose body carries a brace inside a string', () => {
+    // A `}` in a string literal must not close the brace-match early and hide
+    // the try/catch that follows it. Resolution runs over the string-blanked
+    // code view, so the literal brace does not perturb the match.
+    const root = fixture(
+      'strbrace',
+      'function guardRender(fn) {\n' +
+        '  const prefix = "}";\n' +
+        '  try {\n' +
+        '    fn();\n' +
+        '  } catch (e) {\n' +
+        '    report(prefix, e);\n' +
+        '  }\n' +
+        '}\n' +
+        'function f() {\n  queueMicrotask(guardRender(() => {\n    render();\n  }));\n}\n'
+    );
+    const { status, stderr } = runGuard([root]);
+    assert.strictEqual(status, 0, `a real guard with a brace-in-string must pass; ${stderr}`);
+  });
+
+  it('fails on a decoy whose only try/catch is inside a string literal', () => {
+    // The words appear in a log message, not in control flow. Blanking string
+    // bodies before the try/catch test stops the message from posing as a guard.
+    const root = fixture(
+      'strdecoy',
+      'function guardNothing(fn) {\n' +
+        '  log("will try to catch errors later");\n' +
+        '  return fn;\n' +
+        '}\n' +
+        'function f() {\n  queueMicrotask(guardNothing(() => {\n    render();\n  }));\n}\n'
+    );
+    const { status, stderr } = runGuard([root]);
+    assert.strictEqual(status, 1, 'try/catch inside a string must not satisfy the guard');
     assert.ok(/queueMicrotask/.test(stderr), `should name the scheduler; stderr:\n${stderr}`);
   });
 

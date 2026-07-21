@@ -28,15 +28,31 @@
  *    enough: a decoy `guardNothing(fn) { return fn; }` matches `^guard[A-Z]`
  *    while guarding nothing, so the name is resolved to what it refers to and
  *    the body is read, the same discipline the sibling
- *    check:webview-fatal-reporter uses for its reporter. Scales for free: new
- *    webview entries and new scheduling sites are covered when written.
+ *    check:webview-fatal-reporter uses for its reporter. Declaration lookup and
+ *    the brace-match (the shared `blockAt`) run over the scripts/lib/source-scan
+ *    CODE view (comments AND string bodies blanked), so a `}` in a string cannot
+ *    close the body early and a `try`/`catch` in a log message cannot pose as
+ *    control flow. Scales for free: new webview entries and new scheduling sites
+ *    are covered when written.
+ *
+ *    Pinning cases per arm (companion spec, ADR-007 mechanism-flip discipline):
+ *    the bare-callback arm flips on "fails on a synthetic webview entry that
+ *    schedules a bare callback"; the name-resolves-to-try/catch arm flips on
+ *    "fails on a same-named DECOY helper that does not try/catch"; the code-view
+ *    resolution flips on "accepts a real guard helper whose body carries a brace
+ *    inside a string" and "fails on a decoy whose only try/catch is inside a
+ *    string literal".
  *
  * 3. Known false-positive cases: a scheduled callback whose body genuinely
  *    cannot throw (a one-line flag flip), a call passing an already-guarded
- *    named function reference, and a guard helper IMPORTED from another module
- *    (its body cannot be resolved in this file, so the call reads as unguarded).
- *    All take the escape hatch: a `// async-guard-exempt: <reason>` comment on
- *    the line above.
+ *    named function reference, a guard helper IMPORTED from another module (its
+ *    body cannot be resolved in this file, so the call reads as unguarded), a
+ *    guard whose first `{` after its declaration is a destructured or
+ *    object-default PARAMETER rather than its body (brace-match reads the param
+ *    block), and a scheduler whose callback is separated from its `(` by a blank
+ *    line (only the immediately-following line is inspected). All take the
+ *    escape hatch: a `// async-guard-exempt: <reason>` comment on the line
+ *    above. The single-guard-helper tree today (`guardContinuation`) hits none.
  *
  * 4. Known false-negative cases: a callback passed through a variable that was
  *    built unguarded elsewhere, a scheduler reached via an alias
@@ -69,6 +85,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'fs';
 import * as path from 'path';
+import { scanSource, blockAt } from './lib/source-scan.mjs';
 
 const SCHEDULERS = ['queueMicrotask', 'setTimeout', 'setInterval', 'requestAnimationFrame'];
 const EXEMPT = 'async-guard-exempt:';
@@ -96,48 +113,31 @@ function webviewFiles(root) {
   return out.sort();
 }
 
-/** Body of the `{ … }` whose opening brace is at or after `from`. */
-function blockAt(source, from) {
-  const start = source.indexOf('{', from);
-  if (start < 0) {
-    return null;
-  }
-  let depth = 0;
-  for (let i = start; i < source.length; i++) {
-    if (source[i] === '{') {
-      depth++;
-    } else if (source[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        return source.slice(start + 1, i);
-      }
-    }
-  }
-  return null;
-}
-
 /**
  * Whether `name` resolves to a helper that ACTUALLY guards: its body wraps the
  * work in try/catch. A name-shaped match is not enough — `guardNothing(fn) {
  * return fn; }` satisfied `^guard[A-Z]` while guarding nothing. Same class as
  * the `installTheme` decoy the sibling check:webview-fatal-reporter closes;
  * resolve the name to a declaration in THIS file and read what its body does.
+ *
+ * `code` is the source-scan code view (comments AND string bodies blanked), so
+ * a `{`/`}` inside a string cannot close the body early and the words
+ * `try`/`catch` inside a log message cannot pose as control flow.
  */
-function guardBodyCatches(name, source) {
+function guardBodyCatches(name, code) {
   const declared =
-    new RegExp(`function\\s+${name}\\s*\\(`).exec(source) ??
-    new RegExp(`(?:const|let|var)\\s+${name}\\s*(?::[^=]+)?=\\s*(?:async\\s*)?(?:function|\\()`).exec(
-      source
-    );
+    new RegExp(`function\\s+${name}\\s*\\(`).exec(code) ??
+    new RegExp(
+      `(?:const|let|var)\\s+${name}\\s*(?::[^=]+)?=\\s*(?:async\\s*)?(?:function|\\()`
+    ).exec(code);
   if (!declared) {
     return false;
   }
-  const body = blockAt(source, declared.index);
+  const body = blockAt(code, declared.index);
   if (body === null) {
     return false;
   }
-  const clean = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  return /\btry\b/.test(clean) && /\bcatch\b/.test(clean);
+  return /\btry\b/.test(body) && /\bcatch\b/.test(body);
 }
 
 /**
@@ -146,11 +146,11 @@ function guardBodyCatches(name, source) {
  * `queueMicrotask(guardContinuation('render', () => …))`. A bare arrow /
  * function literal is not, and neither is a same-named decoy that does nothing.
  */
-function isGuarded(afterOpenParen, source) {
+function isGuarded(afterOpenParen, code) {
   // Anchored at the start of the identifier: a substring match let
   // `guardless(() => …)` satisfy the guard.
   const m = /^\s*(guard[A-Z][\w$]*)\s*\(/.exec(afterOpenParen);
-  return m !== null && guardBodyCatches(m[1], source);
+  return m !== null && guardBodyCatches(m[1], code);
 }
 
 const root = process.argv[2] ?? 'src';
@@ -158,6 +158,9 @@ const violations = [];
 
 for (const file of webviewFiles(root)) {
   const source = readFileSync(file, 'utf8');
+  // Resolve guard declarations over the code view (comments and string bodies
+  // blanked, offsets preserved) so literals cannot spoof the try/catch body.
+  const { code } = scanSource(source);
   const lines = source.split('\n');
   lines.forEach((line, i) => {
     const trimmed = line.trim();
@@ -187,7 +190,7 @@ for (const file of webviewFiles(root)) {
       const rest = line.slice(at + scheduler.length + 1);
       // A call broken across lines carries its callback on the next line.
       const arg = rest.trim() === '' ? (lines[i + 1] ?? '') : rest;
-      if (!isGuarded(arg, source)) {
+      if (!isGuarded(arg, code)) {
         violations.push(`${file}:${i + 1}: ${scheduler} callback is not wrapped in a guard helper`);
       }
     }

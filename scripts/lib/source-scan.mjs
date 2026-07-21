@@ -231,3 +231,28 @@ export function lineAt(source, index) {
 export function lineText(source, line) {
   return source.split('\n')[line - 1] ?? '';
 }
+
+/**
+ * The text between the braces of the `{ … }` whose opening brace is at or after
+ * `from`, brace-matched; null if none balances. Pass a `code` view (comments
+ * and string bodies blanked) so a brace inside a literal does not close it
+ * early — a guard that resolves a declaration's body relies on that.
+ */
+export function blockAt(source, from) {
+  const start = source.indexOf('{', from);
+  if (start < 0) {
+    return null;
+  }
+  let depth = 0;
+  for (let i = start; i < source.length; i++) {
+    if (source[i] === '{') {
+      depth++;
+    } else if (source[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        return source.slice(start + 1, i);
+      }
+    }
+  }
+  return null;
+}

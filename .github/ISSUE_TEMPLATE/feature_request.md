@@ -1,8 +1,8 @@
 ---
 name: Feature request
 about: Suggest a new feature or behavior change
-title: "[feature] "
-labels: ["enhancement"]
+title: '[feature] '
+labels: ['enhancement']
 ---
 
 ## Problem you're trying to solve

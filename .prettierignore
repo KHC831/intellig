@@ -4,5 +4,12 @@ node_modules
 .vscode-test
 *.vsix
 
+# npm-owned; its formatting is regenerated on install, so prettier must not fight it
+package-lock.json
+
+# gitignored scratch (plans, audit notes, trackers) — never committed, so the
+# broadened format globs must not reach it (prettier does not read .gitignore)
+workspace-notes/
+
 # Visual-parity reference docs — hand-formatted (ASCII graph diagrams, aligned tables); prettier reflow corrupts them
 docs/parity/

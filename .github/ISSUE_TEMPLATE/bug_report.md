@@ -1,8 +1,8 @@
 ---
 name: Bug report
 about: Report something that isn't working the way you expect
-title: "[bug] "
-labels: ["bug"]
+title: '[bug] '
+labels: ['bug']
 ---
 
 ## What happened
@@ -34,6 +34,7 @@ Sanitize paths/tokens if needed. Even a single stack trace usually
 points at the exact failure site. -->
 
 ```
+
 ```
 
 ## Environment
@@ -50,6 +51,7 @@ points at the exact failure site. -->
   remote URLs if you'd rather not share them):
 
   ```
+
   ```
 
 - Anything you tried that worked around it:
