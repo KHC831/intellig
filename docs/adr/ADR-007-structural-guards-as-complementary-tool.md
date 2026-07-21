@@ -126,6 +126,58 @@ Without these five sections, the guard's reasoning gets re-discovered
 during the next round of triage, and exempt comments accrete without
 discipline.
 
+### Companion-spec teeth: the mechanism-flip requirement
+
+A companion spec's job is to prove the guard has teeth. A case that
+_looks_ like a teeth test but passes for an unrelated reason is a
+**green control**: it reads as coverage, and it would stay green if the
+mechanism it names were deleted outright. Four independent batches shipped
+one each in rounds 6–7 — the same defect four times is a process gap, not
+four slips — so the rule is now explicit:
+
+**Every companion-spec case that asserts a guard FAILURE (exit 1) must be
+shown to FLIP when the arm it names is removed.** If the case stays green
+with that arm gutted, it is not testing that arm.
+
+How the four green controls each failed — all the same shape, the fixture
+tripping an _unrelated_ requirement BEFORE reaching the named mechanism:
+
+- **H7** — the "names the validator in a comment" fixtures carried no call
+  shape, so they failed the guard's `\bname\s*\(` requirement first; the
+  block-comment lexing they claimed to test was never reached.
+- **P3** — the ls-tree capture fixture also carried `--name-only`, so the
+  path-listing arm caught it first; the ls-tree capture arm was never
+  reached. (Fixed by DELETING that arm — see "prefer unwritable" below.)
+- **M3** — `mySetTimeout(`'s capital S made `indexOf('setTimeout(')` miss,
+  so the word-boundary check the case named was never reached.
+- **M7** — an absolute fixture root against a repo-relative allowlist meant
+  `has()` could never hit; the allowlist arm was never reached.
+
+Procedure, applied at authoring AND review (the reviewer owns the red):
+
+1. **Gut the arm** the case names — revert it to a no-op or the pre-fix
+   shape — run the spec, and confirm the intended case flips red and the
+   controls stay green. Do it before trusting the case, not after.
+2. **Name the pinning case per arm** in the header's section 2, so a later
+   reader can see which case protects which mechanism and re-run the flip.
+3. Distinguish the two causes of `0 failing` before calling a mechanism
+   pinned:
+   - **UNPINNED** — the mutant changes observable behaviour and no case
+     notices. A real gap: write the case.
+   - **EQUIVALENT** — the mutant changes nothing observable through the
+     seam under test, so NO case can pin it. Record why in the header;
+     writing a case anyway just manufactures a green control.
+
+**Prefer unwritable over documented.** Where an arm cannot be isolated by
+any fixture because a broader arm subsumes it (P3: the path-listing arm
+already covers every ls-tree/name-only line), DELETE the redundant arm
+rather than ship a duplicate no spec can exercise. A generic structural
+enforcement — auto-gutting every guard and asserting its spec goes red — is
+not gated: swapping a live guard mid-run is unsafe, and gutting to
+always-pass only catches a WHOLLY toothless spec, not a single green
+control among real cases. So this stays a review discipline backed by the
+per-arm flip, not a check. The mutation is cheap; run it.
+
 ### Substrate choice
 
 | Substrate                  | Use when                                                                                                                                                                    |
