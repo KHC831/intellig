@@ -807,6 +807,104 @@ describe('MergeWindowPanel', () => {
       fs.rmSync(target, { force: true });
     }
   });
+
+  /** A gitCli whose `ls-files` exits non-zero: the index cannot be read. */
+  function unreadableIndexGitCli(): GitCli {
+    return {
+      exec: (args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> =>
+        Promise.resolve(
+          args[0] === 'ls-files'
+            ? { exitCode: 128, stdout: '', stderr: 'fatal: unable to read the index' }
+            : { exitCode: 0, stdout: '', stderr: '' }
+        ),
+    } as unknown as GitCli;
+  }
+
+  /** A gitCli whose `ls-files` succeeds with no unmerged entries. */
+  function notConflictedGitCli(): GitCli {
+    return {
+      exec: (): Promise<{ exitCode: number; stdout: string; stderr: string }> =>
+        Promise.resolve({ exitCode: 0, stdout: '', stderr: '' }),
+    } as unknown as GitCli;
+  }
+
+  function captureInfoMessages(): { infos: string[]; restore(): void } {
+    const infos: string[] = [];
+    const original = vscode.window.showInformationMessage;
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = (
+      message: string
+    ): Thenable<string | undefined> => {
+      infos.push(message);
+      return Promise.resolve(undefined);
+    };
+    return {
+      infos,
+      restore: (): void => {
+        (vscode.window as { showInformationMessage: unknown }).showInformationMessage = original;
+      },
+    };
+  }
+
+  it('reports an unreadable index distinctly, not as no-conflict, then closes', async () => {
+    // The bug: collapsing an unreadable index into 'notConflicted' told the user
+    // their file had no conflict when git could not read the index at all. The
+    // panel must name which happened and not leave them believing a still-
+    // conflicted file is clean.
+    const capture = capturePanels();
+    const info = captureInfoMessages();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], unreadableIndexGitCli());
+      let disposed = false;
+      capture.created[0].onDidDispose(() => {
+        disposed = true;
+      });
+      await panel.deliver({ type: 'ready' });
+
+      assert.strictEqual(info.infos.length, 1, 'the user must be told what happened');
+      assert.ok(
+        /could not read the index/i.test(info.infos[0]),
+        `an unreadable index must be reported as such, got: ${info.infos[0]}`
+      );
+      assert.ok(
+        !/no unmerged conflict/i.test(info.infos[0]),
+        'an unreadable index must NOT be reported as no-conflict'
+      );
+      assert.strictEqual(disposed, true, 'the panel closes after reporting');
+    } finally {
+      info.restore();
+      capture.restore();
+    }
+  });
+
+  it('reports a genuinely not-conflicted path as no unmerged entries', async () => {
+    // The control: a clean index IS real information, so this path gets the
+    // "no unmerged conflict entries" message. If both outcomes collapsed to one
+    // branch, one of this pair would fail.
+    const capture = capturePanels();
+    const info = captureInfoMessages();
+    try {
+      const { panel } = buildPanel('/repo/x.txt', [], notConflictedGitCli());
+      let disposed = false;
+      capture.created[0].onDidDispose(() => {
+        disposed = true;
+      });
+      await panel.deliver({ type: 'ready' });
+
+      assert.strictEqual(info.infos.length, 1, 'the user is told the path is not conflicted');
+      assert.ok(
+        /no unmerged conflict entries/i.test(info.infos[0]),
+        `a clean index must be reported as no-conflict, got: ${info.infos[0]}`
+      );
+      assert.ok(
+        !/could not read the index/i.test(info.infos[0]),
+        'a clean index must NOT be reported as unreadable'
+      );
+      assert.strictEqual(disposed, true, 'the panel closes');
+    } finally {
+      info.restore();
+      capture.restore();
+    }
+  });
 });
 
 describe('MergeView merge-window per-file dedup', () => {
