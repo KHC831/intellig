@@ -76,7 +76,7 @@ describe('Wave B R3 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/commitCompareActions.ts'),
         'utf8'
       );
     });
@@ -86,7 +86,7 @@ describe('Wave B R3 — final review fixes', () => {
       // external callers feed `getSelectedCommitsOldestFirst()` (a
       // string[]) into commitNodes (an IMenuStateNode[]). The comment
       // now corrects the recipe.
-      const handlerIdx = src.indexOf('private async _handleCompareVersions');
+      const handlerIdx = src.indexOf('async function compareVersions');
       assert.ok(handlerIdx > 0);
       const block = src.substring(handlerIdx, handlerIdx + 4000);
       // The body comment block (above the idx0/idx1 projection) is the
@@ -108,7 +108,7 @@ describe('Wave B R3 — final review fixes', () => {
     });
 
     it('comment now points at the canonical projection in _handleCommitContextMenu', () => {
-      const handlerIdx = src.indexOf('private async _handleCompareVersions');
+      const handlerIdx = src.indexOf('async function compareVersions');
       const block = src.substring(handlerIdx, handlerIdx + 4000);
       const externalIdx = block.indexOf('external caller');
       const commentTail = block.substring(externalIdx, externalIdx + 800);
