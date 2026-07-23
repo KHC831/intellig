@@ -264,8 +264,14 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
    (DecorationsOverlay) inside the same per-line overlay container, so the
    opaque .merge-* chunk backgrounds below would otherwise cover the selection
    highlight entirely. Lift the selection divs above their decoration siblings
-   (all .cdr overlays are absolutely positioned, so z-index applies); the
-   selection then paints over chunk fills exactly like IntelliJ's editor. */
+   (all .cdr overlays are absolutely positioned, so z-index applies) — but first
+   ISOLATE .view-overlays into its own stacking context, so the raised z-index
+   stays trapped below the text glyphs. .view-lines (the glyph layer) is a
+   SIBLING of .view-overlays, not a child; without the isolation the z-index:1
+   escapes to the shared stacking context and the selection paints over the
+   glyphs themselves, making selected text unreadable. Isolated, the selection
+   sits above the chunk fills and below the text, exactly like IntelliJ. */
+.monaco-editor .view-overlays { isolation: isolate; }
 .monaco-editor .view-overlays .selected-text { z-index: 1; }
 .merge-conflict { background: var(--merge-conflict-bg); }
 .merge-modified { background: var(--merge-modified-bg); }

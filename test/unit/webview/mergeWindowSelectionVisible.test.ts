@@ -48,6 +48,31 @@ describe('merge window: selection visibility over chunk decorations', () => {
     );
   });
 
+  it('isolates .view-overlays so the lifted selection z-index cannot escape over the text glyphs', () => {
+    // Regression: the `.selected-text { z-index: 1 }` lift was added to clear
+    // the chunk decorations, but .view-overlays was not a stacking context, so
+    // the z-index escaped to the shared context and lifted the selection above
+    // its SIBLING .view-lines (the glyphs) too — the selection then painted
+    // over the text and selected text was unreadable (user-reported). Isolating
+    // .view-overlays traps the lift below the text layer.
+    const rules = parseRules();
+    const overlaysRule = rules.find(
+      (r) =>
+        r.selectorText.includes('.monaco-editor') &&
+        r.selectorText.includes('.view-overlays') &&
+        !r.selectorText.includes('.selected-text')
+    );
+    assert.ok(
+      overlaysRule,
+      'stylesheet must carry a .monaco-editor .view-overlays rule to contain the lifted selection z-index'
+    );
+    assert.strictEqual(
+      overlaysRule.style.getPropertyValue('isolation'),
+      'isolate',
+      'without isolation:isolate the .selected-text z-index escapes the overlays layer and paints the selection OVER the glyphs (.view-lines), making selected text unreadable'
+    );
+  });
+
   it('no merge decoration rule stacks itself above the selection overlay', () => {
     const rules = parseRules();
     const selectionRule = rules.find(
