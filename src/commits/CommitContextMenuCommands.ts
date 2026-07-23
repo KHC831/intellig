@@ -19,12 +19,11 @@ import {
 } from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
 import { GitCli, revParseVerified } from '../git-core/gitCli';
-import { analyzeRebaseRange, isFirstParentAncestor } from '../git-core/rebaseRange';
+import { isFirstParentAncestor } from '../git-core/rebaseRange';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { resolveRepo } from '../utils/resolveRepo';
-import { isCommitPublished } from '../git-core/commitPublished';
 import { sanitizeGitError } from '../git-core/gitError';
-import { findBlockingOperation, isHexObjectId, resolveGitDir } from '../git-core/gitDirMarkers';
+import { findBlockingOperation, resolveGitDir } from '../git-core/gitDirMarkers';
 import {
   isSelectionContiguous,
   isContiguousFirstParentChain,
@@ -60,6 +59,15 @@ import {
   resetToHere,
   type ICommitCheckoutResetActionsContext,
 } from './commitCheckoutResetActions';
+import {
+  isCommitPushed,
+  isNotOnProtectedBranch,
+  anyIsMergeCommit,
+  pickMainlineParent,
+  isOldestInCurrentBranch,
+  isRangeMergeFree,
+  type ICommitGuardsContext,
+} from './commitActionGuards';
 import { copyHash } from './commitClipboardActions';
 import { newBranch, newTag, type ICommitRefActionsContext } from './commitRefActions';
 
@@ -905,101 +913,24 @@ export class CommitContextMenuCommands {
     }
   }
 
-  /**
-   * Return true when the given commit is reachable from any remote-tracking
-   * branch — i.e., someone has already pushed it somewhere.
-   *
-   * Uses `git branch --contains <hash> --remotes`. An empty output means
-   * no remote branch contains the commit, so it's safe to rewrite.
-   *
-   * Probe failures resolve to `probeFailureMeansPushed` (default `true`):
-   * rewrite guards stay conservative (assume pushed, block the rewrite),
-   * while the cherry-pick `-x` suffix passes `false` — provenance is
-   * annotated only for commits KNOWN to be published.
-   */
-  private async _isCommitPushed(
+  private _isCommitPushed(
     cwd: string,
     hash: string,
-    probeFailureMeansPushed = true
+    probeFailureMeansPushed?: boolean
   ): Promise<boolean> {
-    return isCommitPublished(this._gitCli, cwd, hash, probeFailureMeansPushed);
+    return isCommitPushed(this._guardsContext(), cwd, hash, probeFailureMeansPushed);
   }
 
-  /**
-   * Name of the first remote branch that both contains `hash` and matches an
-   * `intellig.protectedBranches` entry, or `undefined` when none does.
-   *
-   * `git branch --remotes --contains` lists names like `origin/main`; a
-   * branch matches when its remote-stripped name (`main`) or its full name
-   * equals a configured entry. Fails OPEN on probe failure (logged): the
-   * gate is a parity guard on top of each flow's own confirms, and a broken
-   * probe must not block every rewrite.
-   */
-  private async _findProtectedRemoteBranch(cwd: string, hash: string): Promise<string | undefined> {
-    const protectedBranches = new Set(this._readProtectedBranches());
-    if (protectedBranches.size === 0 || !isHexObjectId(hash, { allowPrefix: true })) {
-      return undefined;
-    }
-    try {
-      const res = await this._gitCli.exec(['branch', '--remotes', '--contains', hash], { cwd });
-      if (res.exitCode !== 0) {
-        getLogger()
-          .child({ component: 'CommitContextMenuCommands' })
-          .debug('protected-branch probe failed; gate degrades open', {
-            exitCode: res.exitCode,
-          });
-        return undefined;
-      }
-      const names = res.stdout
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0)
-        // `origin/HEAD -> origin/main` symref lines: keep the left-hand name.
-        .map((l) => l.split(/\s+/)[0]);
-      for (const name of names) {
-        const short = name.includes('/') ? name.slice(name.indexOf('/') + 1) : name;
-        if (protectedBranches.has(short) || protectedBranches.has(name)) {
-          return name;
-        }
-      }
-      return undefined;
-    } catch (error) {
-      getLogger()
-        .child({ component: 'CommitContextMenuCommands' })
-        .debug('protected-branch probe failed; gate degrades open', {
-          err: error instanceof Error ? error.message : String(error),
-        });
-      return undefined;
-    }
+  private _isNotOnProtectedBranch(cwd: string, hash: string, opLabel: string): Promise<boolean> {
+    return isNotOnProtectedBranch(this._guardsContext(), cwd, hash, opLabel);
   }
 
-  /**
-   * Protected-branch gate shared by every history-rewriting flow (the
-   * rewrite runner, undo commit, drop selected changes): a commit contained
-   * in a remote branch matching `intellig.protectedBranches` must not be
-   * rewritten — IntelliJ blocks every commit-editing action on such commits
-   * (GitCommitEditingActionBase.kt checkCommitsCanBeEdited /
-   * lastCheckCommitsEditingAvailability, findProtectedRemoteBranch).
-   * Checking one commit — the OLDEST being rewritten — suffices: a rewritten
-   * descendant on a protected branch implies its ancestors are on it too.
-   *
-   * Returns `true` to proceed; toasts the refusal naming the branch otherwise.
-   */
-  private async _isNotOnProtectedBranch(
-    cwd: string,
-    hash: string,
-    opLabel: string
-  ): Promise<boolean> {
-    const protectedBranch = await this._findProtectedRemoteBranch(cwd, hash);
-    if (protectedBranch === undefined) {
-      return true;
-    }
-    void vscode.window.showErrorMessage(
-      `${opLabel} refused: commit ${hash.substring(0, 8)} is already on protected branch ` +
-        `'${protectedBranch}'. Rewriting protected published history is blocked ` +
-        `(intellig.protectedBranches).`
-    );
-    return false;
+  private _guardsContext(): ICommitGuardsContext {
+    return {
+      gitService: this._gitService,
+      gitCli: this._gitCli,
+      readProtectedBranches: () => this._readProtectedBranches(),
+    };
   }
 
   /** Copy the full SHA(s) to the system clipboard. */
@@ -1460,63 +1391,15 @@ export class CommitContextMenuCommands {
     }
   }
 
-  /** Returns true if any of `hashes` refers to a merge commit (>1 parents). */
-  private async _anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean> {
-    const details = await Promise.all(hashes.map((h) => this._gitService.getCommit(repo, h)));
-    return details.some((c) => c.parents.length > 1);
+  private _anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean> {
+    return anyIsMergeCommit(this._guardsContext(), repo, hashes);
   }
 
-  /**
-   * Ask which parent line is the mainline for a merge commit's `-m <n>`
-   * (1-based, the way `git revert`/`git cherry-pick` expect it). Parent 1 is
-   * pre-selected — the conventional mainline, i.e. the branch the merge landed
-   * on. git4idea (`GitRevertAction`) disables merge-revert outright; we go one
-   * better and let the user pick the parent.
-   *
-   * Only a single-commit selection prompts; a multi-commit batch reuses parent
-   * 1 for every commit because `-m` is a single number shared by the whole
-   * invocation and per-commit prompting would be ambiguous.
-   *
-   * Returns `{ cancelled: true }` when the user dismisses the picker so the
-   * caller aborts instead of guessing.
-   */
-  private async _pickMainlineParent(
+  private _pickMainlineParent(
     repo: IRepository,
     hashes: string[]
   ): Promise<{ cancelled: false; mainline: number } | { cancelled: true }> {
-    if (hashes.length !== 1) {
-      return { cancelled: false, mainline: 1 };
-    }
-    const commit = await this._gitService.getCommit(repo, hashes[0]);
-    const parents = commit.parents;
-    if (parents.length <= 1) {
-      // Defensive: caller only invokes this for a detected merge.
-      return { cancelled: false, mainline: 1 };
-    }
-    const items = await Promise.all(
-      parents.map(async (parent, i) => {
-        let subject = '';
-        try {
-          subject = (await this._gitService.getCommit(repo, parent)).message.split('\n')[0];
-        } catch {
-          subject = '';
-        }
-        return {
-          label: `Parent ${i + 1}: ${parent.slice(0, 8)}`,
-          description: subject,
-          mainline: i + 1,
-          picked: i === 0,
-        };
-      })
-    );
-    const choice = await vscode.window.showQuickPick(items, {
-      title: 'Merge commit — choose the mainline parent',
-      placeHolder: 'Parent 1 is the usual mainline (the branch the merge landed on)',
-    });
-    if (!choice) {
-      return { cancelled: true };
-    }
-    return { cancelled: false, mainline: choice.mainline };
+    return pickMainlineParent(this._guardsContext(), repo, hashes);
   }
 
   /** Shared conflict-resolution UX for both revert paths. */
@@ -1879,36 +1762,8 @@ export class CommitContextMenuCommands {
    * merge-commit gate (UI disables it via `computeMenuEnableState`;
    * the handler re-checks here as belt-and-suspenders).
    */
-  /**
-   * Perform-time containment gate shared by every history-rewriting handler
-   * that rebases `oldest^..HEAD` (squash / drop / edit message / interactive
-   * rebase). Such a rebase silently rewrites — and MOVES — the checked-out
-   * branch when the target commit lives on a different branch, so refuse unless
-   * the oldest selected commit is reachable from HEAD (inclusive). Mirrors
-   * IntelliJ GitCommitEditingActionBase.checkCommitsCanBeEdited, which blocks
-   * an edit whose commit HEAD does not contain.
-   *
-   * `getMergeBase(oldest, HEAD) === oldest` iff `oldest` is an ancestor of
-   * HEAD. When the service can't compute it (narrow test doubles that omit the
-   * optional method) the check is permissive — production always provides it,
-   * and the menu enable-state is the first line of defence.
-   *
-   * Returns `true` when contained; otherwise toasts and returns `false`.
-   * Callers MUST gate BEFORE any stash / rebase so a blocked action has no
-   * side effects.
-   */
-  private async _isOldestInCurrentBranch(repo: IRepository, oldestHash: string): Promise<boolean> {
-    if (!this._gitService.getMergeBase) {
-      return true;
-    }
-    const mergeBase = await this._gitService.getMergeBase(repo, oldestHash, 'HEAD');
-    if (mergeBase === oldestHash) {
-      return true;
-    }
-    void vscode.window.showErrorMessage(
-      'Selected commits are not in the current branch — check out that branch first.'
-    );
-    return false;
+  private _isOldestInCurrentBranch(repo: IRepository, oldestHash: string): Promise<boolean> {
+    return isOldestInCurrentBranch(this._guardsContext(), repo, oldestHash);
   }
 
   /**
@@ -2997,38 +2852,13 @@ export class CommitContextMenuCommands {
     return false;
   }
 
-  /**
-   * Merge-flattening gate shared by every history-rewrite entry point: a
-   * plain interactive rebase of `<onto>..HEAD` FLATTENS every merge in the
-   * range (the merge commits vanish and their branch topology is lost), so
-   * refuse when the range carries any — IntelliJ errors out before any git
-   * mutation when no merge-free path exists between HEAD and the oldest
-   * selected commit (GitCommitEditingActionBase.kt checkHeadLinearHistory).
-   *
-   * Returns `true` to proceed: the range carries no merges, or the analysis
-   * itself failed (a probe failure must not block a rebase the user could
-   * run before this gate existed; the rebase surfaces real errors itself).
-   * `refusalHint` is resolved only on refusal and appended to the toast —
-   * the interactive-rebase entry point adds a merged-branch pointer.
-   */
-  private async _isRangeMergeFree(
+  private _isRangeMergeFree(
     repo: IRepository,
     onto: string,
     opLabel: string,
     refusalHint?: () => Promise<string>
   ): Promise<boolean> {
-    const analysis = await analyzeRebaseRange(this._gitCli, repo.rootUri.fsPath, onto);
-    if (!analysis || analysis.mergeCommits === 0) {
-      return true;
-    }
-    const merges = `${analysis.mergeCommits} merge commit${analysis.mergeCommits === 1 ? '' : 's'}`;
-    const hint = refusalHint ? await refusalHint() : '';
-    void vscode.window.showErrorMessage(
-      `${opLabel} refused: it would flatten ${merges} between the selection and HEAD ` +
-        `(their branch topology would be lost). To rebase across merges, use the Rebase ` +
-        `dialog with the --rebase-merges option.${hint}`
-    );
-    return false;
+    return isRangeMergeFree(this._guardsContext(), repo, onto, opLabel, refusalHint);
   }
 
   /**

@@ -20,6 +20,10 @@ import * as os from 'os';
 import * as path from 'path';
 import type * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
+import {
+  findProtectedRemoteBranch,
+  type ICommitGuardsContext,
+} from '../../../src/commits/commitActionGuards';
 import type { GitCli } from '../../../src/git-core/gitCli';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import {
@@ -2188,6 +2192,108 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const execCalls = gitCli.calls.filter((c) => c.method === 'exec');
       assert.strictEqual(execCalls.length, 1, 'a 64-hex object id must be probed via git');
       assert.strictEqual(typeof result, 'boolean');
+    });
+
+    // Characterization pins for guard-spine arms the handler-level tests
+    // don't reach: the protected-branch symref-line parse, both fail-open
+    // arms, and the probe-failure polarity. They lock behaviour across the
+    // extraction of these guards into commitActionGuards.
+    it('findProtectedRemoteBranch keeps the left name of an `origin/HEAD -> origin/main` symref line', async () => {
+      // `git branch --remotes --contains` emits a symref line like
+      // `origin/HEAD -> origin/main`; splitting on whitespace and keeping the
+      // left token means the symref never false-matches and never shadows the
+      // real `origin/main` line that follows.
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const gitCli = createMockGitCli({
+        exec: async () => ({
+          exitCode: 0,
+          stdout: '  origin/HEAD -> origin/main\n  origin/main\n',
+          stderr: '',
+          combined: '',
+        }),
+      });
+      const ctx: ICommitGuardsContext = {
+        gitService,
+        gitCli,
+        readProtectedBranches: () => ['main', 'master'],
+      };
+
+      const result = await findProtectedRemoteBranch(ctx, '/test-repo', 'a'.repeat(40));
+
+      assert.strictEqual(
+        result,
+        'origin/main',
+        'the real protected branch matches; the symref line must not shadow it or false-match'
+      );
+    });
+
+    it('findProtectedRemoteBranch degrades OPEN (undefined) when the probe exits non-zero', async () => {
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const gitCli = createMockGitCli({
+        exec: async () => ({ exitCode: 1, stdout: '', stderr: 'fatal', combined: 'fatal' }),
+      });
+      const ctx: ICommitGuardsContext = {
+        gitService,
+        gitCli,
+        readProtectedBranches: () => ['main', 'master'],
+      };
+
+      const result = await findProtectedRemoteBranch(ctx, '/test-repo', 'a'.repeat(40));
+
+      assert.strictEqual(result, undefined, 'a broken probe must not block every rewrite');
+    });
+
+    it('findProtectedRemoteBranch degrades OPEN (undefined) when the probe throws', async () => {
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const gitCli = createMockGitCli({
+        exec: async () => {
+          throw new Error('spawn ENOENT');
+        },
+      });
+      const ctx: ICommitGuardsContext = {
+        gitService,
+        gitCli,
+        readProtectedBranches: () => ['main', 'master'],
+      };
+
+      const result = await findProtectedRemoteBranch(ctx, '/test-repo', 'a'.repeat(40));
+
+      assert.strictEqual(result, undefined, 'a thrown probe must degrade open, not reject');
+    });
+
+    it('_isCommitPushed probe-failure polarity: default blocks (true), `-x` path reads not-pushed (false)', async () => {
+      // isCommitPublished resolves a probe failure to probeFailureMeansPushed:
+      // rewrite guards pass the default (true → conservative, assume pushed),
+      // the cherry-pick `-x` suffix passes false (annotate only KNOWN-published).
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async () => ({ exitCode: 1, stdout: '', stderr: 'fatal', combined: 'fatal' }),
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const cast = commands as unknown as {
+        _isCommitPushed(
+          cwd: string,
+          hash: string,
+          probeFailureMeansPushed?: boolean
+        ): Promise<boolean>;
+      };
+
+      assert.strictEqual(
+        await cast._isCommitPushed('/test-repo', 'a'.repeat(40)),
+        true,
+        'default true: a failed probe blocks the rewrite (assume pushed)'
+      );
+      assert.strictEqual(
+        await cast._isCommitPushed('/test-repo', 'a'.repeat(40), false),
+        false,
+        'explicit false (-x provenance): a failed probe reads as not-pushed'
+      );
     });
 
     it('refuses amending a HEAD commit contained in a protected remote branch', async () => {
