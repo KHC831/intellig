@@ -18,7 +18,6 @@ import {
   REBASE_ROOT,
 } from '../git-core/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../ui-shell/GitToolWindowProvider';
-import { showResetDialog } from '../ui-shell/ResetDialog';
 import { GitCli, revParseVerified } from '../git-core/gitCli';
 import { analyzeRebaseRange, isFirstParentAncestor } from '../git-core/rebaseRange';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
@@ -26,7 +25,6 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { isCommitPublished } from '../git-core/commitPublished';
 import { sanitizeGitError } from '../git-core/gitError';
 import { findBlockingOperation, isHexObjectId, resolveGitDir } from '../git-core/gitDirMarkers';
-import { isLocalChangesWouldBeOverwritten } from '../git-core/gitProse';
 import {
   isSelectionContiguous,
   isContiguousFirstParentChain,
@@ -57,6 +55,11 @@ import {
   showRepoAtRevision,
   type ICommitCompareActionsContext,
 } from './commitCompareActions';
+import {
+  checkoutRevision,
+  resetToHere,
+  type ICommitCheckoutResetActionsContext,
+} from './commitCheckoutResetActions';
 
 /**
  * Signature of the repository resolver injected into
@@ -1697,162 +1700,24 @@ export class CommitContextMenuCommands {
     return 'handled';
   }
 
-  /**
-   * Checkout the selected commit in detached HEAD mode.
-   * Uses the stash/force fallback pattern from BranchContextMenuCommands.
-   */
-  private async _handleCheckoutRevision(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    if (!repo || commitHashes.length === 0) {
-      return;
-    }
-
-    const hash = commitHashes[0];
-
-    try {
-      await this._gitService.checkout(repo, hash).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-      // Synchronously reload after checkout so the panel reload
-      // runs against fresh `repo.head.commit` (the user's stated bug).
-      await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(
-        `Checked out revision ${hash.substring(0, 8)} (detached HEAD)`
-      );
-      this._gitToolWindowProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (isLocalChangesWouldBeOverwritten(errorMessage)) {
-        const choice = await vscode.window.showWarningMessage(
-          `Cannot checkout revision: local changes would be overwritten.`,
-          'Stash & Switch',
-          'Force Checkout',
-          'Cancel'
-        );
-        if (choice === 'Stash & Switch') {
-          try {
-            await this._gitService
-              .stash(repo, `Auto-stash before checkout ${hash.substring(0, 8)}`)
-              .match(
-                () => undefined,
-                (e) => {
-                  throw e;
-                }
-              );
-            await this._gitService.checkout(repo, hash).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            // Reload after the stash + checkout pair so panel
-            // reload sees fresh `repo.head.commit`.
-            await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(
-              `Stashed changes and checked out revision ${hash.substring(0, 8)} (detached HEAD)`
-            );
-            this._gitToolWindowProvider.refresh();
-          } catch (stashError) {
-            const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
-            );
-          }
-        } else if (choice === 'Force Checkout') {
-          try {
-            await this._gitService.checkout(repo, hash, { force: true }).match(
-              () => undefined,
-              (e) => {
-                throw e;
-              }
-            );
-            // Reload after force checkout.
-            await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(
-              `Force checked out revision ${hash.substring(0, 8)} (detached HEAD)`
-            );
-            this._gitToolWindowProvider.refresh();
-          } catch (forceError) {
-            const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(
-              `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
-            );
-          }
-        }
-      } else {
-        void vscode.window.showErrorMessage(
-          `Failed to checkout revision: ${sanitizeGitError(errorMessage)}`
-        );
-      }
-    }
+  /** Checkout the selected commit in detached HEAD mode. */
+  private _handleCheckoutRevision(commitHashes: string[]): Promise<void> {
+    return checkoutRevision(this._checkoutResetActionsContext(), commitHashes);
   }
 
-  /**
-   * Reset the current branch to the selected commit.
-   * Opens the ResetDialog (webview-based 4-mode picker with protected-branch
-   * guard and single destructive-op confirm).
-   */
-  private async _handleResetToHere(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    if (!repo || commitHashes.length === 0) {
-      return;
-    }
-    if (!this._context) {
-      // Should not happen in production — register() wires this — but
-      // guard defensively so tests that skip register() don't crash.
-      void vscode.window.showErrorMessage(
-        'Reset dialog is unavailable: extension context not initialised.'
-      );
-      return;
-    }
+  /** Soft/mixed/hard reset the current branch to the selected commit. */
+  private _handleResetToHere(commitHashes: string[]): Promise<void> {
+    return resetToHere(this._checkoutResetActionsContext(), commitHashes);
+  }
 
-    const hash = commitHashes[0];
-
-    // Resolve commit subject for the dialog header; fall back to empty.
-    let subject = '';
-    try {
-      const commit = await this._gitService.getCommit(repo, hash);
-      subject = commit.message.split('\n')[0];
-      // eslint-disable-next-line no-restricted-syntax -- getCommit already logs the fault at the facade re-throw arm; degrade the dialog subject to blank.
-    } catch {
-      // Leave subject blank — dialog still renders.
-    }
-
-    const currentBranch = this._extractBranchName(repo.head?.name) ?? '';
-    const protectedBranches = this._readProtectedBranches();
-
-    showResetDialog(this._context, {
-      repo,
-      target: { hash, subject },
-      currentBranch,
-      protectedBranches,
+  private _checkoutResetActionsContext(): ICommitCheckoutResetActionsContext {
+    return {
       gitService: this._gitService,
-      onResetComplete: () => {
-        // fire-and-forget reload before refresh so panel sees
-        // fresh `repo.head.commit` after the dialog's resetToCommit. The
-        // callback can't be async (dialog API constraint), so we
-        // sequence reload → refresh inside an IIFE; the watcher's
-        // debounced reload remains as a fallback.
-        void (async (): Promise<void> => {
-          await this._gitService.reloadRepository(repo);
-          this._gitToolWindowProvider.refresh();
-        })();
-      },
-    });
-  }
-
-  /**
-   * Convert a refspec like `refs/heads/main` to its short branch name (`main`).
-   * Returns undefined for detached HEAD / falsy input.
-   */
-  private _extractBranchName(ref: string | undefined): string | undefined {
-    if (!ref) {
-      return undefined;
-    }
-    return ref.replace(/^refs\/heads\//, '');
+      gitToolWindowProvider: this._gitToolWindowProvider,
+      context: this._context,
+      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      readProtectedBranches: () => this._readProtectedBranches(),
+    };
   }
 
   /**
