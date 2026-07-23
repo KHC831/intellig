@@ -224,9 +224,15 @@ describe('Wave C R1 — review fixes', () => {
 
   // ─── STALE_SELECTION_TOAST const ──────────────────────────────────────────
   describe('STALE_SELECTION_TOAST is a single const', () => {
-    it('the const is declared once at module scope', () => {
+    it('the const is declared once at module scope', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const shared = fs.readFileSync(
+        path.join(process.cwd(), 'src/commits/commitContextMenuShared.ts'),
+        'utf8'
+      );
       assert.ok(
-        /^const\s+STALE_SELECTION_TOAST\s*=\s*['"]Commit selection changed/m.test(src),
+        /^export const\s+STALE_SELECTION_TOAST\s*=\s*['"]Commit selection changed/m.test(shared),
         'STALE_SELECTION_TOAST must be a top-level const declaration'
       );
     });
@@ -244,16 +250,28 @@ describe('Wave C R1 — review fixes', () => {
       );
     });
 
-    it('there are no inline duplicates of the toast literal', () => {
-      // Before this change there were 4 inline duplicates; now there is
-      // 1 occurrence (the const decl).
-      const literalMatches = src.match(
-        /['"]Commit selection changed since the menu opened — please retry\.['"]/g
-      );
+    it('there are no inline duplicates of the toast literal', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      // Single source: the literal appears exactly once (the const decl in the
+      // shared module); the class and the patch module reference the symbol.
+      const files = [
+        'src/commits/CommitContextMenuCommands.ts',
+        'src/commits/commitContextMenuShared.ts',
+        'src/commits/commitPatchActions.ts',
+      ];
+      const literalCount = files.reduce((acc, rel) => {
+        const body = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        return (
+          acc +
+          (body.match(/['"]Commit selection changed since the menu opened — please retry\.['"]/g)
+            ?.length ?? 0)
+        );
+      }, 0);
       assert.strictEqual(
-        literalMatches?.length ?? 0,
+        literalCount,
         1,
-        `expected exactly 1 literal occurrence of the toast (the const); got ${literalMatches?.length ?? 0}`
+        `expected exactly 1 literal occurrence of the toast across the commit-menu modules; got ${literalCount}`
       );
     });
   });

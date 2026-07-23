@@ -437,11 +437,11 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/commitPatchActions.ts'),
         'utf8'
       );
-      const idx = src.indexOf('private async _handleCreatePatchMulti');
-      assert.ok(idx > 0, 'expected _handleCreatePatchMulti declaration');
+      const idx = src.indexOf('async function createPatchMulti');
+      assert.ok(idx > 0, 'expected createPatchMulti declaration');
       // Look 1500 chars before declaration for the JSDoc.
       const window = src.substring(Math.max(0, idx - 1500), idx);
       assert.ok(/ADR-009.*?section\s*6/.test(window), 'JSDoc must reference ADR-009 section 6');

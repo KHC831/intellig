@@ -1179,7 +1179,7 @@ describe('Rebase-driven multi-commit ops', () => {
       );
     });
 
-    it('routes the canonical stale-selection toast through the STALE_SELECTION_TOAST const', () => {
+    it('routes the canonical stale-selection toast through the STALE_SELECTION_TOAST const', async () => {
       // The toast literal lives once at the top of
       // the file in a `STALE_SELECTION_TOAST` const; handler bodies
       // reference the const so future copy edits land in one place.
@@ -1200,20 +1200,30 @@ describe('Rebase-driven multi-commit ops', () => {
         /STALE_SELECTION_TOAST\b/.test(squashBody),
         '_handleSquashCommits must reference STALE_SELECTION_TOAST'
       );
-      // Const declared at module scope.
+      // Const declared at module scope in the shared module.
+      const fs = await import('fs');
+      const path = await import('path');
+      const shared = fs.readFileSync(
+        path.join(process.cwd(), 'src/commits/commitContextMenuShared.ts'),
+        'utf8'
+      );
       assert.ok(
-        /const STALE_SELECTION_TOAST\s*=\s*['"]Commit selection changed/.test(src),
+        /const STALE_SELECTION_TOAST\s*=\s*['"]Commit selection changed/.test(shared),
         'STALE_SELECTION_TOAST const must be declared with the canonical phrasing'
       );
-      // Earlier there were 4 inline literal duplicates of the toast.
-      // The literal appears EXACTLY once — at the const declaration.
-      const literalMatches = src.match(
+      // The literal appears EXACTLY once — at the const declaration in the
+      // shared module; the class references the symbol, not the literal.
+      const sharedLiteralMatches = shared.match(
         /['"]Commit selection changed since the menu opened — please retry\.['"]/g
       );
       assert.strictEqual(
-        literalMatches?.length ?? 0,
+        sharedLiteralMatches?.length ?? 0,
         1,
-        `expected exactly 1 literal occurrence (the const decl); got ${literalMatches?.length ?? 0}`
+        `expected exactly 1 literal occurrence (the const decl); got ${sharedLiteralMatches?.length ?? 0}`
+      );
+      assert.ok(
+        !/['"]Commit selection changed since the menu opened — please retry\.['"]/.test(src),
+        'the class must reference STALE_SELECTION_TOAST, not inline the literal'
       );
     });
 
