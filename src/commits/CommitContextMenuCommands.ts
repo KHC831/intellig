@@ -68,6 +68,7 @@ import {
   isRangeMergeFree,
   type ICommitGuardsContext,
 } from './commitActionGuards';
+import { undoCommit, type ICommitUndoContext } from './commitUndoActions';
 import { copyHash } from './commitClipboardActions';
 import { newBranch, newTag, type ICommitRefActionsContext } from './commitRefActions';
 
@@ -1644,113 +1645,21 @@ export class CommitContextMenuCommands {
    * Undo the selected commit by performing a soft reset to its parent.
    * Only works if the selected commit is the HEAD commit.
    */
-  private async _handleUndoCommit(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    if (!repo || commitHashes.length === 0) {
-      return;
-    }
+  private _handleUndoCommit(commitHashes: string[]): Promise<void> {
+    return undoCommit(this._undoContext(), commitHashes);
+  }
 
-    const hash = commitHashes[0];
-    const headHash = repo.head?.commit;
-
-    // Use the same prefix-match as _handleEditCommitMessage so an abbreviated
-    // hash (e.g. 7-char log hash) is recognised as HEAD even when headHash is
-    // the full 40-char SHA. Exact equality silently rejects abbreviated hashes.
-    const isHead =
-      headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
-    if (!isHead) {
-      void vscode.window.showErrorMessage('Undo Commit can only be performed on the HEAD commit.');
-      return;
-    }
-
-    // Protected-branch gate: IntelliJ's GitUncommitAction rides the shared
-    // commit-editing base gates, which block a commit contained in a
-    // protected remote branch.
-    if (!(await this._isNotOnProtectedBranch(repo.rootUri.fsPath, hash, 'Undo commit'))) {
-      return;
-    }
-
-    // Capture the message BEFORE the reset so it can be restored to the
-    // composer afterward (IntelliJ repopulates the message on uncommit).
-    let undoneMessage = '';
-    try {
-      undoneMessage = (await this._gitService.getCommit(repo, hash)).message;
-    } catch {
-      undoneMessage = '';
-    }
-
-    // Target-changelist chooser (IntelliJ GitUncommitAction.java:60-68):
-    // when changelists are available, the user picks where the uncommitted
-    // changes land — an existing list or a new one suggested from the
-    // commit subject. Cancel cancels the undo. Resolved BEFORE the reset so
-    // a cancel has no side effects.
-    let moveFilesTo: string | undefined;
-    if (this._changelistService) {
-      const subject = undoneMessage.split('\n')[0].slice(0, 60).trim();
-      interface IChooserItem extends vscode.QuickPickItem {
-        changelistId?: string;
-        createNamed?: string;
-      }
-      const items: IChooserItem[] = [];
-      if (subject) {
-        items.push({
-          label: `$(add) New changelist: '${subject}'`,
-          createNamed: subject,
-        });
-      }
-      for (const list of this._changelistService.getChangelists(repo)) {
-        items.push({
-          label: list.name,
-          description: list.isDefault ? 'default' : undefined,
-          changelistId: list.id,
-        });
-      }
-      const picked = await vscode.window.showQuickPick(items, {
-        title: 'Undo Commit — move changes to changelist',
-        placeHolder: 'Where should the uncommitted changes land?',
-      });
-      if (!picked) {
-        return;
-      }
-      if (picked.createNamed !== undefined) {
-        moveFilesTo = this._changelistService.createChangelist(repo, picked.createNamed).id;
-      } else {
-        moveFilesTo = picked.changelistId;
-      }
-    }
-
-    // The commit's file list, captured pre-reset for the changelist move.
-    let undoneFiles: string[] = [];
-    if (moveFilesTo !== undefined) {
-      try {
-        undoneFiles = (await this._gitService.getCommitDiff(repo, hash)).map((d) => d.path);
-      } catch {
-        undoneFiles = [];
-      }
-    }
-
-    try {
-      await this._gitCli.exec(['reset', '--soft', 'HEAD~1'], {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      });
-
-      if (moveFilesTo !== undefined && undoneFiles.length > 0) {
-        this._changelistService?.moveToChangelist(repo, undoneFiles, moveFilesTo);
-      }
-      if (undoneMessage) {
-        this._commitComposer?.prefillComposerMessage(undoneMessage);
-      }
-      void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
-      // soft-reset moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to undo commit: ${sanitizeGitError(errorMessage)}`
-      );
-    }
+  private _undoContext(): ICommitUndoContext {
+    return {
+      gitService: this._gitService,
+      gitCli: this._gitCli,
+      gitToolWindowProvider: this._gitToolWindowProvider,
+      changelistService: this._changelistService,
+      commitComposer: this._commitComposer,
+      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      isNotOnProtectedBranch: (cwd, hash, opLabel) =>
+        this._isNotOnProtectedBranch(cwd, hash, opLabel),
+    };
   }
 
   /**
