@@ -24,6 +24,7 @@ import {
   findProtectedRemoteBranch,
   type ICommitGuardsContext,
 } from '../../../src/commits/commitActionGuards';
+import type { IConflictResolutionService } from '../../../src/conflicts/interfaces/IConflictResolutionService';
 import type { GitCli } from '../../../src/git-core/gitCli';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import {
@@ -431,6 +432,53 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(messages.warning.length, 1);
       assert.ok(messages.warning[0].message.includes('2 file(s)'));
+    });
+
+    it('opens the resolve-conflicts dialog on conflicts when the conflict service is wired', async () => {
+      // Dialog arm of the cherry-pick conflict routing (the service-absent
+      // fallback is covered above). The service only needs to be truthy so the
+      // outer guard passes; the dialog call itself is spied, so the service's
+      // own methods are never invoked.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        cherryPick: () => okAsync({ success: false, conflicts: ['a.ts', 'b.ts'] }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const conflictService = {} as unknown as IConflictResolutionService;
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        provider,
+        createMockGitCli(),
+        conflictService
+      );
+      let captured: { operation?: string; target?: string } | undefined;
+      (
+        commands as unknown as {
+          _openResolveConflictsDialog: (
+            repo: unknown,
+            files: unknown,
+            opContext: { operation?: string; target?: string }
+          ) => Promise<void>;
+        }
+      )._openResolveConflictsDialog = async (_repo, _files, opContext): Promise<void> => {
+        captured = opContext;
+      };
+
+      await commands._handleAction('cherryPick', [testHash]);
+
+      assert.ok(
+        captured,
+        'the Resolve Conflicts dialog must open on cherry-pick conflicts when wired'
+      );
+      assert.strictEqual(captured.operation, 'cherryPick');
+      assert.strictEqual(
+        messages.warning.length,
+        0,
+        'no manual-fallback warning when the dialog opens'
+      );
     });
 
     it('shows error on failure', async () => {
