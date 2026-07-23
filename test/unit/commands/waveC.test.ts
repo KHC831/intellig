@@ -1122,11 +1122,11 @@ describe('Rebase-driven multi-commit ops', () => {
 
   // ─── C3 — Contiguity helper reuse ──────────────────────────────────────────
   describe('C3 — squash handler reuses isSelectionContiguous', () => {
-    it('CommitContextMenuCommands imports isSelectionContiguous (no inline reimpl)', async () => {
+    it('the history-rewrite module imports isSelectionContiguous (no inline reimpl)', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
         'utf8'
       );
       assert.ok(
@@ -1185,13 +1185,19 @@ describe('Rebase-driven multi-commit ops', () => {
       // reference the const so future copy edits land in one place.
       // Find the handlers' definitions and confirm each
       // references the const.
-      const dropIdx = src.indexOf('private async _handleDropCommitMulti');
-      const squashIdx = src.indexOf('private async _handleSquashCommits');
-      assert.ok(dropIdx > 0, 'expected _handleDropCommitMulti definition');
-      assert.ok(squashIdx > 0, 'expected _handleSquashCommits definition');
-      const dropBody = src.substring(dropIdx, squashIdx);
-      const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
-      const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
+      const fsMod = await import('fs');
+      const pathMod = await import('path');
+      const mod = fsMod.readFileSync(
+        pathMod.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
+        'utf8'
+      );
+      const dropIdx = mod.indexOf('export async function handleDropCommitMulti');
+      const squashIdx = mod.indexOf('export async function handleSquashCommits');
+      assert.ok(dropIdx > 0, 'expected handleDropCommitMulti definition');
+      assert.ok(squashIdx > 0, 'expected handleSquashCommits definition');
+      const dropBody = mod.substring(dropIdx, squashIdx);
+      const editIdx = mod.indexOf('export async function handleEditCommitMessage', squashIdx);
+      const squashBody = mod.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
       assert.ok(
         /STALE_SELECTION_TOAST\b/.test(dropBody),
         '_handleDropCommitMulti must reference STALE_SELECTION_TOAST'

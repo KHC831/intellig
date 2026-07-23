@@ -53,7 +53,7 @@ describe('structural pins', () => {
     const fs = await import('fs');
     const path = await import('path');
     src = fs.readFileSync(
-      path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
+      path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
       'utf8'
     );
   });
@@ -61,8 +61,8 @@ describe('structural pins', () => {
   // Tab API close
   describe('squash close uses tab API, not closeActiveEditor', () => {
     it('_promptForMessageInEditor no longer calls workbench.action.closeActiveEditor', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
         !/workbench\.action\.closeActiveEditor/.test(body),
@@ -71,8 +71,8 @@ describe('structural pins', () => {
     });
 
     it('_promptForMessageInEditor uses vscode.window.tabGroups + TabInputText to close', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(/vscode\.window\.tabGroups/.test(body), 'expected vscode.window.tabGroups usage');
       assert.ok(/TabInputText/.test(body), 'expected TabInputText instanceof check');
@@ -83,8 +83,8 @@ describe('structural pins', () => {
   // Save-As detection
   describe('Save-As detection in onDidSaveTextDocument', () => {
     it('_promptForMessageInEditor compares saved.uri.fsPath against the original', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       // The listener must compare the saved URI's fsPath
       // against the original tempfile's fsPath to detect Save-As.
@@ -96,8 +96,8 @@ describe('structural pins', () => {
     });
 
     it('Save-As branch surfaces a clarifying toast and treats as cancel', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       // The toast is now templated by the caller's opName
       // (`${opts.opName} cancelled — message was saved to ...`) so the
@@ -119,19 +119,19 @@ describe('structural pins', () => {
     });
 
     it('squash and drop-multi delegate to the shared runner', () => {
-      const squashIdx = src.indexOf('private async _handleSquashCommits');
-      const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
+      const squashIdx = src.indexOf('export async function handleSquashCommits');
+      const editIdx = src.indexOf('export async function handleEditCommitMessage', squashIdx);
       const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
       assert.ok(
-        /this\._runHistoryRewrite\s*\(/.test(squashBody),
+        /runHistoryRewrite\s*\(/.test(squashBody),
         '_handleSquashCommits must ride _runHistoryRewrite'
       );
 
-      const dropIdx = src.indexOf('private async _handleDropCommitMulti');
-      const nextIdx = src.indexOf('private async _handleSquashCommits', dropIdx);
+      const dropIdx = src.indexOf('export async function handleDropCommitMulti');
+      const nextIdx = src.indexOf('export async function handleSquashCommits', dropIdx);
       const dropBody = src.substring(dropIdx, nextIdx > 0 ? nextIdx : dropIdx + 12000);
       assert.ok(
-        /this\._runHistoryRewrite\s*\(/.test(dropBody),
+        /runHistoryRewrite\s*\(/.test(dropBody),
         '_handleDropCommitMulti must ride _runHistoryRewrite'
       );
     });
@@ -147,8 +147,8 @@ describe('structural pins', () => {
     });
 
     it('tempfile name template includes the random suffix between Date.now() and COMMIT_EDITMSG', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       // Template literal uses both Date.now() and a random hex suffix
       // before the COMMIT_EDITMSG marker.
@@ -162,8 +162,8 @@ describe('structural pins', () => {
   // Fallback heads-up toast
   describe('fallback to showInputBox surfaces a toast', () => {
     it('the helper surfaces an info toast before falling back to showInputBox', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
         /Multi-line message editor unavailable; using single-line fallback/.test(body),
@@ -175,8 +175,8 @@ describe('structural pins', () => {
   // viewColumn: Beside
   describe('squash editor opens beside the active column', () => {
     it('showTextDocument is called with viewColumn: vscode.ViewColumn.Beside', () => {
-      const helperIdx = src.indexOf('private async _promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n  }', helperIdx + 200);
+      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
+      const helperEnd = src.indexOf('\n}', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
       assert.ok(
         /viewColumn:\s*vscode\.ViewColumn\.Beside/.test(body),
@@ -188,8 +188,8 @@ describe('structural pins', () => {
   // getCommit timeout
   describe('modal preview wraps getCommit in a 500ms timeout', () => {
     it('_handleDropCommitMulti races getCommit against a 500ms setTimeout', () => {
-      const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
-      const squashIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
+      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
+      const squashIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
       const body = src.substring(handlerIdx, squashIdx > 0 ? squashIdx : handlerIdx + 12000);
       assert.ok(
         /Promise\.race\s*\(/.test(body),
@@ -206,8 +206,8 @@ describe('structural pins', () => {
   // plan-coverage compares against selectedSet.size
   describe('plan-coverage check uses selectedSet.size', () => {
     it('the partial-coverage guard compares against selectedSet.size, not commitHashes.length', () => {
-      const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
-      const squashIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
+      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
+      const squashIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
       const body = src.substring(handlerIdx, squashIdx > 0 ? squashIdx : handlerIdx + 12000);
       assert.ok(
         /planDropCount\s*<\s*selectedSet\.size/.test(body),

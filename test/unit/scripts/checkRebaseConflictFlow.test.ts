@@ -1,13 +1,13 @@
 /**
- * Companion spec for scripts/check-rebase-conflict-flow.sh.
+ * Companion spec for scripts/check-rebase-conflict-flow.sh (check (a) only —
+ * the abort-scope rule; the runner-scope checks (b)+(c) moved to
+ * checkRebaseRunnerScope.test.ts).
  *
- * Proves the guard (a) passes against the real tree (allow-listed
- * user-action surfaces + the two justified orphaned-rebase recovery sites),
- * (b) has teeth on both checks — an `abortRebase(`/`rebaseAbort(` call in a
- * non-allow-listed file, and an `executeRebase(` call outside the
- * `_runHistoryRewrite` runner (a fifth skeleton) — and (c) honours the two
- * escape-hatch markers. Explicit-path mode treats every given file as
- * non-allow-listed, which is what lets these fixtures exercise the teeth.
+ * Proves the guard (a) passes against the real tree (allow-listed user-action
+ * surfaces + the two justified orphaned-rebase recovery sites), (b) has teeth —
+ * an `abortRebase(`/`rebaseAbort(` call in a non-allow-listed file fails — and
+ * (c) honours the escape-hatch marker. Explicit-path mode treats every given
+ * file as non-allow-listed, which is what lets these fixtures exercise the teeth.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -33,24 +33,7 @@ function checkSource(src: string): number | null {
   }
 }
 
-// A well-formed runner: carries BOTH pre-flight gates (merge-flattening +
-// protected-branch) before its execute call.
-const RUNNER_WITH_EXECUTE = [
-  'class C {',
-  '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {',
-  '    if (!(await this._isRangeMergeFree(repo, opts.onto, opts.opLabel))) {',
-  '      return;',
-  '    }',
-  '    if (!(await this._isNotOnProtectedBranch(cwd, opts.oldest, opts.opLabel))) {',
-  '      return;',
-  '    }',
-  '    const result = await this._rebaseService.executeRebase(repo);',
-  '  }',
-  '}',
-  '',
-].join('\n');
-
-describe('check-rebase-conflict-flow guard', () => {
+describe('check-rebase-conflict-flow guard (abort scope)', () => {
   it('passes against the real tree', () => {
     const { status, stdout } = runGuard([]);
     assert.strictEqual(status, 0, `guard should pass on a clean tree; stdout:\n${stdout}`);
@@ -88,105 +71,6 @@ describe('check-rebase-conflict-flow guard', () => {
       ),
       0,
       'the marker covers the rebaseAbort spelling too'
-    );
-  });
-
-  it('fails on an executeRebase( call outside _runHistoryRewrite (no fifth skeleton)', () => {
-    assert.strictEqual(
-      checkSource(
-        'class C {\n' +
-          '  private async _handleNewFlow(repo: IRepository): Promise<void> {\n' +
-          '    const result = await this._rebaseService.executeRebase(repo);\n' +
-          '  }\n' +
-          '}\n'
-      ),
-      1,
-      'a hand-rolled execute outside the runner must fail'
-    );
-  });
-
-  it('passes the executeRebase( call inside the _runHistoryRewrite runner', () => {
-    assert.strictEqual(
-      checkSource(RUNNER_WITH_EXECUTE),
-      0,
-      'the runner is the single sanctioned execute site'
-    );
-  });
-
-  it('scope ends at the next class member — an execute after the runner still fails', () => {
-    assert.strictEqual(
-      checkSource(
-        'class C {\n' +
-          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
-          '    const result = await this._rebaseService.executeRebase(repo);\n' +
-          '  }\n' +
-          '  private async _another(repo: IRepository): Promise<void> {\n' +
-          '    await this._rebaseService.executeRebase(repo);\n' +
-          '  }\n' +
-          '}\n'
-      ),
-      1,
-      'the runner scope must not leak past the next member'
-    );
-  });
-
-  it('fails when the runner lacks the merge-flattening pre-flight gate', () => {
-    assert.strictEqual(
-      checkSource(
-        'class C {\n' +
-          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
-          '    if (!(await this._isNotOnProtectedBranch(cwd, opts.oldest, opts.opLabel))) {\n' +
-          '      return;\n' +
-          '    }\n' +
-          '    const result = await this._rebaseService.executeRebase(repo);\n' +
-          '  }\n' +
-          '}\n'
-      ),
-      1,
-      'a runner without _isRangeMergeFree( silently flattens merge topology'
-    );
-  });
-
-  it('fails when the runner lacks the protected-branch pre-flight gate', () => {
-    assert.strictEqual(
-      checkSource(
-        'class C {\n' +
-          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
-          '    if (!(await this._isRangeMergeFree(repo, opts.onto, opts.opLabel))) {\n' +
-          '      return;\n' +
-          '    }\n' +
-          '    const result = await this._rebaseService.executeRebase(repo);\n' +
-          '  }\n' +
-          '}\n'
-      ),
-      1,
-      'a runner without _isNotOnProtectedBranch( rewrites protected published history'
-    );
-  });
-
-  it('honours the runner-gate-exempt marker on the runner signature line', () => {
-    assert.strictEqual(
-      checkSource(
-        'class C {\n' +
-          '  // runner-gate-exempt: fixture runner exercising an unrelated invariant\n' +
-          '  private async _runHistoryRewrite(repo: IRepository): Promise<void> {\n' +
-          '    const result = await this._rebaseService.executeRebase(repo);\n' +
-          '  }\n' +
-          '}\n'
-      ),
-      0,
-      'a justified gate-free runner must be allowed'
-    );
-  });
-
-  it('honours the history-rewrite-exempt marker on the preceding line', () => {
-    assert.strictEqual(
-      checkSource(
-        '// history-rewrite-exempt: exercised by a scripted migration, not a user flow\n' +
-          'await this._rebaseService.executeRebase(repo);\n'
-      ),
-      0,
-      'a justified out-of-runner execute must be allowed'
     );
   });
 });

@@ -233,16 +233,16 @@ describe('Wave B R1 — review fixes', () => {
 
   // ─── _handleCreatePatchMulti uses isSelectionContiguous helper ───────────
   describe('_handleCreatePatchMulti uses the multiSelect helper', () => {
-    it('CommitContextMenuCommands.ts imports isSelectionContiguous from multiSelect', async () => {
+    it('commitHistoryRewriteActions imports isSelectionContiguous from multiSelect', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
         'utf8'
       );
       assert.ok(
         /import\s*\{[^}]*isSelectionContiguous[^}]*\}\s*from\s*['"][^'"]*multiSelect/.test(src),
-        'CommitContextMenuCommands must import isSelectionContiguous from the multiSelect helper module'
+        'the history-rewrite module (which owns the multi-drop flow) must import isSelectionContiguous from the multiSelect helper module'
       );
     });
 
