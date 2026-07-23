@@ -1333,8 +1333,8 @@ export class CommitContextMenuCommands {
       gitService: this._gitService,
       gitCli: this._gitCli,
       gitToolWindowProvider: this._gitToolWindowProvider,
-      changelistService: this._changelistService,
-      commitComposer: this._commitComposer,
+      changelistService: () => this._changelistService,
+      commitComposer: () => this._commitComposer,
       getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
       isNotOnProtectedBranch: (cwd, hash, opLabel) =>
         this._isNotOnProtectedBranch(cwd, hash, opLabel),

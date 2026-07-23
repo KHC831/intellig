@@ -1492,6 +1492,63 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         assert.strictEqual(calls.moved[0].changelistId, 'other-id');
       });
 
+      it('reads the changelist service live: wiring it during the pre-chooser await still offers the chooser', async () => {
+        // Regression guard for the ctx-builder snapshot bug: _undoContext() must
+        // expose changelistService as a call-time getter, not a handler-entry
+        // snapshot. The service is setter-wired and first read AFTER the
+        // getCommit await; wiring it mid-await (which an entry snapshot would
+        // miss) must still reach the chooser and the move.
+        createMessageTrackers();
+        const repo = createMockRepo(testHash);
+        const calls: ChangelistCalls = { created: [], moved: [] };
+        // Holder so the getCommit closure can reach the instance that owns it
+        // (forward reference: gitService is built before the commands).
+        const commandsRef: { current?: CommitContextMenuCommands } = {};
+        const gitService = createMockGitService(repo, {
+          getCommit: async () => {
+            // Wire the service DURING the pre-chooser await — after handler
+            // entry, before the chooser branch reads it.
+            (
+              commandsRef.current as unknown as { setChangelistService(svc: unknown): void }
+            ).setChangelistService(makeChangelistService(calls));
+            return {
+              hash: testHash,
+              shortHash: testHash.substring(0, 7),
+              message: 'Fix the widget\n\nlonger body',
+              author: { name: 'a', email: 'a@x' },
+              committer: { name: 'a', email: 'a@x' },
+              parents: [],
+              authorDate: new Date(0),
+              commitDate: new Date(0),
+            };
+          },
+          getCommitDiff: async () => [
+            { path: 'w.ts', status: 'modified' as const, hunks: [], binary: false },
+          ],
+        });
+        const gitCli = createMockGitCli();
+        const commands = new CommitContextMenuCommands(
+          gitService,
+          createMockRebaseService(),
+          createMockProvider(),
+          gitCli
+        );
+        commandsRef.current = commands;
+        writableWindow().showQuickPick = ((items: unknown[]) =>
+          Promise.resolve(
+            (items as { label: string }[]).find((i) => i.label.includes('Other work'))
+          )) as never;
+
+        await commands._handleAction('undoCommit', [testHash]);
+
+        assert.strictEqual(
+          calls.moved.length,
+          1,
+          'a service wired during the pre-chooser await must be read live (getter, not entry snapshot)'
+        );
+        assert.strictEqual(calls.moved[0].changelistId, 'other-id');
+      });
+
       it('cancelling the chooser cancels the undo (no reset)', async () => {
         createMessageTrackers();
         const { commands, gitCli, calls } = makeUndoHarness(() => undefined);

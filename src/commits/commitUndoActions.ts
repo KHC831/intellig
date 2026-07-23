@@ -17,12 +17,16 @@ export interface ICommitUndoContext {
   readonly gitService: IGitService;
   readonly gitCli: GitCli;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  readonly changelistService?: {
-    getChangelists(repo: IRepository): { id: string; name: string; isDefault?: boolean }[];
-    createChangelist(repo: IRepository, name: string): { id: string; name: string };
-    moveToChangelist(repo: IRepository, files: string[], changelistId: string): void;
-  };
-  readonly commitComposer?: { prefillComposerMessage(message: string): void };
+  // Call-time getters (not snapshots): both services are setter-wired and read
+  // AFTER the getCommit await below, so the context must read them live.
+  changelistService():
+    | {
+        getChangelists(repo: IRepository): { id: string; name: string; isDefault?: boolean }[];
+        createChangelist(repo: IRepository, name: string): { id: string; name: string };
+        moveToChangelist(repo: IRepository, files: string[], changelistId: string): void;
+      }
+    | undefined;
+  commitComposer(): { prefillComposerMessage(message: string): void } | undefined;
   getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
   isNotOnProtectedBranch(cwd: string, hash: string, opLabel: string): Promise<boolean>;
 }
@@ -72,7 +76,8 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
   // commit subject. Cancel cancels the undo. Resolved BEFORE the reset so
   // a cancel has no side effects.
   let moveFilesTo: string | undefined;
-  if (ctx.changelistService) {
+  const changelistService = ctx.changelistService();
+  if (changelistService) {
     const subject = undoneMessage.split('\n')[0].slice(0, 60).trim();
     interface IChooserItem extends vscode.QuickPickItem {
       changelistId?: string;
@@ -85,7 +90,7 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
         createNamed: subject,
       });
     }
-    for (const list of ctx.changelistService.getChangelists(repo)) {
+    for (const list of changelistService.getChangelists(repo)) {
       items.push({
         label: list.name,
         description: list.isDefault ? 'default' : undefined,
@@ -100,7 +105,7 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
       return;
     }
     if (picked.createNamed !== undefined) {
-      moveFilesTo = ctx.changelistService.createChangelist(repo, picked.createNamed).id;
+      moveFilesTo = changelistService.createChangelist(repo, picked.createNamed).id;
     } else {
       moveFilesTo = picked.changelistId;
     }
@@ -123,10 +128,10 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
     });
 
     if (moveFilesTo !== undefined && undoneFiles.length > 0) {
-      ctx.changelistService?.moveToChangelist(repo, undoneFiles, moveFilesTo);
+      ctx.changelistService()?.moveToChangelist(repo, undoneFiles, moveFilesTo);
     }
     if (undoneMessage) {
-      ctx.commitComposer?.prefillComposerMessage(undoneMessage);
+      ctx.commitComposer()?.prefillComposerMessage(undoneMessage);
     }
     void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
     // soft-reset moved HEAD; reload before refresh.
