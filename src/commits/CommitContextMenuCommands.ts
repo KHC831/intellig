@@ -60,6 +60,8 @@ import {
   resetToHere,
   type ICommitCheckoutResetActionsContext,
 } from './commitCheckoutResetActions';
+import { copyHash } from './commitClipboardActions';
+import { newBranch, newTag, type ICommitRefActionsContext } from './commitRefActions';
 
 /**
  * Signature of the repository resolver injected into
@@ -1000,34 +1002,9 @@ export class CommitContextMenuCommands {
     return false;
   }
 
-  /**
-   * Copy the full SHA(s) to the system clipboard.
-   *
-   * N=1: one hash. N>=2: OLDEST-first, joined with a single space —
-   * CopyRevisionNumberAction parity ("we want hashes from old to new,
-   * e.g., to pass to native client in terminal"), so a paste lands in
-   * `git cherry-pick` replay order. `commitHashes` arrives newest-first
-   * (webview DOM order); the reverse here is the canonical direction
-   * point, mirroring `_handleCherryPick`.
-   */
-  private async _handleCopyHash(commitHashes: string[]): Promise<void> {
-    if (commitHashes.length === 0) {
-      return;
-    }
-
-    try {
-      const text =
-        commitHashes.length === 1 ? commitHashes[0] : [...commitHashes].reverse().join(' ');
-      await vscode.env.clipboard.writeText(text);
-      const message =
-        commitHashes.length === 1
-          ? `Copied commit hash: ${commitHashes[0]}`
-          : `Copied ${commitHashes.length} commit hashes to clipboard`;
-      void vscode.window.showInformationMessage(message);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to copy hash: ${sanitizeGitError(errorMessage)}`);
-    }
+  /** Copy the full SHA(s) to the system clipboard. */
+  private _handleCopyHash(commitHashes: string[]): Promise<void> {
+    return copyHash(commitHashes);
   }
 
   /**
@@ -3113,28 +3090,18 @@ export class CommitContextMenuCommands {
     await vscode.commands.executeCommand('intellig.pushUpToCommit', hash, repo?.rootUri.fsPath);
   }
 
-  private async _handleNewBranch(commitHashes: string[]): Promise<void> {
-    if (commitHashes.length === 0) {
-      return;
-    }
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    await vscode.commands.executeCommand(
-      'intellig.commit.newBranch',
-      commitHashes[0],
-      repo?.rootUri.fsPath
-    );
+  private _handleNewBranch(commitHashes: string[]): Promise<void> {
+    return newBranch(this._refActionsContext(), commitHashes);
   }
 
-  private async _handleNewTag(commitHashes: string[]): Promise<void> {
-    if (commitHashes.length === 0) {
-      return;
-    }
-    const repo = await this._getRepositoryForCommit(commitHashes[0]);
-    await vscode.commands.executeCommand(
-      'intellig.commit.newTag',
-      commitHashes[0],
-      repo?.rootUri.fsPath
-    );
+  private _handleNewTag(commitHashes: string[]): Promise<void> {
+    return newTag(this._refActionsContext(), commitHashes);
+  }
+
+  private _refActionsContext(): ICommitRefActionsContext {
+    return {
+      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+    };
   }
 
   /**
