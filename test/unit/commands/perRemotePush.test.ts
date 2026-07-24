@@ -17,7 +17,10 @@ import '../../setup';
 import { driveBranchMenuCommand } from '../../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
-import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
+import {
+  BranchContextMenuCommands,
+  PushDialogOpener,
+} from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
 import {
   IBranch,
@@ -180,6 +183,34 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
     assert.strictEqual(quickPickShown, 0, 'single remote → no prompt');
     assert.strictEqual(gitService._push.length, 1);
     assert.strictEqual(gitService._push[0].remote, 'origin');
+  });
+
+  it('branch push routes to the Push Dialog when an opener is wired (no direct push)', async () => {
+    const gitService = createMockGitService(['origin', 'backup']);
+    const repo = createMockRepo();
+    const opens: Parameters<PushDialogOpener>[0][] = [];
+    const opener: PushDialogOpener = (preselect) => {
+      opens.push(preselect);
+      return undefined;
+    };
+    const commands = new BranchContextMenuCommands(
+      gitService as unknown as IGitService,
+      createMockProvider(repo),
+      undefined,
+      undefined,
+      opener
+    );
+
+    await driveBranchMenuCommand(
+      commands,
+      'intellig.branch.push',
+      localBranchItem('feature/x', { remote: 'origin', name: 'feature/x' })
+    );
+
+    assert.strictEqual(opens.length, 1, 'the Push Dialog opener must be invoked');
+    assert.strictEqual(opens[0].branch, 'feature/x');
+    assert.deepStrictEqual(opens[0].upstream, { remote: 'origin', name: 'feature/x' });
+    assert.strictEqual(gitService._push.length, 0, 'the dialog path must not run a direct push');
   });
 
   it('branch push aborts when the user cancels the remote QuickPick', async () => {
