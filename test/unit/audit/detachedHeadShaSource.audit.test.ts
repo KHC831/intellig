@@ -4,9 +4,10 @@
  * The synthetic "(HEAD detached at <sha>)" row in the BRANCHES tree
  * carries the full 40-char SHA on a dedicated accessor,
  * `BranchTreeItem.getDetachedHeadSha()`. Command handlers that act on
- * that row (checkout, new-branch-from) MUST read the SHA through the
- * accessor — NEVER by parsing it back out of the human-readable label
- * with a regex like `label.match(/\(HEAD detached at (.*?)\)/)`.
+ * that row (New Worktree reads it directly; checkout / new-branch-from go
+ * through the tree-item spine) MUST read the SHA through the accessor —
+ * NEVER by parsing it back out of the human-readable label with a regex
+ * like `label.match(/\(HEAD detached at (.*?)\)/)`.
  *
  * Why this is a load-bearing invariant: the label is a presentation
  * string. It is localized-adjacent, abbreviated (short SHA), and
@@ -32,20 +33,28 @@ function repoRoot(): string {
   return path.resolve(__dirname, '../../..');
 }
 
-const HANDLER_FILE = 'src/branches/BranchContextMenuCommands.ts';
+// The New Worktree handler is the sole command that reads the accessor
+// directly; it lives in the worktree action module.
+const READER_FILE = 'src/branches/branchWorktreeActions.ts';
+// The label-parse ban covers every file that carries branch-menu handlers.
+const BAN_FILES = [
+  'src/branches/BranchContextMenuCommands.ts',
+  'src/branches/branchWorktreeActions.ts',
+];
 
 describe('L11 audit — detached-HEAD SHA read via getDetachedHeadSha(), never label parsing', () => {
-  const abs = path.join(repoRoot(), HANDLER_FILE);
-  let source: string;
+  let readerSource: string;
+  let banSource: string;
 
   before(() => {
-    source = fs.readFileSync(abs, 'utf-8');
+    readerSource = fs.readFileSync(path.join(repoRoot(), READER_FILE), 'utf-8');
+    banSource = BAN_FILES.map((f) => fs.readFileSync(path.join(repoRoot(), f), 'utf-8')).join('\n');
   });
 
   it('uses getDetachedHeadSha() to obtain the checkout / new-branch start point', () => {
     assert.ok(
-      source.includes('getDetachedHeadSha()'),
-      `${HANDLER_FILE} must read the detached-HEAD SHA via getDetachedHeadSha(); ` +
+      readerSource.includes('getDetachedHeadSha()'),
+      `${READER_FILE} must read the detached-HEAD SHA via getDetachedHeadSha(); ` +
         'the accessor returns the full SHA decoupled from the row label. See spec L11.'
     );
   });
@@ -56,8 +65,8 @@ describe('L11 audit — detached-HEAD SHA read via getDetachedHeadSha(), never l
     // a regex / string-search construct.
     const labelParsePattern = /HEAD detached at[^"'`]*\(\.\*|\.match\([^)]*HEAD detached/i;
     assert.ok(
-      !labelParsePattern.test(source),
-      `${HANDLER_FILE} must NOT parse the detached-HEAD SHA out of the row label. ` +
+      !labelParsePattern.test(banSource),
+      `${BAN_FILES.join(', ')} must NOT parse the detached-HEAD SHA out of the row label. ` +
         'Use getDetachedHeadSha() instead. See spec L11.'
     );
   });
