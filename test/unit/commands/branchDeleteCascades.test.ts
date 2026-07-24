@@ -237,4 +237,29 @@ describe('remoteBranch.deleteRemote — tracking-locals cascade', () => {
     assert.strictEqual(service._pushCalls.length, 1, 'plain remote delete still works');
     assert.strictEqual(service._deletedBranches.length, 0);
   });
+
+  it('does nothing when the delete confirm is dismissed (no remote or local delete)', async () => {
+    const repo = makeRepo();
+    const service = makeService([localBranch('feature', UPSTREAM)]);
+    installWarningMessageTracker(undefined);
+    const cmds = new BranchContextMenuCommands(service, makeProvider(repo));
+
+    await driveBranchMenuCommand(
+      cmds,
+      'intellig.remoteBranch.deleteRemote',
+      remoteItem('origin/feature')
+    );
+    await settle();
+
+    assert.strictEqual(
+      service._pushCalls.length,
+      0,
+      'a dismissed confirm must not delete the remote ref'
+    );
+    assert.strictEqual(
+      service._deletedBranches.length,
+      0,
+      'a dismissed confirm must not delete tracking locals'
+    );
+  });
 });
