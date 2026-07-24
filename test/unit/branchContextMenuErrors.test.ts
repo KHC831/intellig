@@ -2066,6 +2066,28 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
     });
 
+    it('deletes nothing when the initial confirm is dismissed', async () => {
+      const deleteCalls: Array<{ force?: boolean }> = [];
+      const gitService = createMockGitService({
+        getRepositories: () => [repo],
+        getRepository: async () => repo,
+        deleteBranch: (_repo, _name, force) => {
+          deleteCalls.push({ force });
+          return okAsync(undefined);
+        },
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService)
+      );
+      installSequencedWarningTracker([undefined]); // user dismisses the delete confirm
+
+      const item = createLocalBranchTreeItem('test-branch');
+      await driveBranchMenuCommand(commands, 'intellig.branch.delete', item);
+
+      assert.strictEqual(deleteCalls.length, 0, 'a dismissed confirm must not delete the branch');
+    });
+
     it('shows the original error toast for non-merge failures (no force prompt)', async () => {
       const gitService = createMockGitService({
         getRepositories: () => [repo],
