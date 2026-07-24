@@ -54,6 +54,7 @@ import {
   writableWindow,
 } from '../../typed/windowStub';
 import {
+  attachedRepo,
   createMockGitService as createSharedMockGitService,
   detachedRepo,
 } from '../../mocks/mockGitService';
@@ -1578,5 +1579,111 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     } finally {
       writableWindow().showWarningMessage = savedWarning;
     }
+  });
+});
+
+/**
+ * New Branch dialog-arm pins.
+ *
+ * Both create entries prefer the New Branch Dialog when an opener is wired and
+ * only fall back to the `showInputBox` path when it is absent (test fixtures).
+ * The opener carries the start point: the clicked ref for "New Branch from
+ * here", the checked-out branch for the popup-header "New Branch". Nothing else
+ * asserts the wired-opener arm — the detached-row pins above deliberately
+ * construct the dispatcher WITHOUT an opener — so a create handler that lost
+ * its opener would silently degrade to the input box and stay green.
+ */
+describe('New Branch dialog arm', () => {
+  interface Preselect {
+    repo: IRepository;
+    startPoint?: string;
+    defaultName?: string;
+  }
+
+  /** Dispatcher with a recording New Branch dialog opener wired in. */
+  function wireOpener(repo: IRepository, overrides: Partial<IGitService> = {}) {
+    const seen: Preselect[] = [];
+    const gitService = createSharedMockGitService(repo, overrides);
+    const branchTreeProvider = new BranchTreeProvider(gitService);
+    branchTreeProvider.setRepository(repo);
+    const commands = new BranchContextMenuCommands(
+      gitService,
+      branchTreeProvider,
+      undefined, // conflictResolutionService
+      undefined, // pullDialogAccessor
+      undefined, // pushDialogOpener
+      undefined, // mergeDialogOpener
+      (preselect: Preselect) => {
+        seen.push(preselect);
+        return undefined;
+      }
+    );
+    return { commands, seen };
+  }
+
+  let inputBoxCalls = 0;
+  let savedShowInputBox: typeof writableWindow extends () => infer W
+    ? W extends { showInputBox: infer F }
+      ? F
+      : never
+    : never;
+
+  beforeEach(() => {
+    inputBoxCalls = 0;
+    savedShowInputBox = writableWindow().showInputBox;
+    writableWindow().showInputBox = (async () => {
+      inputBoxCalls++;
+      return undefined;
+    }) as typeof savedShowInputBox;
+  });
+
+  afterEach(() => {
+    writableWindow().showInputBox = savedShowInputBox;
+  });
+
+  it('newBranchFrom opens the dialog with the clicked branch as the start point', async () => {
+    let createBranchCalls = 0;
+    const { commands, seen } = wireOpener(attachedRepo('main'), {
+      createBranch: () => {
+        createBranchCalls++;
+        return okAsync(undefined);
+      },
+    });
+    const branch: IBranch = {
+      name: 'feature/x',
+      type: 'local',
+      commit: 'abc1234',
+      isHead: false,
+    };
+    const item = new BranchTreeItem('feature/x', 0, 'local-branch', branch, undefined, false);
+
+    await driveBranchMenuCommand(commands, 'intellig.branch.newBranchFrom', item);
+
+    assert.strictEqual(seen.length, 1, 'the New Branch dialog opener must be consulted');
+    assert.strictEqual(
+      seen[0].startPoint,
+      'feature/x',
+      'the clicked branch is the start point the dialog preselects'
+    );
+    assert.strictEqual(inputBoxCalls, 0, 'a wired opener must bypass the showInputBox fallback');
+    assert.strictEqual(
+      createBranchCalls,
+      0,
+      'the dialog owns creation; the handler must not create'
+    );
+  });
+
+  it('the popup-header New Branch starts from the checked-out branch', async () => {
+    const { commands, seen } = wireOpener(attachedRepo('main'));
+
+    await driveBranchMenuCommand(commands, 'intellig.branch.new');
+
+    assert.strictEqual(seen.length, 1, 'the New Branch dialog opener must be consulted');
+    assert.strictEqual(
+      seen[0].startPoint,
+      'main',
+      'HEAD is the start point, with refs/heads/ stripped'
+    );
+    assert.strictEqual(inputBoxCalls, 0, 'a wired opener must bypass the showInputBox fallback');
   });
 });

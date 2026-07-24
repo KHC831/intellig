@@ -61,6 +61,11 @@ import {
   runPullFromBranchMenu,
   type IBranchUpdateContext,
 } from './branchUpdateActions';
+import {
+  handleNewBranch,
+  handleNewBranchFrom,
+  type IBranchCreateContext,
+} from './branchCreateActions';
 import { readConfig } from '../config/configKeys';
 import { isProtectedTarget } from '../sync/PushDialog';
 import { proposeDeleteMergedBranch } from './deleteOnMerge';
@@ -919,110 +924,21 @@ export class BranchContextMenuCommands {
     }
   }
 
-  /**
-   * Handle the popup-header "New Branch" action — create a new branch starting
-   * from the current HEAD (git4idea `Git.CreateNewBranch`). Routes through the
-   * New Branch Dialog when wired; the dialog defaults its start point to HEAD
-   * when none is supplied.
-   */
-  private _handleNewBranch(): void {
-    const repo = this._getRepository();
-    if (!repo) {
-      void vscode.window.showErrorMessage('No Git repository found');
-      return;
-    }
-
-    const startPoint = repo.head?.name?.replace('refs/heads/', '') || undefined;
-
-    if (this._newBranchDialogOpener) {
-      this._newBranchDialogOpener({ repo, startPoint });
-      return;
-    }
-
-    void vscode.window.showErrorMessage('New Branch dialog is not available.');
+  private _createContext(): IBranchCreateContext {
+    return {
+      gitService: this._gitService,
+      branchTreeProvider: this._branchTreeProvider,
+      newBranchDialogOpener: this._newBranchDialogOpener,
+      getRepository: () => this._getRepository(),
+    };
   }
 
-  /**
-   * Handle new branch from here command.
-   */
-  private async _handleNewBranchFrom({
-    repo,
-    target,
-  }: {
-    repo: IRepository;
-    target: TreeItemTarget;
-  }): Promise<void> {
-    // The start point is whatever was clicked: a branch name, a tag name,
-    // or the detached row's 40-char SHA (never the parenthesized label).
-    const startPoint =
-      target.kind === 'branch'
-        ? target.branch.name
-        : target.kind === 'tag'
-          ? target.tag.name
-          : target.sha;
-    if (!startPoint) {
-      return;
-    }
+  private _handleNewBranch(): void {
+    handleNewBranch(this._createContext());
+  }
 
-    // Route through the New Branch Dialog when the opener is wired.
-    // Dialog handles name validation, tracking, overwrite, and checkout in a
-    // single webview with typed options. Falls back to the old showInputBox
-    // path when the opener is absent (test fixtures).
-    if (this._newBranchDialogOpener) {
-      this._newBranchDialogOpener({ repo, startPoint });
-      return;
-    }
-
-    const branchName = await vscode.window.showInputBox({
-      prompt: `Enter new branch name (from ${startPoint})`,
-      placeHolder: 'feature/my-new-branch',
-      validateInput: (value) => {
-        if (!value || !value.trim()) {
-          return 'Branch name cannot be empty';
-        }
-        // Reject leading `-` (git interprets as a CLI flag)
-        // and leading `.` (git rejects refs starting with `.` per
-        // git-check-ref-format) at the validator level. The
-        // regex `^[\w\-./]+$` accepted `-foo` and `.hidden` because the
-        // character class allowed `-` and `.` anywhere including the
-        // first position; the service-boundary guard in
-        // `GitService.createBranch` was the only line of defense.
-        if (!/^(?![-.])[\w\-./]+$/.test(value)) {
-          return 'Branch name contains invalid characters';
-        }
-        return undefined;
-      },
-    });
-
-    if (!branchName) {
-      return;
-    }
-
-    try {
-      await this._gitService.createBranch(repo, branchName, startPoint).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-      await this._gitService.checkout(repo, branchName).match(
-        () => undefined,
-        (e) => {
-          throw e;
-        }
-      );
-      // createBranch + checkout pair moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(
-        `Created and switched to branch '${branchName}' from '${startPoint}'`
-      );
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to create branch: ${sanitizeGitError(errorMessage)}`
-      );
-    }
+  private _handleNewBranchFrom(args: { repo: IRepository; target: TreeItemTarget }): Promise<void> {
+    return handleNewBranchFrom(this._createContext(), args);
   }
 
   /**
