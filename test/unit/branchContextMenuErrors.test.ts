@@ -1375,6 +1375,105 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       }
     });
 
+    it('_handleCherryPickCommits routes conflicts into the Resolve Conflicts dialog (operation: cherryPick)', async () => {
+      const w = writableWindow();
+      const originalQuickPick = w.showQuickPick;
+      w.showQuickPick = (items: unknown): Promise<unknown> =>
+        Array.isArray(items) && items.length > 0
+          ? Promise.resolve(items.slice(0, 1))
+          : Promise.resolve(undefined);
+      try {
+        const dialogOpens: Array<{ operation: string; target?: string }> = [];
+        const conflictService = {
+          getConflictedFiles: async () => [{ path: 'a.ts', resolved: false }],
+          openResolveConflictsDialog: async (
+            _repo: unknown,
+            _conflicts: unknown,
+            opContext: { operation: string; target?: string }
+          ) => {
+            dialogOpens.push({ operation: opContext.operation, target: opContext.target });
+          },
+        } as unknown as IConflictResolutionService;
+        const gitService = createMockGitService({
+          getLog: async () => [
+            {
+              hash: 'abc1234',
+              shortHash: 'abc1234',
+              message: 'Commit msg',
+              author: { name: 'A', email: 'a@a' },
+              committer: { name: 'A', email: 'a@a' },
+              parents: [],
+              authorDate: new Date(0),
+              commitDate: new Date(0),
+            },
+          ],
+          cherryPick: () => okAsync({ success: false, conflicts: ['a.ts', 'b.ts'] }),
+        });
+        const commands = new BranchContextMenuCommands(
+          gitService,
+          createMockBranchTreeProvider(gitService),
+          conflictService
+        );
+
+        await driveBranchMenuCommand(
+          commands,
+          'intellig.remoteBranch.cherryPickCommits',
+          createRemoteBranchTreeItem('origin/feature/x')
+        );
+
+        assert.deepStrictEqual(dialogOpens, [
+          { operation: 'cherryPick', target: 'origin/feature/x' },
+        ]);
+      } finally {
+        w.showQuickPick = originalQuickPick;
+      }
+    });
+
+    it('_handleCherryPickCommits warns with the conflict count when no conflict dialog is wired', async () => {
+      const warningTracker = installWarningMessageTracker();
+      const w = writableWindow();
+      const originalQuickPick = w.showQuickPick;
+      w.showQuickPick = (items: unknown): Promise<unknown> =>
+        Array.isArray(items) && items.length > 0
+          ? Promise.resolve(items.slice(0, 1))
+          : Promise.resolve(undefined);
+      try {
+        const gitService = createMockGitService({
+          getLog: async () => [
+            {
+              hash: 'abc1234',
+              shortHash: 'abc1234',
+              message: 'Commit msg',
+              author: { name: 'A', email: 'a@a' },
+              committer: { name: 'A', email: 'a@a' },
+              parents: [],
+              authorDate: new Date(0),
+              commitDate: new Date(0),
+            },
+          ],
+          cherryPick: () => okAsync({ success: false, conflicts: ['a.ts', 'b.ts'] }),
+        });
+        const commands = new BranchContextMenuCommands(
+          gitService,
+          createMockBranchTreeProvider(gitService)
+        );
+
+        await driveBranchMenuCommand(
+          commands,
+          'intellig.remoteBranch.cherryPickCommits',
+          createRemoteBranchTreeItem('origin/feature/x')
+        );
+
+        assert.ok(warningTracker.calls.length > 0, 'a conflict without a dialog must warn');
+        assert.ok(
+          warningTracker.calls[0].message.includes('2'),
+          `warning should carry the conflict count 2, got: "${warningTracker.calls[0].message}"`
+        );
+      } finally {
+        w.showQuickPick = originalQuickPick;
+      }
+    });
+
     // There is no `_parseConflictCount` fallback to test: the
     // pull-throws-with-CONFLICT-markers branch does not stringify a
     // count out of the error text. When `_conflictResolutionService` is

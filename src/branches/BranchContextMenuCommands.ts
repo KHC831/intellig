@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
 import {
   IBranch,
   IGitService,
-  IRefDiffFile,
   IRemote,
   IRepository,
   IUpstream,
@@ -26,7 +25,6 @@ import {
   isLocalChangesWouldBeOverwritten,
   parseUntrackedOverwriteFiles,
 } from '../git-core/gitProse';
-import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
 import {
   registerTreeItemCommand,
@@ -51,12 +49,17 @@ import {
   offerRemoteDeleteForLocalTags,
   type IBranchTagContext,
 } from './branchTagActions';
+import { handleShowDiffWithWorkingTree, type IBranchDiffContext } from './branchDiffActions';
+import {
+  cherryPickSuffixOptions,
+  handleCherryPickCommits,
+  type IBranchCherryPickContext,
+} from './branchCherryPickActions';
 import { buildUpdatePullOptions, resolveUpdateRebase } from '../sync/updateProject';
 import { readConfig } from '../config/configKeys';
 import { isProtectedTarget } from '../sync/PushDialog';
 import { isNotFullyMergedError, proposeDeleteMergedBranch } from './deleteOnMerge';
 import type { BranchComparisonView } from './BranchComparisonView';
-import { isCommitPublished, type PublishProbeCli } from '../git-core/commitPublished';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
 export type PullDialogAccessor = () => PullDialog | undefined;
@@ -1914,83 +1917,12 @@ export class BranchContextMenuCommands {
     }
   }
 
-  /**
-   * Handle show diff with working tree command.
-   * Opens a per-file diff comparison between the right-clicked branch ref and the working tree.
-   *
-   * Flow:
-   *   1. List changed files between `<branchRef>` and the working tree
-   *      (`git diff --name-status -z <ref>` via `getChangedFilesAgainstWorkingTree`).
-   *   2. If zero files → `showInformationMessage`, return.
-   *   3. Else show a multi-select QuickPick of the changed files (with M/A/D/R/C/T/U status).
-   *   4. For each selected file, open a `vscode.diff` tab:
-   *        left  = `intellig-git:<filePath>?<branchRef>` (served by the git content provider)
-   *        right = on-disk working-tree file
-   *      title  = `<basename> (<branchRef> ↔ Working Tree)`
-   *   5. User cancels the QuickPick → no-op, no toast, no error.
-   */
-  private async _handleShowDiffWithWorkingTree({
-    repo,
-    target,
-  }: ITreeItemRunArgs<'branch'>): Promise<void> {
-    const branchRef = target.branch.name;
+  private _diffContext(): IBranchDiffContext {
+    return { gitService: this._gitService };
+  }
 
-    let files: IRefDiffFile[];
-    try {
-      // Capability is declared optional on IGitService so implementations can opt in;
-      // all production impls provide it, but guard in case a mock omits it.
-      if (typeof this._gitService.getChangedFilesAgainstWorkingTree !== 'function') {
-        void vscode.window.showErrorMessage(
-          'Failed to show diff: Git service does not support ref-vs-working-tree diffs'
-        );
-        return;
-      }
-      files = await this._gitService.getChangedFilesAgainstWorkingTree(repo, branchRef);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to list changed files: ${sanitizeGitError(errorMessage)}`
-      );
-      return;
-    }
-
-    if (files.length === 0) {
-      void vscode.window.showInformationMessage(`No changes between ${branchRef} and working tree`);
-      return;
-    }
-
-    // Multi-select QuickPick: one row per changed file, prefixed with the status code.
-    const items: Array<vscode.QuickPickItem & { file: IRefDiffFile }> = files.map((f) => ({
-      label: `${f.status} ${f.path}`,
-      description: f.oldPath ? `← ${f.oldPath}` : undefined,
-      file: f,
-    }));
-
-    const selected = await vscode.window.showQuickPick(items, {
-      title: `Compare with ${branchRef}`,
-      placeHolder: 'Select files to diff against the working tree (multi-select)…',
-      canPickMany: true,
-      matchOnDescription: true,
-    });
-
-    // User cancelled (hit Esc) → `selected` is undefined.
-    // User accepted nothing → `selected` is an empty array; still a no-op.
-    if (!selected || selected.length === 0) {
-      return;
-    }
-
-    const rootFsPath = repo.rootUri.fsPath;
-    const separator = rootFsPath.endsWith('/') || rootFsPath.endsWith('\\') ? '' : '/';
-
-    for (const pick of selected) {
-      const filePath = pick.file.path;
-      const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(branchRef)}`);
-      const rightUri = vscode.Uri.file(`${rootFsPath}${separator}${filePath}`);
-      const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
-      const title = `${basename} (${branchRef} ↔ Working Tree)`;
-
-      await openRevisionDiff({ leftUri, rightUri, title }, `Failed to show diff for ${filePath}`);
-    }
+  private _handleShowDiffWithWorkingTree(args: ITreeItemRunArgs<'branch'>): Promise<void> {
+    return handleShowDiffWithWorkingTree(this._diffContext(), args);
   }
 
   /**
@@ -2404,108 +2336,18 @@ export class BranchContextMenuCommands {
     }
   }
 
-  /**
-   * Cherry-pick options for the `-x` provenance suffix
-   * (intellig.addCherryPickedFromSuffix). IntelliJ annotates only when the
-   * setting is on AND the commit is published (CherryPickProcess.kt
-   * shouldAddSuffix); our single git invocation annotates all-or-none, so
-   * EVERY hash must be published. The publish probe needs the concrete
-   * GitService's gitCli (frozen IGitService has none — ADR-001), reached
-   * duck-typed; absence degrades to no annotation, matching the
-   * known-published-only contract.
-   */
-  private async _cherryPickSuffixOptions(
-    repo: IRepository,
-    hashes: readonly string[]
-  ): Promise<{ addCherryPickedFrom: true } | undefined> {
-    if (!readConfig('addCherryPickedFromSuffix')) {
-      return undefined;
-    }
-    const cli = (this._gitService as unknown as { gitCli?: PublishProbeCli }).gitCli;
-    if (!cli || typeof cli.exec !== 'function') {
-      return undefined;
-    }
-    const cwd = repo.rootUri.fsPath;
-    for (const hash of hashes) {
-      if (!(await isCommitPublished(cli, cwd, hash, /* probeFailureMeansPublished */ false))) {
-        return undefined;
-      }
-    }
-    return { addCherryPickedFrom: true };
+  private _cherryPickContext(): IBranchCherryPickContext {
+    return {
+      gitService: this._gitService,
+      branchTreeProvider: this._branchTreeProvider,
+      conflictResolutionService: () => this._conflictResolutionService,
+      openResolveConflictsDialog: (repo, conflicts, opContext) =>
+        this._openResolveConflictsDialog(repo, conflicts, opContext),
+    };
   }
 
-  /**
-   * Handle cherry-pick commits command.
-   */
-  private async _handleCherryPickCommits({
-    repo,
-    target,
-  }: ITreeItemRunArgs<'branch'>): Promise<void> {
-    try {
-      // Scope the log to the SELECTED branch (e.g. `origin/feature`), not the
-      // repo's global HEAD history — otherwise the picker lists HEAD's recent
-      // commits and the user cherry-picks the wrong commits.
-      const commits = await this._gitService.getLog(repo, {
-        maxCount: 50,
-        ref: target.branch.name,
-      });
-
-      const commitItems = commits.map((commit) => ({
-        label: commit.shortHash,
-        description: commit.message.split('\n')[0],
-        detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
-        commit,
-      }));
-
-      const selected = await vscode.window.showQuickPick(commitItems, {
-        title: `Cherry-pick commits from ${target.branch.name}`,
-        placeHolder: 'Select commits to cherry-pick',
-        canPickMany: true,
-      });
-
-      if (!selected || selected.length === 0) {
-        return;
-      }
-
-      const commitHashes = selected.map((s) => s.commit.hash);
-      const suffixOptions = await this._cherryPickSuffixOptions(repo, commitHashes);
-      const result = await this._gitService.cherryPick(repo, commitHashes, suffixOptions).match(
-        (r) => r,
-        (e) => {
-          throw e;
-        }
-      );
-
-      if (result.success) {
-        void vscode.window.showInformationMessage(
-          `Cherry-picked ${selected.length} commit(s) successfully`
-        );
-      } else if (result.conflicts && result.conflicts.length > 0) {
-        // Auto-open Resolve Conflicts dialog when wired.
-        if (this._conflictResolutionService) {
-          await this._openResolveConflictsDialog(repo, result.conflicts, {
-            operation: 'cherryPick',
-            target: target.branch.name,
-          });
-        } else {
-          void vscode.window.showWarningMessage(
-            `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-          );
-        }
-      } else {
-        // Non-conflict failure: surface the underlying git error.
-        const reason = result.failureReason ?? 'unknown error (no output from git)';
-        void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(reason)}`);
-      }
-      // cherry-pick moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`
-      );
-    }
+  private _handleCherryPickCommits(args: ITreeItemRunArgs<'branch'>): Promise<void> {
+    return handleCherryPickCommits(this._cherryPickContext(), args);
   }
 
   /**
@@ -2865,7 +2707,8 @@ export class BranchContextMenuCommands {
       conflictResolutionService: () => this._conflictResolutionService,
       openResolveConflictsDialog: (repo, conflicts, opContext) =>
         this._openResolveConflictsDialog(repo, conflicts, opContext),
-      cherryPickSuffixOptions: (repo, hashes) => this._cherryPickSuffixOptions(repo, hashes),
+      cherryPickSuffixOptions: (repo, hashes) =>
+        cherryPickSuffixOptions({ gitService: this._gitService }, repo, hashes),
       chooseTargetRemote: (repo) => this._chooseTargetRemote(repo),
     };
   }
