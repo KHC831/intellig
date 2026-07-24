@@ -13,7 +13,11 @@ import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
 import { buildSquashRebasePlan } from './squashPlan';
 import { formatActionFailureToast } from '../git-core/gitError';
-import { allHashesDisplayed, allHashesValid } from './commitContextMenuShared';
+import {
+  allHashesDisplayed,
+  allHashesValid,
+  selectionDisplayBounds,
+} from './commitContextMenuShared';
 import {
   runHistoryRewrite,
   resolveRewriteBase,
@@ -139,18 +143,15 @@ export async function handleSquashCommits(
     return;
   }
 
-  // 2. Find the oldest selected commit (largest index in newest-first display order).
-  const indexByHash = new Map<string, number>();
-  for (let i = 0; i < commitNodes.length; i++) {
-    indexByHash.set(commitNodes[i].hash, i);
+  // 2. Oldest selected commit in newest-first display order.
+  const bounds = selectionDisplayBounds(
+    commitHashes,
+    commitNodes.map((n) => n.hash)
+  );
+  if (!bounds) {
+    return;
   }
-  const indices = commitHashes
-    .map((h) => indexByHash.get(h))
-    .filter((i): i is number => i !== undefined)
-    .slice()
-    .sort((a, b) => a - b);
-  const oldestIdx = indices[indices.length - 1];
-  const oldestHash = commitNodes[oldestIdx].hash;
+  const { oldestHash, oldestIdx } = bounds;
 
   // 2b. HEAD-containment gate (before the message dialog / stash / rebase):
   // squashing commits HEAD doesn't contain would rebase `oldest^..HEAD` and
@@ -245,8 +246,8 @@ export async function handleSquashCommits(
       successToast: `${mode === 'fixup' ? "Fixup'd" : 'Squashed'} ${commitHashes.length} commits successfully.`,
       buildPlan: (session) =>
         mode === 'fixup'
-          ? buildSquashRebasePlan(session.commits, selectedSet, oldestHash)
-          : buildSquashRebasePlan(session.commits, selectedSet, oldestHash, userMessage),
+          ? buildSquashRebasePlan(session.commits, commitHashes, oldestHash)
+          : buildSquashRebasePlan(session.commits, commitHashes, oldestHash, userMessage),
     });
   } catch (error) {
     const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';

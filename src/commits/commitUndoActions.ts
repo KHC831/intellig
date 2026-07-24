@@ -9,7 +9,7 @@ import type { IGitService, IRepository } from '../git-core/interfaces/IGitServic
 import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { formatActionFailureToast } from '../git-core/gitError';
-import { type ICommitRepoContext } from './commitContextMenuShared';
+import { reloadAndRefresh, type ICommitRepoContext } from './commitContextMenuShared';
 
 /** Deps the undo action reaches back into the dispatcher for. */
 export interface ICommitUndoContext extends ICommitRepoContext {
@@ -42,9 +42,9 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
   const hash = commitHashes[0];
   const headHash = repo.head?.commit;
 
-  // Use the same prefix-match as _handleEditCommitMessage so an abbreviated
-  // hash (e.g. 7-char log hash) is recognised as HEAD even when headHash is
-  // the full 40-char SHA. Exact equality silently rejects abbreviated hashes.
+  // Same prefix-match as the reword flow's HEAD check: an abbreviated
+  // hash (e.g. 7-char log hash) must be recognised as HEAD even when
+  // headHash is the full 40-char SHA (hashesReferToSameCommit rule).
   const isHead =
     headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
   if (!isHead) {
@@ -133,8 +133,7 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
     }
     void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
     // soft-reset moved HEAD; reload before refresh.
-    await ctx.gitService.reloadRepository(repo);
-    ctx.gitToolWindowProvider.refresh();
+    await reloadAndRefresh(ctx, repo);
   } catch (error) {
     void vscode.window.showErrorMessage(formatActionFailureToast('Failed to undo commit', error));
   }

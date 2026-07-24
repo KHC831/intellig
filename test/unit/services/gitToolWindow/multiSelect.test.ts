@@ -174,6 +174,29 @@ describe('multiSelect — pure helpers', () => {
       isSelectedInCurrentBranch: true,
     };
 
+    it('disables cherryPick and revert for a mixed merge/non-merge selection', () => {
+      // `-m <mainline>` applies to the whole single git invocation and git
+      // rejects it on a non-merge, so a mixed batch cannot run; the handlers
+      // refuse it and the menu mirrors the refusal (drop-gate pattern).
+      const mixed = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 2,
+        hasMergeCommitInSelection: true,
+        hasMixedMergeSelection: true,
+      });
+      assert.strictEqual(mixed.cherryPick, false, 'mixed selection must disable cherryPick');
+      assert.strictEqual(mixed.revert, false, 'mixed selection must disable revert');
+
+      const allMerge = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 2,
+        hasMergeCommitInSelection: true,
+        hasMixedMergeSelection: false,
+      });
+      assert.strictEqual(allMerge.cherryPick, true, 'all-merge selection stays enabled');
+      assert.strictEqual(allMerge.revert, true);
+    });
+
     it('A0 — enables editCommitMessage when N=1 (regression for line 3650 hard-disable)', () => {
       const e = computeMenuEnableState({ ...baseInputs, selectedCount: 1 });
       assert.strictEqual(
@@ -424,6 +447,22 @@ describe('multiSelect — pure helpers', () => {
       mkNode('ddd', 1, ['eee']),
       mkNode('eee', 0, []),
     ];
+
+    it('derives the mixed merge/non-merge flag and disables cherryPick/revert', () => {
+      const withMerge = [
+        mkNode('aaa', 1, ['mmm']),
+        mkNode('mmm', 2, ['bbb', 'xxx']),
+        mkNode('bbb', 1, ['eee']),
+        mkNode('eee', 0, []),
+      ];
+      const state = computeMenuState({
+        selectedHashes: new Set(['mmm', 'bbb']),
+        commitNodes: withMerge,
+        headHash: 'aaa',
+      });
+      assert.strictEqual(state.cherryPick.enabled, false, 'mixed selection disables cherryPick');
+      assert.strictEqual(state.revert.enabled, false, 'mixed selection disables revert');
+    });
 
     it('returns one entry per MultiSelectMenuAction with both visible and enabled flags', () => {
       const inputs: IMenuStateInputs = {

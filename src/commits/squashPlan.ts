@@ -1,4 +1,5 @@
 import type { IRebaseAction, IRebaseCommit } from '../git-core/interfaces/IRebaseService';
+import { hashesReferToSameCommit, selectionContainsCommit } from './commitContextMenuShared';
 
 /**
  * Build the interactive-rebase plan that combines a contiguous run of selected
@@ -19,22 +20,25 @@ import type { IRebaseAction, IRebaseCommit } from '../git-core/interfaces/IRebas
  *    keeps its own message verbatim.
  *
  * @param sessionCommits - The rebase window's commits, in replay order.
- * @param selectedHashes - Hashes of the commits the user chose to combine.
+ * @param selectedHashes - Hashes of the commits the user chose to combine
+ *   (possibly abbreviated — matched tolerantly against the session SHAs).
  * @param targetHash - The oldest selected commit (the combine target / root).
  * @param combinedMessage - The user's combined message for a squash; omit for a
  *   fixup (the target then keeps its own message).
  */
 export function buildSquashRebasePlan(
   sessionCommits: readonly IRebaseCommit[],
-  selectedHashes: ReadonlySet<string>,
+  selectedHashes: readonly string[],
   targetHash: string,
   combinedMessage?: string
 ): IRebaseAction[] {
+  // Session commits carry full SHAs while a log-surface selection can be
+  // abbreviated — match by the shared tolerant rule, never exact equality.
   return sessionCommits.map((c) => {
-    if (!selectedHashes.has(c.hash)) {
+    if (!selectionContainsCommit(selectedHashes, c.hash)) {
       return { hash: c.hash, action: c.action };
     }
-    if (c.hash === targetHash) {
+    if (hashesReferToSameCommit(c.hash, targetHash)) {
       return combinedMessage === undefined
         ? { hash: c.hash, action: 'pick' as const }
         : { hash: c.hash, action: 'reword' as const, newMessage: combinedMessage };

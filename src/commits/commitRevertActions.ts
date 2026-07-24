@@ -11,14 +11,21 @@ import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { restorePathsToHead } from '../git-core/worktree/restoreToHead';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
-import { resolveCommitSelection, type ICommitSelectionContext } from './commitContextMenuShared';
+import {
+  reloadAndRefresh,
+  resolveCommitSelection,
+  type ICommitSelectionContext,
+} from './commitContextMenuShared';
 
 /** Deps the revert actions reach back into the dispatcher for. */
 export interface ICommitRevertActionsContext extends ICommitSelectionContext {
   readonly gitService: IGitService;
   readonly gitCli: GitCli;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean>;
+  mergeSelectionShape(
+    repo: IRepository,
+    hashes: readonly string[]
+  ): Promise<'none' | 'all' | 'mixed'>;
   pickMainlineParent(
     repo: IRepository,
     hashes: string[]
@@ -42,7 +49,16 @@ export async function handleRevert(
   // Detect merge commits up front. A merge revert needs `-m <parent>`; the
   // selective (per-file) revert path runs `git revert -n` with no `-m` and
   // would fail, so merges skip it and go straight to the mainline-aware path.
-  const hasMerge = await ctx.anyIsMergeCommit(repo, commitHashes).catch(() => false);
+  // `-m` applies to EVERY commit in the single invocation and git rejects it
+  // on a non-merge, so a mixed selection cannot run as one batch.
+  const shape = await ctx.mergeSelectionShape(repo, commitHashes).catch(() => 'none' as const);
+  if (shape === 'mixed') {
+    void vscode.window.showErrorMessage(
+      'Revert cannot mix merge and non-merge commits — revert them separately.'
+    );
+    return;
+  }
+  const hasMerge = shape !== 'none';
 
   // Selective-file revert is only offered on single, non-merge reverts.
   if (commitHashes.length === 1 && !hasMerge) {
@@ -50,8 +66,7 @@ export async function handleRevert(
     if (outcome === 'handled') {
       // selective-revert runs `git commit` internally (mutates
       // HEAD); reload before refresh so panel sees fresh state.
-      await ctx.gitService.reloadRepository(repo);
-      ctx.gitToolWindowProvider.refresh();
+      await reloadAndRefresh(ctx, repo);
       return;
     }
     if (outcome === 'cancelled') {
@@ -100,8 +115,7 @@ export async function handleRevert(
           `Failed to revert: ${sanitizeGitError(reason)}${leftover}`
         );
       }
-      await ctx.gitService.reloadRepository(repo);
-      ctx.gitToolWindowProvider.refresh();
+      await reloadAndRefresh(ctx, repo);
       return;
     }
 
@@ -140,8 +154,7 @@ export async function handleRevert(
     }
     // Synchronously reload before refresh so panel sees fresh
     // `repo.head.commit` after the revert.
-    await ctx.gitService.reloadRepository(repo);
-    ctx.gitToolWindowProvider.refresh();
+    await reloadAndRefresh(ctx, repo);
   } catch (error) {
     void vscode.window.showErrorMessage(formatActionFailureToast('Failed to revert', error));
   }

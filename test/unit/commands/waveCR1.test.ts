@@ -22,6 +22,7 @@
  */
 
 import '../../setup';
+import { moduleFunctionBody } from '../../typed/historyRewriteSources';
 import * as assert from 'assert';
 
 describe('Wave C R1 — review fixes', () => {
@@ -42,10 +43,10 @@ describe('Wave C R1 — review fixes', () => {
   // ─── squash dialog uses untitled-editor + save listener ──────────────────
   describe('squash dialog editor flow', () => {
     it('CommitContextMenuCommands no longer calls showInputBox in the squash handler', () => {
-      const squashIdx = src.indexOf('export async function handleSquashCommits');
-      assert.ok(squashIdx > 0, 'expected _handleSquashCommits definition');
-      const editIdx = src.indexOf('export async function handleEditCommitMessage', squashIdx);
-      const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
+      const squashBody = moduleFunctionBody(
+        'commitSquashActions.ts',
+        'export async function handleSquashCommits'
+      );
       // The handler delegates to _promptForMessageInEditor; that helper
       // is allowed to fall back to showInputBox when the tempfile path
       // fails, but the primary path must NOT be a direct showInputBox
@@ -64,10 +65,10 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('the editor helper opens openTextDocument and registers save+close listeners', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      assert.ok(helperIdx > 0, 'expected _promptForMessageInEditor definition');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const helperBody = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       assert.ok(
         /vscode\.workspace\.openTextDocument\s*\(/.test(helperBody),
         'editor helper must call openTextDocument'
@@ -83,9 +84,10 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('the editor helper opens an editor via showTextDocument', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const helperBody = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       assert.ok(
         /vscode\.window\.showTextDocument\s*\(/.test(helperBody),
         'editor helper must call showTextDocument so the user sees the document'
@@ -93,9 +95,10 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('the editor helper closes the editor + cleans up the tempfile after resolution', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const helperBody = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const helperBody = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       // Editor close uses the tab API, not
       // workbench.action.closeActiveEditor (which would close the
       // currently active editor, not necessarily the squash one).
@@ -117,10 +120,10 @@ describe('Wave C R1 — review fixes', () => {
   // ─── single-drop guards ──────────────────────────────────────────────────
   describe('_handleDropCommit runs allHashesValid + initial-commit guard', () => {
     it('_handleDropCommit checks allHashesValid before routing', () => {
-      const dropIdx = src.indexOf('export async function handleDropCommit(');
-      assert.ok(dropIdx > 0, 'expected _handleDropCommit definition');
-      const multiIdx = src.indexOf('export async function handleDropCommitMulti', dropIdx);
-      const dropBody = src.substring(dropIdx, multiIdx > 0 ? multiIdx : dropIdx + 4000);
+      const dropBody = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommit('
+      );
       assert.ok(
         /allHashesValid\s*\(\s*commitHashes\s*\)/.test(dropBody),
         '_handleDropCommit must call allHashesValid(commitHashes) before routing'
@@ -128,9 +131,10 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('_handleDropCommit resolves the rebase base through _resolveRewriteBase (initial-commit arm)', () => {
-      const dropIdx = src.indexOf('export async function handleDropCommit(');
-      const multiIdx = src.indexOf('export async function handleDropCommitMulti', dropIdx);
-      const dropBody = src.substring(dropIdx, multiIdx > 0 ? multiIdx : dropIdx + 4000);
+      const dropBody = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommit('
+      );
       assert.ok(
         /resolveRewriteBase\s*\(/.test(dropBody),
         '_handleDropCommit must resolve its base via _resolveRewriteBase (warn-then---root for the initial commit)'
@@ -143,9 +147,10 @@ describe('Wave C R1 — review fixes', () => {
   // squash body must ride it and the runner must keep the pins.
   describe('squash second-pause false-success edge', () => {
     it('_handleSquashCommits rides the shared history-rewrite runner', () => {
-      const squashIdx = src.indexOf('export async function handleSquashCommits');
-      const editIdx = src.indexOf('export async function handleEditCommitMessage', squashIdx);
-      const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
+      const squashBody = moduleFunctionBody(
+        'commitSquashActions.ts',
+        'export async function handleSquashCommits'
+      );
       assert.ok(
         /runHistoryRewrite\s*\(/.test(squashBody),
         '_handleSquashCommits must delegate execute + outcome handling to _runHistoryRewrite'
@@ -153,10 +158,10 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it("the runner's success branch pins to status === 'completed'", () => {
-      const runnerIdx = src.indexOf('export async function runHistoryRewrite');
-      assert.ok(runnerIdx > 0, 'expected _runHistoryRewrite definition');
-      const nextIdx = src.indexOf('export async function handleDropCommit(', runnerIdx);
-      const runnerBody = src.substring(runnerIdx, nextIdx > 0 ? nextIdx : runnerIdx + 8000);
+      const runnerBody = moduleFunctionBody(
+        'commitHistoryRewriteRunner.ts',
+        'export async function runHistoryRewrite'
+      );
       assert.ok(
         /result\.status\s*===\s*['"]completed['"]/.test(runnerBody),
         "the runner's success branch must require status === 'completed'"
@@ -164,9 +169,10 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it("the runner surfaces a partial-complete warning when status === 'paused'", () => {
-      const runnerIdx = src.indexOf('export async function runHistoryRewrite');
-      const nextIdx = src.indexOf('export async function handleDropCommit(', runnerIdx);
-      const runnerBody = src.substring(runnerIdx, nextIdx > 0 ? nextIdx : runnerIdx + 8000);
+      const runnerBody = moduleFunctionBody(
+        'commitHistoryRewriteRunner.ts',
+        'export async function runHistoryRewrite'
+      );
       assert.ok(
         /partially complete|partial complete/i.test(runnerBody),
         'the runner must surface a partial-complete warning'
@@ -177,9 +183,10 @@ describe('Wave C R1 — review fixes', () => {
   // ─── drop empty-rebase-window guard ──────────────────────────────────────
   describe('drop multi guards against empty / partial rebase windows', () => {
     it('_handleDropCommitMulti aborts when the plan covers fewer commits than selected', () => {
-      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
-      const nextIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
-      const body = src.substring(handlerIdx, nextIdx > 0 ? nextIdx : handlerIdx + 12000);
+      const body = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
       // The guard compares the count of `drop` actions in the plan to
       // the user's selected count.
       assert.ok(
@@ -196,17 +203,19 @@ describe('Wave C R1 — review fixes', () => {
   // ─── drop modal includes subjects ────────────────────────────────────────
   describe('drop confirm modal includes commit subjects', () => {
     it('_handleDropCommitMulti fetches a subject for each preview row', () => {
-      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
-      const nextIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
-      const body = src.substring(handlerIdx, nextIdx > 0 ? nextIdx : handlerIdx + 12000);
+      const body = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
       assert.ok(
         /previewCommitSubject\s*\(/.test(body),
         '_handleDropCommitMulti must fetch subjects via previewCommitSubject so the modal can disambiguate commits'
       );
       // The shared preview helper is the single place that calls getCommit.
-      const helperIdx = src.indexOf('async function previewCommitSubject');
-      assert.ok(helperIdx > 0, 'expected the previewCommitSubject helper');
-      const helperBody = src.substring(helperIdx, helperIdx + 1200);
+      const helperBody = moduleFunctionBody(
+        'commitContextMenuShared.ts',
+        'export async function previewCommitSubject'
+      );
       assert.ok(
         /ctx\.gitService\.getCommit\s*\(\s*repo\s*,/.test(helperBody),
         'previewCommitSubject must fetch the subject via getCommit'
@@ -217,9 +226,10 @@ describe('Wave C R1 — review fixes', () => {
   // ─── no manual stash bracket in the rebase-editing flows ─────────────────
   describe('drop multi carries no manual stash bracket', () => {
     it('_handleDropCommitMulti rides the shared runner with no stash machinery', () => {
-      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
-      const nextIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
-      const body = src.substring(handlerIdx, nextIdx > 0 ? nextIdx : handlerIdx + 12000);
+      const body = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
       assert.ok(
         /runHistoryRewrite\s*\(/.test(body),
         '_handleDropCommitMulti must delegate execute + outcome handling to _runHistoryRewrite'

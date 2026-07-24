@@ -12,13 +12,20 @@ import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { readConfig } from '../config/configKeys';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
-import { resolveCommitSelection, type ICommitSelectionContext } from './commitContextMenuShared';
+import {
+  reloadAndRefresh,
+  resolveCommitSelection,
+  type ICommitSelectionContext,
+} from './commitContextMenuShared';
 
 /** Deps the cherry-pick action reaches back into the dispatcher for. */
 export interface ICommitCherryPickActionsContext extends ICommitSelectionContext {
   readonly gitService: IGitService;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean>;
+  mergeSelectionShape(
+    repo: IRepository,
+    hashes: readonly string[]
+  ): Promise<'none' | 'all' | 'mixed'>;
   pickMainlineParent(
     repo: IRepository,
     hashes: string[]
@@ -66,11 +73,19 @@ export async function handleCherryPick(
   try {
     // Detect merge commits: a merge needs `-m <parent>` so git knows which
     // parent line is the mainline. Prompt for the parent (parent 1 = default
-    // mainline). If the probe fails (e.g. network/bad hash), fall back to no
-    // mainline — git will surface its own "is a merge" error in that edge case.
-    const hasMerge = await ctx.anyIsMergeCommit(repo, replayOrder).catch(() => false);
+    // mainline). `-m` applies to EVERY commit in the single invocation and
+    // git rejects it on a non-merge, so a mixed selection cannot run as one
+    // batch — refuse it up front. If the probe fails (e.g. network/bad
+    // hash), fall back to no mainline — git surfaces its own error then.
+    const shape = await ctx.mergeSelectionShape(repo, replayOrder).catch(() => 'none' as const);
+    if (shape === 'mixed') {
+      void vscode.window.showErrorMessage(
+        'Cherry-pick cannot mix merge and non-merge commits — pick them separately.'
+      );
+      return;
+    }
     let cherryOptions: { mainline?: number; addCherryPickedFrom?: boolean } | undefined;
-    if (hasMerge) {
+    if (shape === 'all') {
       const picked = await ctx.pickMainlineParent(repo, replayOrder);
       if (picked.cancelled) {
         return;
@@ -150,8 +165,7 @@ export async function handleCherryPick(
     }
     // Synchronously reload before refresh so panel sees fresh
     // `repo.head.commit` after the cherry-pick.
-    await ctx.gitService.reloadRepository(repo);
-    ctx.gitToolWindowProvider.refresh();
+    await reloadAndRefresh(ctx, repo);
   } catch (error) {
     void vscode.window.showErrorMessage(formatActionFailureToast('Failed to cherry-pick', error));
   }

@@ -8,6 +8,7 @@ import { CommitMessageDialog } from './CommitMessageDialog';
 import { formatActionFailureToast } from '../git-core/gitError';
 import { runHistoryRewrite, type ICommitHistoryRewriteContext } from './commitHistoryRewriteRunner';
 import { promptForMessageInEditor } from './commitMessageEditor';
+import { reloadAndRefresh } from './commitContextMenuShared';
 
 /**
  * Edit the commit message of the selected commit.
@@ -108,8 +109,7 @@ export async function handleEditCommitMessage(
         `Updated commit message for ${hash.substring(0, 8)}`
       );
       // The amend rewrote HEAD; reload before refresh.
-      await ctx.gitService.reloadRepository(repo);
-      ctx.gitToolWindowProvider.refresh();
+      await reloadAndRefresh(ctx, repo);
     } else {
       // Non-HEAD: reword via the shared history-rewrite runner.
       await runHistoryRewrite(ctx, repo, {

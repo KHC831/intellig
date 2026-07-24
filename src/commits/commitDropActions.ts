@@ -13,6 +13,10 @@ import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError
 import {
   allHashesDisplayed,
   allHashesValid,
+  previewCommitSubject,
+  reloadAndRefresh,
+  selectionContainsCommit,
+  selectionDisplayBounds,
   STALE_SELECTION_TOAST,
 } from './commitContextMenuShared';
 import {
@@ -246,8 +250,7 @@ export async function handleDropSelectedChanges(
       // Reload so the panel reflects the restored HEAD — the toast already
       // fired, so a reload failure must not mask it.
       try {
-        await ctx.gitService.reloadRepository(repo);
-        ctx.gitToolWindowProvider.refresh();
+        await reloadAndRefresh(ctx, repo);
       } catch (reloadErr) {
         // Non-fatal: the error toast already fired. Log so it stays visible.
         getLogger()
@@ -263,8 +266,7 @@ export async function handleDropSelectedChanges(
 
     // Synchronously reload before refresh so panel sees fresh
     // `repo.head.commit` (history rewrite moved HEAD).
-    await ctx.gitService.reloadRepository(repo);
-    ctx.gitToolWindowProvider.refresh();
+    await reloadAndRefresh(ctx, repo);
   } catch (error) {
     // The initial soft-reset itself failed — HEAD is untouched; still put
     // the user's saved changes back.
@@ -352,8 +354,7 @@ async function dropSelectedChangesViaRebase(
       `${formatActionFailureToast(`Failed to drop changes from ${shortHash}`, error)}. ` +
         `A rebase may be paused — use the Rebase Progress panel to continue or abort.`
     );
-    await ctx.gitService.reloadRepository(repo);
-    ctx.gitToolWindowProvider.refresh();
+    await reloadAndRefresh(ctx, repo);
   }
 }
 
@@ -377,29 +378,6 @@ function refuseMergeCommitDrop(
   return hasMerge;
 }
 
-/**
- * First subject line of a commit for a destructive-op confirm modal,
- * truncated to 60 chars. Races `getCommit` against a 500ms timeout so a
- * slow / hung git process can't stall the modal; timeout and lookup
- * failure both degrade to '' (the caller falls back to the bare
- * short-sha).
- */
-async function previewCommitSubject(
-  ctx: ICommitHistoryRewriteContext,
-  repo: IRepository,
-  hash: string
-): Promise<string> {
-  try {
-    const commit = await Promise.race([
-      ctx.gitService.getCommit(repo, hash),
-      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 500)),
-    ]);
-    return (commit?.message ?? '').split('\n')[0].slice(0, 60);
-  } catch {
-    return '';
-  }
-}
-
 export async function handleDropCommit(
   ctx: ICommitHistoryRewriteContext,
   commitHashes: string[],
@@ -417,7 +395,7 @@ export async function handleDropCommit(
   // hash-format validation applies to BOTH the single- and multi-commit
   // drop paths. Lifted above the N>=2 routing so palette / scripted entry
   // points hitting either branch get the same defence-in-depth. (The
-  // initial-commit arm is handled per-path via _resolveRewriteBase — warn
+  // initial-commit arm is handled per-path via resolveRewriteBase — warn
   // then `--root`, per the reference.)
   if (!allHashesValid(commitHashes)) {
     return;
@@ -560,20 +538,15 @@ export async function handleDropCommitMulti(
   }
   const selectedSet = new Set(commitHashes);
 
-  // Project to display indices and find the oldest selected (largest
-  // index in newest-first display order).
-  const indexByHash = new Map<string, number>();
-  for (let i = 0; i < commitNodes.length; i++) {
-    indexByHash.set(commitNodes[i].hash, i);
+  // Oldest selected commit in newest-first display order.
+  const bounds = selectionDisplayBounds(
+    commitHashes,
+    commitNodes.map((n) => n.hash)
+  );
+  if (!bounds) {
+    return;
   }
-  const indices = commitHashes
-    .map((h) => indexByHash.get(h))
-    .filter((i): i is number => i !== undefined)
-    .slice()
-    .sort((a, b) => a - b);
-  // Newest-first display: largest index = oldest commit.
-  const oldestIdx = indices[indices.length - 1];
-  const oldestHash = commitNodes[oldestIdx].hash;
+  const { oldestHash, oldestIdx } = bounds;
 
   // 4. HEAD-containment gate (before any confirm / stash / rebase): if the
   // oldest selected commit isn't reachable from HEAD, the `oldest^..HEAD`
@@ -635,9 +608,10 @@ export async function handleDropCommitMulti(
       successToast: `Dropped ${commitHashes.length} commits successfully.`,
       buildPlan: (session) => {
         // Each commit in the session stays `pick` unless its hash is in
-        // the selected drop set.
+        // the selected drop set. Session hashes are full SHAs while the
+        // dispatch can be abbreviated — match by the shared tolerant rule.
         const plan = session.commits.map((c) =>
-          selectedSet.has(c.hash)
+          selectionContainsCommit(commitHashes, c.hash)
             ? { hash: c.hash, action: 'drop' as const }
             : { hash: c.hash, action: c.action }
         );

@@ -133,6 +133,25 @@ export async function anyIsMergeCommit(
 }
 
 /**
+ * Classify a selection for the `-m <mainline>` flows: `git cherry-pick` /
+ * `git revert` take ONE `-m` for the whole invocation, and git rejects `-m`
+ * on a non-merge commit — so a mixed selection cannot run as one batch.
+ * 'none' = no merges, 'all' = only merges, 'mixed' = both.
+ */
+export async function mergeSelectionShape(
+  ctx: ICommitGuardsContext,
+  repo: IRepository,
+  hashes: readonly string[]
+): Promise<'none' | 'all' | 'mixed'> {
+  const details = await Promise.all(hashes.map((h) => ctx.gitService.getCommit(repo, h)));
+  const merges = details.filter((c) => c.parents.length > 1).length;
+  if (merges === 0) {
+    return 'none';
+  }
+  return merges === details.length ? 'all' : 'mixed';
+}
+
+/**
  * Ask which parent line is the mainline for a merge commit's `-m <n>`
  * (1-based, the way `git revert`/`git cherry-pick` expect it). Parent 1 is
  * pre-selected — the conventional mainline, i.e. the branch the merge landed

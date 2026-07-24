@@ -8,7 +8,11 @@ import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
 import { formatActionFailureToast } from '../git-core/gitError';
 import { isLocalChangesWouldBeOverwritten } from '../git-core/gitProse';
-import { type ICommitRepoContext } from './commitContextMenuShared';
+import {
+  previewCommitSubject,
+  reloadAndRefresh,
+  type ICommitRepoContext,
+} from './commitContextMenuShared';
 
 /** Deps the checkout/reset actions reach back into the dispatcher for. */
 export interface ICommitCheckoutResetActionsContext extends ICommitRepoContext {
@@ -136,15 +140,9 @@ export async function resetToHere(
 
   const hash = commitHashes[0];
 
-  // Resolve commit subject for the dialog header; fall back to empty.
-  let subject = '';
-  try {
-    const commit = await ctx.gitService.getCommit(repo, hash);
-    subject = commit.message.split('\n')[0];
-    // eslint-disable-next-line no-restricted-syntax -- getCommit already logs the fault at the facade re-throw arm; degrade the dialog subject to blank.
-  } catch {
-    // Leave subject blank — dialog still renders.
-  }
+  // Commit subject for the dialog header; falls back to blank (the shared
+  // helper bounds the lookup at 500ms so a slow git can't stall the dialog).
+  const subject = await previewCommitSubject(ctx, repo, hash);
 
   const currentBranch = extractBranchName(repo.head?.name) ?? '';
   const protectedBranches = ctx.readProtectedBranches();
@@ -162,8 +160,7 @@ export async function resetToHere(
       // sequence reload → refresh inside an IIFE; the watcher's
       // debounced reload remains as a fallback.
       void (async (): Promise<void> => {
-        await ctx.gitService.reloadRepository(repo);
-        ctx.gitToolWindowProvider.refresh();
+        await reloadAndRefresh(ctx, repo);
       })();
     },
   });

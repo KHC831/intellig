@@ -52,6 +52,45 @@ const NO_REBASE = `export async function noop(): Promise<void> {
   return;
 }
 `;
+// HYBRID: a class plus a top-level export function — the real dispatcher's
+// shape. The un-gated class method must still be caught even though the file
+// also matches the module-header form.
+const HYBRID_UNGATED_CLASS = `class C {
+  private async _gatedDrop(hashes: string[]): Promise<void> {
+    if (!(await this._isOldestInCurrentBranch(repo, oldest))) return;
+    await this._rebaseService.startInteractiveRebase(repo, onto);
+  }
+  private async _resurrectedInlineRewrite(hashes: string[]): Promise<void> {
+    await this._rebaseService.startInteractiveRebase(repo, onto);
+  }
+}
+
+export function createC(): C {
+  return new C();
+}
+`;
+const HYBRID_GATED_CLASS = `class C {
+  private async _gatedDrop(hashes: string[]): Promise<void> {
+    if (!(await this._isOldestInCurrentBranch(repo, oldest))) return;
+    await this._rebaseService.startInteractiveRebase(repo, onto);
+  }
+}
+
+export function createC(): C {
+  return new C();
+}
+`;
+// A PRIVATE 0-indent module helper must own its body — it must not fold into
+// the preceding gated export function and inherit its guard.
+const PRIVATE_HELPER_UNGATED = `export async function handleDropCommit(ctx: I): Promise<void> {
+  if (!(await ctx.isOldestInCurrentBranch(repo, oldest))) return;
+  await dropViaRebase(ctx);
+}
+
+async function dropViaRebase(ctx: I): Promise<void> {
+  await ctx.rebaseService.startInteractiveRebase(repo, onto);
+}
+`;
 
 describe('check-rebase-containment-guarded guard', () => {
   it('passes against the real tree', () => {
@@ -83,6 +122,26 @@ describe('check-rebase-containment-guarded guard', () => {
   it('honours the rebase-containment-exempt marker', () => {
     const { status, stderr } = runFixture(MODULE_EXEMPT);
     assert.strictEqual(status, 0, `an exempt rebase-starter must pass; ${stderr}`);
+  });
+
+  it('fails an un-gated CLASS method in a HYBRID file (class + top-level export function)', () => {
+    const { status, stderr } = runFixture(HYBRID_UNGATED_CLASS);
+    assert.strictEqual(status, 1, `the hybrid class arm must keep its teeth; ${stderr}`);
+    assert.ok(
+      stderr.includes('_resurrectedInlineRewrite'),
+      `the un-gated class method must be named as the offender; ${stderr}`
+    );
+  });
+
+  it('passes a HYBRID file whose class rebase-starter is gated', () => {
+    const { status, stderr } = runFixture(HYBRID_GATED_CLASS);
+    assert.strictEqual(status, 0, `a gated hybrid must pass (not fail-closed); ${stderr}`);
+  });
+
+  it('fails an un-gated PRIVATE module helper (no fold into the previous export body)', () => {
+    const { status, stderr } = runFixture(PRIVATE_HELPER_UNGATED);
+    assert.strictEqual(status, 1, `the private helper must own its body; ${stderr}`);
+    assert.ok(stderr.includes('dropViaRebase'), `offender must be the helper; ${stderr}`);
   });
 
   it('is FAIL-CLOSED: a scan matching zero rebase-start sites fails', () => {

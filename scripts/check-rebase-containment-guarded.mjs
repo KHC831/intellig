@@ -22,7 +22,9 @@
  * 2. Heuristic + how it scales + fail-closed
  *    Scope: every .ts file under src/commits/ — the dispatcher class
  *    (class-member methods, 2-space-indent headers) and the extracted action
- *    modules (0-indent `export function`s). Any function whose body STARTS a
+ *    modules (0-indent module functions, export or private — each owns its
+ *    body). Hybrid files (a class plus top-level functions) scan BOTH forms,
+ *    each in its own region. Any function whose body STARTS a
  *    rebase (`startInteractiveRebase(` or `[._]openRebaseEditor(`) must also
  *    invoke the shared containment guard (`[._]isOldestInCurrentBranch(`) —
  *    UNION semantics: the guard must be in THAT function's own body, not merely
@@ -67,8 +69,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // (property/arrow-field decls have a `:`/`?:` before any paren, so excluded).
 const HEADER_CLASS =
   /^ {2}(?:public |private |protected |static |readonly |abstract |get |set |async )*[A-Za-z_$][\w$]*\s*(?:<[^>]*>)?\(/;
-// A module function header: 0-indent `export (async) function name(`.
-const HEADER_MODULE = /^export (?:async )?function [A-Za-z_$][\w$]*\s*(?:<[^>]*>)?\(/;
+// A module function header: 0-indent `(export) (async) function name(` —
+// private module helpers own their bodies too, so a rebase-start inside one
+// can never fold into the preceding export's (possibly gated) body.
+const HEADER_MODULE = /^(?:export )?(?:async )?function [A-Za-z_$][\w$]*\s*(?:<[^>]*>)?\(/;
+// A class declaration opens a range in which 2-space members are headers.
+const CLASS_START = /^(?:export )?(?:abstract )?class\s/;
 
 const REBASE_START = /startInteractiveRebase\(|[._]openRebaseEditor\(/;
 const GUARD = /[._]isOldestInCurrentBranch\(/;
@@ -95,16 +101,25 @@ let rebaseStartSites = 0;
 
 for (const file of files) {
   const lines = readFileSync(file, 'utf8').split('\n');
-  // A file is either class-style (2-space members; bodies at 4+ indent) or
-  // module-style (0-indent `export function`s; bodies at 2-space). Pick the one
-  // header form per file — applying the 2-space class-member regex to a module
-  // file would wrongly match its 2-space-indented `if (`/`for (` control flow.
-  const moduleStyle = lines.some((l) => HEADER_MODULE.test(l));
-  const isHeader = moduleStyle
-    ? (l) => HEADER_MODULE.test(l)
-    : (l) => HEADER_CLASS.test(l);
+  // A file can be a HYBRID: a class plus top-level module functions (the real
+  // dispatcher exports a factory below its class). Headers are therefore
+  // detected per REGION: inside a class range the 2-space member form applies
+  // (method bodies sit at 4+ indent, so 2-space control flow can't match);
+  // outside, the 0-indent module-function form applies (2-space `if (` lines
+  // never match a 0-indent regex).
+  const classRanges = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!CLASS_START.test(lines[i])) continue;
+    let end = i + 1;
+    while (end < lines.length && !/^\}\s*$/.test(lines[end])) end++;
+    classRanges.push([i, end]);
+    i = end;
+  }
+  const inClass = (i) => classRanges.some(([a, b]) => i > a && i < b);
   const headerIdx = [];
-  for (let i = 0; i < lines.length; i++) if (isHeader(lines[i])) headerIdx.push(i);
+  for (let i = 0; i < lines.length; i++) {
+    if (inClass(i) ? HEADER_CLASS.test(lines[i]) : HEADER_MODULE.test(lines[i])) headerIdx.push(i);
+  }
   for (let h = 0; h < headerIdx.length; h++) {
     const start = headerIdx[h];
     const end = h + 1 < headerIdx.length ? headerIdx[h + 1] : lines.length;

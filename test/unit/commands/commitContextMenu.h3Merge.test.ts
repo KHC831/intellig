@@ -238,7 +238,11 @@ describe('CommitContextMenuCommands — merge commit detection (H3)', () => {
       );
     });
 
-    it('passes mainline: 1 when ANY commit in a multi-commit pick is a merge', async () => {
+    it('refuses a mixed merge/non-merge multi-commit pick without invoking git', async () => {
+      // `-m <n>` applies to EVERY commit in a single cherry-pick invocation,
+      // and git rejects `-m` on a non-merge ("mainline was specified but
+      // commit ... is not a merge"), aborting the batch mid-sequence. A mixed
+      // selection therefore cannot be picked in one batch — refuse up front.
       const repo = makeRepo();
       const gitService = makeGitService(repo, {
         parentsByHash: {
@@ -247,12 +251,66 @@ describe('CommitContextMenuCommands — merge commit detection (H3)', () => {
         },
       });
       const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
-      writableWindow().showInformationMessage = async () => undefined;
+      const errors: string[] = [];
+      writableWindow().showErrorMessage = async (msg: string) => {
+        errors.push(msg);
+        return undefined;
+      };
 
       await commands._handleAction('cherryPick', [REGULAR_HASH, MERGE_HASH]);
 
+      assert.strictEqual(
+        gitService.cherryPickCalls.length,
+        0,
+        'a mixed selection must not reach git'
+      );
+      assert.ok(
+        errors.some((e) => /cannot mix merge and non-merge/i.test(e)),
+        `expected the mixed-selection refusal toast; got ${JSON.stringify(errors)}`
+      );
+    });
+
+    it('passes mainline: 1 for an all-merge multi-commit pick', async () => {
+      const repo = makeRepo();
+      const MERGE2 = 'ff33ff33ff33ff33';
+      const gitService = makeGitService(repo, {
+        parentsByHash: {
+          [MERGE_HASH]: ['p1', 'p2'],
+          [MERGE2]: ['p3', 'p4'],
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
+      writableWindow().showInformationMessage = async () => undefined;
+
+      await commands._handleAction('cherryPick', [MERGE2, MERGE_HASH]);
+
       assert.strictEqual(gitService.cherryPickCalls.length, 1);
       assert.strictEqual(gitService.cherryPickCalls[0].options?.mainline, 1);
+    });
+
+    it('refuses a mixed merge/non-merge multi-commit revert without invoking git', async () => {
+      // Same single-invocation `-m` constraint as cherry-pick.
+      const repo = makeRepo();
+      const gitService = makeGitService(repo, {
+        parentsByHash: {
+          [MERGE_HASH]: ['p1', 'p2'],
+          [REGULAR_HASH]: ['p1'],
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
+      const errors: string[] = [];
+      writableWindow().showErrorMessage = async (msg: string) => {
+        errors.push(msg);
+        return undefined;
+      };
+
+      await commands._handleAction('revert', [REGULAR_HASH, MERGE_HASH]);
+
+      assert.strictEqual(gitService.revertCalls.length, 0, 'a mixed selection must not reach git');
+      assert.ok(
+        errors.some((e) => /cannot mix merge and non-merge/i.test(e)),
+        `expected the mixed-selection refusal toast; got ${JSON.stringify(errors)}`
+      );
     });
   });
 

@@ -19,7 +19,7 @@ import { type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import { detectLocalChanges } from '../git-core/ops/preservedChanges';
 import { AUTOSTASH_PARKED_WARNING } from '../git-core/rebaseAutostash';
 import { findBlockingOperation, resolveGitDir } from '../git-core/gitDirMarkers';
-import { type ICommitSelectionContext } from './commitContextMenuShared';
+import { reloadAndRefresh, type ICommitSelectionContext } from './commitContextMenuShared';
 
 /** Deps the history-rewrite unit reaches back into the dispatcher for. */
 export interface ICommitHistoryRewriteContext extends ICommitSelectionContext {
@@ -181,8 +181,7 @@ export async function runHistoryRewrite(
   }
   // HEAD may have moved on every executed arm (completed rewrite, replayed
   // prefix at a pause, autostash reapply); reload before refresh.
-  await ctx.gitService.reloadRepository(repo);
-  ctx.gitToolWindowProvider.refresh();
+  await reloadAndRefresh(ctx, repo);
 }
 
 /**

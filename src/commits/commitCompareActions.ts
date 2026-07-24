@@ -112,41 +112,26 @@ export async function compareVersions(
     return;
   }
 
-  // The webview hands hashes in newest-first display order. See
-  // ADR-009 section 5 (selection mutations come in two flavours) and the
-  // WARNING on `getSelectedCommits()` for the contract:
-  // newest-first is the canonical projection from the rendered log.
-  // Project against the dispatched
-  // commitNodes instead of `getExtendedLogState()` so the handler
-  // stays decoupled from provider state.
-  //
-  // The dispatcher already aborts
-  // upstream when a hash isn't in the rendered commitNodes, AND the
-  // in-order guard immediately above also catches it; the swap-
-  // fallback that lived here earlier is dead. Webview-driven dispatches
-  // see the dispatcher guard plus the in-order check; an external caller passing
-  // default `commitNodes = []` will see EVERY hash as stale and get
-  // the stale-selection toast — they must supply a non-empty
-  // `commitNodes: readonly IMenuStateNode[]` covering both targeted
-  // hashes. The canonical projection lives in
-  // `GitToolWindowProvider._handleCommitContextMenu`, which maps
-  // `getExtendedLogState().commitNodes` to
-  // `{hash, parentCount: parents.length}` per node; programmatic
-  // callers should mirror that projection (or call into the same
-  // routing path). The idx0 / idx1 projection here only runs after
-  // both guards, so both indices are guaranteed found.
+  // The webview hands hashes in newest-first display order (ADR-009
+  // section 5; see the WARNING on `getSelectedCommits()`). Project against
+  // the dispatched commitNodes instead of `getExtendedLogState()` so the
+  // handler stays decoupled from provider state. An external caller passing
+  // the default `commitNodes = []` sees EVERY hash as stale and gets the
+  // stale-selection toast — it must supply a non-empty commitNodes covering
+  // both targeted hashes, mirroring the canonical projection in
+  // `GitToolWindowProvider._handleCommitContextMenu`. The idx0 / idx1
+  // projection only runs after both guards, so both indices are found.
   const idx0 = displayOrder.indexOf(commitHashes[0]);
   const idx1 = displayOrder.indexOf(commitHashes[1]);
   // Larger display index = older commit.
   const oldHash = idx0 > idx1 ? commitHashes[0] : commitHashes[1];
   const newHash = idx0 > idx1 ? commitHashes[1] : commitHashes[0];
 
-  // `git diff --name-only oldHash..newHash`
-  // gives ONLY the changes from oldHash to newHash, the right
-  // semantic for "compare these two commits". The earlier path used
-  // `getMultiCommitDiff` which returns CUMULATIVE changes across all
-  // listed commits — wrong for non-adjacent endpoints where the user
-  // explicitly skipped the intermediates.
+  // `git diff --name-only oldHash..newHash` gives ONLY the changes
+  // between the two endpoints — the right semantic for "compare these two
+  // commits"; a cumulative multi-commit diff would be wrong for
+  // non-adjacent endpoints where the user explicitly skipped the
+  // intermediates.
   const result = await ctx.gitCli.exec(['diff', '--name-only', '-z', `${oldHash}..${newHash}`], {
     cwd: repo.rootUri.fsPath,
     throwOnError: false,

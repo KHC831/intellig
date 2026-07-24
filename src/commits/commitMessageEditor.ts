@@ -178,7 +178,7 @@ export async function promptForMessageInEditor(
 
 /**
  * single-line `showInputBox` fallback for
- * `_promptForMessageInEditor`. Extracted so the two failure sites
+ * {@link promptForMessageInEditor}. Extracted so the two failure sites
  * (tempfile write fail, openTextDocument fail) share one implementation.
  * The caller is expected to surface the heads-up info toast before
  * delegating here. Note this fallback is inherently single-line — a

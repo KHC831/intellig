@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import type { IRepository } from '../git-core/interfaces/IGitService';
+import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 
 /**
  * Base dispatcher deps for every commit action module: commit-targeted repo
@@ -30,11 +30,12 @@ export async function resolveCommitSelection(
   ctx: ICommitSelectionContext,
   commitHashes: readonly string[]
 ): Promise<IRepository | undefined> {
-  if (
-    commitHashes.length === 0 ||
-    !allHashesValid(commitHashes) ||
-    ctx.isCrossRepoSelection(commitHashes)
-  ) {
+  if (commitHashes.length === 0) {
+    return undefined;
+  }
+  // Cross-repo before validity: the probe owns a user-facing warning toast,
+  // which must fire even when the selection also carries a malformed hash.
+  if (ctx.isCrossRepoSelection(commitHashes) || !allHashesValid(commitHashes)) {
     return undefined;
   }
   return ctx.getRepositoryForCommit(commitHashes[0]);
@@ -72,6 +73,21 @@ export const STALE_SELECTION_TOAST =
   'Commit selection changed since the menu opened — please retry.';
 
 /**
+ * Abbreviation-tolerant commit-hash equality: a log-surface selection can
+ * carry an abbreviated hash while git output (sessions, merge-base, HEAD)
+ * carries the full SHA. A colliding prefix cannot slip through — git rejects
+ * an ambiguous abbreviation before any flow reaches a comparison.
+ */
+export function hashesReferToSameCommit(a: string, b: string): boolean {
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
+/** Set-membership form of {@link hashesReferToSameCommit}. */
+export function selectionContainsCommit(selected: readonly string[], hash: string): boolean {
+  return selected.some((s) => hashesReferToSameCommit(s, hash));
+}
+
+/**
  * In-order guard shared by the multi-commit handlers: every dispatched hash
  * must still be present in the rendered display order, otherwise the
  * selection is stale (the log re-rendered between menu-open and dispatch).
@@ -88,4 +104,75 @@ export function allHashesDisplayed(
     return false;
   }
   return true;
+}
+
+/**
+ * Project a selection onto the rendered newest-first display order.
+ * Newest-first means smallest index = newest, largest = oldest — the
+ * invariant every multi-commit flow (patch range, drop, squash) derives
+ * its rewrite base from, single-sourced here. Hashes missing from the
+ * order are ignored (callers run {@link allHashesDisplayed} first);
+ * returns undefined when none remain.
+ */
+export function selectionDisplayBounds(
+  commitHashes: readonly string[],
+  displayOrder: readonly string[]
+): { newestHash: string; newestIdx: number; oldestHash: string; oldestIdx: number } | undefined {
+  const indexByHash = new Map<string, number>();
+  for (let i = 0; i < displayOrder.length; i++) {
+    indexByHash.set(displayOrder[i], i);
+  }
+  const indices = commitHashes
+    .map((h) => indexByHash.get(h))
+    .filter((i): i is number => i !== undefined)
+    .sort((a, b) => a - b);
+  if (indices.length === 0) {
+    return undefined;
+  }
+  const newestIdx = indices[0];
+  const oldestIdx = indices[indices.length - 1];
+  return {
+    newestHash: displayOrder[newestIdx],
+    newestIdx,
+    oldestHash: displayOrder[oldestIdx],
+    oldestIdx,
+  };
+}
+
+/**
+ * Reload-before-refresh after a HEAD-moving operation, so the panel
+ * renders against fresh `repo.head.commit`. The ordering is load-bearing;
+ * every happy path routes through here instead of re-typing the pair.
+ */
+export async function reloadAndRefresh(
+  ctx: {
+    readonly gitService: Pick<IGitService, 'reloadRepository'>;
+    readonly gitToolWindowProvider: { refresh(): void };
+  },
+  repo: IRepository
+): Promise<void> {
+  await ctx.gitService.reloadRepository(repo);
+  ctx.gitToolWindowProvider.refresh();
+}
+
+/**
+ * First subject line of a commit for a confirm modal / dialog header,
+ * truncated to 60 chars. Races `getCommit` against a 500ms timeout so a
+ * slow / hung git process can't stall the UI; timeout and lookup failure
+ * both degrade to '' (callers fall back to the bare short-sha or blank).
+ */
+export async function previewCommitSubject(
+  ctx: { readonly gitService: Pick<IGitService, 'getCommit'> },
+  repo: IRepository,
+  hash: string
+): Promise<string> {
+  try {
+    const commit = await Promise.race([
+      ctx.gitService.getCommit(repo, hash),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 500)),
+    ]);
+    return (commit?.message ?? '').split('\n')[0].slice(0, 60);
+  } catch {
+    return '';
+  }
 }

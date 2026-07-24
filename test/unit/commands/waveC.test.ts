@@ -14,6 +14,7 @@
  */
 
 import '../../setup';
+import { moduleFunctionBody } from '../../typed/historyRewriteSources';
 import * as assert from 'assert';
 import { okAsync } from 'neverthrow';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
@@ -1181,15 +1182,14 @@ describe('Rebase-driven multi-commit ops', () => {
       // reference the const so future copy edits land in one place.
       // Find the handlers' definitions and confirm each
       // references the const.
-      const { readHistoryRewriteFamily } = await import('../../typed/historyRewriteSources');
-      const mod = readHistoryRewriteFamily();
-      const dropIdx = mod.indexOf('export async function handleDropCommitMulti');
-      const squashIdx = mod.indexOf('export async function handleSquashCommits');
-      assert.ok(dropIdx > 0, 'expected handleDropCommitMulti definition');
-      assert.ok(squashIdx > 0, 'expected handleSquashCommits definition');
-      const dropBody = mod.substring(dropIdx, squashIdx);
-      const editIdx = mod.indexOf('export async function handleEditCommitMessage', squashIdx);
-      const squashBody = mod.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
+      const dropBody = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
+      const squashBody = moduleFunctionBody(
+        'commitSquashActions.ts',
+        'export async function handleSquashCommits'
+      );
       assert.ok(
         /STALE_SELECTION_TOAST\b/.test(dropBody),
         '_handleDropCommitMulti must reference STALE_SELECTION_TOAST'

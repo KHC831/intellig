@@ -37,6 +37,7 @@ import {
   type ICommitCheckoutResetActionsContext,
 } from './commitCheckoutResetActions';
 import {
+  mergeSelectionShape,
   isCommitPushed,
   isNotOnProtectedBranch,
   anyIsMergeCommit,
@@ -558,11 +559,7 @@ export class CommitContextMenuCommands {
     if (!repo) {
       return;
     }
-    await this._handleDropSelectedChanges(repo, hash);
-  }
-
-  private _handleDropSelectedChanges(repo: IRepository, hash: string): Promise<void> {
-    return handleDropSelectedChanges(this._historyRewriteContext(), repo, hash);
+    await handleDropSelectedChanges(this._historyRewriteContext(), repo, hash);
   }
 
   /** Core repo-resolution deps shared by every action-module context. */
@@ -602,7 +599,8 @@ export class CommitContextMenuCommands {
       gitService: this._gitService,
       gitToolWindowProvider: this._gitToolWindowProvider,
       ...this._selectionContext(),
-      anyIsMergeCommit: (repo, hashes) => anyIsMergeCommit(this._guardsContext(), repo, hashes),
+      mergeSelectionShape: (repo, hashes) =>
+        mergeSelectionShape(this._guardsContext(), repo, hashes),
       pickMainlineParent: (repo, hashes) => pickMainlineParent(this._guardsContext(), repo, hashes),
       isCommitPushed: (cwd, hash, probeFailureMeansPushed) =>
         isCommitPushed(this._guardsContext(), cwd, hash, probeFailureMeansPushed),
@@ -639,7 +637,8 @@ export class CommitContextMenuCommands {
       gitCli: this._gitCli,
       gitToolWindowProvider: this._gitToolWindowProvider,
       ...this._selectionContext(),
-      anyIsMergeCommit: (repo, hashes) => anyIsMergeCommit(this._guardsContext(), repo, hashes),
+      mergeSelectionShape: (repo, hashes) =>
+        mergeSelectionShape(this._guardsContext(), repo, hashes),
       pickMainlineParent: (repo, hashes) => pickMainlineParent(this._guardsContext(), repo, hashes),
       handleRevertConflicts: (repo, conflicts, commitHashes) =>
         this._handleRevertConflicts(repo, conflicts, commitHashes),

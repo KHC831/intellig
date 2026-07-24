@@ -15,6 +15,7 @@ import {
   isNoOperationInProgress,
   type ICommitHistoryRewriteContext,
 } from './commitHistoryRewriteRunner';
+import { reloadAndRefresh } from './commitContextMenuShared';
 
 /**
  * "Interactively Rebase from Here" — open the rebase plan editor with the
@@ -85,8 +86,7 @@ export async function handleInteractiveRebase(
     const result = await ctx.openRebaseEditor(repo, onto);
     if (result.executed) {
       // The rebase moved HEAD; reload before refresh.
-      await ctx.gitService.reloadRepository(repo);
-      ctx.gitToolWindowProvider.refresh();
+      await reloadAndRefresh(ctx, repo);
     }
   } catch (error) {
     void vscode.window.showErrorMessage(
@@ -142,10 +142,13 @@ export async function runAutosquashNow(
       return;
     }
     // The dialog committed onto HEAD — that IS the fixup!/squash! commit.
-    const created = await ctx.gitService.getCommit(repo, 'HEAD');
+    // Independent lookups; fetch concurrently.
+    const [created, target] = await Promise.all([
+      ctx.gitService.getCommit(repo, 'HEAD'),
+      mode === 'squash' ? ctx.gitService.getCommit(repo, targetHash) : Promise.resolve(undefined),
+    ]);
     let combinedMessage: string | undefined;
-    if (mode === 'squash') {
-      const target = await ctx.gitService.getCommit(repo, targetHash);
+    if (mode === 'squash' && target) {
       const extra = created.message
         .split('\n')
         .filter((line, i) => !(i === 0 && line.startsWith('squash!')))

@@ -27,6 +27,7 @@
  */
 
 import '../../setup';
+import { moduleFunctionBody } from '../../typed/historyRewriteSources';
 import * as assert from 'assert';
 import { okAsync } from 'neverthrow';
 import * as vscode from 'vscode';
@@ -57,9 +58,10 @@ describe('structural pins', () => {
   // Tab API close
   describe('squash close uses tab API, not closeActiveEditor', () => {
     it('_promptForMessageInEditor no longer calls workbench.action.closeActiveEditor', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       assert.ok(
         !/workbench\.action\.closeActiveEditor/.test(body),
         'pre-R2 closeActiveEditor call must be replaced'
@@ -67,9 +69,10 @@ describe('structural pins', () => {
     });
 
     it('_promptForMessageInEditor uses vscode.window.tabGroups + TabInputText to close', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       assert.ok(/vscode\.window\.tabGroups/.test(body), 'expected vscode.window.tabGroups usage');
       assert.ok(/TabInputText/.test(body), 'expected TabInputText instanceof check');
       assert.ok(/tabGroups\.close\s*\(/.test(body), 'expected tabGroups.close(...) call');
@@ -79,9 +82,10 @@ describe('structural pins', () => {
   // Save-As detection
   describe('Save-As detection in onDidSaveTextDocument', () => {
     it('_promptForMessageInEditor compares saved.uri.fsPath against the original', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       // The listener must compare the saved URI's fsPath
       // against the original tempfile's fsPath to detect Save-As.
       assert.ok(
@@ -92,9 +96,10 @@ describe('structural pins', () => {
     });
 
     it('Save-As branch surfaces a clarifying toast and treats as cancel', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       // The toast is now templated by the caller's opName
       // (`${opts.opName} cancelled — message was saved to ...`) so the
       // editor helper serves squash + reword; pin the stable phrasing.
@@ -115,17 +120,19 @@ describe('structural pins', () => {
     });
 
     it('squash and drop-multi delegate to the shared runner', () => {
-      const squashIdx = src.indexOf('export async function handleSquashCommits');
-      const editIdx = src.indexOf('export async function handleEditCommitMessage', squashIdx);
-      const squashBody = src.substring(squashIdx, editIdx > 0 ? editIdx : squashIdx + 12000);
+      const squashBody = moduleFunctionBody(
+        'commitSquashActions.ts',
+        'export async function handleSquashCommits'
+      );
       assert.ok(
         /runHistoryRewrite\s*\(/.test(squashBody),
         '_handleSquashCommits must ride _runHistoryRewrite'
       );
 
-      const dropIdx = src.indexOf('export async function handleDropCommitMulti');
-      const nextIdx = src.indexOf('export async function handleSquashCommits', dropIdx);
-      const dropBody = src.substring(dropIdx, nextIdx > 0 ? nextIdx : dropIdx + 12000);
+      const dropBody = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
       assert.ok(
         /runHistoryRewrite\s*\(/.test(dropBody),
         '_handleDropCommitMulti must ride _runHistoryRewrite'
@@ -143,9 +150,10 @@ describe('structural pins', () => {
     });
 
     it('tempfile name template includes the random suffix between Date.now() and COMMIT_EDITMSG', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       // Template literal uses both Date.now() and a random hex suffix
       // before the COMMIT_EDITMSG marker.
       assert.ok(
@@ -158,9 +166,10 @@ describe('structural pins', () => {
   // Fallback heads-up toast
   describe('fallback to showInputBox surfaces a toast', () => {
     it('the helper surfaces an info toast before falling back to showInputBox', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       assert.ok(
         /Multi-line message editor unavailable; using single-line fallback/.test(body),
         'fallback branch must surface a heads-up info toast'
@@ -171,9 +180,10 @@ describe('structural pins', () => {
   // viewColumn: Beside
   describe('squash editor opens beside the active column', () => {
     it('showTextDocument is called with viewColumn: vscode.ViewColumn.Beside', () => {
-      const helperIdx = src.indexOf('export async function promptForMessageInEditor');
-      const helperEnd = src.indexOf('\n}', helperIdx + 200);
-      const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
+      const body = moduleFunctionBody(
+        'commitMessageEditor.ts',
+        'export async function promptForMessageInEditor'
+      );
       assert.ok(
         /viewColumn:\s*vscode\.ViewColumn\.Beside/.test(body),
         'expected showTextDocument({ ..., viewColumn: vscode.ViewColumn.Beside })'
@@ -184,9 +194,10 @@ describe('structural pins', () => {
   // getCommit timeout
   describe('modal preview wraps getCommit in a 500ms timeout', () => {
     it('previewCommitSubject races getCommit against a 500ms setTimeout', () => {
-      const helperIdx = src.indexOf('async function previewCommitSubject');
-      assert.ok(helperIdx > 0, 'expected the previewCommitSubject helper');
-      const body = src.substring(helperIdx, helperIdx + 1200);
+      const body = moduleFunctionBody(
+        'commitContextMenuShared.ts',
+        'export async function previewCommitSubject'
+      );
       assert.ok(
         /Promise\.race\s*\(/.test(body),
         'expected Promise.race(...) to bound getCommit on the modal preview'
@@ -196,11 +207,14 @@ describe('structural pins', () => {
         'expected a 500ms setTimeout in the race'
       );
       // Both drop confirm paths ride the helper.
-      const singleIdx = src.indexOf('export async function handleDropCommit(');
-      const multiIdx = src.indexOf('export async function handleDropCommitMulti');
-      const squashIdx = src.indexOf('export async function handleSquashCommits', multiIdx);
-      const singleBody = src.substring(singleIdx, multiIdx);
-      const multiBody = src.substring(multiIdx, squashIdx > 0 ? squashIdx : multiIdx + 12000);
+      const singleBody = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommit('
+      );
+      const multiBody = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
       assert.ok(
         /previewCommitSubject\s*\(/.test(singleBody),
         'single drop must use the preview helper'
@@ -215,9 +229,10 @@ describe('structural pins', () => {
   // plan-coverage compares against selectedSet.size
   describe('plan-coverage check uses selectedSet.size', () => {
     it('the partial-coverage guard compares against selectedSet.size, not commitHashes.length', () => {
-      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
-      const squashIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
-      const body = src.substring(handlerIdx, squashIdx > 0 ? squashIdx : handlerIdx + 12000);
+      const body = moduleFunctionBody(
+        'commitDropActions.ts',
+        'export async function handleDropCommitMulti'
+      );
       assert.ok(
         /planDropCount\s*<\s*selectedSet\.size/.test(body),
         'partial-coverage guard must compare against selectedSet.size'

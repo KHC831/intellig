@@ -13,6 +13,7 @@ import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolW
 import {
   allHashesDisplayed,
   resolveCommitSelection,
+  selectionDisplayBounds,
   type ICommitSelectionContext,
 } from './commitContextMenuShared';
 
@@ -78,8 +79,6 @@ export async function createPatch(
     }
     stdout = result.stdout;
   } catch (error) {
-    // git exec failure — keep the historical "Failed to create patch"
-    // phrasing so existing tests + docs still match.
     void vscode.window.showErrorMessage(formatActionFailureToast('Failed to create patch', error));
     return;
   }
@@ -138,19 +137,12 @@ function deriveFormatPatchCommitSpec(
     return undefined;
   }
 
-  // Project to display indices for contiguity + range-form bounds.
-  const indexByHash = new Map<string, number>();
-  for (let i = 0; i < displayOrder.length; i++) {
-    indexByHash.set(displayOrder[i], i);
+  // Range-form bounds in newest-first display order.
+  const bounds = selectionDisplayBounds(commitHashes, displayOrder);
+  if (!bounds) {
+    return undefined;
   }
-  const indices = commitHashes
-    .map((h) => indexByHash.get(h))
-    .filter((i): i is number => i !== undefined)
-    .slice()
-    .sort((a, b) => a - b);
-  // Display order (newest-first): smallest index = newest commit.
-  const newestHash = displayOrder[indices[0]];
-  const oldestHash = displayOrder[indices[indices.length - 1]];
+  const { newestHash, oldestHash } = bounds;
 
   const isContiguous = isSelectionContiguous(new Set(commitHashes), displayOrder);
   const oldestParents = commitNodes.find((n) => n.hash === oldestHash)?.parentCount ?? 1;
@@ -159,6 +151,7 @@ function deriveFormatPatchCommitSpec(
   }
   // Sort descending by display index → oldest-first replay order
   // (newest-first display means larger index = older).
+  const indexByHash = new Map(displayOrder.map((h, i) => [h, i] as const));
   return [...commitHashes]
     .filter((h) => indexByHash.has(h))
     .sort((a, b) => (indexByHash.get(b) ?? 0) - (indexByHash.get(a) ?? 0));

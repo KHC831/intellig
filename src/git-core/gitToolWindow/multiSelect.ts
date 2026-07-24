@@ -103,6 +103,13 @@ export interface IMultiSelectMenuInputs {
   /** `true` when at least one selected commit has ≥ 2 parents (a merge). */
   hasMergeCommitInSelection: boolean;
   /**
+   * `true` when the selection carries BOTH merge and non-merge commits.
+   * `git cherry-pick` / `git revert` take one `-m <mainline>` for the whole
+   * invocation and reject it on a non-merge, so a mixed batch cannot run —
+   * the menu mirrors the handlers' refusal. Optional: defaults to false.
+   */
+  hasMixedMergeSelection?: boolean;
+  /**
    * `true` when EVERY selected commit is contained in the current branch (each
    * an ancestor of HEAD, inclusive). Gates the history-rewriting actions —
    * Fixup / Squash Into / squashCommits / dropCommit / editCommitMessage /
@@ -329,6 +336,7 @@ export function computeMenuEnableState(
   } = inputs;
   const isFirstParentChain = inputs.isFirstParentChain ?? true;
   const hasMergeInRewriteRange = inputs.hasMergeInRewriteRange ?? false;
+  const hasMixedMergeSelection = inputs.hasMixedMergeSelection ?? false;
   const isSingle = selectedCount === 1;
   const isAtLeastOne = selectedCount >= 1;
   const isAtLeastTwo = selectedCount >= 2;
@@ -338,8 +346,10 @@ export function computeMenuEnableState(
     copyHash: isAtLeastOne,
     createPatch: isAtLeastOne,
     createPatchToClipboard: isAtLeastOne,
-    cherryPick: isAtLeastOne,
-    revert: isAtLeastOne,
+    // One `-m` per invocation: a mixed merge/non-merge batch cannot run
+    // (git rejects `-m` on the non-merges); the handlers refuse it too.
+    cherryPick: isAtLeastOne && !hasMixedMergeSelection,
+    revert: isAtLeastOne && !hasMixedMergeSelection,
     // Drop must reject merge commits. Silent history-
     // flattening (a multi-parent commit dropped via interactive rebase
     // loses one parent's reachable history without warning) is a
@@ -450,15 +460,17 @@ export function computeMenuState(
     ((knownSelected[0] === headHash && headHash !== '') ||
       (headHashes?.has(knownSelected[0]) ?? false));
 
-  // Merge-commit detection.
-  let hasMergeCommitInSelection = false;
+  // Merge-commit detection: any-merge plus the mixed shape (both merge and
+  // non-merge in one selection — see hasMixedMergeSelection).
+  let mergeCount = 0;
   for (const h of knownSelected) {
     const idx = indexByHash.get(h);
     if (idx !== undefined && commitNodes[idx].parentCount >= 2) {
-      hasMergeCommitInSelection = true;
-      break;
+      mergeCount++;
     }
   }
+  const hasMergeCommitInSelection = mergeCount > 0;
+  const hasMixedMergeSelection = mergeCount > 0 && mergeCount < selectedCount;
 
   // Ancestor walk over the loaded window following parent hashes. The log
   // window is a topo-ordered prefix, so every descendant of an in-window
@@ -529,6 +541,7 @@ export function computeMenuState(
     isContiguous,
     isHeadInSelection,
     hasMergeCommitInSelection,
+    hasMixedMergeSelection,
     isSelectedInCurrentBranch,
     isFirstParentChain,
     hasMergeInRewriteRange,

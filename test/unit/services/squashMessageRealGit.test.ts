@@ -125,7 +125,7 @@ describe('Squash Commits combined message (real git)', () => {
     const userMessage = 'Squashed combined message\n\nedited body that the user typed';
     const plan = buildSquashRebasePlan(
       session,
-      new Set([hashB, hashC]),
+      [hashB, hashC],
       hashB, // oldest selected = squash target
       userMessage
     );
