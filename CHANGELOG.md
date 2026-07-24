@@ -10,6 +10,14 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.1] - 2026-07-24
+
+### Fixed
+
+- Selecting text in the merge window no longer paints the highlight over the characters — selected text is readable again.
+- Cherry-pick and revert refuse a selection that mixes merge and non-merge commits up front, instead of failing partway through the batch.
+- Various internal hardening: the commit context menu was rebuilt into focused modules, its safety guards now tolerate abbreviated commit hashes, and new guard scripts fence every history-rewriting code path.
+
 ## [0.5.0] - 2026-07-21
 
 ### Added
