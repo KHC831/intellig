@@ -18,11 +18,8 @@ import '../setup';
 import { driveBranchMenuCommand } from '../typed/branchMenuDriver';
 import { okAsync } from 'neverthrow';
 import * as assert from 'assert';
-import {
-  planAlignLocal,
-  IAlignLocalBranchInput,
-  BranchContextMenuCommands,
-} from '../../src/branches/BranchContextMenuCommands';
+import { BranchContextMenuCommands } from '../../src/branches/BranchContextMenuCommands';
+import { planAlignLocal, IAlignLocalBranchInput } from '../../src/branches/branchUpdateActions';
 import { BranchTreeItem, BranchTreeProvider } from '../../src/branches/BranchTreeProvider';
 import {
   IGitService,
