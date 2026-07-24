@@ -1026,6 +1026,116 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('3'), `Warning should contain conflict count 3, got: "${msg}"`);
     });
 
+    it('_handleTagCherryPick cherry-picks the tag commit and toasts success', async () => {
+      const infoTracker = installInfoMessageTracker();
+      let pickedHashes: string[] | undefined;
+      const gitService = createMockGitService({
+        cherryPick: (_repo, hashes) => {
+          pickedHashes = hashes;
+          return okAsync({ success: true });
+        },
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService)
+      );
+
+      await driveBranchMenuCommand(
+        commands,
+        'intellig.tag.cherryPick',
+        createTagTreeItem('v3.0.0')
+      );
+
+      assert.deepStrictEqual(pickedHashes, ['abc1234'], 'cherry-pick targets the tag commit');
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes('v3.0.0')),
+        'success toast should mention the tag'
+      );
+    });
+
+    it('_handleTagCherryPick routes conflicts into the Resolve Conflicts dialog (operation: cherryPick)', async () => {
+      const dialogOpens: Array<{ operation: string; target?: string }> = [];
+      const conflictService = {
+        getConflictedFiles: async () => [{ path: 'a.ts', resolved: false }],
+        openResolveConflictsDialog: async (
+          _repo: unknown,
+          _conflicts: unknown,
+          opContext: { operation: string; target?: string }
+        ) => {
+          dialogOpens.push({ operation: opContext.operation, target: opContext.target });
+        },
+      } as unknown as IConflictResolutionService;
+      const gitService = createMockGitService({
+        cherryPick: () => okAsync({ success: false, conflicts: ['a.ts', 'b.ts'] }),
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService),
+        conflictService
+      );
+
+      await driveBranchMenuCommand(
+        commands,
+        'intellig.tag.cherryPick',
+        createTagTreeItem('v3.1.0')
+      );
+
+      assert.deepStrictEqual(dialogOpens, [{ operation: 'cherryPick', target: 'v3.1.0' }]);
+    });
+
+    it('_handleTagCherryPick warns with the conflict count when no conflict dialog is wired', async () => {
+      const warningTracker = installWarningMessageTracker();
+      const gitService = createMockGitService({
+        cherryPick: () => okAsync({ success: false, conflicts: ['a.ts', 'b.ts'] }),
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService)
+      );
+
+      await driveBranchMenuCommand(
+        commands,
+        'intellig.tag.cherryPick',
+        createTagTreeItem('v3.2.0')
+      );
+
+      assert.ok(warningTracker.calls.length > 0, 'a conflict without a dialog must warn');
+      assert.ok(
+        warningTracker.calls[0].message.includes('2'),
+        `warning should carry the conflict count 2, got: "${warningTracker.calls[0].message}"`
+      );
+    });
+
+    it('_handleTagMergeIntoCurrent routes conflicts into the Resolve Conflicts dialog (operation: merge)', async () => {
+      const dialogOpens: Array<{ operation: string; target?: string }> = [];
+      const conflictService = {
+        getConflictedFiles: async () => [{ path: 'a.ts', resolved: false }],
+        openResolveConflictsDialog: async (
+          _repo: unknown,
+          _conflicts: unknown,
+          opContext: { operation: string; target?: string }
+        ) => {
+          dialogOpens.push({ operation: opContext.operation, target: opContext.target });
+        },
+      } as unknown as IConflictResolutionService;
+      const gitService = createMockGitService({
+        mergeBranch: async () => ({ success: false, conflicts: ['a.ts'] }),
+      });
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        createMockBranchTreeProvider(gitService),
+        conflictService
+      );
+
+      await driveBranchMenuCommand(
+        commands,
+        'intellig.tag.mergeIntoCurrent',
+        createTagTreeItem('v4.0.0')
+      );
+
+      assert.deepStrictEqual(dialogOpens, [{ operation: 'merge', target: 'v4.0.0' }]);
+    });
+
     it('_handleRebaseCurrentOnto should show warning with conflict count', async () => {
       const warningTracker = installWarningMessageTracker();
 
