@@ -44,13 +44,11 @@ export async function checkoutRevision(
         throw e;
       }
     );
-    // Synchronously reload after checkout so the panel reload
-    // runs against fresh `repo.head.commit` (the user's stated bug).
-    await ctx.gitService.reloadRepository(repo);
+    // Reload-before-refresh so the panel renders fresh `repo.head.commit`.
+    await reloadAndRefresh(ctx, repo);
     void vscode.window.showInformationMessage(
       `Checked out revision ${hash.substring(0, 8)} (detached HEAD)`
     );
-    ctx.gitToolWindowProvider.refresh();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     if (isLocalChangesWouldBeOverwritten(errorMessage)) {
@@ -76,13 +74,10 @@ export async function checkoutRevision(
               throw e;
             }
           );
-          // Reload after the stash + checkout pair so panel
-          // reload sees fresh `repo.head.commit`.
-          await ctx.gitService.reloadRepository(repo);
+          await reloadAndRefresh(ctx, repo);
           void vscode.window.showInformationMessage(
             `Stashed changes and checked out revision ${hash.substring(0, 8)} (detached HEAD)`
           );
-          ctx.gitToolWindowProvider.refresh();
         } catch (stashError) {
           void vscode.window.showErrorMessage(
             formatActionFailureToast('Failed to stash and checkout', stashError)
@@ -96,12 +91,10 @@ export async function checkoutRevision(
               throw e;
             }
           );
-          // Reload after force checkout.
-          await ctx.gitService.reloadRepository(repo);
+          await reloadAndRefresh(ctx, repo);
           void vscode.window.showInformationMessage(
             `Force checked out revision ${hash.substring(0, 8)} (detached HEAD)`
           );
-          ctx.gitToolWindowProvider.refresh();
         } catch (forceError) {
           void vscode.window.showErrorMessage(
             formatActionFailureToast('Failed to force checkout', forceError)
@@ -142,7 +135,8 @@ export async function resetToHere(
 
   // Commit subject for the dialog header; falls back to blank (the shared
   // helper bounds the lookup at 500ms so a slow git can't stall the dialog).
-  const subject = await previewCommitSubject(ctx, repo, hash);
+  // The dialog renders the full subject — no confirm-row cap.
+  const subject = await previewCommitSubject(ctx, repo, hash, { maxLength: Infinity });
 
   const currentBranch = extractBranchName(repo.head?.name) ?? '';
   const protectedBranches = ctx.readProtectedBranches();

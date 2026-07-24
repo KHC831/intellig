@@ -298,6 +298,34 @@ describe('perform-time HEAD-containment guard', () => {
     );
   });
 
+  it("refuses to autosquash-rebase onto another branch's commit (Rebase Now leg)", async () => {
+    // runAutosquashNow rides the shared runner like every other rewrite;
+    // its containment gate is the only protection for the Fixup/Squash
+    // Into "Rebase Now" leg (it is not dispatched via _handleAction).
+    const tracker: RebaseTracker = { startedOnto: undefined, executeCalls: 0 };
+    const cmds = makeCommands(repo, tracker) as unknown as Internal & {
+      _runAutosquashNow(
+        r: IRepository,
+        targetHash: string,
+        mode: 'fixup' | 'squash'
+      ): Promise<void>;
+    };
+    const msgs = captureMessages();
+
+    await cmds._runAutosquashNow(repo, B_OLD, 'fixup');
+
+    assert.strictEqual(
+      tracker.startedOnto,
+      undefined,
+      'rebase must NOT start for an off-branch autosquash target'
+    );
+    assert.strictEqual(tracker.executeCalls, 0);
+    assert.ok(
+      msgs.error.some((e) => NOT_IN_BRANCH.test(e)),
+      `expected a "not in the current branch" toast; got ${JSON.stringify(msgs.error)}`
+    );
+  });
+
   it('allows dropping a commit that IS in the current branch (no false block)', async () => {
     const tracker: RebaseTracker = { startedOnto: undefined, executeCalls: 0 };
     const cmds = makeCommands(repo, tracker) as unknown as Internal;

@@ -8,7 +8,7 @@ import { CommitMessageDialog } from './CommitMessageDialog';
 import { formatActionFailureToast } from '../git-core/gitError';
 import { runHistoryRewrite, type ICommitHistoryRewriteContext } from './commitHistoryRewriteRunner';
 import { promptForMessageInEditor } from './commitMessageEditor';
-import { reloadAndRefresh } from './commitContextMenuShared';
+import { hashesReferToSameCommit, reloadAndRefresh } from './commitContextMenuShared';
 
 /**
  * Edit the commit message of the selected commit.
@@ -94,8 +94,7 @@ export async function handleEditCommitMessage(
     }
 
     const headHash = repo.head?.commit;
-    const isHead =
-      headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
+    const isHead = headHash !== undefined && hashesReferToSameCommit(headHash, hash);
 
     if (isHead) {
       // HEAD amend: git commit --amend -m only rewrites the commit message.
@@ -119,9 +118,7 @@ export async function handleEditCommitMessage(
         target: 'reword',
         successToast: `Updated commit message for ${hash.substring(0, 8)}`,
         buildPlan: (session) => {
-          const targetCommit = session.commits.find(
-            (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
-          );
+          const targetCommit = session.commits.find((c) => hashesReferToSameCommit(c.hash, hash));
           if (!targetCommit) {
             void vscode.window.showErrorMessage(
               `Commit ${hash.substring(0, 8)} not found in rebase session.`

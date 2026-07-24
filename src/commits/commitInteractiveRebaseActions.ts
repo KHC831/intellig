@@ -8,14 +8,19 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { IRebaseAction } from '../git-core/interfaces/IRebaseService';
 import { revParseVerified } from '../git-core/gitCli';
 import { isFirstParentAncestor } from '../git-core/rebaseRange';
-import { formatActionFailureToast } from '../git-core/gitError';
+import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
 import {
   runHistoryRewrite,
   resolveRewriteBase,
   isNoOperationInProgress,
   type ICommitHistoryRewriteContext,
 } from './commitHistoryRewriteRunner';
-import { reloadAndRefresh } from './commitContextMenuShared';
+import {
+  allHashesValid,
+  hashesReferToSameCommit,
+  reloadAndRefresh,
+} from './commitContextMenuShared';
+import { CommitDialog } from './CommitDialog';
 
 /**
  * "Interactively Rebase from Here" — open the rebase plan editor with the
@@ -170,12 +175,9 @@ export async function runAutosquashNow(
       target: 'squash',
       successToast: `${verb} applied to ${targetHash.substring(0, 8)}.`,
       buildPlan: (session) => {
-        const target = session.commits.find(
-          (c) =>
-            c.hash === targetHash || c.hash.startsWith(targetHash) || targetHash.startsWith(c.hash)
-        );
-        const createdEntry = session.commits.find(
-          (c) => c.hash === created.hash || created.hash.startsWith(c.hash)
+        const target = session.commits.find((c) => hashesReferToSameCommit(c.hash, targetHash));
+        const createdEntry = session.commits.find((c) =>
+          hashesReferToSameCommit(c.hash, created.hash)
         );
         if (!target || !createdEntry || target.hash === createdEntry.hash) {
           void vscode.window.showErrorMessage(
@@ -205,6 +207,100 @@ export async function runAutosquashNow(
   } catch (error) {
     void vscode.window.showErrorMessage(
       formatActionFailureToast(`Failed to rebase the ${verb.toLowerCase()}! commit`, error)
+    );
+  }
+}
+
+/**
+ * Handle "Fixup…" / "Squash Into…" — IntelliJ's Git.Fixup.To.Commit /
+ * Git.Squash.Into.Commit (parity).
+ *
+ * Reference (GitAutoSquashCommitAction.kt:29-61): opens the COMMIT DIALOG
+ * seeded `fixup!/squash! <subject>` and offers a commit-and-rebase
+ * executor. Adapted to our paradigm: the seeded {@link CommitDialog}
+ * reviews the staged changes first; a successful commit then offers a
+ * `Rebase Now` toast that folds the new commit into its target via the
+ * shared runner (see {@link runAutosquashNow}). Callers without an
+ * extension context (scripted entry points that never ran `register()`)
+ * fall back to the immediate `GitService.commitFixup` commit.
+ */
+export async function handleCommitFixup(
+  ctx: ICommitHistoryRewriteContext,
+  commitHashes: string[],
+  mode: 'fixup' | 'squash'
+): Promise<void> {
+  if (commitHashes.length === 0) {
+    return;
+  }
+  const hash = commitHashes[0];
+  if (!allHashesValid([hash])) {
+    void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
+    return;
+  }
+  const repo = await ctx.getRepositoryForCommit(hash);
+  if (!repo) {
+    return;
+  }
+
+  const shortHash = hash.substring(0, 8);
+  const verb = mode === 'fixup' ? 'fixup' : 'squash';
+
+  if (ctx.context) {
+    // Seed the dialog from the target's subject, reference-style.
+    let subject = '';
+    try {
+      subject = (await ctx.gitService.getCommit(repo, hash)).message.split('\n')[0];
+    } catch {
+      subject = shortHash;
+    }
+    const dialog = new CommitDialog(
+      ctx.context.extensionUri,
+      ctx.gitService,
+      ctx.context.workspaceState
+    );
+    const result = await dialog.show(repo, { initialMessage: `${mode}! ${subject}` });
+    if (!result.committed) {
+      return;
+    }
+    await reloadAndRefresh(ctx, repo);
+    const choice = await vscode.window.showInformationMessage(
+      `Created ${verb}! commit for ${shortHash}.`,
+      'Rebase Now'
+    );
+    if (choice === 'Rebase Now') {
+      await runAutosquashNow(ctx, repo, hash, mode);
+    }
+    return;
+  }
+
+  try {
+    const result = await ctx.gitService.commitFixup(repo, hash, mode).match(
+      (r) => r,
+      (e) => {
+        throw e;
+      }
+    );
+    if (result.success) {
+      void vscode.window.showInformationMessage(`Created ${verb}! commit for ${shortHash}`);
+      await reloadAndRefresh(ctx, repo);
+      return;
+    }
+    if (result.reason === 'nothing-to-commit') {
+      void vscode.window.showErrorMessage(
+        `Nothing to commit — stage changes to ${verb} into ${shortHash}`
+      );
+      return;
+    }
+    if (result.reason === 'invalid-hash') {
+      void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
+      return;
+    }
+    void vscode.window.showErrorMessage(
+      `Failed to ${verb} into ${shortHash}: ${sanitizeGitError(result.message ?? 'unknown error')}`
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      formatActionFailureToast(`Failed to ${verb} into ${shortHash}`, error)
     );
   }
 }

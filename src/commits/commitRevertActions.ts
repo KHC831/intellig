@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { restorePathsToHead } from '../git-core/worktree/restoreToHead';
@@ -22,13 +22,14 @@ export interface ICommitRevertActionsContext extends ICommitSelectionContext {
   readonly gitService: IGitService;
   readonly gitCli: GitCli;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  mergeSelectionShape(
+  classifyMergeSelection(
     repo: IRepository,
     hashes: readonly string[]
-  ): Promise<'none' | 'all' | 'mixed'>;
+  ): Promise<{ shape: 'none' | 'all' | 'mixed'; commits: ICommit[] }>;
   pickMainlineParent(
     repo: IRepository,
-    hashes: string[]
+    hashes: string[],
+    prefetched?: ICommit
   ): Promise<{ cancelled: false; mainline: number } | { cancelled: true }>;
   handleRevertConflicts(
     repo: IRepository,
@@ -51,7 +52,9 @@ export async function handleRevert(
   // would fail, so merges skip it and go straight to the mainline-aware path.
   // `-m` applies to EVERY commit in the single invocation and git rejects it
   // on a non-merge, so a mixed selection cannot run as one batch.
-  const shape = await ctx.mergeSelectionShape(repo, commitHashes).catch(() => 'none' as const);
+  const { shape, commits } = await ctx
+    .classifyMergeSelection(repo, commitHashes)
+    .catch(() => ({ shape: 'none' as const, commits: [] as ICommit[] }));
   if (shape === 'mixed') {
     void vscode.window.showErrorMessage(
       'Revert cannot mix merge and non-merge commits — revert them separately.'
@@ -82,7 +85,9 @@ export async function handleRevert(
     // Merge commits use -m 1 + auto-generated message; multi-commit
     // reverts are too complex to prompt per-commit.
     if (commitHashes.length === 1 && !hasMerge) {
-      const commit = await ctx.gitService.getCommit(repo, commitHashes[0]);
+      // Reuse the classify fetch; fall back to a fresh read only when the
+      // probe failed (preserves the outer-catch toast on a broken repo).
+      const commit = commits[0] ?? (await ctx.gitService.getCommit(repo, commitHashes[0]));
       const subject = commit.message.split('\n')[0];
       const defaultMsg = `Revert "${subject}"`;
       const message = await vscode.window.showInputBox({
@@ -122,7 +127,7 @@ export async function handleRevert(
     // Merge commit: ask which parent is the mainline (`-m <n>`).
     let revertOptions: { mainline: number } | undefined;
     if (hasMerge) {
-      const picked = await ctx.pickMainlineParent(repo, commitHashes);
+      const picked = await ctx.pickMainlineParent(repo, commitHashes, commits[0]);
       if (picked.cancelled) {
         return;
       }

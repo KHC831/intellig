@@ -36,7 +36,8 @@ export function readCommitModule(basename: string): string {
 
 /**
  * Slice one function's body out of its owning module: from the declaration
- * to the next top-level `export`/`async function` declaration, or EOF.
+ * to the next top-level function declaration (export, async, or bare), or
+ * EOF.
  * Anchored inside a single file so module reordering can never silently
  * widen a pin's window. Throws when the declaration is missing — a pin
  * must fail loudly, not scan the wrong region.
@@ -48,6 +49,6 @@ export function moduleFunctionBody(basename: string, decl: string): string {
     throw new Error(`declaration not found in ${basename}: ${decl}`);
   }
   const tail = src.substring(start + decl.length);
-  const next = tail.search(/\n(?:export |async function )/);
+  const next = tail.search(/\n(?:export |(?:async )?function )/);
   return next >= 0 ? src.substring(start, start + decl.length + next) : src.substring(start);
 }

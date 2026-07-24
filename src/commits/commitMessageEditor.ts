@@ -14,11 +14,9 @@ import * as crypto from 'crypto';
  * Open an editor for the squash commit
  * message and resolve when the user saves or closes it.
  *
- * Previously used `vscode.window.showInputBox`, which is a single-line
- * affordance that renders multi-line seeds with literal `\n`
- * characters — a real UX bug for any squash spanning a commit with a
- * body. Switches to an editor opened on a tempfile inside
- * `os.tmpdir()` so:
+ * An input box is single-line and renders multi-line seeds with literal
+ * `\n` characters, so the prompt opens an editor on a tempfile inside
+ * `os.tmpdir()` instead:
  *   - multi-line editing is natural (no `\n` literals).
  *   - language `'git-commit'` triggers VS Code's commit-message
  *     syntax highlighting (subject vs body).

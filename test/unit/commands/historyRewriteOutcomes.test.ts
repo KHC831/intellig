@@ -445,7 +445,7 @@ const reword: BodyCase = {
 };
 
 const dropSelected: BodyCase = {
-  name: 'drop selected changes, non-HEAD (_handleDropSelectedChanges)',
+  name: 'drop selected changes, non-HEAD (handleDropSelectedChanges)',
   target: 'drop',
   successFragment: /Dropped 1 file/,
   run: async (h) => {

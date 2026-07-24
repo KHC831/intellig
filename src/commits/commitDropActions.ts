@@ -13,6 +13,7 @@ import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError
 import {
   allHashesDisplayed,
   allHashesValid,
+  hashesReferToSameCommit,
   previewCommitSubject,
   reloadAndRefresh,
   selectionContainsCommit,
@@ -295,6 +296,8 @@ async function dropSelectedChangesViaRebase(
   droppedPaths: string[],
   diffByPath: Map<string, { status: string; oldPath?: string }>
 ): Promise<void> {
+  // rebase-containment-exempt: the sole caller (handleDropSelectedChanges)
+  // runs isOldestInCurrentBranch on this hash before delegating here.
   const cwd = repo.rootUri.fsPath;
   const shortHash = hash.substring(0, 8);
   try {
@@ -305,9 +308,7 @@ async function dropSelectedChangesViaRebase(
       target: 'drop',
       successToast: `Dropped ${droppedPaths.length} file(s) from ${shortHash}`,
       buildPlan: (session) => {
-        const targetCommit = session.commits.find(
-          (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
-        );
+        const targetCommit = session.commits.find((c) => hashesReferToSameCommit(c.hash, hash));
         if (!targetCommit) {
           void vscode.window.showErrorMessage(`Commit ${shortHash} not found in rebase session.`);
           return 'stale';
@@ -459,9 +460,7 @@ export async function handleDropCommit(
       target: 'drop',
       successToast: `Dropped commit ${hash.substring(0, 8)}`,
       buildPlan: (session) => {
-        const targetCommit = session.commits.find(
-          (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
-        );
+        const targetCommit = session.commits.find((c) => hashesReferToSameCommit(c.hash, hash));
         if (!targetCommit) {
           void vscode.window.showErrorMessage(
             `Commit ${hash.substring(0, 8)} not found in rebase session.`

@@ -90,4 +90,12 @@ describe('hashesReferToSameCommit', () => {
     assert.strictEqual(hashesReferToSameCommit('b'.repeat(40), FULL), false);
     assert.strictEqual(hashesReferToSameCommit('bbbbbbb', FULL), false);
   });
+
+  it('rejects empty inputs — an empty string is a prefix of everything', () => {
+    // An unresolved hash ('' from a missing HEAD or a blank session SHA)
+    // must never read as "same commit as anything".
+    assert.strictEqual(hashesReferToSameCommit('', FULL), false);
+    assert.strictEqual(hashesReferToSameCommit(FULL, ''), false);
+    assert.strictEqual(hashesReferToSameCommit('', ''), false);
+  });
 });

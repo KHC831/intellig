@@ -14,7 +14,6 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { sanitizeGitError } from '../git-core/gitError';
 import { type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
-import { CommitDialog } from './CommitDialog';
 import {
   allHashesValid,
   type ICommitRepoContext,
@@ -37,7 +36,7 @@ import {
   type ICommitCheckoutResetActionsContext,
 } from './commitCheckoutResetActions';
 import {
-  mergeSelectionShape,
+  classifyMergeSelection,
   isCommitPushed,
   isNotOnProtectedBranch,
   anyIsMergeCommit,
@@ -53,7 +52,11 @@ import { type ICommitHistoryRewriteContext } from './commitHistoryRewriteRunner'
 import { handleDropCommit, handleDropSelectedChanges } from './commitDropActions';
 import { handleSquashCommits } from './commitSquashActions';
 import { handleEditCommitMessage } from './commitRewordActions';
-import { handleInteractiveRebase, runAutosquashNow } from './commitInteractiveRebaseActions';
+import {
+  handleCommitFixup,
+  handleInteractiveRebase,
+  runAutosquashNow,
+} from './commitInteractiveRebaseActions';
 import { copyHash } from './commitClipboardActions';
 import { newBranch, newTag, type ICommitRefActionsContext } from './commitRefActions';
 
@@ -599,9 +602,10 @@ export class CommitContextMenuCommands {
       gitService: this._gitService,
       gitToolWindowProvider: this._gitToolWindowProvider,
       ...this._selectionContext(),
-      mergeSelectionShape: (repo, hashes) =>
-        mergeSelectionShape(this._guardsContext(), repo, hashes),
-      pickMainlineParent: (repo, hashes) => pickMainlineParent(this._guardsContext(), repo, hashes),
+      classifyMergeSelection: (repo, hashes) =>
+        classifyMergeSelection(this._guardsContext(), repo, hashes),
+      pickMainlineParent: (repo, hashes, prefetched) =>
+        pickMainlineParent(this._guardsContext(), repo, hashes, prefetched),
       isCommitPushed: (cwd, hash, probeFailureMeansPushed) =>
         isCommitPushed(this._guardsContext(), cwd, hash, probeFailureMeansPushed),
       conflictResolutionService: () => this._conflictResolutionService,
@@ -637,9 +641,10 @@ export class CommitContextMenuCommands {
       gitCli: this._gitCli,
       gitToolWindowProvider: this._gitToolWindowProvider,
       ...this._selectionContext(),
-      mergeSelectionShape: (repo, hashes) =>
-        mergeSelectionShape(this._guardsContext(), repo, hashes),
-      pickMainlineParent: (repo, hashes) => pickMainlineParent(this._guardsContext(), repo, hashes),
+      classifyMergeSelection: (repo, hashes) =>
+        classifyMergeSelection(this._guardsContext(), repo, hashes),
+      pickMainlineParent: (repo, hashes, prefetched) =>
+        pickMainlineParent(this._guardsContext(), repo, hashes, prefetched),
       handleRevertConflicts: (repo, conflicts, commitHashes) =>
         this._handleRevertConflicts(repo, conflicts, commitHashes),
     };
@@ -1025,102 +1030,18 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Handle "Fixup…" / "Squash Into…" — IntelliJ's Git.Fixup.To.Commit /
-   * Git.Squash.Into.Commit (parity).
-   *
-   * Reference (GitAutoSquashCommitAction.kt:29-61): opens the COMMIT DIALOG
-   * seeded `fixup!/squash! <subject>` and offers a commit-and-rebase
-   * executor. Adapted to our paradigm: the seeded {@link CommitDialog}
-   * reviews the staged changes first; a successful commit then offers a
-   * `Rebase Now` toast that folds the new commit into its target via the
-   * shared runner (see {@link _runAutosquashNow}). Callers without an
-   * extension context (scripted entry points that never ran `register()`)
-   * fall back to the immediate `GitService.commitFixup` commit.
+   * Handle "Fixup…" / "Squash Into…" — see {@link handleCommitFixup}.
    */
-  private async _handleCommitFixup(
-    commitHashes: string[],
-    mode: 'fixup' | 'squash'
-  ): Promise<void> {
-    if (commitHashes.length === 0) {
-      return;
-    }
-    const hash = commitHashes[0];
-    if (!allHashesValid([hash])) {
-      void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
-      return;
-    }
-    const repo = await this._getRepositoryForCommit(hash);
-    if (!repo) {
-      return;
-    }
-
-    const shortHash = hash.substring(0, 8);
-    const verb = mode === 'fixup' ? 'fixup' : 'squash';
-
-    if (this._context) {
-      // Seed the dialog from the target's subject, reference-style.
-      let subject = '';
-      try {
-        subject = (await this._gitService.getCommit(repo, hash)).message.split('\n')[0];
-      } catch {
-        subject = shortHash;
-      }
-      const dialog = new CommitDialog(
-        this._context.extensionUri,
-        this._gitService,
-        this._context.workspaceState
-      );
-      const result = await dialog.show(repo, { initialMessage: `${mode}! ${subject}` });
-      if (!result.committed) {
-        return;
-      }
-      await this._gitService.reloadRepository(repo);
-      this._gitToolWindowProvider.refresh();
-      const choice = await vscode.window.showInformationMessage(
-        `Created ${verb}! commit for ${shortHash}.`,
-        'Rebase Now'
-      );
-      if (choice === 'Rebase Now') {
-        await this._runAutosquashNow(repo, hash, mode);
-      }
-      return;
-    }
-
-    try {
-      const result = await this._gitService.commitFixup(repo, hash, mode).match(
-        (r) => r,
-        (e) => {
-          throw e;
-        }
-      );
-      if (result.success) {
-        void vscode.window.showInformationMessage(`Created ${verb}! commit for ${shortHash}`);
-        await this._gitService.reloadRepository(repo);
-        this._gitToolWindowProvider.refresh();
-        return;
-      }
-      if (result.reason === 'nothing-to-commit') {
-        void vscode.window.showErrorMessage(
-          `Nothing to commit — stage changes to ${verb} into ${shortHash}`
-        );
-        return;
-      }
-      if (result.reason === 'invalid-hash') {
-        void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
-        return;
-      }
-      void vscode.window.showErrorMessage(
-        `Failed to ${verb} into ${shortHash}: ${sanitizeGitError(result.message ?? 'unknown error')}`
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(
-        `Failed to ${verb} into ${shortHash}: ${sanitizeGitError(errorMessage)}`
-      );
-    }
+  private _handleCommitFixup(commitHashes: string[], mode: 'fixup' | 'squash'): Promise<void> {
+    return handleCommitFixup(this._historyRewriteContext(), commitHashes, mode);
   }
 
-  private _runAutosquashNow(
+  /**
+   * Test seam (public like {@link _handleAction}): the containment and
+   * drop-conflict suites drive the autosquash leg through the real ctx
+   * builder wiring.
+   */
+  _runAutosquashNow(
     repo: IRepository,
     targetHash: string,
     mode: 'fixup' | 'squash'

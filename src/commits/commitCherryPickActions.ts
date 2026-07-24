@@ -7,7 +7,7 @@
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { readConfig } from '../config/configKeys';
@@ -22,13 +22,14 @@ import {
 export interface ICommitCherryPickActionsContext extends ICommitSelectionContext {
   readonly gitService: IGitService;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  mergeSelectionShape(
+  classifyMergeSelection(
     repo: IRepository,
     hashes: readonly string[]
-  ): Promise<'none' | 'all' | 'mixed'>;
+  ): Promise<{ shape: 'none' | 'all' | 'mixed'; commits: ICommit[] }>;
   pickMainlineParent(
     repo: IRepository,
-    hashes: string[]
+    hashes: string[],
+    prefetched?: ICommit
   ): Promise<{ cancelled: false; mainline: number } | { cancelled: true }>;
   isCommitPushed(cwd: string, hash: string, probeFailureMeansPushed?: boolean): Promise<boolean>;
   conflictResolutionService(): IConflictResolutionService | undefined;
@@ -77,7 +78,9 @@ export async function handleCherryPick(
     // git rejects it on a non-merge, so a mixed selection cannot run as one
     // batch — refuse it up front. If the probe fails (e.g. network/bad
     // hash), fall back to no mainline — git surfaces its own error then.
-    const shape = await ctx.mergeSelectionShape(repo, replayOrder).catch(() => 'none' as const);
+    const { shape, commits } = await ctx
+      .classifyMergeSelection(repo, replayOrder)
+      .catch(() => ({ shape: 'none' as const, commits: [] as ICommit[] }));
     if (shape === 'mixed') {
       void vscode.window.showErrorMessage(
         'Cherry-pick cannot mix merge and non-merge commits — pick them separately.'
@@ -86,7 +89,7 @@ export async function handleCherryPick(
     }
     let cherryOptions: { mainline?: number; addCherryPickedFrom?: boolean } | undefined;
     if (shape === 'all') {
-      const picked = await ctx.pickMainlineParent(repo, replayOrder);
+      const picked = await ctx.pickMainlineParent(repo, replayOrder, commits[0]);
       if (picked.cancelled) {
         return;
       }

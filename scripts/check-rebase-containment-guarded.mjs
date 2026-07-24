@@ -42,7 +42,11 @@
  *
  * 4. Known false-negative cases
  *    A rebase started through an aliased service or a dynamically-composed
- *    method name slips the literal patterns; review is the backstop. Body
+ *    method name slips the literal patterns; review is the backstop. A
+ *    rebase-start inside an arrow-function class PROPERTY (`private f =
+ *    async () => {...}`) is not a member header (no `(` after the
+ *    identifier), so its body folds into the preceding method — no such
+ *    property exists today; keep handlers as methods. Body
  *    boundaries are indent-anchored (next same-level header), reliable under
  *    prettier; a 0-indent `}` inside a template literal would end a module
  *    function's scope early (contrived, none exist).
@@ -65,8 +69,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// A class member header: 2-space indent, optional modifiers, identifier then `(`
-// (property/arrow-field decls have a `:`/`?:` before any paren, so excluded).
+// A class member header: 2-space indent, optional modifiers, identifier then `(`.
+// Field declarations (typed `:`/`?:` and untyped `= () =>` arrow properties)
+// have no `(` directly after the identifier, so they are not headers — see
+// section 4 for the arrow-property false negative this implies.
 const HEADER_CLASS =
   /^ {2}(?:public |private |protected |static |readonly |abstract |get |set |async )*[A-Za-z_$][\w$]*\s*(?:<[^>]*>)?\(/;
 // A module function header: 0-indent `(export) (async) function name(` —
@@ -76,7 +82,10 @@ const HEADER_MODULE = /^(?:export )?(?:async )?function [A-Za-z_$][\w$]*\s*(?:<[
 // A class declaration opens a range in which 2-space members are headers.
 const CLASS_START = /^(?:export )?(?:abstract )?class\s/;
 
-const REBASE_START = /startInteractiveRebase\(|[._]openRebaseEditor\(/;
+// A call into the shared runner IS a rebase start for gating purposes: the
+// runner body is exempt (it cannot know which commit is oldest), so the
+// caller must carry the containment gate.
+const REBASE_START = /startInteractiveRebase\(|[._]openRebaseEditor\(|runHistoryRewrite\(/;
 const GUARD = /[._]isOldestInCurrentBranch\(/;
 const EXEMPT = /rebase-containment-exempt:/;
 
@@ -122,7 +131,12 @@ for (const file of files) {
   }
   for (let h = 0; h < headerIdx.length; h++) {
     const start = headerIdx[h];
-    const end = h + 1 < headerIdx.length ? headerIdx[h + 1] : lines.length;
+    let end = h + 1 < headerIdx.length ? headerIdx[h + 1] : lines.length;
+    // A class member's body never extends past its class's closing brace —
+    // without the cap, the LAST member would swallow the gap between the
+    // class close and the first module function.
+    const range = classRanges.find(([a, b]) => start > a && start < b);
+    if (range && range[1] < end) end = range[1];
     const body = lines.slice(start, end).join('\n');
     if (!REBASE_START.test(body)) continue;
     rebaseStartSites++;

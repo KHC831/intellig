@@ -5,12 +5,13 @@
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { GitCli } from '../git-core/gitCli';
 import { isCommitPublished } from '../git-core/commitPublished';
 import { isHexObjectId } from '../git-core/gitDirMarkers';
 import { analyzeRebaseRange } from '../git-core/rebaseRange';
 import { getLogger } from '../utils/logger';
+import { hashesReferToSameCommit } from './commitContextMenuShared';
 
 /** Deps the guards reach back into the dispatcher for. */
 export interface ICommitGuardsContext {
@@ -136,19 +137,22 @@ export async function anyIsMergeCommit(
  * Classify a selection for the `-m <mainline>` flows: `git cherry-pick` /
  * `git revert` take ONE `-m` for the whole invocation, and git rejects `-m`
  * on a non-merge commit — so a mixed selection cannot run as one batch.
- * 'none' = no merges, 'all' = only merges, 'mixed' = both.
+ * 'none' = no merges, 'all' = only merges, 'mixed' = both. The fetched
+ * commits ride along (selection order) so callers reuse them — the -m flow
+ * would otherwise re-fetch the same hashes for the mainline prompt and the
+ * default revert message.
  */
-export async function mergeSelectionShape(
+export async function classifyMergeSelection(
   ctx: ICommitGuardsContext,
   repo: IRepository,
   hashes: readonly string[]
-): Promise<'none' | 'all' | 'mixed'> {
-  const details = await Promise.all(hashes.map((h) => ctx.gitService.getCommit(repo, h)));
-  const merges = details.filter((c) => c.parents.length > 1).length;
+): Promise<{ shape: 'none' | 'all' | 'mixed'; commits: ICommit[] }> {
+  const commits = await Promise.all(hashes.map((h) => ctx.gitService.getCommit(repo, h)));
+  const merges = commits.filter((c) => c.parents.length > 1).length;
   if (merges === 0) {
-    return 'none';
+    return { shape: 'none', commits };
   }
-  return merges === details.length ? 'all' : 'mixed';
+  return { shape: merges === commits.length ? 'all' : 'mixed', commits };
 }
 
 /**
@@ -168,12 +172,13 @@ export async function mergeSelectionShape(
 export async function pickMainlineParent(
   ctx: ICommitGuardsContext,
   repo: IRepository,
-  hashes: string[]
+  hashes: string[],
+  prefetched?: ICommit
 ): Promise<{ cancelled: false; mainline: number } | { cancelled: true }> {
   if (hashes.length !== 1) {
     return { cancelled: false, mainline: 1 };
   }
-  const commit = await ctx.gitService.getCommit(repo, hashes[0]);
+  const commit = prefetched ?? (await ctx.gitService.getCommit(repo, hashes[0]));
   const parents = commit.parents;
   if (parents.length <= 1) {
     // Defensive: caller only invokes this for a detected merge.
@@ -232,17 +237,10 @@ export async function isOldestInCurrentBranch(
     return true;
   }
   const mergeBase = await ctx.gitService.getMergeBase(repo, oldestHash, 'HEAD');
-  // Prefix-match like undoCommit's HEAD check: merge-base output is the full
-  // 40-char SHA while a log-surface selection can carry an abbreviated hash,
-  // and exact equality would read a genuine ancestor as not-contained. A
-  // colliding prefix cannot slip through — git would have rejected it as
-  // ambiguous when resolving `oldestHash` for the merge-base probe.
-  if (
-    mergeBase !== undefined &&
-    (mergeBase === oldestHash ||
-      mergeBase.startsWith(oldestHash) ||
-      oldestHash.startsWith(mergeBase))
-  ) {
+  // Tolerant match: merge-base output is the full 40-char SHA while a
+  // log-surface selection can carry an abbreviated hash; exact equality
+  // would read a genuine ancestor as not-contained.
+  if (mergeBase !== undefined && hashesReferToSameCommit(mergeBase, oldestHash)) {
     return true;
   }
   void vscode.window.showErrorMessage(

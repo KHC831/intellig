@@ -79,6 +79,11 @@ export const STALE_SELECTION_TOAST =
  * an ambiguous abbreviation before any flow reaches a comparison.
  */
 export function hashesReferToSameCommit(a: string, b: string): boolean {
+  // An empty string is a prefix of everything — an unresolved hash must
+  // never read as "same commit as anything".
+  if (a === '' || b === '') {
+    return false;
+  }
   return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
@@ -156,22 +161,25 @@ export async function reloadAndRefresh(
 }
 
 /**
- * First subject line of a commit for a confirm modal / dialog header,
- * truncated to 60 chars. Races `getCommit` against a 500ms timeout so a
- * slow / hung git process can't stall the UI; timeout and lookup failure
- * both degrade to '' (callers fall back to the bare short-sha or blank).
+ * First subject line of a commit for a confirm modal / dialog header.
+ * Races `getCommit` against a 500ms timeout so a slow / hung git process
+ * can't stall the UI; timeout and lookup failure both degrade to ''
+ * (callers fall back to the bare short-sha or blank). Confirm-modal rows
+ * pass the default 60-char cap; a dialog header that renders the full
+ * subject passes `maxLength: Infinity`.
  */
 export async function previewCommitSubject(
   ctx: { readonly gitService: Pick<IGitService, 'getCommit'> },
   repo: IRepository,
-  hash: string
+  hash: string,
+  opts?: { maxLength?: number }
 ): Promise<string> {
   try {
     const commit = await Promise.race([
       ctx.gitService.getCommit(repo, hash),
       new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 500)),
     ]);
-    return (commit?.message ?? '').split('\n')[0].slice(0, 60);
+    return (commit?.message ?? '').split('\n')[0].slice(0, opts?.maxLength ?? 60);
   } catch {
     return '';
   }

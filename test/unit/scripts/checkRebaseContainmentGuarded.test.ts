@@ -80,6 +80,18 @@ export function createC(): C {
   return new C();
 }
 `;
+// A caller of the shared runner is a rebase-starter too: runHistoryRewrite
+// carries its own exempt marker, so without counting the CALL as a start the
+// six runner-riding flows would have no fence at all.
+const RUNNER_CALLER_UNGATED = `export async function handleSquashCommits(ctx: I): Promise<void> {
+  await runHistoryRewrite(ctx, repo, { onto, oldest });
+}
+`;
+const RUNNER_CALLER_GATED = `export async function handleSquashCommits(ctx: I): Promise<void> {
+  if (!(await ctx.isOldestInCurrentBranch(repo, oldest))) return;
+  await runHistoryRewrite(ctx, repo, { onto, oldest });
+}
+`;
 // A PRIVATE 0-indent module helper must own its body — it must not fold into
 // the preceding gated export function and inherit its guard.
 const PRIVATE_HELPER_UNGATED = `export async function handleDropCommit(ctx: I): Promise<void> {
@@ -136,6 +148,17 @@ describe('check-rebase-containment-guarded guard', () => {
   it('passes a HYBRID file whose class rebase-starter is gated', () => {
     const { status, stderr } = runFixture(HYBRID_GATED_CLASS);
     assert.strictEqual(status, 0, `a gated hybrid must pass (not fail-closed); ${stderr}`);
+  });
+
+  it('fails an un-gated caller of the shared runner (runner call counts as a rebase start)', () => {
+    const { status, stderr } = runFixture(RUNNER_CALLER_UNGATED);
+    assert.strictEqual(status, 1, `an un-gated runner caller must fail; ${stderr}`);
+    assert.ok(stderr.includes('handleSquashCommits'), `offender must be named; ${stderr}`);
+  });
+
+  it('passes a gated caller of the shared runner', () => {
+    const { status, stderr } = runFixture(RUNNER_CALLER_GATED);
+    assert.strictEqual(status, 0, `a gated runner caller must pass; ${stderr}`);
   });
 
   it('fails an un-gated PRIVATE module helper (no fold into the previous export body)', () => {

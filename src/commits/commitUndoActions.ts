@@ -9,7 +9,11 @@ import type { IGitService, IRepository } from '../git-core/interfaces/IGitServic
 import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { formatActionFailureToast } from '../git-core/gitError';
-import { reloadAndRefresh, type ICommitRepoContext } from './commitContextMenuShared';
+import {
+  hashesReferToSameCommit,
+  reloadAndRefresh,
+  type ICommitRepoContext,
+} from './commitContextMenuShared';
 
 /** Deps the undo action reaches back into the dispatcher for. */
 export interface ICommitUndoContext extends ICommitRepoContext {
@@ -45,8 +49,7 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
   // Same prefix-match as the reword flow's HEAD check: an abbreviated
   // hash (e.g. 7-char log hash) must be recognised as HEAD even when
   // headHash is the full 40-char SHA (hashesReferToSameCommit rule).
-  const isHead =
-    headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
+  const isHead = headHash !== undefined && hashesReferToSameCommit(headHash, hash);
   if (!isHead) {
     void vscode.window.showErrorMessage('Undo Commit can only be performed on the HEAD commit.');
     return;
