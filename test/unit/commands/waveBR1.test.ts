@@ -233,16 +233,12 @@ describe('Wave B R1 — review fixes', () => {
 
   // ─── _handleCreatePatchMulti uses isSelectionContiguous helper ───────────
   describe('_handleCreatePatchMulti uses the multiSelect helper', () => {
-    it('commitHistoryRewriteActions imports isSelectionContiguous from multiSelect', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
-        'utf8'
-      );
+    it('the history-rewrite family imports isSelectionContiguous from multiSelect', async () => {
+      const { readHistoryRewriteFamily } = await import('../../typed/historyRewriteSources');
+      const src = readHistoryRewriteFamily();
       assert.ok(
         /import\s*\{[^}]*isSelectionContiguous[^}]*\}\s*from\s*['"][^'"]*multiSelect/.test(src),
-        'the history-rewrite module (which owns the multi-drop flow) must import isSelectionContiguous from the multiSelect helper module'
+        'the history-rewrite family (which owns the multi-drop flow) must import isSelectionContiguous from the multiSelect helper module'
       );
     });
 

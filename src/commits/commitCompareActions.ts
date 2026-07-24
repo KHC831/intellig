@@ -1,24 +1,25 @@
 /**
  * Compare / view-revision actions for the commit context menu: diff a commit
  * against the working tree, compare two revisions, and open a commit's files at
- * that revision. Extracted from CommitContextMenuCommands; the class delegates
- * through a thin context so behaviour is unchanged.
+ * that revision.
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { IGitService } from '../git-core/interfaces/IGitService';
 import type { GitCli } from '../git-core/gitCli';
 import type { IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
-import { sanitizeGitError } from '../git-core/gitError';
-import { allHashesValid, STALE_SELECTION_TOAST } from './commitContextMenuShared';
+import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
+import {
+  allHashesDisplayed,
+  resolveCommitSelection,
+  type ICommitSelectionContext,
+} from './commitContextMenuShared';
 
 /** Deps the compare actions reach back into the dispatcher for. */
-export interface ICommitCompareActionsContext {
+export interface ICommitCompareActionsContext extends ICommitSelectionContext {
   readonly gitCli: GitCli;
   readonly gitService: IGitService;
-  isCrossRepoSelection(commitHashes: readonly string[]): boolean;
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
 }
 
 /**
@@ -63,9 +64,8 @@ export async function compareWithLocal(
       title: `${firstDiff.path} (${hash.substring(0, 8)} ↔ Working Tree)`,
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     void vscode.window.showErrorMessage(
-      `Failed to compare with local: ${sanitizeGitError(errorMessage)}`
+      formatActionFailureToast('Failed to compare with local', error)
     );
   }
 }
@@ -96,15 +96,7 @@ export async function compareVersions(
     // quiet rather than throw on a stale dispatch.
     return;
   }
-  // defence-in-depth hash regex (cap raised to 64
-  // for SHA-256 support).
-  if (!allHashesValid(commitHashes)) {
-    return;
-  }
-  if (ctx.isCrossRepoSelection(commitHashes)) {
-    return;
-  }
-  const repo = await ctx.getRepositoryForCommit(commitHashes[0]);
+  const repo = await resolveCommitSelection(ctx, commitHashes);
   if (!repo) {
     return;
   }
@@ -112,15 +104,11 @@ export async function compareVersions(
   // Derive displayOrder from the typed nodes.
   const displayOrder = commitNodes.map((n) => n.hash);
 
-  // Symmetry with `createPatchMulti`: every
-  // commitHash must be in commitNodes. Without this guard a hex-format
-  // hash that isn't in the rendered log slips past the regex check
-  // and `git diff <bad>..<good>` produces a noisy "fatal: bad
+  // Every commitHash must be in commitNodes. Without this guard a
+  // hex-format hash that isn't in the rendered log slips past the regex
+  // check and `git diff <bad>..<good>` produces a noisy "fatal: bad
   // revision" toast instead of the cleaner stale-selection phrasing.
-  const inOrder = new Set(displayOrder);
-  const stale = commitHashes.filter((h) => !inOrder.has(h));
-  if (stale.length > 0) {
-    void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
+  if (!allHashesDisplayed(commitHashes, displayOrder)) {
     return;
   }
 
@@ -240,9 +228,8 @@ export async function showRepoAtRevision(
       await vscode.commands.executeCommand('vscode.open', fileUri);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     void vscode.window.showErrorMessage(
-      `Failed to show repository at revision: ${sanitizeGitError(errorMessage)}`
+      formatActionFailureToast('Failed to show repository at revision', error)
     );
   }
 }

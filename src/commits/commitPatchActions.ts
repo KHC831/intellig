@@ -1,8 +1,6 @@
 /**
  * Create Patch actions for the commit context menu: single/multi-commit
  * `git format-patch` to a file or directory, and the silent clipboard variant.
- * Extracted from CommitContextMenuCommands; the class delegates through a thin
- * context so behaviour is unchanged.
  */
 
 import * as vscode from 'vscode';
@@ -10,16 +8,18 @@ import type { IRepository } from '../git-core/interfaces/IGitService';
 import type { GitCli } from '../git-core/gitCli';
 import { patchSaveDefaultUri, rememberPatchDir } from '../patches/createPatchFlow';
 import { atomicWriteFile } from '../utils/atomicWrite';
-import { sanitizeGitError } from '../git-core/gitError';
+import { formatActionFailureToast } from '../git-core/gitError';
 import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
-import { allHashesValid, STALE_SELECTION_TOAST } from './commitContextMenuShared';
+import {
+  allHashesDisplayed,
+  resolveCommitSelection,
+  type ICommitSelectionContext,
+} from './commitContextMenuShared';
 
 /** Deps the patch actions reach back into the dispatcher for. */
-export interface ICommitPatchActionsContext {
+export interface ICommitPatchActionsContext extends ICommitSelectionContext {
   readonly gitCli: GitCli;
   readonly context: vscode.ExtensionContext | undefined;
-  isCrossRepoSelection(commitHashes: readonly string[]): boolean;
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
 }
 
 /**
@@ -50,15 +50,8 @@ export async function createPatch(
   commitHashes: string[],
   commitNodes: readonly IMenuStateNode[] = []
 ): Promise<void> {
-  if (ctx.isCrossRepoSelection(commitHashes)) {
-    return;
-  }
-  const repo = await ctx.getRepositoryForCommit(commitHashes[0]);
-  if (!repo || commitHashes.length === 0) {
-    return;
-  }
-  // defence-in-depth hash regex.
-  if (!allHashesValid(commitHashes)) {
+  const repo = await resolveCommitSelection(ctx, commitHashes);
+  if (!repo) {
     return;
   }
 
@@ -87,10 +80,7 @@ export async function createPatch(
   } catch (error) {
     // git exec failure — keep the historical "Failed to create patch"
     // phrasing so existing tests + docs still match.
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(
-      `Failed to create patch: ${sanitizeGitError(errorMessage)}`
-    );
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to create patch', error));
     return;
   }
 
@@ -118,8 +108,7 @@ export async function createPatch(
   try {
     await atomicWriteFile(saveUri.fsPath, stdout);
   } catch (error) {
-    const raw = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to write patch', error));
     return;
   }
   // Clickable "Open Folder" affordance (IntelliJ parity).
@@ -145,10 +134,7 @@ function deriveFormatPatchCommitSpec(
   // Every commitHash MUST be in displayOrder. The host already validates
   // against commitNodes; this is the belt-and-suspenders mirror at the
   // handler boundary.
-  const inOrder = new Set(displayOrder);
-  const stale = commitHashes.filter((h) => !inOrder.has(h));
-  if (stale.length > 0) {
-    void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
+  if (!allHashesDisplayed(commitHashes, displayOrder)) {
     return undefined;
   }
 
@@ -189,15 +175,8 @@ export async function createPatchToClipboard(
   commitHashes: string[],
   commitNodes: readonly IMenuStateNode[] = []
 ): Promise<void> {
-  if (ctx.isCrossRepoSelection(commitHashes)) {
-    return;
-  }
-  const repo = await ctx.getRepositoryForCommit(commitHashes[0]);
-  if (!repo || commitHashes.length === 0) {
-    return;
-  }
-  // defence-in-depth hash regex.
-  if (!allHashesValid(commitHashes)) {
+  const repo = await resolveCommitSelection(ctx, commitHashes);
+  if (!repo) {
     return;
   }
 
@@ -231,10 +210,7 @@ export async function createPatchToClipboard(
       n === 1 ? 'Patch copied to clipboard.' : `Patch for ${n} commits copied to clipboard.`
     );
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(
-      `Failed to create patch: ${sanitizeGitError(errorMessage)}`
-    );
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to create patch', error));
   }
 }
 
@@ -315,9 +291,8 @@ async function createPatchMulti(
       .filter((s) => s.length > 0).length;
     void toastPatchSavedMulti(outDir, written || commitHashes.length);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     void vscode.window.showErrorMessage(
-      `Failed to create patches: ${sanitizeGitError(errorMessage)}`
+      formatActionFailureToast('Failed to create patches', error)
     );
   }
 }

@@ -20,9 +20,9 @@
  *    history-rewrite module.
  *
  * 2. Heuristic + how it scales + fail-closed
- *    Scope: the UNION of src/commits/CommitContextMenuCommands.ts (class-member
- *    methods, 2-space-indent headers) and src/commits/commitHistoryRewriteActions.ts
- *    (0-indent `export function`s), if present. Any function whose body STARTS a
+ *    Scope: every .ts file under src/commits/ — the dispatcher class
+ *    (class-member methods, 2-space-indent headers) and the extracted action
+ *    modules (0-indent `export function`s). Any function whose body STARTS a
  *    rebase (`startInteractiveRebase(` or `[._]openRebaseEditor(`) must also
  *    invoke the shared containment guard (`[._]isOldestInCurrentBranch(`) —
  *    UNION semantics: the guard must be in THAT function's own body, not merely
@@ -88,12 +88,7 @@ function tsFilesUnder(p) {
 
 const args = process.argv.slice(2);
 const files =
-  args.length > 0
-    ? args.flatMap(tsFilesUnder)
-    : [
-        join(root, 'src', 'commits', 'CommitContextMenuCommands.ts'),
-        join(root, 'src', 'commits', 'commitHistoryRewriteActions.ts'),
-      ].filter(existsSync);
+  args.length > 0 ? args.flatMap(tsFilesUnder) : tsFilesUnder(join(root, 'src', 'commits'));
 
 const offenders = [];
 let rebaseStartSites = 0;

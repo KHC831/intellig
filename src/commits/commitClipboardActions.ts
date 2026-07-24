@@ -1,11 +1,9 @@
 /**
- * Copy-to-clipboard action for the commit context menu. Extracted from
- * CommitContextMenuCommands; the class delegates through a thin wrapper so
- * behaviour is unchanged.
+ * Copy-to-clipboard action for the commit context menu.
  */
 
 import * as vscode from 'vscode';
-import { sanitizeGitError } from '../git-core/gitError';
+import { formatActionFailureToast } from '../git-core/gitError';
 
 /**
  * Copy the full SHA(s) to the system clipboard.
@@ -32,7 +30,6 @@ export async function copyHash(commitHashes: string[]): Promise<void> {
         : `Copied ${commitHashes.length} commit hashes to clipboard`;
     void vscode.window.showInformationMessage(message);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Failed to copy hash: ${sanitizeGitError(errorMessage)}`);
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to copy hash', error));
   }
 }

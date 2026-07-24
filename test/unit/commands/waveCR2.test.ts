@@ -50,12 +50,8 @@ describe('structural pins', () => {
   let src: string;
 
   before(async () => {
-    const fs = await import('fs');
-    const path = await import('path');
-    src = fs.readFileSync(
-      path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
-      'utf8'
-    );
+    const { readHistoryRewriteFamily } = await import('../../typed/historyRewriteSources');
+    src = readHistoryRewriteFamily();
   });
 
   // Tab API close
@@ -187,18 +183,31 @@ describe('structural pins', () => {
 
   // getCommit timeout
   describe('modal preview wraps getCommit in a 500ms timeout', () => {
-    it('_handleDropCommitMulti races getCommit against a 500ms setTimeout', () => {
-      const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
-      const squashIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
-      const body = src.substring(handlerIdx, squashIdx > 0 ? squashIdx : handlerIdx + 12000);
+    it('previewCommitSubject races getCommit against a 500ms setTimeout', () => {
+      const helperIdx = src.indexOf('async function previewCommitSubject');
+      assert.ok(helperIdx > 0, 'expected the previewCommitSubject helper');
+      const body = src.substring(helperIdx, helperIdx + 1200);
       assert.ok(
         /Promise\.race\s*\(/.test(body),
         'expected Promise.race(...) to bound getCommit on the modal preview'
       );
       assert.ok(
-        /setTimeout[^,]*,\s*previewTimeoutMs/.test(body) ||
-          /setTimeout[^,]*,\s*500\s*\)/.test(body),
+        /setTimeout[^,]*,\s*500\s*\)/.test(body),
         'expected a 500ms setTimeout in the race'
+      );
+      // Both drop confirm paths ride the helper.
+      const singleIdx = src.indexOf('export async function handleDropCommit(');
+      const multiIdx = src.indexOf('export async function handleDropCommitMulti');
+      const squashIdx = src.indexOf('export async function handleSquashCommits', multiIdx);
+      const singleBody = src.substring(singleIdx, multiIdx);
+      const multiBody = src.substring(multiIdx, squashIdx > 0 ? squashIdx : multiIdx + 12000);
+      assert.ok(
+        /previewCommitSubject\s*\(/.test(singleBody),
+        'single drop must use the preview helper'
+      );
+      assert.ok(
+        /previewCommitSubject\s*\(/.test(multiBody),
+        'multi drop must use the preview helper'
       );
     });
   });

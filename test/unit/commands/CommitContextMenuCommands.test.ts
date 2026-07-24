@@ -22,6 +22,7 @@ import type * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../src/commits/CommitContextMenuCommands';
 import {
   findProtectedRemoteBranch,
+  isCommitPushed,
   type ICommitGuardsContext,
 } from '../../../src/commits/commitActionGuards';
 import type { IConflictResolutionService } from '../../../src/conflicts/interfaces/IConflictResolutionService';
@@ -2256,43 +2257,39 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(startCall, 'startInteractiveRebase should run without any prompt');
     });
 
-    it('_isCommitPushed returns false for a non-hex hash without invoking git', async () => {
+    it('isCommitPushed returns false for a non-hex hash without invoking git', async () => {
       // The hash is passed positionally to `git branch --contains <hash>`, which
       // has no `--end-of-options`. A flag-like value must be rejected before exec.
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
-      const rebaseService = createMockRebaseService();
-      const provider = createMockProvider();
       const gitCli = createMockGitCli();
-      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const ctx: ICommitGuardsContext = {
+        gitService,
+        gitCli,
+        readProtectedBranches: () => [],
+      };
 
-      const result = await (
-        commands as unknown as {
-          _isCommitPushed(cwd: string, hash: string): Promise<boolean>;
-        }
-      )._isCommitPushed('/test-repo', '--upload-pack=evil');
+      const result = await isCommitPushed(ctx, '/test-repo', '--upload-pack=evil');
 
       assert.strictEqual(result, false, 'a non-hex hash must be treated as not pushed');
       const execCalls = gitCli.calls.filter((c) => c.method === 'exec');
       assert.strictEqual(execCalls.length, 0, 'no git exec should run for a non-hex hash');
     });
 
-    it('_isCommitPushed queries git for a 64-hex SHA-256 hash (guard must not fail open)', async () => {
+    it('isCommitPushed queries git for a 64-hex SHA-256 hash (guard must not fail open)', async () => {
       // A 40-hex cap silently returned "not pushed" for SHA-256 repos,
       // skipping the already-pushed warning before a history rewrite — the
       // OPPOSITE failure direction of the conservative exec-failure path.
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
-      const rebaseService = createMockRebaseService();
-      const provider = createMockProvider();
       const gitCli = createMockGitCli();
-      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const ctx: ICommitGuardsContext = {
+        gitService,
+        gitCli,
+        readProtectedBranches: () => [],
+      };
 
-      const result = await (
-        commands as unknown as {
-          _isCommitPushed(cwd: string, hash: string): Promise<boolean>;
-        }
-      )._isCommitPushed('/test-repo', 'a'.repeat(64));
+      const result = await isCommitPushed(ctx, '/test-repo', 'a'.repeat(64));
 
       const execCalls = gitCli.calls.filter((c) => c.method === 'exec');
       assert.strictEqual(execCalls.length, 1, 'a 64-hex object id must be probed via git');
@@ -2369,33 +2366,28 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(result, undefined, 'a thrown probe must degrade open, not reject');
     });
 
-    it('_isCommitPushed probe-failure polarity: default blocks (true), `-x` path reads not-pushed (false)', async () => {
+    it('isCommitPushed probe-failure polarity: default blocks (true), `-x` path reads not-pushed (false)', async () => {
       // isCommitPublished resolves a probe failure to probeFailureMeansPushed:
       // rewrite guards pass the default (true → conservative, assume pushed),
       // the cherry-pick `-x` suffix passes false (annotate only KNOWN-published).
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
-      const rebaseService = createMockRebaseService();
-      const provider = createMockProvider();
       const gitCli = createMockGitCli({
         exec: async () => ({ exitCode: 1, stdout: '', stderr: 'fatal', combined: 'fatal' }),
       });
-      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
-      const cast = commands as unknown as {
-        _isCommitPushed(
-          cwd: string,
-          hash: string,
-          probeFailureMeansPushed?: boolean
-        ): Promise<boolean>;
+      const ctx: ICommitGuardsContext = {
+        gitService,
+        gitCli,
+        readProtectedBranches: () => [],
       };
 
       assert.strictEqual(
-        await cast._isCommitPushed('/test-repo', 'a'.repeat(40)),
+        await isCommitPushed(ctx, '/test-repo', 'a'.repeat(40)),
         true,
         'default true: a failed probe blocks the rewrite (assume pushed)'
       );
       assert.strictEqual(
-        await cast._isCommitPushed('/test-repo', 'a'.repeat(40), false),
+        await isCommitPushed(ctx, '/test-repo', 'a'.repeat(40), false),
         false,
         'explicit false (-x provenance): a failed probe reads as not-pushed'
       );

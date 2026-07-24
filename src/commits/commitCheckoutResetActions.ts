@@ -1,22 +1,20 @@
 /**
  * Checkout-revision and reset-to-here actions for the commit context menu.
- * Extracted from CommitContextMenuCommands; the class delegates through a thin
- * context so behaviour is unchanged.
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { IGitService } from '../git-core/interfaces/IGitService';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { showResetDialog } from '../ui-shell/ResetDialog';
-import { sanitizeGitError } from '../git-core/gitError';
+import { formatActionFailureToast } from '../git-core/gitError';
 import { isLocalChangesWouldBeOverwritten } from '../git-core/gitProse';
+import { type ICommitRepoContext } from './commitContextMenuShared';
 
 /** Deps the checkout/reset actions reach back into the dispatcher for. */
-export interface ICommitCheckoutResetActionsContext {
+export interface ICommitCheckoutResetActionsContext extends ICommitRepoContext {
   readonly gitService: IGitService;
   readonly gitToolWindowProvider: GitToolWindowProvider;
   readonly context: vscode.ExtensionContext | undefined;
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
   readProtectedBranches(): string[];
 }
 
@@ -82,9 +80,8 @@ export async function checkoutRevision(
           );
           ctx.gitToolWindowProvider.refresh();
         } catch (stashError) {
-          const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
           void vscode.window.showErrorMessage(
-            `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+            formatActionFailureToast('Failed to stash and checkout', stashError)
           );
         }
       } else if (choice === 'Force Checkout') {
@@ -102,15 +99,14 @@ export async function checkoutRevision(
           );
           ctx.gitToolWindowProvider.refresh();
         } catch (forceError) {
-          const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
           void vscode.window.showErrorMessage(
-            `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
+            formatActionFailureToast('Failed to force checkout', forceError)
           );
         }
       }
     } else {
       void vscode.window.showErrorMessage(
-        `Failed to checkout revision: ${sanitizeGitError(errorMessage)}`
+        formatActionFailureToast('Failed to checkout revision', error)
       );
     }
   }

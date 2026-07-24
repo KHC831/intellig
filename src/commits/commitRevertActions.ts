@@ -1,10 +1,8 @@
 /**
  * Revert actions for the commit context menu: the mainline-aware revert flow
- * and the selective (per-file) revert path. Extracted from
- * CommitContextMenuCommands; the class delegates through a thin context so
- * behaviour is unchanged. Conflict UX stays on the class
- * (`_handleRevertConflicts`, reached via the context) because it reads the
- * setter-wired conflict-resolution service live.
+ * and the selective (per-file) revert path. Conflict UX lives on the
+ * dispatcher class (`_handleRevertConflicts`, reached via the context)
+ * because it reads the setter-wired conflict-resolution service live.
  */
 
 import * as vscode from 'vscode';
@@ -12,15 +10,14 @@ import type { IGitService, IRepository } from '../git-core/interfaces/IGitServic
 import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { restorePathsToHead } from '../git-core/worktree/restoreToHead';
-import { sanitizeGitError } from '../git-core/gitError';
+import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
+import { resolveCommitSelection, type ICommitSelectionContext } from './commitContextMenuShared';
 
 /** Deps the revert actions reach back into the dispatcher for. */
-export interface ICommitRevertActionsContext {
+export interface ICommitRevertActionsContext extends ICommitSelectionContext {
   readonly gitService: IGitService;
   readonly gitCli: GitCli;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
-  isCrossRepoSelection(commitHashes: readonly string[]): boolean;
   anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean>;
   pickMainlineParent(
     repo: IRepository,
@@ -37,11 +34,8 @@ export async function handleRevert(
   ctx: ICommitRevertActionsContext,
   commitHashes: string[]
 ): Promise<void> {
-  if (ctx.isCrossRepoSelection(commitHashes)) {
-    return;
-  }
-  const repo = await ctx.getRepositoryForCommit(commitHashes[0]);
-  if (!repo || commitHashes.length === 0) {
+  const repo = await resolveCommitSelection(ctx, commitHashes);
+  if (!repo) {
     return;
   }
 
@@ -149,8 +143,7 @@ export async function handleRevert(
     await ctx.gitService.reloadRepository(repo);
     ctx.gitToolWindowProvider.refresh();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(errorMessage)}`);
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to revert', error));
   }
 }
 
@@ -214,9 +207,8 @@ export async function runSelectiveRevertIfApplicable(
   try {
     await ctx.gitCli.exec(['revert', '-n', hash], { cwd, throwOnError: true });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
     void vscode.window.showErrorMessage(
-      `Failed to start selective revert: ${sanitizeGitError(msg)}`
+      formatActionFailureToast('Failed to start selective revert', error)
     );
     return 'handled';
   }
@@ -234,12 +226,11 @@ export async function runSelectiveRevertIfApplicable(
       excludedPaths.map((path) => ({ path, removeFromDiskIfAbsentFromHead: true }))
     );
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
     // Best-effort abort so the working tree isn't half-reverted; ignore its
     // outcome — the primary error below is what the user needs to see.
     await ctx.gitService.revertAbort(repo).unwrapOr(undefined);
     void vscode.window.showErrorMessage(
-      `Failed to exclude files from revert: ${sanitizeGitError(msg)}. Revert aborted.`
+      `${formatActionFailureToast('Failed to exclude files from revert', error)}. Revert aborted.`
     );
     return 'handled';
   }
@@ -259,9 +250,8 @@ export async function runSelectiveRevertIfApplicable(
   try {
     await ctx.gitCli.exec(['commit', '-m', commitMessage], { cwd, throwOnError: true });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
     void vscode.window.showErrorMessage(
-      `Failed to commit partial revert: ${sanitizeGitError(msg)}`
+      formatActionFailureToast('Failed to commit partial revert', error)
     );
     return 'handled';
   }

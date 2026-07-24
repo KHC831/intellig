@@ -2,8 +2,6 @@
  * Shared git-safety guards for the commit context menu's history-rewrite and
  * revert/cherry-pick flows: published/protected-branch probes, merge detection,
  * mainline-parent selection, HEAD-containment, and the merge-flattening gate.
- * Extracted from CommitContextMenuCommands; the class delegates through a thin
- * context so behaviour is unchanged.
  */
 
 import * as vscode from 'vscode';
@@ -215,7 +213,17 @@ export async function isOldestInCurrentBranch(
     return true;
   }
   const mergeBase = await ctx.gitService.getMergeBase(repo, oldestHash, 'HEAD');
-  if (mergeBase === oldestHash) {
+  // Prefix-match like undoCommit's HEAD check: merge-base output is the full
+  // 40-char SHA while a log-surface selection can carry an abbreviated hash,
+  // and exact equality would read a genuine ancestor as not-contained. A
+  // colliding prefix cannot slip through — git would have rejected it as
+  // ambiguous when resolving `oldestHash` for the merge-base probe.
+  if (
+    mergeBase !== undefined &&
+    (mergeBase === oldestHash ||
+      mergeBase.startsWith(oldestHash) ||
+      oldestHash.startsWith(mergeBase))
+  ) {
     return true;
   }
   void vscode.window.showErrorMessage(

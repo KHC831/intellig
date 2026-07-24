@@ -31,10 +31,8 @@ describe('Wave C R1 — review fixes', () => {
   before(async () => {
     const fs = await import('fs');
     const path = await import('path');
-    src = fs.readFileSync(
-      path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
-      'utf8'
-    );
+    const { readHistoryRewriteFamily } = await import('../../typed/historyRewriteSources');
+    src = readHistoryRewriteFamily();
     clsSrc = fs.readFileSync(
       path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
       'utf8'
@@ -197,13 +195,21 @@ describe('Wave C R1 — review fixes', () => {
 
   // ─── drop modal includes subjects ────────────────────────────────────────
   describe('drop confirm modal includes commit subjects', () => {
-    it('_handleDropCommitMulti calls getCommit for each preview row', () => {
+    it('_handleDropCommitMulti fetches a subject for each preview row', () => {
       const handlerIdx = src.indexOf('export async function handleDropCommitMulti');
       const nextIdx = src.indexOf('export async function handleSquashCommits', handlerIdx);
       const body = src.substring(handlerIdx, nextIdx > 0 ? nextIdx : handlerIdx + 12000);
       assert.ok(
-        /ctx\.gitService\.getCommit\s*\(\s*repo\s*,/.test(body),
-        '_handleDropCommitMulti must fetch subjects via getCommit so the modal can disambiguate commits'
+        /previewCommitSubject\s*\(/.test(body),
+        '_handleDropCommitMulti must fetch subjects via previewCommitSubject so the modal can disambiguate commits'
+      );
+      // The shared preview helper is the single place that calls getCommit.
+      const helperIdx = src.indexOf('async function previewCommitSubject');
+      assert.ok(helperIdx > 0, 'expected the previewCommitSubject helper');
+      const helperBody = src.substring(helperIdx, helperIdx + 1200);
+      assert.ok(
+        /ctx\.gitService\.getCommit\s*\(\s*repo\s*,/.test(helperBody),
+        'previewCommitSubject must fetch the subject via getCommit'
       );
     });
   });
@@ -243,15 +249,15 @@ describe('Wave C R1 — review fixes', () => {
     });
 
     it('every multi-commit handler that emits the toast references the const', () => {
-      // The multi-commit handlers (createPatchMulti, compareVersions,
-      // dropCommitMulti, squashCommits, and the new partial-coverage
-      // guard) all emit the toast. Count the references to the const
-      // inside the file.
-      const refs = src.match(/STALE_SELECTION_TOAST\b/g) || [];
-      // 1 declaration + ≥4 references in handler bodies.
+      // The multi-commit handlers route the stale toast through the shared
+      // in-order guard (allHashesDisplayed) or reference the const directly
+      // (the partial-coverage guard). Count both forms.
+      const refs = src.match(/STALE_SELECTION_TOAST\b|allHashesDisplayed\s*\(/g) || [];
+      // import + guard calls in dropCommitMulti and squashCommits + the
+      // partial-coverage toast.
       assert.ok(
-        refs.length >= 5,
-        `expected ≥5 STALE_SELECTION_TOAST references (decl + handlers); got ${refs.length}`
+        refs.length >= 4,
+        `expected ≥4 stale-toast routing references (import + handlers); got ${refs.length}`
       );
     });
 
@@ -259,11 +265,13 @@ describe('Wave C R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       // Single source: the literal appears exactly once (the const decl in the
-      // shared module); the class and the patch module reference the symbol.
+      // shared module); every action module references the symbol.
+      const { HISTORY_REWRITE_MODULES } = await import('../../typed/historyRewriteSources');
       const files = [
-        'src/commits/commitHistoryRewriteActions.ts',
+        ...HISTORY_REWRITE_MODULES,
         'src/commits/commitContextMenuShared.ts',
         'src/commits/commitPatchActions.ts',
+        'src/commits/commitCompareActions.ts',
       ];
       const literalCount = files.reduce((acc, rel) => {
         const body = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');

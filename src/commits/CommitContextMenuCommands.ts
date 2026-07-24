@@ -15,7 +15,11 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { CommitDialog } from './CommitDialog';
-import { allHashesValid } from './commitContextMenuShared';
+import {
+  allHashesValid,
+  type ICommitRepoContext,
+  type ICommitSelectionContext,
+} from './commitContextMenuShared';
 import {
   createPatch,
   createPatchToClipboard,
@@ -44,15 +48,11 @@ import {
 import { undoCommit, type ICommitUndoContext } from './commitUndoActions';
 import { handleRevert, type ICommitRevertActionsContext } from './commitRevertActions';
 import { handleCherryPick, type ICommitCherryPickActionsContext } from './commitCherryPickActions';
-import {
-  handleDropCommit,
-  handleDropSelectedChanges,
-  handleEditCommitMessage,
-  handleInteractiveRebase,
-  handleSquashCommits,
-  runAutosquashNow,
-  type ICommitHistoryRewriteContext,
-} from './commitHistoryRewriteActions';
+import { type ICommitHistoryRewriteContext } from './commitHistoryRewriteRunner';
+import { handleDropCommit, handleDropSelectedChanges } from './commitDropActions';
+import { handleSquashCommits } from './commitSquashActions';
+import { handleEditCommitMessage } from './commitRewordActions';
+import { handleInteractiveRebase, runAutosquashNow } from './commitInteractiveRebaseActions';
 import { copyHash } from './commitClipboardActions';
 import { newBranch, newTag, type ICommitRefActionsContext } from './commitRefActions';
 
@@ -565,16 +565,19 @@ export class CommitContextMenuCommands {
     return handleDropSelectedChanges(this._historyRewriteContext(), repo, hash);
   }
 
-  private _isCommitPushed(
-    cwd: string,
-    hash: string,
-    probeFailureMeansPushed?: boolean
-  ): Promise<boolean> {
-    return isCommitPushed(this._guardsContext(), cwd, hash, probeFailureMeansPushed);
+  /** Core repo-resolution deps shared by every action-module context. */
+  private _repoContext(): ICommitRepoContext {
+    return {
+      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+    };
   }
 
-  private _isNotOnProtectedBranch(cwd: string, hash: string, opLabel: string): Promise<boolean> {
-    return isNotOnProtectedBranch(this._guardsContext(), cwd, hash, opLabel);
+  /** Repo resolution + the cross-repo selection probe (multi-select actions). */
+  private _selectionContext(): ICommitSelectionContext {
+    return {
+      ...this._repoContext(),
+      isCrossRepoSelection: (commitHashes) => this._isCrossRepoSelection(commitHashes),
+    };
   }
 
   private _guardsContext(): ICommitGuardsContext {
@@ -598,12 +601,11 @@ export class CommitContextMenuCommands {
     return {
       gitService: this._gitService,
       gitToolWindowProvider: this._gitToolWindowProvider,
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
-      isCrossRepoSelection: (commitHashes) => this._isCrossRepoSelection(commitHashes),
-      anyIsMergeCommit: (repo, hashes) => this._anyIsMergeCommit(repo, hashes),
-      pickMainlineParent: (repo, hashes) => this._pickMainlineParent(repo, hashes),
+      ...this._selectionContext(),
+      anyIsMergeCommit: (repo, hashes) => anyIsMergeCommit(this._guardsContext(), repo, hashes),
+      pickMainlineParent: (repo, hashes) => pickMainlineParent(this._guardsContext(), repo, hashes),
       isCommitPushed: (cwd, hash, probeFailureMeansPushed) =>
-        this._isCommitPushed(cwd, hash, probeFailureMeansPushed),
+        isCommitPushed(this._guardsContext(), cwd, hash, probeFailureMeansPushed),
       conflictResolutionService: () => this._conflictResolutionService,
       openResolveConflictsDialog: (repo, conflicts, opContext) =>
         this._openResolveConflictsDialog(repo, conflicts, opContext),
@@ -636,24 +638,12 @@ export class CommitContextMenuCommands {
       gitService: this._gitService,
       gitCli: this._gitCli,
       gitToolWindowProvider: this._gitToolWindowProvider,
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
-      isCrossRepoSelection: (commitHashes) => this._isCrossRepoSelection(commitHashes),
-      anyIsMergeCommit: (repo, hashes) => this._anyIsMergeCommit(repo, hashes),
-      pickMainlineParent: (repo, hashes) => this._pickMainlineParent(repo, hashes),
+      ...this._selectionContext(),
+      anyIsMergeCommit: (repo, hashes) => anyIsMergeCommit(this._guardsContext(), repo, hashes),
+      pickMainlineParent: (repo, hashes) => pickMainlineParent(this._guardsContext(), repo, hashes),
       handleRevertConflicts: (repo, conflicts, commitHashes) =>
         this._handleRevertConflicts(repo, conflicts, commitHashes),
     };
-  }
-
-  private _anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean> {
-    return anyIsMergeCommit(this._guardsContext(), repo, hashes);
-  }
-
-  private _pickMainlineParent(
-    repo: IRepository,
-    hashes: string[]
-  ): Promise<{ cancelled: false; mainline: number } | { cancelled: true }> {
-    return pickMainlineParent(this._guardsContext(), repo, hashes);
   }
 
   /** Shared conflict-resolution UX for both revert paths. */
@@ -712,7 +702,7 @@ export class CommitContextMenuCommands {
       gitService: this._gitService,
       gitToolWindowProvider: this._gitToolWindowProvider,
       context: this._context,
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      ...this._repoContext(),
       readProtectedBranches: () => this._readProtectedBranches(),
     };
   }
@@ -745,8 +735,7 @@ export class CommitContextMenuCommands {
     return {
       gitCli: this._gitCli,
       context: this._context,
-      isCrossRepoSelection: (commitHashes) => this._isCrossRepoSelection(commitHashes),
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      ...this._selectionContext(),
     };
   }
 
@@ -772,8 +761,7 @@ export class CommitContextMenuCommands {
     return {
       gitCli: this._gitCli,
       gitService: this._gitService,
-      isCrossRepoSelection: (commitHashes) => this._isCrossRepoSelection(commitHashes),
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      ...this._selectionContext(),
     };
   }
 
@@ -792,9 +780,9 @@ export class CommitContextMenuCommands {
       gitToolWindowProvider: this._gitToolWindowProvider,
       changelistService: () => this._changelistService,
       commitComposer: () => this._commitComposer,
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      ...this._repoContext(),
       isNotOnProtectedBranch: (cwd, hash, opLabel) =>
-        this._isNotOnProtectedBranch(cwd, hash, opLabel),
+        isNotOnProtectedBranch(this._guardsContext(), cwd, hash, opLabel),
     };
   }
 
@@ -807,10 +795,6 @@ export class CommitContextMenuCommands {
    * merge-commit gate (UI disables it via `computeMenuEnableState`;
    * the handler re-checks here as belt-and-suspenders).
    */
-  private _isOldestInCurrentBranch(repo: IRepository, oldestHash: string): Promise<boolean> {
-    return isOldestInCurrentBranch(this._guardsContext(), repo, oldestHash);
-  }
-
   private _handleDropCommit(
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
@@ -827,16 +811,14 @@ export class CommitContextMenuCommands {
       context: this._context,
       dispatchNodes: this._dispatchNodes,
       openRebaseEditor: this._openRebaseEditor, // live-read-exempt: wired once at activation (setRebaseEditorOpener), never reassigned.
-      branchComparisonView: this._branchComparisonView, // live-read-exempt: wired once at activation (setBranchComparisonView), never reassigned.
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
-      isCrossRepoSelection: (commitHashes) => this._isCrossRepoSelection(commitHashes),
+      ...this._selectionContext(),
       isOldestInCurrentBranch: (repo, oldestHash) =>
-        this._isOldestInCurrentBranch(repo, oldestHash),
+        isOldestInCurrentBranch(this._guardsContext(), repo, oldestHash),
       isNotOnProtectedBranch: (cwd, hash, opLabel) =>
-        this._isNotOnProtectedBranch(cwd, hash, opLabel),
+        isNotOnProtectedBranch(this._guardsContext(), cwd, hash, opLabel),
       isRangeMergeFree: (repo, onto, opLabel, refusalHint) =>
-        this._isRangeMergeFree(repo, onto, opLabel, refusalHint),
-      anyIsMergeCommit: (repo, hashes) => this._anyIsMergeCommit(repo, hashes),
+        isRangeMergeFree(this._guardsContext(), repo, onto, opLabel, refusalHint),
+      anyIsMergeCommit: (repo, hashes) => anyIsMergeCommit(this._guardsContext(), repo, hashes),
       openResolveConflictsDialog: (repo, conflicts, opContext) =>
         this._openResolveConflictsDialog(repo, conflicts, opContext),
     };
@@ -992,15 +974,6 @@ export class CommitContextMenuCommands {
     return handleInteractiveRebase(this._historyRewriteContext(), commitHashes);
   }
 
-  private _isRangeMergeFree(
-    repo: IRepository,
-    onto: string,
-    opLabel: string,
-    refusalHint?: () => Promise<string>
-  ): Promise<boolean> {
-    return isRangeMergeFree(this._guardsContext(), repo, onto, opLabel, refusalHint);
-  }
-
   /**
    * Dispose of resources.
    */
@@ -1048,7 +1021,7 @@ export class CommitContextMenuCommands {
 
   private _refActionsContext(): ICommitRefActionsContext {
     return {
-      getRepositoryForCommit: (hash) => this._getRepositoryForCommit(hash),
+      ...this._repoContext(),
     };
   }
 

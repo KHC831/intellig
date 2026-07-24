@@ -1,10 +1,9 @@
 /**
  * Cherry-pick action for the commit context menu, including the mainline
  * parent prompt for merge commits and the `-x` published-provenance suffix.
- * Extracted from CommitContextMenuCommands; the class delegates through a thin
- * context so behaviour is unchanged. The conflict-resolution service is read
- * through a call-time getter (it is setter-wired and read after the cherry-pick
- * await), and the Resolve Conflicts dialog stays on the class.
+ * The conflict-resolution service is read through a call-time getter (it is
+ * setter-wired and read after the cherry-pick await), and the Resolve
+ * Conflicts dialog lives on the dispatcher class.
  */
 
 import * as vscode from 'vscode';
@@ -12,14 +11,13 @@ import type { IGitService, IRepository } from '../git-core/interfaces/IGitServic
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { readConfig } from '../config/configKeys';
-import { sanitizeGitError } from '../git-core/gitError';
+import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
+import { resolveCommitSelection, type ICommitSelectionContext } from './commitContextMenuShared';
 
 /** Deps the cherry-pick action reaches back into the dispatcher for. */
-export interface ICommitCherryPickActionsContext {
+export interface ICommitCherryPickActionsContext extends ICommitSelectionContext {
   readonly gitService: IGitService;
   readonly gitToolWindowProvider: GitToolWindowProvider;
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
-  isCrossRepoSelection(commitHashes: readonly string[]): boolean;
   anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean>;
   pickMainlineParent(
     repo: IRepository,
@@ -56,11 +54,8 @@ export async function handleCherryPick(
   ctx: ICommitCherryPickActionsContext,
   commitHashes: string[]
 ): Promise<void> {
-  if (ctx.isCrossRepoSelection(commitHashes)) {
-    return;
-  }
-  const repo = await ctx.getRepositoryForCommit(commitHashes[0]);
-  if (!repo || commitHashes.length === 0) {
+  const repo = await resolveCommitSelection(ctx, commitHashes);
+  if (!repo) {
     return;
   }
 
@@ -91,13 +86,12 @@ export async function handleCherryPick(
     // multi-select need not be one chain, so probe each.
     if (readConfig('addCherryPickedFromSuffix')) {
       const cwd = repo.rootUri.fsPath;
-      let allPublished = true;
-      for (const h of replayOrder) {
-        if (!(await ctx.isCommitPushed(cwd, h, /* probeFailureMeansPushed */ false))) {
-          allPublished = false;
-          break;
-        }
-      }
+      // Probe concurrently: the common all-published case would otherwise
+      // pay one serial `git branch --contains` per picked commit.
+      const published = await Promise.all(
+        replayOrder.map((h) => ctx.isCommitPushed(cwd, h, /* probeFailureMeansPushed */ false))
+      );
+      const allPublished = published.every(Boolean);
       if (allPublished) {
         cherryOptions = { ...cherryOptions, addCherryPickedFrom: true };
       }
@@ -143,9 +137,8 @@ export async function handleCherryPick(
             );
             void vscode.window.showInformationMessage('Cherry-pick aborted.');
           } catch (abortError) {
-            const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
             void vscode.window.showErrorMessage(
-              `Failed to abort cherry-pick: ${sanitizeGitError(abortMsg)}`
+              formatActionFailureToast('Failed to abort cherry-pick', abortError)
             );
           }
         }
@@ -160,7 +153,6 @@ export async function handleCherryPick(
     await ctx.gitService.reloadRepository(repo);
     ctx.gitToolWindowProvider.refresh();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`);
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to cherry-pick', error));
   }
 }

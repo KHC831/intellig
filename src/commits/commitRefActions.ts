@@ -1,16 +1,13 @@
 /**
  * Create-ref-from-commit actions (new branch / new tag) for the commit
- * context menu. Extracted from CommitContextMenuCommands; the class delegates
- * through a thin context so behaviour is unchanged.
+ * context menu.
  */
 
 import * as vscode from 'vscode';
-import type { IRepository } from '../git-core/interfaces/IGitService';
+import { type ICommitRepoContext } from './commitContextMenuShared';
 
 /** Deps the ref actions reach back into the dispatcher for. */
-export interface ICommitRefActionsContext {
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
-}
+export interface ICommitRefActionsContext extends ICommitRepoContext {}
 
 export async function newBranch(
   ctx: ICommitRefActionsContext,

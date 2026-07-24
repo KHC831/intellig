@@ -1,19 +1,18 @@
 /**
  * Undo-commit action for the commit context menu: soft-reset the HEAD commit,
  * restore its message to the composer, and optionally move the uncommitted
- * changes to a chosen changelist (IntelliJ GitUncommitAction). Extracted from
- * CommitContextMenuCommands; the class delegates through a thin context so
- * behaviour is unchanged.
+ * changes to a chosen changelist (IntelliJ GitUncommitAction).
  */
 
 import * as vscode from 'vscode';
 import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
-import { sanitizeGitError } from '../git-core/gitError';
+import { formatActionFailureToast } from '../git-core/gitError';
+import { type ICommitRepoContext } from './commitContextMenuShared';
 
 /** Deps the undo action reaches back into the dispatcher for. */
-export interface ICommitUndoContext {
+export interface ICommitUndoContext extends ICommitRepoContext {
   readonly gitService: IGitService;
   readonly gitCli: GitCli;
   readonly gitToolWindowProvider: GitToolWindowProvider;
@@ -27,7 +26,6 @@ export interface ICommitUndoContext {
       }
     | undefined;
   commitComposer(): { prefillComposerMessage(message: string): void } | undefined;
-  getRepositoryForCommit(hash?: string): Promise<IRepository | undefined>;
   isNotOnProtectedBranch(cwd: string, hash: string, opLabel: string): Promise<boolean>;
 }
 
@@ -138,7 +136,6 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
     await ctx.gitService.reloadRepository(repo);
     ctx.gitToolWindowProvider.refresh();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Failed to undo commit: ${sanitizeGitError(errorMessage)}`);
+    void vscode.window.showErrorMessage(formatActionFailureToast('Failed to undo commit', error));
   }
 }

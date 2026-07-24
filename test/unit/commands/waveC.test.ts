@@ -1122,13 +1122,9 @@ describe('Rebase-driven multi-commit ops', () => {
 
   // ─── C3 — Contiguity helper reuse ──────────────────────────────────────────
   describe('C3 — squash handler reuses isSelectionContiguous', () => {
-    it('the history-rewrite module imports isSelectionContiguous (no inline reimpl)', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
-        'utf8'
-      );
+    it('the history-rewrite family imports isSelectionContiguous (no inline reimpl)', async () => {
+      const { readHistoryRewriteFamily } = await import('../../typed/historyRewriteSources');
+      const src = readHistoryRewriteFamily();
       assert.ok(
         /import\s*\{[^}]*isSelectionContiguous[^}]*\}\s*from\s*['"][^'"]*multiSelect/.test(src),
         'must import isSelectionContiguous from the multiSelect helper module'
@@ -1185,12 +1181,8 @@ describe('Rebase-driven multi-commit ops', () => {
       // reference the const so future copy edits land in one place.
       // Find the handlers' definitions and confirm each
       // references the const.
-      const fsMod = await import('fs');
-      const pathMod = await import('path');
-      const mod = fsMod.readFileSync(
-        pathMod.join(process.cwd(), 'src/commits/commitHistoryRewriteActions.ts'),
-        'utf8'
-      );
+      const { readHistoryRewriteFamily } = await import('../../typed/historyRewriteSources');
+      const mod = readHistoryRewriteFamily();
       const dropIdx = mod.indexOf('export async function handleDropCommitMulti');
       const squashIdx = mod.indexOf('export async function handleSquashCommits');
       assert.ok(dropIdx > 0, 'expected handleDropCommitMulti definition');
@@ -1203,8 +1195,8 @@ describe('Rebase-driven multi-commit ops', () => {
         '_handleDropCommitMulti must reference STALE_SELECTION_TOAST'
       );
       assert.ok(
-        /STALE_SELECTION_TOAST\b/.test(squashBody),
-        '_handleSquashCommits must reference STALE_SELECTION_TOAST'
+        /STALE_SELECTION_TOAST\b|allHashesDisplayed\s*\(/.test(squashBody),
+        'handleSquashCommits must route the stale toast through the shared guard or const'
       );
       // Const declared at module scope in the shared module.
       const fs = await import('fs');
