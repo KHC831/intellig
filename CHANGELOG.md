@@ -10,6 +10,17 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.2] - 2026-07-25
+
+### Fixed
+
+- Selected text in the merge window keeps your normal selection colour, including inside a highlighted change.
+- The selection turns grey when the window loses focus, matching the editor.
+- Only one merge pane shows a selection at a time.
+- Change highlights read as one continuous colour across the panes.
+- Merge window columns are separated by boundary lines.
+- Opening the merge view no longer logs a false error.
+
 ## [0.5.1] - 2026-07-24
 
 ### Fixed
