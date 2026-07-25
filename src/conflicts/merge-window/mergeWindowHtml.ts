@@ -248,11 +248,18 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 .spacer { flex: 1; }
 #counter { margin: 0 8px; opacity: 0.85; white-space: nowrap; }
 #panes { display: flex; flex: 1; min-height: 0; }
+/* One boundary per column, running the FULL height so the header and the body
+   agree on where each column starts. Bordering only the gutter's title cell
+   drew the sole visible boundaries in the 22px header, around the 30px gutter —
+   while the apply/ignore buttons live in the neighbouring action strip, so the
+   header lines marked a different column than the buttons sat in and the two
+   read as misaligned. */
+#panes > * { box-sizing: border-box; }
+#panes > * + * { border-left: 1px solid var(--vscode-panel-border); }
 .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .pane-title { flex: none; height: 22px; line-height: 22px; padding: 0 8px; font-size: 0.85em; opacity: 0.85; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
 .editor { flex: 1; min-height: 0; }
 .gutter { flex: none; width: 30px; display: flex; flex-direction: column; }
-.gutter .pane-title { border-left: 1px solid var(--vscode-panel-border); border-right: 1px solid var(--vscode-panel-border); box-sizing: border-box; }
 .gutter .pane-title { padding: 0; }
 .gutter-body { flex: 1; position: relative; overflow: hidden; min-height: 0; }
 .gutter-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; }

@@ -180,6 +180,9 @@ export class StubEditor {
 
   setPosition(position: { lineNumber: number; column: number }): void {
     this.position = position;
+    // Monaco's setPosition collapses any selection; the stub must too, or the
+    // single-selection rule would look like a no-op here.
+    this.selectionEmpty = true;
     for (const listener of [...this.cursorListeners]) {
       listener();
     }
@@ -187,6 +190,30 @@ export class StubEditor {
 
   getPosition(): { lineNumber: number; column: number } {
     return this.position;
+  }
+
+  private selectionListeners: Array<(e: { selection: { isEmpty(): boolean } }) => void> = [];
+  private selectionEmpty = true;
+
+  /** Real editors expose this; the single-selection rule subscribes to it. */
+  onDidChangeCursorSelection(cb: (e: { selection: { isEmpty(): boolean } }) => void): {
+    dispose(): void;
+  } {
+    this.selectionListeners.push(cb);
+    return { dispose: (): void => undefined };
+  }
+
+  getSelection(): { isEmpty(): boolean } {
+    const empty = this.selectionEmpty;
+    return { isEmpty: (): boolean => empty };
+  }
+
+  /** Drive a selection change the way a click-drag would. */
+  stubSelect(empty: boolean): void {
+    this.selectionEmpty = empty;
+    for (const listener of [...this.selectionListeners]) {
+      listener({ selection: { isEmpty: (): boolean => empty } });
+    }
   }
 
   createDecorationsCollection(): IStubDecorationsCollection {

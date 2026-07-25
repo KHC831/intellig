@@ -38,6 +38,7 @@ import { TextMergeChange } from '../../merge-model/TextMergeChange';
 import { replayMonacoChanges } from '../editReplay';
 import { IAlignAnchor, invertAnchors, mapLine } from '../scrollMapping';
 import { IMergeInnerDifferences, compareThreesideInner } from '../innerDiff';
+import { wireSingleSelection } from '../singleSelection';
 import {
   MERGE_FILL_ALPHA,
   MERGE_KIND_CONNECTOR_COLORS,
@@ -45,8 +46,7 @@ import {
   buildMergeWindowDom,
 } from '../mergeWindowHtml';
 
-/** Inner word diffs are skipped for chunks beyond this size (IntelliJ runs
- * them in the background; here they are synchronous per render). */
+/** Inner word diffs are skipped beyond this chunk size (IntelliJ backgrounds them; here they are synchronous per render). */
 const INNER_DIFF_MAX_CHUNK = 10000;
 
 declare const monaco: typeof Monaco;
@@ -176,8 +176,7 @@ function languageForFile(fileName: string): string {
   return 'plaintext';
 }
 
-/** IntelliJ diff semantics: green = inserted, blue = modified, red =
- * conflict, grey = deleted. */
+/** IntelliJ diff semantics: green = inserted, blue = modified, red = conflict, grey = deleted. */
 function kindOf(change: TextMergeChange): MergeChangeKind {
   switch (change.conflictType.type) {
     case MergeConflictTypeKind.CONFLICT:
@@ -302,6 +301,7 @@ class MergeWindow {
     this.wireMagicGlyph();
     this.wireThemeSync();
     this.wireConfirmResults();
+    wireSingleSelection([this.leftEditor, this.resultEditor, this.rightEditor]);
     // The "Conflict i / n" ordinal follows the caret.
     this.resultEditor.onDidChangeCursorPosition(() => this.updateCounter());
     window.addEventListener('resize', () => this.layoutGutters());
