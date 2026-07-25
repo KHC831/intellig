@@ -177,10 +177,16 @@ const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> =
  * Unique by construction: the red channel carries the token's index, so no two
  * tokens can collide however the list grows. Dark and light differ in the low
  * bit of blue so a theme mix-up is visible too.
+ *
+ * The index is offset by one so no sentinel is `#000000`. An element with no
+ * background at all computes to `rgba(0, 0, 0, 0)`, and a sentinel of black
+ * would make "the rule resolved to this token" and "the rule is missing
+ * entirely" the same measurement for whichever token landed at index 0.
  */
 function sentinelFor(index: number, theme: ThemeName): string {
   const hex = (n: number): string => n.toString(16).padStart(2, '0');
-  return `#${hex(index)}${hex((index * 7) % 256)}${hex(((index * 13) % 254) + (theme === 'dark' ? 0 : 1))}`;
+  const red = index + 1;
+  return `#${hex(red)}${hex((red * 7) % 256)}${hex(((red * 13) % 254) + (theme === 'dark' ? 0 : 1))}`;
 }
 
 const SENTINEL: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = {
@@ -191,7 +197,8 @@ const SENTINEL: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = 
 // The sentinel palette's entire value is its uniqueness; assert it rather than
 // trusting the generator, since a future edit to sentinelFor could collide
 // silently and quietly restore the collision blindness this fixture exists to
-// remove.
+// remove. Black is rejected for the same reason: it is what an absent rule
+// computes to, so a black sentinel cannot be told apart from no rule at all.
 for (const theme of ['dark', 'light'] as const) {
   const values = Object.values(SENTINEL[theme]);
   if (new Set(values).size !== values.length) {
@@ -199,11 +206,17 @@ for (const theme of ['dark', 'light'] as const) {
       `Sentinel palette for '${theme}' has duplicate values; sentinelFor must be injective`
     );
   }
+  if (values.includes('#000000')) {
+    throw new Error(
+      `Sentinel palette for '${theme}' contains #000000, which an element with no background ` +
+        `resolves to; sentinelFor must never produce black`
+    );
+  }
 }
 
-if (TOKENS.length > 256) {
+if (TOKENS.length > 255) {
   throw new Error(
-    'sentinelFor encodes the token index in one byte; split the palette before exceeding 256 tokens'
+    'sentinelFor encodes the token index in one byte, offset by one; split the palette before exceeding 255 tokens'
   );
 }
 

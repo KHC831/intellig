@@ -215,6 +215,39 @@ async function assertVisible(page: Page, selector: string): Promise<void> {
   );
 }
 
+/**
+ * The centre of `selector`'s box, asserted to lie inside the viewport.
+ *
+ * Every hit-test below probes that point, and `elementFromPoint` answers null
+ * for a point outside the viewport. Without this precondition an off-screen
+ * element reports "nothing painted at its centre" or "the two layers do not
+ * overlap", sending the reader after a stacking bug that does not exist when
+ * the real cause is a fixture taller than the window.
+ */
+async function probePoint(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  const box = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) {
+      return null;
+    }
+    const rect = el.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      viewWidth: window.innerWidth,
+      viewHeight: window.innerHeight,
+    };
+  }, selector);
+  assert.ok(box, `expected an element matching '${selector}' in the rendered document`);
+  assert.ok(
+    box.x >= 0 && box.y >= 0 && box.x <= box.viewWidth && box.y <= box.viewHeight,
+    `'${selector}' centres at (${Math.round(box.x)}, ${Math.round(box.y)}), outside the ` +
+      `${box.viewWidth}x${box.viewHeight} viewport, so no hit-test can reach it. ` +
+      `Give the spec a viewport that fits the surface rather than reading this as a stacking failure.`
+  );
+  return { x: box.x, y: box.y };
+}
+
 async function computed(page: Page, selector: string, property: string): Promise<string> {
   await assertVisible(page, selector);
   return page.evaluate(
@@ -247,12 +280,25 @@ export async function assertResolvesToToken(
   const expectedRgb = parseColor(expected);
   assertFiniteColor(actualRgb, `${selector} { ${property} }`, actual);
   assertFiniteColor(expectedRgb, `token --${token.replace(/^--/, '')}`, expected);
+  const why =
+    `${selector} { ${property} } resolved to '${actual}', expected var(--${token.replace(/^--/, '')}) = '${expected}'. ` +
+    `A browser default here means the rule is missing or its selector does not match; ` +
+    `another colour means a later rule overrode it.`;
   assert.deepStrictEqual(
     { r: actualRgb.r, g: actualRgb.g, b: actualRgb.b },
     { r: expectedRgb.r, g: expectedRgb.g, b: expectedRgb.b },
-    `${selector} { ${property} } resolved to '${actual}', expected var(--${token.replace(/^--/, '')}) = '${expected}'. ` +
-      `A browser default here means the rule is missing or its selector does not match; ` +
-      `another colour means a later rule overrode it.`
+    why
+  );
+  // Alpha is compared too, and separately: a rule can carry the token's hue at
+  // the wrong opacity and be invisible on screen while its RGB matches exactly.
+  // Tokens carry alpha of their own (`--vscode-toolbar-hoverBackground` is
+  // `#b8b8b850` in light), and the merge window's fills blend toward
+  // transparent, so opacity is part of what a rule has to get right. Chrome
+  // serializes alpha to three decimals, so an exact compare would reject a
+  // correct `#rrggbbaa` token.
+  assert.ok(
+    Math.abs(actualRgb.a - expectedRgb.a) <= 0.005,
+    `${why} The colour matches but the alpha does not: got ${actualRgb.a}, expected ${expectedRgb.a}.`
   );
 }
 
@@ -282,28 +328,47 @@ export async function assertComputedEquals(
 /**
  * What the user actually sees behind `selector`'s text.
  *
- * Most themed elements set no background of their own and show their
- * container's. Comparing text against the element's own `background-color`
+ * Most themed elements set no background of their own and show whatever is
+ * behind them. Comparing text against the element's own `background-color`
  * would read `rgba(0, 0, 0, 0)` and score every light-theme label as
- * unreadable, so walk ancestors to the first opaque layer and composite back
- * down.
+ * unreadable, so this composites the whole stack behind the measured point.
+ *
+ * The stack comes from a hit test, not an ancestor walk. An ancestor walk sees
+ * only containers, and the layer that makes text unreadable is very often not
+ * one: the merge window's chunk fills sit under the glyphs with `z-index: -1`
+ * as a SIBLING of the glyph layer, so an ancestor walk scores white text over
+ * an opaque white fill as white-on-editor-background and passes it.
  */
 async function effectiveBackground(page: Page, selector: string): Promise<string> {
   await assertVisible(page, selector);
-  const layers = await page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (!el) {
-      return [];
-    }
-    const stack: string[] = [];
-    let node: Element | null = el;
-    while (node) {
-      stack.push(window.getComputedStyle(node).backgroundColor);
-      node = node.parentElement;
-    }
-    stack.push('rgb(255, 255, 255)');
-    return stack;
-  }, selector);
+  const point = await probePoint(page, selector);
+  const layers = await page.evaluate(
+    ([sel, x, y]) => {
+      const el = document.querySelector(sel);
+      if (!el) {
+        return [];
+      }
+      const hit = document.elementsFromPoint(x, y);
+      const index = hit.indexOf(el);
+      // Front to back from the element down. Falls back to the ancestor chain
+      // when the element is not in the stack at all (clipped out of the hit
+      // test), which measures less but never measures nothing.
+      const behind: Element[] = [];
+      if (index === -1) {
+        let node: Element | null = el;
+        while (node) {
+          behind.push(node);
+          node = node.parentElement;
+        }
+      } else {
+        behind.push(...hit.slice(index));
+      }
+      const stack = behind.map((node) => window.getComputedStyle(node).backgroundColor);
+      stack.push('rgb(255, 255, 255)');
+      return stack;
+    },
+    [selector, point.x, point.y] as const
+  );
 
   let backdrop: IRgb = { r: 255, g: 255, b: 255, a: 1 };
   for (let i = layers.length - 1; i >= 0; i--) {
@@ -360,24 +425,27 @@ function toCssWithAlpha(color: IRgb): string {
  */
 export async function assertNotCovered(page: Page, selector: string): Promise<void> {
   await assertVisible(page, selector);
-  const result = await page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (!el) {
-      return { ok: false, reason: 'not found' };
-    }
-    const box = el.getBoundingClientRect();
-    const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-    if (top === null) {
-      return { ok: false, reason: 'nothing painted at its centre' };
-    }
-    if (el === top || el.contains(top)) {
-      return { ok: true, reason: '' };
-    }
-    return {
-      ok: false,
-      reason: `covered by <${top.tagName.toLowerCase()} class="${top.getAttribute('class') ?? ''}">`,
-    };
-  }, selector);
+  const point = await probePoint(page, selector);
+  const result = await page.evaluate(
+    ([sel, x, y]) => {
+      const el = document.querySelector(sel);
+      if (!el) {
+        return { ok: false, reason: 'not found' };
+      }
+      const top = document.elementFromPoint(x, y);
+      if (top === null) {
+        return { ok: false, reason: 'nothing painted at its centre' };
+      }
+      if (el === top || el.contains(top)) {
+        return { ok: true, reason: '' };
+      }
+      return {
+        ok: false,
+        reason: `covered by <${top.tagName.toLowerCase()} class="${top.getAttribute('class') ?? ''}">`,
+      };
+    },
+    [selector, point.x, point.y] as const
+  );
   assert.ok(result.ok, `${selector} is not the topmost element at its centre: ${result.reason}`);
 }
 
@@ -396,15 +464,15 @@ export async function assertPaintsAbove(
 ): Promise<void> {
   await assertVisible(page, aboveSelector);
   await assertVisible(page, belowSelector);
+  const point = await probePoint(page, aboveSelector);
   const result = await page.evaluate(
-    ([above, below]) => {
+    ([above, below, x, y]) => {
       const top = document.querySelector(above);
       const bottom = document.querySelector(below);
       if (!top || !bottom) {
         return { ok: false, detail: 'missing' };
       }
-      const box = top.getBoundingClientRect();
-      const stack = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      const stack = document.elementsFromPoint(x, y);
       const topIndex = stack.indexOf(top);
       const bottomIndex = stack.indexOf(bottom);
       if (topIndex === -1 || bottomIndex === -1) {
@@ -419,7 +487,7 @@ export async function assertPaintsAbove(
           .join(' over '),
       };
     },
-    [aboveSelector, belowSelector] as const
+    [aboveSelector, belowSelector, point.x, point.y] as const
   );
   assert.ok(
     result.ok,

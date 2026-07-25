@@ -169,6 +169,7 @@ export abstract class BaseWebviewPanel<TOutbound = unknown> {
    * Subclass hook: return CSS to inject into `<style>` in the document head.
    * Default is empty; override to provide dialog-specific styling.
    */
+  // visual-coverage-exempt: the empty default every dialog overrides; it emits no CSS of its own.
   protected _getStyles(): string {
     return '';
   }

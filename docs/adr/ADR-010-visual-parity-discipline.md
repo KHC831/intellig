@@ -611,3 +611,15 @@ not on a branch"` to the synthetic detached-head BranchTreeItem
   danger-variant hover overrode only the background, leaving white-on-pale-
   pink at 1.29:1 on Drop Commit and Reset Current Branch to Here in light
   themes.
+
+  How much of the product the lane covers is itself guarded, by
+  `check:visual-coverage`, and the guard's INVENTORY turned out to matter more
+  than its verdicts. Keying on exported `*Styles()` builders, it saw 9 of 26
+  producers and reported a comfortable number: every dialog in the repo
+  declares its stylesheet as a private `_getStyles()`, so a new dialog written
+  the ordinary way was not flagged unclassified, it was invisible. A guard
+  that measures the wrong denominator reports coverage that does not exist.
+  It now detects module-level and class-method producers alike, classifies per
+  producer rather than per file (a file with one rendered builder and one
+  unrendered builder read as fully covered), and verifies every `tested`
+  claim against what the specs actually render.

@@ -13,7 +13,7 @@ a test without rotting the production API.
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
 | E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
-| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            48 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            56 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -45,6 +45,17 @@ a test without rotting the production API.
   host, so a host-version-specific rendering bug still escapes; and layout
   assertions are kept coarse (visible / not-overlapping / contrast) because
   exact offsets depend on font metrics that vary by machine.
+
+  **How much it covers.** `check:visual-coverage` classifies every stylesheet
+  producer — a function or method named `*Styles` returning a string, which
+  includes the private `_getStyles()` every dialog declares — as `tested` or
+  `backlog`, and fails on an unclassified one. It currently reports **6 of 28
+  tested**; the rest print every run as named debt. A `tested` claim is
+  verified, not taken on trust: the producer must be rendered by a spec,
+  interpolated by one that is, or forwarded to by its own body. Classification
+  is per producer rather than per file, because a file-level status let a
+  partly-covered file (one builder rendered, another not) read as fully
+  covered.
 
   **Seeing what it measured.** `npm run test:visual:shots` writes a PNG per
   spec to `workspace-notes/visual-shots/` (gitignored), clipped to the

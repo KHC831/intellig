@@ -37,6 +37,7 @@ import {
   assertComputedEquals,
   assertNotCovered,
   assertPaintsAbove,
+  assertReadable,
   assertResolvesToToken,
 } from './support/assert';
 import { editorSkeleton, type MergeFillKind } from './support/mergeWindowFixture';
@@ -57,6 +58,26 @@ describe('merge window layering (computed style)', () => {
               // The glyphs must win over both overlay layers. Lifting the
               // selection above the text is the defect that shipped twice.
               await assertNotCovered(page, '#probe .view-line');
+              // Winning the stacking order is not the same as being legible.
+              // The backdrop here is the selection composited over the fill,
+              // which is what the reader actually sees and what a retargeted
+              // selection or fill token would change.
+              await assertReadable(page, '#probe .view-line');
+            }
+          );
+        });
+
+        it(`keeps the text readable over a bare ${kind} fill`, async () => {
+          // Without a selection the fill IS the backdrop the glyphs sit on.
+          // The selected variant cannot cover this: an opaque selection band
+          // between fill and glyphs hides the fill from the measurement
+          // entirely, so a fill retargeted at an unreadable colour shows up
+          // only here.
+          const body = editorSkeleton('probe', { fill: kind, focused: true });
+          await withRenderedPage(
+            { css: mergeWindowStyles(), body, theme, realistic: true },
+            async (page) => {
+              await assertReadable(page, '#probe .view-line');
             }
           );
         });
