@@ -122,6 +122,30 @@ describe('merge window: selection visibility over chunk decorations', () => {
     }
   });
 
+  it('restores the focused selection colour Monaco cannot apply itself', () => {
+    // Monaco ships `.monaco-editor .focused .selected-text { selectionBackground }`
+    // — a DESCENDANT selector — but `_getEditorClassName()` appends "focused" to
+    // the `.monaco-editor` element ITSELF. The rule can therefore never match, so
+    // only `.monaco-editor .selected-text { inactiveSelectionBackground }` applies
+    // and every selection paints grey whether the editor is focused or not
+    // (user-reported). The stylesheet must carry the compound-selector version.
+    const rule = parseRules().find(
+      (r) =>
+        /\.monaco-editor\.focused/.test(r.selectorText) && r.selectorText.includes('.selected-text')
+    );
+    assert.ok(
+      rule,
+      'expected a `.monaco-editor.focused .selected-text` rule (compound, no space before ' +
+        '.focused) so a focused pane uses the active selection colour'
+    );
+    assert.strictEqual(
+      rule.style.getPropertyValue('background-color'),
+      'var(--vscode-editor-selectionBackground)',
+      'the focused selection must use the theme active-selection colour; unfocused panes ' +
+        'keep Monaco default inactiveSelectionBackground'
+    );
+  });
+
   it('paints the pane band, strip band and connector at ONE shared alpha', () => {
     // The three are meant to read as a single continuous channel across the
     // window (see MERGE_KIND_CONNECTOR_COLORS' contract). Giving the in-editor

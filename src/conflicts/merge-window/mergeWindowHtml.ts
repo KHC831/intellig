@@ -297,6 +297,13 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
    lift escapes it, painting the selection over the sibling .view-lines glyphs
    and making selected text unreadable. The plain background is declared first
    so an engine without color-mix still gets a visible (opaque) fill. */
+/* Monaco ships ".monaco-editor .focused .selected-text" as a DESCENDANT
+   selector, but _getEditorClassName() appends "focused" to the .monaco-editor
+   element itself, so that rule can never match and every selection falls
+   through to inactiveSelectionBackground — grey, focused or not. Restore the
+   active colour with the compound selector; unfocused panes keep Monaco's grey,
+   matching VS Code's own editor behaviour. */
+.monaco-editor.focused .selected-text { background-color: var(--vscode-editor-selectionBackground); }
 .merge-conflict { background: var(--merge-conflict-bg); background: color-mix(in srgb, var(--merge-conflict-bg) ${FILL_PCT}, transparent); }
 .merge-modified { background: var(--merge-modified-bg); background: color-mix(in srgb, var(--merge-modified-bg) ${FILL_PCT}, transparent); }
 .merge-inserted { background: var(--merge-inserted-bg); background: color-mix(in srgb, var(--merge-inserted-bg) ${FILL_PCT}, transparent); }
