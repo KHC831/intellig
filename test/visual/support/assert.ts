@@ -50,13 +50,13 @@ function parseColor(value: string): IRgb {
   const srgb = /^color\(\s*srgb\s+([^)]+)\)$/i.exec(text);
   if (srgb) {
     const parts = srgb[1].split(/[\s/]+/).filter((p) => p.length > 0);
-    const channel = (raw: string): number =>
-      Math.round((raw.endsWith('%') ? Number(raw.slice(0, -1)) / 100 : Number(raw)) * 255);
+    const ratio = (raw: string): number =>
+      raw.endsWith('%') ? Number(raw.slice(0, -1)) / 100 : Number(raw);
     return {
-      r: channel(parts[0]),
-      g: channel(parts[1]),
-      b: channel(parts[2]),
-      a: parts.length > 3 ? Number(parts[3]) : 1,
+      r: Math.round(ratio(parts[0]) * 255),
+      g: Math.round(ratio(parts[1]) * 255),
+      b: Math.round(ratio(parts[2]) * 255),
+      a: parts.length > 3 ? ratio(parts[3]) : 1,
     };
   }
 
@@ -240,7 +240,9 @@ async function probePoint(page: Page, selector: string): Promise<{ x: number; y:
   }, selector);
   assert.ok(box, `expected an element matching '${selector}' in the rendered document`);
   assert.ok(
-    box.x >= 0 && box.y >= 0 && box.x <= box.viewWidth && box.y <= box.viewHeight,
+    // Exclusive at the far edge: a point at exactly the viewport width or
+    // height lies outside it, and the hit test answers null there.
+    box.x >= 0 && box.y >= 0 && box.x < box.viewWidth && box.y < box.viewHeight,
     `'${selector}' centres at (${Math.round(box.x)}, ${Math.round(box.y)}), outside the ` +
       `${box.viewWidth}x${box.viewHeight} viewport, so no hit-test can reach it. ` +
       `Give the spec a viewport that fits the surface rather than reading this as a stacking failure.`
@@ -249,6 +251,13 @@ async function probePoint(page: Page, selector: string): Promise<{ x: number; y:
 }
 
 async function computed(page: Page, selector: string, property: string): Promise<string> {
+  assert.notStrictEqual(
+    property,
+    'pointer-events',
+    `pointer-events is forced by the harness so that every painted layer answers the hit ` +
+      `test (see makeEveryLayerHitTestable), so its computed value here is the harness's, ` +
+      `not the stylesheet's. Assert the behaviour the rule controls instead.`
+  );
   await assertVisible(page, selector);
   return page.evaluate(
     ([sel, prop]) => {

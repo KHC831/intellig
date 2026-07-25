@@ -114,6 +114,27 @@ describe('check-visual-coverage guard', () => {
     assert.strictEqual(status, 0, `a rendered builder must pass; output:\n${out}`);
   });
 
+  it('does not credit a builder a spec only mentions in prose', () => {
+    // Specs name the builders they render AND the ones they deliberately do
+    // not, so crediting a bare mention would let a comment vouch for coverage.
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'tested' } }),
+      { 'widget.visual.test.ts': '// unlike widgetStyles(), this renders nothing\nconst x = 1;' }
+    );
+    assert.strictEqual(status, 1, 'a commented mention must not back a tested claim');
+    assert.match(out, /marked 'tested' but no spec/);
+  });
+
+  it('does not credit a builder a spec only imports', () => {
+    const { status } = checkTree(
+      { 'widget.ts': EXPORTED },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'tested' } }),
+      { 'widget.visual.test.ts': "import { widgetStyles } from '../src/widget';\n" }
+    );
+    assert.strictEqual(status, 1, 'an import without a call must not back a tested claim');
+  });
+
   it('credits a builder interpolated by a rendered one', () => {
     const parent = 'export function parentStyles(): string {\n  return `${widgetStyles()}`;\n}\n';
     const { status, out } = checkTree(

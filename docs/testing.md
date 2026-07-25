@@ -13,7 +13,7 @@ a test without rotting the production API.
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
 | E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
-| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            56 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            61 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -45,6 +45,14 @@ a test without rotting the production API.
   host, so a host-version-specific rendering bug still escapes; and layout
   assertions are kept coarse (visible / not-overlapping / contrast) because
   exact offsets depend on font metrics that vary by machine.
+
+  **The assertions are themselves tested.** `harness.visual.test.ts` renders
+  deliberate defects and requires each helper to report them, because a helper
+  that cannot tell a correct render from a broken one reports green forever and
+  nothing inside the lane would notice. It also pins the reason the harness
+  forces `pointer-events`: the stacking and readability helpers ask what
+  _paints_ at a point, `elementFromPoint` answers what would receive a _click_,
+  and the two disagree on exactly the overlay layers those helpers exist for.
 
   **How much it covers.** `check:visual-coverage` classifies every stylesheet
   producer — a function or method named `*Styles` returning a string, which

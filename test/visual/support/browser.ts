@@ -112,6 +112,7 @@ export async function withRenderedPage<T>(
   const page = await context.newPage();
   try {
     await page.setContent(buildDocument(options), { waitUntil: 'load' });
+    await makeEveryLayerHitTestable(page);
     const result = await fn(page);
     if (shotsEnabled()) {
       await saveShot(page);
@@ -126,6 +127,33 @@ export async function withRenderedPage<T>(
   } finally {
     await context.close();
   }
+}
+
+/**
+ * Makes every painted element answer the hit test.
+ *
+ * The stacking and readability assertions ask what PAINTS at a point, and the
+ * only browser API that answers is `elementFromPoint`, which reports what would
+ * receive a CLICK. The two diverge on `pointer-events: none`: such a layer
+ * paints normally but is skipped by the hit test. An opaque overlay declared
+ * that way therefore reads as "nothing is covering the text" and drops out of
+ * the measured backdrop — both assertions report green on a surface no one can
+ * read. Overlays are routinely declared that way; the merge window's own
+ * `.action-band` is one.
+ *
+ * Applied inline and `!important` because production rules select by class and
+ * some of Monaco's carry `!important` themselves. Nothing in this lane clicks
+ * and paint is unaffected, so no assertion changes subject. It does make the
+ * property itself the harness's value rather than the stylesheet's, which is
+ * why `computed()` refuses to report it.
+ */
+async function makeEveryLayerHitTestable(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    for (const el of Array.from(document.querySelectorAll('*'))) {
+      const styled = el as Partial<HTMLElement>;
+      styled.style?.setProperty('pointer-events', 'auto', 'important');
+    }
+  });
 }
 
 function buildDocument(options: IRenderOptions): string {

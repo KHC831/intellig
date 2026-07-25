@@ -157,9 +157,25 @@ const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
 const statuses = new Set(manifest.statuses);
 const files = manifest.files ?? {};
 
+// Comments are stripped before anything is called "rendered". Specs describe
+// what they cover in prose, naming the builder they render and often the ones
+// they do not — so a bare name match credits a builder for being MENTIONED.
+// Residual: a comment trailing live code on the same line survives. Whole-line
+// comments are where the prose actually is.
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => {
+      const t = line.trim();
+      return !t.startsWith('//') && !t.startsWith('*');
+    })
+    .join('\n');
+}
+
 const visualTestBlob = fs.existsSync(VISUAL_TEST_DIR)
   ? walk(VISUAL_TEST_DIR, (p) => p.endsWith('.ts'))
-      .map((p) => fs.readFileSync(p, 'utf8'))
+      .map((p) => stripComments(fs.readFileSync(p, 'utf8')))
       .join('\n')
   : '';
 
@@ -171,7 +187,9 @@ const visualTestBlob = fs.existsSync(VISUAL_TEST_DIR)
 // fragments that do not match what ships.
 const renderedBuilders = new Set();
 for (const p of producers) {
-  if (p.exported && visualTestBlob.includes(p.name)) renderedBuilders.add(p.name);
+  // Call syntax, not a bare name: an import line or a type reference names a
+  // builder without rendering it.
+  if (p.exported && visualTestBlob.includes(`${p.name}(`)) renderedBuilders.add(p.name);
 }
 for (let changed = true; changed; ) {
   changed = false;
@@ -254,9 +272,12 @@ const backlog = Object.entries(files)
   .filter(([, e]) => e.status === 'backlog')
   .map(([f]) => f)
   .sort();
+// Counted from the manifest rather than subtracted from the total, so adding a
+// third status later cannot silently inflate the tested number.
+const tested = Object.values(files).filter((e) => e.status === 'tested').length;
 
 console.log(
   `[check:visual-coverage] OK (${producers.length} stylesheet producers; ` +
-    `${producers.length - backlog.length} computed-style tested, ${backlog.length} backlog)`
+    `${tested} computed-style tested, ${backlog.length} backlog)`
 );
 for (const f of backlog) console.log(`  backlog: ${f} — ${files[f].note ?? 'no note'}`);
