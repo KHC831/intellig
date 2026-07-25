@@ -261,30 +261,30 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 #bottombar button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, #3f8be6); }
 #bottombar button:disabled { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-disabledForeground, #888888); opacity: 0.6; cursor: default; }
 /* Monaco paints the selection (SelectionsOverlay) BEFORE line decorations
-   (DecorationsOverlay) inside the same per-line overlay container, so the
-   opaque .merge-* chunk backgrounds below would otherwise cover the selection
-   highlight entirely. Lift the selection divs above their decoration siblings
-   (all .cdr overlays are absolutely positioned, so z-index applies) — but first
-   ISOLATE .view-overlays into its own stacking context, so the raised z-index
-   stays trapped below the text glyphs. .view-lines (the glyph layer) is a
-   SIBLING of .view-overlays, not a child; without the isolation the z-index:1
-   escapes to the shared stacking context and the selection paints over the
-   glyphs themselves, making selected text unreadable. Isolated, the selection
-   sits above the chunk fills and below the text, exactly like IntelliJ. */
-.monaco-editor .view-overlays { isolation: isolate; }
-.monaco-editor .view-overlays .selected-text { z-index: 1; }
-.merge-conflict { background: var(--merge-conflict-bg); }
-.merge-modified { background: var(--merge-modified-bg); }
-.merge-inserted { background: var(--merge-inserted-bg); }
-.merge-deleted { background: var(--merge-deleted-bg); }
+   (DecorationsOverlay) inside the same per-line overlay container, so a chunk
+   fill sits ON TOP of the selection highlight. The fills are therefore
+   translucent: the selection shows through instead of being covered.
+
+   Do NOT solve this by lifting the selection with a z-index. .view-overlays is
+   position:absolute with z-index:auto, so it is not a stacking context and the
+   lift escapes it, painting the selection over the sibling .view-lines glyphs
+   and making selected text unreadable. The plain background is declared first
+   so an engine without color-mix still gets a visible (opaque) fill. */
+.merge-conflict { background: var(--merge-conflict-bg); background: color-mix(in srgb, var(--merge-conflict-bg) 60%, transparent); }
+.merge-modified { background: var(--merge-modified-bg); background: color-mix(in srgb, var(--merge-modified-bg) 60%, transparent); }
+.merge-inserted { background: var(--merge-inserted-bg); background: color-mix(in srgb, var(--merge-inserted-bg) 60%, transparent); }
+.merge-deleted { background: var(--merge-deleted-bg); background: color-mix(in srgb, var(--merge-deleted-bg) 60%, transparent); }
 .merge-empty { border-top: 2px solid var(--merge-deleted-strong); background: transparent; }
 .merge-empty.k-conflict { border-top-color: var(--merge-conflict-strong); }
 .merge-empty.k-modified { border-top-color: var(--merge-modified-strong); }
 .merge-empty.k-inserted { border-top-color: var(--merge-inserted-strong); }
-.merge-word.k-conflict { background: var(--merge-conflict-strong); }
-.merge-word.k-modified { background: var(--merge-modified-strong); }
-.merge-word.k-inserted { background: var(--merge-inserted-strong); }
-.merge-word.k-deleted { background: var(--merge-deleted-strong); }
+/* Word-level emphasis rides on top of the chunk fill, so it stays translucent
+   too — same reason, and it keeps the two tones distinguishable when they
+   compose. */
+.merge-word.k-conflict { background: var(--merge-conflict-strong); background: color-mix(in srgb, var(--merge-conflict-strong) 70%, transparent); }
+.merge-word.k-modified { background: var(--merge-modified-strong); background: color-mix(in srgb, var(--merge-modified-strong) 70%, transparent); }
+.merge-word.k-inserted { background: var(--merge-inserted-strong); background: color-mix(in srgb, var(--merge-inserted-strong) 70%, transparent); }
+.merge-word.k-deleted { background: var(--merge-deleted-strong); background: color-mix(in srgb, var(--merge-deleted-strong) 70%, transparent); }
 .merge-resolved-top.k-conflict { border-top: 1px dotted var(--merge-conflict-strong); }
 .merge-resolved-top.k-modified { border-top: 1px dotted var(--merge-modified-strong); }
 .merge-resolved-top.k-inserted { border-top: 1px dotted var(--merge-inserted-strong); }
