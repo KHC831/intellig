@@ -20,6 +20,7 @@
 import type { Browser, Page } from 'playwright-core';
 import { chromium } from 'playwright-core';
 import { themeRootCss, type ThemeName } from './theme';
+import { headedEnabled, saveShot, shotsEnabled, slowMoMs } from './capture';
 
 /** Fixed so layout assertions never depend on the runner's window size. */
 const VIEWPORT = { width: 1280, height: 800 };
@@ -39,10 +40,9 @@ async function getBrowser(): Promise<Browser> {
     return shared;
   }
   const channel = process.env.INTELLIG_VISUAL_CHANNEL ?? 'chrome';
+  const launch = { headless: !headedEnabled(), slowMo: slowMoMs() };
   try {
-    shared = await chromium.launch(
-      channel === 'chromium' ? { headless: true } : { headless: true, channel }
-    );
+    shared = await chromium.launch(channel === 'chromium' ? launch : { ...launch, channel });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
@@ -112,7 +112,17 @@ export async function withRenderedPage<T>(
   const page = await context.newPage();
   try {
     await page.setContent(buildDocument(options), { waitUntil: 'load' });
-    return await fn(page);
+    const result = await fn(page);
+    if (shotsEnabled()) {
+      await saveShot(page);
+    }
+    return result;
+  } catch (error) {
+    // Always capture a failure, shots flag or not: a contrast number in the
+    // assertion message is hard to picture, and the image is what makes it
+    // obvious. saveShot never throws, so it cannot mask this error.
+    await saveShot(page, '--FAILED');
+    throw error;
   } finally {
     await context.close();
   }
@@ -132,7 +142,17 @@ function buildDocument(options: IRenderOptions): string {
 <style>
 ${themeRootCss(options.theme, { realistic })}
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 16px; }
+    /* VS Code injects a default foreground/background into every webview
+       before the extension's own stylesheet. Without it a surface that sets no
+       background of its own renders on white even in a dark theme, and any
+       contrast reading taken against the page is measured against the wrong
+       backdrop. Declared in the reset block so production css still wins. */
+    body {
+      margin: 0;
+      padding: 16px;
+      background-color: var(--vscode-editor-background);
+      color: var(--vscode-foreground);
+    }
 </style>
 <style>
 ${options.css}

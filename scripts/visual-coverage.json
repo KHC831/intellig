@@ -15,8 +15,8 @@
       "note": "commit dialog stylesheet; needs the dialog body markup rendered before its buttons, inputs and diff rows can be asserted"
     },
     "src/conflicts/merge-window/mergeWindowHtml.ts": {
-      "status": "backlog",
-      "note": "merge-window stylesheet; the selection/change-fill layering that shipped broken four times is exactly this lane's target, but the panes need Monaco stubbed before the fills can be measured"
+      "status": "tested",
+      "note": "mergeWindowStyles rendered in both themes: the chrome against production markup from buildMergeWindowDom (column boundaries on every column after the first, bottom-bar buttons resolving their secondary tokens rather than falling back to browser chrome, pane layout, narrow-window overflow), and the fill/selection layering against a hand-built Monaco skeleton (glyphs above both overlay layers, fills sunk below the selection, overlay isolation, focused vs unfocused selection colour). Skeleton limitations are recorded in mergeWindowLayering.visual.test.ts (mergeWindowChrome.visual.test.ts, mergeWindowLayering.visual.test.ts)"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts": {
       "status": "backlog",

@@ -13,7 +13,7 @@ a test without rotting the production API.
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
 | E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
-| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            16 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            48 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -45,6 +45,18 @@ a test without rotting the production API.
   host, so a host-version-specific rendering bug still escapes; and layout
   assertions are kept coarse (visible / not-overlapping / contrast) because
   exact offsets depend on font metrics that vary by machine.
+
+  **Seeing what it measured.** `npm run test:visual:shots` writes a PNG per
+  spec to `workspace-notes/visual-shots/` (gitignored), clipped to the
+  rendered content and named from the spec, so both themes sit side by side in
+  one directory listing. `npm run test:visual:headed` runs a visible browser
+  with a slow-motion delay (`INTELLIG_VISUAL_SLOWMO`, default 250ms) for
+  poking at one surface with devtools. A **failing** spec always writes a
+  `--FAILED` shot whether or not shots are enabled: a contrast ratio in an
+  assertion message is hard to picture, and the image makes it obvious. The
+  fixture pins a monospace font for stable metrics, so shots read as the right
+  colours and layout in the wrong typeface — they are a debugging aid, never
+  compared against a golden image.
 
 ### The test surface is the CI lanes
 

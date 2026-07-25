@@ -257,6 +257,29 @@ export async function assertResolvesToToken(
 }
 
 /**
+ * A non-colour property resolved to an expected value.
+ *
+ * For rules whose whole job is structural rather than chromatic — an
+ * `isolation` that traps a stacking context, a border that marks a column
+ * boundary. `why` is appended to the failure so the message explains what
+ * breaks, not just which string differed.
+ */
+export async function assertComputedEquals(
+  page: Page,
+  selector: string,
+  property: string,
+  expected: string,
+  why: string
+): Promise<void> {
+  const actual = await computed(page, selector, property);
+  assert.strictEqual(
+    actual.trim(),
+    expected,
+    `${selector} { ${property} } resolved to '${actual.trim()}', expected '${expected}'. ${why}`
+  );
+}
+
+/**
  * What the user actually sees behind `selector`'s text.
  *
  * Most themed elements set no background of their own and show their
@@ -356,6 +379,52 @@ export async function assertNotCovered(page: Page, selector: string): Promise<vo
     };
   }, selector);
   assert.ok(result.ok, `${selector} is not the topmost element at its centre: ${result.reason}`);
+}
+
+/**
+ * Of two overlapping layers, the first paints above the second.
+ *
+ * `assertNotCovered` asks whether an element is topmost overall, which is the
+ * wrong question when a third layer is legitimately above both — the merge
+ * window's text glyphs sit above both the selection and the fills, by design.
+ * This compares just the two named layers, reading the real hit-test stack.
+ */
+export async function assertPaintsAbove(
+  page: Page,
+  aboveSelector: string,
+  belowSelector: string
+): Promise<void> {
+  await assertVisible(page, aboveSelector);
+  await assertVisible(page, belowSelector);
+  const result = await page.evaluate(
+    ([above, below]) => {
+      const top = document.querySelector(above);
+      const bottom = document.querySelector(below);
+      if (!top || !bottom) {
+        return { ok: false, detail: 'missing' };
+      }
+      const box = top.getBoundingClientRect();
+      const stack = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      const topIndex = stack.indexOf(top);
+      const bottomIndex = stack.indexOf(bottom);
+      if (topIndex === -1 || bottomIndex === -1) {
+        return { ok: false, detail: 'the two layers do not overlap at that point' };
+      }
+      // elementsFromPoint is ordered front to back.
+      return {
+        ok: topIndex < bottomIndex,
+        detail: stack
+          .slice(0, 6)
+          .map((el) => `${el.tagName.toLowerCase()}.${el.getAttribute('class') ?? ''}`)
+          .join(' over '),
+      };
+    },
+    [aboveSelector, belowSelector] as const
+  );
+  assert.ok(
+    result.ok,
+    `expected '${aboveSelector}' to paint above '${belowSelector}', but the stack front-to-back is: ${result.detail}`
+  );
 }
 
 /** Two elements do not intersect, for text-overlapping-text defects. */

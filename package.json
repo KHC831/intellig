@@ -2065,6 +2065,8 @@
     "gate:full": "npm test && npm run test:ext-host && npm run test:e2e && npm run test:visual",
     "test:unit": "mocha --require ts-node/register \"test/unit/**/*.test.ts\"",
     "test:visual": "mocha --require ts-node/register --require test/setup.ts --require test/visual/support/rootHooks.ts --timeout 60000 \"test/visual/**/*.visual.test.ts\"",
+    "test:visual:shots": "INTELLIG_VISUAL_SHOTS=1 npm run test:visual",
+    "test:visual:headed": "INTELLIG_VISUAL_HEADED=1 npm run test:visual",
     "test:property": "mocha --require ts-node/register --timeout 60000 \"test/property/**/*.property.test.ts\"",
     "test:property:stress": "node scripts/propertyStress.mjs",
     "check:quickpick-state": "bash scripts/check-quickpick-state-no-error.sh",
