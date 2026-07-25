@@ -11,23 +11,47 @@ import '../../setup';
 import * as assert from 'assert';
 import {
   ISelectionPane,
+  PANE_FOCUSED_CLASS,
   wireSingleSelection,
 } from '../../../src/conflicts/merge-window/singleSelection';
 
 interface IFakePane extends ISelectionPane {
   /** Drive a selection change the way Monaco would. */
   select(empty: boolean): void;
+  /** Drive focus the way clicking into a pane would. */
+  focus(focused: boolean): void;
   collapsedTo: { lineNumber: number; column: number } | undefined;
   hasSelection: boolean;
+  classes: Set<string>;
 }
 
 function fakePane(caret = { lineNumber: 7, column: 3 }): IFakePane {
   let listener: ((e: { selection: { isEmpty(): boolean } }) => void) | undefined;
+  let onFocus: (() => void) | undefined;
+  let onBlur: (() => void) | undefined;
   const pane: IFakePane = {
     hasSelection: false,
     collapsedTo: undefined,
+    classes: new Set<string>(),
     onDidChangeCursorSelection(l) {
       listener = l;
+    },
+    onDidFocusEditorText(l) {
+      onFocus = l;
+    },
+    onDidBlurEditorText(l) {
+      onBlur = l;
+    },
+    getDomNode() {
+      return {
+        classList: {
+          add: (c: string): void => void pane.classes.add(c),
+          remove: (c: string): void => void pane.classes.delete(c),
+        },
+      };
+    },
+    focus(focused: boolean) {
+      (focused ? onFocus : onBlur)?.();
     },
     getSelection() {
       return { isEmpty: () => !pane.hasSelection };
@@ -76,6 +100,26 @@ describe('merge window: one visible selection across panes', () => {
     right.select(true); // caret move, no selection
     assert.strictEqual(left.hasSelection, true, 'a caret move must not clear a real selection');
     assert.strictEqual(left.collapsedTo, undefined);
+  });
+
+  it('marks the focused pane so the stylesheet can colour its selection', () => {
+    // Monaco's own focused-selection CSS cannot match (its focus class lands on
+    // the .monaco-editor element while the rule expects a descendant), so every
+    // selection painted the inactive grey. The class is applied here instead,
+    // driven by Monaco's focus EVENTS rather than its class name.
+    const left = fakePane();
+    const right = fakePane();
+    wireSingleSelection([left, right]);
+
+    left.focus(true);
+    assert.ok(left.classes.has(PANE_FOCUSED_CLASS), 'the focused pane must be marked');
+    assert.ok(!right.classes.has(PANE_FOCUSED_CLASS), 'an unfocused pane must not be marked');
+
+    left.focus(false);
+    assert.ok(
+      !left.classes.has(PANE_FOCUSED_CLASS),
+      'blur must unmark the pane so it falls back to the inactive colour'
+    );
   });
 
   it('does not touch a pane that has nothing selected', () => {

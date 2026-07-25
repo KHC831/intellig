@@ -208,6 +208,37 @@ export class StubEditor {
     return { isEmpty: (): boolean => empty };
   }
 
+  private focusListeners: Array<() => void> = [];
+  private blurListeners: Array<() => void> = [];
+  /** Stands in for the real `.monaco-editor` element's class list. */
+  readonly stubClassList = new Set<string>();
+
+  onDidFocusEditorText(cb: () => void): { dispose(): void } {
+    this.focusListeners.push(cb);
+    return { dispose: (): void => undefined };
+  }
+
+  onDidBlurEditorText(cb: () => void): { dispose(): void } {
+    this.blurListeners.push(cb);
+    return { dispose: (): void => undefined };
+  }
+
+  getDomNode(): { classList: { add(c: string): void; remove(c: string): void } } {
+    return {
+      classList: {
+        add: (c: string): void => void this.stubClassList.add(c),
+        remove: (c: string): void => void this.stubClassList.delete(c),
+      },
+    };
+  }
+
+  /** Drive focus the way clicking into a pane would. */
+  stubFocus(focused: boolean): void {
+    for (const listener of [...(focused ? this.focusListeners : this.blurListeners)]) {
+      listener();
+    }
+  }
+
   /** Drive a selection change the way a click-drag would. */
   stubSelect(empty: boolean): void {
     this.selectionEmpty = empty;

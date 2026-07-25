@@ -27,6 +27,7 @@ import {
   MERGE_FILL_ALPHA,
   mergeWindowStyles,
 } from '../../../src/conflicts/merge-window/mergeWindowHtml';
+import { PANE_FOCUSED_CLASS } from '../../../src/conflicts/merge-window/singleSelection';
 
 /** Mount the generated stylesheet in jsdom and return its parsed rules. */
 function parseRules(): CSSStyleRule[] {
@@ -131,18 +132,30 @@ describe('merge window: selection visibility over chunk decorations', () => {
     // (user-reported). The stylesheet must carry the compound-selector version.
     const rule = parseRules().find(
       (r) =>
-        /\.monaco-editor\.focused/.test(r.selectorText) && r.selectorText.includes('.selected-text')
+        r.selectorText.includes(PANE_FOCUSED_CLASS) &&
+        !r.selectorText.includes(':not') &&
+        r.selectorText.includes('.selected-text')
     );
     assert.ok(
       rule,
-      'expected a `.monaco-editor.focused .selected-text` rule (compound, no space before ' +
-        '.focused) so a focused pane uses the active selection colour'
+      `expected a ".${PANE_FOCUSED_CLASS} … .selected-text" rule so the pane marked focused by ` +
+        'wireFocusedPaneClass uses the active selection colour'
     );
-    assert.strictEqual(
+    // A var() that does not resolve drops the whole declaration, which would land
+    // right back on the grey rule — so both colours carry a literal fallback.
+    assert.match(
       rule.style.getPropertyValue('background-color'),
-      'var(--vscode-editor-selectionBackground)',
-      'the focused selection must use the theme active-selection colour; unfocused panes ' +
-        'keep Monaco default inactiveSelectionBackground'
+      /var\(--vscode-editor-selectionBackground,\s*#[0-9a-f]{3,6}\)/i,
+      'the focused selection colour needs a literal fallback after the theme var'
+    );
+    const inactive = parseRules().find(
+      (r) => r.selectorText.includes(':not') && r.selectorText.includes('.selected-text')
+    );
+    assert.ok(inactive, 'expected an explicit unfocused rule for the grey selection');
+    assert.match(
+      inactive.style.getPropertyValue('background-color'),
+      /var\(--vscode-editor-inactiveSelectionBackground,\s*#[0-9a-f]{3,6}\)/i,
+      'the unfocused selection colour needs a literal fallback too'
     );
   });
 
