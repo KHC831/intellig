@@ -95,21 +95,40 @@ describe('merge window: selection visibility over chunk decorations', () => {
     }
   });
 
-  it('does not depend on isolating .view-overlays to contain a lift', () => {
-    // isolation:isolate was the patch for the escaping z-index above. With no
-    // lift to contain, requiring it would be cargo cult; its presence means the
-    // z-index approach crept back in.
-    for (const rule of parseRules()) {
-      if (!rule.selectorText.includes('.monaco-editor')) {
-        continue;
-      }
-      assert.notStrictEqual(
-        rule.style.getPropertyValue('isolation'),
-        'isolate',
-        `"${rule.selectorText}" isolates a Monaco layer, which is only needed to trap a ` +
-          'lifted selection z-index. The fill is translucent now; nothing should be lifted.'
+  it('sinks the chunk fills below the selection instead of lifting it', () => {
+    // Monaco emits the selection BEFORE the decorations, so an untouched fill
+    // paints over the selection and a selection inside a conflict showed the
+    // selection colour seen through the fill (user-reported: "grey, not blue").
+    // The fills therefore carry a NEGATIVE z-index. Negative is the whole point:
+    // going down can never reach the glyphs, whereas lifting the selection did.
+    for (const selector of FILL_SELECTORS) {
+      const rule = parseRules().find((r) =>
+        r.selectorText.split(',').some((s) => s.trim() === selector)
+      );
+      assert.ok(rule, `expected a rule whose selector list carries "${selector}"`);
+      assert.strictEqual(
+        parseInt(rule.style.getPropertyValue('z-index'), 10),
+        -1,
+        `"${selector}" must sit below the selection (z-index -1) so a selection over a ` +
+          'conflict shows the theme selection colour, not that colour through the fill'
       );
     }
+  });
+
+  it('isolates .view-overlays so the sunk fills stay above the editor background', () => {
+    // A negative z-index resolves against the nearest ancestor stacking context.
+    // Without isolating .view-overlays the fills would sink past the editor
+    // background and vanish, so the isolation is load-bearing here.
+    const rule = parseRules().find(
+      (r) =>
+        r.selectorText.includes('.view-overlays') &&
+        r.style.getPropertyValue('isolation') === 'isolate'
+    );
+    assert.ok(
+      rule,
+      'expected `.monaco-editor .view-overlays { isolation: isolate }` so the negative ' +
+        'z-index on the fills stays trapped inside the overlays layer'
+    );
   });
 
   it('keeps every chunk fill translucent so the selection shows through it', () => {

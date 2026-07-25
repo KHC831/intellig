@@ -291,14 +291,25 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 #bottombar button:disabled { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-disabledForeground, #888888); opacity: 0.6; cursor: default; }
 /* Monaco paints the selection (SelectionsOverlay) BEFORE line decorations
    (DecorationsOverlay) inside the same per-line overlay container, so a chunk
-   fill sits ON TOP of the selection highlight. The fills are therefore
-   translucent: the selection shows through instead of being covered.
+   fill sits ON TOP of the selection highlight: selecting inside a conflict
+   showed the selection colour seen THROUGH the fill, which reads muddy rather
+   than as the theme's selection colour.
 
-   Do NOT solve this by lifting the selection with a z-index. .view-overlays is
-   position:absolute with z-index:auto, so it is not a stacking context and the
-   lift escapes it, painting the selection over the sibling .view-lines glyphs
-   and making selected text unreadable. The plain background is declared first
-   so an engine without color-mix still gets a visible (opaque) fill. */
+   Fixed by sinking the fills BELOW the selection — deliberately not by lifting
+   the selection. A positive z-index on .selected-text escapes .view-overlays
+   (position:absolute, z-index:auto, so not a stacking context) and paints the
+   selection over the sibling .view-lines glyphs, making selected text
+   unreadable. Sending the fills DOWN cannot reach the glyphs whatever happens.
+   .view-overlays is isolated so the negative z-index stays inside it and the
+   fills keep painting above the editor background instead of behind it.
+
+   The fills stay translucent so the pane band, action-strip band and canvas
+   connector read as one continuous channel (see MERGE_FILL_ALPHA). The plain
+   background is declared first so an engine without color-mix still gets a
+   visible fill. */
+.monaco-editor .view-overlays { isolation: isolate; }
+.merge-conflict, .merge-modified, .merge-inserted, .merge-deleted,
+.merge-word.k-conflict, .merge-word.k-modified, .merge-word.k-inserted, .merge-word.k-deleted { z-index: -1; }
 /* Active-pane selection colour. Monaco ships
    ".monaco-editor .focused .selected-text" for this, but that is a DESCENDANT
    selector while its own focus class lands on the .monaco-editor element, so it
