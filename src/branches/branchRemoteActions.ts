@@ -285,13 +285,10 @@ export async function handleTrackRemote(
   const upstreamRef = target.branch.name; // e.g. "origin/main"
   const simpleName = parts.slice(1).join('/');
 
-  // SK-2 — defense-in-depth: sweep relied on
-  // validateBranchName at the service boundary for checkout({ createBranch }),
-  // but the simpleName here is sliced from a parsed remote branch name
-  // which could theoretically be hostile (e.g. a malformed remote ref like
-  // `origin/-evil` or `origin/.hidden`). Guard explicitly before the
-  // checkout / setBranchUpstream call so the error surface is a friendly
-  // showErrorMessage rather than a service-boundary throw.
+  // Defense in depth: validateBranchName guards the service boundary, but
+  // simpleName is sliced out of a remote ref that could be hostile
+  // (`origin/-evil`, `origin/.hidden`). Rejecting it here makes the failure a
+  // friendly toast instead of a service-boundary throw.
   if (simpleName.startsWith('-') || simpleName.startsWith('.')) {
     void vscode.window.showErrorMessage(
       `Cannot create local branch from remote with reserved name prefix: ${simpleName}`

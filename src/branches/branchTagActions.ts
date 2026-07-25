@@ -8,37 +8,18 @@
 import * as vscode from 'vscode';
 import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { BranchTreeProvider } from './BranchTreeProvider';
-import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import type { MergeDialogOpener } from './BranchContextMenuCommands';
 import { sanitizeGitError, formatActionFailureToast } from '../git-core/gitError';
 import type { ITreeItemRunArgs, ITreeItemBatchEntry } from '../commands/registration/commandSpine';
+import { cherryPickSuffixOptions } from './branchCherryPickActions';
+import { chooseTargetRemote } from './branchPushActions';
+import { routeRefOperationOutcome, type IRefOperationConflictContext } from './refOperationOutcome';
 
 /** Deps the tag actions reach back into the dispatcher for. */
-export interface IBranchTagContext {
+export interface IBranchTagContext extends IRefOperationConflictContext {
   readonly gitService: IGitService;
   readonly branchTreeProvider: BranchTreeProvider;
   readonly mergeDialogOpener: MergeDialogOpener | undefined;
-  // Setter-wired (setConflictResolutionService) and read AFTER an await in the
-  // cherry-pick / merge flows, so the context must read it live.
-  conflictResolutionService(): IConflictResolutionService | undefined;
-  // The Resolve Conflicts dialog seam stays on the dispatcher (sole live reader
-  // of the setter-wired conflict service); moved handlers reach it here.
-  openResolveConflictsDialog(
-    repo: IRepository,
-    conflicts: string[],
-    opContext: {
-      operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
-      target?: string;
-      rebaseInProgress?: boolean;
-    }
-  ): Promise<void>;
-  // Helpers owned by not-yet-extracted domains (cherry-pick suffix + remote
-  // choice); reached through the dispatcher until those domains move.
-  cherryPickSuffixOptions(
-    repo: IRepository,
-    hashes: readonly string[]
-  ): Promise<{ addCherryPickedFrom: true } | undefined>;
-  chooseTargetRemote(repo: IRepository): Promise<string | undefined>;
 }
 
 /**
@@ -89,7 +70,7 @@ export async function handleTagCherryPick(
   { repo, target }: ITreeItemRunArgs<'tag'>
 ): Promise<void> {
   try {
-    const suffixOptions = await ctx.cherryPickSuffixOptions(repo, [target.tag.commit]);
+    const suffixOptions = await cherryPickSuffixOptions(ctx, repo, [target.tag.commit]);
     const result = await ctx.gitService.cherryPick(repo, [target.tag.commit], suffixOptions).match(
       (r) => r,
       (e) => {
@@ -97,31 +78,15 @@ export async function handleTagCherryPick(
       }
     );
 
-    if (result.success) {
-      void vscode.window.showInformationMessage(
-        `Cherry-picked tag '${target.tag.name}' successfully`
-      );
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      // Hand off to the Resolve Conflicts dialog like every sibling
-      // cherry-pick path (branch-scoped picker, commit context menu) —
-      // the sequencer is mid-cherry-pick and needs resolve/abort
-      // affordances, not a dead-end toast. Cherry-pick is a forward
-      // operation: no ours/theirs reversal.
-      if (ctx.conflictResolutionService()) {
-        await ctx.openResolveConflictsDialog(repo, result.conflicts, {
-          operation: 'cherryPick',
-          target: target.tag.name,
-        });
-      } else {
-        void vscode.window.showWarningMessage(
-          `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
-      }
-    } else {
-      // Non-conflict failure: surface the underlying git error.
-      const reason = result.failureReason ?? 'unknown error (no output from git)';
-      void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(reason)}`);
-    }
+    await routeRefOperationOutcome(ctx, repo, result, {
+      operation: 'cherryPick',
+      target: target.tag.name,
+      failurePrefix: 'Failed to cherry-pick',
+      onSuccess: () =>
+        void vscode.window.showInformationMessage(
+          `Cherry-picked tag '${target.tag.name}' successfully`
+        ),
+    });
     // cherry-pick from tag moved HEAD; reload before refresh.
     await ctx.gitService.reloadRepository(repo);
     ctx.branchTreeProvider.refresh();
@@ -157,25 +122,12 @@ export async function handleTagMergeIntoCurrent(
   try {
     const result = await ctx.gitService.mergeBranch(repo, tagRef);
 
-    if (result.success) {
-      void vscode.window.showInformationMessage(`Merged '${tagRef}' successfully`);
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      if (ctx.conflictResolutionService()) {
-        await ctx.openResolveConflictsDialog(repo, result.conflicts, {
-          operation: 'merge',
-          target: tagRef,
-        });
-      } else {
-        void vscode.window.showWarningMessage(
-          `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
-      }
-    } else {
-      const reason = result.failureReason ?? 'unknown error (no output from git)';
-      void vscode.window.showErrorMessage(
-        `Failed to merge '${tagRef}': ${sanitizeGitError(reason)}`
-      );
-    }
+    await routeRefOperationOutcome(ctx, repo, result, {
+      operation: 'merge',
+      target: tagRef,
+      failurePrefix: `Failed to merge '${tagRef}'`,
+      onSuccess: () => void vscode.window.showInformationMessage(`Merged '${tagRef}' successfully`),
+    });
     // Merge moved HEAD; reload before refresh.
     await ctx.gitService.reloadRepository(repo);
     ctx.branchTreeProvider.refresh();
@@ -244,7 +196,7 @@ export async function handleTagPush(
   try {
     // Choose the target remote when several exist (default = origin / first);
     // a single remote pushes without prompting. Cancel aborts.
-    const targetRemote = await ctx.chooseTargetRemote(repo);
+    const targetRemote = await chooseTargetRemote(ctx, repo);
     if (!targetRemote) {
       return;
     }
@@ -285,7 +237,7 @@ export async function handleTagDeleteRemote(
   // Choose the target remote (default = origin / first; prompt when several
   // exist), mirroring `handleTagPush` — don't silently hardcode origin in a
   // multi-remote repo. Cancel aborts.
-  const targetRemote = await ctx.chooseTargetRemote(repo);
+  const targetRemote = await chooseTargetRemote(ctx, repo);
   if (!targetRemote) {
     return;
   }
@@ -420,7 +372,7 @@ export async function offerRemoteDeleteForLocalTags(
     if (repo.remotes.length === 0) {
       continue;
     }
-    const remote = await ctx.chooseTargetRemote(repo);
+    const remote = await chooseTargetRemote(ctx, repo);
     if (!remote) {
       continue;
     }

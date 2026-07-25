@@ -44,7 +44,6 @@ import {
   IConflictOpContext,
   IConflictResolutionService,
 } from '../../../src/conflicts/interfaces/IConflictResolutionService';
-import type { PullDialog } from '../../../src/sync/PullDialog';
 import { EventEmitter, Uri, resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 import {
   installErrorMessageTracker,
@@ -165,22 +164,6 @@ function createMockConflictResolutionService(
       calls.openResolveConflictsDialog.push({ args: [repo, files, opContext] });
     },
   } as unknown as MockConflictResolutionService;
-}
-
-interface MockPullDialog {
-  show: (repo: IRepository, preset?: 'rebase' | 'merge', source?: unknown) => Promise<unknown>;
-  _calls: Call<[IRepository, ('rebase' | 'merge')?, unknown?]>[];
-}
-
-function createMockPullDialog(): MockPullDialog {
-  const calls: MockPullDialog['_calls'] = [];
-  return {
-    _calls: calls,
-    show: async (repo, preset, source) => {
-      calls.push({ args: [repo, preset, source] });
-      return undefined;
-    },
-  };
 }
 
 function createMockRepo(currentBranch: string = 'main'): IRepository {
@@ -336,28 +319,22 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
 
 describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () => {
   it('pullUsingRebase: skips PullDialog and routes to direct pull with rebase=true', async () => {
-    // Bug G.1: the right-click entry already chose the strategy, so the
-    // handler must NOT open the PullDialog. A wired dialog accessor's
-    // `show` must never be called; instead the direct-pull path runs with
-    // `rebase: preset === 'rebase'` → true.
+    // The right-click entry already chose the strategy, so the handler pulls
+    // directly instead of asking again through the PullDialog: the direct-pull
+    // path runs with `rebase: preset === 'rebase'` → true.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
-    const pullDialog = createMockPullDialog();
     const infoTracker = installInfoMessageTracker();
     try {
       const commands = new BranchContextMenuCommands(
         gitService as unknown as IGitService,
-        provider,
-        undefined,
-        () => pullDialog as unknown as PullDialog
+        provider
       );
 
       const item = createRemoteBranchTreeItem('origin/feature/x');
       await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
-      // Dialog is bypassed entirely.
-      assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
       // Direct pull invoked with the rebase strategy and prefilled source.
       assert.strictEqual(gitService._calls.pull.length, 1);
       const pullOptions = gitService._calls.pull[0].args[1] as {
@@ -379,25 +356,20 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
   });
 
   it('pullUsingMerge: skips PullDialog and routes to direct pull with rebase=false', async () => {
-    // Bug G.1: same as rebase but the merge preset maps to rebase=false.
+    // Same as rebase, but the merge preset maps to rebase=false.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
-    const pullDialog = createMockPullDialog();
     const infoTracker = installInfoMessageTracker();
     try {
       const commands = new BranchContextMenuCommands(
         gitService as unknown as IGitService,
-        provider,
-        undefined,
-        () => pullDialog as unknown as PullDialog
+        provider
       );
 
       const item = createRemoteBranchTreeItem('origin/main');
       await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
 
-      // Dialog is bypassed entirely.
-      assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
       // Direct pull invoked with merge semantics (rebase=false).
       assert.strictEqual(gitService._calls.pull.length, 1);
       const pullOptions = gitService._calls.pull[0].args[1] as {
@@ -418,87 +390,29 @@ describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () =>
     }
   });
 
-  it('pullDialog accessor returning undefined falls back to direct pull', async () => {
-    const gitService = createMockGitService();
-    const repo = createMockRepo('main');
-    const provider = createMockBranchTreeProvider(repo);
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => undefined // accessor present but returns no dialog
-    );
-
-    const item = createRemoteBranchTreeItem('origin/main');
-    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
-
-    assert.strictEqual(gitService._calls.pull.length, 1);
-    const pullOptions = gitService._calls.pull[0].args[1] as {
-      remote: string;
-      branch: string;
-      rebase: boolean;
-    };
-    assert.strictEqual(pullOptions.remote, 'origin');
-    assert.strictEqual(pullOptions.branch, 'main');
-    assert.strictEqual(pullOptions.rebase, true);
-  });
-
-  it('no accessor wired: falls back to direct pull (legacy behaviour)', async () => {
-    const gitService = createMockGitService();
-    const repo = createMockRepo('main');
-    const provider = createMockBranchTreeProvider(repo);
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider
-      // no 3rd or 4th constructor arg → no dialog, no conflict service
-    );
-
-    const item = createRemoteBranchTreeItem('origin/main');
-    await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingMerge', item);
-
-    assert.strictEqual(gitService._calls.pull.length, 1);
-    const pullOptions = gitService._calls.pull[0].args[1] as { rebase: boolean };
-    assert.strictEqual(pullOptions.rebase, false, 'merge preset → rebase=false');
-  });
-
   it('returns early when repository is missing', async () => {
     const gitService = createMockGitService();
     const provider = createMockBranchTreeProvider(undefined);
-    const pullDialog = createMockPullDialog();
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => pullDialog as unknown as PullDialog
-    );
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createRemoteBranchTreeItem('origin/main');
     await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
-    assert.strictEqual(pullDialog._calls.length, 0);
     assert.strictEqual(gitService._calls.pull.length, 0);
   });
 
   it('remote branch name without "/" maps remote=fullName branch=fullName', async () => {
     // Defensive: BranchTreeItem names should always be "<remote>/<branch>",
     // but the parser handles the degenerate no-slash case by using the
-    // whole string as both remote and branch. Bug G.1: the dialog is
-    // bypassed, so this asserts the direct-pull call's options instead.
+    // whole string as both remote and branch.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
-    const pullDialog = createMockPullDialog();
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => pullDialog as unknown as PullDialog
-    );
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createRemoteBranchTreeItem('origin-only');
     await driveBranchMenuCommand(commands, 'intellig.remoteBranch.pullUsingRebase', item);
 
-    assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
     assert.strictEqual(gitService._calls.pull.length, 1);
     const pullOptions = gitService._calls.pull[0].args[1] as {
       remote: string;
@@ -1610,7 +1524,6 @@ describe('New Branch dialog arm', () => {
       gitService,
       branchTreeProvider,
       undefined, // conflictResolutionService
-      undefined, // pullDialogAccessor
       undefined, // pushDialogOpener
       undefined, // mergeDialogOpener
       (preselect: Preselect) => {

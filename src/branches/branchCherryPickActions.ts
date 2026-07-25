@@ -8,30 +8,16 @@
 import * as vscode from 'vscode';
 import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { BranchTreeProvider } from './BranchTreeProvider';
-import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { readConfig } from '../config/configKeys';
 import { isCommitPublished, type PublishProbeCli } from '../git-core/commitPublished';
 import type { ITreeItemRunArgs } from '../commands/registration/commandSpine';
+import { routeRefOperationOutcome, type IRefOperationConflictContext } from './refOperationOutcome';
 
 /** Deps the cherry-pick actions reach back into the dispatcher for. */
-export interface IBranchCherryPickContext {
+export interface IBranchCherryPickContext extends IRefOperationConflictContext {
   readonly gitService: IGitService;
   readonly branchTreeProvider: BranchTreeProvider;
-  // Setter-wired (setConflictResolutionService) and read AFTER an await, so the
-  // context must read it live.
-  conflictResolutionService(): IConflictResolutionService | undefined;
-  // The Resolve Conflicts dialog seam stays on the dispatcher (sole live reader
-  // of the setter-wired conflict service); moved handlers reach it here.
-  openResolveConflictsDialog(
-    repo: IRepository,
-    conflicts: string[],
-    opContext: {
-      operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
-      target?: string;
-      rebaseInProgress?: boolean;
-    }
-  ): Promise<void>;
 }
 
 /**
@@ -107,27 +93,15 @@ export async function handleCherryPickCommits(
       }
     );
 
-    if (result.success) {
-      void vscode.window.showInformationMessage(
-        `Cherry-picked ${selected.length} commit(s) successfully`
-      );
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      // Auto-open Resolve Conflicts dialog when wired.
-      if (ctx.conflictResolutionService()) {
-        await ctx.openResolveConflictsDialog(repo, result.conflicts, {
-          operation: 'cherryPick',
-          target: target.branch.name,
-        });
-      } else {
-        void vscode.window.showWarningMessage(
-          `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
-      }
-    } else {
-      // Non-conflict failure: surface the underlying git error.
-      const reason = result.failureReason ?? 'unknown error (no output from git)';
-      void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(reason)}`);
-    }
+    await routeRefOperationOutcome(ctx, repo, result, {
+      operation: 'cherryPick',
+      target: target.branch.name,
+      failurePrefix: 'Failed to cherry-pick',
+      onSuccess: () =>
+        void vscode.window.showInformationMessage(
+          `Cherry-picked ${selected.length} commit(s) successfully`
+        ),
+    });
     // cherry-pick moved HEAD; reload before refresh.
     await ctx.gitService.reloadRepository(repo);
     ctx.branchTreeProvider.refresh();

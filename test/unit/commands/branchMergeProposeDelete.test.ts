@@ -123,7 +123,6 @@ describe('branch.mergeIntoCurrent — deleteOnMerge PROPOSE', () => {
       makeProvider(repo),
       undefined,
       undefined,
-      undefined,
       (p) => {
         openerCalls.push({
           sourceBranch: p.sourceBranch,
@@ -148,7 +147,6 @@ describe('branch.mergeIntoCurrent — deleteOnMerge PROPOSE', () => {
     const cmds = new BranchContextMenuCommands(
       service,
       makeProvider(repo),
-      undefined,
       undefined,
       undefined,
       (p) => {

@@ -197,7 +197,6 @@ describe('BranchContextMenuCommands — per-remote push (D-6)', () => {
       gitService as unknown as IGitService,
       createMockProvider(repo),
       undefined,
-      undefined,
       opener
     );
 

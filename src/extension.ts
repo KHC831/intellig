@@ -635,7 +635,6 @@ function createViewRegistrationContext(context: vscode.ExtensionContext): IViewR
     set commitContextMenuCommands(v) {
       commitContextMenuCommands = v;
     },
-    getPullDialog: () => _getPullDialog(),
     openPushDialog: (p) => _openPushDialog(p),
     openMergeDialog: (p) => _openMergeDialog(p),
     openRebaseDialog: (p) => _openRebaseDialog(p),

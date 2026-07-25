@@ -1401,7 +1401,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Register branch context menu commands for the native BRANCHES tree view.
     // These are the actual VS Code command handlers invoked by the tree view context menus.
     // - conflictResolutionService: conflict-producing ops auto-open the dialog.
-    // - pullDialog accessor: pullUsingRebase/pullUsingMerge route through the dialog.
     // - pushDialog opener: branch.push routes through the dialog.
     // - merge + new-branch dialog openers: branch.mergeInto and
     //   branch.newBranchFrom / tag.newBranchFrom route through their webview dialogs.
@@ -1409,7 +1408,6 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       gitService,
       branchTreeProvider,
       ctx.services.conflictResolutionService,
-      () => ctx.getPullDialog(),
       (p) => ctx.openPushDialog(p),
       (p) => ctx.openMergeDialog(p),
       (p) => ctx.openNewBranchDialog(p),

@@ -3,7 +3,7 @@
   "budgets": {
     "git-core/gitToolWindow/GitToolWindowProvider.ts": 5267,
     "commits/CommitContextMenuCommands.ts": 1078,
-    "branches/BranchContextMenuCommands.ts": 970,
+    "branches/BranchContextMenuCommands.ts": 952,
     "git-core/GitService.ts": 2888,
     "git-core/gitToolWindow/webview/gitToolWindow.ts": 2645,
     "commits/CommitDialog.ts": 2160,
@@ -28,7 +28,7 @@
     "conflicts/ResolveConflictsDialog.ts": 1034,
     "diff-engine/comparison/ByWordRt.ts": 1027,
     "commands/registration/commitMenuCommands.ts": 1017,
-    "extension.ts": 973,
+    "extension.ts": 972,
     "rebase/RebaseEditor.ts": 946,
     "git-core/ops/StashTagHistoryOps.ts": 946,
     "rebase/RebaseProgressView.ts": 923,

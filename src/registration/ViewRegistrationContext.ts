@@ -11,7 +11,6 @@ import type {
   GutterBlameProvider,
   BranchComparisonView,
   RebaseProgressView,
-  PullDialog,
   PushDialog,
   IPushPreselect,
   MergeDialog,
@@ -74,10 +73,8 @@ export interface IViewRegistrationContext {
   set commitContextMenuCommands(v: CommitContextMenuCommands | undefined);
 
   // cross-module dialog-opener helpers passed into the branch context menu
-  // commands. They forward to the module-private openers in extension.ts
-  // (which read extensionContext + lazily assign pullDialog) — unchanged
-  // behavior.
-  getPullDialog(): PullDialog | undefined;
+  // commands. They forward to the module-private openers in extension.ts,
+  // which read extensionContext.
   openPushDialog(preselect?: IPushPreselect): PushDialog | undefined;
   openMergeDialog(preselect: {
     repo: IRepository;

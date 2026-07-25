@@ -7,10 +7,15 @@
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { IGitService } from '../git-core/interfaces/IGitService';
 import type { BranchTreeProvider } from './BranchTreeProvider';
-import type { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import type { MergeDialogOpener, RebaseDialogOpener } from './BranchContextMenuCommands';
+import {
+  routeRebaseOutcome,
+  routeRefOperationOutcome,
+  type IRebaseOutcomeContext,
+  type IRefOperationConflictContext,
+} from './refOperationOutcome';
 import { sanitizeGitError } from '../git-core/gitError';
 import { readConfig } from '../config/configKeys';
 import { isProtectedTarget } from '../sync/PushDialog';
@@ -18,29 +23,12 @@ import { proposeDeleteMergedBranch } from './deleteOnMerge';
 import type { ITreeItemRunArgs } from '../commands/registration/commandSpine';
 
 /** Deps the merge / rebase-onto actions reach back into the dispatcher for. */
-export interface IBranchMergeRebaseContext {
+export interface IBranchMergeRebaseContext
+  extends IRefOperationConflictContext, IRebaseOutcomeContext {
   readonly gitService: IGitService;
   readonly branchTreeProvider: BranchTreeProvider;
   readonly mergeDialogOpener: MergeDialogOpener | undefined;
   readonly rebaseDialogOpener: RebaseDialogOpener | undefined;
-  /** Call-time read: the conflict service is setter-wired and both arms consult it post-await. */
-  conflictResolutionService(): IConflictResolutionService | undefined;
-  /** The resolve-dialog seam stays on the dispatcher; both arms route through it. */
-  openResolveConflictsDialog(
-    repo: IRepository,
-    conflicts: string[],
-    opContext: {
-      operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
-      target?: string;
-      rebaseInProgress?: boolean;
-    }
-  ): Promise<void>;
-  surfaceRebaseConflicts(
-    repo: IRepository,
-    conflicts: string[],
-    target: string,
-    canContinue?: boolean
-  ): Promise<void>;
 }
 
 /**
@@ -70,42 +58,25 @@ export async function handleMergeIntoCurrent(
   try {
     const result = await ctx.gitService.mergeBranch(repo, target.branch.name);
 
-    if (result.success) {
-      const successMessage = `Merged '${target.branch.name}' successfully`;
-      if (proposeDeleteOnMerge) {
-        // Fire-and-forget: the PROPOSE toast must not hold the command.
-        void proposeDeleteMergedBranch(
-          { gitService: ctx.gitService, onDeleted: () => ctx.branchTreeProvider.refresh() },
-          repo,
-          target.branch.name,
-          successMessage
-        );
-      } else {
-        void vscode.window.showInformationMessage(successMessage);
-      }
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      // Auto-open Resolve Conflicts dialog when wired; fall back
-      // to a warning toast otherwise (legacy callers without the service).
-      if (ctx.conflictResolutionService()) {
-        await ctx.openResolveConflictsDialog(repo, result.conflicts, {
-          operation: 'merge',
-          target: target.branch.name,
-        });
-      } else {
-        void vscode.window.showWarningMessage(
-          `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
-      }
-    } else {
-      // Non-conflict failure (refused merge, unrelated histories, dirty
-      // tree, etc.). Surface the underlying git error instead of a
-      // silent no-op. `failureReason` is sanitized at the GitService
-      // boundary; safe to drop straight into a toast.
-      const reason = result.failureReason ?? 'unknown error (no output from git)';
-      void vscode.window.showErrorMessage(
-        `Failed to merge '${target.branch.name}': ${sanitizeGitError(reason)}`
-      );
-    }
+    await routeRefOperationOutcome(ctx, repo, result, {
+      operation: 'merge',
+      target: target.branch.name,
+      failurePrefix: `Failed to merge '${target.branch.name}'`,
+      onSuccess: () => {
+        const successMessage = `Merged '${target.branch.name}' successfully`;
+        if (proposeDeleteOnMerge) {
+          // Fire-and-forget: the PROPOSE toast must not hold the command.
+          void proposeDeleteMergedBranch(
+            { gitService: ctx.gitService, onDeleted: () => ctx.branchTreeProvider.refresh() },
+            repo,
+            target.branch.name,
+            successMessage
+          );
+        } else {
+          void vscode.window.showInformationMessage(successMessage);
+        }
+      },
+    });
     // Merge moved HEAD; reload before refresh.
     await ctx.gitService.reloadRepository(repo);
     ctx.branchTreeProvider.refresh();
@@ -175,43 +146,20 @@ export async function handleRebaseCurrentOnto(
 
     const result = await ctx.gitService.rebaseBranch(repo, target.branch.name);
 
-    // Track whether the Resolve Conflicts dialog was opened so we suppress
-    // the redundant "rebase paused" warning for that same state —
-    // the dialog is itself the actionable continue/abort UI.
-    let conflictDialogOpened = false;
-    // Track the non-conflict-failure branch so only it is eligible for
-    // auto-abort of an orphaned rebase.
-    let nonConflictFailure = false;
+    const conflicted = !!result.conflicts && result.conflicts.length > 0;
+    // Whether the Resolve Conflicts dialog took the conflict, so we suppress
+    // the redundant "rebase paused" warning for that same state — the dialog
+    // is itself the actionable continue/abort UI. Read before the handoff,
+    // which is the only point where the answer is still ours to observe.
+    const conflictDialogOpened = conflicted && !!ctx.conflictResolutionService();
+    // Only a non-conflict failure is eligible for auto-abort of an orphaned
+    // rebase; a paused-on-conflicts rebase is the user's to finish.
+    const nonConflictFailure = !result.success && !conflicted;
 
-    if (result.success) {
-      void vscode.window.showInformationMessage(
-        `Rebased onto '${target.branch.name}' successfully`
-      );
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      // Auto-open Resolve Conflicts dialog when wired; fall back to a
-      // warning toast otherwise. A non-continuable autostash-pop conflict
-      // (rebaseInProgress === false) suppresses continue/abort.
-      conflictDialogOpened = !!ctx.conflictResolutionService();
-      await ctx.surfaceRebaseConflicts(
-        repo,
-        result.conflicts,
-        target.branch.name,
-        result.rebaseInProgress
-      );
-    } else {
-      // Non-conflict failure (e.g. dirty tree, in-progress rebase, refs
-      // out of sync, remote ref disappeared, etc.). Surface the underlying
-      // git error so the user has SOMETHING to act on instead of a silent
-      // no-op. `failureReason` is already sanitized at the GitService
-      // boundary, but we re-pipe through `sanitizeGitError` here so the
-      // safety contract is locally evident at the toast site
-      // and survives any future refactor of the source side.
-      nonConflictFailure = true;
-      const reason = result.failureReason ?? 'unknown error (no output from git)';
-      void vscode.window.showErrorMessage(
-        `Failed to rebase onto '${target.branch.name}': ${sanitizeGitError(reason)}`
-      );
-    }
+    await routeRebaseOutcome(ctx, repo, result, {
+      onto: target.branch.name,
+      successMessage: `Rebased onto '${target.branch.name}' successfully`,
+    });
 
     // Rebase moved HEAD (or left an in-progress marker); reload before
     // refresh so the fresh `inProgress` state is read off disk.

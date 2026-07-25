@@ -14,7 +14,6 @@ import type {
   IUpstream,
 } from '../git-core/interfaces/IGitService';
 import type { BranchTreeProvider } from './BranchTreeProvider';
-import type { PullDialogAccessor } from './BranchContextMenuCommands';
 import { getIncomingOutgoingFetcher } from './BranchPopup';
 import { sanitizeGitError } from '../git-core/gitError';
 import { buildUpdatePullOptions, resolveUpdateRebase } from '../sync/updateProject';
@@ -124,7 +123,6 @@ export function planAlignLocal(inputs: IAlignLocalBranchInput[]): IAlignLocalPla
 export interface IBranchUpdateContext {
   readonly gitService: IGitService;
   readonly branchTreeProvider: BranchTreeProvider;
-  readonly pullDialogAccessor: PullDialogAccessor | undefined;
   // Pull-conflict routing (sole live reader of the setter-wired conflict
   // service + the dialog seam) stays on the dispatcher; moved handlers reach
   // it here.
@@ -392,11 +390,10 @@ function reportAlignLocalResult(
 
 /**
  * Right-click "Pull into Current using Merge/Rebase" for a remote branch. The
- * menu entry already chose the strategy, so this bypasses the Pull Dialog and
- * pulls directly, handing a post-pull conflict off to the Resolve Conflicts
- * dialog. `pullDialogAccessor` stays a dispatcher field (the generic
- * `intellig.pull` palette command still routes through PullDialog) but is not
- * consulted here beyond an observability debug note.
+ * menu entry already chose the strategy, so this bypasses the Pull Dialog —
+ * which only exists to ask that question — and pulls directly, handing a
+ * post-pull conflict off to the Resolve Conflicts dialog. The generic
+ * `intellig.pull` palette command still routes through the dialog.
  */
 export async function runPullFromBranchMenu(
   ctx: IBranchUpdateContext,
@@ -411,20 +408,11 @@ export async function runPullFromBranchMenu(
   const branchName =
     slashIndex >= 0 ? target.branch.name.substring(slashIndex + 1) : target.branch.name;
 
-  // The right-click pullUsing* entries intentionally bypass the
-  // PullDialog — the menu entry already chose the strategy, so the second
-  // "Pull: Options" QuickPick was redundant friction whose silent cancel
-  // looked like a no-op. The `pullDialogAccessor` field is retained for
-  // constructor-arity / wiring compatibility (the generic `intellig.pull`
-  // palette command still routes through PullDialog). Emit a debug note
-  // (visible only at `log.level=debug`) so a received click is observable
-  // even though no dialog opens.
+  // Debug note (visible only at `log.level=debug`) so a received click stays
+  // observable even though no dialog opens.
   getLogger()
     .child({ component: 'BranchContextMenuCommands' })
-    .debug('pullUsing* bypassing PullDialog (strategy chosen via menu)', {
-      preset,
-      dialogAvailable: ctx.pullDialogAccessor !== undefined,
-    });
+    .debug('pullUsing* bypassing PullDialog (strategy chosen via menu)', { preset });
 
   // Direct-pull path — the only path for both presets. The conflict-probe
   // handoff below auto-opens the Resolve Conflicts dialog when the pull

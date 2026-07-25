@@ -1179,7 +1179,6 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         gitService,
         branchTreeProvider,
         undefined, // conflictResolutionService
-        undefined, // pullDialogAccessor
         undefined, // pushDialogOpener
         undefined, // mergeDialogOpener
         undefined, // newBranchDialogOpener

@@ -17,9 +17,15 @@ import {
   parseUntrackedOverwriteFiles,
 } from '../git-core/gitProse';
 import type { ITreeItemRunArgs } from '../commands/registration/commandSpine';
+import { routeRebaseOutcome, type IRebaseOutcomeContext } from './refOperationOutcome';
 
-/** Deps the checkout actions reach back into the dispatcher for. */
-export interface IBranchCheckoutContext {
+/**
+ * Deps the checkout actions reach back into the dispatcher for. Rebase-conflict
+ * surfacing comes from {@link IRebaseOutcomeContext}: it stays on the
+ * dispatcher, which owns the resolve dialog seam and shares it with the
+ * rebase-onto handler.
+ */
+export interface IBranchCheckoutContext extends IRebaseOutcomeContext {
   readonly gitService: IGitService;
   readonly branchTreeProvider: BranchTreeProvider;
   /**
@@ -28,16 +34,6 @@ export interface IBranchCheckoutContext {
    * miss a service wired in between.
    */
   conflictResolutionService(): IConflictResolutionService | undefined;
-  /**
-   * Rebase-conflict surfacing stays on the dispatcher: it owns the resolve
-   * dialog seam and is shared with the rebase-onto handler.
-   */
-  surfaceRebaseConflicts(
-    repo: IRepository,
-    conflicts: string[],
-    target: string,
-    canContinue?: boolean
-  ): Promise<void>;
 }
 
 /**
@@ -361,24 +357,10 @@ export async function handleCheckoutAndRebase(
     // Rebase onto the previously current branch
     const result = await ctx.gitService.rebaseBranch(repo, previousCurrentBranch);
 
-    if (result.success) {
-      void vscode.window.showInformationMessage(
-        `Checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
-      );
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      await ctx.surfaceRebaseConflicts(
-        repo,
-        result.conflicts,
-        previousCurrentBranch,
-        result.rebaseInProgress
-      );
-    } else {
-      // Non-conflict failure: surface the underlying git error.
-      const reason = result.failureReason ?? 'unknown error (no output from git)';
-      void vscode.window.showErrorMessage(
-        `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
-      );
-    }
+    await routeRebaseOutcome(ctx, repo, result, {
+      onto: previousCurrentBranch,
+      successMessage: `Checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`,
+    });
     // Checkout + rebase moved HEAD; reload before refresh.
     await ctx.gitService.reloadRepository(repo);
     ctx.branchTreeProvider.refresh();
@@ -410,24 +392,12 @@ export async function handleCheckoutAndRebase(
           return;
         }
         const result = await ctx.gitService.rebaseBranch(repo, previousCurrentBranch);
-        if (result.success) {
-          void vscode.window.showInformationMessage(
-            `Stashed changes, checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
-          );
-        } else if (result.conflicts && result.conflicts.length > 0) {
-          await ctx.surfaceRebaseConflicts(
-            repo,
-            result.conflicts,
-            previousCurrentBranch,
-            result.rebaseInProgress
-          );
-        } else {
-          // Non-conflict failure: surface the underlying git error.
-          const reason = result.failureReason ?? 'unknown error (no output from git)';
-          void vscode.window.showErrorMessage(
-            `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
-          );
-        }
+        await routeRebaseOutcome(ctx, repo, result, {
+          onto: previousCurrentBranch,
+          successMessage:
+            `Stashed changes, checked out '${displayName}' and rebased onto ` +
+            `'${previousCurrentBranch}'`,
+        });
         // Stash + checkout + rebase moved HEAD; reload before refresh.
         await ctx.gitService.reloadRepository(repo);
         ctx.branchTreeProvider.refresh();
@@ -441,24 +411,10 @@ export async function handleCheckoutAndRebase(
       try {
         await checkout(true);
         const result = await ctx.gitService.rebaseBranch(repo, previousCurrentBranch);
-        if (result.success) {
-          void vscode.window.showInformationMessage(
-            `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
-          );
-        } else if (result.conflicts && result.conflicts.length > 0) {
-          await ctx.surfaceRebaseConflicts(
-            repo,
-            result.conflicts,
-            previousCurrentBranch,
-            result.rebaseInProgress
-          );
-        } else {
-          // Non-conflict failure: surface the underlying git error.
-          const reason = result.failureReason ?? 'unknown error (no output from git)';
-          void vscode.window.showErrorMessage(
-            `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
-          );
-        }
+        await routeRebaseOutcome(ctx, repo, result, {
+          onto: previousCurrentBranch,
+          successMessage: `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`,
+        });
         // Force checkout + rebase moved HEAD; reload before refresh.
         await ctx.gitService.reloadRepository(repo);
         ctx.branchTreeProvider.refresh();

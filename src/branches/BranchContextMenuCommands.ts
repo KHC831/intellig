@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
-import type { PullDialog } from '../sync/PullDialog';
 import type { PushDialog, IPushPreselect } from '../sync/PushDialog';
 import type { MergeDialog } from '../conflicts/MergeDialog';
 import type { RebaseDialog } from '../rebase/RebaseDialog';
@@ -37,18 +36,14 @@ import {
   type IBranchTagContext,
 } from './branchTagActions';
 import { handleShowDiffWithWorkingTree, type IBranchDiffContext } from './branchDiffActions';
-import {
-  cherryPickSuffixOptions,
-  handleCherryPickCommits,
-  type IBranchCherryPickContext,
-} from './branchCherryPickActions';
+import { handleCherryPickCommits, type IBranchCherryPickContext } from './branchCherryPickActions';
 import {
   handleDeleteRemote,
   handleTrackRemote,
   type IBranchRemoteContext,
 } from './branchRemoteActions';
 import { handleDelete, type IBranchDeleteContext } from './branchDeleteActions';
-import { chooseTargetRemote, handlePush, type IBranchPushContext } from './branchPushActions';
+import { handlePush, type IBranchPushContext } from './branchPushActions';
 import {
   handleUpdate,
   handleUpdateSelected,
@@ -72,9 +67,6 @@ import {
   type IBranchMergeRebaseContext,
 } from './branchMergeRebaseActions';
 import type { BranchComparisonView } from './BranchComparisonView';
-
-/** Thunk that lazily returns the shared {@link PullDialog} singleton. */
-export type PullDialogAccessor = () => PullDialog | undefined;
 
 /**
  * Thunk that opens a fresh Push Dialog pre-selected on the given repo + branch.
@@ -123,7 +115,6 @@ export class BranchContextMenuCommands {
   private _gitService: IGitService;
   private _branchTreeProvider: BranchTreeProvider;
   private _conflictResolutionService: IConflictResolutionService | undefined;
-  private _pullDialogAccessor?: PullDialogAccessor;
   private _pushDialogOpener?: PushDialogOpener;
   private _mergeDialogOpener?: MergeDialogOpener;
   private _rebaseDialogOpener?: RebaseDialogOpener;
@@ -135,7 +126,6 @@ export class BranchContextMenuCommands {
     gitService: IGitService,
     branchTreeProvider: BranchTreeProvider,
     conflictResolutionService?: IConflictResolutionService,
-    pullDialogAccessor?: PullDialogAccessor,
     pushDialogOpener?: PushDialogOpener,
     mergeDialogOpener?: MergeDialogOpener,
     newBranchDialogOpener?: NewBranchDialogOpener,
@@ -144,7 +134,6 @@ export class BranchContextMenuCommands {
     this._gitService = gitService;
     this._branchTreeProvider = branchTreeProvider;
     this._conflictResolutionService = conflictResolutionService;
-    this._pullDialogAccessor = pullDialogAccessor;
     this._pushDialogOpener = pushDialogOpener;
     this._mergeDialogOpener = mergeDialogOpener;
     this._newBranchDialogOpener = newBranchDialogOpener;
@@ -754,7 +743,6 @@ export class BranchContextMenuCommands {
     return {
       gitService: this._gitService,
       branchTreeProvider: this._branchTreeProvider,
-      pullDialogAccessor: this._pullDialogAccessor,
       routePullConflicts: (repo, operation, target) =>
         this._routePullConflicts(repo, operation, target),
     };
@@ -882,8 +870,7 @@ export class BranchContextMenuCommands {
    * Deps the tag action module reaches back into the dispatcher for.
    * gitService/branchTreeProvider/mergeDialogOpener are constructor-stable
    * snapshots; the setter-wired conflict service is a call-time getter; the
-   * conflict-dialog seam and the cherry-pick-suffix / remote-choice helpers
-   * stay on the dispatcher and are reached via lambdas.
+   * conflict-dialog seam stays on the dispatcher and is reached via a lambda.
    */
   private _tagContext(): IBranchTagContext {
     return {
@@ -893,9 +880,6 @@ export class BranchContextMenuCommands {
       conflictResolutionService: () => this._conflictResolutionService,
       openResolveConflictsDialog: (repo, conflicts, opContext) =>
         this._openResolveConflictsDialog(repo, conflicts, opContext),
-      cherryPickSuffixOptions: (repo, hashes) =>
-        cherryPickSuffixOptions({ gitService: this._gitService }, repo, hashes),
-      chooseTargetRemote: (repo) => chooseTargetRemote({ gitService: this._gitService }, repo),
     };
   }
 
@@ -951,7 +935,6 @@ export function createBranchContextMenuCommands(
   gitService: IGitService,
   branchTreeProvider: BranchTreeProvider,
   conflictResolutionService?: IConflictResolutionService,
-  pullDialogAccessor?: PullDialogAccessor,
   pushDialogOpener?: PushDialogOpener,
   mergeDialogOpener?: MergeDialogOpener,
   newBranchDialogOpener?: NewBranchDialogOpener,
@@ -961,7 +944,6 @@ export function createBranchContextMenuCommands(
     gitService,
     branchTreeProvider,
     conflictResolutionService,
-    pullDialogAccessor,
     pushDialogOpener,
     mergeDialogOpener,
     newBranchDialogOpener,
