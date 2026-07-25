@@ -131,6 +131,21 @@ jobs:
       - name: Tier-2 command E2E tests
         run: xvfb-run -a npm run test:e2e
 
+      # Computed-style lane. Renders production css + production markup in a
+      # real engine and asserts resolved values, which is the only lane with a
+      # cascade and a layout engine — jsdom has neither, so a rule that never
+      # matches, loses on specificity, or is overpainted is invisible to every
+      # other lane. Chromium is pinned to the playwright-core version rather
+      # than taken from the runner image so a base-image bump cannot change
+      # what the assertions measure.
+      - name: Install pinned Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Visual (computed-style) tests
+        run: npm run test:visual
+        env:
+          INTELLIG_VISUAL_CHANNEL: chromium
+
   # Cross-OS path coverage. The ubuntu `test` job is the full gate; this job
   # runs the path-sensitive lanes (unit + property) on macOS and Windows so
   # platform path bugs are caught — separator handling, drive letters, and the

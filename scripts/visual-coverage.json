@@ -1,0 +1,42 @@
+{
+  "$comment": "Every src file exporting a *Styles() builder emits a stylesheet whose rules can be present, correctly tokenised, and still never reach the element \u2014 a selector that stops matching, a specificity loss, an overpaint. jsdom has no cascade or layout engine and no e2e test reads rendered output, so test/visual is the only lane that can see that class. check:visual-coverage requires each such module to be EITHER exercised by a spec under test/visual (status 'tested' \u2014 the exported builder name must appear there) OR classified 'backlog' (renderable by the harness, not yet \u2014 printed every run as visible debt). Fails on a new unclassified stylesheet module and on stale entries, so visual coverage cannot silently regress toward zero as stylesheets are added and split.",
+  "statuses": ["tested", "backlog"],
+  "files": {
+    "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
+      "status": "tested",
+      "note": "buildInlineStyles rendered against the production context-menu markup in both themes; token identity under the sentinel palette, WCAG contrast at rest and on hover (including the destructive variant), stacking, item overlap, and narrow-panel overflow (contextMenuTheming.visual.test.ts, contextMenuStates.visual.test.ts)"
+    },
+    "src/git-core/gitToolWindow/provider/contextMenuStyles.ts": {
+      "status": "tested",
+      "note": "the commit/changed-file/revision menu stylesheet, rendered via buildInlineStyles against the production menu markup in both themes; token identity under the sentinel palette, WCAG contrast at rest and on hover including the destructive variant, stacking, item overlap, narrow-panel overflow (contextMenuTheming.visual.test.ts, contextMenuStates.visual.test.ts)"
+    },
+    "src/commits/commitDialogStyles.ts": {
+      "status": "backlog",
+      "note": "commit dialog stylesheet; needs the dialog body markup rendered before its buttons, inputs and diff rows can be asserted"
+    },
+    "src/conflicts/merge-window/mergeWindowHtml.ts": {
+      "status": "backlog",
+      "note": "merge-window stylesheet; the selection/change-fill layering that shipped broken four times is exactly this lane's target, but the panes need Monaco stubbed before the fills can be measured"
+    },
+    "src/git-core/gitToolWindow/html/historyHtml.ts": {
+      "status": "backlog",
+      "note": "history tab stylesheet; the hash-overlapping-message defect lived here"
+    },
+    "src/git-core/gitToolWindow/html/commonHtml.ts": {
+      "status": "backlog",
+      "note": "tab strip stylesheet; the sticky-positioning and behind-the-tab-strip stacking defects lived here"
+    },
+    "src/git-core/gitToolWindow/html/consoleHtml.ts": {
+      "status": "backlog",
+      "note": "console tab stylesheet; the oversized-row defect took two commits and one wrong fix"
+    },
+    "src/git-core/gitToolWindow/html/incomingHtml.ts": {
+      "status": "backlog",
+      "note": "incoming tab stylesheet"
+    },
+    "src/git-core/gitToolWindow/html/updateInfoHtml.ts": {
+      "status": "backlog",
+      "note": "update-info tab stylesheet"
+    }
+  }
+}

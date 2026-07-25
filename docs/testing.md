@@ -1,6 +1,6 @@
 # Testing
 
-IntelliG has four distinct test layers plus a small set of test-infra
+IntelliG has five distinct test layers plus a small set of test-infra
 directories. This document is the canonical reference for where a new
 test or test helper belongs, and how to reach into private state from
 a test without rotting the production API.
@@ -13,7 +13,7 @@ a test without rotting the production API.
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
 | E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
-| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |             8 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |            16 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -48,7 +48,7 @@ a test without rotting the production API.
 
 ### The test surface is the CI lanes
 
-The complete, runnable test surface is the five CI lanes, and nothing
+The complete, runnable test surface is the six CI lanes, and nothing
 else:
 
 - `test:unit` — the Unit layer (in-process, `vscode` mock).
@@ -57,13 +57,16 @@ else:
   out flakey counterexamples.
 - `test:ext-host` — the Ext-host layer (real Extension Host).
 - `test:e2e` — the E2E layer (real Extension Host + real git fixtures).
+- `test:visual` — the Visual layer (headless Chromium, computed styles).
 
 For test coverage — the `npm run coverage` report, the patch-coverage PR
 gate, and how to make that gate airtight by merging coverage across these
 lanes — see [coverage.md](./coverage.md).
 
 These are exactly the lanes `.github/workflows/ci.yml` runs
-(`test:ext-host` and `test:e2e` under `xvfb-run -a`). Each Electron lane
+(`test:ext-host` and `test:e2e` under `xvfb-run -a`; `test:visual` against a
+Chromium pinned to the `playwright-core` version, so a runner base-image bump
+cannot change what the assertions measure). Each Electron lane
 (`test:ext-host`, `test:e2e`) launches with
 `--disable-extensions --disable-workspace-trust` so it runs fully
 unattended — no workspace-trust modal, no extension-recommendations
@@ -90,15 +93,16 @@ test = lint (--max-warnings 0) → compile → check:all → test:unit → test:
 `npm test` therefore runs the fast, headless, in-process gates (the same
 ones the pre-commit checks and CI run) and never boots an Extension Host,
 so it stays fully unattended. The two Electron lanes (`test:ext-host`,
-`test:e2e`) are intentionally **not** part of the alias — run them
-explicitly when you need a real host. There is no longer any single
-command that runs everything (in-process + both Electron lanes) in one
-process; that is by design.
+`test:e2e`) and the browser lane (`test:visual`) are intentionally **not**
+part of the alias — run them explicitly when you need a real host or a real
+cascade. `npm run gate:full` chains all of them. There is no longer any
+single command that runs everything in one process; that is by design.
 
 ### Local-CI parity gate (per-PR)
 
 `npm test` alone is **not sufficient** to ratify a PR. The two Electron
-lanes (`test:ext-host`, `test:e2e`) live outside the `npm test` alias,
+lanes (`test:ext-host`, `test:e2e`) and the browser lane (`test:visual`)
+live outside the `npm test` alias,
 and historical flakes (T50 createPatch / checkoutRevision e2e flake,
 T51 spawn-git ENOENT) were Linux-only — local macOS / Windows runs
 cannot surface them. Before opening a PR for any phase of the Git
@@ -135,7 +139,8 @@ test/
 ├── unit/          ← unit suites
 ├── property/      ← property suites
 ├── ext-host/      ← extension-host smoke suites
-└── e2e/           ← end-to-end suites
+├── e2e/           ← end-to-end suites
+└── visual/        ← computed-style suites (+ visual/support/ harness)
 ```
 
 - **`test/mocks/`** — module-resolution substitutes. `vscode.ts` is

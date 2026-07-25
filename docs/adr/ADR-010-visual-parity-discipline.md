@@ -587,8 +587,8 @@ not on a branch"` to the synthetic detached-head BranchTreeItem
   no new repo-state fixtures (tags are repo-state-orthogonal: any
   shape may carry tags). All 8 gates clean post-K.
 
-- **Computed-style lane added (`test/visual/**`, `npm run test:visual`).**
-  This does **not\*\* overturn the "Visual regression testing via screenshots"
+- **Computed-style lane added** (`test/visual`, run by `npm run test:visual`).
+  This does **not** overturn the "Visual regression testing via screenshots"
   rejection above; it occupies the gap that rejection left open. The three
   stated objections were Electron version variance, the absence of a
   deterministic rasterizer, and false-positive triage cost. A computed-style
@@ -603,6 +603,11 @@ not on a branch"` to the synthetic detached-head BranchTreeItem
   Why it was needed: Layer 1's snapshots assert emitted HTML **text**, so a
   rule that is present but never matches, loses on specificity, or is
   overpainted passes every existing lane. Proven by mutation against the
-  changed-file context menu — renaming `.context-menu` so it no longer
-  matched left all 36 `test/unit/html` specs green while the new lane failed 4. Deleting the background declaration outright (the multi-repo `<select>`
-  defect) was likewise invisible to the unit lane and caught here.
+  changed-file context menu. Renaming `.context-menu` so it no longer matched
+  left all 36 `test/unit/html` specs green while the new lane failed 4;
+  deleting the background declaration outright (the multi-repo `<select>`
+  defect) was likewise invisible to the unit lane and caught here. Pointing
+  the same contrast assertion at a hover state then found a live defect: the
+  danger-variant hover overrode only the background, leaving white-on-pale-
+  pink at 1.29:1 on Drop Commit and Reset Current Branch to Here in light
+  themes.

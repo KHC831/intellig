@@ -1,100 +1,178 @@
 /**
- * VS Code theme token sets for the computed-style lane.
+ * VS Code theme token fixtures for the computed-style lane.
  *
- * Webview CSS is written entirely against `var(--vscode-*)` tokens that the
- * host injects at runtime. A plain browser page has none of them, so every
- * themed rule would collapse to its fallback and the lane would measure
- * nothing. These sets stand in for the host injection: approximate Dark
- * Modern / Light Modern values, chosen so a rule that fails to match is
- * visibly distinguishable from one that applies.
+ * Webview CSS is written entirely against `var(--vscode-*)` tokens the host
+ * injects at runtime. A plain browser page has none, so every themed rule would
+ * collapse to its fallback and the lane would measure nothing.
  *
- * Values track VS Code's defaults closely enough for match/override/contrast
- * assertions. They are NOT a pixel-parity reference: this lane asserts that a
- * rule applied and resolved sanely, never that a colour is byte-exact.
+ * There are two fixtures because the lane asks two different questions, and one
+ * palette cannot answer both:
+ *
+ * - **sentinel** (default) — every token gets a GUARANTEED-UNIQUE colour, so
+ *   `assertResolvesToToken` is really testing token identity. With realistic
+ *   values it is not: VS Code's own palette collides heavily (in Dark Modern
+ *   `menu-background`, `editor-background` and `dropdown-listBackground` are all
+ *   `#1f1f1f`; in Light Modern eight tokens are `#ffffff`), so swapping a rule
+ *   to a wrong-but-adjacent token resolves to an identical RGB and passes. A
+ *   wrong-but-adjacent token is the likeliest theming mistake there is.
+ * - **realistic** — the actual Dark/Light Modern values, for contrast and
+ *   readability assertions, where the real relationship between two tokens is
+ *   the whole point and sentinels would be meaningless.
+ *
+ * Neither is a pixel-parity reference. This lane asserts that a rule applied
+ * and resolved sanely, never that a colour is byte-exact.
  */
 
 export type ThemeName = 'dark' | 'light';
 
-const DARK: Readonly<Record<string, string>> = {
-  'vscode-foreground': '#cccccc',
-  'vscode-editor-background': '#1f1f1f',
-  'vscode-editor-foreground': '#cccccc',
-  'vscode-sideBar-background': '#181818',
-  'vscode-descriptionForeground': '#9d9d9d',
-  'vscode-focusBorder': '#0078d4',
-  'vscode-dropdown-background': '#313131',
-  'vscode-dropdown-foreground': '#cccccc',
-  'vscode-dropdown-border': '#3c3c3c',
-  'vscode-dropdown-listBackground': '#1f1f1f',
-  'vscode-button-background': '#0078d4',
-  'vscode-button-foreground': '#ffffff',
-  'vscode-button-hoverBackground': '#026ec1',
-  'vscode-input-background': '#313131',
-  'vscode-input-foreground': '#cccccc',
-  'vscode-input-border': '#3c3c3c',
-  'vscode-toolbar-hoverBackground': '#2a2d2e',
-  'vscode-menu-background': '#1f1f1f',
-  'vscode-menu-foreground': '#cccccc',
-  'vscode-menu-border': '#454545',
-  'vscode-menu-selectionBackground': '#0078d4',
-  'vscode-menu-selectionForeground': '#ffffff',
-  'vscode-menu-separatorBackground': '#454545',
-  'vscode-list-hoverBackground': '#2a2d2e',
-  'vscode-list-activeSelectionBackground': '#04395e',
-  'vscode-list-activeSelectionForeground': '#ffffff',
-  'vscode-panel-border': '#2b2b2b',
-  'vscode-inputValidation-errorBackground': '#5a1d1d',
-  'vscode-inputValidation-errorBorder': '#be1100',
-  'vscode-editor-font-family': 'monospace',
-  'vscode-editor-font-size': '13px',
+/** Every token the fixtures define. Order fixes the sentinel assignment. */
+const TOKENS = [
+  'vscode-foreground',
+  'vscode-editor-background',
+  'vscode-editor-foreground',
+  'vscode-sideBar-background',
+  'vscode-descriptionForeground',
+  'vscode-focusBorder',
+  'vscode-dropdown-background',
+  'vscode-dropdown-foreground',
+  'vscode-dropdown-border',
+  'vscode-dropdown-listBackground',
+  'vscode-button-background',
+  'vscode-button-foreground',
+  'vscode-button-hoverBackground',
+  'vscode-input-background',
+  'vscode-input-foreground',
+  'vscode-input-border',
+  'vscode-toolbar-hoverBackground',
+  'vscode-menu-background',
+  'vscode-menu-foreground',
+  'vscode-menu-border',
+  'vscode-menu-selectionBackground',
+  'vscode-menu-selectionForeground',
+  'vscode-menu-separatorBackground',
+  'vscode-list-hoverBackground',
+  'vscode-list-activeSelectionBackground',
+  'vscode-list-activeSelectionForeground',
+  'vscode-panel-border',
+  'vscode-inputValidation-errorBackground',
+  'vscode-inputValidation-errorBorder',
+] as const;
+
+const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = {
+  dark: {
+    'vscode-foreground': '#cccccc',
+    'vscode-editor-background': '#1f1f1f',
+    'vscode-editor-foreground': '#cccccc',
+    'vscode-sideBar-background': '#181818',
+    'vscode-descriptionForeground': '#9d9d9d',
+    'vscode-focusBorder': '#0078d4',
+    'vscode-dropdown-background': '#313131',
+    'vscode-dropdown-foreground': '#cccccc',
+    'vscode-dropdown-border': '#3c3c3c',
+    'vscode-dropdown-listBackground': '#1f1f1f',
+    'vscode-button-background': '#0078d4',
+    'vscode-button-foreground': '#ffffff',
+    'vscode-button-hoverBackground': '#026ec1',
+    'vscode-input-background': '#313131',
+    'vscode-input-foreground': '#cccccc',
+    'vscode-input-border': '#3c3c3c',
+    'vscode-toolbar-hoverBackground': '#2a2d2e',
+    'vscode-menu-background': '#1f1f1f',
+    'vscode-menu-foreground': '#cccccc',
+    'vscode-menu-border': '#454545',
+    'vscode-menu-selectionBackground': '#0078d4',
+    'vscode-menu-selectionForeground': '#ffffff',
+    'vscode-menu-separatorBackground': '#454545',
+    'vscode-list-hoverBackground': '#2a2d2e',
+    'vscode-list-activeSelectionBackground': '#04395e',
+    'vscode-list-activeSelectionForeground': '#ffffff',
+    'vscode-panel-border': '#2b2b2b',
+    'vscode-inputValidation-errorBackground': '#5a1d1d',
+    'vscode-inputValidation-errorBorder': '#be1100',
+  },
+  light: {
+    'vscode-foreground': '#3b3b3b',
+    'vscode-editor-background': '#ffffff',
+    'vscode-editor-foreground': '#3b3b3b',
+    'vscode-sideBar-background': '#f8f8f8',
+    'vscode-descriptionForeground': '#3b3b3b',
+    'vscode-focusBorder': '#005fb8',
+    'vscode-dropdown-background': '#ffffff',
+    'vscode-dropdown-foreground': '#3b3b3b',
+    'vscode-dropdown-border': '#cecece',
+    'vscode-dropdown-listBackground': '#ffffff',
+    'vscode-button-background': '#005fb8',
+    'vscode-button-foreground': '#ffffff',
+    'vscode-button-hoverBackground': '#0258a8',
+    'vscode-input-background': '#ffffff',
+    'vscode-input-foreground': '#3b3b3b',
+    'vscode-input-border': '#cecece',
+    'vscode-toolbar-hoverBackground': '#b8b8b850',
+    'vscode-menu-background': '#ffffff',
+    'vscode-menu-foreground': '#3b3b3b',
+    'vscode-menu-border': '#cecece',
+    'vscode-menu-selectionBackground': '#005fb8',
+    'vscode-menu-selectionForeground': '#ffffff',
+    'vscode-menu-separatorBackground': '#d4d4d4',
+    'vscode-list-hoverBackground': '#f2f2f2',
+    'vscode-list-activeSelectionBackground': '#005fb8',
+    'vscode-list-activeSelectionForeground': '#ffffff',
+    'vscode-panel-border': '#e5e5e5',
+    'vscode-inputValidation-errorBackground': '#f2dede',
+    'vscode-inputValidation-errorBorder': '#be1100',
+  },
 };
 
-const LIGHT: Readonly<Record<string, string>> = {
-  'vscode-foreground': '#3b3b3b',
-  'vscode-editor-background': '#ffffff',
-  'vscode-editor-foreground': '#3b3b3b',
-  'vscode-sideBar-background': '#f8f8f8',
-  'vscode-descriptionForeground': '#3b3b3b',
-  'vscode-focusBorder': '#005fb8',
-  'vscode-dropdown-background': '#ffffff',
-  'vscode-dropdown-foreground': '#3b3b3b',
-  'vscode-dropdown-border': '#cecece',
-  'vscode-dropdown-listBackground': '#ffffff',
-  'vscode-button-background': '#005fb8',
-  'vscode-button-foreground': '#ffffff',
-  'vscode-button-hoverBackground': '#0258a8',
-  'vscode-input-background': '#ffffff',
-  'vscode-input-foreground': '#3b3b3b',
-  'vscode-input-border': '#cecece',
-  'vscode-toolbar-hoverBackground': '#b8b8b850',
-  'vscode-menu-background': '#ffffff',
-  'vscode-menu-foreground': '#3b3b3b',
-  'vscode-menu-border': '#cecece',
-  'vscode-menu-selectionBackground': '#005fb8',
-  'vscode-menu-selectionForeground': '#ffffff',
-  'vscode-menu-separatorBackground': '#d4d4d4',
-  'vscode-list-hoverBackground': '#f2f2f2',
-  'vscode-list-activeSelectionBackground': '#005fb8',
-  'vscode-list-activeSelectionForeground': '#ffffff',
-  'vscode-panel-border': '#e5e5e5',
-  'vscode-inputValidation-errorBackground': '#f2dede',
-  'vscode-inputValidation-errorBorder': '#be1100',
-  'vscode-editor-font-family': 'monospace',
-  'vscode-editor-font-size': '13px',
+/**
+ * Unique by construction: the red channel carries the token's index, so no two
+ * tokens can collide however the list grows. Dark and light differ in the low
+ * bit of blue so a theme mix-up is visible too.
+ */
+function sentinelFor(index: number, theme: ThemeName): string {
+  const hex = (n: number): string => n.toString(16).padStart(2, '0');
+  return `#${hex(index)}${hex((index * 7) % 256)}${hex(((index * 13) % 254) + (theme === 'dark' ? 0 : 1))}`;
+}
+
+const SENTINEL: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = {
+  dark: Object.fromEntries(TOKENS.map((t, i) => [t, sentinelFor(i, 'dark')])),
+  light: Object.fromEntries(TOKENS.map((t, i) => [t, sentinelFor(i, 'light')])),
 };
 
-const THEMES: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = {
-  dark: DARK,
-  light: LIGHT,
-};
+// The sentinel palette's entire value is its uniqueness; assert it rather than
+// trusting the generator, since a future edit to sentinelFor could collide
+// silently and quietly restore the collision blindness this fixture exists to
+// remove.
+for (const theme of ['dark', 'light'] as const) {
+  const values = Object.values(SENTINEL[theme]);
+  if (new Set(values).size !== values.length) {
+    throw new Error(
+      `Sentinel palette for '${theme}' has duplicate values; sentinelFor must be injective`
+    );
+  }
+}
+
+if (TOKENS.length > 256) {
+  throw new Error(
+    'sentinelFor encodes the token index in one byte; split the palette before exceeding 256 tokens'
+  );
+}
+
+export interface IThemeOptions {
+  /** Use the real VS Code palette. Required for contrast/readability specs. */
+  realistic?: boolean;
+}
+
+function paletteFor(theme: ThemeName, options: IThemeOptions): Readonly<Record<string, string>> {
+  return options.realistic === true ? REALISTIC[theme] : SENTINEL[theme];
+}
 
 /** The raw token value, for asserting a computed style resolved to it. */
-export function themeToken(theme: ThemeName, token: string): string {
+export function themeToken(theme: ThemeName, token: string, options: IThemeOptions = {}): string {
   const key = token.replace(/^--/, '');
-  const value = THEMES[theme][key];
+  const value = paletteFor(theme, options)[key];
   if (value === undefined) {
     throw new Error(
-      `Unknown theme token '${token}' for '${theme}'. Add it to test/visual/support/theme.ts ` +
+      `Unknown theme token '${token}'. Add it to TOKENS in test/visual/support/theme.ts ` +
         `rather than hardcoding a colour at the call site.`
     );
   }
@@ -102,13 +180,24 @@ export function themeToken(theme: ThemeName, token: string): string {
 }
 
 /**
- * The `:root` block the host would inject. Font family is pinned to a generic
- * so text metrics stay stable across machines: layout assertions in this lane
- * must not depend on which fonts happen to be installed.
+ * The `:root` block the host would inject.
+ *
+ * Font family and size are set directly, not left to a production alias: the
+ * host injects both, and a lane whose text metrics depend on which fonts a
+ * machine happens to have installed becomes flaky the first time it asserts
+ * anything about layout.
  */
-export function themeRootCss(theme: ThemeName): string {
-  const decls = Object.entries(THEMES[theme])
+export function themeRootCss(theme: ThemeName, options: IThemeOptions = {}): string {
+  const palette = paletteFor(theme, options);
+  const decls = Object.entries(palette)
     .map(([name, value]) => `      --${name}: ${value};`)
     .join('\n');
-  return `    :root {\n${decls}\n    }\n`;
+  return (
+    `    :root {\n${decls}\n` +
+    `      --vscode-font-family: monospace;\n` +
+    `      --vscode-font-size: 13px;\n` +
+    `      --vscode-editor-font-family: monospace;\n` +
+    `      --vscode-editor-font-size: 13px;\n` +
+    `    }\n`
+  );
 }
