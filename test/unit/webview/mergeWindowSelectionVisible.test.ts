@@ -20,8 +20,13 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import { JSDOM } from 'jsdom';
-import { mergeWindowStyles } from '../../../src/conflicts/merge-window/mergeWindowHtml';
+import {
+  MERGE_FILL_ALPHA,
+  mergeWindowStyles,
+} from '../../../src/conflicts/merge-window/mergeWindowHtml';
 
 /** Mount the generated stylesheet in jsdom and return its parsed rules. */
 function parseRules(): CSSStyleRule[] {
@@ -115,6 +120,35 @@ describe('merge window: selection visibility over chunk decorations', () => {
           `BENEATH the decoration layer — remains visible through it. Got: ${block.trim()}`
       );
     }
+  });
+
+  it('paints the pane band, strip band and connector at ONE shared alpha', () => {
+    // The three are meant to read as a single continuous channel across the
+    // window (see MERGE_KIND_CONNECTOR_COLORS' contract). Giving the in-editor
+    // band an alpha while the strip band and canvas connector stayed opaque
+    // made the channel look broken at every pane boundary (user-reported).
+    const pct = `${Math.round(MERGE_FILL_ALPHA * 100)}%`;
+    for (const kind of ['conflict', 'modified', 'inserted', 'deleted']) {
+      for (const selector of [`.merge-${kind}`, `.action-band.k-${kind}`]) {
+        assert.ok(
+          rawBlock(selector).includes(pct),
+          `"${selector}" must blend at the shared MERGE_FILL_ALPHA (${pct}) so the pane band, ` +
+            `strip band and connector match. Got: ${rawBlock(selector).trim()}`
+        );
+      }
+    }
+
+    // The canvas cannot parse color-mix(), so it applies the same constant as
+    // globalAlpha. Assert it reads the CONSTANT rather than a copied literal —
+    // a duplicated number is exactly how these drifted apart.
+    const webviewSource = fs.readFileSync(
+      path.join(process.cwd(), 'src/conflicts/merge-window/webview/main.ts'),
+      'utf8'
+    );
+    assert.ok(
+      /globalAlpha\s*=[^;]*MERGE_FILL_ALPHA/.test(webviewSource),
+      'the connector fill must set globalAlpha from MERGE_FILL_ALPHA, not a hard-coded copy'
+    );
   });
 
   it('still declares an opaque fallback first for engines without color-mix', () => {

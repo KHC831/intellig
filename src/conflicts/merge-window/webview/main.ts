@@ -39,6 +39,7 @@ import { replayMonacoChanges } from '../editReplay';
 import { IAlignAnchor, invertAnchors, mapLine } from '../scrollMapping';
 import { IMergeInnerDifferences, compareThreesideInner } from '../innerDiff';
 import {
+  MERGE_FILL_ALPHA,
   MERGE_KIND_CONNECTOR_COLORS,
   MergeChangeKind,
   buildMergeWindowDom,
@@ -1335,7 +1336,7 @@ class MergeWindow {
         const rightTop = atRightEdge.top;
         const leftBottom = Math.max(atLeftEdge.bottom, atLeftEdge.top + 2);
         const rightBottom = Math.max(atRightEdge.bottom, atRightEdge.top + 2);
-        ctx.globalAlpha = change.isResolved() ? 0.25 : 1;
+        ctx.globalAlpha = change.isResolved() ? 0.25 : MERGE_FILL_ALPHA;
         const color = change.isResolved()
           ? 'rgba(140, 140, 140, 0.45)'
           : this.connectorColor(kindOf(change));
@@ -1349,8 +1350,7 @@ class MergeWindow {
         ctx.fillStyle = color;
         ctx.fill();
 
-        // Center hairline so steep, thin bands never vanish (IntelliJ does
-        // the same inside drawCurveTrapezium).
+        // Center hairline so steep, thin bands never vanish (IntelliJ drawCurveTrapezium).
         ctx.beginPath();
         ctx.moveTo(0, (leftTop + leftBottom) / 2);
         ctx.bezierCurveTo(

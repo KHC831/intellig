@@ -88,10 +88,16 @@ export class MergeView implements IMergeView {
    * and `dist/main.js`).
    */
   async show(file: string): Promise<void> {
-    // Resolve the repository owning this file. Try the verbatim path first
-    // (covers absolute-path callers), then fall back to joining against each
-    // known repo root (covers repo-relative paths from `git status`).
-    let repository = await this._gitService.getRepository(vscode.Uri.file(file));
+    // Resolve the repository owning this file. Probe the verbatim path only
+    // when it IS absolute: `vscode.Uri.file()` prefixes a slash onto a relative
+    // path, so probing `greeting.txt` would ask git about `/greeting.txt` — a
+    // path that cannot exist, which spawns git in a bad cwd and reports a
+    // system fault for what is really just a relative path. Repo-relative
+    // paths (the `git status --porcelain` form every dialog caller passes) are
+    // resolved against the known repo roots below.
+    let repository = path.isAbsolute(file)
+      ? await this._gitService.getRepository(vscode.Uri.file(file))
+      : undefined;
 
     const searchedRoots: string[] = [];
     let absolutePath = file;
@@ -108,8 +114,6 @@ export class MergeView implements IMergeView {
           }
         }
       }
-    } else if (repository && !path.isAbsolute(file)) {
-      absolutePath = path.join(repository.rootUri.fsPath, file);
     }
 
     if (!repository) {

@@ -581,14 +581,9 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       return owner;
     }
 
-    // Try to find repository root. `git rev-parse --show-toplevel` must run with
-    // a DIRECTORY cwd: `spawn` rejects a file cwd with ENOTDIR, which silently
-    // turned file-path discovery into a no-op. Use the file's parent dir.
-    //
-    // The probe returns a Result: Ok(root) when found, Ok(undefined) when the
-    // dir simply isn't a repo (expected absence → no repository), and Err on a
-    // genuine system fault. A fault is LOGGED, not swallowed, so it can't again
-    // masquerade as "no repository found".
+    // `git rev-parse --show-toplevel` needs a DIRECTORY cwd, so the path is
+    // reduced to one first. Ok(root) when found, Ok(undefined) when that dir
+    // isn't a repo, Err on a real fault — LOGGED so it cannot read as "no repo".
     const rootPath = await this._gitCli.getRepositoryRoot(this.toDirectoryCwd(filePath)).match(
       (root) => root,
       (error) => {
@@ -1208,13 +1203,18 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    * rev-parse-fails-gracefully behavior).
    */
   private toDirectoryCwd(p: string): string {
-    try {
-      if (fs.statSync(p).isDirectory()) {
-        return p;
+    // Climb to the nearest EXISTING directory: a non-existent cwd makes `spawn`
+    // fail ENOENT, reporting a system fault for a path merely outside any repo.
+    let candidate = p;
+    for (;;) {
+      if (fs.statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
+        return candidate;
       }
-      return path.dirname(p);
-    } catch {
-      return p;
+      const parent = path.dirname(candidate);
+      if (parent === candidate) {
+        return parent; // filesystem root — always exists, so this terminates
+      }
+      candidate = parent;
     }
   }
 

@@ -186,6 +186,26 @@ const APPLY_NC_RIGHT_MASK =
   `viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M7.5 3.5L3 8L7.5 12.5M12.5 3.5L8 8L12.5 12.5' ` +
   `stroke='%23fff' stroke-linecap='round'/%3E%3C/svg%3E")`;
 
+/**
+ * Opacity every change fill is painted at: the in-editor row band, the
+ * action-strip band, and the canvas connector between panes.
+ *
+ * The fills must be translucent so Monaco's selection — which paints BENEATH
+ * the decoration layer — stays visible through them (see
+ * mergeWindowSelectionVisible.test.ts). They must also share ONE value, because
+ * pane band, strip band, and connector are meant to read as a single continuous
+ * channel across the window; giving the editor band alone an alpha made the
+ * channel look broken at every pane boundary. CSS reads it through the
+ * percentage below; the canvas reads it as `globalAlpha`.
+ */
+export const MERGE_FILL_ALPHA = 0.6;
+
+/** {@link MERGE_FILL_ALPHA} as the percentage `color-mix()` wants. */
+const FILL_PCT = `${Math.round(MERGE_FILL_ALPHA * 100)}%`;
+
+/** Word-level emphasis rides on top of a chunk band, so it stays a touch stronger. */
+const WORD_PCT = '70%';
+
 export function mergeWindowStyles(): string {
   return `
 :root {
@@ -240,10 +260,10 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 .action-strip .pane-title { padding: 0; }
 .action-strip-body { flex: 1; position: relative; overflow: hidden; min-height: 0; }
 .action-band { position: absolute; left: 0; right: 0; pointer-events: none; }
-.action-band.k-conflict { background: var(--merge-conflict-bg); }
-.action-band.k-modified { background: var(--merge-modified-bg); }
-.action-band.k-inserted { background: var(--merge-inserted-bg); }
-.action-band.k-deleted { background: var(--merge-deleted-bg); }
+.action-band.k-conflict { background: var(--merge-conflict-bg); background: color-mix(in srgb, var(--merge-conflict-bg) ${FILL_PCT}, transparent); }
+.action-band.k-modified { background: var(--merge-modified-bg); background: color-mix(in srgb, var(--merge-modified-bg) ${FILL_PCT}, transparent); }
+.action-band.k-inserted { background: var(--merge-inserted-bg); background: color-mix(in srgb, var(--merge-inserted-bg) ${FILL_PCT}, transparent); }
+.action-band.k-deleted { background: var(--merge-deleted-bg); background: color-mix(in srgb, var(--merge-deleted-bg) ${FILL_PCT}, transparent); }
 .action-btn { position: absolute; z-index: 1; width: 16px; height: 18px; line-height: 18px; text-align: center; border: none; background: none; cursor: pointer; padding: 0; color: var(--vscode-icon-foreground, #c5c5c5); }
 .action-btn::before { font-family: codicon; font-size: 14px; display: inline-block; }
 .action-btn:hover { filter: brightness(1.4); }
@@ -270,10 +290,10 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
    lift escapes it, painting the selection over the sibling .view-lines glyphs
    and making selected text unreadable. The plain background is declared first
    so an engine without color-mix still gets a visible (opaque) fill. */
-.merge-conflict { background: var(--merge-conflict-bg); background: color-mix(in srgb, var(--merge-conflict-bg) 60%, transparent); }
-.merge-modified { background: var(--merge-modified-bg); background: color-mix(in srgb, var(--merge-modified-bg) 60%, transparent); }
-.merge-inserted { background: var(--merge-inserted-bg); background: color-mix(in srgb, var(--merge-inserted-bg) 60%, transparent); }
-.merge-deleted { background: var(--merge-deleted-bg); background: color-mix(in srgb, var(--merge-deleted-bg) 60%, transparent); }
+.merge-conflict { background: var(--merge-conflict-bg); background: color-mix(in srgb, var(--merge-conflict-bg) ${FILL_PCT}, transparent); }
+.merge-modified { background: var(--merge-modified-bg); background: color-mix(in srgb, var(--merge-modified-bg) ${FILL_PCT}, transparent); }
+.merge-inserted { background: var(--merge-inserted-bg); background: color-mix(in srgb, var(--merge-inserted-bg) ${FILL_PCT}, transparent); }
+.merge-deleted { background: var(--merge-deleted-bg); background: color-mix(in srgb, var(--merge-deleted-bg) ${FILL_PCT}, transparent); }
 .merge-empty { border-top: 2px solid var(--merge-deleted-strong); background: transparent; }
 .merge-empty.k-conflict { border-top-color: var(--merge-conflict-strong); }
 .merge-empty.k-modified { border-top-color: var(--merge-modified-strong); }
@@ -281,10 +301,10 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 /* Word-level emphasis rides on top of the chunk fill, so it stays translucent
    too — same reason, and it keeps the two tones distinguishable when they
    compose. */
-.merge-word.k-conflict { background: var(--merge-conflict-strong); background: color-mix(in srgb, var(--merge-conflict-strong) 70%, transparent); }
-.merge-word.k-modified { background: var(--merge-modified-strong); background: color-mix(in srgb, var(--merge-modified-strong) 70%, transparent); }
-.merge-word.k-inserted { background: var(--merge-inserted-strong); background: color-mix(in srgb, var(--merge-inserted-strong) 70%, transparent); }
-.merge-word.k-deleted { background: var(--merge-deleted-strong); background: color-mix(in srgb, var(--merge-deleted-strong) 70%, transparent); }
+.merge-word.k-conflict { background: var(--merge-conflict-strong); background: color-mix(in srgb, var(--merge-conflict-strong) ${WORD_PCT}, transparent); }
+.merge-word.k-modified { background: var(--merge-modified-strong); background: color-mix(in srgb, var(--merge-modified-strong) ${WORD_PCT}, transparent); }
+.merge-word.k-inserted { background: var(--merge-inserted-strong); background: color-mix(in srgb, var(--merge-inserted-strong) ${WORD_PCT}, transparent); }
+.merge-word.k-deleted { background: var(--merge-deleted-strong); background: color-mix(in srgb, var(--merge-deleted-strong) ${WORD_PCT}, transparent); }
 .merge-resolved-top.k-conflict { border-top: 1px dotted var(--merge-conflict-strong); }
 .merge-resolved-top.k-modified { border-top: 1px dotted var(--merge-modified-strong); }
 .merge-resolved-top.k-inserted { border-top: 1px dotted var(--merge-inserted-strong); }
