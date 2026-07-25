@@ -7,12 +7,13 @@ a test without rotting the production API.
 
 ## section 1. Test layers
 
-| Layer    | Path               | CI lane                                    | VS Code host? | Real git? | Driver     | Approx. count |
-| -------- | ------------------ | ------------------------------------------ | ------------- | --------- | ---------- | ------------: |
-| Unit     | `test/unit/**`     | `test:unit`                                | no            | no        | Mocha      |          2542 |
-| Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check |          3158 |
-| Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha      |            22 |
-| E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha      |            36 |
+| Layer    | Path               | CI lane                                    | VS Code host? | Real git? | Driver           | Approx. count |
+| -------- | ------------------ | ------------------------------------------ | ------------- | --------- | ---------------- | ------------: |
+| Unit     | `test/unit/**`     | `test:unit`                                | no            | no        | Mocha            |          2542 |
+| Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
+| Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
+| E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |             8 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -30,6 +31,20 @@ a test without rotting the production API.
   Per-test isolated via `test/e2e/support/Fixture.ts` +
   `workspaceHelper.ts`. Use for command flows that exercise real git
   state transitions. These are slow; budget carefully.
+- **Visual** — production CSS and production markup rendered in headless
+  Chromium; assertions read **computed styles**, never pixels. This is the
+  only lane with a cascade and a layout engine: jsdom has neither, so a rule
+  that is present in the CSS text but never matches, loses on specificity, or
+  is overpainted is invisible everywhere else. Use for theming (a token
+  actually resolved), readability (WCAG contrast against the real backdrop),
+  stacking (`elementFromPoint` says the element is on top), and overlap.
+  Helpers in `test/visual/support/`; see also ADR-010, which rejected pixel
+  diffing and is not superseded by this lane.
+
+  Two limits worth stating plainly: it renders in Chrome, not the Electron
+  host, so a host-version-specific rendering bug still escapes; and layout
+  assertions are kept coarse (visible / not-overlapping / contrast) because
+  exact offsets depend on font metrics that vary by machine.
 
 ### The test surface is the CI lanes
 

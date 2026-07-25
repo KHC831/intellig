@@ -586,3 +586,23 @@ not on a branch"` to the synthetic detached-head BranchTreeItem
   (UX review) and Layer 4 (repo-state) were unchanged — Wave K added
   no new repo-state fixtures (tags are repo-state-orthogonal: any
   shape may carry tags). All 8 gates clean post-K.
+
+- **Computed-style lane added (`test/visual/**`, `npm run test:visual`).**
+  This does **not\*\* overturn the "Visual regression testing via screenshots"
+  rejection above; it occupies the gap that rejection left open. The three
+  stated objections were Electron version variance, the absence of a
+  deterministic rasterizer, and false-positive triage cost. A computed-style
+  assertion has no rasterizer and no golden image — it reads resolved values
+  out of a real cascade and a failure names the property that changed — so
+  objections two and three do not apply. Objection one is sidestepped rather
+  than answered: the lane renders in headless Chrome, not the Electron host,
+  so a host-version-specific rendering bug still escapes it. Layout
+  assertions are deliberately coarse (visible / not-overlapping / contrast)
+  because exact offsets depend on font metrics that vary by machine.
+
+  Why it was needed: Layer 1's snapshots assert emitted HTML **text**, so a
+  rule that is present but never matches, loses on specificity, or is
+  overpainted passes every existing lane. Proven by mutation against the
+  changed-file context menu — renaming `.context-menu` so it no longer
+  matched left all 36 `test/unit/html` specs green while the new lane failed 4. Deleting the background declaration outright (the multi-repo `<select>`
+  defect) was likewise invisible to the unit lane and caught here.
