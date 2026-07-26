@@ -179,6 +179,82 @@ describe('check-visual-coverage guard', () => {
     assert.match(out, /stale/);
   });
 
+  // The detector's reach is pinned by discrimination, not by a producer count.
+  // A count changes whenever a legitimate stylesheet is added, so editing it
+  // becomes routine and a routinely-edited pin is decorative. These fail when
+  // someone loosens or tightens the pattern and need no edit when src changes.
+  // The count pin exists for free: a non-CSS helper the pattern starts catching
+  // lands unclassified and fails the manifest check.
+
+  it('sees a producer whose name only CONTAINS Styles', () => {
+    const continued =
+      'class View {\n  private _getStylesContinued(): string {\n    return `.c { color: red; }`;\n  }\n}\n';
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED, 'View.ts': continued },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'backlog' } })
+    );
+    assert.strictEqual(status, 1, 'a contains-Styles producer must require classification');
+    assert.match(out, /View\.ts::_getStylesContinued/);
+  });
+
+  it('sees an async producer returning Promise<string>', () => {
+    // Not pinned as an exclusion: the pattern tolerated `async` while gating on
+    // a literal `: string`, so this shape emitted CSS no fence could see.
+    const asyncMethod =
+      'class View {\n  async panelStyles(): Promise<string> {\n    return `.d { color: red; }`;\n  }\n}\n';
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED, 'View.ts': asyncMethod },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'backlog' } })
+    );
+    assert.strictEqual(status, 1, 'an async producer must require classification');
+    assert.match(out, /View\.ts::panelStyles/);
+  });
+
+  it('does not mistake a singular-Style helper for a stylesheet', () => {
+    // `unquoteCStylePath` is a path parser; singular `Style` would claim it.
+    const parser =
+      'export function unquoteCStylePath(token: string): string {\n  return token;\n}\n';
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED, 'parse.ts': parser },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'backlog' } })
+    );
+    assert.strictEqual(status, 0, `a singular-Style helper must be ignored; output:\n${out}`);
+  });
+
+  it('sees an arrow-const producer', () => {
+    // Not pinned as an exclusion: an arrow-const emits CSS exactly as a
+    // function declaration does, so leaving it out of the pattern was a blind
+    // spot, not a design decision — the same reasoning as the async case.
+    const arrow = 'export const fooStyles = (): string => `.e { color: red; }`;\n';
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED, 'arrow.ts': arrow },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'backlog' } })
+    );
+    assert.strictEqual(status, 1, 'an arrow-const producer must require classification');
+    assert.match(out, /arrow\.ts::fooStyles/);
+  });
+
+  it('sees an async arrow-const producer', () => {
+    const arrow = 'export const barStyles = async (): Promise<string> => `.f { color: red; }`;\n';
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED, 'arrow.ts': arrow },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'backlog' } })
+    );
+    assert.strictEqual(status, 1, 'an async arrow-const producer must require classification');
+    assert.match(out, /arrow\.ts::barStyles/);
+  });
+
+  it('does not mistake a non-string arrow-const for a producer', () => {
+    // The return gate applies to the arrow form too: a Styles-named handler
+    // that returns nothing emits no CSS.
+    const arrow = 'export const fooStylesHandler = (): void => {};\n';
+    const { status, out } = checkTree(
+      { 'widget.ts': EXPORTED, 'arrow.ts': arrow },
+      manifest({ 'src/widget.ts::widgetStyles': { status: 'backlog' } })
+    );
+    assert.strictEqual(status, 0, `a void arrow-const emits no CSS; output:\n${out}`);
+  });
+
   it('rejects an unknown status', () => {
     const { status } = checkTree(
       { 'widget.ts': EXPORTED },

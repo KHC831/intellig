@@ -15,7 +15,7 @@
     "branches/BranchPopup.ts": 1544,
     "git-core/interfaces/IGitService.ts": 1503,
     "commands/registration/commitRepoCoreCommands.ts": 1488,
-    "git-core/gitToolWindow/provider/stylesBuilder.ts": 1407,
+    "git-core/gitToolWindow/provider/stylesBuilder.ts": 1328,
     "conflicts/merge-window/webview/main.ts": 1418,
     "git-core/gitParser.ts": 1265,
     "sync/PushDialog.ts": 1262,

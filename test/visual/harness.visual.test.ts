@@ -15,6 +15,17 @@
  * the harness neutralised the property, an opaque overlay painted over text was
  * invisible to `assertNotCovered` and absent from `assertReadable`'s backdrop.
  * Both reported green on a surface no one could read.
+ *
+ * Neutralising the property has a cost the lane must state: no spec can assert
+ * hover or click behaviour that DEPENDS on a production `pointer-events` value,
+ * because the harness has overwritten it on every element (ResetDialog's
+ * disabled-radio rule — events fall through so the protected-branch tooltip
+ * surfaces on the row — is the live case). Assert the precondition instead:
+ * the computed rule on the element the behaviour needs, which is why
+ * `computed()` refuses to report `pointer-events` itself and fails loudly
+ * rather than measuring the harness's value. The trade is deliberate — without
+ * the forcing, every stacking and readability probe silently skipped
+ * `pointer-events: none` layers that still paint.
  */
 
 import '../setup';

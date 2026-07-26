@@ -13,14 +13,15 @@
 // makes the decision explicit at PR time instead of letting coverage silently
 // approach zero as stylesheets are added and split.
 //
-// Heuristic: a stylesheet producer is a function or method whose name ends in
-// `Styles` and returns a string — exported builders (`export function
-// fooStyles(): string`), module-local ones, and the `_getStyles()` overrides
-// every dialog uses. Keying only on EXPORTED builders is what this guard did
-// first, and it saw 9 of 26 producers: every dialog in the repo declares its
-// stylesheet as a private method, so a new dialog written the ordinary way
-// added a stylesheet the guard never asked about. Each producing FILE must
-// appear in visual-coverage.json.
+// Heuristic: a stylesheet producer is a function, arrow-const or method whose
+// name CONTAINS `Styles` and is annotated to return `string` or
+// `Promise<string>` — exported builders (`export function fooStyles(): string`,
+// `export const fooStyles = (): string =>`), module-local ones, and the
+// `_getStyles()` overrides every dialog uses. Keying only on EXPORTED builders
+// is what this guard did first, and it saw 9 of 26 producers: every dialog in
+// the repo declares its stylesheet as a private method, so a new dialog written
+// the ordinary way added a stylesheet the guard never asked about. Each
+// producing FILE must appear in visual-coverage.json.
 //
 // Classification is per PRODUCER, not per file. A file-level status lets a
 // partly-covered file claim full coverage: stylesBuilder.ts exports both
@@ -41,8 +42,18 @@
 // False negatives: a producer whose body calls a rendered builder AND adds
 // rules of its own counts as tested, so the added rules are unguarded. Being
 // more conservative is always allowed — the guard rejects an unbacked 'tested',
-// it never forces one. It also cannot see CSS built anywhere but a `...Styles`
-// function: an inline `<style>` string assembled in place escapes entirely.
+// it never forces one.
+//
+// Detection is BY NAME, so anything emitting CSS without `Styles` in its name is
+// invisible rather than unclassified — the worse of the two failures, because
+// nothing reports it. Two shapes are known to escape and neither is
+// hypothetical. `buildCodiconFontFaceStyles` was `...Css` and escaped until it
+// was renamed, which is the only reason it is classified at all; a future
+// `buildFooCss` would escape the same way. And CSS reaches a document by
+// in-place `<style>` assembly from a template as well as through a named
+// builder — see provider/htmlBuilders.ts, where the styles are interpolated
+// into the document string directly. Neither is caught by widening the name
+// pattern further; closing them needs a different mechanism.
 //
 // Retire when every producer is 'tested' AND a narrower mechanism (for example
 // co-located component styles that cannot ship without their spec) makes an
@@ -65,13 +76,37 @@ const VISUAL_TEST_DIR = visualArg ? path.resolve(visualArg) : path.join(root, 't
 // src still produces `src/...` keys instead of a walk back up to the repo.
 const REL_BASE = srcArg ? path.dirname(path.resolve(srcArg)) : root;
 
+// `Styles` may sit anywhere in the name, not only at the end: `_getStylesContinued`
+// was a real producer that an ends-with match could not see at all — invisible
+// rather than unclassified, which is the failure this guard exists to prevent.
+// Plural is deliberate; singular `Style` would claim `unquoteCStylePath`.
+const PRODUCER_NAME = '[A-Za-z0-9_]*Styles[A-Za-z0-9_]*';
+// `Promise<string>` counts. The method pattern already tolerated the `async`
+// modifier while gating on a literal `: string`, so an async builder emitted CSS
+// no fence could see. Widened rather than pinned as an exclusion: pinning would
+// have blessed the hole.
+const PRODUCER_RETURN = ':\\s*(?:string|Promise<\\s*string\\s*>)';
+
 // A module-level builder, exported or not.
-const FUNCTION_PRODUCER = /^(export )?function ([A-Za-z0-9_]*Styles)\s*\([^)]*\)\s*:\s*string/gm;
+const FUNCTION_PRODUCER = new RegExp(
+  `^(export )?(?:async )?function (${PRODUCER_NAME})\\s*\\([^)]*\\)\\s*${PRODUCER_RETURN}`,
+  'gm'
+);
+// An arrow-const builder. An arrow emits CSS exactly as a declaration does,
+// so leaving the form out was a blind spot, not a design decision — the same
+// reasoning that widened the return gate to Promise<string>.
+const ARROW_PRODUCER = new RegExp(
+  `^(export )?const (${PRODUCER_NAME})\\s*=\\s*(?:async )?\\([^)]*\\)\\s*${PRODUCER_RETURN}\\s*=>`,
+  'gm'
+);
 // A class member: `_getStyles(): string`, `getInlineStyles(): string`, and the
 // `protected override` forms every dialog uses. The trailing `{` is required so
 // an interface DECLARING the method is not counted as producing a stylesheet.
-const METHOD_PRODUCER =
-  /^\s+(?:private |protected |public )?(?:override )?(?:async )?([A-Za-z0-9_]*Styles)\s*\([^)]*\)\s*:\s*string\s*\{/gm;
+const METHOD_PRODUCER = new RegExp(
+  `^\\s+(?:private |protected |public )?(?:override )?(?:async )?(${PRODUCER_NAME})` +
+    `\\s*\\([^)]*\\)\\s*${PRODUCER_RETURN}\\s*\\{`,
+  'gm'
+);
 const EXEMPT = 'visual-coverage-exempt:';
 
 function fail(lines) {
@@ -104,7 +139,15 @@ function exemptionScope(text, index) {
   return text.slice(previousStart, end === -1 ? text.length : end);
 }
 
-/** The producer's body, brace-matched from its opening `{`. */
+/**
+ * The producer's body, brace-matched from its opening `{`.
+ *
+ * A concise-body arrow (`=> \`.a { ... }\``) has no block, so the first `{`
+ * found is inside its CSS template and the "body" is a rule fragment. That
+ * fails conservative: forwarding detection finds no `otherStyles()` call in
+ * the fragment, so such a producer can never claim `tested` by forwarding and
+ * must be rendered directly by a spec. Block-bodied arrows match correctly.
+ */
 function bodyFrom(text, declarationIndex) {
   const open = text.indexOf('{', declarationIndex);
   if (open === -1) return '';
@@ -124,15 +167,17 @@ function bodyFrom(text, declarationIndex) {
 const producers = [];
 for (const abs of walk(SRC, (p) => p.endsWith('.ts') || p.endsWith('.tsx'))) {
   const text = fs.readFileSync(abs, 'utf8');
-  for (const re of [FUNCTION_PRODUCER, METHOD_PRODUCER]) {
+  for (const re of [FUNCTION_PRODUCER, ARROW_PRODUCER, METHOD_PRODUCER]) {
     re.lastIndex = 0;
     for (const m of text.matchAll(re)) {
       if (exemptionScope(text, m.index).includes(EXEMPT)) continue;
-      const isFunction = re === FUNCTION_PRODUCER;
+      // The function and arrow patterns capture (export?, name); the method
+      // pattern captures (name) and a class member is never module-exported.
+      const isMember = re === METHOD_PRODUCER;
       producers.push({
         file: rel(abs),
-        name: isFunction ? m[2] : m[1],
-        exported: isFunction && m[1] !== undefined,
+        name: isMember ? m[1] : m[2],
+        exported: !isMember && m[1] !== undefined,
         body: bodyFrom(text, m.index),
       });
     }

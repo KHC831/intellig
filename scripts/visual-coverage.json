@@ -1,5 +1,5 @@
 {
-  "$comment": "Every stylesheet producer in src — a function or method named *Styles returning a string — emits CSS whose rules can be present, correctly tokenised, and still never reach the element: a selector that stops matching, a specificity loss, an overpaint. jsdom has no cascade or layout engine and no e2e test reads rendered output, so test/visual is the only lane that can see that class. check:visual-coverage requires each producer to be EITHER rendered by a spec under test/visual (status 'tested' — proven, not asserted: the builder must be named in a spec, interpolated by one that is, or forwarded to by the producer's own body) OR classified 'backlog' (renderable by the harness, not yet — printed every run as visible debt). Keyed per producer rather than per file because a file-level status let a partly-covered file claim full coverage.",
+  "$comment": "Every stylesheet producer in src — a function, arrow-const or method whose name contains Styles and is annotated to return string or Promise<string> — emits CSS whose rules can be present, correctly tokenised, and still never reach the element: a selector that stops matching, a specificity loss, an overpaint. jsdom has no cascade or layout engine and no e2e test reads rendered output, so test/visual is the only lane that can see that class. check:visual-coverage requires each producer to be EITHER rendered by a spec under test/visual (status 'tested' — proven, not asserted: the builder must be named in a spec, interpolated by one that is, or forwarded to by the producer's own body) OR classified 'backlog' (renderable by the harness, not yet — printed every run as visible debt). Keyed per producer rather than per file because a file-level status let a partly-covered file claim full coverage.",
   "statuses": ["tested", "backlog"],
   "files": {
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts::buildInlineStyles": {
@@ -8,7 +8,7 @@
     },
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts::buildThreePanelStyles": {
       "status": "backlog",
-      "note": "the three-panel commit layout; no spec renders it, and it is the other half of a file whose first builder is tested — the case that motivated per-producer keys"
+      "note": "the three-panel commit layout; the tab specs render it as part of the full provider css stack (gitToolWindowFixture) for cascade fidelity, but no spec asserts its own three-panel rules yet, so it stays backlog"
     },
     "src/git-core/gitToolWindow/provider/contextMenuStyles.ts::contextMenuStyles": {
       "status": "tested",
@@ -32,7 +32,11 @@
     },
     "src/git-core/gitToolWindow/GitToolWindowProvider.ts::_getThreePanelStyles": {
       "status": "backlog",
-      "note": "forwards to buildThreePanelStyles, which no spec renders"
+      "note": "forwards to buildThreePanelStyles, whose own rules no spec asserts yet"
+    },
+    "src/git-core/gitToolWindow/GitToolWindowProvider.ts::toolWindowTabStyles": {
+      "status": "tested",
+      "note": "the five tab sheets concatenated in emit order; rendered wholesale by every tab spec through gitToolWindowFixture, which imports it so the cascade a spec measures cannot drift from the one the document ships; a unit spec pins the order (tabbedLayout.test.ts)"
     },
     "src/commits/commitDialogStyles.ts::commitDialogStyles": {
       "status": "backlog",
@@ -43,24 +47,24 @@
       "note": "commit tool window stylesheet; module-local, so it needs exporting or a render seam before a spec can reach it"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts::historyTabStyles": {
-      "status": "backlog",
-      "note": "history tab stylesheet; the hash-overlapping-message defect lived here"
+      "status": "tested",
+      "note": "rendered against renderHistoryTabBody output inside the tabbed wrapper in both themes: a 12-character short hash fits its own grid track instead of overlapping the subject (the shipped 7ch-track defect, mutation-proven), selection/compare/hash/toolbar/error token identity under the sentinel palette, WCAG readability of subject/hash/author on plain and selected rows, error-banner visibility, 640px overflow (historyTab.visual.test.ts)"
     },
     "src/git-core/gitToolWindow/html/commonHtml.ts::tabStripStyles": {
-      "status": "backlog",
-      "note": "tab strip stylesheet; the sticky-positioning and behind-the-tab-strip stacking defects lived here"
+      "status": "tested",
+      "note": "rendered against wrapTabbedBody output with a taller-than-viewport console panel in both themes: the strip stays in view under the shipped scrollIntoView gesture and the document cannot scroll (the pinned-strip defect, mutation-proven), strip surface/border/active-underline token identity under the sentinel palette, label readability, tab and panel overlap, 640px overflow (tabStrip.visual.test.ts)"
     },
     "src/git-core/gitToolWindow/html/consoleHtml.ts::consoleTabStyles": {
-      "status": "backlog",
-      "note": "console tab stylesheet; the oversized-row defect took two commits and one wrong fix"
+      "status": "tested",
+      "note": "rendered against renderConsoleTabBody output inside the tabbed wrapper in both themes: timestamp and command share one line and a row is no taller than command line plus output (the shipped pre-wrap oversized-row defect, mutation-proven), command/timestamp/error/Clear-button token identity under the sentinel palette, readability of every entry part, error-text visibility, 640px overflow (consoleTab.visual.test.ts)"
     },
     "src/git-core/gitToolWindow/html/incomingHtml.ts::incomingTabStyles": {
-      "status": "backlog",
-      "note": "incoming tab stylesheet"
+      "status": "tested",
+      "note": "rendered against renderIncomingTabBody output inside the tabbed wrapper in both themes: selection and hash token identity under the sentinel palette, the sliced 7-character hash fits its 7ch track, readability of rows/header/up-to-date state, error-banner tokens and visibility, 640px overflow (incomingTab.visual.test.ts)"
     },
     "src/git-core/gitToolWindow/html/updateInfoHtml.ts::updateInfoTabStyles": {
-      "status": "backlog",
-      "note": "update-info tab stylesheet"
+      "status": "tested",
+      "note": "rendered against renderUpdateInfoTabBody output inside the tabbed wrapper in both themes: every outcome status class resolves its own git-decoration/error/description token under the sentinel palette, branch code and detail token identity, readability of headline/repo/branch/status labels, status chip does not overlap the repo name, 640px overflow (updateInfoTab.visual.test.ts)"
     },
     "src/branches/NewBranchDialog.ts::_getStyles": {
       "status": "backlog",
@@ -97,6 +101,18 @@
     "src/rebase/RebaseProgressView.ts::_getConflictAndActionStyles": {
       "status": "backlog",
       "note": "the conflict and action-button half of the rebase progress view; a second producer in the same file"
+    },
+    "src/git-core/gitToolWindow/provider/codiconFontStyles.ts::buildCodiconFontFaceStyles": {
+      "status": "backlog",
+      "note": "the icon font's @font-face and glyph rules, in their own module since the rename pushed stylesBuilder.ts over its god-file budget; was named ...Css and therefore invisible to the detector until renamed. Takes an extension URI and a webview, so a spec must supply both; the rendered check matches call syntax with arguments, only producer-to-producer forwarding needs the zero-arg form"
+    },
+    "src/git-core/gitToolWindow/GitToolWindowProvider.ts::_getCodiconFontFaceStyles": {
+      "status": "backlog",
+      "note": "forwards to buildCodiconFontFaceStyles with nothing added; was invisible under the same name shape"
+    },
+    "src/rebase/RebaseProgressView.ts::_getStylesContinued": {
+      "status": "backlog",
+      "note": "the third producer in the same file; its name does not END in Styles, so the detector could not see it at all until the name pattern was widened to match anywhere"
     },
     "src/shelf/ShelveDialog.ts::_getStyles": {
       "status": "backlog",

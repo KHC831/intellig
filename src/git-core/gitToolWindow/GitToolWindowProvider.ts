@@ -61,11 +61,8 @@ import type { IUpdateInfoSummary } from '../../sync/updateProject';
 import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
-import {
-  buildInlineStyles,
-  buildThreePanelStyles,
-  buildCodiconFontFaceCss,
-} from './provider/stylesBuilder';
+import { buildInlineStyles, buildThreePanelStyles } from './provider/stylesBuilder';
+import { buildCodiconFontFaceStyles } from './provider/codiconFontStyles';
 import type { IGtwControllerContext } from './provider/IGtwControllerContext';
 import {
   buildLoadingHtml,
@@ -398,6 +395,11 @@ const DATE_PRESET_LABELS: Record<DatePreset, string> = {
   '24h': 'Last 24 Hours',
   '7d': 'Last 7 Days',
 };
+
+/** The five tab sheets in emit order. The visual fixture renders this same concat, so the cascade a spec measures cannot drift from the one the document ships. */
+export function toolWindowTabStyles(): string {
+  return `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}\n${updateInfoTabStyles()}\n${incomingTabStyles()}`;
+}
 
 export class GitToolWindowProvider
   extends BaseWebviewView
@@ -4080,9 +4082,7 @@ export class GitToolWindowProvider
         })
       : logBody;
 
-    const extraStyles = flagOn
-      ? `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}\n${updateInfoTabStyles()}\n${incomingTabStyles()}`
-      : '';
+    const extraStyles = flagOn ? toolWindowTabStyles() : '';
 
     // / HIG — codicon font loader. Without a `@font-face`
     // declaration that points to the actual TTF, the `<i class="codicon">`
@@ -4092,7 +4092,7 @@ export class GitToolWindowProvider
     // `media/codicon.ttf` and emits the @font-face + .codicon utility
     // rules. CSP is widened to allow font-src from the webview's
     // cspSource so the same-origin font URI resolves.
-    const codiconFontCss = this._getCodiconFontFaceCss(webview);
+    const codiconFontCss = this._getCodiconFontFaceStyles(webview);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -4151,12 +4151,12 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
 
   /**
    * Codicon @font-face + glyph CSS for the webview. Thin forwarder to
-   * {@link buildCodiconFontFaceCss} (in provider/stylesBuilder.ts), passing the
+   * {@link buildCodiconFontFaceStyles} (in provider/codiconFontStyles.ts), passing the
    * provider-owned extension URI so the font URI resolution stays out of the
    * builder while the byte-for-byte CSS lives next to the other styles.
    */
-  private _getCodiconFontFaceCss(webview: vscode.Webview): string {
-    return buildCodiconFontFaceCss(this._extensionUri, webview);
+  private _getCodiconFontFaceStyles(webview: vscode.Webview): string {
+    return buildCodiconFontFaceStyles(this._extensionUri, webview);
   }
 
   /**

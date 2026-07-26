@@ -21,6 +21,11 @@ import {
   wrapTabbedBody,
   tabStripStyles,
 } from '../../../src/git-core/gitToolWindow/html/commonHtml';
+import { historyTabStyles } from '../../../src/git-core/gitToolWindow/html/historyHtml';
+import { consoleTabStyles } from '../../../src/git-core/gitToolWindow/html/consoleHtml';
+import { updateInfoTabStyles } from '../../../src/git-core/gitToolWindow/html/updateInfoHtml';
+import { incomingTabStyles } from '../../../src/git-core/gitToolWindow/html/incomingHtml';
+import { toolWindowTabStyles } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
 import { TAB_IDS } from '../../../src/git-core/gitToolWindow/tabRouter';
 
 function wrapped(): string {
@@ -120,5 +125,30 @@ describe('tab strip ARIA relationships', () => {
 
     assert.match(strip, /data-tab="console"[^>]*tabindex="0"/);
     assert.match(strip, /data-tab="log"[^>]*tabindex="-1"/);
+  });
+});
+
+describe('toolWindowTabStyles', () => {
+  it('concatenates every tab sheet, strip first, in the emit order the document ships', () => {
+    // The concat order IS the cascade. The visual fixture renders this same
+    // function, so a reorder here is a conscious change to both what ships and
+    // what the specs measure — this pin makes it show up in a diff twice.
+    const css = toolWindowTabStyles();
+    const sheets: Array<[string, string]> = [
+      ['tabStripStyles', tabStripStyles()],
+      ['historyTabStyles', historyTabStyles()],
+      ['consoleTabStyles', consoleTabStyles()],
+      ['updateInfoTabStyles', updateInfoTabStyles()],
+      ['incomingTabStyles', incomingTabStyles()],
+    ];
+    let cursor = 0;
+    for (const [name, sheet] of sheets) {
+      const at = css.indexOf(sheet, cursor);
+      assert.ok(
+        at >= cursor,
+        `${name} output must appear after the previous sheet; missing or out of order`
+      );
+      cursor = at + sheet.length;
+    }
   });
 });

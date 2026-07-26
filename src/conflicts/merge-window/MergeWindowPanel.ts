@@ -19,7 +19,7 @@ import { assignMergePanes, loadMergeStageContents, stageIdentityOf } from './mer
 import { IStageNames } from '../conflictSideNames';
 import { IConflictOpContext } from '../interfaces/IConflictResolutionService';
 import { mergeWindowStyles } from './mergeWindowHtml';
-import { buildCodiconFontFaceCss } from '../../git-core/gitToolWindow/provider/stylesBuilder';
+import { buildCodiconFontFaceStyles } from '../../git-core/gitToolWindow/provider/codiconFontStyles';
 import { detectEol, normalizeToLf, restoreEol } from './mergeWindowText';
 import { loadPersisted, savePersisted, type PersistedSlot } from '../../utils/persistedState';
 
@@ -430,7 +430,7 @@ export class MergeWindowPanel extends BaseWebviewPanel<MergeWindowOutbound> {
     // The gutter/wand symbols render from the bundled codicon font — a
     // unicode arrow here falls back to an arbitrary system font and can come
     // out visibly rotated.
-    const codiconCss = buildCodiconFontFaceCss(this._context.extensionUri, webview);
+    const codiconCss = buildCodiconFontFaceStyles(this._context.extensionUri, webview);
     const styleBlock = `<style>${codiconCss}${extraStyles ?? ''}</style>`;
 
     return `<!DOCTYPE html>

@@ -74,6 +74,11 @@ const TOKENS = [
   'vscode-merge-commonHeaderBackground',
   'vscode-mergeEditor-changeBase-background',
   'vscode-mergeEditor-changeBase-word-background',
+  'vscode-textLink-foreground',
+  'vscode-errorForeground',
+  'vscode-textPreformat-foreground',
+  'vscode-gitDecoration-addedResourceForeground',
+  'vscode-gitDecoration-conflictingResourceForeground',
 ] as const;
 
 const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = {
@@ -123,6 +128,11 @@ const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> =
     'vscode-merge-commonHeaderBackground': '#5f6367',
     'vscode-mergeEditor-changeBase-background': '#4b1818',
     'vscode-mergeEditor-changeBase-word-background': '#6f1313',
+    'vscode-textLink-foreground': '#4daafc',
+    'vscode-errorForeground': '#f85149',
+    'vscode-textPreformat-foreground': '#d0d0d0',
+    'vscode-gitDecoration-addedResourceForeground': '#81b88b',
+    'vscode-gitDecoration-conflictingResourceForeground': '#e4676b',
   },
   light: {
     'vscode-foreground': '#3b3b3b',
@@ -170,6 +180,11 @@ const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> =
     'vscode-merge-commonHeaderBackground': '#c6c6c6',
     'vscode-mergeEditor-changeBase-background': '#ffcccc',
     'vscode-mergeEditor-changeBase-word-background': '#ffa3a3',
+    'vscode-textLink-foreground': '#005fb8',
+    'vscode-errorForeground': '#f85149',
+    'vscode-textPreformat-foreground': '#3b3b3b',
+    'vscode-gitDecoration-addedResourceForeground': '#587c0c',
+    'vscode-gitDecoration-conflictingResourceForeground': '#ad0707',
   },
 };
 
