@@ -104,3 +104,28 @@ export async function saveShot(page: Page, suffix = ''): Promise<string | undefi
 export function shotsDirectory(): string {
   return SHOTS_DIR;
 }
+
+/**
+ * Empties the shot directory, called once at the start of every run.
+ *
+ * Failure shots are written whether or not capture is enabled, so without this
+ * the directory accumulates across runs and a `--FAILED` image from a spec
+ * fixed weeks ago is indistinguishable from one written seconds ago. The whole
+ * point of the images is to answer "what did this run see", which a mixed
+ * directory cannot.
+ *
+ * Deletes PNGs only, and does not recurse. The directory is gitignored and
+ * hand-editable; running the suite is not licence to remove whatever else a
+ * person put there. Never throws, for the same reason `saveShot` does not.
+ */
+export function clearShots(dir = SHOTS_DIR): void {
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.png')) {
+        fs.rmSync(path.join(dir, entry.name), { force: true });
+      }
+    }
+  } catch {
+    // Nothing to clear, or nothing we are allowed to clear.
+  }
+}

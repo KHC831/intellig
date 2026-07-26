@@ -73,6 +73,10 @@ a test without rotting the production API.
   poking at one surface with devtools. A **failing** spec always writes a
   `--FAILED` shot whether or not shots are enabled: a contrast ratio in an
   assertion message is hard to picture, and the image makes it obvious. The
+  directory is emptied at the start of every run, so everything in it belongs to
+  the run that just finished — a `--FAILED` image from a spec fixed weeks ago is
+  otherwise indistinguishable from one written seconds ago, and the directory
+  reads as a list of current failures. The
   fixture pins a monospace font for stable metrics, so shots read as the right
   colours and layout in the wrong typeface — they are a debugging aid, never
   compared against a golden image.
