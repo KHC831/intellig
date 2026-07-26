@@ -13,7 +13,7 @@ a test without rotting the production API.
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
 | E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
-| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |           192 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |           202 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -58,7 +58,7 @@ a test without rotting the production API.
   producer — a function, arrow-const or method whose name contains `Styles` and
   is annotated to return `string` or `Promise<string>`, which includes the
   private `_getStyles()` every dialog declares — as `tested` or `backlog`, and
-  fails on an unclassified one. It currently reports **12 of 32 tested**; the
+  fails on an unclassified one. It currently reports **13 of 33 tested**; the
   rest print every run as named debt. A `tested` claim is
   verified, not taken on trust: the producer must be rendered by a spec,
   interpolated by one that is, or forwarded to by its own body. Classification

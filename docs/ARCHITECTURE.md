@@ -371,6 +371,26 @@ flowchart LR
   context menus. All HTML is built via `createElement` (string-HTML is
   banned in webviews); everything user- or repo-controlled that reaches
   git goes through validation + `buildGitArgs`.
+- Known divergence (render-model limit): IntelliJ dims a selected log row
+  to the INACTIVE selection colours when the table loses focus
+  (`VcsLogGraphTable` picks `SELECTION_FOREGROUND` vs
+  `SELECTION_FOREGROUND_INACTIVE`). The tool-window webview does not model
+  an unfocused-selection state: `_render()` replaces the whole document,
+  so intra-webview focus is a lossy signal (focus restore is best-effort),
+  and a `:focus-within` dimming would flicker every selected row to the
+  inactive colours on every refresh. Selected rows therefore always use
+  the ACTIVE selection tokens. Revisit once the log surface moves to
+  incremental posts and the document survives refreshes.
+- Known divergence (deliberate styling): hash cells in the history and
+  incoming tabs keep the `textLink` tone on selected rows. IntelliJ's
+  shared cell state swaps EVERY column to the selection foreground,
+  hash included — its Hash column is a plain string cell
+  (`platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/column/VcsLogDefaultColumn.kt:202`,
+  rendered via `VcsLogStringCellRenderer`). IntelliG styles the hash as a
+  LINK, which is already a divergence from that plain column; dropping the
+  link tone only on selection would make the hash inconsistent with itself
+  on exactly the row being interacted with. Measured on the selection
+  fills so nobody re-derives it: 4.83:1 dark, 5.15:1 light.
 
 ## Section 10. Webview infrastructure
 

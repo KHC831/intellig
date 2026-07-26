@@ -18,6 +18,9 @@
  */
 
 import { wrapTabbedBody } from '../../../src/git-core/gitToolWindow/html/commonHtml';
+import { buildCommitRows } from '../../../src/git-core/gitToolWindow/provider/graphClusterBuilder';
+import { generateCommitGraph } from '../../../src/git-core/commitGraph';
+import { mkRowModel } from '../../support/printModelTestKit';
 import { renderConsoleTabBody } from '../../../src/git-core/gitToolWindow/html/consoleHtml';
 import { renderHistoryTabBody } from '../../../src/git-core/gitToolWindow/html/historyHtml';
 import { renderIncomingTabBody } from '../../../src/git-core/gitToolWindow/html/incomingHtml';
@@ -55,6 +58,35 @@ export function tabbedBody(states: ITabbedBodyStates): string {
     incomingBodyHtml: renderIncomingTabBody(states.incoming),
     updateInfoBodyHtml: renderUpdateInfoTabBody(states.updateInfo),
   });
+}
+
+/**
+ * Main-log commit rows from the production builder (`buildCommitRows`), one
+ * selected and one not, wrapped in the graph-panel container the host puts
+ * them in. Row data uses the same shapes the unit lane's printModelTestKit
+ * builds; the `selected` class comes from the builder's own selection set,
+ * not fixture surgery.
+ */
+export function logRowsBody(): string {
+  const commits = historyCommits();
+  const nodes = generateCommitGraph([...commits]);
+  const rows = buildCommitRows(nodes, {
+    selected: new Set([commits[1].hash]),
+    cherryPickedHashes: undefined,
+    cherryPickBaseRef: undefined,
+    printModels: nodes.map(() => mkRowModel()),
+    branchLabelsFor: () => '',
+    showGpgColumn: false,
+    showRootColumn: false,
+  });
+  if (!rows.includes('class="commit-row selected"')) {
+    throw new Error(
+      'buildCommitRows emitted no selected row; the builder changed shape and ' +
+        'test/visual/support/gitToolWindowFixture.ts needs updating rather than ' +
+        'measuring an unselected list.'
+    );
+  }
+  return `<div id="graph-panel" class="panel"><div class="graph-panel">${rows}</div></div>`;
 }
 
 /** No-timezone-suffix ISO strings parse as local time, so HH:mm:ss is stable. */

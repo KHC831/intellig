@@ -142,17 +142,15 @@ describe('merge window layering (computed style)', () => {
         it(`keeps the text legible over a ${kind} word highlight on its chunk fill`, async () => {
           // Word emphasis composes ON TOP of the chunk band in production, so
           // the measured backdrop is word-over-fill-over-editor — the densest
-          // stack a glyph ever sits on. The palette's own tones at the
-          // production alphas bottom out at ≈4.04:1 (dark, inserted), so the
-          // floor sits below that: what this catches is an overpaint, a
-          // fade-out or a wrong-token composite, not the product's tone
-          // choice. The near-miss itself is routed as a production finding.
+          // stack a glyph ever sits on, held to the same AA floor as
+          // everything else: the word alpha is chosen so the strong tone
+          // reads as emphasis while editor text stays readable through it.
           const body = editorSkeleton('probe', { fill: kind, word: kind, focused: true });
           await withRenderedPage(
             { css: mergeWindowStyles(), body, theme, realistic: true },
             async (page) => {
               await assertNotCovered(page, '#probe .view-line');
-              await assertReadable(page, '#probe .view-line', 3.5);
+              await assertReadable(page, '#probe .view-line');
             }
           );
         });

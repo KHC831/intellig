@@ -98,6 +98,37 @@ describe('incoming tab (computed style)', () => {
         );
       });
 
+      it('swaps the author and date to the selection foreground on the selected row', async () => {
+        // Same contract as the history tab: on a selected row every cell takes
+        // the selection foreground; the dim tone stays on resting rows only.
+        await withRenderedPage(
+          { css: gitToolWindowCss(), body: incomingBody(), theme },
+          async (page) => {
+            await assertResolvesToToken(
+              page,
+              '.incoming-selected .incoming-commit-author',
+              'color',
+              theme,
+              'vscode-list-activeSelectionForeground'
+            );
+            await assertResolvesToToken(
+              page,
+              '.incoming-selected .incoming-commit-date',
+              'color',
+              theme,
+              'vscode-list-activeSelectionForeground'
+            );
+            await assertResolvesToToken(
+              page,
+              '.incoming-commit-row:not(.incoming-selected) .incoming-commit-author',
+              'color',
+              theme,
+              'vscode-descriptionForeground'
+            );
+          }
+        );
+      });
+
       it('keeps subject, hash and header count readable, on plain and selected rows', async () => {
         await withRenderedPage(
           { css: gitToolWindowCss(), body: incomingBody(), theme, realistic: true },
@@ -111,6 +142,8 @@ describe('incoming tab (computed style)', () => {
               page,
               '.incoming-commit-row:not(.incoming-selected) .incoming-commit-hash'
             );
+            await assertReadable(page, '.incoming-selected .incoming-commit-author');
+            await assertReadable(page, '.incoming-selected .incoming-commit-date');
             await assertReadable(page, '.incoming-count');
           }
         );

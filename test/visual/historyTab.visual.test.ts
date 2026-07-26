@@ -137,7 +137,42 @@ describe('history tab (computed style)', () => {
         );
       });
 
-      it('keeps the subject readable on plain and selected rows, and hash and author on plain rows', async () => {
+      it('swaps the author and date to the selection foreground on the selected row', async () => {
+        // IntelliJ derives every selected cell's foreground from the shared
+        // cell state — no column opts out (GraphCommitCellRenderer.kt,
+        // VcsLogGraphTable.java BaseStyleProvider). The opt-out was the
+        // shipped defect: descriptionForeground won specificity here and
+        // measured ≈4.4:1 on the dark selection fill.
+        await withRenderedPage(
+          { css: gitToolWindowCss(), body: historyBody(), theme },
+          async (page) => {
+            await assertResolvesToToken(
+              page,
+              '.history-selected .history-commit-author',
+              'color',
+              theme,
+              'vscode-list-activeSelectionForeground'
+            );
+            await assertResolvesToToken(
+              page,
+              '.history-selected .history-commit-date',
+              'color',
+              theme,
+              'vscode-list-activeSelectionForeground'
+            );
+            // The negative half: the resting rows keep the dim secondary tone.
+            await assertResolvesToToken(
+              page,
+              '.history-commit-row:not(.history-selected) .history-commit-author',
+              'color',
+              theme,
+              'vscode-descriptionForeground'
+            );
+          }
+        );
+      });
+
+      it('keeps subject, hash and author readable, on plain and selected rows', async () => {
         await withRenderedPage(
           { css: gitToolWindowCss(), body: historyBody(), theme, realistic: true },
           async (page) => {
@@ -147,12 +182,12 @@ describe('history tab (computed style)', () => {
             );
             await assertReadable(page, '.history-selected .history-commit-subject');
             await assertReadable(page, '.history-commit-row .history-commit-hash');
-            // The author keeps descriptionForeground even on a selected row,
-            // where it measures ≈4.4:1 — assert it on a plain row only.
             await assertReadable(
               page,
               '.history-commit-row:not(.history-selected) .history-commit-author'
             );
+            await assertReadable(page, '.history-selected .history-commit-author');
+            await assertReadable(page, '.history-selected .history-commit-date');
           }
         );
       });

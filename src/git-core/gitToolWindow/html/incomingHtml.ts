@@ -125,5 +125,10 @@ export function incomingTabStyles(): string {
     .incoming-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
     .incoming-commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .incoming-commit-author, .incoming-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Every selected-row cell takes the selection foreground (IntelliJ's
+       shared cell state — no column opts out); the dim tone is for resting
+       rows only. */
+    .incoming-commit-row.incoming-selected .incoming-commit-author,
+    .incoming-commit-row.incoming-selected .incoming-commit-date { color: var(--vscode-list-activeSelectionForeground); }
   `;
 }

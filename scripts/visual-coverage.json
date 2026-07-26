@@ -10,6 +10,10 @@
       "status": "backlog",
       "note": "the three-panel commit layout; the tab specs render it as part of the full provider css stack (gitToolWindowFixture) for cascade fidelity, but no spec asserts its own three-panel rules yet, so it stays backlog"
     },
+    "src/git-core/gitToolWindow/provider/commitRowStyles.ts::commitRowStyles": {
+      "status": "tested",
+      "note": "the log commit-row block and its cells, reached through buildInlineStyles, which interpolates it at the block's original position; rendered by the menu specs and the tab specs' css stack. No spec asserts the row rules' own values yet"
+    },
     "src/git-core/gitToolWindow/provider/contextMenuStyles.ts::contextMenuStyles": {
       "status": "tested",
       "note": "the commit/changed-file/revision menu stylesheet, reached through buildInlineStyles, which interpolates it; same specs, plus the runtime state flags: disabled items fade and drop the pointer cursor, multi-only items are display:none in single mode, and DANGER_ACTIONS is pinned set-equal to the danger items the menu ships"

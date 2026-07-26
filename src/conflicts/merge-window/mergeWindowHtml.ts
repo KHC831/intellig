@@ -205,8 +205,14 @@ export const MERGE_FILL_ALPHA = 0.6;
 /** {@link MERGE_FILL_ALPHA} as the percentage `color-mix()` wants. */
 const FILL_PCT = `${Math.round(MERGE_FILL_ALPHA * 100)}%`;
 
-/** Word-level emphasis rides on top of a chunk band, so it stays a touch stronger. */
-export const MERGE_WORD_ALPHA = 0.7;
+/**
+ * Word-level emphasis rides on top of a chunk band. The strong (header) tone
+ * carries the emphasis; the alpha sits where editor text stays AA-readable
+ * over the densest word-on-fill composite (the dark inserted pair is the
+ * tightest: 4.65:1 at 0.5, versus 4.06:1 at the previous 0.7) while the word
+ * area still reads clearly against the bare fill (1.40:1 luminance step).
+ */
+export const MERGE_WORD_ALPHA = 0.5;
 
 /** {@link MERGE_WORD_ALPHA} as the percentage `color-mix()` wants. */
 const WORD_PCT = `${Math.round(MERGE_WORD_ALPHA * 100)}%`;

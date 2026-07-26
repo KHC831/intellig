@@ -254,6 +254,11 @@ export function historyTabStyles(): string {
     .history-commit-row.history-compare { outline: 1px dashed var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
     .history-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
     .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Every selected-row cell takes the selection foreground (IntelliJ's
+       shared cell state — no column opts out); the dim tone is for resting
+       rows only. */
+    .history-commit-row.history-selected .history-commit-author,
+    .history-commit-row.history-selected .history-commit-date { color: var(--vscode-list-activeSelectionForeground); }
     /* Side-by-side layout matching the Log page: commit list on the left, the
        commit-details panel on the right (not stacked below the list). */
     .history-main { display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
