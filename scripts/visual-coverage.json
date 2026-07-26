@@ -12,11 +12,11 @@
     },
     "src/git-core/gitToolWindow/provider/contextMenuStyles.ts::contextMenuStyles": {
       "status": "tested",
-      "note": "the commit/changed-file/revision menu stylesheet, reached through buildInlineStyles, which interpolates it; same specs"
+      "note": "the commit/changed-file/revision menu stylesheet, reached through buildInlineStyles, which interpolates it; same specs, plus the runtime state flags: disabled items fade and drop the pointer cursor, multi-only items are display:none in single mode, and DANGER_ACTIONS is pinned set-equal to the danger items the menu ships"
     },
     "src/conflicts/merge-window/mergeWindowHtml.ts::mergeWindowStyles": {
       "status": "tested",
-      "note": "rendered in both themes: chrome against production markup from buildMergeWindowDom (column boundaries on every column after the first, bottom-bar buttons resolving their secondary tokens rather than falling back to browser chrome, pane layout, narrow-window overflow), and fill/selection layering against a hand-built Monaco skeleton (glyphs above both overlay layers, text readable over a bare fill and over selection-composited-over-fill, fills sunk below the selection, overlay isolation, focused vs unfocused selection colour). Skeleton limitations recorded in mergeWindowLayering.visual.test.ts"
+      "note": "rendered in both themes: chrome against production markup from buildMergeWindowDom (column boundaries on every column after the first, bottom-bar buttons resolving their secondary tokens rather than falling back to browser chrome, both bottom-bar actions readable, pane layout, narrow-window overflow, per-kind action-band tints), and fill/selection layering against a hand-built Monaco skeleton (glyphs above both overlay layers, text readable over a bare fill and legible over word-on-fill, fills AND word highlights sunk below the selection, per-kind tint identity for fills/words/bands, empty and resolved markers in their strong tokens, overlay isolation, focused vs unfocused selection colour, fixture kinds pinned set-equal to the stylesheet's k- families). Skeleton limitations recorded in mergeWindowLayering.visual.test.ts"
     },
     "src/conflicts/merge-window/MergeWindowPanel.ts::_getStyles": {
       "status": "tested",

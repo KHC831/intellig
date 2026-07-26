@@ -312,6 +312,50 @@ export async function assertResolvesToToken(
 }
 
 /**
+ * The rule resolved to `alpha` × the token's colour over transparent — the
+ * shape every merge fill ships as: `color-mix(in srgb, var(token) N%,
+ * transparent)`.
+ *
+ * The RGB carries the token identity and is meaningful under the sentinel
+ * palette, exactly as in {@link assertResolvesToToken}. The alpha is asserted
+ * against the production constant, because the translucency is part of the
+ * contract: an opaque fill hides whatever composes beneath it (the selection,
+ * a chunk band) even when its hue is right. Channels allow ±1 and alpha
+ * ±0.01: `color-mix` results serialize through `color(srgb …)` with float
+ * rounding, and an exact compare would reject a correct rule.
+ */
+export async function assertResolvesToTintOfToken(
+  page: Page,
+  selector: string,
+  property: string,
+  theme: ThemeName,
+  token: string,
+  alpha: number,
+  options: IThemeOptions = {}
+): Promise<void> {
+  const actual = await computed(page, selector, property);
+  const actualRgb = parseColor(actual);
+  const expectedRgb = parseColor(themeToken(theme, token, options));
+  assertFiniteColor(actualRgb, `${selector} { ${property} }`, actual);
+  const why =
+    `${selector} { ${property} } resolved to '${actual}', expected a ${alpha} tint of ` +
+    `var(--${token.replace(/^--/, '')}). A browser default here means the rule is missing or its ` +
+    `selector does not match; another hue means it points at the wrong token.`;
+  const channelClose = (a: number, b: number): boolean => Math.abs(a - b) <= 1;
+  assert.ok(
+    channelClose(actualRgb.r, expectedRgb.r) &&
+      channelClose(actualRgb.g, expectedRgb.g) &&
+      channelClose(actualRgb.b, expectedRgb.b),
+    why
+  );
+  assert.ok(
+    Math.abs(actualRgb.a - alpha * expectedRgb.a) <= 0.01,
+    `${why} The hue matches but the alpha does not: got ${actualRgb.a}, expected ` +
+      `${alpha * expectedRgb.a} — an opaque fill hides the layers beneath it.`
+  );
+}
+
+/**
  * A non-colour property resolved to an expected value.
  *
  * For rules whose whole job is structural rather than chromatic — an

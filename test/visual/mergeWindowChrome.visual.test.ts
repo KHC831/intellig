@@ -17,16 +17,25 @@
  */
 
 import '../setup';
-import { mergeWindowStyles } from '../../src/conflicts/merge-window/mergeWindowHtml';
+import {
+  mergeWindowStyles,
+  MERGE_FILL_ALPHA,
+} from '../../src/conflicts/merge-window/mergeWindowHtml';
 import { withRenderedPage } from './support/browser';
 import {
   assertComputedEquals,
   assertNoHorizontalOverflow,
   assertNotOverlapping,
   assertReadable,
+  assertResolvesToTintOfToken,
   assertResolvesToToken,
 } from './support/assert';
-import { mergeWindowChrome } from './support/mergeWindowFixture';
+import {
+  chromeWithActionBand,
+  mergeWindowChrome,
+  MERGE_BG_TOKEN,
+  MERGE_FILL_KINDS,
+} from './support/mergeWindowFixture';
 import type { ThemeName } from './support/theme';
 
 const THEMES: readonly ThemeName[] = ['dark', 'light'];
@@ -105,7 +114,7 @@ describe('merge window chrome (computed style)', () => {
         );
       });
 
-      it('keeps the primary action readable', async () => {
+      it('keeps the apply and abort actions readable', async () => {
         await withRenderedPage(
           {
             css: mergeWindowStyles(),
@@ -154,6 +163,33 @@ describe('merge window chrome (computed style)', () => {
           }
         );
       });
+
+      for (const kind of MERGE_FILL_KINDS) {
+        it(`tints the ${kind} action band with its content token`, async () => {
+          // The band class is runtime-composed (`action-band k-${kind}`), so
+          // each kind is asserted on its own instance: a band pointing at the
+          // wrong token breaks the pane-strip-connector channel reading as one
+          // colour, and nothing else in the lane renders these rules.
+          await withRenderedPage(
+            {
+              css: mergeWindowStyles(),
+              body: chromeWithActionBand(kind),
+              theme,
+              bodyStyle: FULL_HEIGHT,
+            },
+            async (page) => {
+              await assertResolvesToTintOfToken(
+                page,
+                '.action-band',
+                'background-color',
+                theme,
+                MERGE_BG_TOKEN[kind],
+                MERGE_FILL_ALPHA
+              );
+            }
+          );
+        });
+      }
     });
   }
 });

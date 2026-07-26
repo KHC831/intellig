@@ -13,7 +13,7 @@ a test without rotting the production API.
 | Property | `test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check       |          3158 |
 | Ext-host | `test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha            |            22 |
 | E2E      | `test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha            |            36 |
-| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |           129 |
+| Visual   | `test/visual/**`   | `test:visual`                              | no            | no        | Mocha + Chromium |           192 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,

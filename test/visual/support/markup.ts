@@ -45,3 +45,18 @@ export function shownMenuMarkup(markup: string, elementId: string): string {
     '$1 style="position:fixed;top:40px;left:40px;"'
   );
 }
+
+/**
+ * One menu item carrying an extra runtime class (`disabled`,
+ * `menu-multi-hidden`), reproducing what the webview script toggles at show
+ * time. Scoped to the item's `data-action` so the edit cannot silently land
+ * on a different row, and throwing like every other edit here when the
+ * production markup stops matching.
+ */
+export function withMenuItemClass(markup: string, action: string, extraClass: string): string {
+  return replaceOrThrow(
+    markup,
+    new RegExp(`class="(context-menu-item[^"]*)"( data-action="${action}")`),
+    `class="$1 ${extraClass}"$2`
+  );
+}

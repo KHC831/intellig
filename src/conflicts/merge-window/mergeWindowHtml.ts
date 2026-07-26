@@ -206,7 +206,10 @@ export const MERGE_FILL_ALPHA = 0.6;
 const FILL_PCT = `${Math.round(MERGE_FILL_ALPHA * 100)}%`;
 
 /** Word-level emphasis rides on top of a chunk band, so it stays a touch stronger. */
-const WORD_PCT = '70%';
+export const MERGE_WORD_ALPHA = 0.7;
+
+/** {@link MERGE_WORD_ALPHA} as the percentage `color-mix()` wants. */
+const WORD_PCT = `${Math.round(MERGE_WORD_ALPHA * 100)}%`;
 
 export function mergeWindowStyles(): string {
   return `

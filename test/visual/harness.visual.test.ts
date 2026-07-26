@@ -31,7 +31,7 @@
 import '../setup';
 import type { Page } from 'playwright-core';
 import { withRenderedPage } from './support/browser';
-import { assertNotCovered, assertReadable } from './support/assert';
+import { assertNotCovered, assertReadable, assertResolvesToTintOfToken } from './support/assert';
 
 const CSS = `
 #probe { position: relative; width: 300px; height: 60px; background-color: #101010; }
@@ -105,6 +105,67 @@ describe('visual harness self-check', () => {
   it('reports that backdrop when it is pointer-events: none', async () => {
     await render(backed('pointer-events: none;'), async (page) => {
       await mustReport(() => assertReadable(page, '#probe .glyphs'), /contrast 1\.00:1/);
+    });
+  });
+
+  // The tint assertion's own teeth: it must accept the production shape
+  // (`color-mix` of the token over transparent), reject the right hue at the
+  // wrong opacity, and reject the wrong token at the right opacity. Rendered
+  // under the sentinel palette, where hue identity is decidable.
+  describe('assertResolvesToTintOfToken', () => {
+    const TINT_CSS = `
+#tint-ok { width: 40px; height: 20px; background-color: color-mix(in srgb, var(--vscode-focusBorder) 60%, transparent); }
+#tint-opaque { width: 40px; height: 20px; background-color: var(--vscode-focusBorder); }
+#tint-wrong { width: 40px; height: 20px; background-color: color-mix(in srgb, var(--vscode-menu-background) 60%, transparent); }
+`;
+    const TINT_BODY =
+      '<div id="tint-ok"></div><div id="tint-opaque"></div><div id="tint-wrong"></div>';
+
+    it('passes a correct tint, so the cases below are not vacuous', async () => {
+      await withRenderedPage({ css: TINT_CSS, body: TINT_BODY, theme: 'dark' }, async (page) => {
+        await assertResolvesToTintOfToken(
+          page,
+          '#tint-ok',
+          'background-color',
+          'dark',
+          'vscode-focusBorder',
+          0.6
+        );
+      });
+    });
+
+    it('reports an opaque fill where a translucent tint is required', async () => {
+      await withRenderedPage({ css: TINT_CSS, body: TINT_BODY, theme: 'dark' }, async (page) => {
+        await mustReport(
+          () =>
+            assertResolvesToTintOfToken(
+              page,
+              '#tint-opaque',
+              'background-color',
+              'dark',
+              'vscode-focusBorder',
+              0.6
+            ),
+          /alpha does not/
+        );
+      });
+    });
+
+    it('reports a tint of the wrong token', async () => {
+      await withRenderedPage({ css: TINT_CSS, body: TINT_BODY, theme: 'dark' }, async (page) => {
+        await mustReport(
+          () =>
+            assertResolvesToTintOfToken(
+              page,
+              '#tint-wrong',
+              'background-color',
+              'dark',
+              'vscode-focusBorder',
+              0.6
+            ),
+          /wrong token/
+        );
+      });
     });
   });
 });

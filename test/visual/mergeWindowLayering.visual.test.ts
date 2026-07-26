@@ -31,20 +31,31 @@
  */
 
 import '../setup';
-import { mergeWindowStyles } from '../../src/conflicts/merge-window/mergeWindowHtml';
+import * as assert from 'assert';
+import {
+  mergeWindowStyles,
+  MERGE_FILL_ALPHA,
+  MERGE_WORD_ALPHA,
+} from '../../src/conflicts/merge-window/mergeWindowHtml';
 import { withRenderedPage } from './support/browser';
 import {
   assertComputedEquals,
   assertNotCovered,
   assertPaintsAbove,
   assertReadable,
+  assertResolvesToTintOfToken,
   assertResolvesToToken,
 } from './support/assert';
-import { editorSkeleton, type MergeFillKind } from './support/mergeWindowFixture';
+import {
+  editorSkeleton,
+  MERGE_FILL_KINDS,
+  MERGE_BG_TOKEN,
+  MERGE_STRONG_TOKEN,
+} from './support/mergeWindowFixture';
 import type { ThemeName } from './support/theme';
 
 const THEMES: readonly ThemeName[] = ['dark', 'light'];
-const KINDS: readonly MergeFillKind[] = ['conflict', 'modified', 'inserted', 'deleted'];
+const KINDS = MERGE_FILL_KINDS;
 
 describe('merge window layering (computed style)', () => {
   for (const theme of THEMES) {
@@ -95,6 +106,127 @@ describe('merge window layering (computed style)', () => {
             }
           );
         });
+
+        it(`colours a ${kind} chunk fill as a translucent tint of its content token`, async () => {
+          // The class is runtime-composed (`merge-${kind}`), so each kind gets
+          // its own identity assertion: a rule pointing at the wrong token, or
+          // shipped opaque, is invisible to the readability and stacking specs
+          // while the hue happens to work.
+          const body = editorSkeleton('probe', { fill: kind, focused: true });
+          await withRenderedPage({ css: mergeWindowStyles(), body, theme }, async (page) => {
+            await assertResolvesToTintOfToken(
+              page,
+              `#probe .cdr.merge-${kind}`,
+              'background-color',
+              theme,
+              MERGE_BG_TOKEN[kind],
+              MERGE_FILL_ALPHA
+            );
+          });
+        });
+
+        it(`sinks a ${kind} word highlight below the selection`, async () => {
+          // Same defect class as the chunk fills, one level down: the word
+          // layer shares the `z-index: -1` declaration, the fixture emits it
+          // after the selection, and only that rule keeps a selection swept
+          // across a word highlight in its own colour.
+          const body = editorSkeleton('probe', { word: kind, selected: true, focused: true });
+          await withRenderedPage(
+            { css: mergeWindowStyles(), body, theme, realistic: true },
+            async (page) => {
+              await assertPaintsAbove(page, '#probe .selected-text', '#probe .merge-word');
+            }
+          );
+        });
+
+        it(`keeps the text legible over a ${kind} word highlight on its chunk fill`, async () => {
+          // Word emphasis composes ON TOP of the chunk band in production, so
+          // the measured backdrop is word-over-fill-over-editor — the densest
+          // stack a glyph ever sits on. The palette's own tones at the
+          // production alphas bottom out at ≈4.04:1 (dark, inserted), so the
+          // floor sits below that: what this catches is an overpaint, a
+          // fade-out or a wrong-token composite, not the product's tone
+          // choice. The near-miss itself is routed as a production finding.
+          const body = editorSkeleton('probe', { fill: kind, word: kind, focused: true });
+          await withRenderedPage(
+            { css: mergeWindowStyles(), body, theme, realistic: true },
+            async (page) => {
+              await assertNotCovered(page, '#probe .view-line');
+              await assertReadable(page, '#probe .view-line', 3.5);
+            }
+          );
+        });
+
+        it(`colours a ${kind} word highlight as a translucent tint of its strong token`, async () => {
+          const body = editorSkeleton('probe', { word: kind, focused: true });
+          await withRenderedPage({ css: mergeWindowStyles(), body, theme }, async (page) => {
+            await assertResolvesToTintOfToken(
+              page,
+              '#probe .merge-word',
+              'background-color',
+              theme,
+              MERGE_STRONG_TOKEN[kind],
+              MERGE_WORD_ALPHA
+            );
+          });
+        });
+
+        it(`marks a ${kind} deleted-elsewhere line with a 2px border in its strong token`, async () => {
+          // `.merge-empty` is a border marker, not a fill: deleted takes the
+          // base rule's colour, the other kinds override it, and the box stays
+          // transparent so the line beneath shows through.
+          const body = editorSkeleton('probe', { empty: kind });
+          await withRenderedPage({ css: mergeWindowStyles(), body, theme }, async (page) => {
+            await assertComputedEquals(
+              page,
+              '#probe .merge-empty',
+              'border-top-width',
+              '2px',
+              'The marker IS the border; without its width the deleted-elsewhere line is invisible.'
+            );
+            await assertResolvesToToken(
+              page,
+              '#probe .merge-empty',
+              'border-top-color',
+              theme,
+              MERGE_STRONG_TOKEN[kind]
+            );
+          });
+        });
+
+        it(`outlines a resolved ${kind} chunk with dotted borders in its strong token`, async () => {
+          const body = editorSkeleton('probe', { resolved: kind });
+          await withRenderedPage({ css: mergeWindowStyles(), body, theme }, async (page) => {
+            await assertComputedEquals(
+              page,
+              '#probe .merge-resolved-top',
+              'border-top-style',
+              'dotted',
+              'A resolved chunk keeps a dotted outline instead of its fill; solid or none stops reading as resolved.'
+            );
+            await assertComputedEquals(
+              page,
+              '#probe .merge-resolved-bottom',
+              'border-bottom-style',
+              'dotted',
+              'The bottom edge carries the matching dotted rule.'
+            );
+            await assertResolvesToToken(
+              page,
+              '#probe .merge-resolved-top',
+              'border-top-color',
+              theme,
+              MERGE_STRONG_TOKEN[kind]
+            );
+            await assertResolvesToToken(
+              page,
+              '#probe .merge-resolved-bottom',
+              'border-bottom-color',
+              theme,
+              MERGE_STRONG_TOKEN[kind]
+            );
+          });
+        });
       }
 
       it('isolates the overlay layer so sunk fills do not vanish behind the editor', async () => {
@@ -140,4 +272,17 @@ describe('merge window layering (computed style)', () => {
       });
     });
   }
+
+  it('pins the fixture kinds set-equal to the k- families the stylesheet ships', () => {
+    // MERGE_FILL_KINDS drives every per-kind loop above, so a fifth family
+    // added in production would silently miss all of them unless this pin
+    // forces the fixture to grow with the stylesheet.
+    const families = new Set([...mergeWindowStyles().matchAll(/\bk-([a-z]+)\b/g)].map((m) => m[1]));
+    assert.deepStrictEqual(
+      [...families].sort(),
+      [...MERGE_FILL_KINDS].sort(),
+      'the k- families in mergeWindowStyles() and the fixture kind list must be the same set; ' +
+        'a family present in only one of them is untested by every per-kind spec'
+    );
+  });
 });
