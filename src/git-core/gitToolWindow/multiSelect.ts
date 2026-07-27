@@ -29,7 +29,7 @@
  * actions introduced in: `squashCommits` (N≥2 contiguous) and
  * `compareVersions` (N=2).
  *
- * Relationship to {@link import('./GitToolWindowProvider').LogContextAction}
+ * Relationship to {@link import('./provider/logActions').LogContextAction}
  * Every member of this union is also a member of
  * `LogContextAction` so the cast at `_handleCommitContextMenu` is safe.
  * `LogContextAction` may include legacy actions that pre-date multi-select

@@ -11,9 +11,10 @@
  *
  * `wireAvailableRepositorySync` instead derives the list from GitService's
  * `getRepositories()` on every `onDidChangeRepository` / `onDidRemoveRepository`
- * — BUT only pushes to the provider when the repository ROOT SET actually
- * changes, so a per-commit state change (same set) never re-renders the
- * selector. This pins both behaviors.
+ * and pushes it every time. Whether the push is worth a repaint is the
+ * provider's decision, taken against the state the document actually shows;
+ * a caller-side skip would also skip the STORE, leaving superseded repository
+ * objects wired into the action paths that read the stored array.
  */
 
 import '../../setup';
@@ -88,7 +89,7 @@ describe('wireAvailableRepositorySync', () => {
     });
   });
 
-  it('does NOT re-push when the repo set is unchanged (per-commit state change)', () => {
+  it('pushes on an unchanged root set too, so the provider gets the current objects', () => {
     const root = repoAt('/ws/root');
     const h = makeHarness([root]);
 
@@ -97,11 +98,26 @@ describe('wireAvailableRepositorySync', () => {
       gitService: h.gitService,
     });
 
-    // A commit/checkout fires onDidChangeRepository but the SET is identical.
-    h.fireChange(root);
-    h.fireChange(root);
+    // A commit/checkout fires onDidChangeRepository with the same ROOT SET but
+    // a REPLACED repository object — GitService rebuilds these on reload, and
+    // the stored array feeds action paths, not just the render. Skipping the
+    // push here would freeze the superseded object into those paths. Deciding
+    // whether any of this is worth a repaint belongs to the provider, which
+    // compares the state the document actually shows.
+    const reloaded = repoAt('/ws/root');
+    h.setRepos([reloaded]);
+    h.fireChange(reloaded);
 
-    assert.strictEqual(h.setCalls.length, 0, 'unchanged set must not re-render the selector');
+    assert.strictEqual(
+      h.setCalls.length,
+      1,
+      'the replaced repository object must reach the provider'
+    );
+    assert.strictEqual(
+      h.setCalls[0][0],
+      reloaded,
+      'the provider must receive the current object, not the one it superseded'
+    );
 
     disposables.forEach((d) => {
       d.dispose();

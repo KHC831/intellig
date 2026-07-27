@@ -200,7 +200,7 @@ export abstract class BaseWebviewView<TOutbound = unknown> implements vscode.Web
    *
    * Subclasses that instead produce a full `<!DOCTYPE html>…</html>` document
    * on their own (for tests that assert against the complete envelope — see
-   * {@link import('../services/gitToolWindow/GitToolWindowProvider').GitToolWindowProvider._getThreePanelHtmlContent})
+   * {@link import('../git-core/gitToolWindow/GitToolWindowProvider').GitToolWindowProvider._getThreePanelHtmlContent})
    * may override {@link _render} directly and leave `_getBodyParts` unused.
    * The default returns an empty `{ body }` to satisfy the contract.
    */

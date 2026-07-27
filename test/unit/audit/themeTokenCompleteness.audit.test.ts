@@ -10,10 +10,11 @@
  *
  * This is a STATIC source audit: it scans the provider plus its extracted
  * style/HTML builder modules (`GitToolWindowProvider.ts`, `stylesBuilder.ts`,
- * `htmlBuilders.ts`) for every `#RGB` / `#RRGGBB` / `#RRGGBBAA` literal and
- * classifies each one. The CSS that carries the bulk of the hex fallbacks now
- * lives in the style builder, so the scan reads the union of those files to
- * keep covering every rendered color after the builders were extracted.
+ * `htmlBuilders.ts`, `fileStatusTheme.ts`) for every `#RGB` / `#RRGGBB` /
+ * `#RRGGBBAA` literal and classifies each one. The CSS that carries the bulk
+ * of the hex fallbacks now lives in the style builder, and the brand palette
+ * in its own table module, so the scan reads the union of those files to keep
+ * covering every rendered color after the extractions.
  * A literal is ALLOWED when it appears in one of these load-bearing
  * contexts:
  *
@@ -56,6 +57,7 @@ const PANEL_FILES = [
   PANEL_FILE,
   'src/git-core/gitToolWindow/provider/stylesBuilder.ts',
   'src/git-core/gitToolWindow/provider/htmlBuilders.ts',
+  'src/git-core/gitToolWindow/provider/fileStatusTheme.ts',
 ];
 
 /**
@@ -223,7 +225,7 @@ describe('Theme-token completeness audit (spec 7.1)', () => {
     );
   });
 
-  it('finds the IntelliJ brand-palette colors (audit is actually scanning the file)', () => {
+  it('the scanned union spells the brand-palette hexes (does NOT prove the palette module is in scope — see the declaration pin below)', () => {
     // Negative-control: prove the scan reaches the palette. If this fails,
     // the file moved or the palette was removed — either way the audit
     // above is silently passing on an empty/!wrong file.
@@ -232,6 +234,28 @@ describe('Theme-token completeness audit (spec 7.1)', () => {
       joined.includes('#629755') && joined.includes('#6897BB'),
       'expected the IntelliJ brand-palette hexes (#629755 green, #6897BB blue) in the panel; ' +
         'if absent, this audit may be scanning the wrong file.'
+    );
+  });
+
+  it('scans the module that DECLARES the brand palette, not merely a file reusing its hexes', () => {
+    // The hex control above cannot tell "the palette table is in scope" from
+    // "some scanned file happens to spell #629755" — stylesBuilder.ts spells
+    // both of its colors. So the palette leaving PANEL_FILES for a module the
+    // audit does not read would pass it. Pin the declaration itself: whichever
+    // file owns the table has to be one of the files scanned.
+    //
+    // A source string is sufficient here, deliberately. The only question this
+    // has to answer is "is the declaring module in scope", and the identifier
+    // cannot drift out from under it: three sites import
+    // INTELLIJ_FILE_STATUS_COLORS by name (htmlBuilders, the ui-shell shim,
+    // detailsPanel.test), so a rename fails to compile in three places before
+    // it could reach here. Asserting on the table's VALUES instead would
+    // reintroduce the weakness above, since another scanned file spells them.
+    const joined = lines.join('\n');
+    assert.ok(
+      joined.includes('export const INTELLIJ_FILE_STATUS_COLORS'),
+      'the file declaring INTELLIJ_FILE_STATUS_COLORS is outside PANEL_FILES, so every hex ' +
+        'in the brand palette is now unaudited. Add its path to PANEL_FILES.'
     );
   });
 });

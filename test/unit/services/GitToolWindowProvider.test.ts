@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
-import { isLogContextAction } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
+import { isLogContextAction } from '../../../src/git-core/gitToolWindow/provider/logActions';
 import { computeMenuVisibility } from '../../../src/git-core/gitToolWindow/multiSelect';
 import { EventEmitter, Uri, Webview, setMockConfigValue } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';

@@ -61,6 +61,11 @@ import type { IUpdateInfoSummary } from '../../sync/updateProject';
 import { HistoryTab, type IHistoryTabState } from './tabs/HistoryTab';
 import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
+import {
+  isLogContextAction,
+  type LocalChangesContextAction,
+  type LogContextAction,
+} from './provider/logActions';
 import { buildInlineStyles, buildThreePanelStyles } from './provider/stylesBuilder';
 import { buildCodiconFontFaceStyles } from './provider/codiconFontStyles';
 import type { IGtwControllerContext } from './provider/IGtwControllerContext';
@@ -156,153 +161,12 @@ export const INITIAL_COMMIT_LOAD_COUNT = 200;
 export const INCREMENTAL_COMMIT_LOAD_COUNT = 100;
 
 /**
- * IntelliJ-style file status colors
+ * Separators for the repository-state signature. Control characters, so no
+ * filesystem path can contain one and fake a difference (or hide one) by
+ * spelling the joiner itself.
  */
-export const INTELLIJ_FILE_STATUS_COLORS: Record<FileStatus, string> = {
-  modified: '#6897BB', // Blue for modified files
-  added: '#629755', // Green for added files
-  deleted: '#6C6C6C', // Gray for deleted files
-  renamed: '#6897BB', // Blue for renamed (similar to modified)
-  copied: '#629755', // Green for copied (similar to added)
-  untracked: '#CC7832', // Orange/brown for untracked files
-  ignored: '#848504', // Dark yellow for ignored files
-  conflicted: '#FF0000', // Red for conflicted files
-};
-
-/**
- * VS Code theme-variable mapping for file statuses. Each
- * status maps to its semantically-correct `gitDecoration-*` token,
- * which themes (especially high-contrast) use to render their own
- * file-status colors. {@link GitToolWindowProvider._getFileStatusColor}
- * wraps this in a `var(...)` expression with
- * {@link INTELLIJ_FILE_STATUS_COLORS} as the fallback.
- *
- * `copied` aliases to `addedResourceForeground` per VS Code's own
- * convention (their built-in git extension applies the same alias).
- *
- * Pinned by `fileStatusTheme-1..8` in detailsPanel.test.ts.
- */
-export const FILE_STATUS_THEME_VARS: Record<FileStatus, string> = {
-  modified: '--vscode-gitDecoration-modifiedResourceForeground',
-  added: '--vscode-gitDecoration-addedResourceForeground',
-  deleted: '--vscode-gitDecoration-deletedResourceForeground',
-  renamed: '--vscode-gitDecoration-renamedResourceForeground',
-  copied: '--vscode-gitDecoration-addedResourceForeground',
-  untracked: '--vscode-gitDecoration-untrackedResourceForeground',
-  ignored: '--vscode-gitDecoration-ignoredResourceForeground',
-  conflicted: '--vscode-gitDecoration-conflictingResourceForeground',
-};
-
-/**
- * Context menu action types for Local Changes View
- */
-export type LocalChangesContextAction =
-  | 'stage'
-  | 'unstage'
-  | 'revert'
-  | 'showDiff'
-  | 'moveToChangelist'
-  | 'shelve'
-  | 'delete';
-
-/**
- * Context menu action types for Log View.
- *
- * MUST be a superset of `MultiSelectMenuAction` from
- * `./multiSelect.ts`. Every menu `data-action` rendered in the webview
- * resolves to a `LogContextAction` arm, and the multi-select gating
- * (visibility / enable / reason) is computed from the
- * `MultiSelectMenuAction` projection. If a new action ONLY participates
- * in multi-select gating, add it to BOTH unions; if it ONLY ships
- * outside the menu (e.g., a keyboard-only action), add it here only.
- *
- * Drift between the two unions is caught at runtime by
- * `multiSelect.test.ts` "every rendered data-action has a matching
- * case in CommitContextMenuCommands._handleAction".
- */
-export type LogContextAction =
-  | 'copyHash'
-  | 'createPatch'
-  // IntelliJ CreatePatchFromChangesAction.Clipboard: silent variant that
-  // copies the combined format-patch mailbox straight to the clipboard.
-  | 'createPatchToClipboard'
-  | 'cherryPick'
-  | 'checkoutRevision'
-  | 'showRepoAtRevision'
-  | 'compareWithLocal'
-  | 'resetToHere'
-  | 'revert'
-  | 'undoCommit'
-  | 'dropCommit'
-  | 'editCommitMessage'
-  | 'interactiveRebase'
-  // multi-select-only actions.
-  | 'squashCommits'
-  | 'compareVersions'
-  // compareWithBranch opens a QuickPick listing local + remote branches + tags
-  // and routes through BranchComparisonView.
-  // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: commit the
-  // currently-staged changes as a `fixup!`/`squash!` of the selected commit
-  // (git commit --fixup=<hash> / --squash=<hash>). Single-only.
-  | 'fixup'
-  | 'squashInto'
-  | 'compareWithBranch'
-  // IntelliJ Git.PushUpToHere: push all local commits up to and including
-  // the selected commit to the current branch's remote. Single-only.
-  | 'pushUpToCommit'
-  // IntelliJ Git.CreateNewBranch.FromCommit / Git.CreateNewTag: create a
-  // branch or tag starting from the selected commit. Single-only; each
-  // delegates to the registered intellig.commit.newBranch / newTag command.
-  | 'newBranch'
-  | 'newTag'
-  // G9: go-to-parent/child navigation — handled entirely in the webview JS;
-  // listed here so the cast in _handleCommitContextMenu remains type-safe.
-  | 'goToParent'
-  | 'goToChild';
-
-/**
- * Runtime allow-list of every {@link LogContextAction}. Kept exhaustive by
- * `satisfies Record<LogContextAction, true>` — adding a union arm without a
- * matching entry is a COMPILE error, so the message-boundary validator
- * ({@link isLogContextAction}) can never silently miss a new action.
- */
-const LOG_CONTEXT_ACTIONS = {
-  copyHash: true,
-  createPatch: true,
-  createPatchToClipboard: true,
-  cherryPick: true,
-  checkoutRevision: true,
-  showRepoAtRevision: true,
-  compareWithLocal: true,
-  resetToHere: true,
-  revert: true,
-  undoCommit: true,
-  dropCommit: true,
-  editCommitMessage: true,
-  interactiveRebase: true,
-  squashCommits: true,
-  compareVersions: true,
-  fixup: true,
-  squashInto: true,
-  compareWithBranch: true,
-  pushUpToCommit: true,
-  newBranch: true,
-  newTag: true,
-  goToParent: true,
-  goToChild: true,
-} satisfies Record<LogContextAction, true>;
-
-/**
- * Boundary validator: is `value` a known {@link LogContextAction}? Used to
- * allow-list the untrusted webview `action` before emitting it (some arms —
- * drop/reset/rebase — are destructive), so the guarantee doesn't rest on the
- * downstream consumer's switch staying exhaustive + default-safe.
- */
-export function isLogContextAction(value: unknown): value is LogContextAction {
-  return (
-    typeof value === 'string' && Object.prototype.hasOwnProperty.call(LOG_CONTEXT_ACTIONS, value)
-  );
-}
+const REPO_STATE_FIELD_SEP = '\u0000';
+const REPO_STATE_SECTION_SEP = '\u0001';
 
 /**
  * Extended Log state with commit nodes for graph visualization
@@ -910,6 +774,11 @@ export class GitToolWindowProvider
    * service replaces the current tab (so tests can rebind).
    */
   public attachGitService(gitService: IGitService): void {
+    // render-unconditional: the renders below sit in tab onStateChange
+    // callbacks, so they answer a tab's own state change rather than this call.
+    // A second call re-subscribes and renders nothing, which would make an
+    // idempotence entry pass while asserting nothing about them.
+    //
     // Hold the reference for `setFocusedBranch` →
     // `getMergeBase`. Re-attaches replace the prior reference.
     this._attachedGitService = gitService;
@@ -1155,9 +1024,14 @@ export class GitToolWindowProvider
    * Refresh the tool window content.
    * Fires the onDidRequestRefresh event so the extension host can
    * re-fetch data and update all panels.
+   *
+   * Deliberately does not render here. Every caller reloads and then refreshes,
+   * so the only state available at this point is the state already on screen;
+   * painting it again would destroy the document to show what it already shows.
+   * Fresh data reaches the panel through `updateLogState`, which renders when
+   * the data actually changes.
    */
   public refresh(): void {
-    this._render();
     this._onDidChangeState.fire();
     this._onDidRequestRefresh.fire();
   }
@@ -1166,6 +1040,8 @@ export class GitToolWindowProvider
    * Add a console entry
    */
   public addConsoleEntry(entry: Omit<IConsoleEntry, 'timestamp'>): void {
+    // render-unconditional: appends. Two identical calls produce two different
+    // console states, so repainting for the second one is correct.
     const fullEntry: IConsoleEntry = {
       ...entry,
       timestamp: new Date(),
@@ -1210,6 +1086,10 @@ export class GitToolWindowProvider
     exitCode?: number;
     isError?: boolean;
   }): void {
+    // render-unconditional: writing identical values still repaints. That is a
+    // real defect and this annotation is where it stays visible; fixing it
+    // means comparing against the stored entry and moving this name into
+    // RENDER_IDEMPOTENCE_CASES.
     const entry = this._consoleEntries.find((e) => e.id === update.id);
     if (!entry) {
       return;
@@ -1228,11 +1108,22 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Clear console entries
+   * Clear console entries.
+   *
+   * Gated the same way as its two siblings, for the same reason: the render
+   * reassigns `webview.html`, so clearing the console while the Log tab is
+   * showing would destroy the log document — including a filter draft, which
+   * lives only in the DOM. An already-empty list is not a change at all, so it
+   * returns before both the render and the state event.
    */
   public clearConsole(): void {
+    if (this._consoleEntries.length === 0) {
+      return;
+    }
     this._consoleEntries = [];
-    this._render();
+    if (this._tabRouter.getActiveTab() === 'console') {
+      this._render();
+    }
     this._onDidChangeState.fire();
   }
 
@@ -1743,6 +1634,9 @@ export class GitToolWindowProvider
   // _postMenuStateUpdate on the instance) observe the real call order. Do not
   // inline these bodies or capture the references — that would hide the patch.
   updateWebview(fromGesture = false): void {
+    // render-unconditional: this IS the unconditional render seam. Extracted
+    // handlers call it to repaint after a gesture, so a guard here would defeat
+    // its only purpose; the change decision belongs to each caller.
     if (fromGesture) {
       this._renderForGesture();
       return;
@@ -3017,6 +2911,11 @@ export class GitToolWindowProvider
    * @param branchName - The branch to focus. When `null`, clears focus.
    */
   public async setFocusedBranch(branchName: string | null): Promise<void> {
+    // render-unconditional: all three paths repaint with no change detection,
+    // so focusing the branch already focused repaints. Guarding it is a real
+    // fix and not one this fence's slice made; note that the method is async,
+    // so any count has to await it or it reads before the work.
+    //
     // Bump generation counter. Capture for post-await
     // staleness check.
     this._focusGeneration += 1;
@@ -3469,6 +3368,7 @@ export class GitToolWindowProvider
       ? normalizeRepoPath(previousSelected.rootUri)
       : undefined;
     const previousRepoCount = this._availableRepositories.length;
+    const previousDocumentState = this._repositoryDocumentState();
 
     this._availableRepositories = repos;
 
@@ -3512,7 +3412,19 @@ export class GitToolWindowProvider
       }
     }
 
-    this._render();
+    // Render only when the repository list changed something the document
+    // shows. This runs on every watcher-driven reload, and each render replaces
+    // `webview.html` — with a fresh nonce, so it is always a real iframe reload
+    // that takes the filter draft, scroll and focus with it. Rendering here
+    // unconditionally meant the log's own fingerprint guard downstream never
+    // got the chance to skip anything.
+    //
+    // The store above is unconditional on purpose: a reload REPLACES repository
+    // objects and the stored array feeds action paths, so skipping it to avoid
+    // a render would leave stale objects wired into real operations.
+    if (this._repositoryDocumentState() !== previousDocumentState) {
+      this._render();
+    }
     this._onDidChangeState.fire();
 
     // Announce an effective-scope change so the log + branch wiring (which
@@ -3543,6 +3455,44 @@ export class GitToolWindowProvider
         }
       }
     }
+  }
+
+  /**
+   * Everything about the repository list that the rendered document actually
+   * shows: which roots exist and in what order (the selector lists them in
+   * array order), which one is selected, the resolved scope, and the visible
+   * subset.
+   *
+   * Deliberately excludes the repository OBJECTS. A reload replaces them on
+   * every tick, so comparing them would report a change every time and guard
+   * nothing; per-repo head and state reach the document through
+   * {@link updateLogState}'s extended log state instead, which has its own
+   * fingerprint. `null` visible-roots ("show all") is distinguished from an
+   * empty subset ("show none") because they are different documents. Joined on
+   * NUL, which a filesystem path cannot contain.
+   *
+   * The selected index is defensive rather than load-bearing: no current path
+   * moves it while the roots, scope and visible subset all hold still, because
+   * it is re-derived from the incoming list by path match and the
+   * single-survivor branch moves index and scope together. It stays because it
+   * is free and insures against a future path that moves it on its own — not
+   * because a spec isolates it. Nobody has been able to construct the case, so
+   * do not go looking for a test that proves it.
+   */
+  private _repositoryDocumentState(): string {
+    const roots = this._availableRepositories
+      .map((r) => normalizeRepoPath(r.rootUri))
+      .join(REPO_STATE_FIELD_SEP);
+    const visible =
+      this._visibleRepoRoots === null
+        ? 'all'
+        : `subset:${this._visibleRepoRoots.map(normalizeRepoPathString).join(REPO_STATE_FIELD_SEP)}`;
+    return [
+      roots,
+      String(this._selectedRepositoryIndex),
+      String(this._repositoryScope),
+      visible,
+    ].join(REPO_STATE_SECTION_SEP);
   }
 
   /**

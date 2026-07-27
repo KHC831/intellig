@@ -633,12 +633,22 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── LogContextAction structural comment ────────────────────────────────
+  /**
+   * Pins ADJACENCY, not location: `LogContextAction`'s declaration must carry a
+   * comment naming its superset relationship to `MultiSelectMenuAction`, so the
+   * next person to add an arm reads the rule at the point of edit. The path
+   * below is only how the declaration is found — it follows the declaration
+   * whenever the union moves, and a wrong path throws out of `readFileSync`
+   * rather than passing vacuously.
+   *
+   * Declaration currently lives in `src/git-core/gitToolWindow/provider/logActions.ts`.
+   */
   describe('LogContextAction declares its superset relationship', () => {
-    it('GitToolWindowProvider.ts contains a "superset" comment on the LogContextAction declaration', async () => {
+    it('logActions.ts contains a "superset" comment on the LogContextAction declaration', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/provider/logActions.ts'),
         'utf8'
       );
       const idx = src.indexOf('export type LogContextAction');

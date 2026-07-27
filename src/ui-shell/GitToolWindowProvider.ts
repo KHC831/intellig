@@ -14,14 +14,20 @@ export {
   GIT_TOOL_WINDOW_VIEW_ID,
   INITIAL_COMMIT_LOAD_COUNT,
   INCREMENTAL_COMMIT_LOAD_COUNT,
+} from '../git-core/gitToolWindow/GitToolWindowProvider';
+
+export {
   INTELLIJ_FILE_STATUS_COLORS,
   FILE_STATUS_THEME_VARS,
+} from '../git-core/gitToolWindow/provider/fileStatusTheme';
+
+export type {
+  IExtendedLogState,
+  WaveAInboundMessage,
+  WaveAOutboundMessage,
 } from '../git-core/gitToolWindow/GitToolWindowProvider';
 
 export type {
   LocalChangesContextAction,
   LogContextAction,
-  IExtendedLogState,
-  WaveAInboundMessage,
-  WaveAOutboundMessage,
-} from '../git-core/gitToolWindow/GitToolWindowProvider';
+} from '../git-core/gitToolWindow/provider/logActions';

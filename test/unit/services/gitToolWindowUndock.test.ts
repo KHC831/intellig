@@ -318,10 +318,13 @@ describe('GitToolWindowProvider undock to editor panel', () => {
     provider.attachPanel(panel as never);
 
     // Panel moves to the background; retainContextWhenHidden keeps it alive.
+    // New log data is what a git event actually delivers, and it is what
+    // renders — `refresh()` only asks the host to go and fetch. Distinct data
+    // each time, so the fingerprint guard cannot absorb the second event.
     panel._fireViewState(false);
     const writesWhileHidden = panel.webview.htmlWrites ?? 0;
-    provider.refresh();
-    provider.refresh();
+    provider.updateLogState([mkCommit('b'.repeat(40))]);
+    provider.updateLogState([mkCommit('c'.repeat(40))]);
     assert.strictEqual(
       panel.webview.htmlWrites ?? 0,
       writesWhileHidden,
@@ -344,7 +347,7 @@ describe('GitToolWindowProvider undock to editor panel', () => {
 
     // Hide the panel, then a git event dirties it (deferred rebuild pending).
     panel._fireViewState(false);
-    provider.refresh();
+    provider.updateLogState([mkCommit('b'.repeat(40))]);
     panel.webview._posted.length = 0;
 
     // Reveal: the flush rebuilds the document (resetting the webview's cached

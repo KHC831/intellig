@@ -155,10 +155,13 @@ export interface IAvailableRepositoriesGitService {
  * root-only `getRepository(folder.uri)` and read the repo list before nested
  * discovery finished, so the provider could momentarily miss nested repos.
  *
- * Pushes to the provider only when the repository ROOT SET actually changes:
- * `setAvailableRepositories` re-renders the selector webview, and
- * `onDidChangeRepository` fires on every commit/checkout/fetch, so re-pushing an
- * unchanged set would churn the view on every git operation.
+ * Pushes on every event. `onDidChangeRepository` fires on each
+ * commit/checkout/fetch, and a reload REPLACES the repository objects even when
+ * the root set is identical — the stored array feeds action paths, so a caller
+ * that skipped the push would freeze superseded objects into them.
+ * `setAvailableRepositories` stores unconditionally and repaints only when the
+ * document-visible state changed, so the churn this used to guard against is
+ * handled where the render decision lives.
  *
  * Returns the disposables so the caller can register them with
  * `context.subscriptions.push(...)`.
@@ -170,22 +173,8 @@ export function wireAvailableRepositorySync(deps: {
   provider: IAvailableRepositoriesProvider;
   gitService: IAvailableRepositoriesGitService;
 }): vscode.Disposable[] {
-  const rootSetSignature = (repos: IRepository[]): string =>
-    repos
-      .map((r) => r.rootUri.fsPath)
-      .sort()
-      .join('\n');
-
-  let knownSignature = rootSetSignature(deps.gitService.getRepositories());
-
   const sync = (): void => {
-    const repos = deps.gitService.getRepositories();
-    const signature = rootSetSignature(repos);
-    if (signature === knownSignature) {
-      return;
-    }
-    knownSignature = signature;
-    deps.provider.setAvailableRepositories(repos);
+    deps.provider.setAvailableRepositories(deps.gitService.getRepositories());
   };
 
   return [deps.gitService.onDidChangeRepository(sync), deps.gitService.onDidRemoveRepository(sync)];

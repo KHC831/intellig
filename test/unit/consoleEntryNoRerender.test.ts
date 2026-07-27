@@ -79,3 +79,97 @@ describe('git-console entry does not re-render the graph while the Log tab is ac
     );
   });
 });
+
+describe('clearing the console does not destroy the document it is not showing', () => {
+  let provider: GitToolWindowProvider;
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  const entry = (command: string): Parameters<GitToolWindowProvider['addConsoleEntry']>[0] => ({
+    command,
+    output: '',
+    exitCode: 0,
+    isError: false,
+  });
+
+  // Positive control for the instrument itself. Every other assertion in this
+  // describe expects a count of ZERO, and a tap that observed nothing would
+  // report zero for all of them — indistinguishable from success. So prove the
+  // tap counts a render that is known to happen before trusting it not to.
+  it('counts exactly one document rebuild for a render that is known to happen', async () => {
+    await provider.focusTab('console');
+    const view = tapView(provider);
+
+    provider.addConsoleEntry(entry('git status'));
+
+    assert.strictEqual(
+      view.htmlSetCount(),
+      1,
+      'tap is blind: a console entry on the active Console tab must rebuild the document exactly once'
+    );
+  });
+
+  it('performs no document rebuild when the Console tab is not the active tab', async () => {
+    await provider.focusTab('console');
+    provider.addConsoleEntry(entry('git fetch'));
+    await provider.focusTab('log');
+    assert.notStrictEqual(provider.getActiveTab(), 'console', 'precondition: Log tab active');
+
+    const view = tapView(provider);
+    provider.clearConsole();
+
+    assert.strictEqual(
+      view.htmlSetCount(),
+      0,
+      'clearing the console while the Log tab is showing must not destroy the log document'
+    );
+  });
+
+  it('performs no document rebuild when the entry list is already empty', async () => {
+    await provider.focusTab('console');
+    const view = tapView(provider);
+
+    provider.clearConsole();
+
+    assert.strictEqual(
+      view.htmlSetCount(),
+      0,
+      'clearing an already-empty console changes nothing observable, so it must not rebuild'
+    );
+  });
+
+  it('rebuilds once when there is something to clear and the Console tab is showing', async () => {
+    await provider.focusTab('console');
+    provider.addConsoleEntry(entry('git pull'));
+    const view = tapView(provider);
+
+    provider.clearConsole();
+
+    assert.strictEqual(
+      view.htmlSetCount(),
+      1,
+      'a real clear on the visible Console tab still has to repaint it'
+    );
+  });
+
+  it('rebuilds only once across two identical clears', async () => {
+    await provider.focusTab('console');
+    provider.addConsoleEntry(entry('git push'));
+    const view = tapView(provider);
+
+    provider.clearConsole();
+    provider.clearConsole();
+
+    assert.strictEqual(
+      view.htmlSetCount(),
+      1,
+      'the second clear is a no-op, so it must not rebuild the document again'
+    );
+  });
+});

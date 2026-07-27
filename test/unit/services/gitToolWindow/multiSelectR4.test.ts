@@ -312,25 +312,114 @@ describe('Wave A R4 — review fixes', () => {
       // site relocates and its receiver changes (this._postSyncSelection() →
       // ctx.postSyncSelection()). Count BOTH forms across the union of the
       // two files so the same calls are still counted wherever they live.
+      // Pin each SETTER, not the total. A union-wide count cannot tell a
+      // relocation from a disappearance: 3 of these call sites live in the
+      // provider and 4 in messageHandlers, so all three provider ones could
+      // move to a file outside the union and a `>= 4` floor would still pass,
+      // having silently lost 3 of 7. Naming the setters means a setter that
+      // stops posting reds as itself, and one that moves somewhere unscanned
+      // reds as missing rather than shrinking the inventory quietly.
       const fs = await import('fs');
       const path = await import('path');
-      const unionSource = [
+      const UNION = [
         'src/git-core/gitToolWindow/GitToolWindowProvider.ts',
         'src/git-core/gitToolWindow/provider/messageHandlers.ts',
-      ]
-        .map((rel) => {
-          try {
-            return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
-          } catch {
-            return '';
+      ];
+      const unionSource = UNION.map((rel) => {
+        try {
+          return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        } catch {
+          return '';
+        }
+      }).join('\n');
+
+      /** A partial update that reaches the webview without a full render. */
+      const PARTIAL_UPDATE =
+        /(?:this\._postSyncSelection|ctx\.postSyncSelection)\(\)|postDetailsForSelection\(|ctx\.selectCommit\(/;
+
+      const SETTERS = [
+        'selectCommit',
+        'selectCommits',
+        'selectIfNotSelected',
+        'toggleCommitSelection',
+        'rangeSelectCommit',
+        'addRangeSelectCommit',
+      ];
+
+      // Every declaration in the union, so a body ends at the next declaration
+      // of ANY kind rather than at the next setter — otherwise a setter's span
+      // swallows its neighbours and the check reads whatever they happen to do.
+      const lines = unionSource.split('\n');
+      // The modifier list is generic on purpose. Recognising only `public` and
+      // `async` leaves a `private` method invisible as a boundary, so the body
+      // before it runs straight through and gets credited for whatever its
+      // neighbour does — the mirror of the `if (`/`for (` case below, which
+      // ends a body too early rather than too late. Both are the same bug.
+      const DECL =
+        /^(?:export (?:async )?function\s+|\s{2}(?:(?:public|private|protected|readonly|static|async|override|get|set)\s+)*)([A-Za-z_$][\w$]*)\s*[(<]/;
+      // `if (`, `for (` and friends match the declaration shape and would end a
+      // body at its first branch, leaving every span two lines long and every
+      // check vacuous.
+      const NOT_A_NAME = /^(?:if|for|while|switch|catch|return|else|do|with)$/;
+      const decls: Array<{ name: string; line: number }> = [];
+      lines.forEach((line, i) => {
+        const m = DECL.exec(line);
+        if (m && !NOT_A_NAME.test(m[1])) {
+          decls.push({ name: m[1], line: i });
+        }
+      });
+
+      const bodiesOf = (name: string): string[] =>
+        decls
+          .map((d, k) => ({ d, end: k + 1 < decls.length ? decls[k + 1].line : lines.length }))
+          .filter(({ d }) => d.name === name)
+          .map(({ d, end }) => lines.slice(d.line, end).join('\n'));
+
+      const missing = SETTERS.filter((n) => bodiesOf(n).length === 0);
+      assert.deepStrictEqual(
+        missing,
+        [],
+        `these selection setters were not found anywhere in the scanned union (${UNION.join(
+          ', '
+        )}) — either they were renamed, or they moved somewhere this spec no longer reads`
+      );
+
+      // A setter satisfies the contract by posting itself, or by forwarding to
+      // one that does — the provider's public setters are one-line forwarders
+      // into messageHandlers. Resolved as a fixpoint rather than "any body
+      // mentions a forward", because a forwarder must NOT be able to vouch for
+      // a target that posts nothing: that reading lets the real implementation
+      // be gutted while the one-line forwarder keeps the spec green.
+      const forwards = (name: string): RegExp =>
+        new RegExp(`handle${name[0].toUpperCase()}${name.slice(1)}\\s*\\(|ctx\\.${name}\\s*\\(`);
+
+      const satisfied = new Set(
+        SETTERS.filter((name) => bodiesOf(name).some((body) => PARTIAL_UPDATE.test(body)))
+      );
+      for (let pass = 0; pass < SETTERS.length; pass++) {
+        for (const name of SETTERS) {
+          if (satisfied.has(name)) {
+            continue;
           }
-        })
-        .join('\n');
-      const callSites =
-        unionSource.match(/(?:this\._postSyncSelection|ctx\.postSyncSelection)\(\)/g) || [];
-      assert.ok(
-        callSites.length >= 4,
-        `expected at least 4 postSyncSelection() call sites, found ${callSites.length}`
+          const reaches = SETTERS.some(
+            (target) =>
+              target !== name &&
+              satisfied.has(target) &&
+              bodiesOf(name).some((body) => forwards(target).test(body))
+          );
+          if (reaches) {
+            satisfied.add(name);
+          }
+        }
+      }
+
+      const silent = SETTERS.filter((name) => !satisfied.has(name));
+
+      assert.deepStrictEqual(
+        silent,
+        [],
+        'every selection-mutating setter must reach the webview through a partial update — ' +
+          'a full render would destroy commit-row focus (the Shift+Arrow multiselect hazard)'
       );
     });
   });

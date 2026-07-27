@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
 import { FileStatus } from '../../interfaces/IGitService';
-import { FILE_STATUS_THEME_VARS, INTELLIJ_FILE_STATUS_COLORS } from '../GitToolWindowProvider';
+import { FILE_STATUS_THEME_VARS, INTELLIJ_FILE_STATUS_COLORS } from './fileStatusTheme';
 import { escapeHtml } from '../../../utils/escapeHtml';
 import { buildWebviewCsp } from '../../../utils/webviewCsp';
 
