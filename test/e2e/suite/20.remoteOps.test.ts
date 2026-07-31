@@ -132,6 +132,79 @@ describe('e2e — remote ops (against file:// origin)', function () {
     );
   });
 
+  it('intellig.remoteBranch.checkoutAsLocal — fast-forwards a stale local branch to the remote tip', async () => {
+    await setup();
+    const remoteHead = await landRemoteCommit(fix.defaultBranch);
+    await execGit(fix.rootPath, ['fetch', 'origin']);
+    assert.notStrictEqual(
+      await revParse(fix.defaultBranch),
+      remoteHead,
+      'precondition: the local branch is behind the remote'
+    );
+    stubs = stubPrompts({});
+
+    await vscode.commands.executeCommand(
+      'intellig.remoteBranch.checkoutAsLocal',
+      branchItem(`origin/${fix.defaultBranch}`, 'remote')
+    );
+
+    assert.strictEqual(await currentBranch(), fix.defaultBranch, 'HEAD stays on the local branch');
+    assert.strictEqual(
+      await revParse(fix.defaultBranch),
+      remoteHead,
+      `the stale local should be reset to the remote tip; err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+    );
+  });
+
+  it('intellig.remoteBranch.checkoutAsLocal — fast-forwards a stale local while HEAD is elsewhere', async () => {
+    await setup();
+    const remoteHead = await landRemoteCommit(fix.defaultBranch);
+    await execGit(fix.rootPath, ['fetch', 'origin']);
+    await execGit(fix.rootPath, ['checkout', '-b', 'side']);
+    stubs = stubPrompts({});
+
+    await vscode.commands.executeCommand(
+      'intellig.remoteBranch.checkoutAsLocal',
+      branchItem(`origin/${fix.defaultBranch}`, 'remote')
+    );
+
+    assert.strictEqual(await currentBranch(), fix.defaultBranch, 'HEAD switches to the local');
+    assert.strictEqual(
+      await revParse(fix.defaultBranch),
+      remoteHead,
+      `the stale local should be reset to the remote tip; err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+    );
+  });
+
+  it('intellig.remoteBranch.checkoutAsLocal — warns before orphaning local-only commits', async () => {
+    await setup();
+    await landRemoteCommit(fix.defaultBranch);
+    await execGit(fix.rootPath, ['fetch', 'origin']);
+    // A commit that exists only on the local branch: the -B reset would make
+    // it unreachable, so the handler must prompt before running.
+    fs.writeFileSync(path.join(fix.rootPath, 'local-only.txt'), 'local work\n');
+    await execGit(fix.rootPath, ['add', 'local-only.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'local-only commit']);
+    const localOnly = await revParse('HEAD');
+    // Cancel the guard prompt: nothing may be discarded without consent.
+    stubs = stubPrompts({ warningMessage: () => undefined });
+
+    await vscode.commands.executeCommand(
+      'intellig.remoteBranch.checkoutAsLocal',
+      branchItem(`origin/${fix.defaultBranch}`, 'remote')
+    );
+
+    assert.ok(
+      stubs.warningMessageCalls.some((c) => /unreachable/i.test(c.message)),
+      `expected a data-loss warning before the reset; saw ${JSON.stringify(stubs.warningMessageCalls.map((c) => c.message))}`
+    );
+    assert.strictEqual(
+      await revParse(fix.defaultBranch),
+      localOnly,
+      'a cancelled prompt must leave the local branch untouched'
+    );
+  });
+
   it('intellig.remoteBranch.trackBranch — creates a local branch tracking the remote', async () => {
     await setup();
     await landRemoteCommit('feature', { newBranch: true });

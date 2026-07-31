@@ -452,22 +452,29 @@ export async function handleCheckoutAsLocal(
   const track = `${remoteName}/${branchName}`;
 
   try {
-    // Data-loss guard: if a local branch of the same name exists and is
-    // ahead of the remote, `-B` would orphan its unique commits. Probe the
-    // local IBranch and prompt before resetting. When the local doesn't
-    // exist (nothing to lose) or `ahead === 0` (the reset is a no-op or a
-    // fast-forward), skip the prompt and reset directly.
+    // Data-loss guard: `-B` rewrites the local's commit pointer, so every
+    // commit the remote tip cannot reach becomes unreachable. Ask git which
+    // branches contain the local tip: when the checkout target is among them
+    // the local is an ancestor of it and the reset is a fast-forward, so the
+    // reset is safe and silent. Anything else — ahead, diverged, or a probe
+    // that failed (the facade degrades to `[]`) — prompts first, so an
+    // unmeasured answer errs toward asking rather than discarding.
+    //
+    // The check measures against the CHECKOUT TARGET, not the local's own
+    // upstream: those differ for a cross-tracked local, and an untracked
+    // local has no upstream to measure against at all.
     const branches = await ctx.gitService.getBranches(repo);
     const local = branches.find((b) => b.type === 'local' && b.name === branchName);
-    const ahead = local?.ahead ?? 0;
+    const fastForward =
+      local !== undefined &&
+      (await ctx.gitService.getContainingBranches(repo, local.commit)).includes(track);
 
     let stashedBeforeReset = false;
     let stashShaBeforeReset: string | undefined;
-    if (local && ahead > 0) {
+    if (local && !fastForward) {
       const choice = await vscode.window.showWarningMessage(
-        `Local branch '${branchName}' has ${ahead} commit${ahead === 1 ? '' : 's'} ` +
-          `not on remote '${track}'. Resetting to the remote tip will make ` +
-          `${ahead === 1 ? 'it' : 'them'} unreachable.`,
+        `Local branch '${branchName}' has commits that are not on remote '${track}'. ` +
+          `Resetting to the remote tip will make them unreachable.`,
         { modal: true },
         'Reset anyway',
         'Stash and reset'

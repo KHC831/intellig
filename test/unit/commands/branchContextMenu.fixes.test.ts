@@ -1245,24 +1245,36 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       checkout: Call<[IRepository, string, unknown?]>[];
       stash: Call<[IRepository, string?]>[];
       getBranches: Call<[IRepository]>[];
+      getContainingBranches: Call<[IRepository, string]>[];
     };
     onDidChangeRepository: unknown;
     onDidFetch: unknown;
     getRepositories: () => IRepository[];
     getRepository: () => Promise<IRepository | undefined>;
     getBranches: (repo: IRepository) => Promise<IBranch[]>;
+    getContainingBranches: (repo: IRepository, hash: string) => Promise<string[]>;
     checkout: (repo: IRepository, ref: string, options?: unknown) => Promise<void>;
     stash: (repo: IRepository, message?: string) => ResultAsync<void, GitError>;
     reloadRepository: (repo: IRepository) => Promise<IRepository>;
   }
 
-  function createCheckoutLocalMockGit(branches: IBranch[]): CheckoutLocalMockGit {
+  /**
+   * `containing` is what `git branch -a --contains <local tip>` reports — the
+   * input the data-loss guard actually reads. Listing the remote branch means
+   * the local tip is an ancestor of it, so the `-B` reset is a fast-forward.
+   * The default (`[]`) is the probe-failed / diverged shape, which must prompt.
+   */
+  function createCheckoutLocalMockGit(
+    branches: IBranch[],
+    containing: string[] = []
+  ): CheckoutLocalMockGit {
     const repoChange = new EventEmitter<IRepository>();
     const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
     const calls = {
       checkout: [] as Call<[IRepository, string, unknown?]>[],
       stash: [] as Call<[IRepository, string?]>[],
       getBranches: [] as Call<[IRepository]>[],
+      getContainingBranches: [] as Call<[IRepository, string]>[],
     };
     return {
       _calls: calls,
@@ -1273,6 +1285,10 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       getBranches: async (repo: IRepository) => {
         calls.getBranches.push({ args: [repo] });
         return branches;
+      },
+      getContainingBranches: async (repo: IRepository, hash: string) => {
+        calls.getContainingBranches.push({ args: [repo, hash] });
+        return containing;
       },
       checkout: async (repo: IRepository, ref: string, options?: unknown) => {
         calls.checkout.push({ args: [repo, ref, options] });
@@ -1285,11 +1301,14 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     };
   }
 
-  it('checkout-as-local-1: existing local at ahead:0 → single forceCreate call, NOT a plain checkout', async () => {
-    const gitService = createCheckoutLocalMockGit([
-      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 0, behind: 0 },
-      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
-    ]);
+  it('checkout-as-local-1: stale local the remote contains → single forceCreate call, NOT a plain checkout', async () => {
+    const gitService = createCheckoutLocalMockGit(
+      [
+        { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+        { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+      ],
+      ['main', 'origin/main']
+    );
     const repo = createMockRepo('feature');
     const provider = createMockBranchTreeProvider(repo);
     const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
@@ -1307,14 +1326,17 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     assert.strictEqual(opts.forceCreate, true, 'must use forceCreate (-B), not a plain checkout');
     assert.strictEqual(opts.track, 'origin/main');
     // ahead:0 → no prompt.
-    assert.strictEqual(gitService._calls.stash.length, 0, 'no stash when ahead === 0');
+    assert.strictEqual(gitService._calls.stash.length, 0, 'no stash on a fast-forward reset');
   });
 
-  it('checkout-as-local-2a: local ahead:3 + Cancel → warning shown, checkout NOT called', async () => {
-    const gitService = createCheckoutLocalMockGit([
-      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
-      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
-    ]);
+  it('checkout-as-local-2a: local the remote does not contain + Cancel → warning shown, checkout NOT called', async () => {
+    const gitService = createCheckoutLocalMockGit(
+      [
+        { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+        { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+      ],
+      ['main']
+    );
     const repo = createMockRepo('feature');
     const provider = createMockBranchTreeProvider(repo);
 
@@ -1336,8 +1358,8 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
       assert.ok(
-        warningMsg.includes('3 commits not on remote'),
-        `warning should mention the ahead count; got: "${warningMsg}"`
+        warningMsg.includes("not on remote 'origin/main'"),
+        `warning should name the remote whose tip would replace the local; got: "${warningMsg}"`
       );
       assert.strictEqual(
         gitService._calls.checkout.length,
@@ -1350,17 +1372,23 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     }
   });
 
-  it('checkout-as-local-2b: local ahead:3 + "Reset anyway" → forceCreate, no stash', async () => {
-    const gitService = createCheckoutLocalMockGit([
-      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
-      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
-    ]);
+  it('checkout-as-local-2b: local the remote does not contain + "Reset anyway" → forceCreate, no stash', async () => {
+    const gitService = createCheckoutLocalMockGit(
+      [
+        { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+        { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+      ],
+      ['main']
+    );
     const repo = createMockRepo('feature');
     const provider = createMockBranchTreeProvider(repo);
 
+    let warningCalled = false;
     const savedWarning = writableWindow().showWarningMessage;
-    writableWindow().showWarningMessage = (): Promise<string | undefined> =>
-      Promise.resolve('Reset anyway');
+    writableWindow().showWarningMessage = (): Promise<string | undefined> => {
+      warningCalled = true;
+      return Promise.resolve('Reset anyway');
+    };
     try {
       const commands = new BranchContextMenuCommands(
         gitService as unknown as IGitService,
@@ -1369,6 +1397,9 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       const item = createRemoteBranchTreeItem('origin/main');
       await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
+      // Without this the case passes even when the guard never fires: the
+      // reset it asserts is what an unguarded handler does anyway.
+      assert.strictEqual(warningCalled, true, 'the reset must be user-confirmed');
       assert.strictEqual(gitService._calls.stash.length, 0, 'Reset anyway must NOT stash');
       assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must run after confirm');
       const opts = gitService._calls.checkout[0].args[2] as {
@@ -1382,11 +1413,14 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     }
   });
 
-  it('checkout-as-local-2c: local ahead:3 + "Stash and reset" → stash THEN forceCreate', async () => {
-    const gitService = createCheckoutLocalMockGit([
-      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
-      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
-    ]);
+  it('checkout-as-local-2c: local the remote does not contain + "Stash and reset" → stash THEN forceCreate', async () => {
+    const gitService = createCheckoutLocalMockGit(
+      [
+        { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+        { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+      ],
+      ['main']
+    );
     const repo = createMockRepo('feature');
     const provider = createMockBranchTreeProvider(repo);
 
@@ -1426,11 +1460,14 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
     }
   });
 
-  it('checkout-as-local-3: local ahead:0 → no prompt, checkout immediately', async () => {
-    const gitService = createCheckoutLocalMockGit([
-      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 0, behind: 0 },
-      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
-    ]);
+  it('checkout-as-local-3: remote contains the local tip → no prompt, checkout immediately', async () => {
+    const gitService = createCheckoutLocalMockGit(
+      [
+        { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+        { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+      ],
+      ['main', 'origin/main']
+    );
     const repo = createMockRepo('feature');
     const provider = createMockBranchTreeProvider(repo);
 
@@ -1448,7 +1485,7 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       const item = createRemoteBranchTreeItem('origin/main');
       await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
 
-      assert.strictEqual(warningCalled, false, 'no prompt when local is not ahead');
+      assert.strictEqual(warningCalled, false, 'no prompt when the reset is a fast-forward');
       assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout runs immediately');
       const opts = gitService._calls.checkout[0].args[2] as {
         forceCreate?: boolean;
@@ -1456,6 +1493,45 @@ describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale loc
       };
       assert.strictEqual(opts.forceCreate, true);
       assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-2d: containment unknown → prompts rather than resetting silently', async () => {
+    // The facade degrades a failed `--contains` read to `[]`. That is
+    // indistinguishable from "the remote does not contain the local tip", and
+    // both must prompt: the guard may never reset on an answer it did not get.
+    const gitService = createCheckoutLocalMockGit(
+      [
+        { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+        { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+      ],
+      []
+    );
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningCalled = false;
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> => {
+      warningCalled = true;
+      return Promise.resolve('Cancel');
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await driveBranchMenuCommand(commands, 'intellig.remoteBranch.checkoutAsLocal', item);
+
+      assert.strictEqual(warningCalled, true, 'an unreadable containment answer must prompt');
+      assert.strictEqual(
+        gitService._calls.checkout.length,
+        0,
+        'checkout MUST NOT run when the user cancels'
+      );
     } finally {
       writableWindow().showWarningMessage = savedWarning;
     }
