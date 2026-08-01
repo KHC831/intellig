@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { runTests } from '@vscode/test-electron';
+import { VSCODE_TEST_VERSION } from '../support/vscodeVersion';
 
 async function main(): Promise<void> {
   let tempWorkspace: string | undefined;
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ig-e2e-'));
 
     const exitCode = await runTests({
+      version: VSCODE_TEST_VERSION,
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: [

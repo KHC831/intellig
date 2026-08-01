@@ -24,6 +24,7 @@
 
 import * as path from 'path';
 import { runTests } from '@vscode/test-electron';
+import { VSCODE_TEST_VERSION } from '../support/vscodeVersion';
 
 async function main(): Promise<void> {
   try {
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
     const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
     await runTests({
+      version: VSCODE_TEST_VERSION,
       extensionDevelopmentPath,
       extensionTestsPath,
       // Disable other extensions so they don't interfere with activation or

@@ -35,7 +35,7 @@ jobs:
         # lost on each `npm ci` cold install.
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         run: npm ci
@@ -163,7 +163,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
       - run: npm ci
       - run: npm run compile
       - run: npm run test:unit
@@ -182,7 +182,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
       - run: npm ci
       - run: npm run test:ext-host
       - run: npm run test:e2e
@@ -205,7 +205,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
       - run: npm ci
       - run: npm run coverage
       - name: Enforce patch coverage on changed lines
