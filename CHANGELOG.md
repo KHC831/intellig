@@ -10,10 +10,16 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.3] - 2026-08-01
+
 ### Fixed
 
 - Checking out a remote branch now asks first when the local branch of the same
   name has commits the remote does not, instead of quietly discarding them.
+- Selecting a row in the log now colours its author and date like the rest of the
+  row instead of leaving them muted.
+- The log window no longer rebuilds itself when nothing it shows has changed, so
+  it stops flickering and losing your scroll position on a background refresh.
 
 ## [0.5.2] - 2026-07-25
 
