@@ -10,6 +10,11 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Fixed
+
+- Checking out a remote branch now asks first when the local branch of the same
+  name has commits the remote does not, instead of quietly discarding them.
+
 ## [0.5.2] - 2026-07-25
 
 ### Fixed
