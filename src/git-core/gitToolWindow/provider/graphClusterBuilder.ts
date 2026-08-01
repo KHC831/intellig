@@ -121,15 +121,11 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
 
       // Format fields.
       //
-      // Emit the FULL first line of the commit message
-      // and let CSS `.commit-title { overflow: hidden; text-overflow:
-      // ellipsis; white-space: nowrap }` truncate responsively based on
-      // the panel's actual flex-allocated width. The call to
-      // `_truncateMessage(…, 60)` hard-capped the row text at 60 chars
-      // regardless of available space, so a 1200px-wide panel still
-      // showed `"…"` on a 70-char subject. The tooltip (`title=` below)
-      // still carries the full multi-line message so hover still
-      // reveals everything.
+      // Emit the FULL first line and let CSS `.commit-title { overflow:
+      // hidden; text-overflow: ellipsis; white-space: nowrap }` truncate it
+      // against the panel's actual flex-allocated width — a character cap
+      // here would ellipsize a 70-char subject on a 1200px-wide panel. The
+      // tooltip (`title=` below) carries the full multi-line message.
       //
       // The details-panel multi-commit preview uses a hard char cap
       // instead (buildMultiCommitDetailsPanelModel's truncateSummary),

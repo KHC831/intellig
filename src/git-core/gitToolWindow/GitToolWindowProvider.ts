@@ -2056,12 +2056,10 @@ export class GitToolWindowProvider
       // (HEAD-ancestor reachability over the loaded window).
       parents: n.commit.parents || [],
     }));
-    // Read the real head hash from state. This used
-    // `commitNodes[0].hash` which assumed HEAD was the newest commit; that's
-    // only true when HEAD is at the tip of the loaded log. In detached state
-    // at an older commit, the bogus assumption made `computeMenuState`'s
-    // HEAD-membership rule (which gates "Reset to here", "Squash", etc.)
-    // wrong for any commit that wasn't the top row. TG-.
+    // The real head hash, not the top row's: HEAD is only the newest commit
+    // when it sits at the tip of the loaded log. `computeMenuState`'s
+    // HEAD-membership rule gates "Reset to here", "Squash" and friends, so a
+    // detached HEAD at an older commit must not read as the first row.
     const headHash = this._extendedLogState.headHash ?? '';
     const state = computeMenuState({
       selectedHashes: this._extendedLogState.selectedCommits,
