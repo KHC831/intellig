@@ -21,6 +21,8 @@ import { BlameService } from '../blame/BlameService';
 import { ConsoleService } from '../ui-shell/ConsoleService';
 import { ConflictResolutionService } from '../conflicts/ConflictResolutionService';
 import { AutoFetchService } from '../sync/AutoFetchService';
+import { wireFetchReload } from '../sync/fetchReloadBridge';
+import { FocusReconcileService } from '../sync/FocusReconcileService';
 import { PatchService } from '../patches/PatchService';
 import { BlameOptionsSource } from '../blame/BlameOptionsSource';
 import { getLogger } from '../utils/logger';
@@ -72,6 +74,8 @@ export class ExtensionServices implements IExtensionServices {
   private _consoleService: ConsoleService | undefined;
   private _conflictResolutionService: IConflictResolutionService | undefined;
   private _autoFetchService: IAutoFetchService | undefined;
+  private _fetchReloadBridge: vscode.Disposable | undefined;
+  private _focusReconcileService: FocusReconcileService | undefined;
   private _patchService: IPatchService | undefined;
   private _blameOptionsSource: BlameOptionsSource | undefined;
 
@@ -268,6 +272,12 @@ export class ExtensionServices implements IExtensionServices {
       // Schedules periodic fetches across all open repositories.
       this._autoFetchService = new AutoFetchService(this._gitService);
 
+      // Keep views true to on-disk refs even when the .git watcher misses a
+      // write: reload after any fetch that advanced refs, and reconcile on
+      // window focus (IntelliJ's frame-activation sync).
+      this._fetchReloadBridge = wireFetchReload(this._gitService);
+      this._focusReconcileService = new FocusReconcileService(this._gitService);
+
       // Initialize PatchService.
       // Wraps git apply / git am / git diff for the Apply Patch + Create
       // Patch from Local Changes dialogs.
@@ -404,6 +414,10 @@ export class ExtensionServices implements IExtensionServices {
     };
     tryDispose(() => this._blameOptionsSource?.dispose());
     tryDispose(() => this._patchService?.dispose());
+    tryDispose(() => this._focusReconcileService?.dispose());
+    tryDispose(() => {
+      this._fetchReloadBridge?.dispose();
+    });
     tryDispose(() => {
       this._autoFetchService?.dispose();
     });
@@ -426,6 +440,8 @@ export class ExtensionServices implements IExtensionServices {
     this._consoleService = undefined;
     this._conflictResolutionService = undefined;
     this._autoFetchService = undefined;
+    this._fetchReloadBridge = undefined;
+    this._focusReconcileService = undefined;
     this._patchService = undefined;
     this._blameOptionsSource = undefined;
 

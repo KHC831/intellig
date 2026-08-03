@@ -10,6 +10,14 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Fixed
+
+- A fetch that brought in new refs (including background auto-fetch) now updates
+  the branch tree and log immediately instead of waiting on the file watcher.
+- Branches created or moved outside VS Code (terminal, another tool) now show up
+  when the window regains focus, even if the file watcher missed the change —
+  previously they could stay hidden until a window reload.
+
 ## [0.5.3] - 2026-08-01
 
 ### Fixed

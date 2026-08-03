@@ -42,6 +42,30 @@ describe('ExtensionServices', () => {
       assert.strictEqual(mockSubscriptions.length, 1);
     });
 
+    it('wires the refs-staleness healers and tears them down on dispose', async () => {
+      // TestSurface for the fetch-reload bridge + focus reconcile wiring;
+      // without these, external/fetch-written ref changes reach the views
+      // only through the .git watcher, and a missed watcher event leaves the
+      // branch tree stale until window reload.
+      interface RefsStalenessWiringTestSurface {
+        _fetchReloadBridge: { dispose(): void } | undefined;
+        _focusReconcileService: { dispose(): void } | undefined;
+      }
+      const services = new ExtensionServices();
+      const mockContext = {
+        subscriptions: [],
+      } as unknown as import('vscode').ExtensionContext;
+
+      await services.initialize(mockContext);
+      const surface = services as unknown as RefsStalenessWiringTestSurface;
+      assert.ok(surface._fetchReloadBridge, 'initialize must wire the fetch-reload bridge');
+      assert.ok(surface._focusReconcileService, 'initialize must wire the focus reconcile');
+
+      services.dispose();
+      assert.strictEqual(surface._fetchReloadBridge, undefined);
+      assert.strictEqual(surface._focusReconcileService, undefined);
+    });
+
     it('should not reinitialize if already initialized', async () => {
       const services = new ExtensionServices();
       const mockSubscriptions: { dispose: () => void }[] = [];
