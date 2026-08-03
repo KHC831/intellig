@@ -29,7 +29,7 @@
     "diff-engine/comparison/ByWordRt.ts": 1027,
     "commands/registration/commitMenuCommands.ts": 1017,
     "extension.ts": 972,
-    "rebase/RebaseEditor.ts": 946,
+    "rebase/RebaseEditor.ts": 927,
     "git-core/ops/StashTagHistoryOps.ts": 946,
     "rebase/RebaseProgressView.ts": 923,
     "conflicts/ConflictResolutionService.ts": 923,

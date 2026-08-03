@@ -131,17 +131,13 @@ export async function handleEditCommitMessage(
               : { hash: c.hash, action: c.action }
           );
         },
-        // `git rebase -i` pauses at the reword step waiting for a commit
-        // message in `$GIT_EDITOR` / `core.editor`. Headless extension
-        // hosts have no GIT_EDITOR (only GIT_SEQUENCE_EDITOR is set), so
-        // git pauses with the rebase metadata still in
-        // `.git/rebase-merge/` and HEAD detached at the parent of the
-        // reword target. `provideRewordMessage` runs `git commit --amend
-        // -m <msg>` (no editor needed) followed by `git rebase
-        // --continue`, which lands the rewrite and updates the branch
-        // ref. The common single-reword case has one paused step; the
-        // loop covers a plan with multiple reword actions in sequence.
-        // A conflict (or cleared-stale no-op) surfaced mid-drive returns
+        // The reword carries a non-blank override, so the todo transform
+        // realises it as `pick` + a non-interactive amend and the rebase
+        // normally never pauses. Defence in depth: should a pause surface
+        // anyway (a rebase left mid-flight by an earlier failure),
+        // `provideRewordMessage` amends the paused commit to the typed
+        // message and continues, rather than stranding the rebase. A
+        // conflict (or cleared-stale no-op) surfaced mid-drive returns
         // to the runner's outcome switch, which pauses / reports it.
         drivePaused: async (first) => {
           let result = first;

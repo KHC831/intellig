@@ -21,6 +21,7 @@ import {
   reloadAndRefresh,
 } from './commitContextMenuShared';
 import { CommitDialog } from './CommitDialog';
+import { combineAutosquashMessages } from './squashedCommitsMessage';
 
 /**
  * "Interactively Rebase from Here" — open the rebase plan editor with the
@@ -154,12 +155,7 @@ export async function runAutosquashNow(
     ]);
     let combinedMessage: string | undefined;
     if (mode === 'squash' && target) {
-      const extra = created.message
-        .split('\n')
-        .filter((line, i) => !(i === 0 && line.startsWith('squash!')))
-        .join('\n')
-        .trim();
-      combinedMessage = extra.length > 0 ? `${target.message.trim()}\n\n${extra}` : undefined;
+      combinedMessage = combineAutosquashMessages(target.message.trim(), created.message);
     }
 
     const node = ctx.dispatchNodes.find((n) => n.hash === targetHash);

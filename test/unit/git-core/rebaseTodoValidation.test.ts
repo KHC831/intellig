@@ -103,4 +103,55 @@ describe('rebase-todo validation', () => {
       assert.ok(out.includes('drop aaaaaaa'), `expected drop line, got: ${out}`);
     });
   });
+
+  describe('transformRebaseTodo squash-group message overrides', () => {
+    // A squash/fixup run folds into ONE commit, which carries ONE message; a
+    // second typed override in the same fold group would silently clobber the
+    // first (each override amends the same resulting commit, last write wins).
+    const todo = 'pick aaaaaaa A\npick bbbbbbb B\npick ccccccc C\npick ddddddd D\n';
+
+    it('throws when two squash rows in one fold group both carry a typed message', () => {
+      const plan: IRebaseAction[] = [
+        { hash: 'aaaaaaa', action: 'pick' },
+        { hash: 'bbbbbbb', action: 'squash', newMessage: 'first combined' },
+        { hash: 'ccccccc', action: 'squash', newMessage: 'second combined' },
+        { hash: 'ddddddd', action: 'pick' },
+      ];
+      assert.throws(() => transformRebaseTodo(todo, plan, '/tmp/gitdir'), /one .*message/i);
+    });
+
+    it('throws when the overrides are separated by a fixup in the same group', () => {
+      const plan: IRebaseAction[] = [
+        { hash: 'aaaaaaa', action: 'pick' },
+        { hash: 'bbbbbbb', action: 'squash', newMessage: 'first combined' },
+        { hash: 'ccccccc', action: 'fixup' },
+        { hash: 'ddddddd', action: 'squash', newMessage: 'second combined' },
+      ];
+      assert.throws(() => transformRebaseTodo(todo, plan, '/tmp/gitdir'), /one .*message/i);
+    });
+
+    it('allows one typed override alongside classic squashes in the same group', () => {
+      const plan: IRebaseAction[] = [
+        { hash: 'aaaaaaa', action: 'pick' },
+        { hash: 'bbbbbbb', action: 'squash', newMessage: 'the combined message' },
+        { hash: 'ccccccc', action: 'squash' },
+        { hash: 'ddddddd', action: 'pick' },
+      ];
+      const out = transformRebaseTodo(todo, plan, '/tmp/gitdir');
+      assert.ok(out.includes('fixup bbbbbbb'), `expected override fixup line, got: ${out}`);
+      assert.ok(out.includes('squash ccccccc'), `expected classic squash line, got: ${out}`);
+    });
+
+    it('allows typed overrides in different fold groups', () => {
+      const plan: IRebaseAction[] = [
+        { hash: 'aaaaaaa', action: 'pick' },
+        { hash: 'bbbbbbb', action: 'squash', newMessage: 'first group message' },
+        { hash: 'ccccccc', action: 'pick' },
+        { hash: 'ddddddd', action: 'squash', newMessage: 'second group message' },
+      ];
+      const out = transformRebaseTodo(todo, plan, '/tmp/gitdir');
+      assert.ok(out.includes('fixup bbbbbbb'));
+      assert.ok(out.includes('fixup ddddddd'));
+    });
+  });
 });

@@ -24,6 +24,7 @@ import {
   type ICommitHistoryRewriteContext,
 } from './commitHistoryRewriteRunner';
 import { promptForMessageInEditor } from './commitMessageEditor';
+import { prettySquash } from './squashedCommitsMessage';
 
 /**
  * Squash N>=2 contiguous non-merge commits into one via a
@@ -35,8 +36,10 @@ import { promptForMessageInEditor } from './commitMessageEditor';
  *   2. Determine the oldest selected commit (largest index in newest-
  *      first display order). An oldest with no parent (the initial
  *      commit) warns and proceeds via `--root`.
- *   3. Fetch each selected commit's full message via `getCommit`. Join
- *      with `\n\n` to seed the message editor.
+ *   3. Fetch each selected commit's full message via `getCommit` and
+ *      combine them via `prettySquash` (git4idea GitSquashLogAction:
+ *      duplicates collapse, autosquash marker subjects trim) to seed the
+ *      message editor.
  *   4. Open the squash-message dialog with the seed value. On cancel
  *      or a blank message, abort with no git side-effects.
  *   5. Hand off to {@link runHistoryRewrite}: rebase onto `oldest^`
@@ -171,10 +174,12 @@ export async function handleSquashCommits(
     return;
   }
 
-  // 3. Fetch each selected commit's full message and join in oldest-
-  // first order (chronological: oldest commit's message comes first
-  // in the seed). commitHashes is newest-first; oldest-first =
-  // .slice().reverse().
+  // 3. Fetch each selected commit's full message in oldest-first order
+  // (chronological: the oldest commit's message leads the seed;
+  // commitHashes is newest-first) and combine them the way git4idea's
+  // GitSquashLogAction does: prettySquash collapses duplicate messages
+  // and trims fixup!/squash!/amend! marker subjects whose target is in
+  // the selection.
   const oldestFirst = [...commitHashes].reverse();
   const messages = await Promise.all(
     oldestFirst.map(async (h) => {
@@ -187,7 +192,7 @@ export async function handleSquashCommits(
       }
     })
   );
-  const seedMessage = messages.filter((m) => m.length > 0).join('\n\n');
+  const seedMessage = prettySquash(messages.filter((m) => m.length > 0));
 
   // 4. Show the squash-message editor: a webview-hosted modal dialog with
   // a multi-line textarea seeded with the `\n\n`-joined messages; it

@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` block is added on top.
 
 ### Fixed
 
+- The squash message box in the interactive rebase editor now starts empty:
+  leave it empty and git combines both commit messages as usual; type into it
+  and your text becomes the squashed commit's message. It used to start with
+  the squashed commit's own message, so touching it silently threw away the
+  other commit's message.
+- Typing a combined message on two commits squashing into the same commit now
+  stops the rebase with a clear error instead of silently keeping only the
+  last one.
+- The suggested message when squashing commits from the log now matches
+  IntelliJ: duplicate messages appear once and fixup!/squash! marker lines are
+  left out.
 - A fetch that brought in new refs (including background auto-fetch) now updates
   the branch tree and log immediately instead of waiting on the file watcher.
 - Branches created or moved outside VS Code (terminal, another tool) now show up

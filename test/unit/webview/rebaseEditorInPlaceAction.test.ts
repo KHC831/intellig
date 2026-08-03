@@ -119,4 +119,41 @@ describe('webview: rebase editor in-place action change (jsdom)', () => {
       message: 'combined',
     });
   });
+
+  it('seeds the reword box with the commit message and the squash box empty', () => {
+    // A squash folds into the commit above and git combines BOTH messages when
+    // the box stays blank. Pre-filling it with this commit's own message made
+    // any edit an override that silently dropped the other commit's message.
+    h = boot(['pick', 'pick']);
+    const rewordRow = changeDropdown(h, 0, 'reword');
+    const rewordTa = rewordRow.querySelector(
+      'textarea.reword-message-input'
+    ) as HTMLTextAreaElement;
+    assert.strictEqual(rewordTa.value, 'commit 1', 'reword edits the existing message in place');
+
+    const squashRow = changeDropdown(h, 1, 'squash');
+    const squashTa = squashRow.querySelector(
+      'textarea.reword-message-input'
+    ) as HTMLTextAreaElement;
+    assert.strictEqual(squashTa.value, '', 'squash starts blank so auto-combine is the default');
+    assert.ok(
+      squashTa.placeholder.toLowerCase().includes('combine'),
+      'the blank box shows the auto-combine affordance'
+    );
+  });
+
+  it('reseeds the box when switching between reword and squash', () => {
+    h = boot(['pick']);
+    const row = changeDropdown(h, 0, 'reword');
+    const ta = row.querySelector('textarea.reword-message-input') as HTMLTextAreaElement;
+    assert.strictEqual(ta.value, 'commit 1');
+
+    changeDropdown(h, 0, 'squash');
+    const squashTa = row.querySelector('textarea.reword-message-input') as HTMLTextAreaElement;
+    assert.strictEqual(squashTa.value, '', 'the reword seed must not survive as a squash override');
+
+    changeDropdown(h, 0, 'reword');
+    const backTa = row.querySelector('textarea.reword-message-input') as HTMLTextAreaElement;
+    assert.strictEqual(backTa.value, 'commit 1', 'switching back reseeds the original message');
+  });
 });

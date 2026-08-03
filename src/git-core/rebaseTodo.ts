@@ -64,8 +64,9 @@ export function isValidRebaseHash(hash: unknown): hash is string {
  * 'reword' action whose `newMessage` is present and not blank. A blank
  * override is treated as absent: writing an empty `-F` file would make
  * `git commit --amend` abort ("empty commit message") and break the rebase,
- * so we fall back to the classic interactive reword instead (matching the
- * editor textarea's "leave blank to edit interactively" affordance).
+ * so the entry falls back to a classic `reword` line, which keeps the
+ * commit's original message under the rebase's `GIT_EDITOR=true` (matching
+ * the editor textarea's "leave blank to keep the original" affordance).
  */
 export function hasRewordOverride(entry: IRebaseAction): boolean {
   return (
@@ -215,6 +216,27 @@ export function transformRebaseTodo(
   const first = plan[0];
   if (first && (first.action === 'squash' || first.action === 'fixup')) {
     throw new Error(`Cannot ${first.action} the first commit in the plan`);
+  }
+
+  // A contiguous squash/fixup run folds into ONE commit carrying ONE message.
+  // Each squash override is realised as an `exec git commit --amend -F` on that
+  // same resulting commit, so a second typed message in the same fold group
+  // would silently clobber the first — fail closed instead.
+  let overridesInGroup = 0;
+  for (const entry of plan) {
+    if (entry.action !== 'squash' && entry.action !== 'fixup') {
+      overridesInGroup = 0;
+      continue;
+    }
+    if (hasSquashOverride(entry)) {
+      overridesInGroup += 1;
+      if (overridesInGroup > 1) {
+        throw new Error(
+          'Commits squashing into the same commit can carry only one combined ' +
+            'message — clear all but one of the squash message boxes.'
+        );
+      }
+    }
   }
 
   const lines = originalTodo.split('\n');

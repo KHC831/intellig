@@ -290,6 +290,62 @@ describe('RebaseEditor', () => {
     });
   });
 
+  describe('message box seeding and override lifecycle', () => {
+    interface MessageInternals {
+      _session?: {
+        onto: string;
+        originalBranch: string;
+        commits: IRebaseCommit[];
+        currentStep: number;
+        status: string;
+      };
+      _getInit(): { commits: Array<{ hash: string; action: string; rewordValue: string }> };
+      _handleUpdateAction(hash: string, action: RebaseAction): void;
+      _handleUpdateMessage(hash: string, message: string): void;
+    }
+    const internals = (): MessageInternals => rebaseEditor as unknown as MessageInternals;
+    const HASH_A = 'a'.repeat(40);
+    const HASH_B = 'b'.repeat(40);
+
+    beforeEach(() => {
+      internals()._session = {
+        onto: 'main',
+        originalBranch: 'feature',
+        currentStep: 0,
+        status: 'planning',
+        commits: [
+          { hash: HASH_A, message: 'A message', action: 'reword' },
+          { hash: HASH_B, message: 'B message', action: 'squash' },
+        ] as IRebaseCommit[],
+      };
+    });
+
+    it('seeds reword rows with their own message and squash rows empty', () => {
+      // A blank squash box means "auto-combine both messages" (the git squash
+      // rule); seeding it with this commit's own message turned any touch into
+      // an override that silently dropped the fold target's message.
+      const init = internals()._getInit();
+      assert.strictEqual(init.commits[0].rewordValue, 'A message');
+      assert.strictEqual(init.commits[1].rewordValue, '');
+    });
+
+    it('keeps a typed message in the seed for re-renders', () => {
+      internals()._handleUpdateMessage(HASH_B, 'typed combined message');
+      const init = internals()._getInit();
+      assert.strictEqual(init.commits[1].rewordValue, 'typed combined message');
+    });
+
+    it('clears a typed message when the action changes', () => {
+      // reword and squash boxes carry different semantics (new own message vs
+      // combined fold message) — a message typed under one action must not
+      // silently apply under the other.
+      internals()._handleUpdateMessage(HASH_A, 'typed for reword');
+      internals()._handleUpdateAction(HASH_A, 'squash');
+      const init = internals()._getInit();
+      assert.strictEqual(init.commits[0].rewordValue, '');
+    });
+  });
+
   describe('reorder commits', () => {
     it('should allow reordering commits in the plan', async () => {
       await mockRebaseService.startInteractiveRebase(mockRepository, 'main');

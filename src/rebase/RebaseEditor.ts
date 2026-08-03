@@ -19,6 +19,7 @@ import { buildWebviewCsp } from '../utils/webviewCsp';
 import { sanitizeGitError } from '../git-core/gitError';
 import { assertNever } from '../utils/assertNever';
 import { dispatchGuardedWebviewMessage } from '../utils/webviewMessageGuard';
+import { REBASE_EDITOR_ACTIONS, REBASE_EDITOR_MESSAGE_PLACEHOLDERS } from './rebaseEditorInitData';
 import {
   asRebaseEditorInbound,
   type IRebaseEditorCommit,
@@ -407,13 +408,13 @@ export class RebaseEditor {
 
     const commit = this._session.commits.find((c) => c.hash === hash);
     if (commit) {
-      commit.action = action;
-      // Clear the pre-set message when switching to an action that can't carry
-      // one inline, so stale overrides don't accidentally apply later. reword
-      // and squash both collect a message inline (H1).
-      if (action !== 'reword' && action !== 'squash') {
+      // Clear the pre-set message on any action change: reword and squash give
+      // it different meanings (own message vs whole-fold combined message), and
+      // other actions can't carry one inline. The webview reseeds the box (H1).
+      if (commit.action !== action) {
         commit.newMessage = undefined;
       }
+      commit.action = action;
       // No re-render: the webview updates the affected row in place (color
       // class + reword/squash message box). Rebuilding the whole document here
       // would reset the list scroll and tear down drag wiring for a one-row
@@ -514,35 +515,12 @@ export class RebaseEditor {
    * .value / .textContent / element props (injection-proof) — never markup.
    */
   private _getInit(preserveScroll = false): IRebaseEditorInit {
-    const ACTIONS: IRebaseEditorInit['actions'] = [
-      { value: 'pick', label: 'pick', description: 'use commit' },
-      { value: 'reword', label: 'reword', description: 'use commit, but edit the commit message' },
-      { value: 'edit', label: 'edit', description: 'use commit, but stop for amending' },
-      {
-        value: 'squash',
-        label: 'squash',
-        description: 'meld into the commit above (keeps both messages)',
-      },
-      {
-        value: 'fixup',
-        label: 'fixup',
-        description: "meld into the commit above, discard this commit's message",
-      },
-      { value: 'drop', label: 'drop', description: 'remove commit' },
-    ];
-    // reword and squash both collect the message IN-UI (git4idea parity — we
-    // never punt to an external editor). The rebase runs with GIT_EDITOR
-    // suppressed, so a blank value does NOT open an editor: a blank reword
-    // keeps the commit's original message; a blank squash takes git's
-    // auto-combined message. The placeholders state that explicitly. Keyed by
-    // action so both the initial build and the in-place action switch read the
-    // same string (no drift).
-    const placeholders: Partial<Record<RebaseAction, string>> = {
-      reword: 'New commit message (leave blank to keep the original)',
-      squash: 'Combined commit message (leave blank to auto-combine the messages)',
-    };
     const commits: IRebaseEditorCommit[] = (this._session?.commits ?? []).map((commit) => {
       const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
+      // Reword seeds with the commit's own message; squash seeds EMPTY (blank
+      // = git's auto-combine keeps both messages; typed = whole-fold override
+      // — an own-message seed would silently drop the fold target's message).
+      const seed = commit.action === 'squash' ? '' : commit.message;
       return {
         hash: commit.hash,
         shortHash: commit.hash.substring(0, 7),
@@ -550,7 +528,7 @@ export class RebaseEditor {
         action: commit.action,
         actionClass: `action-${commit.action}`,
         showMessageEditor,
-        rewordValue: commit.newMessage ?? commit.message,
+        rewordValue: commit.newMessage ?? seed,
       };
     });
     return {
@@ -558,8 +536,8 @@ export class RebaseEditor {
       onto: this._session?.onto || '',
       commitCount: this._session?.commits.length || 0,
       preserveScroll,
-      placeholders,
-      actions: ACTIONS,
+      placeholders: REBASE_EDITOR_MESSAGE_PLACEHOLDERS,
+      actions: REBASE_EDITOR_ACTIONS,
       commits,
     };
   }
