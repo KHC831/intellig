@@ -39,6 +39,19 @@ import {
   IChangelistService,
 } from '../changelists/interfaces/IChangelistService';
 import { IShelfItem, IShelfService } from '../shelf/interfaces/IShelfService';
+import {
+  handleShelfTabAction,
+  type IShelfTabShelfController,
+  type IShelfTabStashController,
+} from './shelfTab';
+import { handleChangelistAction } from './changelistTab';
+export { changelistContextMenuLabels, fileContextMenuLabels } from './changelistTab';
+export {
+  type IShelfTabShelfController,
+  type IShelfTabStashController,
+  shelfRowContextMenuLabels,
+  stashRowContextMenuLabels,
+} from './shelfTab';
 import { IGitService, IRepository, IStash, FileStatus } from '../git-core/interfaces/IGitService';
 import { performCommit, LAST_NO_VERIFY_SLOT } from './CommitDialog';
 import { AmendMessageTracker, loadHeadCommitMessage } from './amendMessage';
@@ -59,10 +72,6 @@ import type {
   ShelfTabFilter,
   ChangesGroupingMode,
   IShelfTabEntry,
-  ChangelistAction,
-  FileAction,
-  ShelfTabShelfAction,
-  ShelfTabStashAction,
   ICommitToolWebviewMessage,
   ICommitToolWindowInitModel,
   ICtwChangelistModel,
@@ -117,37 +126,6 @@ const LIVE_UPDATE_DEBOUNCE_MS = 300;
 
 /** Sentinel id for the "Unversioned Files" pseudo-changelist. */
 export const UNVERSIONED_PSEUDO_CHANGELIST_ID = '_unversioned';
-
-/**
- * Imperative bag for Shelf-row context-menu actions. The extension binds
- * this to `ShelfView`'s public methods so the tool window doesn't have to
- * know about QuickPicks / VS Code window APIs itself. Keeping methods
- * optional lets tests pass a minimal stub.
- */
-export interface IShelfTabShelfController {
-  apply?: (id: string) => Promise<void>;
-  showDiff?: (id: string) => Promise<void>;
-  delete?: (id: string) => Promise<void>;
-  rename?: (id: string) => Promise<void>;
-  restore?: (id: string) => Promise<void>;
-  importPatches?: () => Promise<void>;
-  createPatch?: (id: string) => Promise<void>;
-}
-
-/**
- * Imperative bag for Stash-row context-menu actions. Backed by `StashView`
- * in production; tests pass a minimal stub.
- */
-export interface IShelfTabStashController {
-  apply?: (index: number) => Promise<void>;
-  pop?: (index: number) => Promise<void>;
-  drop?: (index: number) => Promise<void>;
-  showDiff?: (index: number) => Promise<void>;
-  rename?: (index: number) => Promise<void>;
-  branchFromStash?: (index: number) => Promise<void>;
-  /** Clear the whole stash stack (warning confirm owned by the view). */
-  clearAll?: () => Promise<void>;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure helpers (tested directly)
@@ -276,63 +254,6 @@ export const SIGN_OFF_SLOT: PersistedSlot<boolean> = {
 };
 
 /**
- * Labels for the file-action context menu, in IntelliJ-parity order.
- * A file is considered untracked (eligible for `Add to VCS`) when its
- * status is `untracked`.
- *
- * Entries are intentionally kept in the order the IR lists them.
- */
-export function fileContextMenuLabels(file: IFileChange): Array<{
-  label: string;
-  action: FileAction;
-  shortcut?: string;
-}> {
-  const items: Array<{ label: string; action: FileAction; shortcut?: string }> = [
-    { label: 'Show Diff', action: 'showDiff', shortcut: 'Ctrl+D' },
-    { label: 'Jump to Source', action: 'jumpToSource', shortcut: 'F4' },
-    { label: 'Move to Another Changelist…', action: 'moveToChangelist', shortcut: 'Alt+Shift+M' },
-    { label: 'Rollback…', action: 'rollback', shortcut: 'Ctrl+Alt+Z' },
-    { label: 'Shelve Changes…', action: 'shelve' },
-  ];
-  if (file.status === 'untracked') {
-    items.push({ label: 'Add to VCS', action: 'addToVcs', shortcut: 'Ctrl+Alt+A' });
-  }
-  items.push(
-    { label: 'Show History', action: 'showHistory' },
-    { label: 'Annotate with Git Blame', action: 'annotate' }
-  );
-  return items;
-}
-
-/**
- * Labels for the changelist-level context menu, in IntelliJ-parity order.
- * Caller-provided flags tune which entries are enabled (e.g. hide
- * `Set Active Changelist` when the row is already active).
- */
-export function changelistContextMenuLabels(input: {
-  isActive: boolean;
-  isDefault: boolean;
-}): Array<{ label: string; action: ChangelistAction; disabled?: boolean }> {
-  return [
-    { label: 'New Changelist…', action: 'new' },
-    {
-      label: 'Set Active Changelist',
-      action: 'setActive',
-      disabled: input.isActive,
-    },
-    { label: 'Rename Changelist…', action: 'rename', disabled: input.isDefault },
-    { label: 'Edit Description…', action: 'editDescription' },
-    {
-      label: 'Remove Changelist',
-      action: 'delete',
-      disabled: input.isDefault,
-    },
-    { label: 'Commit Only This Changelist…', action: 'commitOnly' },
-    { label: 'Shelve Changes', action: 'shelve' },
-  ];
-}
-
-/**
  * Gear-menu items for the composer. The single entry toggles the persisted
  * no-verify flag the commit path reads (shared with CommitDialog's gear via
  * LAST_NO_VERIFY_SLOT); `checked` mirrors that flag.
@@ -346,48 +267,6 @@ export function gearMenuItems(
       label: 'Disable pre-commit hooks (--no-verify)',
       checked: noVerify,
     },
-  ];
-}
-
-/**
- * Menu entries for a Shelf row in the combined tab. Pure — unit-tested
- * directly. `isAlreadyUnshelved` surfaces the Restore entry.
- */
-export function shelfRowContextMenuLabels(input: {
-  isAlreadyUnshelved: boolean;
-}): Array<{ label: string; action: ShelfTabShelfAction }> {
-  const items: Array<{ label: string; action: ShelfTabShelfAction }> = [];
-  if (input.isAlreadyUnshelved) {
-    items.push({ label: 'Restore', action: 'shelfRestore' });
-  }
-  items.push(
-    { label: 'Apply (Unshelve)', action: 'shelfApply' },
-    { label: 'Show Diff', action: 'shelfShowDiff' },
-    { label: 'Rename…', action: 'shelfRename' },
-    { label: 'Create Patch from Shelf…', action: 'shelfCreatePatch' },
-    { label: 'Import Patches…', action: 'shelfImportPatches' },
-    { label: 'Delete', action: 'shelfDelete' }
-  );
-  return items;
-}
-
-/**
- * Menu entries for a Stash row in the combined tab. Pure. `Pop` is listed
- * above `Apply` so the right-click default (Enter) matches IntelliJ's
- * recommended action for stash entries.
- */
-export function stashRowContextMenuLabels(): Array<{
-  label: string;
-  action: ShelfTabStashAction;
-}> {
-  return [
-    { label: 'Pop', action: 'stashPop' },
-    { label: 'Apply', action: 'stashApply' },
-    { label: 'Show Diff', action: 'stashShowDiff' },
-    { label: 'Rename…', action: 'stashRename' },
-    { label: 'Create Branch from Stash…', action: 'stashBranchFromStash' },
-    { label: 'Drop', action: 'stashDrop' },
-    { label: 'Clear All Stashes', action: 'stashClearAll' },
   ];
 }
 
@@ -895,205 +774,19 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     await this._reloadState();
   }
 
-  private async _handleChangelistAction(message: ICommitToolWebviewMessage): Promise<void> {
-    const action = message.action as ChangelistAction | FileAction | 'contextOpen' | undefined;
-    if (!action) {
-      return;
-    }
-
-    // The webview posts `contextOpen` on right-click to ask the host to
-    // present the IntelliJ-parity menu. We populate a QuickPick from the
-    // already-tested label helpers (fileContextMenuLabels /
-    // changelistContextMenuLabels) and recurse with the user's pick. A file
-    // path on the message wins: file rows take precedence because a right-
-    // click on a file row always carries both `path` and `changelistId`.
-    if (action === 'contextOpen') {
-      if (message.path) {
-        const file = this._findFileChange(message.path);
-        // If we don't have metadata for the path (e.g. stale state), fall
-        // back to a minimal modified-file menu — better than silently
-        // dropping the right-click.
-        const fallback: IFileChange = {
-          path: message.path,
-          status: 'modified',
-          staged: false,
-        };
-        const labels = fileContextMenuLabels(file ?? fallback);
-        const picked = await vscode.window.showQuickPick(
-          labels.map((l) => ({
-            label: l.label,
-            description: l.shortcut,
-            _action: l.action,
-          })),
-          { title: message.path, placeHolder: 'Select an action' }
-        );
-        if (!picked) {
-          return;
-        }
-        await this._handleChangelistAction({
-          ...message,
-          action: picked._action,
-        });
-        return;
-      }
-      if (message.changelistId) {
-        const changelist = this._changelists.find((c) => c.id === message.changelistId);
-        // isActive is resolved against the authoritative service call when
-        // available; if the lookup fails we still render the menu with
-        // default flags so the right-click isn't a no-op.
-        let isActive = false;
-        try {
-          const repo = await this._resolveRepo();
-          if (repo) {
-            const active = await this._changelistService.getActiveChangelist(repo);
-            isActive = !!active && active.id === message.changelistId;
-          }
-          // eslint-disable-next-line no-restricted-syntax -- no logger in scope; best-effort isActive lookup falls back to false so the right-click menu still renders.
-        } catch {
-          // Best-effort — some tests stub the service with a resolved
-          // undefined / throw; we just fall back to isActive:false.
-        }
-        const labels = changelistContextMenuLabels({
-          isActive,
-          isDefault: changelist?.isDefault ?? false,
-        });
-        const picked = await vscode.window.showQuickPick(
-          labels.filter((l) => !l.disabled).map((l) => ({ label: l.label, _action: l.action })),
-          {
-            title: changelist?.name ?? 'Changelist',
-            placeHolder: 'Select an action',
-          }
-        );
-        if (!picked) {
-          return;
-        }
-        await this._handleChangelistAction({
-          ...message,
-          action: picked._action,
-        });
-        return;
-      }
-      return;
-    }
-
-    // File actions forwarded as changelistContextAction (UI can dispatch both
-    // node types through the same message for simplicity).
-    switch (action) {
-      case 'new':
-        await vscode.commands.executeCommand('intellig.changelist.new');
-        return;
-      case 'setActive':
-        if (message.changelistId) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.setActive',
-            message.changelistId
-          );
-        }
-        return;
-      case 'rename':
-        if (message.changelistId) {
-          await vscode.commands.executeCommand('intellig.changelist.rename', message.changelistId);
-        }
-        return;
-      case 'editDescription':
-        if (message.changelistId) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.editDescription',
-            message.changelistId
-          );
-        }
-        return;
-      case 'delete':
-        if (message.changelistId) {
-          await vscode.commands.executeCommand('intellig.changelist.delete', message.changelistId);
-        }
-        return;
-      case 'commitOnly':
-        if (message.changelistId) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.commitOnly',
-            message.changelistId
-          );
-        }
-        return;
-      case 'shelve':
-        // A file row carries both `path` and `changelistId` (path wins): open
-        // the Shelve dialog pre-checking that one file. A changelist-level
-        // right-click (no path) shelves the whole changelist directly.
-        if (message.path) {
-          await vscode.commands.executeCommand('intellig.shelve', message.path);
-        } else if (message.changelistId) {
-          await vscode.commands.executeCommand('intellig.changelist.shelve', message.changelistId);
-        }
-        return;
-      case 'moveToChangelist': {
-        // The context-menu message carries only the clicked path; an explicit
-        // targetFiles list (multi-select) takes precedence when present.
-        const files = message.targetFiles ?? (message.path ? [message.path] : undefined);
-        if (files) {
-          await vscode.commands.executeCommand('intellig.changelist.moveFilesTo', files);
-        }
-        return;
-      }
-      case 'showDiff':
-        if (message.path) {
-          const fileUri = await this._resolveFileUri(message.path);
-          if (fileUri) {
-            await vscode.commands.executeCommand('intellig.explorer.showDiff', fileUri);
-          }
-        }
-        return;
-      case 'jumpToSource':
-        if (message.path) {
-          const fileUri = await this._resolveFileUri(message.path);
-          if (fileUri) {
-            await vscode.commands.executeCommand('intellig.localChanges.openFile', fileUri);
-          }
-        }
-        return;
-      case 'rollback':
-        if (message.path) {
-          // Route through the multi-file Rollback command so the user gets the
-          // IntelliJ-style file-listing confirm and status-aware revert
-          // (added → unindex, untracked → delete). Pass the file's known
-          // status from the changelist model; fall back to a plain revert when
-          // the row's status can't be resolved.
-          const status = this._findChangeStatus(message.path);
-          if (status) {
-            await vscode.commands.executeCommand('intellig.rollbackChanges', [
-              { path: message.path, status },
-            ]);
-          } else {
-            await vscode.commands.executeCommand('intellig.revertFile', message.path);
-          }
-          await this._reloadState();
-        }
-        return;
-      case 'addToVcs':
-        if (message.path) {
-          const fileUri = await this._resolveFileUri(message.path);
-          if (fileUri) {
-            await vscode.commands.executeCommand('intellig.explorer.addToVcs', fileUri);
-          }
-        }
-        return;
-      case 'showHistory':
-        if (message.path) {
-          const fileUri = await this._resolveFileUri(message.path);
-          if (fileUri) {
-            await vscode.commands.executeCommand('intellig.showHistory', fileUri);
-          }
-        }
-        return;
-      case 'annotate':
-        if (message.path) {
-          const fileUri = await this._resolveFileUri(message.path);
-          if (fileUri) {
-            await vscode.commands.executeCommand('intellig.toggleBlame', fileUri);
-          }
-        }
-        return;
-    }
+  private _handleChangelistAction(message: ICommitToolWebviewMessage): Promise<void> {
+    return handleChangelistAction(
+      {
+        getChangelists: () => this._changelists,
+        getActiveChangelist: (repo) => this._changelistService.getActiveChangelist(repo),
+        resolveRepo: () => this._resolveRepo(),
+        resolveFileUri: (path) => this._resolveFileUri(path),
+        findChangeStatus: (path) => this._findChangeStatus(path),
+        findFileChange: (path) => this._findFileChange(path),
+        reloadState: () => this._reloadState(),
+      },
+      message
+    );
   }
 
   /**
@@ -1335,135 +1028,15 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
 
   // ── Shelf-tab message handlers ─────────────────────────────────────────
 
-  /**
-   * Route a Shelf-tab context-menu action to the appropriate controller.
-   * Unknown actions silently no-op so a stale webview bundle won't crash.
-   *
-   * When `action === 'contextOpen'`, the webview is asking the host to
-   * display the menu. The host shows a QuickPick using
-   * {@link shelfRowContextMenuLabels} / {@link stashRowContextMenuLabels}
-   * and forwards the user's pick back through this same code path.
-   */
-  private async _handleShelfTabAction(message: ICommitToolWebviewMessage): Promise<void> {
-    const action = message.action as
-      | ShelfTabShelfAction
-      | ShelfTabStashAction
-      | 'contextOpen'
-      | undefined;
-    if (!action) {
-      return;
-    }
-
-    // contextOpen branch — prompt the user, then recurse with the chosen
-    // action. Keeping the recursion tight means the action-dispatch switch
-    // below doesn't have to know whether the trigger was a right-click
-    // or a direct command invocation.
-    if (action === 'contextOpen') {
-      if (message.rowKind === 'shelf' && message.shelfId) {
-        const entry = this._shelfItems.find((i) => i.id === message.shelfId);
-        if (!entry) {
-          return;
-        }
-        const labels = shelfRowContextMenuLabels({
-          isAlreadyUnshelved: entry.unshelvedAt !== undefined,
-        });
-        const picked = await vscode.window.showQuickPick(
-          labels.map((l) => ({ label: l.label, _action: l.action })),
-          { title: `Shelf: ${entry.name}`, placeHolder: 'Select an action' }
-        );
-        if (!picked) {
-          return;
-        }
-        await this._handleShelfTabAction({
-          ...message,
-          action: picked._action,
-        });
-        return;
-      }
-      if (message.rowKind === 'stash' && typeof message.stashIndex === 'number') {
-        const labels = stashRowContextMenuLabels();
-        const picked = await vscode.window.showQuickPick(
-          labels.map((l) => ({ label: l.label, _action: l.action })),
-          {
-            title: `stash@{${message.stashIndex}}`,
-            placeHolder: 'Select an action',
-          }
-        );
-        if (!picked) {
-          return;
-        }
-        await this._handleShelfTabAction({
-          ...message,
-          action: picked._action,
-        });
-        return;
-      }
-      return;
-    }
-
-    if (message.rowKind === 'shelf') {
-      if (!message.shelfId) {
-        return;
-      }
-      const id = message.shelfId;
-      switch (action) {
-        case 'shelfApply':
-          await this._shelfController.apply?.(id);
-          return;
-        case 'shelfShowDiff':
-          await this._shelfController.showDiff?.(id);
-          return;
-        case 'shelfRename':
-          await this._shelfController.rename?.(id);
-          return;
-        case 'shelfRestore':
-          await this._shelfController.restore?.(id);
-          return;
-        case 'shelfDelete':
-          await this._shelfController.delete?.(id);
-          return;
-        case 'shelfCreatePatch':
-          await this._shelfController.createPatch?.(id);
-          return;
-        case 'shelfImportPatches':
-          await this._shelfController.importPatches?.();
-          return;
-        default:
-          return;
-      }
-    }
-
-    if (message.rowKind === 'stash') {
-      if (typeof message.stashIndex !== 'number') {
-        return;
-      }
-      const idx = message.stashIndex;
-      switch (action) {
-        case 'stashApply':
-          await this._stashController.apply?.(idx);
-          return;
-        case 'stashPop':
-          await this._stashController.pop?.(idx);
-          return;
-        case 'stashDrop':
-          await this._stashController.drop?.(idx);
-          return;
-        case 'stashShowDiff':
-          await this._stashController.showDiff?.(idx);
-          return;
-        case 'stashRename':
-          await this._stashController.rename?.(idx);
-          return;
-        case 'stashBranchFromStash':
-          await this._stashController.branchFromStash?.(idx);
-          return;
-        case 'stashClearAll':
-          await this._stashController.clearAll?.();
-          return;
-        default:
-          return;
-      }
-    }
+  private _handleShelfTabAction(message: ICommitToolWebviewMessage): Promise<void> {
+    return handleShelfTabAction(
+      {
+        getShelfController: () => this._shelfController,
+        getStashController: () => this._stashController,
+        getShelfItems: () => this._shelfItems,
+      },
+      message
+    );
   }
 }
 
