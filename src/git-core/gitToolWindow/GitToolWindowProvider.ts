@@ -19,6 +19,8 @@ import {
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
 import { ICommitNode, IBranchRef, generateCommitGraph } from '../commitGraph';
 import { fingerprintLogState } from './provider/logStateFingerprint';
+import { sanitizeWebviewLogFilter } from './provider/logFilterSanitizer';
+import { bfsPathToMergeBase, groupBranchFilterOptions } from './provider/loadedGraphQueries';
 import { loadLogFilter, saveLogFilter } from '../../utils/logFilterStorage';
 import {
   savePanelWidths,
@@ -2512,181 +2514,27 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Whether every criterion of a log filter is unset — i.e. it would scope the
-   * log to nothing more than the default view, so it should collapse to
-   * `undefined`. Shared by the filter-bar apply path and the branch selector.
+   * Apply a filter posted by the webview: spend the in-flight search draft,
+   * remember the regex/case UI toggles, sanitize the untrusted payload via
+   * {@link sanitizeWebviewLogFilter}, and fire the filter request.
    */
-  private _isLogFilterEmpty(filter: ILogFilter): boolean {
-    return (
-      !filter.branch &&
-      !(filter.branches && filter.branches.length > 0) &&
-      !filter.branchesNone &&
-      !filter.logRange &&
-      !filter.searchText &&
-      !filter.author &&
-      !(filter.authors && filter.authors.length > 0) &&
-      !filter.path &&
-      !(filter.paths && filter.paths.length > 0) &&
-      !filter.since &&
-      !filter.until &&
-      !filter.noMerges &&
-      !filter.firstParent &&
-      !filter.simplifyMerges &&
-      !filter.minParents &&
-      !filter.maxParents
-    );
-  }
-
-  /**
-   * Handle applying log filter from webview
-   */
-  /**
-   * Reject a ref that would be unsafe to thread into `git log <ref>`: a leading
-   * `-` (parsed as a CLI flag) or `.` (invalid per git-check-ref-format), on
-   * the whole ref or any `/`-segment — the SAME shape the ops-layer getLog
-   * guard throws on, so a bad ref becomes a clean filter no-op here instead of
-   * a logged InvalidArgumentError there. Defense-in-depth; the ops guard stays.
-   */
-  private _isUnsafeRef(ref: string): boolean {
-    return (
-      ref.startsWith('-') ||
-      ref.startsWith('.') ||
-      ref.split('/').some((seg) => seg.startsWith('-'))
-    );
-  }
-
-  /**
-   * Parse a webview-supplied filter date, returning `undefined` for an empty
-   * value or one that yields an Invalid Date. An Invalid Date is truthy, so
-   * without this it survives {@link _isLogFilterEmpty} and throws in
-   * `toISOString()` in the ops layer.
-   */
-  private _parseFilterDate(value: string | null | undefined): Date | undefined {
-    if (!value) {
-      return undefined;
-    }
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? undefined : parsed;
-  }
-
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {
-    let filter: ILogFilter | undefined;
-
     // Applying a filter commits whatever the box held, so the in-flight draft
     // is spent. Keeping it would let the input keep displaying text that the
     // active filter does not contain.
     this._searchDraft = undefined;
-
+    let filter: ILogFilter | undefined;
     if (webviewFilter) {
-      filter = {};
-
       // The regex/case toggles are UI properties independent of the search
       // text (IntelliJ TextFilterModel): remember them in their own slot so a
       // toggle-first-then-type flow survives re-renders. They only join the
-      // FILTER (below) alongside text — flags alone are not a filter criterion.
+      // FILTER alongside text — flags alone are not a filter criterion.
       this._searchModeUi = {
         regex: Boolean(webviewFilter.searchRegex),
         caseSensitive: Boolean(webviewFilter.searchCaseSensitive),
       };
-
-      // The branch/range crosses the untrusted webview boundary before reaching
-      // `git log <ref>`; reject a leading `-` (CLI-flag injection) or `.`
-      // (invalid per git-check-ref-format) defensively, mirroring the
-      // GitService.getLog ref guard. A dropped ref simply leaves the branch
-      // scope unset rather than applying a hostile value.
-      if (webviewFilter.branch && !this._isUnsafeRef(webviewFilter.branch)) {
-        // IntelliJ BranchFilterModel: a value containing `..`/`...` is a range
-        // (VcsLogRangeFilter), not a single branch ref — route it accordingly.
-        if (webviewFilter.branch.includes('..')) {
-          filter.logRange = webviewFilter.branch;
-        } else {
-          filter.branch = webviewFilter.branch;
-        }
-      }
-      // `searchText` / `author` / `path` do NOT get the branch's leading-`-`/`.`
-      // guard, and that asymmetry is intentional: `branch` is threaded as a
-      // POSITIONAL `git log <ref>` (so a leading `-` would be a flag), whereas
-      // these three reach git ONLY in injection-safe positions downstream —
-      // `--author=<v>` / `--grep=<v>` (`=`-bound, value can't split into its own
-      // argv token) and `path` after the `--` pathspec separator. Applying the
-      // ref guard here would also wrongly reject legitimate values: a `.`-leading
-      // dotfile path (`.github/…`) and a search term that starts with `-`. The
-      // safe-position contract is pinned by the getLog argv tests
-      // (getLogPathFilter / getLogMatchMode).
-      if (webviewFilter.searchText) {
-        filter.searchText = webviewFilter.searchText;
-        // Mode flags only matter alongside search text; a toggle with no text
-        // is not a filter criterion, so it must not keep the filter "active".
-        if (webviewFilter.searchRegex) {
-          filter.searchRegex = true;
-        }
-        if (webviewFilter.searchCaseSensitive) {
-          filter.searchCaseSensitive = true;
-        }
-      }
-      if (webviewFilter.author) {
-        filter.author = webviewFilter.author;
-      }
-      // Multi-select authors (User popup checkboxes) — safe downstream: each
-      // value reaches git `=`-bound as its own `--author=<v>`.
-      if (Array.isArray(webviewFilter.authors)) {
-        const authors = webviewFilter.authors.filter((a) => typeof a === 'string' && a.length > 0);
-        if (authors.length > 0) {
-          filter.authors = authors;
-        }
-      }
-      // Multi-select branches (nested checkbox tree): each is a positional
-      // `git log <ref>`, so apply the same leading-`-`/`.` guard as the single
-      // branch; drop unsafe entries.
-      if (Array.isArray(webviewFilter.branches)) {
-        const safe = webviewFilter.branches.filter(
-          (b) => typeof b === 'string' && b.length > 0 && !this._isUnsafeRef(b)
-        );
-        if (safe.length > 0) {
-          filter.branches = safe;
-        }
-      }
-      // Explicit "no branches selected" — show no commits. Only honored when no
-      // concrete branch subset is present (a subset already scopes the log).
-      if (webviewFilter.branchesNone && !(filter.branches && filter.branches.length > 0)) {
-        filter.branchesNone = true;
-      }
-      if (webviewFilter.path) {
-        filter.path = webviewFilter.path;
-      }
-      // Multi-select paths reach git after the `--` pathspec separator, so (like
-      // the single path) they need no leading-`-`/`.` guard.
-      if (Array.isArray(webviewFilter.paths)) {
-        const paths = webviewFilter.paths.filter((p) => typeof p === 'string' && p.length > 0);
-        if (paths.length > 0) {
-          filter.paths = paths;
-        }
-      }
-      // Drop a value that parses to an Invalid Date: a garbage string from a
-      // desynced/compromised webview is truthy, so it would survive
-      // `_isLogFilterEmpty` and later throw in `since.toISOString()` downstream
-      // (surfacing as a silently empty graph). Same drop-silently convention as
-      // the unsafe-ref guard above.
-      const since = this._parseFilterDate(webviewFilter.since);
-      if (since) {
-        filter.since = since;
-      }
-      const until = this._parseFilterDate(webviewFilter.until);
-      if (until) {
-        filter.until = until;
-      }
-      // Only meaningful alongside the instant it produced, so an unknown value
-      // (or one with no `since`) is simply dropped and the range reads custom.
-      if (since && (webviewFilter.datePreset === '24h' || webviewFilter.datePreset === '7d')) {
-        filter.datePreset = webviewFilter.datePreset;
-      }
-
-      // Check if filter is empty
-      if (this._isLogFilterEmpty(filter)) {
-        filter = undefined;
-      }
+      filter = sanitizeWebviewLogFilter(webviewFilter);
     }
-
     this.setLogFilter(filter);
     this._onDidRequestLogFilter.fire(filter);
   }
@@ -2728,31 +2576,7 @@ export class GitToolWindowProvider
     const perRepoBranches = await Promise.all(
       branchSources.map((r) => gitService.getBranches(r).catch(() => []))
     );
-    const local = new Set<string>();
-    const remotes = new Map<string, Set<string>>();
-    for (const list of perRepoBranches) {
-      for (const b of list) {
-        if (b.type === 'local') {
-          local.add(b.name);
-        } else if (b.type === 'remote') {
-          // Remote ref names look like `origin/feature`; group by the remote.
-          const slash = b.name.indexOf('/');
-          const remote = slash > 0 ? b.name.slice(0, slash) : b.name;
-          let set = remotes.get(remote);
-          if (!set) {
-            set = new Set<string>();
-            remotes.set(remote, set);
-          }
-          set.add(b.name);
-        }
-      }
-    }
-    const groups: IBranchFilterGroups = {
-      local: [...local].sort(),
-      remotes: [...remotes.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([remote, set]) => ({ remote, branches: [...set].sort() })),
-    };
+    const groups = groupBranchFilterOptions(perRepoBranches);
     this._logFilterOptionsCache = { key: cacheKey, groups, at: Date.now() };
     this._postLogFilterOptions(groups);
   }
@@ -3073,71 +2897,9 @@ export class GitToolWindowProvider
     return undefined;
   }
 
-  /**
-   * BFS over `commitNodes`'s parent edges from `targetHash`
-   * back to `mergeBaseHash`. Every visited commit (inclusive of the merge
-   * base when found) is added to the result set.
-   *
-   * Trap T-1: cap walking at `commitNodes.length` to defend against
-   * cyclic / corrupt parent chains. When the BFS exhausts loaded nodes
-   * without finding the merge-base, the result is the full set of walked
-   * commits (no infinite loop, partial highlight).
-   *
-   * Trap T-8: when `mergeBaseHash` is undefined (no common ancestor or
-   * git error), the BFS still walks until exhaustion or until it leaves
-   * the loaded commit set — same partial-highlight outcome.
-   *
-   * orphan-branch behavior. When the focused
-   * branch shares no common ancestor with HEAD (e.g. `git checkout
-   * --orphan`), `getMergeBase` returns undefined and this BFS walks
-   * the entire loaded ancestry of the focused branch. That over-
-   * highlights compared to a strict "tip → merge-base" path, but is
-   * the safe conservative default — every commit the user can see
-   * from the focused branch is "on path" from focus's perspective.
-   */
+  /** Thin delegate over {@link bfsPathToMergeBase} on the loaded window. */
   private _bfsPathToMergeBase(targetHash: string, mergeBaseHash: string | undefined): Set<string> {
-    const path = new Set<string>();
-    const nodeByHash = new Map<string, ICommitNode>();
-    for (const node of this._extendedLogState.commitNodes) {
-      nodeByHash.set(node.commit.hash, node);
-    }
-
-    if (!nodeByHash.has(targetHash)) {
-      return path;
-    }
-
-    const queue: string[] = [targetHash];
-    const cap = this._extendedLogState.commitNodes.length;
-    let walked = 0;
-    while (queue.length > 0) {
-      if (walked >= cap) {
-        // Trap T-1 — bail on suspected corrupt parent chain.
-        break;
-      }
-      const head = queue.shift()!;
-      if (path.has(head)) {
-        continue;
-      }
-      path.add(head);
-      walked += 1;
-
-      // If we just reached the merge-base, stop expanding from this
-      // branch of the BFS.
-      if (mergeBaseHash !== undefined && head === mergeBaseHash) {
-        continue;
-      }
-
-      const node = nodeByHash.get(head);
-      if (!node) {
-        continue;
-      }
-      for (const parent of node.commit.parents) {
-        if (!path.has(parent) && nodeByHash.has(parent)) {
-          queue.push(parent);
-        }
-      }
-    }
-    return path;
+    return bfsPathToMergeBase(this._extendedLogState.commitNodes, targetHash, mergeBaseHash);
   }
 
   /**
