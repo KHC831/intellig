@@ -152,6 +152,65 @@ describe('check-typed-messages guard', () => {
     }
   });
 
+  it('Rule C: passes a forwarding shell that carries a rule-c exempt with reason', () => {
+    // A dispatcher extraction moves the switch AND its assertNever gate to a
+    // module; the provider keeps a thin forwarder. The file-scoped rule-c
+    // marker (distinct from the line-scoped A/B marker, which such files may
+    // already carry for other rules) says where the gate went.
+    const fx = makeFixture('ruleCExempt', {
+      'panel.ts':
+        "import { asFooInbound } from './foo.protocol';\n" +
+        'class P {\n' +
+        '  // typed-messages-exempt-rule-c: the switch and its exhaustiveness gate live in handlers.ts\n' +
+        '  _onMessage(raw) {\n    dispatchFoo(this, raw);\n  }\n}\n',
+      'foo.protocol.ts': "export type FooInbound = { type: 'a' };\n",
+    });
+    try {
+      const { status, stderr } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 0, `rule-c exempt with reason must pass; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule C: a prose mention of assertNever in a comment is not a gate', () => {
+    const fx = makeFixture('ruleCProse', {
+      'panel.ts':
+        "import { asFooInbound } from './foo.protocol';\n" +
+        'class P {\n' +
+        '  // this handler used to carry an assertNever gate\n' +
+        '  _onMessage(raw) {\n' +
+        '    const m = asFooInbound(raw);\n    if (!m) return;\n' +
+        "    switch (m.type) {\n      case 'a': return;\n    }\n  }\n}\n",
+      'foo.protocol.ts': "export type FooInbound = { type: 'a' };\n",
+    });
+    try {
+      const { status } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'a comment mentioning assertNever must not satisfy rule C');
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rule C: a bare A/B exempt comment does NOT satisfy the rule-c gate', () => {
+    const fx = makeFixture('ruleCNoBypass', {
+      'panel.ts':
+        "import { asFooInbound } from './foo.protocol';\n" +
+        'class P {\n' +
+        '  // typed-messages-exempt: unrelated rule-A justification\n' +
+        '  _onMessage(raw) {\n' +
+        '    const m = asFooInbound(raw);\n    if (!m) return;\n' +
+        "    switch (m.type) {\n      case 'a': return;\n    }\n  }\n}\n",
+      'foo.protocol.ts': "export type FooInbound = { type: 'a' };\n",
+    });
+    try {
+      const { status } = runGuard([fx.srcDir, '']);
+      assert.strictEqual(status, 1, 'the line-scoped A/B marker must not bypass rule C');
+    } finally {
+      fs.rmSync(fx.dir, { recursive: true, force: true });
+    }
+  });
+
   it('Rule D: fails a file defining an *_INBOUND_TYPES array with no InboundArrayTie', () => {
     const fx = makeFixture('ruleD', {
       'foo.protocol.ts':

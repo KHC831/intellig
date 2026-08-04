@@ -180,11 +180,19 @@ function main() {
     }
 
     // Rule C — a protocol-importing handler must keep an assertNever gate.
+    // The gate must be a CALL (a prose mention in a comment is not a gate).
+    // A forwarding shell whose switch + gate moved to a module says so with a
+    // file-scoped `// typed-messages-exempt-rule-c: <reason>` marker (distinct
+    // from the line-scoped A/B marker, which such files may already carry).
     if (PROTOCOL_IMPORT_RE.test(content) && HANDLER_DEF_RE.test(content)) {
-      if (!content.includes('assertNever')) {
+      const hasGateCall = /assertNever\s*\(/.test(content);
+      const hasRuleCExempt = content.includes('typed-messages-exempt-rule-c:');
+      if (!hasGateCall && !hasRuleCExempt) {
         failures.push(
           `check-typed-messages: ${relRoot} imports a *.protocol union and defines a message\n` +
-            'handler but has no assertNever exhaustiveness gate. Add `default: assertNever(msg)`.'
+            'handler but has no assertNever exhaustiveness gate. Add `default: assertNever(msg)`,\n' +
+            'or — when the switch and its gate live in an extracted module — justify with a\n' +
+            '`// typed-messages-exempt-rule-c: <reason>` comment.'
         );
       }
     }

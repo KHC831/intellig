@@ -666,13 +666,15 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
     /** Extract the message types the provider's dispatch switch handles. */
     function handledMessageTypes(): Set<string> {
       const providerSrc = fs.readFileSync(
-        path.resolve(__dirname, '../../../src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
+        path.resolve(__dirname, '../../../src/git-core/gitToolWindow/provider/messageHandlers.ts'),
         'utf8'
       );
       // Slice out just the _handleWebviewMessage switch body so unrelated
       // switches (e.g. keyboard `case 'ArrowLeft':`) don't pollute the set.
-      const methodStart = providerSrc.indexOf('_handleWebviewMessage(message: IWebviewMessage)');
-      assert.notStrictEqual(methodStart, -1, 'sanity: _handleWebviewMessage method found');
+      const methodStart = providerSrc.indexOf(
+        'dispatchLogMessage(ctx: IGtwControllerContext, message: IWebviewMessage)'
+      );
+      assert.notStrictEqual(methodStart, -1, 'sanity: dispatchLogMessage function found');
       const switchStart = providerSrc.indexOf('switch (msg.type)', methodStart);
       const defaultIdx = providerSrc.indexOf('default:', switchStart);
       assert.ok(

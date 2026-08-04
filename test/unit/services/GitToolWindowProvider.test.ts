@@ -3,6 +3,7 @@
  */
 
 import '../../setup';
+import { handleCommitFileDoubleClick } from '../../../src/git-core/gitToolWindow/provider/messageHandlers';
 import { isUnsafeRef } from '../../../src/git-core/gitToolWindow/provider/logFilterSanitizer';
 import { readGtwWebviewSource } from '../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
@@ -544,7 +545,6 @@ describe('Log View', () => {
   describe('_handleCommitFileDoubleClick — stale-hash guard', () => {
     type DblClickSurface = {
       _extendedLogState: { commitNodes: { commit: { hash: string; parents: string[] } }[] };
-      _handleCommitFileDoubleClick: (hash: string, path: string) => void;
     };
 
     it('fires the diff for a commit still in the rendered list', () => {
@@ -553,7 +553,7 @@ describe('Log View', () => {
       const fired: string[] = [];
       const sub = provider.onDidRequestCommitDiff((e) => fired.push(e.commitHash));
       try {
-        surface._handleCommitFileDoubleClick('abc123', 'src/foo.ts');
+        handleCommitFileDoubleClick(provider, 'abc123', 'src/foo.ts');
       } finally {
         sub.dispose();
       }
@@ -566,7 +566,7 @@ describe('Log View', () => {
       const fired: string[] = [];
       const sub = provider.onDidRequestCommitDiff((e) => fired.push(e.commitHash));
       try {
-        surface._handleCommitFileDoubleClick('staleHash', 'src/foo.ts');
+        handleCommitFileDoubleClick(provider, 'staleHash', 'src/foo.ts');
       } finally {
         sub.dispose();
       }

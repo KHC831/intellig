@@ -3,6 +3,7 @@
  */
 
 import '../../setup';
+import { handleLoadMoreCommits } from '../../../src/git-core/gitToolWindow/provider/messageHandlers';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import * as gitToolWindowProvider from '../../../src/ui-shell/GitToolWindowProvider';
@@ -1248,7 +1249,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       });
 
       // Simulate the message handling by calling the internal handler
-      (provider as unknown as { _handleLoadMoreCommits: () => void })._handleLoadMoreCommits();
+      handleLoadMoreCommits(provider);
     });
   });
 

@@ -1,7 +1,7 @@
 {
   "cap": 800,
   "budgets": {
-    "git-core/gitToolWindow/GitToolWindowProvider.ts": 4303,
+    "git-core/gitToolWindow/GitToolWindowProvider.ts": 4077,
     "commits/CommitContextMenuCommands.ts": 1078,
     "branches/BranchContextMenuCommands.ts": 952,
     "git-core/GitService.ts": 2888,

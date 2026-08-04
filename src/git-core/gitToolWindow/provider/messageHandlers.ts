@@ -1,4 +1,10 @@
-import { computeRangeSelection } from '../multiSelect';
+import * as vscode from 'vscode';
+import { computeRangeSelection, type IMenuStateNode } from '../multiSelect';
+import { asGitToolWindowInbound } from '../gitToolWindow.protocol';
+import { isLogContextAction, type LogContextAction } from './logActions';
+import type { IWebviewMessage, IWebviewLogFilter } from '../gitToolWindow.wireTypes';
+import { assertNever } from '../../../utils/assertNever';
+import { getLogger } from '../../../utils/logger';
 import type { IGtwControllerContext } from './IGtwControllerContext';
 import { buildDetailsPanelPlaceholderModel, commitNodeToBaseDetails } from './detailsPanelModel';
 import type { DetailsPanelModel } from './detailsPanelModel';
@@ -390,4 +396,289 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
   ctx.postSyncSelection();
   ctx.postMenuStateUpdate();
   postDetailsForSelection(ctx);
+}
+
+/**
+ * Dispatch a Log-scoped webview message: runtime-reject unknown types, then
+ * route each message to its handler. Tab-router messages never reach this —
+ * the provider's shell pre-filters them (`_routeIfNonLog`) before delegating.
+ */
+export function dispatchLogMessage(ctx: IGtwControllerContext, message: IWebviewMessage): void {
+  // Runtime-reject an unknown/old type (storm-attribution log preserved);
+  // assertNever below is the compile-time exhaustiveness gate over the union.
+  const msg = asGitToolWindowInbound(message);
+  if (!msg) {
+    getLogger()
+      .child({ component: 'GitToolWindowProvider' })
+      .warn('unknown webview message type', {
+        messageType: typeof message.type === 'string' ? message.type : '<non-string>',
+      });
+    return;
+  }
+  switch (msg.type) {
+    case 'focusUndockedPanel':
+      // Sidebar placeholder button while the log is undocked.
+      void ctx.revealLogHost();
+      break;
+    case 'setDetailsGroupBy':
+      if (msg.groupBy === 'tree' || msg.groupBy === 'flat') {
+        ctx.setDetailsGroupBy(msg.groupBy);
+      }
+      break;
+    case 'selectCommit':
+      if (msg.commitHash) {
+        ctx.commitSelection(msg.commitHash, msg.viaHashLink === true);
+      }
+      break;
+    case 'toggleCommitSelection':
+      if (msg.commitHash) {
+        toggleCommitSelection(ctx, msg.commitHash);
+      }
+      break;
+    case 'rangeSelectCommit':
+      // shift+click: replace selection with [anchor..click].
+      // The user's click anchor travels in the message and
+      // wins over the host's cached anchorHash. Ensures the host honours
+      // the JS view of the world for this single click instead of
+      // consulting a cache that can be one render stale (ADR-009 section 3).
+      // Real type narrow — accept string|null only,
+      // ignore wrong-type fields (a rogue / bug-mutated webview can't
+      // poison the host state).
+      if (msg.commitHash) {
+        if (typeof msg.anchorHash === 'string' || msg.anchorHash === null) {
+          ctx.extendedLogState.anchorHash = msg.anchorHash;
+        }
+        rangeSelectCommit(ctx, msg.commitHash);
+      }
+      break;
+    case 'addRangeSelectCommit':
+      // shift+ctrl+click: ADD [anchor..click] to existing selection.
+      // Same message-anchor-wins contract as rangeSelectCommit.
+      // Same type narrow.
+      if (msg.commitHash) {
+        if (typeof msg.anchorHash === 'string' || msg.anchorHash === null) {
+          ctx.extendedLogState.anchorHash = msg.anchorHash;
+        }
+        addRangeSelectCommit(ctx, msg.commitHash);
+      }
+      break;
+    case 'selectIfNotSelected':
+      // right-click on a non-selected commit.
+      if (msg.commitHash) {
+        selectIfNotSelected(ctx, msg.commitHash);
+      }
+      break;
+    case 'initRepository':
+      void vscode.commands.executeCommand('git.init');
+      break;
+    case 'commitContextMenu':
+      // Allow-list the untrusted `action` at the boundary (some arms —
+      // drop/reset/rebase — are destructive); an unknown action is dropped
+      // rather than cast-and-fired on the assumption the downstream switch
+      // stays exhaustive + default-safe. Array.isArray guards against a
+      // desynced message carrying a non-array commitHashes, which would
+      // throw inside _handleCommitContextMenu's .filter() call and abort
+      // dispatch. The sibling `selectRepositories` handler uses the same pattern.
+      if (isLogContextAction(msg.action) && Array.isArray(msg.commitHashes)) {
+        handleCommitContextMenu(ctx, msg.action, msg.commitHashes);
+      }
+      break;
+    case 'doubleClickFile':
+      // The only emitter is the `.changed-file-item` dblclick delegation,
+      // which always carries both commitHash and path.
+      if (msg.commitHash && msg.path) {
+        // opens a VS Code diff view for that file at the selected commit.
+        handleCommitFileDoubleClick(ctx, msg.commitHash, msg.path);
+      }
+      break;
+    case 'fileContextAction': {
+      // Details-panel changed-file context menu. Each action relays to the
+      // registered command (reference: Vcs.RepositoryChangesBrowserMenu),
+      // so the menu and the palette-hidden command stay one surface.
+      // Allow-list the untrusted action string at the boundary.
+      const commandByFileAction: Record<string, string> = {
+        showDiff: 'intellig.commit.showDiff',
+        openRepositoryVersion: 'intellig.commit.showFileInRevision',
+        fileHistoryFromHere: 'intellig.commit.fileHistoryFromHere',
+      };
+      const command = typeof msg.action === 'string' ? commandByFileAction[msg.action] : undefined;
+      if (command && msg.commitHash) {
+        // Pin the repo that OWNS this commit so the command acts on the
+        // row's context instead of re-resolving (and re-prompting) by hash.
+        void vscode.commands.executeCommand(command, {
+          hash: msg.commitHash,
+          path: msg.path,
+          repoRoot: ctx.resolveCommitRepoPin(msg.commitHash),
+        });
+      }
+      break;
+    }
+    case 'applyLogFilter':
+      ctx.applyLogFilter(msg.filter as IWebviewLogFilter | null);
+      break;
+    case 'logSearchDraft':
+      // In-flight (uncommitted) search text: remembered so a background
+      // re-render reissues it as the input value instead of wiping it.
+      ctx.setSearchDraft(typeof msg.text === 'string' ? msg.text : undefined);
+      break;
+    case 'jumpToCommitRequest':
+      // Filter-row Jump button → the ref-completing picker command.
+      void vscode.commands.executeCommand('intellig.toolWindow.jumpToHash');
+      break;
+    case 'requestLogFilterOptions':
+      // Defense-in-depth: the handler swallows per-root failures internally,
+      // but guard the fire-and-forget call so any unexpected throw can't
+      // surface as an unhandled rejection.
+      void ctx.requestLogFilterOptions().catch(() => {});
+      break;
+    case 'requestAuthorOptions':
+      // Fired when the User popup opens — fetch authors lazily (no load-time
+      // shortlog). Guard the fire-and-forget call as above.
+      void ctx.requestAuthorOptions().catch(() => {});
+      break;
+    case 'clearLogFilter':
+      // Fired by the "Clear filter" button on the filtered-empty
+      // graph state. Clearing is just applying a null filter, which
+      // resets `_extendedLogState.filter` and re-fires the log-filter
+      // event so the host reloads the unfiltered commit list. An
+      // explicit empty repo scope is part of "the filter" for this
+      // button: reset it too, or Clear leaves the list empty.
+      ctx.clearEmptyVisibleRepoScope();
+      ctx.applyLogFilter(null);
+      break;
+    case 'branchClick':
+      if (msg.branchName) {
+        ctx.branchClick(msg.branchName);
+      }
+      break;
+    case 'loadMoreCommits':
+      handleLoadMoreCommits(ctx);
+      break;
+    case 'panelResize':
+      if (msg.widths) {
+        handlePanelResize(ctx, msg.widths);
+      }
+      break;
+    case 'columnResize':
+      if (msg.widths) {
+        ctx.columnResize(msg.widths);
+      }
+      break;
+    case 'selectRepositories':
+      if (Array.isArray(msg.roots)) {
+        ctx.visibleRepositoriesSelection(msg.roots);
+      }
+      break;
+    case 'jumpToFixupTarget': {
+      // G6 parity: user clicked a fixup!/squash! link — scroll to the
+      // target commit (the one whose subject matches the text after the
+      // prefix).  Uses the same scrollToCommit path as jump-to-hash so
+      // the webview selection + scroll behaviour is identical.
+      const targetSubject = typeof msg.targetSubject === 'string' ? msg.targetSubject : undefined;
+      if (targetSubject) {
+        handleJumpToFixupTarget(ctx, targetSubject);
+      }
+      break;
+    }
+    default:
+      assertNever(msg);
+  }
+}
+
+/**
+ * G6 parity: jump to the fixup/squash target commit in the log.
+ *
+ * Finds the first commit in the loaded set whose subject (`.message`)
+ * exactly matches `targetSubject`, then scrolls to and selects it.
+ * Uses {@link scrollToCommit} so the webview gets both a selection
+ * update and a smooth scroll — the same path as jump-to-hash.
+ *
+ * When no matching commit is in the loaded window the call is a no-op;
+ * the user can load more commits and click the link again.
+ */
+export function handleJumpToFixupTarget(ctx: IGtwControllerContext, targetSubject: string): void {
+  const nodes = ctx.extendedLogState.commitNodes;
+  const target = nodes.find((n) => n.commit.message === targetSubject);
+  if (!target) {
+    return;
+  }
+  ctx.scrollToCommit(target.commit.hash);
+}
+
+/**
+ * Handle commit context menu action from the Graph Panel.
+ * Fires the same event as the log context menu, since both operate on commits.
+ */
+export function handleCommitContextMenu(
+  ctx: IGtwControllerContext,
+  action: LogContextAction,
+  commitHashes: string[]
+): void {
+  // Validate every targeted hash is still in the
+  // rendered commit list. The webview's selection state can drift
+  // mid-action if a refresh / force-push / log-filter change happens
+  // between the user opening the menu and clicking the action. Aborting
+  // with a toast is safer than silently firing the action with stale
+  // hashes (which could target the wrong commits after a rebase).
+  const known = new Set(ctx.extendedLogState.commitNodes.map((n) => n.commit.hash));
+  const stale = commitHashes.filter((h) => !known.has(h));
+  if (stale.length > 0) {
+    void vscode.window.showInformationMessage(
+      'Commit selection changed since the menu opened — please retry.'
+    );
+    return;
+  }
+  // Push the slim newest-first
+  // commit-node projection forward so handlers don't call back into
+  // the provider. ADR-009 section 6 covers the direction convention.
+  // Collapsed the prior parallel records (`displayOrder` and
+  // `parentCounts`) to this single typed list — same data, one
+  // lookup, one test-fixture shape.
+  const commitNodes: IMenuStateNode[] = ctx.extendedLogState.commitNodes.map((n) => ({
+    hash: n.commit.hash,
+    parentCount: (n.commit.parents || []).length,
+    // First parents — needed by the squash handler's perform-time
+    // first-parent-chain guard (single-branch check); without them the guard
+    // would be vacuous.
+    parents: n.commit.parents || [],
+    // Carry each row's source root (merged "all roots" log) so the action
+    // resolves the repo of the row clicked, not the hash-keyed index's
+    // last-writer for a hash shared across roots. Undefined in single-repo
+    // / specific-scope logs.
+    repoRoot: n.commit.repoRoot,
+  }));
+  ctx.fireLogContextAction({
+    action,
+    commitHashes,
+    commitNodes,
+  });
+}
+
+/**
+ * Handle double-click on a file in commit details
+ */
+export function handleCommitFileDoubleClick(
+  ctx: IGtwControllerContext,
+  commitHash: string,
+  filePath: string
+): void {
+  // Posture parity with `_handleCommitContextMenu`: only fire for a commit
+  // still in a rendered list, so a hash that drifted (refresh / force-push /
+  // filter change since the row was shown) can't reach `getCommit`. The diff
+  // path is read-only and already contained downstream, so a stale hash is
+  // dropped silently (no toast) rather than nagging on a read-only action.
+  const known = new Set(ctx.extendedLogState.commitNodes.map((n) => n.commit.hash));
+  // Include the History tab's commits — they sit outside the loaded Log graph
+  // window, so a changed-file double-click in the History details panel would
+  // otherwise be silently dropped.
+  for (const h of ctx.getHistoryCommitHashes()) {
+    known.add(h);
+  }
+  if (!known.has(commitHash)) {
+    return;
+  }
+  ctx.fireCommitDiffRequest({
+    commitHash,
+    filePath,
+  });
 }

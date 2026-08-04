@@ -10,6 +10,9 @@ import type { IRemoteUrl } from '../../../utils/remoteUrl';
 import type { DetailsGroupBy } from './detailsPanelModel.types';
 import type { DetailsPanelModel } from './detailsPanelModel';
 import type { GitToolWindowOutbound } from '../gitToolWindow.protocol';
+import type { IWebviewLogFilter } from '../gitToolWindow.wireTypes';
+import type { LogContextAction } from './logActions';
+import type { IMenuStateNode } from '../multiSelect';
 
 /**
  * The slice of the Git tool window provider that extracted builder and
@@ -164,4 +167,42 @@ export interface IGtwControllerContext {
   isKnownCommitHash(hash: string): boolean;
   /** Current Group By mode for the details panel's changed-file list. */
   getDetailsGroupBy(): DetailsGroupBy;
+
+  // ── Log message dispatch (dispatchLogMessage + the handlers it routes) ──
+  /** Reveal the log host (sidebar view or undocked panel). */
+  revealLogHost(): Promise<void>;
+  /** Set the details panel's Group By mode (already validated). */
+  setDetailsGroupBy(mode: DetailsGroupBy): void;
+  /** Select a commit clicked in the log; hash-link clicks also scroll to it. */
+  commitSelection(hash: string, viaHashLink: boolean): void;
+  /** Sanitize + apply a webview filter payload (null clears the filter). */
+  applyLogFilter(webviewFilter: IWebviewLogFilter | null): void;
+  /** Remember (or clear) the in-flight, uncommitted search text. */
+  setSearchDraft(text: string | undefined): void;
+  /** Fetch + post the Branch popup's grouped branch options. */
+  requestLogFilterOptions(): Promise<void>;
+  /** Fetch + post the User popup's author list. */
+  requestAuthorOptions(): Promise<void>;
+  /** Reset an explicit "no repositories" scope back to "all" (Clear filter). */
+  clearEmptyVisibleRepoScope(): void;
+  /** Focus the clicked branch (graph chip click). */
+  branchClick(branchName: string): void;
+  /** Clamp + persist the [author, date] log column widths. */
+  columnResize(widths: [number, number]): void;
+  /** Apply the Repository popup's checked-roots selection. */
+  visibleRepositoriesSelection(roots: string[]): void;
+  /** The repo root a commit-targeted action should pin, if unambiguous. */
+  resolveCommitRepoPin(hash: string): string | undefined;
+  /** Scroll the log to a commit; false when it is not in the loaded window. */
+  scrollToCommit(hash: string): boolean;
+  /** Fire the log context-menu action event (validated payload). */
+  fireLogContextAction(payload: {
+    action: LogContextAction;
+    commitHashes: string[];
+    commitNodes: readonly IMenuStateNode[];
+  }): void;
+  /** Fire the commit-diff request for a changed-file double-click. */
+  fireCommitDiffRequest(payload: { commitHash: string; filePath: string }): void;
+  /** Hashes of the History tab's commits (outside the loaded Log window). */
+  getHistoryCommitHashes(): string[];
 }
