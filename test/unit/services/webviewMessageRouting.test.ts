@@ -15,6 +15,7 @@
  */
 
 import '../../setup';
+import { readGtwWebviewSource } from '../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -652,10 +653,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
 
     /** Extract the message types the client entry posts to the host. */
     function emittedMessageTypes(): Set<string> {
-      const script = fs.readFileSync(
-        path.resolve(__dirname, '../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-        'utf8'
-      );
+      const script = readGtwWebviewSource();
       const types = new Set<string>();
       const re = /type:\s*'([\w.]+)'/g;
       let m: RegExpExecArray | null;

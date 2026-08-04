@@ -17,9 +17,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** Source of the bundled Git tool-window client entry (logFilterOptionsReady lives here). */
+/** Source of the filter-list builders module (logFilterOptionsReady lives here). */
 const ENTRY_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/logFilterLists.ts'),
   'utf8'
 );
 

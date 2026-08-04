@@ -19,18 +19,14 @@
  */
 
 import '../../../setup';
+import { readGtwWebviewSource } from '../../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 import { GitToolWindowProvider } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 import { computeMenuState } from '../../../../src/git-core/gitToolWindow/multiSelect';
 
 /** Source of the bundled Git tool-window client entry (applyMenuEnableMap lives here). */
-const ENTRY_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, '../../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-  'utf8'
-);
+const ENTRY_SOURCE = readGtwWebviewSource();
 
 function mkCommit(
   hash: string,

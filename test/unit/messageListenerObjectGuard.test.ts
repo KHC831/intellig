@@ -17,15 +17,11 @@
  */
 
 import '../setup';
+import { readGtwWebviewSource } from '../helpers/gtwWebviewSource';
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 
 /** Source of the bundled Git tool-window client entry (the message listeners live here). */
-const ENTRY_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-  'utf8'
-);
+const ENTRY_SOURCE = readGtwWebviewSource();
 
 /**
  * Extract a brace-matched block beginning at the first `{` after the header

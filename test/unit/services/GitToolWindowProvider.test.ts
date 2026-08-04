@@ -3,10 +3,9 @@
  */
 
 import '../../setup';
+import { readGtwWebviewSource } from '../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { isLogContextAction } from '../../../src/git-core/gitToolWindow/provider/logActions';
 import { computeMenuVisibility } from '../../../src/git-core/gitToolWindow/multiSelect';
@@ -16,10 +15,7 @@ import type { ICommitNode, IBranchRef } from '../../../src/git-core/commitGraph'
 import type { IRemoteUrl } from '../../../src/utils/remoteUrl';
 
 /** Source of the bundled Git tool-window client entry (was `_getInlineScript()`). */
-const ENTRY_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, '../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-  'utf8'
-);
+const ENTRY_SOURCE = readGtwWebviewSource();
 
 /**
  * Test-surface reaching into {@link GitToolWindowProvider}'s private

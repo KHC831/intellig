@@ -6,8 +6,8 @@
  */
 
 import '../../setup';
+import { readGtwWebviewSource } from '../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
-import * as fs from 'fs';
 import { GitToolWindowProvider } from '../../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../../src/services/interfaces';
 import { Uri, Webview } from '../../mocks/vscode';
@@ -361,10 +361,7 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
     // (which gate on getBoundingClientRect) can't be exercised here; assert the
     // bundled entry source carries them so the behavior can't silently vanish.
     it('the entry carries the divider min-width clamp + keyboard nudge', () => {
-      const entrySrc = fs.readFileSync(
-        require.resolve('../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-        'utf8'
-      );
+      const entrySrc = readGtwWebviewSource();
       assert.ok(entrySrc.includes('MIN_PANEL_PX'), 'min-width constant present');
       assert.ok(entrySrc.includes('100'), '100px minimum present');
       assert.ok(entrySrc.includes('ArrowLeft') && entrySrc.includes('ArrowRight'), 'arrow keys');

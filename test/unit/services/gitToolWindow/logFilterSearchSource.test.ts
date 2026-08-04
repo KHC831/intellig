@@ -9,16 +9,12 @@
  */
 
 import '../../../setup';
+import { readGtwWebviewSource } from '../../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 import { GitToolWindowProvider } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 
-const ENTRY_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, '../../../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-  'utf8'
-);
+const ENTRY_SOURCE = readGtwWebviewSource();
 
 interface Internals {
   _searchDraft?: string;

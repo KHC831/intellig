@@ -29,10 +29,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /** Source of the bundled Git tool-window client entry (the scroll handlers live here). */
-const ENTRY_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
-  'utf8'
-);
+const ENTRY_SOURCE =
+  fs.readFileSync(
+    path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/gitToolWindow.ts'),
+    'utf8'
+  ) +
+  fs.readFileSync(
+    path.resolve(__dirname, '../../src/git-core/gitToolWindow/webview/logSelection.ts'),
+    'utf8'
+  );
 
 /**
  * Extract a brace-matched block beginning at the first `{` after the header

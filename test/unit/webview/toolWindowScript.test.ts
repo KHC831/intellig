@@ -65,10 +65,24 @@ describe('webview: git tool-window entry (jsdom)', () => {
     // prefers the native CSS.escape and falls back when the global CSS is
     // absent), so a malformed value degrades to "no match", not a thrown
     // querySelector.
-    const entrySource = fs.readFileSync(
-      path.join(__dirname, '..', '..', '..', 'src', ENTRY + '.ts'),
-      'utf8'
+    // The entry split its interaction code into sibling modules; the guard
+    // scans the whole webview directory so a selector added in ANY module
+    // stays covered.
+    const webviewDir = path.join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      'src',
+      'git-core',
+      'gitToolWindow',
+      'webview'
     );
+    const entrySource = fs
+      .readdirSync(webviewDir)
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => fs.readFileSync(path.join(webviewDir, f), 'utf8'))
+      .join('\n');
     const matches = [...entrySource.matchAll(/\[data-hash="'\s*\+\s*([\s\S]+?)\s*\+\s*'"\]/g)];
     assert.ok(
       matches.length >= 5,

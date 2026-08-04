@@ -5,7 +5,6 @@
     "commits/CommitContextMenuCommands.ts": 1078,
     "branches/BranchContextMenuCommands.ts": 952,
     "git-core/GitService.ts": 2888,
-    "git-core/gitToolWindow/webview/gitToolWindow.ts": 2645,
     "commits/CommitDialog.ts": 1654,
     "commits/CommitToolWindow.ts": 1830,
     "shelf/ShelfService.ts": 1778,
