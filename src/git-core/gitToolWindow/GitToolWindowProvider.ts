@@ -99,6 +99,7 @@ import {
   saveDetailsGroupBy,
   type DetailsGroupBy,
 } from '../../utils/detailsGroupBy';
+import { DetailsModel } from './provider/DetailsModel';
 import { RepoScopeModel } from './provider/RepoScopeModel';
 import { BaseWebviewView, drainDisposables } from '../../utils/BaseWebviewView';
 import { dispatchGuardedWebviewMessage } from '../../utils/webviewMessageGuard';
@@ -302,8 +303,6 @@ export class GitToolWindowProvider
    * column is the flex absorber, so it has no stored width. Persisted to
    * workspace state so a user's drag survives re-render and commit-switch. */
   private _columnWidths: [number, number];
-  /** Changed-files Group By mode for the details panel (persisted). */
-  private _detailsGroupBy: DetailsGroupBy;
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
   private _isLoading: boolean = true;
@@ -339,16 +338,13 @@ export class GitToolWindowProvider
    * must never swallow a later identical update).
    */
   private _lastLogFingerprint: string | undefined;
-  private _pendingChangedFiles: IChangedFile[] | undefined;
-  private _pendingChangedFilesError: unknown;
   /**
-   * The commit {@link _pendingChangedFiles} was loaded for. The payload is only
-   * ever read for a matching hash, so a selection that lands on a different
-   * commit reads as "not loaded yet" (and gets a load) rather than showing its
-   * predecessor's files — mis-attribution is impossible instead of resting on
-   * every selection mutator remembering to clear.
+   * Details-panel pending state: single-commit files payload, containing
+   * branches, the multi-selection file cache, and the Group By mode. Public
+   * so white-box tests and per-cluster consumers reach the store directly;
+   * the provider's orchestrators own every effect around it.
    */
-  private _pendingChangedFilesHash: string | undefined;
+  public readonly details: DetailsModel;
   /**
    * Whether the render CURRENTLY running answers a user gesture. The webview
    * persists its focus claim across window sessions, so this is what separates
@@ -357,36 +353,6 @@ export class GitToolWindowProvider
    * it, and only for the duration of one synchronous render.
    */
   private _restoreFocusOnNextRender = false;
-  /**
-   * The commit a single-commit changed-files load is already running (or done)
-   * for. Keeps {@link requestSingleCommitFiles} idempotent so the seam can ask
-   * on every repaint without spawning a `git diff` per paint.
-   */
-  private _singleFilesRequestedHash: string | undefined;
-  /**
-   * Branches containing the expanded commit, fetched asynchronously after the
-   * commit is selected. `undefined` = not yet loaded (the panel shows a loading
-   * affordance); resets alongside the pending changed files on a new selection.
-   */
-  private _pendingContainingBranches: string[] | undefined;
-  /**
-   * The commit {@link _pendingContainingBranches} was loaded for. Pinned for
-   * the same reason as the changed-files payload: a list read under any other
-   * commit describes the wrong one.
-   */
-  private _pendingContainingBranchesHash: string | undefined;
-  /**
-   * Changed files per commit for the CURRENT multi-commit selection, keyed by
-   * hash, plus the selection they belong to. The key guards against a slow
-   * load landing after the user moved on: files are only painted while the
-   * selection that asked for them is still the live one.
-   */
-  private _multiChangedFiles = new Map<string, IChangedFile[]>();
-  /** Why a commit in the current selection contributed no files, keyed by hash. */
-  private _multiChangedFileErrors = new Map<string, string>();
-  private _multiSelectionKey: string | undefined;
-  /** Commits in the current selection whose files were NOT loaded (the cap). */
-  private _multiSelectionLoaded: ReadonlySet<string> | undefined;
   /**
    * Short-lived cache of the grouped Branch-popup options, keyed by the repo
    * scope. Collapses the per-open `requestLogFilterOptions` storm so a burst
@@ -623,8 +589,7 @@ export class GitToolWindowProvider
       ? loadPanelWidths(workspaceState)
       : [...DEFAULT_PANEL_WIDTHS];
 
-    // Load the persisted changed-files Group By mode.
-    this._detailsGroupBy = workspaceState ? loadDetailsGroupBy(workspaceState) : 'tree';
+    this.details = new DetailsModel(workspaceState ? loadDetailsGroupBy(workspaceState) : 'tree');
 
     // Load persisted log-column widths or use defaults
     this._columnWidths = workspaceState
@@ -1445,9 +1410,7 @@ export class GitToolWindowProvider
     }
 
     // Store the changed files and error for use in the next render
-    this._pendingChangedFiles = changedFiles;
-    this._pendingChangedFilesError = error;
-    this._pendingChangedFilesHash = hash;
+    this.details.setPendingFiles(hash, changedFiles, error);
 
     // Send a partial update to the webview instead of a full re-render
     // to preserve the graph panel's scroll position
@@ -1458,7 +1421,7 @@ export class GitToolWindowProvider
           ...commitNodeToBaseDetails(node),
           changedFiles,
           changedFilesError: error ? String(error) : undefined,
-          containingBranches: this._pendingBranchesFor(hash),
+          containingBranches: this.details.pendingBranchesFor(hash),
         };
         this.postToWebview({
           type: 'updateDetailsPanel',
@@ -1488,15 +1451,14 @@ export class GitToolWindowProvider
     if (this._extendedLogState.selectedCommits.size >= 2) {
       return;
     }
-    this._pendingContainingBranches = branches;
-    this._pendingContainingBranchesHash = hash;
+    this.details.setPendingContainingBranches(hash, branches);
 
     if (this.hasView()) {
       const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
           ...commitNodeToBaseDetails(node),
-          ...this._pendingFilesFor(hash),
+          ...this.details.pendingFilesFor(hash),
           containingBranches: branches,
         };
         this.postToWebview({
@@ -1582,21 +1544,10 @@ export class GitToolWindowProvider
     handleSelectCommits(this, hashes, anchor);
   }
 
-  // IGtwControllerContext — clear the pending changed-files payload + its
-  // error together (they always clear as a pair, so a single mutation method
-  // keeps the invariant rather than exposing two writable fields).
+  // IGtwControllerContext — clear the pending details-panel state as one unit
+  // (see {@link DetailsModel.clearPending} for the lockstep rationale).
   clearPendingChangedFiles(): void {
-    this._pendingChangedFiles = undefined;
-    this._pendingChangedFilesError = undefined;
-    this._pendingChangedFilesHash = undefined;
-    // A cleared payload means whatever was requested no longer describes the
-    // panel, so the next single-commit selection asks again.
-    this._singleFilesRequestedHash = undefined;
-    // Containing branches belong to the same commit selection; reset them in
-    // lockstep so a new selection starts from the loading state, never showing
-    // the previous commit's branch list.
-    this._pendingContainingBranches = undefined;
-    this._pendingContainingBranchesHash = undefined;
+    this.details.clearPending();
   }
 
   // IGtwControllerContext — capability methods for the single-select handler.
@@ -1987,23 +1938,14 @@ export class GitToolWindowProvider
     this.postToWebview(msg);
   }
 
-  /**
-   * Identity of a multi-commit selection, order-independent — the cache key
-   * that decides whether a completed file load still describes what is
-   * selected.
-   */
-  private _selectionKeyOf(hashes: readonly string[]): string {
-    return [...hashes].sort().join(',');
-  }
-
   /** Changed files already loaded for `hash` in the current selection. */
   getMultiChangedFiles(hash: string): IChangedFile[] | undefined {
-    return this._multiChangedFiles.get(hash);
+    return this.details.getMultiChangedFiles(hash);
   }
 
   /** Why `hash` contributed no files to the current selection, if it failed. */
   getMultiChangedFilesError(hash: string): string | undefined {
-    return this._multiChangedFileErrors.get(hash);
+    return this.details.getMultiChangedFilesError(hash);
   }
 
   /**
@@ -2014,18 +1956,10 @@ export class GitToolWindowProvider
    * immediately instead of waiting for a round trip it does not need.
    */
   requestMultiCommitFiles(hashes: readonly string[]): boolean {
-    const key = this._selectionKeyOf(hashes);
-    if (this._multiSelectionKey === key) {
-      return this._multiChangedFiles.size > 0;
+    const noted = this.details.noteMultiSelection(hashes);
+    if (noted.alreadyCurrent) {
+      return noted.warm;
     }
-    // A different selection: the previous selection's files describe commits
-    // that are no longer shown. Recording the key even for a selection too
-    // small to need a load is what makes a still-running load for the old
-    // selection land as stale instead of painting over the new one.
-    this._multiSelectionKey = key;
-    this._multiChangedFiles.clear();
-    this._multiChangedFileErrors.clear();
-    this._multiSelectionLoaded = undefined;
     // Fired for EVERY selection change, including one too small to need a
     // load: the listener invalidates whatever is in flight, so shrinking a
     // large selection stops its remaining git calls instead of letting them
@@ -2050,12 +1984,9 @@ export class GitToolWindowProvider
     loadedHashes: readonly string[],
     errorsByHash: ReadonlyMap<string, string>
   ): void {
-    if (this._selectionKeyOf(hashes) !== this._multiSelectionKey) {
+    if (!this.details.acceptMultiFiles(hashes, filesByHash, loadedHashes, errorsByHash)) {
       return;
     }
-    this._multiChangedFiles = new Map(filesByHash);
-    this._multiChangedFileErrors = new Map(errorsByHash);
-    this._multiSelectionLoaded = new Set(loadedHashes);
     postDetailsForSelection(this);
   }
 
@@ -2102,46 +2033,11 @@ export class GitToolWindowProvider
     if (!node) {
       return undefined;
     }
-    const containingBranches = this._pendingBranchesFor(expanded);
+    const containingBranches = this.details.pendingBranchesFor(expanded);
     return {
       ...commitNodeToBaseDetails(node),
-      ...this._pendingFilesFor(expanded),
+      ...this.details.pendingFilesFor(expanded),
       ...(containingBranches ? { containingBranches } : {}),
-    };
-  }
-
-  /**
-   * The loaded containing-branches list, but only when it belongs to `hash`.
-   * A list loaded for another commit reads as undefined — the "still loading"
-   * shape — so the panel never names branches that contain a different commit.
-   *
-   * The single read path for the field, as {@link _pendingFilesFor} is for the
-   * changed files: two call sites sharing one accessor is what makes the pin
-   * hold by construction rather than wherever a guard was remembered.
-   */
-  private _pendingBranchesFor(hash: string): string[] | undefined {
-    return this._pendingContainingBranchesHash === hash
-      ? this._pendingContainingBranches
-      : undefined;
-  }
-
-  /**
-   * The loaded changed-files payload, but only when it belongs to `hash`. A
-   * payload loaded for another commit reads as an empty, error-free list — the
-   * "not loaded yet" shape the seam answers with a load.
-   */
-  private _pendingFilesFor(hash: string): {
-    changedFiles: IChangedFile[];
-    changedFilesError: string | undefined;
-  } {
-    if (this._pendingChangedFilesHash !== hash) {
-      return { changedFiles: [], changedFilesError: undefined };
-    }
-    return {
-      changedFiles: this._pendingChangedFiles ?? [],
-      changedFilesError: this._pendingChangedFilesError
-        ? String(this._pendingChangedFilesError)
-        : undefined,
     };
   }
 
@@ -2154,10 +2050,9 @@ export class GitToolWindowProvider
    * the select event, so its survivor was left permanently showing no files.
    */
   requestSingleCommitFiles(hash: string): void {
-    if (this._singleFilesRequestedHash === hash) {
+    if (!this.details.noteSingleRequest(hash)) {
       return;
     }
-    this._singleFilesRequestedHash = hash;
     this._onDidSelectCommit.fire(hash);
   }
 
@@ -3337,7 +3232,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     return buildMultiCommitDetailsPanelModel(
       commitDetailsList,
       this.getSelectedRepoProject(),
-      this._multiSelectionLoaded,
+      this.details.getMultiSelectionLoaded(),
       this.getDetailsGroupBy()
     );
   }
@@ -3475,7 +3370,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
 
   /** How the details panel currently groups changed files. */
   public getDetailsGroupBy(): DetailsGroupBy {
-    return this._detailsGroupBy;
+    return this.details.getGroupBy();
   }
 
   /**
@@ -3483,10 +3378,9 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * so it survives a reload, then re-render the panel.
    */
   public setDetailsGroupBy(mode: DetailsGroupBy): void {
-    if (this._detailsGroupBy === mode) {
+    if (!this.details.setGroupBy(mode)) {
       return;
     }
-    this._detailsGroupBy = mode;
     if (this._workspaceState) {
       saveDetailsGroupBy(this._workspaceState, mode);
     }

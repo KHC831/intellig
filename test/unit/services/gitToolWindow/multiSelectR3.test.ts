@@ -37,7 +37,6 @@ interface InternalsR3 {
   _handleWebviewMessage(
     message: WaveAInboundMessage | { type: string; [k: string]: unknown }
   ): void;
-  _pendingChangedFiles: unknown;
   selectCommits(hashes: readonly string[], anchor?: string | null): void;
   selectIfNotSelected(hash: string): void;
 }
@@ -320,12 +319,12 @@ describe('Wave A R3 — consolidated review fixes', () => {
       provider.updateLogState([mkCommit('aaa'), mkCommit('bbb', 'b', ['aaa'])]);
       provider.selectCommit('aaa');
       // Seed a pending payload (simulates a partially-loaded commit-details fetch).
-      internals._pendingChangedFiles = [{ path: 'leak.ts', status: 'modified' }];
+      provider.details.setPendingFiles('leak', [{ path: 'leak.ts', status: 'modified' }] as never);
 
       internals.selectCommits(['bbb']);
 
       assert.strictEqual(
-        internals._pendingChangedFiles,
+        (provider.details as unknown as { _pendingChangedFiles?: unknown[] })._pendingChangedFiles,
         undefined,
         'selectCommits must clear _pendingChangedFiles like selectCommit does'
       );

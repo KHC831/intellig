@@ -47,7 +47,6 @@ interface Internals {
     anchorHash: string | null;
     expandedCommit?: string;
   };
-  _pendingChangedFiles?: Array<{ path: string; status: string }>;
   _handleWebviewMessage(message: { type: string; commitHash?: string; tab?: string }): void;
   _getHtmlContent(webview: vscode.Webview): string;
   _isLoading: boolean;
@@ -316,7 +315,7 @@ describe('multi-commit details panel carries real files', () => {
       'a range selection owns the panel'
     );
     assert.strictEqual(
-      (provider as unknown as { _pendingChangedFiles?: unknown[] })._pendingChangedFiles,
+      (provider.details as unknown as { _pendingChangedFiles?: unknown[] })._pendingChangedFiles,
       undefined,
       'and the single-commit payload must not be stashed under a range selection'
     );
@@ -938,7 +937,7 @@ describe('empty selection clears the details panel', () => {
       'the panel must not describe a commit the graph shows as unselected'
     );
     assert.strictEqual(
-      h.internals._pendingChangedFiles,
+      (h.provider.details as unknown as { _pendingChangedFiles?: unknown[] })._pendingChangedFiles,
       undefined,
       'the deselected commit files must not survive into the next selection'
     );
@@ -953,7 +952,10 @@ describe('empty selection clears the details panel', () => {
     provider.selectCommits([]);
 
     assert.strictEqual(lastDetailsModel(h.messages)?.kind, 'placeholder');
-    assert.strictEqual(h.internals._pendingChangedFiles, undefined);
+    assert.strictEqual(
+      (h.provider.details as unknown as { _pendingChangedFiles?: unknown[] })._pendingChangedFiles,
+      undefined
+    );
   });
 
   it('a selection whose hashes are all unknown posts the placeholder', () => {
