@@ -16,9 +16,10 @@ import { execSync } from 'node:child_process';
 
 const PROVIDER = 'src/git-core/gitToolWindow/GitToolWindowProvider.ts';
 const REPO_SCOPE = 'src/git-core/gitToolWindow/provider/RepoScopeModel.ts';
+const CONSOLE_MODEL = 'src/git-core/gitToolWindow/provider/ConsoleModel.ts';
 const SPEC = 'test/unit/services/gitToolWindow/renderIdempotence.test.ts';
 
-const originals = new Map([PROVIDER, REPO_SCOPE].map((p) => [p, readFileSync(p, 'utf8')]));
+const originals = new Map([PROVIDER, REPO_SCOPE, CONSOLE_MODEL].map((p) => [p, readFileSync(p, 'utf8')]));
 const restoreAll = () => {
   for (const [p, src] of originals) {
     writeFileSync(p, src);
@@ -34,7 +35,7 @@ const mutations = [
   ],
   [
     'clearConsole',
-    PROVIDER,
+    CONSOLE_MODEL,
     'if (this._consoleEntries.length === 0) {',
     'if (this._consoleEntries.length < 0) {',
   ],
@@ -102,5 +103,5 @@ for (const [name, path, find, replace] of mutations) {
 restoreAll();
 console.log(
   '\nrestored byte-identical:',
-  [PROVIDER, REPO_SCOPE].every((p) => readFileSync(p, 'utf8') === originals.get(p))
+  [PROVIDER, REPO_SCOPE, CONSOLE_MODEL].every((p) => readFileSync(p, 'utf8') === originals.get(p))
 );

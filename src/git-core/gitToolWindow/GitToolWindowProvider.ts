@@ -100,6 +100,7 @@ import {
   type DetailsGroupBy,
 } from '../../utils/detailsGroupBy';
 import { BranchFocusController } from './provider/BranchFocusController';
+import { ConsoleModel } from './provider/ConsoleModel';
 import { DetailsModel } from './provider/DetailsModel';
 import { LogStateModel } from './provider/LogStateModel';
 import { RepoScopeModel } from './provider/RepoScopeModel';
@@ -140,7 +141,6 @@ export function createLogPanelSerializer(
 /**
  * Default maximum number of console entries to keep
  */
-const DEFAULT_MAX_CONSOLE_ENTRIES = 1000;
 
 /**
  * Initial number of commits to load when the Graph Panel is first displayed.
@@ -343,8 +343,8 @@ export class GitToolWindowProvider
    * can't re-run `git branch -a` on every Branch-popup open.
    */
   private _logFilterOptionsCache?: { key: string; groups: IBranchFilterGroups; at: number };
-  private _consoleEntries: IConsoleEntry[] = [];
-  private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
+  /** Console-tab entries ring; renders gate on the Console tab being visible. */
+  public readonly console: ConsoleModel;
   /**
    * Repository-scope state machine: repo list, selection, merged scope,
    * visible-roots subset, commit->root index, parsed-remote cache. Public so
@@ -526,6 +526,11 @@ export class GitToolWindowProvider
   constructor(extensionUri: vscode.Uri, workspaceState?: vscode.Memento) {
     super(extensionUri);
     this.log = new LogStateModel();
+    this.console = new ConsoleModel({
+      render: (): void => this._render(),
+      fireStateChange: (): void => this._onDidChangeState.fire(),
+      getActiveTab: (): TabId => this._tabRouter.getActiveTab(),
+    });
     this.repoScope = new RepoScopeModel({
       render: (): void => this._render(),
       fireStateChange: (): void => this._onDidChangeState.fire(),
@@ -878,95 +883,21 @@ export class GitToolWindowProvider
     this._onDidRequestRefresh.fire();
   }
 
-  /**
-   * Add a console entry
-   */
   public addConsoleEntry(entry: Omit<IConsoleEntry, 'timestamp'>): void {
-    // render-unconditional: appends. Two identical calls produce two different
-    // console states, so repainting for the second one is correct.
-    const fullEntry: IConsoleEntry = {
-      ...entry,
-      timestamp: new Date(),
-    };
-
-    this._consoleEntries.push(fullEntry);
-
-    // Trim entries if exceeding max
-    while (this._consoleEntries.length > this._maxConsoleEntries) {
-      this._consoleEntries.shift();
-    }
-
-    // Only re-render when the Console tab is actually visible — mirrors the
-    // History/Incoming tabs. Every git command logs an entry here, including
-    // the `git show` a commit selection fires; an unconditional re-render
-    // rebuilt the whole graph+details DOM on every git command, discarding the
-    // user's live-dragged divider/column widths and scroll (the "graph resizes
-    // on every click" bug) and producing a startup re-render storm. The Console
-    // tab re-reads `_consoleEntries` from in-memory state on its next render.
-    if (this._tabRouter.getActiveTab() === 'console') {
-      this._render();
-    }
-    this._onDidChangeState.fire();
+    this.console.addConsoleEntry(entry);
   }
 
-  /**
-   * Update a streaming entry in place.
-   *
-   * Deliberately narrower than `addConsoleEntry`: it re-renders only while the
-   * Console tab is showing and does NOT fire `_onDidRequestRefresh`, because a
-   * chatty clone emits thousands of chunks and a full data reload per chunk is
-   * the refresh storm this view already paid for once.
-   *
-   * That closes the data half only. The render itself still reassigns
-   * `webview.html`, so a visible Console tab reloads the document on each
-   * flush and console scroll still resets mid-clone. Appending streamed bytes
-   * over `postMessage` is the remaining half.
-   */
   public updateConsoleEntry(update: {
     id: string;
     output: string;
     exitCode?: number;
     isError?: boolean;
   }): void {
-    // render-unconditional: writing identical values still repaints. That is a
-    // real defect and this annotation is where it stays visible; fixing it
-    // means comparing against the stored entry and moving this name into
-    // RENDER_IDEMPOTENCE_CASES.
-    const entry = this._consoleEntries.find((e) => e.id === update.id);
-    if (!entry) {
-      return;
-    }
-    entry.output = update.output;
-    if (update.exitCode !== undefined) {
-      entry.exitCode = update.exitCode;
-    }
-    if (update.isError !== undefined) {
-      entry.isError = update.isError;
-    }
-    if (this._tabRouter.getActiveTab() === 'console') {
-      this._render();
-    }
-    this._onDidChangeState.fire();
+    this.console.updateConsoleEntry(update);
   }
 
-  /**
-   * Clear console entries.
-   *
-   * Gated the same way as its two siblings, for the same reason: the render
-   * reassigns `webview.html`, so clearing the console while the Log tab is
-   * showing would destroy the log document — including a filter draft, which
-   * lives only in the DOM. An already-empty list is not a change at all, so it
-   * returns before both the render and the state event.
-   */
   public clearConsole(): void {
-    if (this._consoleEntries.length === 0) {
-      return;
-    }
-    this._consoleEntries = [];
-    if (this._tabRouter.getActiveTab() === 'console') {
-      this._render();
-    }
-    this._onDidChangeState.fire();
+    this.console.clearConsole();
   }
 
   /**
@@ -2548,7 +2479,7 @@ export class GitToolWindowProvider
       ? wrapTabbedBody({
           activeTab: this._tabRouter.getActiveTab(),
           logBodyHtml: logBody,
-          consoleBodyHtml: renderConsoleTabBody(this._consoleEntries),
+          consoleBodyHtml: renderConsoleTabBody([...this.console.getEntries()]),
           incomingBodyHtml: renderIncomingTabBody(incomingState),
           updateInfoBodyHtml: renderUpdateInfoTabBody(this._updateInfoTab?.getState()),
           historyBodyHtml: renderHistoryTabBody(historyState),
