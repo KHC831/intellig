@@ -15,7 +15,7 @@ import {
   IChangedFile,
 } from '../../services/interfaces';
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
-import { ICommitNode, IBranchRef, generateCommitGraph } from '../commitGraph';
+import { ICommitNode, IBranchRef } from '../commitGraph';
 import { fingerprintLogState } from './provider/logStateFingerprint';
 import { sanitizeWebviewLogFilter } from './provider/logFilterSanitizer';
 import { bfsPathToMergeBase, groupBranchFilterOptions } from './provider/loadedGraphQueries';
@@ -100,6 +100,7 @@ import {
   type DetailsGroupBy,
 } from '../../utils/detailsGroupBy';
 import { DetailsModel } from './provider/DetailsModel';
+import { LogStateModel } from './provider/LogStateModel';
 import { RepoScopeModel } from './provider/RepoScopeModel';
 import { BaseWebviewView, drainDisposables } from '../../utils/BaseWebviewView';
 import { dispatchGuardedWebviewMessage } from '../../utils/webviewMessageGuard';
@@ -245,7 +246,25 @@ export class GitToolWindowProvider
   extends BaseWebviewView
   implements IGitToolWindowProvider, IGtwControllerContext
 {
-  private _extendedLogState: IExtendedLogState;
+  /**
+   * Log-state store: the extended log state, fingerprint, totals, one-shot
+   * scroll flags, and merged-HEAD set. Public so white-box tests and
+   * per-cluster consumers reach the store directly.
+   */
+  public readonly log: LogStateModel;
+
+  /**
+   * Compatibility accessors over {@link log}: the class body (and the
+   * white-box test surface) reads and writes the live state object under the
+   * pre-split name; storage and the identity-replacement seam live on the
+   * model.
+   */
+  private get _extendedLogState(): IExtendedLogState {
+    return this.log.state;
+  }
+  private set _extendedLogState(next: IExtendedLogState) {
+    this.log.replaceState(next);
+  }
   /**
    * Search-mode toggles (regex / match case) as last reported by the webview.
    * UI state independent of the applied filter: flags with no committed text
@@ -306,38 +325,9 @@ export class GitToolWindowProvider
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
   private _isLoading: boolean = true;
-  private _scrollToCommitHash: string | undefined;
 
   /** Jump-to-hash growth delegate — see {@link setEnsureFullLogLoaded}. */
   private _ensureFullLogLoaded?: () => Promise<boolean>;
-  /**
-   * Total commits available for the current repo/filter (from
-   * `getLogCount` → `git rev-list --count`). Drives the graph's honest
-   * "X of Y" loaded indicator and the `data-total-available` attribute the
-   * webview reads to decide whether scroll-to-bottom should load more.
-   * `undefined` falls back to "all loaded" (no more) so a missing count can
-   * never spin the indicator forever.
-   */
-  private _logTotalAvailable: number | undefined;
-  /**
-   * One-shot flag: the NEXT graph render is a navigational one (repo switch,
-   * filter/branch/range change, initial load) and should reset the webview to
-   * the top instead of restoring the saved scroll position. Scroll is preserved
-   * by DEFAULT — every in-place re-render (load-more, cherry-mark arrival,
-   * selection/focus change) keeps the user where they are — so only intentional
-   * navigation sets this. Consumed (cleared) by the render.
-   */
-  private _resetScrollOnNextRender: boolean = false;
-  /**
-   * Fingerprint of the last {@link updateLogState} inputs (commit hashes,
-   * branch/tag maps, head anchor, total). A repeated update with the same
-   * fingerprint is an in-place background refresh that changed nothing —
-   * it skips the full re-render (and the post sequence) so watcher-driven
-   * reload churn can't rebuild the DOM and throw away the user's scroll.
-   * Cleared whenever repository availability transitions (the no-repo screen
-   * must never swallow a later identical update).
-   */
-  private _lastLogFingerprint: string | undefined;
   /**
    * Details-panel pending state: single-commit files payload, containing
    * branches, the multi-selection file cache, and the Group By mode. Public
@@ -368,16 +358,6 @@ export class GitToolWindowProvider
    * wide legacy entry points below stay as thin delegates.
    */
   public readonly repoScope: RepoScopeModel;
-
-  /**
-   * HEAD commit hashes of every root in the merged "all roots" log. In merged
-   * scope the single-repo HEAD spine / highlight is suppressed (no single
-   * `headHash`), so this set keeps `undoCommit` enabled for the clicked
-   * commit's own-repo HEAD — see {@link _postMenuStateUpdate} and
-   * {@link setMergedHeadCommitHashes}. Empty in single-repo / specific scope,
-   * where the single `_extendedLogState.headHash` drives the rule.
-   */
-  private _mergedHeadCommitHashes: ReadonlySet<string> = new Set();
 
   /**
    * Host-side tab router.
@@ -567,15 +547,13 @@ export class GitToolWindowProvider
 
   constructor(extensionUri: vscode.Uri, workspaceState?: vscode.Memento) {
     super(extensionUri);
+    this.log = new LogStateModel();
     this.repoScope = new RepoScopeModel({
       render: (): void => this._render(),
       fireStateChange: (): void => this._onDidChangeState.fire(),
       fireScopeChange: (e): void => this._onDidChangeRepositoryScope.fire(e),
       readShowAllRootsConfig: (): boolean => this._isShowAllRootsConfigEnabled(),
     });
-    // Initialize extended log state
-    this._extendedLogState = this._createInitialExtendedLogState();
-
     // Store workspace state for panel width persistence
     this._workspaceState = workspaceState;
     // Restore the persisted log filter so a window reload resumes the same
@@ -839,23 +817,6 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Create initial extended Log state with commit nodes
-   */
-  private _createInitialExtendedLogState(): IExtendedLogState {
-    return {
-      selectedCommits: new Set<string>(),
-      expandedCommit: undefined,
-      filter: undefined,
-      commitNodes: [],
-      branchMap: new Map<string, IBranchRef[]>(),
-      tagMap: new Map<string, string[]>(),
-      anchorHash: null,
-      // No branch focused at start.
-      focusedBranchName: null,
-    };
-  }
-
-  /**
    * Subclass hook for {@link BaseWebviewView.resolveWebviewView}. The base
    * class has already set webview options, assigned `this._view`, wired
    * `onDidReceiveMessage` → {@link _handleMessage}, wired `onDidDispose` to
@@ -1033,7 +994,7 @@ export class GitToolWindowProvider
       // Availability transitioned (or the loading screen resolved): the DOM no
       // longer shows the last log render, so the next updateLogState must
       // paint even if its data is unchanged.
-      this._lastLogFingerprint = undefined;
+      this.log.invalidateFingerprint();
       this._render();
       this._onDidChangeState.fire();
     }
@@ -1082,18 +1043,18 @@ export class GitToolWindowProvider
       totalAvailable
     );
     if (
-      fingerprint === this._lastLogFingerprint &&
-      !this._resetScrollOnNextRender &&
+      this.log.fingerprintMatches(fingerprint) &&
+      !this.log.hasPendingScrollReset() &&
       this._hasRepository
     ) {
-      this._logTotalAvailable = totalAvailable;
+      this.log.setTotal(totalAvailable);
       this._initialDataRequested = false;
       this._isLoading = false;
       return;
     }
-    this._lastLogFingerprint = fingerprint;
+    this.log.commitFingerprint(fingerprint);
 
-    this._logTotalAvailable = totalAvailable;
+    this.log.setTotal(totalAvailable);
     // Commits landed: the initial fetch has resolved, so clear the latch.
     this._initialDataRequested = false;
     // The graph caller fetches `git log --topo-order` (extension.ts),
@@ -1114,7 +1075,7 @@ export class GitToolWindowProvider
     // Reset the per-root HEAD set; the merged loader repopulates it via
     // setMergedHeadCommitHashes right after this call. Single-repo / specific
     // loads leave it empty (the single headHash drives undoCommit there).
-    this._mergedHeadCommitHashes = new Set();
+    this.log.clearMergedHeads();
 
     const branchNamesPresent = new Set<string>();
     if (branchMap) {
@@ -1142,53 +1103,15 @@ export class GitToolWindowProvider
       this._focusedPathHashes = new Set();
     }
 
-    const commitNodes = generateCommitGraph(
+    this.log.applySnapshot(
       commits,
       branchMap,
       tagMap,
-      this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined,
-      headBranchName,
-      // Pass the explicit HEAD commit SHA so the lane algorithm can anchor
-      // HEAD's mainline spine to lane 0 even when the branch NAME can't be
-      // resolved (detached HEAD, getBranches failure, symbolic-ref race).
-      // Omitting it disables the spine anchor and lets a divergent
-      // branch seize lane 0, splitting the mainline.
-      headHash
-    );
-
-    const emptyBranchMap: Map<string, IBranchRef[]> = new Map();
-    const emptyTagMap: Map<string, string[]> = new Map();
-
-    // Anchor lifecycle (TL-C-1):
-    //   - Prune `selectedCommits` to the intersection with the new commit
-    //     hashes so a force-push / log-filter that drops commits doesn't
-    //     leave dangling selection state pointing at hashes that aren't
-    //     in the rendered graph anymore.
-    //   - Reset `anchorHash` to `null` when the anchor is no longer in
-    //     the new list. JS `let anchorHash` mirror is reset by the
-    //     `syncSelection` message we post below + by reading the
-    // `data-anchor-hash` attribute on the next render.
-    const newHashes = new Set(commitNodes.map((n) => n.commit.hash));
-    const prunedSelection = new Set<string>();
-    for (const h of this._extendedLogState.selectedCommits) {
-      if (newHashes.has(h)) {
-        prunedSelection.add(h);
-      }
-    }
-    const currentAnchor = this._extendedLogState.anchorHash;
-    const newAnchor = currentAnchor && newHashes.has(currentAnchor) ? currentAnchor : null;
-
-    this._extendedLogState = {
-      ...this._extendedLogState,
-      commitNodes,
-      branchMap: branchMap || emptyBranchMap,
-      tagMap: tagMap || emptyTagMap,
-      selectedCommits: prunedSelection,
-      anchorHash: newAnchor,
-      focusedBranchName: newFocusName,
       headHash,
       headBranchName,
-    };
+      newFocusName,
+      this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined
+    );
 
     this._hasRepository = true;
     this._isLoading = false;
@@ -1209,7 +1132,7 @@ export class GitToolWindowProvider
    * reads it via the rendered `data-total-available` attribute.
    */
   public getLogTotalAvailable(): number | undefined {
-    return this._logTotalAvailable;
+    return this.log.getTotal();
   }
 
   /**
@@ -1223,7 +1146,7 @@ export class GitToolWindowProvider
    * a windowed page (total ≤ loaded → nothing more to load).
    */
   public applyGraphTotalAvailable(total: number): void {
-    this._logTotalAvailable = total;
+    this.log.setTotal(total);
     if (this.hasView()) {
       this.postToWebview({
         type: 'graphTotalsUpdate',
@@ -1242,7 +1165,7 @@ export class GitToolWindowProvider
    * consumes it.
    */
   public markResetScrollOnNextRender(): void {
-    this._resetScrollOnNextRender = true;
+    this.log.markResetScroll();
   }
 
   /**
@@ -1368,7 +1291,7 @@ export class GitToolWindowProvider
       return false;
     }
 
-    this._scrollToCommitHash = hash;
+    this.log.setScrollTarget(hash);
     this.selectCommit(hash);
 
     if (this.hasView()) {
@@ -1907,7 +1830,7 @@ export class GitToolWindowProvider
       headHash,
       // Merged scope suppresses the single headHash; the per-root HEAD set
       // keeps undoCommit enabled for the clicked commit's own-repo HEAD.
-      headHashes: this._mergedHeadCommitHashes,
+      headHashes: this.log.getMergedHeads(),
     });
     const msg: WaveAOutboundMessage = {
       type: 'updateMenuEnableState',
@@ -2483,7 +2406,7 @@ export class GitToolWindowProvider
     if (!matched) {
       return;
     }
-    this._scrollToCommitHash = hash;
+    this.log.setScrollTarget(hash);
     this.postToWebview({
       type: 'scrollToCommit',
       commitHash: hash,
@@ -2710,7 +2633,7 @@ export class GitToolWindowProvider
    * even though the single-repo HEAD spine / highlight is suppressed.
    */
   public setMergedHeadCommitHashes(hashes: Iterable<string>): void {
-    this._mergedHeadCommitHashes = new Set(hashes);
+    this.log.setMergedHeads(hashes);
   }
 
   /**
@@ -2818,7 +2741,7 @@ export class GitToolWindowProvider
       commitNodes.length,
       // Honest total from `git rev-list --count`; falls back to "all loaded"
       // so a missing count never leaves the loaded indicator spinning.
-      this._logTotalAvailable ?? commitNodes.length
+      this.log.getTotal() ?? commitNodes.length
     );
   }
 
@@ -2857,12 +2780,14 @@ export class GitToolWindowProvider
 
     // Generate panel content using existing methods
     // Branch panel removed — branches are now displayed in the native BRANCHES tree view
+    // One-shot: taken here so the target only steers this render.
+    const scrollTarget = this.log.consumeScrollTarget();
     const graphPanelHtml = this._getGraphPanelHtml(
       commitNodes,
       selectedCommits,
       loadedCount,
       totalAvailable,
-      this._scrollToCommitHash
+      scrollTarget
     );
     // The Details Panel is built client-side via createElement from this model;
     // #details-panel ships empty and the inline script fills it on load. The
@@ -2872,9 +2797,6 @@ export class GitToolWindowProvider
     const detailsPanelModel = buildSelectionDetailsModel(this, commitDetails);
     // True only while `_renderForGesture` is on the stack.
     const restoreFocus = this._restoreFocusOnNextRender;
-
-    // Clear the scroll target after rendering so it's only used once
-    this._scrollToCommitHash = undefined;
 
     // Commit context menu (branch context menu removed — handled by native tree view)
     const commitContextMenuHtml = this._getCommitContextMenuHtml();
@@ -3114,8 +3036,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
     totalAvailable?: number,
     scrollToCommitHash?: string
   ): string {
-    const preserveScroll = !this._resetScrollOnNextRender;
-    this._resetScrollOnNextRender = false;
+    const preserveScroll = !this.log.consumeResetScroll();
     return buildGraphPanelHtml(
       commitNodes,
       selectedCommits,

@@ -47,8 +47,8 @@ const mutations = [
   [
     'updateLogState',
     PROVIDER,
-    'this._lastLogFingerprint = fingerprint;',
-    'this._lastLogFingerprint = fingerprint + Math.random();',
+    'this.log.commitFingerprint(fingerprint);',
+    'this.log.commitFingerprint(fingerprint + Math.random());',
   ],
   [
     'setCherryPickedHashes',
