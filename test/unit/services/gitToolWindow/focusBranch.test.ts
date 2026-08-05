@@ -31,8 +31,6 @@ interface FocusInternals {
   _handleWebviewMessage(message: { type: string; branchName?: string | null }): void;
   _view?: { webview?: { postMessage: (msg: unknown) => Thenable<boolean> } };
   _getBranchLabelsHtml(node: ICommitNode): string;
-  _availableRepositories: unknown[];
-  _selectedRepositoryIndex: number;
 }
 
 function mkCommit(
@@ -211,8 +209,12 @@ describe('Branch focus on graph (D2 + D3)', () => {
       },
     };
     // Stub repository so getSelectedRepository returns truthy.
-    internals._availableRepositories = [{ rootUri: { fsPath: '/tmp/repo' } }];
-    internals._selectedRepositoryIndex = 0;
+    const repoInternals = provider.repoScope as unknown as {
+      _availableRepositories: unknown[];
+      _selectedRepositoryIndex: number;
+    };
+    repoInternals._availableRepositories = [{ rootUri: { fsPath: '/tmp/repo' } }];
+    repoInternals._selectedRepositoryIndex = 0;
 
     // Display order:
     //   * aaa  (feature tip)

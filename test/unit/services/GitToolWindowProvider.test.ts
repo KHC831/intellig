@@ -29,7 +29,7 @@ const ENTRY_SOURCE = readGtwWebviewSource();
  * Kept deliberately small (single field the test genuinely drives) per
  * docs/testing.md section 3. No `I`-prefix; no kitchen-sink fields.
  */
-interface GitToolWindowProviderInternals {
+interface RepoScopeModelInternals {
   _parsedRemoteCache: Map<string, IRemoteUrl | undefined>;
 }
 
@@ -522,13 +522,12 @@ describe('Log View', () => {
         _availableRepositories: IRepository[];
         _repositoryScope: number | 'all';
         _selectedRepositoryIndex: number;
-        _handleRepositorySelection: (s: number | 'all') => void;
       };
-      const surface = provider as unknown as Surface;
+      const surface = provider.repoScope as unknown as Surface;
       surface._availableRepositories = [repo];
       const scopeBefore = surface._repositoryScope;
 
-      surface._handleRepositorySelection(Number('not-a-number'));
+      provider.repoScope.handleRepositorySelection(Number('not-a-number'));
 
       assert.ok(
         !Number.isNaN(surface._selectedRepositoryIndex),
@@ -1534,9 +1533,7 @@ describe('Multi-Repository Selection State', () => {
       );
 
       // Simulate selecting the third repo (index 2)
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(2);
+      provider.repoScope.handleRepositorySelection(2);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
 
       // Now update with only 2 repos — index 2 is out of bounds
@@ -1575,9 +1572,7 @@ describe('Multi-Repository Selection State', () => {
       );
 
       // Select the second repo (index 1)
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
 
       // Reload with the SAME repos but in a DIFFERENT order — the
@@ -1610,9 +1605,7 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(2); // select /workspace/c
+      provider.repoScope.handleRepositorySelection(2); // select /workspace/c
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
 
       // Reload — /workspace/c is gone.
@@ -1642,9 +1635,7 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
 
       // Reload with the SAME list (different IRepository instances —
@@ -1690,9 +1681,7 @@ describe('Multi-Repository Selection State', () => {
       );
 
       // Select the second repo
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
 
       const selected = provider.getSelectedRepository();
       assert.strictEqual(selected!.rootUri.fsPath, '/workspace/b');
@@ -1711,9 +1700,7 @@ describe('Multi-Repository Selection State', () => {
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
 
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(2);
+      provider.repoScope.handleRepositorySelection(2);
 
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
     });
@@ -1730,9 +1717,7 @@ describe('Multi-Repository Selection State', () => {
         done();
       });
 
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
     });
 
     it('should clamp negative index to 0', () => {
@@ -1742,9 +1727,7 @@ describe('Multi-Repository Selection State', () => {
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
 
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(-1);
+      provider.repoScope.handleRepositorySelection(-1);
 
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/a');
     });
@@ -1756,17 +1739,13 @@ describe('Multi-Repository Selection State', () => {
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
 
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(99);
+      provider.repoScope.handleRepositorySelection(99);
 
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
     });
 
     it('should do nothing when no repositories are available', () => {
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(0);
+      provider.repoScope.handleRepositorySelection(0);
 
       assert.strictEqual(provider.getSelectedRepository(), undefined);
     });
@@ -1785,9 +1764,7 @@ describe('Multi-Repository Selection State', () => {
       );
 
       // Select index 1
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
 
       // Re-set same repos (simulating webview reload within same session)
@@ -1859,9 +1836,7 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      (
-        provider as unknown as { _handleRepositorySelection: (index: number) => void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
 
       const html = provider._getLogFilterRowHtml();
       assert.ok(
@@ -1886,9 +1861,7 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      (
-        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
-      )._handleRepositorySelection('all');
+      provider.repoScope.handleRepositorySelection('all');
 
       const html = provider._getLogFilterRowHtml();
       assert.ok(
@@ -1908,9 +1881,10 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      (
-        provider as unknown as { _handleVisibleRepositoriesSelection(roots: string[]): void }
-      )._handleVisibleRepositoriesSelection(['/workspace/repo-a', '/workspace/repo-c']);
+      provider.repoScope.handleVisibleRepositoriesSelection([
+        '/workspace/repo-a',
+        '/workspace/repo-c',
+      ]);
 
       const html = provider._getLogFilterRowHtml();
       assert.ok(html.includes('data-repo-root="/workspace/repo-a" checked'), 'repo-a checked');
@@ -1980,19 +1954,14 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      const surface = provider as unknown as {
-        _handleRepositorySelection(selection: number | 'all'): void;
-        isAllReposSelected(): boolean;
-      };
-
       // Explicit config-off → specific repo scope.
-      assert.strictEqual(surface.isAllReposSelected(), false);
+      assert.strictEqual(provider.isAllReposSelected(), false);
 
-      surface._handleRepositorySelection('all');
-      assert.strictEqual(surface.isAllReposSelected(), true);
+      provider.repoScope.handleRepositorySelection('all');
+      assert.strictEqual(provider.isAllReposSelected(), true);
 
-      surface._handleRepositorySelection(0);
-      assert.strictEqual(surface.isAllReposSelected(), false);
+      provider.repoScope.handleRepositorySelection(0);
+      assert.strictEqual(provider.isAllReposSelected(), false);
       setMockConfigValue('intellig', 'log.showAllRoots', undefined);
     });
 
@@ -2004,9 +1973,7 @@ describe('Multi-Repository Selection State', () => {
       provider.setAvailableRepositories(
         repos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
-      (
-        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
-      )._handleRepositorySelection('all');
+      provider.repoScope.handleRepositorySelection('all');
 
       const ctx = provider.getSelectedRepository();
       assert.ok(ctx, 'all scope still resolves a context repo for single-repo operations');
@@ -2032,9 +1999,7 @@ describe('Multi-Repository Selection State', () => {
         done();
       });
 
-      (
-        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
-      )._handleRepositorySelection('all');
+      provider.repoScope.handleRepositorySelection('all');
     });
 
     it('fires onDidChangeRepositoryScope with kind=repository carrying the chosen repo', (done) => {
@@ -2059,9 +2024,7 @@ describe('Multi-Repository Selection State', () => {
         done();
       });
 
-      (
-        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
-      )._handleRepositorySelection(1);
+      provider.repoScope.handleRepositorySelection(1);
     });
   });
 
@@ -2069,11 +2032,9 @@ describe('Multi-Repository Selection State', () => {
     type ScopeEvent = { kind: string; repository?: { rootUri: { fsPath: string } } };
 
     function scopeSurface(): {
-      _handleRepositorySelection(selection: number | 'all'): void;
       onDidChangeRepositoryScope: (l: (s: ScopeEvent) => void) => { dispose(): void };
     } {
       return provider as unknown as {
-        _handleRepositorySelection(selection: number | 'all'): void;
         onDidChangeRepositoryScope: (l: (s: ScopeEvent) => void) => { dispose(): void };
       };
     }
@@ -2089,7 +2050,7 @@ describe('Multi-Repository Selection State', () => {
     it('fires onDidChangeRepositoryScope once with the surviving repo when all-scope collapses to one repo', () => {
       const surface = scopeSurface();
       setRepos('/workspace/repo-a', '/workspace/repo-b');
-      surface._handleRepositorySelection('all');
+      provider.repoScope.handleRepositorySelection('all');
 
       // Subscribe AFTER entering all-scope so the selection event isn't counted.
       const events: ScopeEvent[] = [];
@@ -2112,7 +2073,7 @@ describe('Multi-Repository Selection State', () => {
     it('does not fire a scope event when the all scope is preserved across a multi-repo reload', () => {
       const surface = scopeSurface();
       setRepos('/workspace/repo-a', '/workspace/repo-b');
-      surface._handleRepositorySelection('all');
+      provider.repoScope.handleRepositorySelection('all');
 
       const events: ScopeEvent[] = [];
       const sub = surface.onDidChangeRepositoryScope((s) => events.push(s));
@@ -2971,7 +2932,7 @@ describe('_getBranchLabelsHtml', () => {
      * value is a minimal `IRemoteUrl` shape; these tests only assert
      * key-level membership, so the specific parse result is irrelevant.
      */
-    function seedCacheForRepo(internals: GitToolWindowProviderInternals, repo: IRepository): void {
+    function seedCacheForRepo(internals: RepoScopeModelInternals, repo: IRepository): void {
       internals._parsedRemoteCache.set(repo.rootUri.fsPath, {
         host: 'github.com',
         owner: 'acme',
@@ -2989,7 +2950,7 @@ describe('_getBranchLabelsHtml', () => {
       provider.setAvailableRepositories([repoA, repoB]);
 
       // Seed the cache entry for repo A via the TestSurface cast.
-      const internals = provider as unknown as GitToolWindowProviderInternals;
+      const internals = provider.repoScope as unknown as RepoScopeModelInternals;
       seedCacheForRepo(internals, repoA);
       assert.strictEqual(
         internals._parsedRemoteCache.has(repoA.rootUri.fsPath),
@@ -3014,7 +2975,7 @@ describe('_getBranchLabelsHtml', () => {
       provider.attachGitService(service);
       provider.setAvailableRepositories([repoA, repoB]);
 
-      const internals = provider as unknown as GitToolWindowProviderInternals;
+      const internals = provider.repoScope as unknown as RepoScopeModelInternals;
       seedCacheForRepo(internals, repoA);
       seedCacheForRepo(internals, repoB);
       assert.strictEqual(internals._parsedRemoteCache.has(repoA.rootUri.fsPath), true);
@@ -3041,7 +3002,7 @@ describe('_getBranchLabelsHtml', () => {
       provider.attachGitService(service1);
       provider.setAvailableRepositories([repoA]);
 
-      const internals = provider as unknown as GitToolWindowProviderInternals;
+      const internals = provider.repoScope as unknown as RepoScopeModelInternals;
       seedCacheForRepo(internals, repoA);
       assert.strictEqual(
         internals._parsedRemoteCache.has(repoA.rootUri.fsPath),
@@ -3408,12 +3369,11 @@ describe('_isShowAllRootsEnabled (G8) — now derives from the repository scope'
   it('does NOT override an explicit single-repo choice when more repos arrive later', () => {
     setMockConfigValue('intellig', 'log.showAllRoots', undefined);
     const surface = p as unknown as {
-      _handleRepositorySelection(selection: number | 'all'): void;
       _isShowAllRootsEnabled(): boolean;
     };
 
     p.setAvailableRepositories(twoRepos());
-    surface._handleRepositorySelection(1); // user explicitly picks a single repo
+    p.repoScope.handleRepositorySelection(1); // user explicitly picks a single repo
     assert.strictEqual(surface._isShowAllRootsEnabled(), false, 'explicit single choice');
 
     // A third repo is discovered — the explicit choice must survive.
@@ -3434,18 +3394,17 @@ describe('_isShowAllRootsEnabled (G8) — now derives from the repository scope'
     setMockConfigValue('intellig', 'log.showAllRoots', false);
     p.setAvailableRepositories(twoRepos());
     const surface = p as unknown as {
-      _handleRepositorySelection(selection: number | 'all'): void;
       _isShowAllRootsEnabled(): boolean;
     };
 
-    surface._handleRepositorySelection('all');
+    p.repoScope.handleRepositorySelection('all');
     assert.strictEqual(
       surface._isShowAllRootsEnabled(),
       true,
       'picking All enables the merged view'
     );
 
-    surface._handleRepositorySelection(1);
+    p.repoScope.handleRepositorySelection(1);
     assert.strictEqual(
       surface._isShowAllRootsEnabled(),
       false,

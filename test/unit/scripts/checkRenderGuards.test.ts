@@ -537,23 +537,22 @@ describe('check-render-guards', () => {
 
   describe('the real tree', () => {
     it('holds its stated starting line: 10 owners, 5 covered, 5 annotated', () => {
+      // Real mode (no args): the provider class plus the provider/ model
+      // classes, judged against the real idempotence table — the same scan the
+      // gate runs, so an owner moving into a model cannot shrink the line.
       // The annotation count may only ever DECREASE. If this fails because the
       // count went up, that is the review event the header describes, not a
       // number to bump. If it fails because the count went down, retire the
       // annotation and lower it here in the same commit.
-      const run = runFence(
-        path.join(REPO_ROOT, 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
-        [
-          'setHasRepository',
-          'updateLogState',
-          'setCherryPickedHashes',
-          'setAvailableRepositories',
-          'clearConsole',
-        ]
-      );
+      let out: string;
+      try {
+        out = execFileSync('node', [SCRIPT], { encoding: 'utf8', cwd: REPO_ROOT });
+      } catch (e) {
+        const err = e as { stdout?: string; stderr?: string };
+        assert.fail(`real-mode run failed: ${err.stderr ?? ''}${err.stdout ?? ''}`);
+      }
 
-      assert.strictEqual(run.status, 0, run.stderr);
-      assert.match(run.stdout, /owners=10 covered=5 annotated=5/);
+      assert.match(out, /owners=10 covered=5 annotated=5/);
     });
   });
 });

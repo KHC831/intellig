@@ -148,10 +148,8 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
           ([repos, selectedIndex]) => {
             provider.setAvailableRepositories(repos);
 
-            // Call the private _handleRepositorySelection method via cast
-            (
-              provider as unknown as { _handleRepositorySelection: (index: number) => void }
-            )._handleRepositorySelection(selectedIndex);
+            // Drive the selection through the public model entry point
+            provider.repoScope.handleRepositorySelection(selectedIndex);
 
             // Verify the selected repository matches the requested index
             const selectedRepo = provider.getSelectedRepository();

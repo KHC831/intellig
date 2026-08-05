@@ -98,7 +98,7 @@ describe('Branch popup — option source per scope', () => {
 
   it('offers the UNION of all roots’ branches in the merged "All Repositories" scope', async () => {
     /* eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
-    (provider as any)._repositoryScope = 'all';
+    (provider.repoScope as any)._repositoryScope = 'all';
     await requestOptions();
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
     assert.deepStrictEqual(msg?.branchGroups?.local, ['feature/a', 'feature/b', 'main']);
@@ -107,7 +107,7 @@ describe('Branch popup — option source per scope', () => {
 
   it('lists only the selected repo’s branches in a single-repo scope', async () => {
     /* eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
-    (provider as any)._repositoryScope = 0; // repoA
+    (provider.repoScope as any)._repositoryScope = 0; // repoA
     await requestOptions();
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
     assert.deepStrictEqual(msg?.branchGroups?.local, ['feature/a', 'main']);
@@ -136,9 +136,7 @@ describe('Branch popup — option source per scope', () => {
     attachCapturingView(provider, posted);
 
     // Check {repoA, repoC} — repoB's feature/b must be absent from the union.
-    (
-      provider as unknown as { _handleVisibleRepositoriesSelection(roots: string[]): void }
-    )._handleVisibleRepositoriesSelection(['/repos/a', '/repos/c']);
+    provider.repoScope.handleVisibleRepositoriesSelection(['/repos/a', '/repos/c']);
     await requestOptions();
 
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');
@@ -165,7 +163,7 @@ describe('Branch popup — option source per scope', () => {
     posted = [];
     attachCapturingView(provider, posted);
     /* eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
-    (provider as any)._repositoryScope = 'all';
+    (provider.repoScope as any)._repositoryScope = 'all';
 
     await assert.doesNotReject(() => requestOptions());
     const msg = posted.find((m) => m.type === 'logFilterOptionsReady');

@@ -61,9 +61,7 @@ function fullHtmlWithRepos(paths: string[]): string {
   );
   // Pin the merged "all" scope so every repo checkbox starts checked, making the
   // uncheck-one assertion independent of the test config's showAllRoots default.
-  (
-    provider as unknown as { _handleRepositorySelection(s: number | 'all'): void }
-  )._handleRepositorySelection('all');
+  provider.repoScope.handleRepositorySelection('all');
   return provider._getThreePanelHtmlContent(mockWebview(), [] as ICommitNode[]);
 }
 

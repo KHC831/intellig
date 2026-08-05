@@ -49,9 +49,7 @@ describe('Repository multi-select scope', () => {
   });
 
   function select(roots: string[]): void {
-    (
-      provider as unknown as { _handleVisibleRepositoriesSelection(roots: string[]): void }
-    )._handleVisibleRepositoriesSelection(roots);
+    provider.repoScope.handleVisibleRepositoriesSelection(roots);
   }
 
   it('all roots checked → merged "all", no visible subset', () => {
@@ -163,9 +161,7 @@ describe('Repository multi-select scope', () => {
   it('picking a single repo chip clears any active subset', () => {
     select([a, c]);
     assert.deepStrictEqual(provider.getVisibleRepoRoots(), [a, c]);
-    (
-      provider as unknown as { _handleRepositorySelection(i: number | 'all'): void }
-    )._handleRepositorySelection(1);
+    provider.repoScope.handleRepositorySelection(1);
     assert.strictEqual(provider.getVisibleRepoRoots(), null);
   });
 });

@@ -6,8 +6,6 @@
 
 import * as vscode from 'vscode';
 import { readConfig } from '../../config/configKeys';
-import * as path from 'path';
-import { abbreviateHomePath } from '../../utils/displayPath';
 import {
   IGitToolWindowProvider,
   ILogState,
@@ -95,15 +93,14 @@ import {
   buildSelectionDetailsModel,
   dispatchLogMessage,
 } from './provider/messageHandlers';
-import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
+import type { IRemoteUrl } from '../../utils/remoteUrl';
 import {
   loadDetailsGroupBy,
   saveDetailsGroupBy,
   type DetailsGroupBy,
 } from '../../utils/detailsGroupBy';
-import { normalizeRepoPath, normalizeRepoPathString } from '../../utils/normalizeRepoPath';
+import { RepoScopeModel } from './provider/RepoScopeModel';
 import { BaseWebviewView, drainDisposables } from '../../utils/BaseWebviewView';
-import { getLogger } from '../../utils/logger';
 import { dispatchGuardedWebviewMessage } from '../../utils/webviewMessageGuard';
 import {
   computeMenuState,
@@ -151,14 +148,6 @@ export const INITIAL_COMMIT_LOAD_COUNT = 200;
  * Number of additional commits to load when the user scrolls near the bottom.
  */
 export const INCREMENTAL_COMMIT_LOAD_COUNT = 100;
-
-/**
- * Separators for the repository-state signature. Control characters, so no
- * filesystem path can contain one and fake a difference (or hide one) by
- * spelling the joiner itself.
- */
-const REPO_STATE_FIELD_SEP = '\u0000';
-const REPO_STATE_SECTION_SEP = '\u0001';
 
 /**
  * Extended Log state with commit nodes for graph visualization
@@ -406,58 +395,13 @@ export class GitToolWindowProvider
   private _logFilterOptionsCache?: { key: string; groups: IBranchFilterGroups; at: number };
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
-  private _availableRepositories: IRepository[] = [];
-  private _selectedRepositoryIndex: number = 0;
   /**
-   * Repository SCOPE driving BOTH the log and the branches view. `'all'`
-   * shows the merged multi-root log + the grouped branch tree; a number is
-   * the index of the single repository both views are scoped to.
-   *
-   * This is the single runtime source of truth: `_isShowAllRootsEnabled()`
-   * derives from it, and the `intellig.log.showAllRoots` config only seeds
-   * the initial default (see {@link setAvailableRepositories}). When the
-   * scope is `'all'`, {@link getSelectedRepository} still returns a concrete
-   * "context" repo (the most-recently-selected specific repo, or the first
-   * repo) so single-repo operations have a target.
+   * Repository-scope state machine: repo list, selection, merged scope,
+   * visible-roots subset, commit->root index, parsed-remote cache. Public so
+   * white-box tests and per-cluster consumers reach the model directly; the
+   * wide legacy entry points below stay as thin delegates.
    */
-  private _repositoryScope: 'all' | number = 0;
-  /**
-   * True once the user has explicitly picked a scope from the repository
-   * selector (a specific repo OR "All Repositories"). Until then the default
-   * scope is re-derived from `intellig.log.showAllRoots` on EVERY repository
-   * population — workspace repos are discovered one at a time, so the first
-   * `setAvailableRepositories` can carry a single repo; the default must keep
-   * tracking the repo count (single → merged once a second repo arrives)
-   * rather than locking to whatever was known at first paint. An explicit
-   * choice freezes it (collapsing 'all' to single only when the workspace
-   * itself drops to one repo).
-   */
-  private _scopeUserChosen: boolean = false;
-  /**
-   * Visible subset of repository root fsPaths in the merged scope; `null` means
-   * "every available root" (the unchanged "show all" default). Only meaningful
-   * when {@link _repositoryScope} is `'all'`. Always size ≥ 2 — checking all (or
-   * none) nulls it, and checking exactly one collapses to a single-repo scope —
-   * so it expresses ONLY the genuinely-new "some but not all roots" case. A user
-   * choice, so it freezes like {@link _scopeUserChosen} and is pruned (not reset)
-   * when the available-repository list changes.
-   */
-  private _visibleRepoRoots: string[] | null = null;
-  /**
-   * Per-commit source repository root for the merged "all roots" log,
-   * keyed by commit hash. Populated from each commit's `repoRoot` tag in
-   * {@link updateLogState} and rebuilt on every log refresh so it never
-   * leaks stale mappings. Lets commit-targeted operations (diff, details)
-   * resolve the repo the CLICKED commit actually belongs to rather than the
-   * single "context" repo — see {@link getRepoRootForCommit}. Empty in the
-   * single-repo / specific-scope paths, where commits carry no `repoRoot`.
-   *
-   * `null` marks a hash present in MORE THAN ONE root (two checkouts of the
-   * same repo in the merged view): the hash alone cannot identify a target,
-   * so the lookup refuses instead of guessing — see the fail-closed note on
-   * {@link getRepoRootForCommit}.
-   */
-  private _commitRepoRoots: Map<string, string | null> = new Map();
+  public readonly repoScope: RepoScopeModel;
 
   /**
    * HEAD commit hashes of every root in the merged "all roots" log. In merged
@@ -468,17 +412,6 @@ export class GitToolWindowProvider
    * where the single `_extendedLogState.headHash` drives the rule.
    */
   private _mergedHeadCommitHashes: ReadonlySet<string> = new Set();
-
-  /**
-   * Parsed remote URL for the current repository, cached by repo key.
-   * Populated by {@link _setParsedRemoteForSelectedRepo}. Used by
-   * {@link _getDetailsPanelModel} to turn issue/PR refs in commit messages
-   * into clickable links.
-   *
-   * Kept as a map (rather than a single cached value) so repository-selector
-   * changes don't thrash the cache when the user flips between repos.
-   */
-  private readonly _parsedRemoteCache: Map<string, IRemoteUrl | undefined> = new Map();
 
   /**
    * Host-side tab router.
@@ -668,6 +601,12 @@ export class GitToolWindowProvider
 
   constructor(extensionUri: vscode.Uri, workspaceState?: vscode.Memento) {
     super(extensionUri);
+    this.repoScope = new RepoScopeModel({
+      render: (): void => this._render(),
+      fireStateChange: (): void => this._onDidChangeState.fire(),
+      fireScopeChange: (e): void => this._onDidChangeRepositoryScope.fire(e),
+      readShowAllRootsConfig: (): boolean => this._isShowAllRootsConfigEnabled(),
+    });
     // Initialize extended log state
     this._extendedLogState = this._createInitialExtendedLogState();
 
@@ -853,16 +792,16 @@ export class GitToolWindowProvider
         if (changed) {
           // Invalidate only the entry for the repo that actually changed so
           // unrelated repos keep their cached parse result.
-          this._parsedRemoteCache.delete(changed.rootUri.fsPath);
+          this.repoScope.invalidateRemote(changed.rootUri.fsPath);
         } else {
           // Defensive: unkeyed event — blow the whole cache away.
-          this._parsedRemoteCache.clear();
+          this.repoScope.clearRemoteCache();
         }
       }
     );
     // Fresh attach — any cache entries accumulated against the previous
     // service instance are now stale by definition.
-    this._parsedRemoteCache.clear();
+    this.repoScope.clearRemoteCache();
   }
 
   /**
@@ -894,9 +833,9 @@ export class GitToolWindowProvider
    */
   private _resolveHistoryRepo(): IRepository | undefined {
     if (this._historyRepoRoot) {
-      const match = this._availableRepositories.find(
-        (r) => r.rootUri.fsPath === this._historyRepoRoot
-      );
+      const match = this.repoScope
+        .getAvailableRepositories()
+        .find((r) => r.rootUri.fsPath === this._historyRepoRoot);
       if (match) {
         return match;
       }
@@ -1206,23 +1145,7 @@ export class GitToolWindowProvider
     // rename, repo switch), null it out and clear the cached path-hash
     // set. The `commitNodes` we then generate get `onFocusedBranchPath:
     // false` for every node, which is the no-focus baseline.
-    // Rebuild the per-commit repo-root index from this log snapshot so
-    // commit-targeted ops resolve the right repo in the merged view. Rebuilt
-    // (not merged) so a refresh that drops commits drops their mappings too.
-    this._commitRepoRoots = new Map();
-    for (const commit of commits) {
-      if (commit.repoRoot) {
-        const existing = this._commitRepoRoots.get(commit.hash);
-        if (existing === undefined) {
-          this._commitRepoRoots.set(commit.hash, commit.repoRoot);
-        } else if (existing !== null && existing !== commit.repoRoot) {
-          // Same hash from a second root (two checkouts of one repo in the
-          // merged view) — the hash is ambiguous; mark it so the lookup
-          // refuses rather than aiming an action at an arbitrary checkout.
-          this._commitRepoRoots.set(commit.hash, null);
-        }
-      }
-    }
+    this.repoScope.rebuildCommitRoots(commits);
     // Reset the per-root HEAD set; the merged loader repopulates it via
     // setMergedHeadCommitHashes right after this call. Single-repo / specific
     // loads leave it empty (the single headHash drives undoCommit there).
@@ -2444,13 +2367,13 @@ export class GitToolWindowProvider
       return commitHash;
     }
     const expanded = this._extendedLogState.expandedCommit;
-    const preferredRoot = expanded ? (this._commitRepoRoots.get(expanded) ?? undefined) : undefined;
+    const preferredRoot = expanded ? this.repoScope.getRepoRootForCommit(expanded) : undefined;
     const sameRoot =
       preferredRoot === undefined
         ? undefined
         : matches.find(
             (n) =>
-              (n.commit.repoRoot ?? this._commitRepoRoots.get(n.commit.hash) ?? undefined) ===
+              (n.commit.repoRoot ?? this.repoScope.getRepoRootForCommit(n.commit.hash)) ===
               preferredRoot
           );
     return (sameRoot ?? matches[0]).commit.hash;
@@ -2852,316 +2775,36 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Set the list of available repositories discovered in the workspace.
-   * If the currently selected repository index is out of bounds after the update,
-   * it falls back to the first available repository.
-   * If no repositories are available, the selected index is reset to 0.
-   *
-   * Invariant — repo selector identity must be stable by **path**, not
-   * by index, across rebuilds that shift the list (e.g. drop-commit
-   * triggering a workspace re-scan). This method is the rebuild boundary
-   * that path-based hardening routes through. Identity comparisons go
-   * through the `normalizeRepoPath` helper (spec 8.L5 selector-identity
-   * and spec 8.L14 normalized-path invariants).
-   *
-   * @param repos - Array of discovered repositories
+   * Thin delegates over {@link repoScope} — the wide legacy entry points the
+   * extension wiring and the white-box test surface call. The cluster's
+   * behavior and full documentation live on {@link RepoScopeModel}.
    */
   public setAvailableRepositories(repos: IRepository[]): void {
-    // Identity-stable selection across reloads.
-    //
-    // Keying by INDEX alone broke after any mutation that triggered
-    // `loadAllPanelData` (drop commit, squash, rebase, etc.). The
-    // gitService's repo cache iteration order is insertion-order, and
-    // a watcher tear-down + re-add (which happens on
-    // reloadRepository's invalidate path) can shift a repo's slot in
-    // the cache — making `_selectedRepositoryIndex = 2` silently
-    // point at a DIFFERENT repo on the next render. Symptom: user
-    // dropped a commit on repo A, dropdown silently jumped to repo B.
-    //
-    // Fix: remember the selected repo's `rootUri.fsPath` BEFORE
-    // overwriting `_availableRepositories`, then re-resolve the index
-    // by matching that path against the new list. Falls back to 0
-    // when the previously-selected repo is no longer present (folder
-    // removed from workspace) — the prior contract.
-    // Identity comparison goes through `normalizeRepoPath` (L14) so a
-    // Windows drive-letter-case or slash-flavor difference between the
-    // old and new list entries doesn't read as a different repo and
-    // silently drop the user's selection.
-    const previousSelected = this._availableRepositories[this._selectedRepositoryIndex];
-    const previousSelectedPath = previousSelected
-      ? normalizeRepoPath(previousSelected.rootUri)
-      : undefined;
-    const previousRepoCount = this._availableRepositories.length;
-    const previousDocumentState = this._repositoryDocumentState();
-
-    this._availableRepositories = repos;
-
-    if (repos.length === 0) {
-      this._selectedRepositoryIndex = 0;
-    } else if (previousSelectedPath !== undefined) {
-      const matched = repos.findIndex((r) => normalizeRepoPath(r.rootUri) === previousSelectedPath);
-      this._selectedRepositoryIndex = matched >= 0 ? matched : 0;
-    } else if (this._selectedRepositoryIndex >= repos.length) {
-      // No prior selection (cold start) and the saved index is
-      // out-of-bounds — fall back to first.
-      this._selectedRepositoryIndex = 0;
-    }
-
-    const previousScope = this._repositoryScope;
-    this._resolveRepositoryScope(repos);
-
-    // Prune a visible-roots subset to the roots that still exist (identity by
-    // normalized path, mirroring the index re-resolution above). An EXPLICIT
-    // empty set (the "show none" state) is left untouched — it isn't a shrunken
-    // subset, it's a deliberate selection the user must undo themselves.
-    if (this._visibleRepoRoots && this._visibleRepoRoots.length > 0) {
-      const present = new Set(repos.map((r) => normalizeRepoPath(r.rootUri)));
-      const kept = this._visibleRepoRoots.filter((p) => present.has(normalizeRepoPathString(p)));
-      if (kept.length === 1) {
-        // A subset that shrank to a single surviving root becomes the single-repo
-        // scope — mirroring the checkbox rule "exactly one checked → that repo".
-        // Collapsing it to "show all" instead would resurrect roots the user
-        // explicitly excluded (the other survivors) into the view.
-        const survivor = normalizeRepoPathString(kept[0]);
-        const idx = repos.findIndex((r) => normalizeRepoPath(r.rootUri) === survivor);
-        if (idx >= 0) {
-          this._selectedRepositoryIndex = idx;
-          this._repositoryScope = idx;
-        }
-        this._visibleRepoRoots = null;
-      } else {
-        // 0 survivors, or a subset that now covers every root, is no longer a
-        // "some but not all" subset → show all. A real 2..n-1 subset is kept.
-        this._visibleRepoRoots = kept.length === 0 || kept.length === repos.length ? null : kept;
-      }
-    }
-
-    // Render only when the repository list changed something the document
-    // shows. This runs on every watcher-driven reload, and each render replaces
-    // `webview.html` — with a fresh nonce, so it is always a real iframe reload
-    // that takes the filter draft, scroll and focus with it. Rendering here
-    // unconditionally meant the log's own fingerprint guard downstream never
-    // got the chance to skip anything.
-    //
-    // The store above is unconditional on purpose: a reload REPLACES repository
-    // objects and the stored array feeds action paths, so skipping it to avoid
-    // a render would leave stale objects wired into real operations.
-    if (this._repositoryDocumentState() !== previousDocumentState) {
-      this._render();
-    }
-    this._onDidChangeState.fire();
-
-    // Announce an effective-scope change so the log + branch wiring (which
-    // follow this event) re-route eagerly instead of waiting for the next
-    // repo-change/refresh. The effective scope is either merged 'all' or a
-    // specific repo (by identity), and it can change in BOTH directions when the
-    // repo set changes:
-    //   - shrink to one repo   → merged 'all' collapses to that single repo.
-    //   - grow past one repo    → the single scope restores to merged 'all'.
-    //   - the scoped repo drops → scope re-resolves to another single repo.
-    // Compare the resolved scope by identity against the pre-update scope so
-    // every real transition fires and an unchanged scope (merged→merged, or the
-    // same repo whose index merely shifted) stays silent. Skip the initial cold
-    // population (no prior repos): the branch tree already defaults to 'all'.
-    if (previousRepoCount > 0) {
-      const newScopeIsAll = this._repositoryScope === 'all';
-      const newRepo = newScopeIsAll
-        ? undefined
-        : this._availableRepositories[this._selectedRepositoryIndex];
-      const newRepoPath = newRepo ? normalizeRepoPath(newRepo.rootUri) : undefined;
-      const prevScopeIsAll = previousScope === 'all';
-      const prevRepoPath = prevScopeIsAll ? undefined : previousSelectedPath;
-      if (prevScopeIsAll !== newScopeIsAll || prevRepoPath !== newRepoPath) {
-        if (newScopeIsAll) {
-          this._onDidChangeRepositoryScope.fire({ kind: 'all' });
-        } else if (newRepo) {
-          this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: newRepo });
-        }
-      }
-    }
+    this.repoScope.setAvailableRepositories(repos);
   }
 
-  /**
-   * Everything about the repository list that the rendered document actually
-   * shows: which roots exist and in what order (the selector lists them in
-   * array order), which one is selected, the resolved scope, and the visible
-   * subset.
-   *
-   * Deliberately excludes the repository OBJECTS. A reload replaces them on
-   * every tick, so comparing them would report a change every time and guard
-   * nothing; per-repo head and state reach the document through
-   * {@link updateLogState}'s extended log state instead, which has its own
-   * fingerprint. `null` visible-roots ("show all") is distinguished from an
-   * empty subset ("show none") because they are different documents. Joined on
-   * NUL, which a filesystem path cannot contain.
-   *
-   * The selected index is defensive rather than load-bearing: no current path
-   * moves it while the roots, scope and visible subset all hold still, because
-   * it is re-derived from the incoming list by path match and the
-   * single-survivor branch moves index and scope together. It stays because it
-   * is free and insures against a future path that moves it on its own — not
-   * because a spec isolates it. Nobody has been able to construct the case, so
-   * do not go looking for a test that proves it.
-   */
-  private _repositoryDocumentState(): string {
-    const roots = this._availableRepositories
-      .map((r) => normalizeRepoPath(r.rootUri))
-      .join(REPO_STATE_FIELD_SEP);
-    const visible =
-      this._visibleRepoRoots === null
-        ? 'all'
-        : `subset:${this._visibleRepoRoots.map(normalizeRepoPathString).join(REPO_STATE_FIELD_SEP)}`;
-    return [
-      roots,
-      String(this._selectedRepositoryIndex),
-      String(this._repositoryScope),
-      visible,
-    ].join(REPO_STATE_SECTION_SEP);
-  }
-
-  /**
-   * Resolve {@link _repositoryScope} after the available-repository list
-   * changes.
-   *
-   * - No explicit user choice yet: re-derive the default from
-   *   `intellig.log.showAllRoots` on EVERY population — `'all'` when the flag
-   *   is on AND there's more than one repo, otherwise the single (context)
-   *   repo. The flag defaults to ON, so a multi-root workspace opens to the
-   *   merged log, matching the branch view. Re-deriving (rather than seeding
-   *   once) is what makes the default follow incremental discovery: a
-   *   single-repo first paint promotes to merged once the second repo arrives.
-   * - After an explicit choice ({@link _scopeUserChosen}): preserve it. `'all'`
-   *   is kept while multiple repos remain and collapses to the single repo when
-   *   the workspace drops to one; a specific-repo scope tracks the
-   *   identity-stable context index resolved above.
-   */
-  private _resolveRepositoryScope(repos: IRepository[]): void {
-    if (repos.length === 0) {
-      // No repos to show — PRESERVE the current scope rather than clobbering it
-      // to a single-repo index, so a merged 'all' scope survives the workspace
-      // emptying and refilling (close then reopen all folders). Nothing indexes
-      // the scope while the list is empty; the next non-empty population
-      // re-derives it correctly.
-      return;
-    }
-
-    if (!this._scopeUserChosen) {
-      this._repositoryScope =
-        repos.length > 1 && this._isShowAllRootsConfigEnabled()
-          ? 'all'
-          : this._selectedRepositoryIndex;
-      return;
-    }
-
-    if (this._repositoryScope === 'all') {
-      this._repositoryScope = repos.length > 1 ? 'all' : this._selectedRepositoryIndex;
-      return;
-    }
-
-    this._repositoryScope = this._selectedRepositoryIndex;
-  }
-
-  /**
-   * Get the currently selected repository.
-   * Returns undefined if no repositories are available.
-   *
-   * @returns The selected repository, or undefined if none available
-   */
   public getSelectedRepository(): IRepository | undefined {
-    if (this._availableRepositories.length === 0) {
-      return undefined;
-    }
-    return this._availableRepositories[this._selectedRepositoryIndex];
+    return this.repoScope.getSelectedRepository();
   }
 
-  /**
-   * Whether the current scope is the merged "all repositories" view (vs. a
-   * single repository). The selector's runtime source of truth — drives both
-   * the merged log and the grouped branch tree.
-   */
   public isAllReposSelected(): boolean {
-    return this._repositoryScope === 'all';
+    return this.repoScope.isAllReposSelected();
   }
 
-  /**
-   * The visible subset of repository root fsPaths in merged scope, or `null`
-   * when every available root is shown. The merged log loader intersects the
-   * discovered repos with this to honor a "some but not all roots" selection.
-   */
   public getVisibleRepoRoots(): string[] | null {
-    return this._visibleRepoRoots;
+    return this.repoScope.getVisibleRepoRoots();
   }
 
-  /**
-   * The repositories currently in scope for merged-view work (branch-filter
-   * options, etc.). The full available list unless a subset is active, in which
-   * case only the chosen roots (matched by normalized path).
-   */
   public getVisibleRepositories(): IRepository[] {
-    if (!this._visibleRepoRoots) {
-      return this._availableRepositories;
-    }
-    const visible = new Set(this._visibleRepoRoots.map((p) => normalizeRepoPathString(p)));
-    return this._availableRepositories.filter((r) => visible.has(normalizeRepoPath(r.rootUri)));
+    return this.repoScope.getVisibleRepositories();
   }
 
-  /**
-   * The default-branch short names of the in-scope repositories — the trunk set
-   * the graph coloring pins to blue and gives the mainline-owning tier. In a
-   * single-repo scope that's the one selected repo's default; in the merged view
-   * it's the union across the visible repos. Empty when no in-scope repo reports
-   * a default (the coloring then falls back to `main`/`master`).
-   */
-  private _trunkBranchNamesForScope(): string[] {
-    const inScope = this.isAllReposSelected()
-      ? this.getVisibleRepositories()
-      : [this.getSelectedRepository()];
-    const names = new Set<string>();
-    for (const repo of inScope) {
-      if (repo?.defaultBranch) {
-        names.add(repo.defaultBranch);
-      }
-    }
-    return [...names];
-  }
-
-  /**
-   * Source repository root for a commit in the merged "all roots" log, or
-   * `undefined` when the commit isn't from the merged view (single-repo /
-   * specific-scope log), isn't in the current snapshot, or — fail closed —
-   * exists in MORE THAN ONE root (two checkouts of the same repo carry
-   * identical hashes; the hash alone cannot say which one was meant).
-   * Commit-targeted operations use this to act on the repo the CLICKED
-   * commit belongs to rather than the single "context" repo
-   * {@link getSelectedRepository} returns. Callers deciding what to PIN want
-   * {@link resolveCommitRepoPin}, which keeps the ambiguous answer distinct
-   * from the not-recorded one.
-   */
   public getRepoRootForCommit(hash: string): string | undefined {
-    return this._commitRepoRoots.get(hash) ?? undefined;
+    return this.repoScope.getRepoRootForCommit(hash);
   }
 
-  /**
-   * The repo root a commit-targeted action should PIN, or `undefined` to let
-   * the command resolve the repo itself.
-   *
-   * Three cases, and they are not the same:
-   *  - the snapshot names an owner → pin it;
-   *  - the snapshot says AMBIGUOUS (the hash lives in more than one root) →
-   *    pin nothing. The command's own probing resolver finds the owner;
-   *    substituting the selected repo would pin an arbitrary one, and callers
-   *    that trust a pin skip probing and act on a repo that never held the
-   *    commit;
-   *  - the snapshot knows nothing (single-repo or specific-scope log, where
-   *    per-commit roots are not recorded) → the selected repo IS the context.
-   */
   public resolveCommitRepoPin(hash: string): string | undefined {
-    const known = this._commitRepoRoots.get(hash);
-    if (known !== undefined) {
-      // `null` is the recorded ambiguous verdict — fail closed.
-      return known ?? undefined;
-    }
-    return this.getSelectedRepository()?.rootUri.fsPath;
+    return this.repoScope.resolveCommitRepoPin(hash);
   }
 
   /**
@@ -3173,113 +2816,6 @@ export class GitToolWindowProvider
    */
   public setMergedHeadCommitHashes(hashes: Iterable<string>): void {
     this._mergedHeadCommitHashes = new Set(hashes);
-  }
-
-  /**
-   * Handle a repository scope change from the webview.
-   *
-   * Accepts either the `'all'` sentinel (merged multi-root view) or a numeric
-   * repository index. Numeric indices are clamped to the valid range with a
-   * warning. Fires {@link onDidChangeRepositoryScope} for both cases so the
-   * extension host can re-route the log and branches in lockstep.
-   *
-   * @param selection - The repository index, or `'all'`, selected by the user
-   */
-  private _handleRepositorySelection(selection: number | 'all'): void {
-    if (this._availableRepositories.length === 0) {
-      return;
-    }
-
-    if (selection === 'all') {
-      this._repositoryScope = 'all';
-      this._visibleRepoRoots = null;
-      this._scopeUserChosen = true;
-      this._onDidChangeState.fire();
-      this._onDidChangeRepositoryScope.fire({ kind: 'all' });
-      return;
-    }
-
-    // A non-integer (e.g. `NaN` from `Number('x')` in a garbled webview message)
-    // passes both `< 0` and `>= len` as false, so the clamp below wouldn't fire
-    // and `NaN` would brick the scope state. Reject it outright.
-    if (!Number.isInteger(selection)) {
-      getLogger()
-        .child({ component: 'GitToolWindowProvider' })
-        .warn('ignoring non-integer repository index', { index: selection });
-      return;
-    }
-
-    // Clamp to valid range
-    let clampedIndex = selection;
-    if (selection < 0 || selection >= this._availableRepositories.length) {
-      getLogger()
-        .child({ component: 'GitToolWindowProvider' })
-        .warn('repository index out of bounds; clamping to valid range', {
-          index: selection,
-          maxIndex: this._availableRepositories.length - 1,
-        });
-      clampedIndex = Math.max(0, Math.min(selection, this._availableRepositories.length - 1));
-    }
-
-    this._selectedRepositoryIndex = clampedIndex;
-    this._repositoryScope = clampedIndex;
-    this._visibleRepoRoots = null;
-    this._scopeUserChosen = true;
-    this._onDidChangeState.fire();
-
-    const selectedRepo = this._availableRepositories[clampedIndex];
-    this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: selectedRepo });
-  }
-
-  /**
-   * Handle a multi-repository scope change from the "Repository" log filter,
-   * where the user checks the subset of roots to show. The checked set collapses
-   * to the existing single/all scopes at the extremes so those paths (HEAD
-   * spine, root column, branch-option source) are unchanged:
-   *   - all (or none) checked → `'all'`, no visible subset.
-   *   - exactly one checked   → that single-repo scope.
-   *   - 2 .. n-1 checked      → merged `'all'` filtered to {@link _visibleRepoRoots}.
-   *
-   * Roots arrive as fsPath strings from the untrusted webview and are matched by
-   * normalized path (spec L14); unknown roots are ignored. The subset case fires
-   * a single `{ kind: 'all' }` scope change — the loader re-reads the subset from
-   * {@link getVisibleRepoRoots} — so the merged log re-routes in lockstep.
-   *
-   * @param roots - fsPaths of the repositories the user checked
-   */
-  private _handleVisibleRepositoriesSelection(roots: string[]): void {
-    if (this._availableRepositories.length === 0) {
-      return;
-    }
-    // roots arrives from the untrusted webview; drop any non-string element so a
-    // tampered payload can't throw inside normalizeRepoPathString (it would be
-    // caught + logged upstream, but the selection would silently no-op).
-    const checked = new Set(
-      roots.filter((p): p is string => typeof p === 'string').map((p) => normalizeRepoPathString(p))
-    );
-    const matched = this._availableRepositories.filter((r) =>
-      checked.has(normalizeRepoPath(r.rootUri))
-    );
-    const n = this._availableRepositories.length;
-
-    if (matched.length === n) {
-      this._handleRepositorySelection('all'); // every repo checked → show all
-      return;
-    }
-    if (matched.length === 1) {
-      this._handleRepositorySelection(this._availableRepositories.indexOf(matched[0]));
-      return;
-    }
-
-    // 0 (none checked) or 2..n-1 (a partial subset) both stay in the merged
-    // scope with an explicit visible set. An EMPTY set means "show no commits"
-    // — unchecking everything must NOT snap back to "all"; the user re-checks
-    // (or ticks "All repositories") to restore.
-    this._repositoryScope = 'all';
-    this._visibleRepoRoots = matched.map((r) => r.rootUri.fsPath);
-    this._scopeUserChosen = true;
-    this._onDidChangeState.fire();
-    this._onDidChangeRepositoryScope.fire({ kind: 'all' });
   }
 
   /**
@@ -3544,13 +3080,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
   }
 
   clearEmptyVisibleRepoScope(): void {
-    // An explicit empty repo scope is part of "the filter" for the Clear
-    // button: reset it too, or Clear leaves the list empty.
-    if (this._visibleRepoRoots !== null && this._visibleRepoRoots.length === 0) {
-      this._visibleRepoRoots = null;
-      this._onDidChangeState.fire();
-      this._onDidChangeRepositoryScope.fire({ kind: 'all' });
-    }
+    this.repoScope.clearEmptyVisibleRepoScope();
   }
 
   branchClick(branchName: string): void {
@@ -3562,7 +3092,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
   }
 
   visibleRepositoriesSelection(roots: string[]): void {
-    this._handleVisibleRepositoriesSelection(roots);
+    this.repoScope.handleVisibleRepositoriesSelection(roots);
   }
 
   fireLogContextAction(payload: {
@@ -3660,15 +3190,16 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
       state: this._extendedLogState,
       searchDraft: this._searchDraft,
       searchModeUi: this._searchModeUi,
-      availableRepositories: this._availableRepositories,
-      visibleRepoRoots: this._visibleRepoRoots,
-      repositoryScope: this._repositoryScope,
-      selectedRepositoryIndex: this._selectedRepositoryIndex,
+      availableRepositories: this.repoScope.getAvailableRepositories(),
+      visibleRepoRoots: this.repoScope.getVisibleRepoRoots(),
+      repositoryScope: this.repoScope.getRepositoryScope(),
+      selectedRepositoryIndex: this.repoScope.getSelectedRepositoryIndex(),
       columnWidths: this._columnWidths,
-      trunkBranchNames: this._trunkBranchNamesForScope(),
+      trunkBranchNames: this.repoScope.trunkBranchNamesForScope(),
       showLongEdges: this._isShowLongEdgesEnabled(),
       showGpgColumn: this._isShowGpgColumnEnabled(),
-      showRootColumn: this._isShowAllRootsEnabled() && this._availableRepositories.length > 1,
+      showRootColumn:
+        this._isShowAllRootsEnabled() && this.repoScope.getAvailableRepositories().length > 1,
       showRootNames: this._isShowRootNamesEnabled(),
       preserveScroll,
     };
@@ -3905,7 +3436,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * render time.
    */
   public _isShowAllRootsEnabled(): boolean {
-    return this._repositoryScope === 'all';
+    return this.repoScope.isAllReposSelected();
   }
 
   /**
@@ -3924,36 +3455,6 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
   }
 
   /**
-   * Parse and cache the first remote URL for the currently selected
-   * repository. Falls back to `origin` when present, otherwise the first
-   * remote. Returns `undefined` when the repo has no remotes or when the
-   * URL can't be parsed (e.g. custom SCP-style remote we don't know about).
-   *
-   * The cache key is the repo's root filesystem path; entries survive
-   * repository-selector changes.
-   */
-  private _getSelectedRepoRemote(): IRemoteUrl | undefined {
-    const repo = this.getSelectedRepository();
-    if (!repo) {
-      return undefined;
-    }
-    const key = repo.rootUri.fsPath;
-    if (this._parsedRemoteCache.has(key)) {
-      return this._parsedRemoteCache.get(key);
-    }
-    const remotes = repo.remotes ?? [];
-    if (remotes.length === 0) {
-      this._parsedRemoteCache.set(key, undefined);
-      return undefined;
-    }
-    const preferred = remotes.find((r) => r.name === 'origin') ?? remotes[0];
-    const url = preferred.fetchUrl ?? preferred.pushUrl;
-    const parsed = parseRemoteUrl(url);
-    this._parsedRemoteCache.set(key, parsed);
-    return parsed;
-  }
-
-  /**
    * Controller-context view over the issue-linking config flag. Delegates to
    * the in-class config read so the flag lookup stays on the provider while
    * extracted HTML builders can gate on it through the context.
@@ -3969,7 +3470,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * link targets through the context.
    */
   public getSelectedRepoRemote(): IRemoteUrl | undefined {
-    return this._getSelectedRepoRemote();
+    return this.repoScope.getSelectedRepoRemote();
   }
 
   /** How the details panel currently groups changed files. */
@@ -4011,12 +3512,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
    * heading. Undefined when no repository is selected.
    */
   public getSelectedRepoProject(): { name: string; path: string } | undefined {
-    const repo = this.getSelectedRepository();
-    if (!repo) {
-      return undefined;
-    }
-    const fsPath = repo.rootUri.fsPath;
-    return { name: path.basename(fsPath) || fsPath, path: abbreviateHomePath(fsPath) };
+    return this.repoScope.getSelectedRepoProject();
   }
 }
 

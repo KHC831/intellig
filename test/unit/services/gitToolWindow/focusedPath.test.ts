@@ -26,6 +26,9 @@ interface FocusedPathInternals {
   _extendedLogState: IExtendedLogState;
   _focusedPathHashes: Set<string>;
   _attachedGitService?: unknown;
+}
+
+interface FocusedPathRepoInternals {
   _availableRepositories: unknown[];
   _selectedRepositoryIndex: number;
 }
@@ -84,8 +87,9 @@ function attachStubGitService(
       return mergeBase;
     },
   };
-  internals._availableRepositories = [{ rootUri: { fsPath: '/tmp/repo' } }];
-  internals._selectedRepositoryIndex = 0;
+  const repoInternals = provider.repoScope as unknown as FocusedPathRepoInternals;
+  repoInternals._availableRepositories = [{ rootUri: { fsPath: '/tmp/repo' } }];
+  repoInternals._selectedRepositoryIndex = 0;
   return {
     get calls() {
       return calls;

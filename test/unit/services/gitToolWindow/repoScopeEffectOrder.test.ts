@@ -25,9 +25,7 @@ const b = '/work/beta';
 const c = '/work/gamma';
 
 function handleSubset(p: GitToolWindowProvider, r: string[]): void {
-  (
-    p as unknown as { _handleVisibleRepositoriesSelection(r: string[]): void }
-  )._handleVisibleRepositoriesSelection(r);
+  p.repoScope.handleVisibleRepositoriesSelection(r);
 }
 
 describe('setAvailableRepositories effect order', () => {

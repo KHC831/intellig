@@ -262,9 +262,10 @@ describe('setAvailableRepositories stores every time and repaints only on a visi
   it('leaves an active visible-roots subset untouched and unrepainted on a repeat', () => {
     const roots = ['/repo/a', '/repo/b', '/repo/c'];
     provider.setAvailableRepositories(roots.map(mkRepo));
-    (
-      provider as unknown as { _handleVisibleRepositoriesSelection(r: string[]): void }
-    )._handleVisibleRepositoriesSelection([Uri.file('/repo/a').fsPath, Uri.file('/repo/b').fsPath]);
+    provider.repoScope.handleVisibleRepositoriesSelection([
+      Uri.file('/repo/a').fsPath,
+      Uri.file('/repo/b').fsPath,
+    ]);
     const subsetBefore = provider.getVisibleRepoRoots();
     assert.ok(subsetBefore && subsetBefore.length === 2, 'precondition: a real 2-of-3 subset');
 
@@ -300,9 +301,10 @@ describe('setAvailableRepositories stores every time and repaints only on a visi
 
   it('repaints when the surviving subset collapses to a single root', () => {
     provider.setAvailableRepositories(['/repo/a', '/repo/b', '/repo/c'].map(mkRepo));
-    (
-      provider as unknown as { _handleVisibleRepositoriesSelection(r: string[]): void }
-    )._handleVisibleRepositoriesSelection([Uri.file('/repo/a').fsPath, Uri.file('/repo/b').fsPath]);
+    provider.repoScope.handleVisibleRepositoriesSelection([
+      Uri.file('/repo/a').fsPath,
+      Uri.file('/repo/b').fsPath,
+    ]);
     const view = tapView(provider);
 
     // /repo/b disappears, so the subset has one survivor and collapses to the

@@ -7,24 +7,52 @@
 // "no spec noticed". So every verdict here now requires POSITIVE evidence that
 // the suite executed. Mutations are also chosen to keep every local used, so a
 // type error cannot masquerade as a result.
+//
+// Each mutation names the file its guard lives in: setAvailableRepositories'
+// render gate moved into RepoScopeModel with the repo-scope cluster; the rest
+// remain on the provider class.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-const PATH = 'src/git-core/gitToolWindow/GitToolWindowProvider.ts';
+const PROVIDER = 'src/git-core/gitToolWindow/GitToolWindowProvider.ts';
+const REPO_SCOPE = 'src/git-core/gitToolWindow/provider/RepoScopeModel.ts';
 const SPEC = 'test/unit/services/gitToolWindow/renderIdempotence.test.ts';
-const original = readFileSync(PATH, 'utf8');
+
+const originals = new Map([PROVIDER, REPO_SCOPE].map((p) => [p, readFileSync(p, 'utf8')]));
+const restoreAll = () => {
+  for (const [p, src] of originals) {
+    writeFileSync(p, src);
+  }
+};
 
 const mutations = [
   [
     'setAvailableRepositories',
+    REPO_SCOPE,
     'this._repositoryDocumentState() !== previousDocumentState',
     "this._repositoryDocumentState() !== previousDocumentState + 'x'",
   ],
-  ['clearConsole', 'if (this._consoleEntries.length === 0) {', 'if (this._consoleEntries.length < 0) {'],
-  ['setHasRepository', 'const wasLoading = this._isLoading;', 'const wasLoading = !this._isLoading;'],
-  ['updateLogState', 'this._lastLogFingerprint = fingerprint;', 'this._lastLogFingerprint = fingerprint + Math.random();'],
+  [
+    'clearConsole',
+    PROVIDER,
+    'if (this._consoleEntries.length === 0) {',
+    'if (this._consoleEntries.length < 0) {',
+  ],
+  [
+    'setHasRepository',
+    PROVIDER,
+    'const wasLoading = this._isLoading;',
+    'const wasLoading = !this._isLoading;',
+  ],
+  [
+    'updateLogState',
+    PROVIDER,
+    'this._lastLogFingerprint = fingerprint;',
+    'this._lastLogFingerprint = fingerprint + Math.random();',
+  ],
   [
     'setCherryPickedHashes',
+    PROVIDER,
     'const prev = this._extendedLogState.cherryPickedHashes;',
     'const prev = new Set([...(this._extendedLogState.cherryPickedHashes ?? []), Math.random().toString()]);',
   ],
@@ -49,14 +77,15 @@ console.log(
   `baseline (unmutated): ran=${baseline.ran} failing=[${baseline.failed.join(', ') || 'none'}]\n`
 );
 
-for (const [name, find, replace] of mutations) {
+for (const [name, path, find, replace] of mutations) {
+  const original = originals.get(path);
   if (!original.includes(find)) {
     console.log(`${name}: PATTERN NOT FOUND — harness broken, not the guard`);
     continue;
   }
-  writeFileSync(PATH, original.replace(find, replace));
+  writeFileSync(path, original.replace(find, replace));
   const { ran, failed } = run();
-  writeFileSync(PATH, original);
+  restoreAll();
 
   if (!ran) {
     console.log(`${name}: INCONCLUSIVE — the suite did not execute under this mutation`);
@@ -70,5 +99,8 @@ for (const [name, find, replace] of mutations) {
   console.log(`${name}: red for [${failed.join(', ')}]${only ? ' — exactly this one' : ''}`);
 }
 
-writeFileSync(PATH, original);
-console.log('\nrestored byte-identical:', readFileSync(PATH, 'utf8') === original);
+restoreAll();
+console.log(
+  '\nrestored byte-identical:',
+  [PROVIDER, REPO_SCOPE].every((p) => readFileSync(p, 'utf8') === originals.get(p))
+);

@@ -18,14 +18,10 @@ const b = '/work/beta';
 const c = '/work/gamma';
 
 function handleSingle(p: GitToolWindowProvider, s: number | 'all'): void {
-  (
-    p as unknown as { _handleRepositorySelection(s: number | 'all'): void }
-  )._handleRepositorySelection(s);
+  p.repoScope.handleRepositorySelection(s);
 }
 function handleSubset(p: GitToolWindowProvider, r: string[]): void {
-  (
-    p as unknown as { _handleVisibleRepositoriesSelection(r: string[]): void }
-  )._handleVisibleRepositoriesSelection(r);
+  p.repoScope.handleVisibleRepositoriesSelection(r);
 }
 
 describe('Repository scope edge cases', () => {

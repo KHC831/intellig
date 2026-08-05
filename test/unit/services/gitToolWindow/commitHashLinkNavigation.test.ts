@@ -26,7 +26,6 @@ interface Internals {
     selectedCommits: Set<string>;
     expandedCommit: string | null;
   };
-  _commitRepoRoots: Map<string, string | null>;
   _handleWebviewMessage(msg: Record<string, unknown>): void;
 }
 
@@ -70,7 +69,9 @@ function makeProvider(): {
     node(A_HASH, A_ROOT),
     node(B_HASH, B_ROOT),
   ];
-  internals._commitRepoRoots = new Map([
+  (
+    provider.repoScope as unknown as { _commitRepoRoots: Map<string, string | null> }
+  )._commitRepoRoots = new Map([
     [OTHER, A_ROOT],
     [A_HASH, A_ROOT],
     [B_HASH, B_ROOT],

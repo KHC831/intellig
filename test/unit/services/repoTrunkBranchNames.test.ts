@@ -21,14 +21,10 @@ function makeRepo(rootPath: string, defaultBranch?: string): IRepository {
 }
 
 function trunk(p: GitToolWindowProvider): string[] {
-  return (p as unknown as { _trunkBranchNamesForScope(): string[] })
-    ._trunkBranchNamesForScope()
-    .sort();
+  return p.repoScope.trunkBranchNamesForScope().sort();
 }
 function selectSingle(p: GitToolWindowProvider, i: number): void {
-  (
-    p as unknown as { _handleRepositorySelection(s: number | 'all'): void }
-  )._handleRepositorySelection(i);
+  p.repoScope.handleRepositorySelection(i);
 }
 
 describe('Trunk branch names for the graph coloring scope', () => {
@@ -49,9 +45,7 @@ describe('Trunk branch names for the graph coloring scope', () => {
       makeRepo('/b', 'main'),
       makeRepo('/c', 'main'),
     ]);
-    (
-      p as unknown as { _handleRepositorySelection(s: number | 'all'): void }
-    )._handleRepositorySelection('all');
+    p.repoScope.handleRepositorySelection('all');
     assert.deepStrictEqual(trunk(p), ['develop', 'main'], 'union, de-duplicated');
     p.dispose();
   });
@@ -59,9 +53,7 @@ describe('Trunk branch names for the graph coloring scope', () => {
   it('is empty when no in-scope repo reports a default (coloring falls back to main/master)', () => {
     const p = new GitToolWindowProvider(Uri.file('/x'));
     p.setAvailableRepositories([makeRepo('/a'), makeRepo('/b')]);
-    (
-      p as unknown as { _handleRepositorySelection(s: number | 'all'): void }
-    )._handleRepositorySelection('all');
+    p.repoScope.handleRepositorySelection('all');
     assert.deepStrictEqual(trunk(p), []);
     p.dispose();
   });

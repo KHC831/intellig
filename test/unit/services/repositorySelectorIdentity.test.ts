@@ -50,9 +50,7 @@ describe('Repo selector identity (L5 + L14)', () => {
     provider.setAvailableRepositories([a, b, c] as SetReposArg);
 
     // Select the SECOND repo (beta, index 1).
-    (
-      provider as unknown as { _handleRepositorySelection: (i: number) => void }
-    )._handleRepositorySelection(1);
+    provider.repoScope.handleRepositorySelection(1);
     assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/work/beta');
 
     // Reload: same three repos, reordered so beta is now LAST (index 2).
@@ -72,9 +70,7 @@ describe('Repo selector identity (L5 + L14)', () => {
     const a = makeRepo('/work/alpha');
     const b = makeRepo('/work/beta');
     provider.setAvailableRepositories([a, b] as SetReposArg);
-    (
-      provider as unknown as { _handleRepositorySelection: (i: number) => void }
-    )._handleRepositorySelection(1); // select beta
+    provider.repoScope.handleRepositorySelection(1); // select beta
     assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/work/beta');
 
     // beta closed; only alpha remains.
@@ -90,9 +86,7 @@ describe('Repo selector identity (L5 + L14)', () => {
     const a = makeRepo('/work/alpha');
     const b = makeRepo('/work/beta');
     provider.setAvailableRepositories([a, b] as SetReposArg);
-    (
-      provider as unknown as { _handleRepositorySelection: (i: number) => void }
-    )._handleRepositorySelection(1); // single-repo scope: beta
+    provider.repoScope.handleRepositorySelection(1); // single-repo scope: beta
 
     const html = provider._getLogFilterRowHtml();
 
