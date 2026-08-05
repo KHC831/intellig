@@ -26,7 +26,6 @@ import { Uri } from '../../../mocks/vscode';
 
 interface FocusInternals {
   _extendedLogState: IExtendedLogState;
-  _focusedPathHashes: Set<string>;
   _attachedGitService?: unknown;
   _handleWebviewMessage(message: { type: string; branchName?: string | null }): void;
   _view?: { webview?: { postMessage: (msg: unknown) => Thenable<boolean> } };
@@ -80,6 +79,10 @@ function stubWebview(provider: GitToolWindowProvider): {
     onDidChangeVisibility: () => ({ dispose: () => {} }),
   };
   return { messages };
+}
+
+function focusInternals(p: GitToolWindowProvider): { _focusedPathHashes: Set<string> } {
+  return p.focus as unknown as { _focusedPathHashes: Set<string> };
 }
 
 describe('Branch focus on graph (D2 + D3)', () => {
@@ -185,7 +188,7 @@ describe('Branch focus on graph (D2 + D3)', () => {
       'focusedBranchName must be cleared when branch absent from new list'
     );
     assert.strictEqual(
-      internals._focusedPathHashes.size,
+      focusInternals(provider)._focusedPathHashes.size,
       0,
       '_focusedPathHashes must be cleared too'
     );
@@ -236,7 +239,7 @@ describe('Branch focus on graph (D2 + D3)', () => {
     await provider.setFocusedBranch('feature');
 
     assert.strictEqual(mergeBaseCalls, 1, 'getMergeBase must be called once');
-    const path = internals._focusedPathHashes;
+    const path = focusInternals(provider)._focusedPathHashes;
     assert.ok(path.has('aaa'), 'aaa (tip) on path');
     assert.ok(path.has('bbb'), 'bbb on path');
     assert.ok(path.has('ccc'), 'ccc (merge base) on path');

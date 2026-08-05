@@ -29,7 +29,6 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
 import { ICommit, IAuthor } from '../../src/git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 /** A recorded webview postMessage payload. */
 interface IPostedMessage {
@@ -131,7 +130,7 @@ describe('Feature: git-graph-branch-click-scroll - branch click uses the partial
     /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 
     // Act: click the branch.
-    void invokePrivateHandler(provider, '_handleBranchClick', branchName);
+    provider.focus.handleBranchClick(branchName);
 
     // A scrollToCommit message must be posted with the resolved tip hash.
     const scrollMsg = posted.find((m) => m.type === 'scrollToCommit');

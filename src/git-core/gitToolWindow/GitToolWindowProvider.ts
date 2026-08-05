@@ -18,7 +18,7 @@ import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGi
 import { ICommitNode, IBranchRef } from '../commitGraph';
 import { fingerprintLogState } from './provider/logStateFingerprint';
 import { sanitizeWebviewLogFilter } from './provider/logFilterSanitizer';
-import { bfsPathToMergeBase, groupBranchFilterOptions } from './provider/loadedGraphQueries';
+import { groupBranchFilterOptions } from './provider/loadedGraphQueries';
 import { loadLogFilter, saveLogFilter } from '../../utils/logFilterStorage';
 import {
   savePanelWidths,
@@ -99,6 +99,7 @@ import {
   saveDetailsGroupBy,
   type DetailsGroupBy,
 } from '../../utils/detailsGroupBy';
+import { BranchFocusController } from './provider/BranchFocusController';
 import { DetailsModel } from './provider/DetailsModel';
 import { LogStateModel } from './provider/LogStateModel';
 import { RepoScopeModel } from './provider/RepoScopeModel';
@@ -274,18 +275,11 @@ export class GitToolWindowProvider
   /** Live search-box draft (uncommitted); survives re-renders. */
   private _searchDraft?: string;
   /**
-   * Set of commit hashes on the BFS path from the focused
-   * branch tip back to its merge-base with HEAD. Recomputed every time
-   * {@link setFocusedBranch} runs; cleared (set to empty) by
-   * {@link updateLogState} whenever the focused branch is no longer
-   * present in the new branch list. Passed into
-   * {@link generateCommitGraph}'s 4th argument so each ICommitNode is
-   * tagged with `onFocusedBranchPath`.
-   *
-   * Initialized as an empty Set (not undefined) so `size` checks are
-   * always safe.
+   * Branch-focus state machine: the focused-path hash set, the staleness
+   * generation, tip resolution and the focus/click flows. Public so
+   * white-box tests and per-cluster consumers reach the controller directly.
    */
-  private _focusedPathHashes: Set<string> = new Set();
+  public readonly focus: BranchFocusController;
   /**
    * Editor-tab WebviewPanel host while the log is undocked. When set, the
    * panel is the single live follower webview: every render and post targets
@@ -413,22 +407,6 @@ export class GitToolWindowProvider
    * level but the path treatment is a no-op.
    */
   private _attachedGitService: IGitService | undefined;
-
-  /**
-   * Async-race generation
-   * counter. {@link setFocusedBranch} bumps this on entry and captures
-   * the value as `myGen`; after `await getMergeBase`, the method
-   * compares `myGen` to the live counter and bails (no state mutation,
-   * no post, no render) when a later focus call has already started.
-   * Defends against rapid focus(A) → focus(B) where A's getMergeBase
-   * resolves last and would otherwise overwrite B's state.
-   *
-   * Also covers the parallel race with {@link updateLogState}: a
-   * refresh that lands while focus(A) is awaiting bumps the counter,
-   * so A's continuation sees the bump and bails — preserving the
-   * (possibly cleared) post-refresh focus state.
-   */
-  private _focusGeneration = 0;
 
   /**
    * Disposable for the `onDidChangeRepository` subscription wired by
@@ -568,6 +546,19 @@ export class GitToolWindowProvider
       : [...DEFAULT_PANEL_WIDTHS];
 
     this.details = new DetailsModel(workspaceState ? loadDetailsGroupBy(workspaceState) : 'tree');
+    this.focus = new BranchFocusController(
+      {
+        render: (): void => this._render(),
+        fireStateChange: (): void => this._onDidChangeState.fire(),
+        hasView: (): boolean => this.hasView(),
+        post: (msg): void => this.postToWebview(msg),
+        getGitService: (): IGitService | undefined => this._attachedGitService,
+        getSelectedRepository: (): IRepository | undefined => this.getSelectedRepository(),
+        selectCommit: (hash): void => this.selectCommit(hash),
+        scrollWebviewToCommit: (hash): void => this._scrollWebviewToCommit(hash),
+      },
+      this.log
+    );
 
     // Load persisted log-column widths or use defaults
     this._columnWidths = workspaceState
@@ -1085,23 +1076,7 @@ export class GitToolWindowProvider
         }
       }
     }
-    const currentFocusName = this._extendedLogState.focusedBranchName;
-    const newFocusName =
-      currentFocusName && branchNamesPresent.has(currentFocusName) ? currentFocusName : null;
-    if (newFocusName === null) {
-      // Focus was either already off or invalidated by this update;
-      // either way the cached path is stale.
-      // Bump `_focusGeneration` so any
-      // in-flight setFocusedBranch awaiting `getMergeBase` sees the
-      // bump and bails. We only need to bump on the cleared-focus
-      // path: a refresh that KEEPS the focus name doesn't invalidate
-      // an in-flight continuation (whichever computed merge-base wins
-      // is still semantically correct — the branch is still here).
-      if (currentFocusName !== null) {
-        this._focusGeneration += 1;
-      }
-      this._focusedPathHashes = new Set();
-    }
+    const newFocusName = this.focus.revalidateOnSnapshot(branchNamesPresent);
 
     this.log.applySnapshot(
       commits,
@@ -1110,7 +1085,7 @@ export class GitToolWindowProvider
       headHash,
       headBranchName,
       newFocusName,
-      this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined
+      this.focus.pathHashesOrUndefined()
     );
 
     this._hasRepository = true;
@@ -2206,7 +2181,7 @@ export class GitToolWindowProvider
    * and highlights the latest commit of that branch.
    */
   public navigateToBranch(branchName: string): void {
-    this._handleBranchClick(branchName);
+    this.focus.handleBranchClick(branchName);
   }
 
   /**
@@ -2227,131 +2202,13 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Focus the graph on a branch.
-   *
-   * Resolves the branch's tip commit, scrolls the graph to it, computes
-   * the BFS path back to the merge-base with HEAD, updates internal
-   * state, fires `onDidChangeState` (per ADR-009 section 3 fire-before-post),
-   * posts a `branchFocusUpdate` partial-update message to the webview,
-   * and triggers a full re-render so the focus class lands on the
-   * branch chip in the next render pass.
-   *
-   * Distinct from {@link navigateToBranch} (single-click on the chip,
-   * which only scrolls). The plan specifies a separate inline command
-   * `intellig.branch.focusOnGraph` so the user opts into focus
-   * deliberately rather than getting it on every chip click.
-   *
-   * Ordering corrected to render-then-post per
-   * ADR-009 section 3 (generalisation): every method that calls
-   * `_post*` helpers does `_render() → fire → _post*()` so the
-   * post lands on the new document, not the doomed pre-render one.
-   *
-   * The `_focusGeneration` guard bails
-   * after `await getMergeBase` if a later focus call (or
-   * updateLogState) has bumped the counter, so rapid focus switches
-   * don't land state in the wrong order.
-   *
-   * Does NOT mutate selection state. Uses
-   * {@link _scrollWebviewToCommit} (post-only) so a user's mid-shift-
-   * click range survives a focus toggle.
-   *
-   * @param branchName - The branch to focus. When `null`, clears focus.
+   * Focus the graph on a branch (or clear it with `null`). Thin delegate over
+   * {@link BranchFocusController.setFocusedBranch}, which owns the flow: tip
+   * resolution, the merge-base BFS with its post-await staleness guard, the
+   * ADR-009 render-fire-post ordering, and the non-selecting tail scroll.
    */
   public async setFocusedBranch(branchName: string | null): Promise<void> {
-    // render-unconditional: all three paths repaint with no change detection,
-    // so focusing the branch already focused repaints. Guarding it is a real
-    // fix and not one this fence's slice made; note that the method is async,
-    // so any count has to await it or it reads before the work.
-    //
-    // Bump generation counter. Capture for post-await
-    // staleness check.
-    this._focusGeneration += 1;
-    const myGen = this._focusGeneration;
-
-    if (branchName === null) {
-      // Clear focus — chip class drops, path empties, graph re-renders
-      // baseline. Cheap because every branch goes through here on the way
-      // out (e.g. user re-clicks the icon to toggle off).
-      this._extendedLogState.focusedBranchName = null;
-      this._focusedPathHashes = new Set();
-      this._regenerateCommitNodesForFocus();
-      // ADR-009 section 3 — render FIRST, fire, then post.
-      // Posting before render means the post lands on the doomed
-      // pre-reload document.
-      this._render();
-      this._onDidChangeState.fire();
-      this._postBranchFocusUpdate(null, null);
-      return;
-    }
-
-    // Resolve the branch's tip commit hash by scanning the branchMap and,
-    // as a fallback, the per-node `branches` array (mirrors
-    // `_handleBranchClick`).
-    const targetHash = this._resolveBranchTipHash(branchName);
-    if (!targetHash) {
-      // Branch isn't in the loaded log. We still set the focus name so a
-      // subsequent updateLogState that DOES contain it lights up the
-      // chip — this matches IntelliJ's "focus persists until cleared"
-      // behavior. The path remains empty.
-      this._extendedLogState.focusedBranchName = branchName;
-      this._focusedPathHashes = new Set();
-      this._regenerateCommitNodesForFocus();
-      this._render();
-      this._onDidChangeState.fire();
-      this._postBranchFocusUpdate(branchName, null);
-      return;
-    }
-
-    // Compute the path from `targetHash` back through
-    // `commitNodes` to the merge-base of `HEAD` and the branch.
-    let pathHashes = new Set<string>();
-    const repo = this.getSelectedRepository();
-    if (repo && this._attachedGitService?.getMergeBase) {
-      // T-8: getMergeBase may return undefined (no common ancestor / git
-      // error). In that case `mergeBaseHash` is undefined and the BFS
-      // walks until it exhausts loaded nodes — the "all walked commits
-      // are on path" trap-handler in {@link _bfsPathToMergeBase}.
-      let mergeBaseHash: string | undefined;
-      try {
-        mergeBaseHash = await this._attachedGitService.getMergeBase(repo, 'HEAD', branchName);
-      } catch {
-        // Defensive — same as undefined.
-        mergeBaseHash = undefined;
-      }
-
-      // Staleness check after `await`. If a later
-      // setFocusedBranch / updateLogState bumped the counter, OR if
-      // the focused branch is no longer in the current branchMap
-      // (refresh dropped it), bail: the live state already reflects
-      // the newer intent and overwriting it would regress.
-      if (myGen !== this._focusGeneration) {
-        return;
-      }
-      const known = this._collectKnownBranchNames();
-      if (!known.has(branchName)) {
-        return;
-      }
-
-      pathHashes = this._bfsPathToMergeBase(targetHash, mergeBaseHash);
-    }
-
-    this._focusedPathHashes = pathHashes;
-    this._extendedLogState.focusedBranchName = branchName;
-
-    // Re-tag commit nodes with onFocusedBranchPath now that the path set
-    // is populated. updateLogState would also do this, but
-    // setFocusedBranch fires WITHOUT a commit-list refresh, so we walk
-    // the existing nodes and patch the flag in place.
-    this._regenerateCommitNodesForFocus();
-
-    // ADR-009 section 3 — render-then-fire-then-post.
-    this._render();
-    this._onDidChangeState.fire();
-    this._postBranchFocusUpdate(branchName, targetHash);
-
-    // non-selecting scroll: bring the tip into view
-    // WITHOUT clearing the user's selection / anchor / expandedCommit.
-    this._scrollWebviewToCommit(targetHash);
+    return this.focus.setFocusedBranch(branchName);
   }
 
   /**
@@ -2362,30 +2219,6 @@ export class GitToolWindowProvider
    */
   public getFocusedBranchName(): string | null {
     return this._extendedLogState.focusedBranchName;
-  }
-
-  /**
-   * Collect every branch name visible to the
-   * host (i.e. listed in `branchMap.values()` or any `commitNodes[].
-   * branches`). The webview-message handler validates against this set
-   * before propagating to {@link setFocusedBranch}, defending against
-   * a malicious / desynced webview that posts arbitrary strings.
-   */
-  private _collectKnownBranchNames(): Set<string> {
-    const names = new Set<string>();
-    for (const list of this._extendedLogState.branchMap.values()) {
-      for (const ref of list) {
-        names.add(ref.name);
-      }
-    }
-    for (const node of this._extendedLogState.commitNodes) {
-      if (node.branches) {
-        for (const ref of node.branches) {
-          names.add(ref.name);
-        }
-      }
-    }
-    return names;
   }
 
   /**
@@ -2411,123 +2244,6 @@ export class GitToolWindowProvider
       type: 'scrollToCommit',
       commitHash: hash,
     });
-  }
-
-  /**
-   * Resolve a branch name to its tip commit hash by inspecting the
-   * branchMap and (as a fallback) the per-node branches array.
-   * Returns undefined when the branch isn't in the loaded log.
-   */
-  private _resolveBranchTipHash(branchName: string): string | undefined {
-    for (const [commitHash, branches] of this._extendedLogState.branchMap.entries()) {
-      if (branches.some((ref) => ref.name === branchName)) {
-        return commitHash;
-      }
-    }
-    for (const node of this._extendedLogState.commitNodes) {
-      if (node.branches && node.branches.some((ref) => ref.name === branchName)) {
-        return node.commit.hash;
-      }
-    }
-    return undefined;
-  }
-
-  /** Thin delegate over {@link bfsPathToMergeBase} on the loaded window. */
-  private _bfsPathToMergeBase(targetHash: string, mergeBaseHash: string | undefined): Set<string> {
-    return bfsPathToMergeBase(this._extendedLogState.commitNodes, targetHash, mergeBaseHash);
-  }
-
-  /**
-   * re-tag every node's `onFocusedBranchPath` flag against
-   * the current `_focusedPathHashes` set. Cheaper than re-running
-   * {@link generateCommitGraph}, and the lane assignments don't change
-   * with focus state.
-   */
-  private _regenerateCommitNodesForFocus(): void {
-    const path = this._focusedPathHashes;
-    const tagged: ICommitNode[] = this._extendedLogState.commitNodes.map((node) => ({
-      ...node,
-      onFocusedBranchPath: path.has(node.commit.hash),
-    }));
-    this._extendedLogState = {
-      ...this._extendedLogState,
-      commitNodes: tagged,
-    };
-  }
-
-  /**
-   * Post a `branchFocusUpdate` message to the webview
-   * with the current focus name and resolved tip hash. The webview's
-   * inline-script handler caches this into a `branchFocus` local and
-   * toggles the `branch-label-focused` class on `[data-branch-name]`
-   * chips so a partial state update (no full re-render) keeps the chip
-   * in sync.
-   *
-   * `focusedPathHashes` was dropped from the
-   * payload: the JS handler only ever read `focusedBranchName` /
-   * `focusedHash`. The path data flows host-side via
-   * {@link _focusedPathHashes}; the SVG dim/brighten lands during the
-   * full re-render that follows this post (see {@link setFocusedBranch}
-   * tail).
-   */
-  private _postBranchFocusUpdate(
-    focusedBranchName: string | null,
-    focusedHash: string | null
-  ): void {
-    if (!this.hasView()) {
-      return;
-    }
-    this.postToWebview({
-      type: 'updateBranchFocus',
-      focusedBranchName,
-      focusedHash,
-    });
-  }
-
-  /**
-   * Handle branch click to scroll the Graph Panel to the branch's HEAD commit.
-   * Finds the branch's HEAD commit hash from the loaded commit nodes and branch map,
-   * then selects that commit and asks the webview to scroll to it.
-   *
-   * Uses the partial-update path (selectCommit + _scrollWebviewToCommit) rather
-   * than a full re-render, so the graph panel's scroll position is preserved. The
-   * visibility-aware inline scrollToCommit then only scrolls when the target row is
-   * not already fully visible, and highlights the latest commit of that branch.
-   */
-  private _handleBranchClick(branchName: string): void {
-    // Look up the commit hash for this branch from the branch map
-    const branchMap = this._extendedLogState.branchMap;
-    let targetCommitHash: string | undefined;
-
-    // The branchMap maps commit hash -> branch refs[]
-    // We need to find the commit hash that has this branch name
-    for (const [commitHash, branches] of branchMap.entries()) {
-      if (branches.some((ref) => ref.name === branchName)) {
-        targetCommitHash = commitHash;
-        break;
-      }
-    }
-
-    // If not found in branchMap, search through commit nodes for a matching branch reference
-    if (!targetCommitHash) {
-      for (const node of this._extendedLogState.commitNodes) {
-        if (node.branches && node.branches.some((ref) => ref.name === branchName)) {
-          targetCommitHash = node.commit.hash;
-          break;
-        }
-      }
-    }
-
-    if (targetCommitHash) {
-      // Use the partial-update path (no full re-render) so the graph panel's
-      // scroll position is preserved. selectCommit posts selectGraphRow +
-      // updateDetailsPanel; _scrollWebviewToCommit posts { type: 'scrollToCommit',
-      // commitHash } which the now visibility-aware inline scrollToCommit gates.
-      // Avoiding _render() means scrollTop is never reset to the top, so
-      // the inline visibility check runs against the user's real scroll position.
-      this.selectCommit(targetCommitHash);
-      this._scrollWebviewToCommit(targetCommitHash);
-    }
   }
 
   // IGtwControllerContext — fire-only access to the load-more emitter, so
@@ -2901,7 +2617,7 @@ ${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDet
   }
 
   branchClick(branchName: string): void {
-    this._handleBranchClick(branchName);
+    this.focus.handleBranchClick(branchName);
   }
 
   columnResize(widths: [number, number]): void {

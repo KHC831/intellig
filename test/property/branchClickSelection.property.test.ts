@@ -17,7 +17,6 @@ import { ICommitNode, IGraphLine, IBranchRef } from '../../src/git-core/commitGr
 import { ICommit, IAuthor } from '../../src/git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
 import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
-import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -335,9 +334,9 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
               'Initially, no commit should be expanded'
             );
 
-            // Call _handleBranchClick with the selected branch name.
-            // This is a private method, so we access it via bracket notation.
-            void invokePrivateHandler(testProvider, '_handleBranchClick', selectedBranch);
+            // Drive the branch click through the focus controller's public
+            // entry point.
+            testProvider.focus.handleBranchClick(selectedBranch);
 
             // Verify that the correct commit was selected
             const stateAfterClick = testProvider.getExtendedLogState();
@@ -489,7 +488,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
         const tagMap = new Map<string, string[]>();
         provider.updateLogState(commits, branchMap, tagMap);
 
-        void invokePrivateHandler(provider, '_handleBranchClick', 'a');
+        provider.focus.handleBranchClick('a');
 
         const state = provider.getExtendedLogState();
         assert.strictEqual(
@@ -534,7 +533,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
         const tagMap = new Map<string, string[]>();
         provider.updateLogState(commits, branchMap, tagMap);
 
-        void invokePrivateHandler(provider, '_handleBranchClick', 'a');
+        provider.focus.handleBranchClick('a');
 
         const state = provider.getExtendedLogState();
         assert.strictEqual(

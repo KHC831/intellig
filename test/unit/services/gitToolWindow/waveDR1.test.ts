@@ -22,8 +22,6 @@ import { Uri } from '../../../mocks/vscode';
 
 interface R1Internals {
   _extendedLogState: IExtendedLogState;
-  _focusedPathHashes: Set<string>;
-  _focusGeneration: number;
   _attachedGitService?: unknown;
   _availableRepositories: unknown[];
   _selectedRepositoryIndex: number;

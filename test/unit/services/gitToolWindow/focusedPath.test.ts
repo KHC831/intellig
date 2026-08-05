@@ -24,7 +24,6 @@ import { Uri } from '../../../mocks/vscode';
 
 interface FocusedPathInternals {
   _extendedLogState: IExtendedLogState;
-  _focusedPathHashes: Set<string>;
   _attachedGitService?: unknown;
 }
 
@@ -97,6 +96,10 @@ function attachStubGitService(
   } as unknown as { calls: number };
 }
 
+function focusInternals(p: GitToolWindowProvider): { _focusedPathHashes: Set<string> } {
+  return p.focus as unknown as { _focusedPathHashes: Set<string> };
+}
+
 describe('focused path BFS and traps (D3)', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
@@ -111,7 +114,6 @@ describe('focused path BFS and traps (D3)', () => {
   });
 
   it('BFS includes the merge-base commit and stops walking past it', async () => {
-    const internals = provider as unknown as FocusedPathInternals;
     attachStubGitService(provider, 'ccc');
 
     const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
@@ -129,7 +131,7 @@ describe('focused path BFS and traps (D3)', () => {
 
     await provider.setFocusedBranch('feature');
 
-    const path = internals._focusedPathHashes;
+    const path = focusInternals(provider)._focusedPathHashes;
     assert.ok(path.has('aaa'), 'aaa (tip) on path');
     assert.ok(path.has('bbb'), 'bbb on path');
     assert.ok(path.has('ccc'), 'ccc (merge base) on path — inclusive');
@@ -138,7 +140,6 @@ describe('focused path BFS and traps (D3)', () => {
   });
 
   it('T-1: BFS bounded by commitNodes.length even on a corrupt cycle', async () => {
-    const internals = provider as unknown as FocusedPathInternals;
     // Merge-base does NOT exist in the loaded set. The BFS should walk
     // until it hits the depth cap (commitNodes.length) without looping.
     attachStubGitService(provider, 'no-such-hash');
@@ -154,7 +155,7 @@ describe('focused path BFS and traps (D3)', () => {
     // immediately.
     await provider.setFocusedBranch('feature');
 
-    const path = internals._focusedPathHashes;
+    const path = focusInternals(provider)._focusedPathHashes;
     // Every walked node is on the path; the BFS bailed on the cycle.
     assert.ok(path.size >= 1 && path.size <= 2);
   });
