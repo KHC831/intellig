@@ -25,7 +25,7 @@ import { renderConsoleTabBody } from '../../../src/git-core/gitToolWindow/html/c
 import { renderHistoryTabBody } from '../../../src/git-core/gitToolWindow/html/historyHtml';
 import { renderIncomingTabBody } from '../../../src/git-core/gitToolWindow/html/incomingHtml';
 import { renderUpdateInfoTabBody } from '../../../src/git-core/gitToolWindow/html/updateInfoHtml';
-import { toolWindowTabStyles } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
+import { toolWindowTabStyles } from '../../../src/git-core/gitToolWindow/provider/documentShell';
 import { buildThreePanelStyles } from '../../../src/git-core/gitToolWindow/provider/stylesBuilder';
 import type { TabId } from '../../../src/git-core/gitToolWindow/tabRouter';
 import type { IConsoleEntry } from '../../../src/git-core/interfaces/IGitToolWindowProvider';

@@ -25,7 +25,7 @@ import { historyTabStyles } from '../../../src/git-core/gitToolWindow/html/histo
 import { consoleTabStyles } from '../../../src/git-core/gitToolWindow/html/consoleHtml';
 import { updateInfoTabStyles } from '../../../src/git-core/gitToolWindow/html/updateInfoHtml';
 import { incomingTabStyles } from '../../../src/git-core/gitToolWindow/html/incomingHtml';
-import { toolWindowTabStyles } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
+import { toolWindowTabStyles } from '../../../src/git-core/gitToolWindow/provider/documentShell';
 import { TAB_IDS } from '../../../src/git-core/gitToolWindow/tabRouter';
 
 function wrapped(): string {

@@ -13,7 +13,7 @@
  * 2. Heuristic + how it scales: for every `src/git-core/gitToolWindow/html/*.ts`
  *    module that emits `class="…"` markup, require (a) an exported
  *    `…Styles()` function in that module, and (b) that export's name to appear
- *    in GitToolWindowProvider.ts, which owns the concat. Two greps per tab
+ *    in provider/documentShell.ts, which owns the concat. Two greps per tab
  *    module; scales with the tab count, which is small and bounded.
  *
  * 3. Known false-positive cases: a sub-renderer whose markup is styled by a
@@ -44,7 +44,7 @@ import { fileURLToPath } from 'url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const DEFAULT_HTML_DIR = path.join(repoRoot, 'src/git-core/gitToolWindow/html');
-const DEFAULT_PROVIDER = path.join(repoRoot, 'src/git-core/gitToolWindow/GitToolWindowProvider.ts');
+const DEFAULT_PROVIDER = path.join(repoRoot, 'src/git-core/gitToolWindow/provider/documentShell.ts');
 const ALLOWLIST = path.join(repoRoot, 'scripts/tab-styles-allowlist.txt');
 
 const [argHtmlDir, argProvider] = process.argv.slice(2);

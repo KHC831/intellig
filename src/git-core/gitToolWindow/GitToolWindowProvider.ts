@@ -39,11 +39,11 @@ import type {
   IBranchFilterGroups,
 } from './gitToolWindow.wireTypes';
 import { isTabbedGitToolWindowEnabled } from './config';
-import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
-import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
-import { renderIncomingTabBody, incomingTabStyles } from './html/incomingHtml';
-import { renderUpdateInfoTabBody, updateInfoTabStyles } from './html/updateInfoHtml';
-import { renderHistoryTabBody, historyTabStyles } from './html/historyHtml';
+import { wrapTabbedBody } from './html/commonHtml';
+import { renderConsoleTabBody } from './html/consoleHtml';
+import { renderIncomingTabBody } from './html/incomingHtml';
+import { renderUpdateInfoTabBody } from './html/updateInfoHtml';
+import { renderHistoryTabBody } from './html/historyHtml';
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
@@ -101,6 +101,7 @@ import {
 } from '../../utils/detailsGroupBy';
 import { BranchFocusController } from './provider/BranchFocusController';
 import { ConsoleModel } from './provider/ConsoleModel';
+import { buildThreePanelDocument, toolWindowTabStyles } from './provider/documentShell';
 import { DetailsModel } from './provider/DetailsModel';
 import { LogStateModel } from './provider/LogStateModel';
 import { RepoScopeModel } from './provider/RepoScopeModel';
@@ -238,11 +239,6 @@ const LOG_FILTER_OPTIONS_TTL_MS = 3000;
 /**
  * Git Tool Window Provider implementation.
  */
-/** The five tab sheets in emit order. The visual fixture renders this same concat, so the cascade a spec measures cannot drift from the one the document ships. */
-export function toolWindowTabStyles(): string {
-  return `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}\n${updateInfoTabStyles()}\n${incomingTabStyles()}`;
-}
-
 export class GitToolWindowProvider
   extends BaseWebviewView
   implements IGitToolWindowProvider, IGtwControllerContext
@@ -2498,26 +2494,20 @@ export class GitToolWindowProvider
     // cspSource so the same-origin font URI resolves.
     const codiconFontCss = this._getCodiconFontFaceStyles(webview);
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="${buildWebviewCsp(webview.cspSource, nonce)}">
-  <title>Git Tool Window</title>
-  <style>
-    ${codiconFontCss}
-    ${this._getThreePanelStyles()}
-    ${extraStyles}
-  </style>
-</head>
-<body>
-${bodyMarkup}
-${initIslandHtml({ initialDetails: detailsPanelModel, historyDetails: historyDetailsModel, restoreFocus })}
-
-  <script nonce="${nonce}" src="${this.getWebviewBundleUri(webview)}"></script>
-</body>
-</html>`;
+    return buildThreePanelDocument({
+      csp: buildWebviewCsp(webview.cspSource, nonce),
+      nonce,
+      codiconFontCss,
+      threePanelStyles: this._getThreePanelStyles(),
+      extraStyles,
+      bodyMarkup,
+      initIslandHtml: initIslandHtml({
+        initialDetails: detailsPanelModel,
+        historyDetails: historyDetailsModel,
+        restoreFocus,
+      }),
+      bundleUri: this.getWebviewBundleUri(webview),
+    });
   }
 
   // IGtwControllerContext — log-dispatch capabilities. Each delegates to the

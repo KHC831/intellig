@@ -38,7 +38,7 @@
       "status": "backlog",
       "note": "forwards to buildThreePanelStyles, whose own rules no spec asserts yet"
     },
-    "src/git-core/gitToolWindow/GitToolWindowProvider.ts::toolWindowTabStyles": {
+    "src/git-core/gitToolWindow/provider/documentShell.ts::toolWindowTabStyles": {
       "status": "tested",
       "note": "the five tab sheets concatenated in emit order; rendered wholesale by every tab spec through gitToolWindowFixture, which imports it so the cascade a spec measures cannot drift from the one the document ships; a unit spec pins the order (tabbedLayout.test.ts)"
     },
