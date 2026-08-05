@@ -21,16 +21,21 @@
  *    This fence makes "renders unguarded" unwritable without a stated reason.
  *
  * 2. Heuristic + how it scales + which spec case pins which arm
- *    Scan the class body of GitToolWindowProvider.ts (or <file> in fixture
- *    mode) through scripts/lib/source-scan.mjs. Four steps:
+ *    Scan the class body of GitToolWindowProvider.ts PLUS every class-bearing
+ *    `.ts` under provider/ (or the comma-separated <file,file2,…> list in
+ *    fixture mode — first entry is the main file), each through
+ *    scripts/lib/source-scan.mjs. Four steps per file:
  *
  *    (a) SITES — matches of the render entry-point set in the CODE view:
  *        `_render`, `_renderForGesture`, `_renderOnResolve`,
- *        `_renderSidebarPlaceholder`, `updateWebview`. Two of these assign
- *        `webview.html` directly and three route into `_render`; all five are
- *        matched because a caller of any of them rebuilds the document. The set
- *        is matched by alternation, never by a `this._render` prefix, which
- *        would swallow `_renderSidebarPlaceholder` under the wrong name.
+ *        `_renderSidebarPlaceholder`, `updateWebview`, and the model form
+ *        `this._host.render()` — the seam an extracted model class repaints
+ *        through, so an owner keeps its inventory entry when its body moves
+ *        into a model. Two of the five direct forms assign `webview.html`
+ *        directly and three route into `_render`; all are matched because a
+ *        caller of any of them rebuilds the document. The set is matched by
+ *        alternation, never by a `this._render` prefix, which would swallow
+ *        `_renderSidebarPlaceholder` under the wrong name.
  *
  *    (b) OWNERS — nearest preceding declaration at class-body indent (two
  *        spaces), anchored on the OPENING PAREN of the declaration line only.
@@ -99,13 +104,15 @@
  *    reports 5 has one debt outstanding; a run that reports 6 has grown one.
  *
  * 4. Known false-negative cases, stated in full:
- *      (a) SCOPE. Only the provider class file is scanned. Handlers extracted
- *          to `provider/` reach the document through `ctx.updateWebview()` and
- *          are invisible here; `check-focus-restore-on-render` arm (a) covers
- *          that directory instead. A named boundary, not an oversight — but it
- *          means moving a rendering setter OUT of this file removes it from
- *          this inventory silently, which is why the companion spec asserts an
- *          owner floor rather than trusting a green run.
+ *      (a) SCOPE. The provider class and the CLASS files under `provider/`
+ *          are scanned; class-less handler modules there reach the document
+ *          through `ctx.updateWebview()` and belong to
+ *          `check-focus-restore-on-render` arm (a) instead. A named boundary,
+ *          not an oversight. The residual: a model whose render call is
+ *          deleted outright leaves this inventory silently (the zero-site
+ *          floor holds for the MAIN file only — a pure store class
+ *          legitimately never repaints), which is why the companion spec
+ *          asserts an owner floor rather than trusting a green run.
  *      (b) ALIASING AND INDIRECTION. `const r = this._render.bind(this)`, or a
  *          private helper that renders and is called from a public setter,
  *          evade a literal-text scan. The helper case is partly covered: the
@@ -153,28 +160,55 @@
  *
  * Usage:
  *   node scripts/check-render-guards.mjs
- *     — real mode: the provider class + the idempotence table's keys.
- *   node scripts/check-render-guards.mjs <file> <key,key,...>
- *     — fixture mode (companion spec): scan <file>, treat the comma-separated
- *       list as the idempotence table's keys. Prints the same summary line.
+ *     — real mode: the provider class + provider/ class files, against the
+ *       idempotence table's keys.
+ *   node scripts/check-render-guards.mjs <file[,file2,...]> <key,key,...>
+ *     — fixture mode (companion spec): scan the listed files (first = main),
+ *       treat the comma-separated key list as the idempotence table. Prints
+ *       the same summary line.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { scanSource } from './lib/source-scan.mjs';
 
 const [argFile, argKeys] = process.argv.slice(2);
 const fixtureMode = argFile !== undefined;
 
-const target = fixtureMode
+/** Every `.ts` under `dir`, recursively, sorted — model classes live here. */
+function tsFilesUnder(dir) {
+  if (!existsSync(dir)) {
+    return [];
+  }
+  const out = [];
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) {
+      out.push(...tsFilesUnder(full));
+    } else if (name.endsWith('.ts')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+const targets = fixtureMode
   ? argFile
-  : join('src', 'git-core', 'gitToolWindow', 'GitToolWindowProvider.ts');
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  : [
+      join('src', 'git-core', 'gitToolWindow', 'GitToolWindowProvider.ts'),
+      ...tsFilesUnder(join('src', 'git-core', 'gitToolWindow', 'provider')),
+    ];
 
 // A missing target means the fence is aimed at nothing. Skipping quietly reads
 // as a pass, which is the fail-open this project keeps rediscovering.
-if (!existsSync(target)) {
-  console.error(`check:render-guards: ${target} does not exist — nothing scanned.`);
-  process.exit(1);
+for (const target of targets) {
+  if (!existsSync(target)) {
+    console.error(`check:render-guards: ${target} does not exist — nothing scanned.`);
+    process.exit(1);
+  }
 }
 
 /** Statement keywords that take `(` — never a declaration being made. */
@@ -188,101 +222,157 @@ const NOT_A_NAME = /^(?:if|for|while|switch|catch|return|else|do|with)$/;
 const DECL =
   /^ {2}(?:(public|private|protected)\s+)?(?:(?:static|async|override|readonly|get|set)\s+)*([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\(/;
 
-/** Every entry point that ends in a `webview.html` reassignment. */
+/**
+ * Every entry point that ends in a `webview.html` reassignment: the provider's
+ * own render funnels, plus the host-seam form a model class repaints through.
+ */
 const RENDER_SITE =
-  /this\.(?:_render|_renderForGesture|_renderOnResolve|_renderSidebarPlaceholder|updateWebview)\s*\(/;
+  /this\.(?:_render|_renderForGesture|_renderOnResolve|_renderSidebarPlaceholder|updateWebview)\s*\(|this\._host\.render\s*\(/;
 
 const ANNOTATION = /render-unconditional:/;
 
-const source = readFileSync(target, 'utf8');
-const { code, comments } = scanSource(source);
-const rawLines = source.split('\n');
-const codeLines = code.split('\n');
-const commentLines = comments.split('\n');
-
-// Bound the scan to the class body so a two-space-indented object-literal key
-// at module level cannot be read as a member declaration.
-const classStart = codeLines.findIndex((l) => /^export (?:default )?(?:abstract )?class\s/.test(l));
-if (classStart === -1) {
-  console.error(`check:render-guards: no class declaration found in ${target} — nothing scanned.`);
-  process.exit(1);
-}
-
-/** Declarations, in file order. */
-const owners = [];
-for (let i = classStart + 1; i < codeLines.length; i++) {
-  const match = DECL.exec(codeLines[i]);
-  if (match && !NOT_A_NAME.test(match[2])) {
-    owners.push({ name: match[2], modifier: match[1], line: i });
-  }
-}
+const CLASS_RE = /^export (?:default )?(?:abstract )?class\s/;
 
 /**
- * Is the site at `lineIndex` inside a nested function body rather than directly
- * in its owner's body?
- *
- * Callbacks are what matter: only they introduce a new call boundary, so a
- * render inside one does not happen on the owner's call and the owner's
- * idempotence entry can never reach it. Blocks (`if`/`for`) indent too but
- * introduce no boundary, so they do not count.
- *
- * Three spellings, because the first version knew only two and the third is
- * ordinary TypeScript: an arrow, a `function` expression, and OBJECT-LITERAL
- * METHOD SHORTHAND (`{ onChange() { … } }`), including `get`/`set` accessors.
- * The shorthand carries neither `=>` nor `function`, so a render inside it was
- * credited to the enclosing method — the exact pre-blessing this check exists
- * to prevent, in the one shape it could not see. This class already wires hooks
- * through object literals (`createConsoleTabHandler({ clearConsole: … })`);
- * those happen to be arrows today, and nothing makes the next one an arrow.
- *
- * The shorthand arm keys on a callable header indented DEEPER than the owner:
- * the scan is bounded to the class body and the owner is known, and a class
- * member cannot nest inside another member, so anything deeper is necessarily
- * inside something.
+ * Scan one class file: map each render site to its owning public member and
+ * judge it against the idempotence table / annotation hatch. Returns the
+ * per-file inventory; hard-fails on a file it cannot parse.
  */
-function insideNestedFunction(ownerLine, lineIndex) {
-  const NESTED_METHOD_SHORTHAND =
-    /^\s{4,}(?:(?:get|set|async|static)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{;]+)?\{\s*$/;
-  for (let i = ownerLine + 1; i < lineIndex; i++) {
-    const shorthand = NESTED_METHOD_SHORTHAND.exec(codeLines[i]);
-    // `if (…) {` has the shape of a method shorthand and is not one. Without
-    // this the arm reads every guarded setter as nested, which turns the whole
-    // fence into a demand for annotations on the methods that got it right.
-    if (shorthand && !NOT_A_NAME.test(shorthand[1])) {
-      return true;
-    }
-    if (/(?:=>|\bfunction\b)\s*(?:\{|\()/.test(codeLines[i])) {
-      const opens = (codeLines[i].match(/\{/g) ?? []).length;
-      const closes = (codeLines[i].match(/\}/g) ?? []).length;
-      if (opens > closes) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
+function scanClassFile(target) {
+  const source = readFileSync(target, 'utf8');
+  const { code, comments } = scanSource(source);
+  const codeLines = code.split('\n');
+  const commentLines = comments.split('\n');
 
-const sites = [];
-for (let i = classStart + 1; i < codeLines.length; i++) {
-  if (!RENDER_SITE.test(codeLines[i])) {
-    continue;
-  }
-  let owner;
-  for (let k = owners.length - 1; k >= 0; k--) {
-    if (owners[k].line < i) {
-      owner = owners[k];
-      break;
-    }
-  }
-  // A site nobody owns means the mapping could not parse the file. Continuing
-  // silently is how a mapping fence reports OK on a file it did not understand.
-  if (!owner) {
-    console.error(
-      `check:render-guards: render at ${target}:${i + 1} has no enclosing declaration — mapping failed.`
-    );
+  // Bound the scan to the class body so a two-space-indented object-literal key
+  // at module level cannot be read as a member declaration.
+  const classStart = codeLines.findIndex((l) => CLASS_RE.test(l));
+  if (classStart === -1) {
+    console.error(`check:render-guards: no class declaration found in ${target} — nothing scanned.`);
     process.exit(1);
   }
-  sites.push({ line: i, owner, nested: insideNestedFunction(owner.line, i) });
+
+  /** Declarations, in file order. */
+  const owners = [];
+  for (let i = classStart + 1; i < codeLines.length; i++) {
+    const match = DECL.exec(codeLines[i]);
+    if (match && !NOT_A_NAME.test(match[2])) {
+      owners.push({ name: match[2], modifier: match[1], line: i });
+    }
+  }
+
+  /**
+   * Is the site at `lineIndex` inside a nested function body rather than directly
+   * in its owner's body?
+   *
+   * Callbacks are what matter: only they introduce a new call boundary, so a
+   * render inside one does not happen on the owner's call and the owner's
+   * idempotence entry can never reach it. Blocks (`if`/`for`) indent too but
+   * introduce no boundary, so they do not count.
+   *
+   * Three spellings, because the first version knew only two and the third is
+   * ordinary TypeScript: an arrow, a `function` expression, and OBJECT-LITERAL
+   * METHOD SHORTHAND (`{ onChange() { … } }`), including `get`/`set` accessors.
+   * The shorthand carries neither `=>` nor `function`, so a render inside it was
+   * credited to the enclosing method — the exact pre-blessing this check exists
+   * to prevent, in the one shape it could not see. This class already wires hooks
+   * through object literals (`createConsoleTabHandler({ clearConsole: … })`);
+   * those happen to be arrows today, and nothing makes the next one an arrow.
+   *
+   * The shorthand arm keys on a callable header indented DEEPER than the owner:
+   * the scan is bounded to the class body and the owner is known, and a class
+   * member cannot nest inside another member, so anything deeper is necessarily
+   * inside something.
+   */
+  function insideNestedFunction(ownerLine, lineIndex) {
+    const NESTED_METHOD_SHORTHAND =
+      /^\s{4,}(?:(?:get|set|async|static)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{;]+)?\{\s*$/;
+    for (let i = ownerLine + 1; i < lineIndex; i++) {
+      const shorthand = NESTED_METHOD_SHORTHAND.exec(codeLines[i]);
+      // `if (…) {` has the shape of a method shorthand and is not one. Without
+      // this the arm reads every guarded setter as nested, which turns the whole
+      // fence into a demand for annotations on the methods that got it right.
+      if (shorthand && !NOT_A_NAME.test(shorthand[1])) {
+        return true;
+      }
+      if (/(?:=>|\bfunction\b)\s*(?:\{|\()/.test(codeLines[i])) {
+        const opens = (codeLines[i].match(/\{/g) ?? []).length;
+        const closes = (codeLines[i].match(/\}/g) ?? []).length;
+        if (opens > closes) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  const sites = [];
+  for (let i = classStart + 1; i < codeLines.length; i++) {
+    if (!RENDER_SITE.test(codeLines[i])) {
+      continue;
+    }
+    let owner;
+    for (let k = owners.length - 1; k >= 0; k--) {
+      if (owners[k].line < i) {
+        owner = owners[k];
+        break;
+      }
+    }
+    // A site nobody owns means the mapping could not parse the file. Continuing
+    // silently is how a mapping fence reports OK on a file it did not understand.
+    if (!owner) {
+      console.error(
+        `check:render-guards: render at ${target}:${i + 1} has no enclosing declaration — mapping failed.`
+      );
+      process.exit(1);
+    }
+    sites.push({ line: i, owner, nested: insideNestedFunction(owner.line, i) });
+  }
+
+  /** The owner's span, for reading its annotation out of the comment view. */
+  function spanOf(owner) {
+    const next = owners.find((o) => o.line > owner.line);
+    return { from: owner.line, to: next ? next.line : commentLines.length };
+  }
+
+  const offenders = [];
+  const annotated = new Set();
+  const covered = new Set();
+  const publicOwners = new Set();
+
+  for (const site of sites) {
+    const { owner } = site;
+    const isPublic = owner.modifier === undefined || owner.modifier === 'public';
+    // Idempotence is meaningless for a constructor; see section 2(c).
+    if (!isPublic || owner.name === 'constructor') {
+      continue;
+    }
+    publicOwners.add(owner.name);
+
+    const span = spanOf(owner);
+    const hasAnnotation = ANNOTATION.test(commentLines.slice(span.from, span.to).join('\n'));
+    if (hasAnnotation) {
+      annotated.add(owner.name);
+      continue;
+    }
+    if (site.nested) {
+      offenders.push(
+        `${target}:${site.line + 1} ${owner.name} — render sits in a nested callback, so an ` +
+          `idempotence entry cannot reach it; annotate the method instead`
+      );
+      continue;
+    }
+    if (tableKeys.has(owner.name)) {
+      covered.add(owner.name);
+      continue;
+    }
+    offenders.push(
+      `${target}:${site.line + 1} ${owner.name} — public and renders, but is neither a key of ` +
+        `RENDER_IDEMPOTENCE_CASES nor annotated`
+    );
+  }
+
+  return { sites, offenders, annotated, covered, publicOwners };
 }
 
 const tableKeys = new Set(
@@ -343,58 +433,44 @@ function readIdempotenceKeys() {
   return keys;
 }
 
-/** The owner's span, for reading its annotation out of the comment view. */
-function spanOf(owner) {
-  const next = owners.find((o) => o.line > owner.line);
-  return { from: owner.line, to: next ? next.line : commentLines.length };
+const [mainTarget, ...auxTargets] = targets;
+const results = [scanClassFile(mainTarget)];
+for (const aux of auxTargets) {
+  // Class-less handler modules render via `ctx.updateWebview()` and belong to
+  // check-focus-restore-on-render arm (a) — section 4(a). Judged on the CODE
+  // view so a class declaration inside a comment cannot promote one.
+  const auxCode = scanSource(readFileSync(aux, 'utf8')).code;
+  if (!auxCode.split('\n').some((l) => CLASS_RE.test(l))) {
+    continue;
+  }
+  results.push(scanClassFile(aux));
 }
 
-const offenders = [];
-const annotated = new Set();
-const covered = new Set();
-const publicOwners = new Set();
-
-for (const site of sites) {
-  const { owner } = site;
-  const isPublic = owner.modifier === undefined || owner.modifier === 'public';
-  // Idempotence is meaningless for a constructor; see section 2(c).
-  if (!isPublic || owner.name === 'constructor') {
-    continue;
-  }
-  publicOwners.add(owner.name);
-
-  const span = spanOf(owner);
-  const hasAnnotation = ANNOTATION.test(commentLines.slice(span.from, span.to).join('\n'));
-  if (hasAnnotation) {
-    annotated.add(owner.name);
-    continue;
-  }
-  if (site.nested) {
-    offenders.push(
-      `${target}:${site.line + 1} ${owner.name} — render sits in a nested callback, so an ` +
-        `idempotence entry cannot reach it; annotate the method instead`
-    );
-    continue;
-  }
-  if (tableKeys.has(owner.name)) {
-    covered.add(owner.name);
-    continue;
-  }
-  offenders.push(
-    `${target}:${site.line + 1} ${owner.name} — public and renders, but is neither a key of ` +
-      `RENDER_IDEMPOTENCE_CASES nor annotated`
-  );
-}
-
-console.log(
-  `check:render-guards: sites=${sites.length} owners=${publicOwners.size} ` +
-    `covered=${covered.size} annotated=${annotated.size}`
+const offenders = results.flatMap((r) => r.offenders);
+const totals = results.reduce(
+  (t, r) => ({
+    sites: t.sites + r.sites.length,
+    owners: t.owners + r.publicOwners.size,
+    covered: t.covered + r.covered.size,
+    annotated: t.annotated + r.annotated.size,
+  }),
+  { sites: 0, owners: 0, covered: 0, annotated: 0 }
 );
 
-// A file that exists but yields no sites means the regex rotted or the code
-// moved. Same fail-open as a missing file, wearing a different hat.
+console.log(
+  `check:render-guards: sites=${totals.sites} owners=${totals.owners} ` +
+    `covered=${totals.covered} annotated=${totals.annotated}`
+);
+
+// A MAIN file that exists but yields no sites means the regex rotted or the
+// code moved — the provider always renders. A model file may legitimately
+// hold no render sites (a pure store never repaints), so the floor does not
+// apply to aux files; the companion spec's owner floor covers their exits.
+const sites = results[0].sites;
 if (sites.length === 0) {
-  console.error(`check:render-guards: no render sites found in ${target} — the scan found nothing.`);
+  console.error(
+    `check:render-guards: no render sites found in ${mainTarget} — the scan found nothing.`
+  );
   process.exit(1);
 }
 

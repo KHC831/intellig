@@ -47,23 +47,40 @@ function repoRoot(): string {
 const PANEL_FILE = 'src/git-core/gitToolWindow/GitToolWindowProvider.ts';
 
 /**
- * The full set of files the audit scans: the provider plus the extracted
- * style/HTML builder modules the CSS + helper hexes migrated into. Each is
- * read absent-tolerantly (a not-yet-created module reads as ''), so the audit
- * stays green whether or not a given builder file exists yet — the scanned
- * color set is the union of whichever of these are present.
+ * The full set of files the audit scans: the provider plus EVERY module under
+ * provider/ (recursively, discovered at run time). Discovery rather than a
+ * fixed list means a hex migrating into a newly extracted builder or model
+ * file can never leave the audit's scope silently.
  */
+const PANEL_DIR = 'src/git-core/gitToolWindow/provider';
+
+function walkTs(absDir: string): string[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(absDir);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const name of names.sort()) {
+    const full = path.join(absDir, name);
+    if (fs.statSync(full).isDirectory()) {
+      out.push(...walkTs(full));
+    } else if (name.endsWith('.ts')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 const PANEL_FILES = [
   PANEL_FILE,
-  'src/git-core/gitToolWindow/provider/stylesBuilder.ts',
-  'src/git-core/gitToolWindow/provider/htmlBuilders.ts',
-  'src/git-core/gitToolWindow/provider/fileStatusTheme.ts',
+  ...walkTs(path.join(repoRoot(), PANEL_DIR)).map((abs) => path.relative(repoRoot(), abs)),
 ];
 
 /**
- * Read a repo-relative file, tolerating absence: a missing file reads as the
- * empty string so the union scan is robust to a builder module that hasn't
- * been extracted yet (keeps green-at-every-commit in both directions).
+ * Read a repo-relative file, tolerating absence (reads as the empty string) so
+ * a file deleted between discovery and read cannot crash the audit.
  */
 function readIfExists(relPath: string): string {
   try {

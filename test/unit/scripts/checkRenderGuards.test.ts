@@ -26,10 +26,15 @@ interface Run {
   stderr: string;
 }
 
-/** Run the fence over `file`, treating `keys` as the idempotence table. */
-function runFence(file: string, keys: string[] = []): Run {
+/**
+ * Run the fence over `file` (or a [main, ...aux] list, comma-joined the way
+ * real mode scans the provider class plus its provider/ model files),
+ * treating `keys` as the idempotence table.
+ */
+function runFence(file: string | string[], keys: string[] = []): Run {
+  const fileArg = Array.isArray(file) ? file.join(',') : file;
   try {
-    const stdout = execFileSync('node', [SCRIPT, file, keys.join(',')], {
+    const stdout = execFileSync('node', [SCRIPT, fileArg, keys.join(',')], {
       encoding: 'utf8',
       cwd: REPO_ROOT,
     });
@@ -399,6 +404,91 @@ describe('check-render-guards', () => {
       const run = runFence(file, ['setThing']);
 
       assert.strictEqual(run.status, 0, 'an if-block introduces no call boundary');
+      assert.match(run.stdout, /covered=1/);
+    });
+  });
+
+  describe('sees a model class that renders through its host seam', () => {
+    // Extracted model classes never touch the webview: they repaint via
+    // `this._host.render()`. A fence blind to that form loses every owner the
+    // moment its method moves into a model — the exact silent-exit the
+    // original scope note warned about.
+    it('flags a setter that repaints through this._host.render()', () => {
+      const file = fixture(
+        'host-render.ts',
+        [
+          'export class M {',
+          '  setThing(v: string): void {',
+          '    this._host.render();',
+          '  }',
+          '}',
+          '',
+        ].join('\n')
+      );
+
+      const run = runFence(file, []);
+
+      assert.strictEqual(run.status, 1, 'a host render rebuilds the document and must be seen');
+      assert.match(run.stdout, /sites=1/);
+    });
+
+    it('flags an unlisted rendering owner in an auxiliary model file', () => {
+      const main = fixture(
+        'aux-main.ts',
+        [
+          'export class C {',
+          '  setThing(v: string): void {',
+          '    if (v !== this._v) {',
+          '      this._render();',
+          '    }',
+          '  }',
+          '}',
+          '',
+        ].join('\n')
+      );
+      const aux = fixture(
+        'aux-model.ts',
+        [
+          'export class RepoScopeModel {',
+          '  setAvailableRepositories(repos: string[]): void {',
+          '    this._host.render();',
+          '  }',
+          '}',
+          '',
+        ].join('\n')
+      );
+
+      const run = runFence([main, aux], ['setThing']);
+
+      assert.strictEqual(run.status, 1, 'moving an owner into a model must not retire it');
+      assert.match(run.stderr, /setAvailableRepositories — public and renders/);
+    });
+
+    it('skips an auxiliary file that declares no class', () => {
+      // Handler modules under provider/ render via ctx.updateWebview() and
+      // belong to check-focus-restore-on-render arm (a); this fence scans
+      // only class files, so a function module must not hard-fail the run.
+      const main = fixture(
+        'aux2-main.ts',
+        [
+          'export class C {',
+          '  setThing(v: string): void {',
+          '    if (v !== this._v) {',
+          '      this._render();',
+          '    }',
+          '  }',
+          '}',
+          '',
+        ].join('\n')
+      );
+      const aux = fixture(
+        'aux2-handlers.ts',
+        'export function helper(): number {\n  return 1;\n}\n'
+      );
+
+      const run = runFence([main, aux], ['setThing']);
+
+      assert.strictEqual(run.status, 0, 'a class-less module is the other fence’s territory');
       assert.match(run.stdout, /covered=1/);
     });
   });

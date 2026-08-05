@@ -23,6 +23,11 @@ const mutations = [
   ['NOT_A_NAME dropped from the shorthand arm', '!NOT_A_NAME.test(shorthand[1])', 'true'],
   ['missing-target check disabled', 'if (!existsSync(target)) {', 'if (false) {'],
   ['zero-site floor removed', 'if (sites.length === 0) {', 'if (false) {'],
+  [
+    'host-render arm removed (model classes invisible again)',
+    '|this\\._host\\.render\\s*\\(',
+    '',
+  ],
 ];
 
 for (const [label, find, replace] of mutations) {
