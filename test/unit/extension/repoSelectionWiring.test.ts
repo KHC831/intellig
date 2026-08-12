@@ -27,6 +27,7 @@ import type {
 import type { RepositoryScopeSelection } from '../../../src/registration/wiring';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import type { ILogFilter } from '../../../src/git-core/interfaces/IGitToolWindowProvider';
 
 /**
  * Minimal Disposable stub matching `vscode.Disposable`'s shape for the
@@ -110,6 +111,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       branchTreeProvider: branchTree,
       loadLogCommitsForRepo: async () => undefined,
       loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
     });
 
     assert.strictEqual(
@@ -133,6 +135,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       branchTreeProvider: branchTree,
       loadLogCommitsForRepo: async () => undefined,
       loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
     });
 
     const repoA = createMockRepository('/workspace/repo-a');
@@ -166,6 +169,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       loadAllRootsLog: async () => {
         allRootsCalls++;
       },
+      activeLogFilter: () => undefined,
     });
 
     const repoA = createMockRepository('/workspace/repo-a');
@@ -191,6 +195,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       loadAllRootsLog: async () => {
         allRootsCalls++;
       },
+      activeLogFilter: () => undefined,
     });
 
     toolWindow.fire({ kind: 'all' });
@@ -221,6 +226,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
         loadLogCalls.push(repo);
       },
       loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
     });
 
     const repo = createMockRepository('/workspace/multi-root-repo-2');
@@ -239,6 +245,84 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
     );
   });
 
+  it('reapplies the active log filter when a specific-repo scope reloads the log', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+    const received: Array<ILogFilter | undefined> = [];
+    const active: ILogFilter = { branch: 'main' };
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async (_repo: IRepository, filter?: ILogFilter) => {
+        received.push(filter);
+      },
+      loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => active,
+    });
+
+    toolWindow.fire({ kind: 'repository', repository: createMockRepository('/workspace/repo-a') });
+
+    assert.strictEqual(received.length, 1);
+    assert.strictEqual(
+      received[0],
+      active,
+      'a scope reload must carry the active filter — an unfiltered reload silently widens a filtered log while the filter row still shows its values'
+    );
+  });
+
+  it('reapplies the active log filter when the "All Repositories" scope reloads the merged log', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+    const received: Array<ILogFilter | undefined> = [];
+    const active: ILogFilter = { searchText: 'fix' };
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async (filter?: ILogFilter) => {
+        received.push(filter);
+      },
+      activeLogFilter: () => active,
+    });
+
+    toolWindow.fire({ kind: 'all' });
+
+    assert.strictEqual(received.length, 1);
+    assert.strictEqual(received[0], active, 'the merged scope reload must carry the active filter');
+  });
+
+  it('reads the active filter live at event time, not once at wiring time', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+    const received: Array<ILogFilter | undefined> = [];
+    let active: ILogFilter | undefined = undefined;
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async (_repo: IRepository, filter?: ILogFilter) => {
+        received.push(filter);
+      },
+      loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => active,
+    });
+
+    const repo = createMockRepository('/workspace/repo-a');
+    toolWindow.fire({ kind: 'repository', repository: repo });
+    active = { author: 'kahochan' };
+    toolWindow.fire({ kind: 'repository', repository: repo });
+
+    assert.strictEqual(received.length, 2);
+    assert.strictEqual(received[0], undefined, 'no filter active at first fire');
+    assert.strictEqual(
+      received[1],
+      active,
+      'the second fire must observe the filter applied AFTER wiring — the read is call-time, not a snapshot'
+    );
+  });
+
   it('returns disposables that tear down the scope subscription when disposed', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
@@ -248,6 +332,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       branchTreeProvider: branchTree,
       loadLogCommitsForRepo: async () => undefined,
       loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
     });
 
     for (const d of disposables) {

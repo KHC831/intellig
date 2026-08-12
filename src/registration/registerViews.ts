@@ -19,7 +19,7 @@ import {
   COMMIT_TOOL_WINDOW_VIEW_ID,
 } from '../services';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
-import type { IChangedFile } from '../git-core/interfaces/IGitToolWindowProvider';
+import type { IChangedFile, ILogFilter } from '../git-core/interfaces/IGitToolWindowProvider';
 import { createMultiCommitFilesLoader } from './multiCommitFilesLoad';
 import { createSingleCommitFilesLoader } from './singleCommitFilesLoad';
 import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
@@ -233,6 +233,8 @@ async function loadCommitChangedFiles(
  * @param ctx - The view-registration context (RULE E1 bridge to the
  *   module-level singletons owned by extension.ts)
  */
+type RepoLogLoader = (repo: IRepository, filter?: ILogFilter) => Promise<void>;
+
 export function registerViews(ctx: IViewRegistrationContext): void {
   // Hoisted so the second `if (ctx.services)` block — which creates
   // the BranchTreeProvider — can pass this helper into
@@ -241,11 +243,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
   // Bound to the block-local `loadLogCommitsForRepo` inside the first
   // `if (ctx.services)` block where its closure dependencies
   // (gitService, gitToolWindowProvider) are in scope.
-  let hoistedLoadLogCommitsForRepo: ((repo: IRepository) => Promise<void>) | undefined;
-  // Hoisted alongside the single-repo loader so the second `if (ctx.services)`
-  // block can route the selector's "All Repositories" scope to the merged
-  // multi-root log via `wireRepositorySelection(...)`.
-  let hoistedLoadAllRootsLog: (() => Promise<void>) | undefined;
+  let hoistedLoadLogCommitsForRepo: RepoLogLoader | undefined;
+  // Hoisted alongside the single-repo loader so the same second block can
+  // route the "All Repositories" scope to the merged multi-root log.
+  let hoistedLoadAllRootsLog: ((filter?: ILogFilter) => Promise<void>) | undefined;
 
   // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
   ctx.gitToolWindowProvider = new GitToolWindowProvider(
@@ -1253,9 +1254,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Bind the block-local helper to the hoisted reference so the second
     // `if (ctx.services)` block (which creates the BranchTreeProvider)
     // can pass it into `wireRepositorySelection(...)`.
-    hoistedLoadLogCommitsForRepo = (repo: IRepository): Promise<void> =>
-      loadLogCommitsForRepo(repo);
-    hoistedLoadAllRootsLog = (): Promise<void> => loadAllRootsLog();
+    hoistedLoadLogCommitsForRepo = (repo: IRepository, filter?: ILogFilter): Promise<void> =>
+      loadLogCommitsForRepo(repo, filter);
+    hoistedLoadAllRootsLog = (filter?: ILogFilter): Promise<void> => loadAllRootsLog(filter);
 
     // In the 2-panel layout, load all data immediately
     void loadAllPanelData();
@@ -1346,7 +1347,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // the `?? noop` fallback keeps the wiring resilient if that invariant
     // is ever broken by a future refactor.
     if (ctx.gitToolWindowProvider) {
-      const noopLoadLog = (_repo: IRepository): Promise<void> => Promise.resolve();
+      const noopLoadLog: RepoLogLoader = () => Promise.resolve();
       const noopLoadAllRoots = (): Promise<void> => Promise.resolve();
       const loadLog = hoistedLoadLogCommitsForRepo ?? noopLoadLog;
       const loadAllRoots = hoistedLoadAllRootsLog ?? noopLoadAllRoots;
@@ -1355,6 +1356,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         branchTreeProvider,
         loadLogCommitsForRepo: loadLog,
         loadAllRootsLog: loadAllRoots,
+        activeLogFilter: () => ctx.gitToolWindowProvider?.getActiveLogFilter(),
       });
       ctx.context.subscriptions.push(...repoSelectionDisposables);
     }

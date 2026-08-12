@@ -112,17 +112,26 @@ export interface IRepoSelectionBranchTreeProvider {
 export function wireRepositorySelection(deps: {
   toolWindowProvider: IRepoSelectionToolWindowProvider;
   branchTreeProvider: IRepoSelectionBranchTreeProvider;
-  loadLogCommitsForRepo: (repo: IRepository) => Promise<void>;
-  loadAllRootsLog: () => Promise<void>;
+  loadLogCommitsForRepo: (repo: IRepository, filter?: ILogFilter) => Promise<void>;
+  loadAllRootsLog: (filter?: ILogFilter) => Promise<void>;
+  /**
+   * The tool window's ACTIVE log filter, read at event time (the filter can
+   * change between wiring and any given scope event). Scope reloads reapply
+   * it for the same reason `loadAllPanelDataCore` does: a reload that drops
+   * the filter silently widens a filtered log back to all commits while the
+   * filter row still shows the old values.
+   */
+  activeLogFilter: () => ILogFilter | undefined;
 }): vscode.Disposable[] {
   const scopeListener = deps.toolWindowProvider.onDidChangeRepositoryScope(async (scope) => {
+    const filter = deps.activeLogFilter();
     if (scope.kind === 'all') {
       deps.branchTreeProvider.setRepositoryScope('all');
-      await deps.loadAllRootsLog();
+      await deps.loadAllRootsLog(filter);
       return;
     }
     deps.branchTreeProvider.setRepository(scope.repository);
-    await deps.loadLogCommitsForRepo(scope.repository);
+    await deps.loadLogCommitsForRepo(scope.repository, filter);
   });
   return [scopeListener];
 }
