@@ -10,6 +10,8 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.4] - 2026-08-12
+
 ### Fixed
 
 - The squash message box in the interactive rebase editor now starts empty:
@@ -28,6 +30,15 @@ fresh empty `[Unreleased]` block is added on top.
 - Branches created or moved outside VS Code (terminal, another tool) now show up
   when the window regains focus, even if the file watcher missed the change —
   previously they could stay hidden until a window reload.
+- Switching the repository selector or repository filter no longer quietly
+  reloads the log unfiltered — the active log filter stays applied instead of
+  the list widening to all commits while the filter row still shows its values.
+- "Checkout and Rebase onto Current" on the current branch's own remote (e.g.
+  origin/main while on main) now says it cannot overwrite the current branch
+  instead of showing a success message while doing nothing.
+- "Checkout and Rebase onto Current" now asks first when the local branch has
+  commits the remote does not, the same confirmation Checkout already shows,
+  instead of quietly discarding them.
 
 ## [0.5.3] - 2026-08-01
 
