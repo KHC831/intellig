@@ -50,10 +50,6 @@
       "category": "dialog",
       "note": "rebase dialog/flow"
     },
-    "intellig.branch.checkoutAndRebase": {
-      "category": "dialog",
-      "note": "checkout+rebase flow"
-    },
     "intellig.branch.newWorktree": {
       "category": "dialog",
       "note": "worktree dialog"
