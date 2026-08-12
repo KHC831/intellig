@@ -135,10 +135,9 @@ function readAllSourceText(): string {
 
 /**
  * A contextValue literal is "produced" if it appears verbatim in source, or
- * if a dotted prefix of it appears (covering values built by string template,
- * e.g. `intellig.scm.${kind}.${code}` whose static prefix `intellig.scm.`
- * appears verbatim). Prefixes must retain at least one dot so the bare
- * `intellig.` namespace can never satisfy an arbitrary literal.
+ * if a dotted prefix of it appears (covering values built by string template
+ * from a static dotted prefix). Prefixes must retain at least one dot so the
+ * bare `intellig.` namespace can never satisfy an arbitrary literal.
  */
 function sourceProducesContextValue(sourceText: string, literal: string): boolean {
   if (sourceText.includes(literal)) {
@@ -463,8 +462,8 @@ describe('package.json coherence', () => {
   // source ever assigns is dead UI — the row never appears anywhere. This
   // guard collects every distinct `viewItem == <literal>` across all menus
   // and asserts each literal is produced under `src/`, either verbatim or via
-  // a dotted prefix (the SCM provider builds values like
-  // `intellig.scm.${kind}.${code}` from the literal prefix `intellig.scm.`).
+  // a dotted prefix (covering contextValues assembled by string template from
+  // a static dotted prefix).
   // -------------------------------------------------------------------------
   it('every viewItem == <X> menu gate names a contextValue produced under src/', () => {
     const literals = collectViewItemLiterals(pkg);

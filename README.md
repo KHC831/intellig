@@ -1,6 +1,6 @@
 # IntelliG for VS Code
 
-IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, a three-pane merge window, and inline blame annotations. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the Source Control view and the diff editor.
+IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, a three-pane merge window, and inline blame annotations. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the diff editor and Explorer context menus.
 
 ![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
 
@@ -220,12 +220,10 @@ IntelliG runs `git` directly via `child_process` rather than going
 through VS Code's git extension API. The practical implications:
 
 - IntelliG works even when `git.enabled` is set to `false`.
-- IntelliG registers its own **"IntelliG Git"** Source Control provider
-  in the SCM view (Staged Changes / Changes groups + a commit input box,
-  `Ctrl/Cmd+Enter` to commit). It appears alongside VS Code's built-in
-  SCM entry rather than replacing it, so both views keep working — use
-  whichever you prefer, plus IntelliG's IntelliJ-style panels (Branch
-  popup, Git tool window, etc.).
+- IntelliG does not register anything in the Source Control view — that
+  stays built-in Git's. Committing and staging live in IntelliG's own
+  IntelliJ-style panels (Commit tool window, Commit dialog, Git tool
+  window).
 - File-tree decorations (M / U / A glyphs in the Explorer) come from
   VS Code's built-in git extension. IntelliG does not register a global
   file-decoration provider, so it does not double-paint Explorer

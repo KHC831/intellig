@@ -41,7 +41,6 @@ import { CommitContextMenuCommands } from './commits';
 import { isValidRefNameFormat } from './branches/branchNameValidator';
 import { initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
-import { safeFireAndForget } from './utils/safeFireAndForget';
 import { formatActionFailureToast } from './git-core/gitError';
 import { ICommandContext } from './commands/registration/CommandContext';
 import { IViewRegistrationContext } from './registration/ViewRegistrationContext';
@@ -50,7 +49,6 @@ import {
   registerGitContentProvider,
   setupEventListeners,
 } from './registration/registerViews';
-import { GitScmProvider } from './scm/GitScmProvider';
 // Re-export the relocated pure wiring functions + their structural test
 // interfaces so the by-name `from '../../../extension'` import path used by
 // loadAllPanelData / repoSelectionWiring / rebasePausedWarning /
@@ -286,21 +284,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Set up event listeners
     setupEventListeners(viewCtx);
-
-    // Native VS Code SCM integration ("IntelliG Git") — surfaces each
-    // repository's working tree as Staged Changes / Changes resource groups,
-    // the analog of IntelliJ's Local Changes. Registered in subscriptions so
-    // VS Code disposes its SourceControls on deactivation.
-    const gitScmProvider = new GitScmProvider(
-      extensionServices.gitService,
-      undefined,
-      context.workspaceState
-    );
-    context.subscriptions.push(gitScmProvider);
-    safeFireAndForget(
-      gitScmProvider.initialize(),
-      'extension.activate: GitScmProvider initial wiring'
-    );
 
     // Start the auto-fetch scheduler.
     // Registering in context.subscriptions lets VS Code dispose it on

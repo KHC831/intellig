@@ -416,8 +416,8 @@ flowchart LR
   per-repo log cache.
 - **linestatus/** — dirty-line gutter vs HEAD, IntelliJ line-status
   semantics.
-- **changelists/** + **scm/** — IntelliJ changelists mapped onto VS Code
-  SCM resource groups; storage round-trip is forward-compatible (ADR-003).
+- **changelists/** — IntelliJ changelists, rendered in the Commit tool
+  window; storage round-trip is forward-compatible (ADR-003).
 - **shelf/** — IntelliJ shelve/unshelve on patch files under
   `.git/intellig-shelf/`; `ShelveDialog` webview; symlink-contained
   deletes.

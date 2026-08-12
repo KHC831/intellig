@@ -27,7 +27,7 @@
     "conflicts/ResolveConflictsDialog.ts": 1034,
     "diff-engine/comparison/ByWordRt.ts": 1027,
     "commands/registration/commitMenuCommands.ts": 1017,
-    "extension.ts": 972,
+    "extension.ts": 955,
     "rebase/RebaseEditor.ts": 927,
     "git-core/ops/StashTagHistoryOps.ts": 946,
     "rebase/RebaseProgressView.ts": 923,

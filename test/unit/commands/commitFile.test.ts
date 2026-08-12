@@ -1,10 +1,8 @@
 /**
  * Unit specs for the explorer "Commit File…" parity action
- * (`intellig.explorer.commitFile`) and the SCM commit-on-accept wiring that
- * lets the staged file be committed from the native IntelliG SourceControl
- * input.
+ * (`intellig.explorer.commitFile`).
  *
- * Three surfaces:
+ * Two surfaces:
  *
  *   1. **package.json contract** — the command is declared (IntelliG category,
  *      Unicode-ellipsis title) and sits at the very top of the explorer Git
@@ -13,22 +11,16 @@
  *      resolved selection (no pre-staging, no whole-index SCM accept); the
  *      no-file / no-repo paths surface a toast and never open the dialog.
  *      Driven through the captured `registerCommand` callback with a mock
- *      gitService.
- *   3. **SCM accept** — `GitScmProvider.commitFromInput` commits the staged
- *      changes with the SourceControl input message (and no-ops on empty).
- */
+ *      gitService. */
 
 import '../../setup';
-import { SpawnFailedError } from '../../../src/git-core/errors';
 import * as assert from 'assert';
-import { okAsync, errAsync, ResultAsync } from 'neverthrow';
+import { okAsync } from 'neverthrow';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 
 import { registerExplorerCommands } from '../../../src/commands/registration/explorerCommands';
 import type { ICommandContext } from '../../../src/commands/registration/CommandContext';
-import { GitScmProvider, type IScmApi } from '../../../src/scm/GitScmProvider';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { createMockGitService } from '../../mocks/mockGitService';
 import { Uri } from '../../mocks/vscode';
@@ -296,277 +288,5 @@ describe('intellig.explorer.commitFile — handler', () => {
     await found!.cb(Uri.file('/repo/src/foo.ts'));
 
     assert.strictEqual(dialogShown, false, 'must not open the dialog when there is no repo');
-  });
-});
-
-// ─── SCM commit-on-accept ────────────────────────────────────────────────────
-
-/** Minimal fakes mirroring the SourceControl surface the provider touches. */
-class FakeGroup {
-  resourceStates: vscode.SourceControlResourceState[] = [];
-  hideWhenEmpty = false;
-  constructor(
-    public readonly id: string,
-    public readonly label: string
-  ) {}
-  dispose(): void {}
-}
-
-class FakeSourceControl {
-  readonly groups: FakeGroup[] = [];
-  readonly inputBox = { value: '', visible: true, placeholder: '' };
-  acceptInputCommand?: vscode.Command;
-  constructor(
-    public readonly id: string,
-    public readonly label: string,
-    public readonly rootUri?: vscode.Uri
-  ) {}
-  createResourceGroup(id: string, label: string): vscode.SourceControlResourceGroup {
-    const g = new FakeGroup(id, label);
-    this.groups.push(g);
-    return g as unknown as vscode.SourceControlResourceGroup;
-  }
-  dispose(): void {}
-}
-
-function fakeScmApi(): { api: IScmApi; created: FakeSourceControl[] } {
-  const created: FakeSourceControl[] = [];
-  const api: IScmApi = {
-    createSourceControl: (id, label, rootUri): vscode.SourceControl => {
-      const sc = new FakeSourceControl(id, label, rootUri);
-      created.push(sc);
-      return sc as unknown as vscode.SourceControl;
-    },
-  };
-  return { api, created };
-}
-
-describe('GitScmProvider — commit-on-accept', () => {
-  beforeEach(() => {
-    installInfoMessageTracker();
-  });
-
-  afterEach(() => {
-    restoreMessageFunctions();
-  });
-
-  it('wires an acceptInputCommand on the created SourceControl', async () => {
-    const repo = repoAt('/repo');
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [],
-    });
-    const { api, created } = fakeScmApi();
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-
-    assert.ok(
-      created[0].acceptInputCommand,
-      'the SourceControl should carry an acceptInputCommand so the input commits on accept'
-    );
-    provider.dispose();
-  });
-
-  it('commits the staged changes with the input message on accept', async () => {
-    const repo = repoAt('/repo');
-    let committedWith: string | undefined;
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [],
-      commit: (_r: IRepository, message: string) => {
-        committedWith = message;
-        return okAsync(undefined);
-      },
-    });
-    const { api, created } = fakeScmApi();
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-
-    const sc = created[0];
-    sc.inputBox.value = 'Fix the thing';
-    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
-
-    assert.strictEqual(committedWith, 'Fix the thing', 'commit should use the input-box message');
-    assert.strictEqual(sc.inputBox.value, '', 'the input box should be cleared after a commit');
-    provider.dispose();
-  });
-
-  it('does not double-commit on a rapid second accept (re-entrancy guard)', async () => {
-    const repo = repoAt('/repo');
-    let commitCount = 0;
-    let release!: () => void;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [],
-      commit: () => {
-        commitCount += 1;
-        return ResultAsync.fromSafePromise<void, never>(gate); // hold the first commit in flight
-      },
-    });
-    const { api, created } = fakeScmApi();
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-    const sc = created[0];
-    sc.inputBox.value = 'Commit once, not twice';
-
-    const first = provider.commitFromInput(sc as unknown as vscode.SourceControl);
-    // Rapid second accept while the first is still in flight — must be ignored.
-    const second = provider.commitFromInput(sc as unknown as vscode.SourceControl);
-    release();
-    await Promise.all([first, second]);
-
-    assert.strictEqual(commitCount, 1, 'a rapid second accept must not produce a second commit');
-    provider.dispose();
-  });
-
-  it('runs before-commit checks and aborts when the user declines', async () => {
-    // Detached HEAD (no head.name) makes the before-commit chain surface a
-    // warning, so the SCM accept path must present the modal and honor a
-    // dismissal — the native Ctrl+Enter commit must not bypass the checks.
-    const repo = repoAt('/repo');
-    (repo as { head?: unknown }).head = undefined; // detached → before-commit warning
-    let commitCalled = false;
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [],
-      commit: () => {
-        commitCalled = true;
-        return okAsync(undefined);
-      },
-    });
-    const { api, created } = fakeScmApi();
-    const win = vscode.window as unknown as {
-      showWarningMessage: (...a: unknown[]) => Promise<string | undefined>;
-    };
-    const originalWarn = win.showWarningMessage;
-    win.showWarningMessage = () => Promise.resolve(undefined); // user dismisses
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-    const sc = created[0];
-    sc.inputBox.value = 'Commit on detached HEAD';
-    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
-
-    assert.strictEqual(commitCalled, false, 'declining the modal must abort the commit');
-    win.showWarningMessage = originalWarn;
-    provider.dispose();
-  });
-
-  it('commits when the user accepts the before-commit warning', async () => {
-    const repo = repoAt('/repo');
-    (repo as { head?: unknown }).head = undefined; // detached → before-commit warning
-    let commitCalled = false;
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [],
-      commit: () => {
-        commitCalled = true;
-        return okAsync(undefined);
-      },
-    });
-    const { api, created } = fakeScmApi();
-    const win = vscode.window as unknown as {
-      showWarningMessage: (...a: unknown[]) => Promise<string | undefined>;
-    };
-    const originalWarn = win.showWarningMessage;
-    // A detached-HEAD problem is a warning → the proceed label is 'Commit'.
-    win.showWarningMessage = () => Promise.resolve('Commit');
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-    const sc = created[0];
-    sc.inputBox.value = 'Commit on detached HEAD';
-    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
-
-    assert.strictEqual(commitCalled, true, 'accepting the modal must let the commit proceed');
-    win.showWarningMessage = originalWarn;
-    provider.dispose();
-  });
-
-  it('does NOT commit when the input message is empty/whitespace', async () => {
-    const repo = repoAt('/repo');
-    let commitCalled = false;
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [],
-      commit: () => {
-        commitCalled = true;
-        return okAsync(undefined);
-      },
-    });
-    const { api, created } = fakeScmApi();
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-
-    const sc = created[0];
-    sc.inputBox.value = '   ';
-    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
-
-    assert.strictEqual(commitCalled, false, 'an empty message must not produce a commit');
-    provider.dispose();
-  });
-
-  it('surfaces an error toast, preserves the message, and does not follow through when commit fails', async () => {
-    const repo = repoAt('/repo');
-    // Count getStatus calls. The before-commit checks read status before the
-    // commit; the success follow-through (syncRepo) reads it again AFTER. A
-    // failed commit must skip that follow-through, so the count must not grow
-    // past the value captured at the moment commit() was invoked.
-    let getStatusCalls = 0;
-    let statusCallsAtCommit = -1;
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => {
-        getStatusCalls += 1;
-        return [];
-      },
-      commit: () => {
-        statusCallsAtCommit = getStatusCalls;
-        return errAsync(new SpawnFailedError('fatal: unable to write commit object'));
-      },
-    });
-    const { api, created } = fakeScmApi();
-
-    const errorTracker = installErrorMessageTracker();
-    const infoTracker = installInfoMessageTracker();
-
-    const provider = new GitScmProvider(git, api);
-    await provider.initialize();
-
-    const sc = created[0];
-    sc.inputBox.value = 'Message that should survive a failed commit';
-    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
-
-    // (a) the failure surfaces as an error toast.
-    assert.ok(
-      errorTracker.calls.some((c) => /failed to commit/i.test(c.message)),
-      `expected a commit-failure error toast, got: ${JSON.stringify(errorTracker.calls)}`
-    );
-    // (b) the user's message is NOT cleared, so they can retry.
-    assert.strictEqual(
-      sc.inputBox.value,
-      'Message that should survive a failed commit',
-      'a failed commit must not clear the input box'
-    );
-    // (c) no success follow-through: no extra re-sync, no false success toast.
-    assert.notStrictEqual(statusCallsAtCommit, -1, 'the commit should have been attempted');
-    assert.strictEqual(
-      getStatusCalls,
-      statusCallsAtCommit,
-      'a failed commit must not trigger a success re-sync (no getStatus after commit)'
-    );
-    assert.strictEqual(
-      infoTracker.calls.length,
-      0,
-      `a failed commit must not show an info/success toast, got: ${JSON.stringify(infoTracker.calls)}`
-    );
-    provider.dispose();
   });
 });

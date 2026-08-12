@@ -10,6 +10,13 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Removed
+
+- The IntelliG entry in VS Code's Source Control view is gone: it listed the
+  same files as built-in Git right below it, with fewer actions. The Source
+  Control view is built-in Git's again; committing in IntelliG lives in its
+  own panel (Commit tool window and Commit dialog), which is unchanged.
+
 ## [0.5.4] - 2026-08-12
 
 ### Fixed
