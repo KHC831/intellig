@@ -10,6 +10,8 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.5] - 2026-08-12
+
 ### Removed
 
 - The IntelliG entry in VS Code's Source Control view is gone: it listed the
