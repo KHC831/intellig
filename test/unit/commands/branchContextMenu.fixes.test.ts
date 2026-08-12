@@ -315,6 +315,183 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
   });
 });
 
+// ─── Tests: checkoutAndRebase — current-branch overwrite refusal ─────────────
+//
+// git4idea refuses "Checkout and Rebase onto Current" when the target local
+// name IS the current branch (GitCheckoutAndRebaseRemoteBranchWorkflow.kt:
+// "Cannot overwrite current branch"): the remote arm's `checkout -B` would
+// move the very branch captured as the rebase base, so the rebase targets the
+// branch's own new tip — a guaranteed no-op behind a success toast, and a
+// silent reset of any local-only commits.
+describe('BranchContextMenuCommands — checkoutAndRebase refuses to overwrite the current branch', () => {
+  it('remote branch whose leaf equals the current branch → refused before any git call', async () => {
+    const gitService = createMockGitService({ success: true });
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const errorTracker = installErrorMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
+
+      assert.strictEqual(gitService._calls.checkout.length, 0, 'checkout must not run');
+      assert.strictEqual(gitService._calls.rebaseBranch.length, 0, 'rebase must not run');
+      assert.ok(
+        errorTracker.calls.some((c) =>
+          c.message.includes("cannot overwrite the current branch 'main'")
+        ),
+        `refusal toast must name the current branch; got: ${JSON.stringify(errorTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
+  });
+
+  it('clicking the current local branch itself → refused the same way (self-rebase is a no-op)', async () => {
+    const gitService = createMockGitService({ success: true });
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const errorTracker = installErrorMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createLocalBranchTreeItem('main');
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
+
+      assert.strictEqual(gitService._calls.checkout.length, 0, 'checkout must not run');
+      assert.strictEqual(gitService._calls.rebaseBranch.length, 0, 'rebase must not run');
+      assert.ok(
+        errorTracker.calls.some((c) =>
+          c.message.includes("cannot overwrite the current branch 'main'")
+        ),
+        `refusal toast must name the current branch; got: ${JSON.stringify(errorTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
+  });
+});
+
+// ─── Tests: checkoutAndRebase — stale-local reset guard (remote arm) ─────────
+//
+// The remote arm create-or-resets a local tracking branch with `-B`, the same
+// destructive shape checkout-as-local guards with a fast-forward probe + modal
+// (Bug F below). checkoutAndRebase must run the SAME guard — an unguarded `-B`
+// silently drops local-only commits behind a success toast.
+describe('BranchContextMenuCommands — checkoutAndRebase remote reset guard', () => {
+  interface GuardedMockGit {
+    _calls: {
+      checkout: Call<[IRepository, string, unknown?]>[];
+      rebaseBranch: Call<[IRepository, string]>[];
+      getContainingBranches: Call<[IRepository, string]>[];
+      stash: Call<[IRepository, string?]>[];
+    };
+  }
+
+  function createGuardedMockGit(branches: IBranch[], containing: string[]): GuardedMockGit {
+    const repoChange = new EventEmitter<IRepository>();
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const calls: GuardedMockGit['_calls'] = {
+      checkout: [],
+      rebaseBranch: [],
+      getContainingBranches: [],
+      stash: [],
+    };
+    return {
+      _calls: calls,
+      onDidChangeRepository: repoChange.event,
+      onDidFetch: fetchEmitter.event,
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+      getBranches: async () => branches,
+      getContainingBranches: async (repo: IRepository, hash: string) => {
+        calls.getContainingBranches.push({ args: [repo, hash] });
+        return containing;
+      },
+      checkout: (repo: IRepository, ref: string, options?: unknown) => {
+        calls.checkout.push({ args: [repo, ref, options] });
+        return okAsync(undefined);
+      },
+      rebaseBranch: async (repo: IRepository, onto: string): Promise<IBasicRebaseResult> => {
+        calls.rebaseBranch.push({ args: [repo, onto] });
+        return { success: true };
+      },
+      stash: (repo: IRepository, message?: string) => {
+        calls.stash.push({ args: [repo, message] });
+        return okAsync(undefined);
+      },
+      reloadRepository: async (repo: IRepository) => repo,
+    } as unknown as GuardedMockGit;
+  }
+
+  const staleBranches: IBranch[] = [
+    { name: 'main', type: 'local', commit: 'aaa', isHead: false },
+    { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+  ];
+
+  it('stale local the remote does not contain + Cancel → neither checkout nor rebase runs', async () => {
+    const gitService = createGuardedMockGit(staleBranches, ['main']);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+    installWarningMessageTracker(undefined); // dismiss = cancel
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
+
+      assert.strictEqual(gitService._calls.checkout.length, 0, 'cancel must block the reset');
+      assert.strictEqual(gitService._calls.rebaseBranch.length, 0, 'cancel must block the rebase');
+    } finally {
+      restoreMessageFunctions();
+    }
+  });
+
+  it('fast-forwardable local → no prompt; checkout -B then rebase onto the previous current', async () => {
+    const gitService = createGuardedMockGit(staleBranches, ['main', 'origin/main']);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+    const warningTracker = installWarningMessageTracker(undefined);
+    const infoTracker = installInfoMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await driveBranchMenuCommand(commands, 'intellig.branch.checkoutAndRebase', item);
+
+      assert.strictEqual(warningTracker.calls.length, 0, 'a fast-forward reset is silent');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout proceeds');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+      assert.strictEqual(gitService._calls.rebaseBranch.length, 1, 'rebase proceeds');
+      assert.strictEqual(
+        gitService._calls.rebaseBranch[0].args[1],
+        'feature',
+        'rebase targets the previously-current branch'
+      );
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes("rebased onto 'feature'")),
+        `success toast fires; got: ${JSON.stringify(infoTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
+  });
+});
+
 // ─── Tests: pullUsingRebase / pullUsingMerge ─────────────────────────────────
 
 describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () => {

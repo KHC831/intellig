@@ -296,6 +296,56 @@ export async function handleCheckout(
 }
 
 /**
+ * Data-loss guard shared by the remote-arm `-B` checkouts: `-B` rewrites the
+ * local's commit pointer, so every commit the remote tip cannot reach becomes
+ * unreachable. Ask git which branches contain the local tip: when the checkout
+ * target is among them the local is an ancestor of it and the reset is a
+ * fast-forward, so the reset is safe and silent. Anything else — ahead,
+ * diverged, or a probe that failed (the facade degrades to `[]`) — prompts
+ * first, so an unmeasured answer errs toward asking rather than discarding.
+ *
+ * The check measures against the CHECKOUT TARGET, not the local's own
+ * upstream: those differ for a cross-tracked local, and an untracked
+ * local has no upstream to measure against at all.
+ */
+async function confirmStaleLocalReset(
+  ctx: IBranchCheckoutContext,
+  repo: IRepository,
+  branchName: string,
+  track: string
+): Promise<{ cancelled: true } | { cancelled: false; stashed: boolean; stashSha?: string }> {
+  const branches = await ctx.gitService.getBranches(repo);
+  const local = branches.find((b) => b.type === 'local' && b.name === branchName);
+  const fastForward =
+    local !== undefined &&
+    (await ctx.gitService.getContainingBranches(repo, local.commit)).includes(track);
+  if (!local || fastForward) {
+    return { cancelled: false, stashed: false };
+  }
+  const choice = await vscode.window.showWarningMessage(
+    `Local branch '${branchName}' has commits that are not on remote '${track}'. ` +
+      `Resetting to the remote tip will make them unreachable.`,
+    { modal: true },
+    'Reset anyway',
+    'Stash and reset'
+  );
+  if (choice === 'Stash and reset') {
+    await ctx.gitService.stash(repo, `Auto-stash before checkout ${branchName}`).match(
+      () => undefined,
+      (e) => {
+        throw e;
+      }
+    );
+    return { cancelled: false, stashed: true, stashSha: await captureCreatedStashSha(ctx, repo) };
+  }
+  if (choice === 'Reset anyway') {
+    return { cancelled: false, stashed: false };
+  }
+  // Cancel (or dialog dismissed): do not touch the local branch.
+  return { cancelled: true };
+}
+
+/**
  * Handle checkout and rebase command.
  * Checks out the right-clicked branch and rebases it onto the previously
  * current branch — IntelliJ's "Checkout and Rebase onto '{current}'" flow.
@@ -306,7 +356,9 @@ export async function handleCheckout(
  * fast-forward a LOCAL branch of the same leaf name, tracking the remote,
  * and check THAT out so HEAD stays attached. The fix below uses
  * `checkout -B <local> --track <remote>` when the right-clicked item is
- * a remote branch, mirroring `handleCheckoutAsLocal`'s pattern.
+ * a remote branch, mirroring `handleCheckoutAsLocal`'s pattern — including
+ * its stale-local reset guard, which prompts before `-B` would drop
+ * local-only commits.
  */
 export async function handleCheckoutAndRebase(
   ctx: IBranchCheckoutContext,
@@ -332,6 +384,23 @@ export async function handleCheckoutAndRebase(
   const localLeafName = isRemote
     ? remoteFullName.split('/').slice(1).join('/') // 'origin/main' → 'main'
     : target.branch.name;
+  // Refuse when the checkout target IS the current branch. The remote arm's
+  // `-B` would move the very branch captured above as the rebase base, so the
+  // rebase would target the branch's own new tip — a guaranteed no-op behind
+  // a success toast, and a silent reset of any local-only commits. git4idea
+  // refuses this outright (GitCheckoutAndRebaseRemoteBranchWorkflow.kt:
+  // "Cannot overwrite current branch"); the local arm (clicking the branch
+  // that is already current) degenerates the same way, matching IntelliJ
+  // hiding the action on the current branch.
+  if (localLeafName === previousCurrentBranch) {
+    const hint = isRemote
+      ? ` To update it from '${remoteFullName}', use 'Pull into Current Using Rebase'.`
+      : '';
+    void vscode.window.showErrorMessage(
+      `Checkout and Rebase failed: cannot overwrite the current branch '${previousCurrentBranch}'.${hint}`
+    );
+    return;
+  }
   // The branch label rendered in toasts always uses the LOCAL leaf name —
   // reads as "Checked out main" rather than "Checked out origin/main".
   const displayName = localLeafName;
@@ -351,8 +420,34 @@ export async function handleCheckoutAndRebase(
     );
 
   try {
+    // Same stale-local guard as checkout-as-local: without it, the remote
+    // arm's `-B` create-or-reset drops local-only commits silently.
+    let stashedBeforeReset = false;
+    let stashShaBeforeReset: string | undefined;
+    if (isRemote) {
+      const decision = await confirmStaleLocalReset(ctx, repo, localLeafName, remoteFullName);
+      if (decision.cancelled) {
+        return;
+      }
+      stashedBeforeReset = decision.stashed;
+      stashShaBeforeReset = decision.stashSha;
+    }
+
     // Checkout the right-clicked branch (attached HEAD).
     await checkout();
+
+    if (stashedBeforeReset) {
+      // Smart-checkout parity: restore the pre-reset stash before the rebase
+      // (the rebase runs with --autostash, so restored dirtiness is handled).
+      // A conflicted restore hands off to the Resolve Conflicts flow and must
+      // NOT start a rebase over an unmerged tree.
+      const restore = await restoreStashAfterSwitch(ctx, repo, stashShaBeforeReset);
+      if (restore === 'conflict-routed') {
+        await ctx.gitService.reloadRepository(repo);
+        ctx.branchTreeProvider.refresh();
+        return;
+      }
+    }
 
     // Rebase onto the previously current branch
     const result = await ctx.gitService.rebaseBranch(repo, previousCurrentBranch);
@@ -452,47 +547,14 @@ export async function handleCheckoutAsLocal(
   const track = `${remoteName}/${branchName}`;
 
   try {
-    // Data-loss guard: `-B` rewrites the local's commit pointer, so every
-    // commit the remote tip cannot reach becomes unreachable. Ask git which
-    // branches contain the local tip: when the checkout target is among them
-    // the local is an ancestor of it and the reset is a fast-forward, so the
-    // reset is safe and silent. Anything else — ahead, diverged, or a probe
-    // that failed (the facade degrades to `[]`) — prompts first, so an
-    // unmeasured answer errs toward asking rather than discarding.
-    //
-    // The check measures against the CHECKOUT TARGET, not the local's own
-    // upstream: those differ for a cross-tracked local, and an untracked
-    // local has no upstream to measure against at all.
-    const branches = await ctx.gitService.getBranches(repo);
-    const local = branches.find((b) => b.type === 'local' && b.name === branchName);
-    const fastForward =
-      local !== undefined &&
-      (await ctx.gitService.getContainingBranches(repo, local.commit)).includes(track);
-
-    let stashedBeforeReset = false;
-    let stashShaBeforeReset: string | undefined;
-    if (local && !fastForward) {
-      const choice = await vscode.window.showWarningMessage(
-        `Local branch '${branchName}' has commits that are not on remote '${track}'. ` +
-          `Resetting to the remote tip will make them unreachable.`,
-        { modal: true },
-        'Reset anyway',
-        'Stash and reset'
-      );
-      if (choice === 'Stash and reset') {
-        await ctx.gitService.stash(repo, `Auto-stash before checkout ${branchName}`).match(
-          () => undefined,
-          (e) => {
-            throw e;
-          }
-        );
-        stashShaBeforeReset = await captureCreatedStashSha(ctx, repo);
-        stashedBeforeReset = true;
-      } else if (choice !== 'Reset anyway') {
-        // Cancel (or dialog dismissed): do not touch the local branch.
-        return;
-      }
+    // Data-loss guard shared with checkout-and-rebase's remote arm (see
+    // confirmStaleLocalReset for the probe's contract).
+    const decision = await confirmStaleLocalReset(ctx, repo, branchName, track);
+    if (decision.cancelled) {
+      return;
     }
+    const stashedBeforeReset = decision.stashed;
+    const stashShaBeforeReset = decision.stashSha;
 
     // Create-or-reset the local to the remote tip in one step.
     await ctx.gitService.checkout(repo, branchName, { forceCreate: true, track }).match(
