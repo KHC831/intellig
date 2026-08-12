@@ -23,7 +23,7 @@
     "changelists/ChangelistService.ts": 1157,
     "blame/GutterBlameProvider.ts": 1089,
     "patches/PatchService.ts": 1070,
-    "git-core/commitGraph.ts": 1063,
+    "git-core/commitGraph.ts": 1030,
     "conflicts/ResolveConflictsDialog.ts": 1034,
     "diff-engine/comparison/ByWordRt.ts": 1027,
     "commands/registration/commitMenuCommands.ts": 1017,

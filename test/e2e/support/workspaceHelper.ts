@@ -99,6 +99,17 @@ export async function ensureActivated(): Promise<void> {
  * want to pass it explicitly to service-level APIs.
  */
 export async function useFixtureWorkspace(repoPath: string): Promise<IRepository> {
+  const [repo] = await useFixtureWorkspaces([repoPath]);
+  return repo;
+}
+
+/**
+ * Register `repoPaths` as EXACTLY the GitService-known repos for the current
+ * test — the multi-root analogue of {@link useFixtureWorkspace} (which
+ * delegates here with one path). Returns the discovered repositories in the
+ * given order.
+ */
+export async function useFixtureWorkspaces(repoPaths: string[]): Promise<IRepository[]> {
   await ensureActivated();
 
   const services = getServices();
@@ -118,24 +129,26 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
     gitService.removeRepositoryWatcher?.(root);
   }
 
-  const folderUri = vscode.Uri.file(repoPath);
-  const repo = await services.gitService.getRepository(folderUri);
-  if (!repo) {
-    throw new Error(`no repository discovered at ${repoPath}`);
+  const repos: IRepository[] = [];
+  for (const repoPath of repoPaths) {
+    const repo = await services.gitService.getRepository(vscode.Uri.file(repoPath));
+    if (!repo) {
+      throw new Error(`no repository discovered at ${repoPath}`);
+    }
+    repos.push(repo);
   }
+  const wanted = new Set(repos.map((r) => r.rootUri.fsPath));
 
-  // Enforce this helper's contract — the fixture is the SOLE repo. A prior
+  // Enforce this helper's contract — the fixtures are the ONLY repos. A prior
   // suite's async reload tail can resurrect its (deleted) fixture into the
-  // cache AFTER the sweep above; the next repo-scoped command then sees a
-  // multi-repo workspace and shows a repository picker that stubPrompts
+  // cache AFTER the sweep above; the next repo-scoped command then sees an
+  // unexpected extra repo and shows a repository picker that stubPrompts
   // auto-cancels — a silent no-op that reads as "command did nothing".
-  // Drain-and-sweep until only the fixture remains (bounded, loud on
+  // Drain-and-sweep until only the fixtures remain (bounded, loud on
   // failure so the leak points at its polluter instead of a downstream
   // assert).
   for (let round = 0; round < 3; round++) {
-    const strays = gitService
-      .getRepositories()
-      .filter((r) => r.rootUri.fsPath !== repo.rootUri.fsPath);
+    const strays = gitService.getRepositories().filter((r) => !wanted.has(r.rootUri.fsPath));
     if (strays.length === 0) {
       break;
     }
@@ -144,17 +157,15 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
       gitService.removeRepositoryWatcher?.(stray.rootUri.fsPath);
     }
   }
-  const leftover = gitService
-    .getRepositories()
-    .filter((r) => r.rootUri.fsPath !== repo.rootUri.fsPath);
+  const leftover = gitService.getRepositories().filter((r) => !wanted.has(r.rootUri.fsPath));
   if (leftover.length > 0) {
     throw new Error(
-      `useFixtureWorkspace: stray repos survived the sweep: ${leftover
+      `useFixtureWorkspaces: stray repos survived the sweep: ${leftover
         .map((r) => r.rootUri.fsPath)
         .join(', ')}`
     );
   }
-  return repo;
+  return repos;
 }
 
 /**

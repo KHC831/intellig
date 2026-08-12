@@ -24,7 +24,7 @@ import { createMultiCommitFilesLoader } from './multiCommitFilesLoad';
 import { createSingleCommitFilesLoader } from './singleCommitFilesLoad';
 import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
 import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
-import { graphRowKey } from '../git-core/commitGraph';
+import { graphRowKey } from '../git-core/graphRowKey';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
 import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
 import { readConfig } from '../config/configKeys';
@@ -1369,7 +1369,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         if (e.selection.length > 0) {
           const target = graphTargetForTreeSelection(e.selection[0]);
           if (target?.kind === 'branch') {
-            ctx.gitToolWindowProvider!.navigateToBranch(target.name);
+            ctx.gitToolWindowProvider!.navigateToBranch(target.name, target.repoRoot);
           } else if (target?.kind === 'commit') {
             ctx.gitToolWindowProvider!.navigateToCommit(target.hash);
           }

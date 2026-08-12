@@ -73,20 +73,16 @@ class StubToolWindowProvider implements IRepoSelectionToolWindowProvider {
 }
 
 /**
- * Stub branch tree provider that records every `setRepository` and
- * `setRepositoryScope` call so the test can assert the dropdown's selection
- * reaches the branches view in the right shape.
+ * Stub branch tree provider that records every `setRepository` call so the
+ * test can assert the dropdown's selection reaches the branches view. (The
+ * tree's grouped layout persists across scope changes, so recording the repo
+ * is the wiring's only branch-tree effect.)
  */
 class RecordingBranchTreeProvider implements IRepoSelectionBranchTreeProvider {
   public setRepositoryCalls: IRepository[] = [];
-  public setScopeCalls: Array<'all'> = [];
 
   setRepository(repo: IRepository): void {
     this.setRepositoryCalls.push(repo);
-  }
-
-  setRepositoryScope(scope: 'all'): void {
-    this.setScopeCalls.push(scope);
   }
 }
 
@@ -126,7 +122,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
     );
   });
 
-  it('scopes the branches tree to the selected repo when a specific repository is chosen', () => {
+  it('records the selected repo on the branches tree when a specific repository is chosen', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
 
@@ -147,11 +143,6 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
     assert.strictEqual(branchTree.setRepositoryCalls.length, 2);
     assert.strictEqual(branchTree.setRepositoryCalls[0].rootUri.fsPath, '/workspace/repo-a');
     assert.strictEqual(branchTree.setRepositoryCalls[1].rootUri.fsPath, '/workspace/repo-b');
-    assert.strictEqual(
-      branchTree.setScopeCalls.length,
-      0,
-      'specific selection must not flip to all'
-    );
   });
 
   it('reloads the single-repo Log/Graph view via loadLogCommitsForRepo on a specific selection', () => {
@@ -180,7 +171,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
     assert.strictEqual(allRootsCalls, 0, 'specific selection must NOT call the merged loader');
   });
 
-  it('routes the "All Repositories" scope to the merged log loader AND the grouped branch tree', () => {
+  it('routes the "All Repositories" scope to the merged log loader and leaves the branch tree untouched', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
     const loadLogCalls: IRepository[] = [];
@@ -202,15 +193,10 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
 
     assert.strictEqual(allRootsCalls, 1, 'all scope must call the merged log loader');
     assert.strictEqual(loadLogCalls.length, 0, 'all scope must NOT call the single-repo loader');
-    assert.deepStrictEqual(
-      branchTree.setScopeCalls,
-      ['all'],
-      'all scope must regroup the branch tree via setRepositoryScope("all")'
-    );
     assert.strictEqual(
       branchTree.setRepositoryCalls.length,
       0,
-      'all scope must NOT scope the branch tree to a single repo'
+      'all scope must NOT record a single repo on the branch tree'
     );
   });
 

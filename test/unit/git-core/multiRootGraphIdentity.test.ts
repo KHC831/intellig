@@ -13,9 +13,9 @@ import {
   generateCommitGraph,
   computeChildCountMap,
   computeTerminalNodes,
-  commitNodeKey,
   IBranchRef,
 } from '../../../src/git-core/commitGraph';
+import { commitNodeKey } from '../../../src/git-core/graphRowKey';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
 const HASH_A = 'a'.repeat(40);

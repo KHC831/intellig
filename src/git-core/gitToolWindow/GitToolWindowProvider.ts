@@ -2103,12 +2103,12 @@ export class GitToolWindowProvider
    * Navigate the graph to a branch's HEAD commit.
    * Public wrapper around the branch-click logic so that external callers
    * (e.g. the native BRANCHES tree view selection handler) can scroll the
-   * graph to a given branch.
-   *
-   * and highlights the latest commit of that branch.
+   * graph to a given branch. `repoRoot` — the clicked row's repository in a
+   * multi-root workspace — disambiguates same-named branches across roots in
+   * the merged log.
    */
-  public navigateToBranch(branchName: string): void {
-    this.focus.handleBranchClick(branchName);
+  public navigateToBranch(branchName: string, repoRoot?: string): void {
+    this.focus.handleBranchClick(branchName, repoRoot);
   }
 
   /**

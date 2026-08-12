@@ -35,6 +35,7 @@ export function fingerprintLogState(
   }
   parts.push(SECTION_SEP);
   if (branchMap) {
+    // row-key-exempt: opaque fingerprint token, never a commit hash
     for (const key of [...branchMap.keys()].sort()) {
       const refs = branchMap.get(key) ?? [];
       parts.push(
@@ -49,6 +50,7 @@ export function fingerprintLogState(
   }
   parts.push(SECTION_SEP);
   if (tagMap) {
+    // row-key-exempt: opaque fingerprint token, never a commit hash
     for (const key of [...tagMap.keys()].sort()) {
       parts.push(key + NAME_SEP + [...(tagMap.get(key) ?? [])].sort().join(ENTRY_SEP));
     }

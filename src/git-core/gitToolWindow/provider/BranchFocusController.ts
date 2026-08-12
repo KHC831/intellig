@@ -8,6 +8,7 @@
  */
 
 import type { ICommitNode } from '../../commitGraph';
+import { graphRowKeyParts } from '../../graphRowKey';
 import type { IGitService, IRepository } from '../../interfaces/IGitService';
 import type { GitToolWindowOutbound } from '../gitToolWindow.protocol';
 import { bfsPathToMergeBase } from './loadedGraphQueries';
@@ -124,9 +125,8 @@ export class BranchFocusController {
       return;
     }
 
-    // Resolve the branch's tip commit hash by scanning the branchMap and,
-    // as a fallback, the per-node `branches` array (mirrors
-    // `handleBranchClick`).
+    // Resolve the branch's tip commit hash (the same resolver
+    // `handleBranchClick` navigates with).
     const targetHash = this._resolveBranchTipHash(branchName);
     if (!targetHash) {
       // Branch isn't in the loaded log. We still set the focus name so a
@@ -223,19 +223,41 @@ export class BranchFocusController {
    * Resolve a branch name to its tip commit hash by inspecting the
    * branchMap and (as a fallback) the per-node branches array.
    * Returns undefined when the branch isn't in the loaded log.
+   *
+   * Branch-map keys are graph ROW keys — `hash\0root` in the merged
+   * all-roots log — so every hit is decomposed back to the bare hash
+   * ({@link graphRowKeyParts}); downstream consumers (selectCommit, the
+   * webview scroll, the BFS) all identify commits by bare hash. When
+   * `preferredRepoRoot` is given (the clicked tree row's repo), a tip from
+   * that root outranks a same-named branch in another root.
    */
-  private _resolveBranchTipHash(branchName: string): string | undefined {
-    for (const [commitHash, branches] of this._log.state.branchMap.entries()) {
+  private _resolveBranchTipHash(
+    branchName: string,
+    preferredRepoRoot?: string
+  ): string | undefined {
+    let firstMatch: string | undefined;
+    for (const [rowKey, branches] of this._log.state.branchMap.entries()) {
       if (branches.some((ref) => ref.name === branchName)) {
-        return commitHash;
+        const { hash, repoRoot } = graphRowKeyParts(rowKey);
+        if (preferredRepoRoot !== undefined && repoRoot === preferredRepoRoot) {
+          return hash;
+        }
+        firstMatch ??= hash;
       }
+    }
+    if (firstMatch !== undefined) {
+      return firstMatch;
     }
     for (const node of this._log.state.commitNodes) {
       if (node.branches && node.branches.some((ref) => ref.name === branchName)) {
-        return node.commit.hash;
+        const nodeRoot = (node.commit as { repoRoot?: string }).repoRoot;
+        if (preferredRepoRoot !== undefined && nodeRoot === preferredRepoRoot) {
+          return node.commit.hash;
+        }
+        firstMatch ??= node.commit.hash;
       }
     }
-    return undefined;
+    return firstMatch;
   }
 
   /**
@@ -278,38 +300,19 @@ export class BranchFocusController {
 
   /**
    * Handle a branch click: scroll the graph to the branch's HEAD commit.
-   * Finds the branch's tip from the loaded branch map (falling back to the
-   * per-node branches array), then selects that commit and asks the webview
-   * to scroll to it.
+   * Finds the branch's tip via {@link _resolveBranchTipHash} (branch map
+   * first, per-node branches as fallback; merged-mode row keys decompose to
+   * bare hashes there), then selects that commit and asks the webview to
+   * scroll to it. `preferredRepoRoot` — the clicked tree row's repo — breaks
+   * ties when several roots carry a same-named branch.
    *
    * Uses the partial-update path (selectCommit + a non-selecting scroll post)
    * rather than a full re-render, so the graph panel's scroll position is
    * preserved and the visibility-aware inline scrollToCommit only scrolls
    * when the target row is not already fully visible.
    */
-  public handleBranchClick(branchName: string): void {
-    // Look up the commit hash for this branch from the branch map
-    const branchMap = this._log.state.branchMap;
-    let targetCommitHash: string | undefined;
-
-    // The branchMap maps commit hash -> branch refs[]
-    // We need to find the commit hash that has this branch name
-    for (const [commitHash, branches] of branchMap.entries()) {
-      if (branches.some((ref) => ref.name === branchName)) {
-        targetCommitHash = commitHash;
-        break;
-      }
-    }
-
-    // If not found in branchMap, search through commit nodes for a matching branch reference
-    if (!targetCommitHash) {
-      for (const node of this._log.state.commitNodes) {
-        if (node.branches && node.branches.some((ref) => ref.name === branchName)) {
-          targetCommitHash = node.commit.hash;
-          break;
-        }
-      }
-    }
+  public handleBranchClick(branchName: string, preferredRepoRoot?: string): void {
+    const targetCommitHash = this._resolveBranchTipHash(branchName, preferredRepoRoot);
 
     if (targetCommitHash) {
       // Use the partial-update path (no full re-render) so the graph panel's

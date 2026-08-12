@@ -18,14 +18,13 @@
 
 import {
   ICommitNode,
-  commitNodeKey,
   computeChildCountMap,
   computeIncomingBendsMap,
   computeTerminalNodes,
   getColumnColor,
   isBranchSplit,
-  parentNodeKey,
 } from '../commitGraph';
+import { commitNodeKey, parentNodeKey } from '../graphRowKey';
 import { computeBranchColors, type IColorNode } from './branchColors';
 import { computeLongEdgeCuts, applyLongEdgeHiding } from './longEdges';
 import {

@@ -7,11 +7,10 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { buildIntelligGitUri } from '../commands/registration/explorerCommands';
 
 /**
- * The repository SCOPE the Git tool window drives both downstream views with.
- * `'all'` shows the merged multi-root log + the grouped branch tree; a
- * `repository` scope narrows both views to a single repo. Emitted by the
- * provider's `onDidChangeRepositoryScope` event so the log and branches can
- * never disagree about what's in view.
+ * The repository SCOPE the Git tool window's selector emits. `'all'` shows
+ * the merged multi-root log; a `repository` scope narrows the LOG to a single
+ * repo and records that repo on the branch tree (whose grouped multi-root
+ * layout persists either way — the selector filters the log, not the tree).
  */
 export type RepositoryScopeSelection =
   | { readonly kind: 'all' }
@@ -89,20 +88,20 @@ export interface IRepoSelectionToolWindowProvider {
 }
 export interface IRepoSelectionBranchTreeProvider {
   setRepository(repo: IRepository): void;
-  setRepositoryScope(scope: 'all'): void;
 }
 
 /**
- * Wire the Git tool window's repository scope to BOTH downstream views from a
- * single `onDidChangeRepositoryScope` event:
- *   - scope `'all'`        → merged multi-root log (`loadAllRootsLog`) +
- *                            grouped branch tree (`setRepositoryScope('all')`)
+ * Wire the Git tool window's repository scope off the single
+ * `onDidChangeRepositoryScope` event:
+ *   - scope `'all'`        → merged multi-root log (`loadAllRootsLog`)
  *   - scope `repository`   → single-repo log (`loadLogCommitsForRepo`) +
- *                            that repo's branch tree (`setRepository`)
+ *                            record the repo on the branch tree
+ *                            (`setRepository` — the tree's grouped layout
+ *                            persists; only its fallback repo updates)
  *
- * Routing both views off one event is what keeps the log and branches from
- * ever disagreeing about which repositories are in view — the original bug
- * was the dropdown updating one view while the other silently desynced.
+ * Routing everything off one event is what keeps the log and the branch
+ * tree's recorded repo from disagreeing — the original bug was the dropdown
+ * updating one view while the other silently desynced.
  *
  * Returns the disposables so the caller can register them with
  * `context.subscriptions.push(...)`.
@@ -126,7 +125,6 @@ export function wireRepositorySelection(deps: {
   const scopeListener = deps.toolWindowProvider.onDidChangeRepositoryScope(async (scope) => {
     const filter = deps.activeLogFilter();
     if (scope.kind === 'all') {
-      deps.branchTreeProvider.setRepositoryScope('all');
       await deps.loadAllRootsLog(filter);
       return;
     }

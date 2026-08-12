@@ -7,6 +7,7 @@
  */
 
 import { ICommit } from './interfaces/IGitService';
+import { commitNodeKey, parentNodeKey } from './graphRowKey';
 
 /**
  * Visual style of a graph line. Used by the renderer to differentiate
@@ -128,40 +129,6 @@ export interface ICommitNode {
    * `onFocusedBranchPath: false` and the renderer treats it as a no-op.
    */
   onFocusedBranchPath?: boolean;
-}
-
-/**
- * Identity of a commit ROW within a (possibly multi-root) graph window.
- *
- * The merged "all roots" log interleaves commits from several repositories,
- * and two checkouts/worktrees of the same repo carry IDENTICAL hashes — so a
- * bare hash is NOT a row identity there (IntelliJ vcs-log parity: CommitId =
- * Hash + root). Every intra-window relationship map in this module (children,
- * lanes, rows, refs) keys by this composite. Commits without a `repoRoot` tag
- * (single-repo / specific-scope loads) degrade to the bare hash, so those
- * paths are byte-identical to before.
- */
-export function commitNodeKey(commit: ICommit): string {
-  const root = (commit as { repoRoot?: string }).repoRoot;
-  return root ? `${commit.hash}\0${root}` : commit.hash;
-}
-
-/**
- * Identity of `commit`'s parent within the same window. A parent is by
- * definition in the SAME repository as its child, so it inherits the child's
- * `repoRoot`.
- */
-export function parentNodeKey(commit: ICommit, parentHash: string): string {
-  const root = (commit as { repoRoot?: string }).repoRoot;
-  return root ? `${parentHash}\0${root}` : parentHash;
-}
-
-/**
- * Compose a graph-window key from a bare hash + root — for callers (the
- * merged loader's branch/tag maps) that key rows without an ICommit in hand.
- */
-export function graphRowKey(hash: string, repoRoot: string | undefined): string {
-  return repoRoot ? `${hash}\0${repoRoot}` : hash;
 }
 
 /**
