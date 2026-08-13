@@ -13,6 +13,7 @@ import { getLogger } from '../utils/logger';
 import { SquashMessageDialog } from './SquashMessageDialog';
 import { buildSquashRebasePlan } from './squashPlan';
 import { formatActionFailureToast } from '../git-core/gitError';
+import { fullCommitMessage } from '../git-core/gitParser';
 import {
   allHashesDisplayed,
   allHashesValid,
@@ -184,7 +185,9 @@ export async function handleSquashCommits(
   const messages = await Promise.all(
     oldestFirst.map(async (h) => {
       try {
-        return (await ctx.gitService.getCommit(repo, h)).message ?? '';
+        // Full message, not `.message` — that field is the subject alone,
+        // and seeding from it drops every commit body from the combination.
+        return fullCommitMessage(await ctx.gitService.getCommit(repo, h));
       } catch {
         // If lookup fails, fall back to the short-sha so the seed
         // still has a marker for the user to edit.

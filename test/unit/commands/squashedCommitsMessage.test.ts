@@ -120,5 +120,24 @@ describe('squashedCommitsMessage', () => {
         'runAutosquashNow must combine messages with combineAutosquashMessages'
       );
     });
+
+    // `ICommit.message` is the SUBJECT alone (%s, see parseLog); assembling a
+    // combination input from it silently drops every commit body. Both squash
+    // surfaces must reassemble via fullCommitMessage.
+    it('the squash-commits seed reads full messages, never bare .message', () => {
+      assert.ok(
+        /fullCommitMessage\(/.test(src('commitSquashActions.ts')),
+        'the squash seed must assemble commit messages with fullCommitMessage'
+      );
+    });
+
+    it('the autosquash combine reads full messages, never bare .message', () => {
+      assert.ok(
+        /combineAutosquashMessages\(\s*fullCommitMessage\(/.test(
+          src('commitInteractiveRebaseActions.ts')
+        ),
+        'runAutosquashNow must feed fullCommitMessage output into the combine'
+      );
+    });
   });
 });

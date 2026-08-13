@@ -64,10 +64,14 @@ function createMockGitService(
     getCommits: async () => [],
     getCommit: async (_repo: IRepository, hash: string) => {
       calls.push({ method: 'getCommit', args: [hash] });
+      // Production shape (parseLog): `message` is the SUBJECT alone (%s);
+      // the body lives in the separate `body` field. A mock that folds the
+      // body into `message` hides exactly the drops-the-body bug class.
       return {
         hash,
         shortHash: hash.substring(0, 7),
-        message: `subject for ${hash.substring(0, 8)}\n\nbody for ${hash.substring(0, 8)}`,
+        message: `subject for ${hash.substring(0, 8)}`,
+        body: `body for ${hash.substring(0, 8)}`,
         author: { name: 'a', email: 'a@x' },
         committer: { name: 'a', email: 'a@x' },
         parents: [],
@@ -779,6 +783,46 @@ describe('Rebase-driven multi-commit ops', () => {
         editor.lastSeed.includes('\n\n'),
         `expected blank-line separator between commit messages; got: ${editor.lastSeed}`
       );
+    });
+
+    it('seeds the FULL message of each commit — bodies included, not just subjects', async () => {
+      // The commit objects split subject (`message`, %s) from `body` (%b);
+      // seeding from `message` alone silently drops every body from the
+      // squash seed. git4idea's GitSquashLogAction combines full messages.
+      const tracker = blankRebaseTracker();
+      tracker.sessionCommits = [
+        { hash: HASH_MID, message: 'mid', action: 'pick' },
+        { hash: HASH_NEWEST, message: 'new', action: 'pick' },
+      ];
+      const rebaseService = createMockRebaseService(tracker);
+      const gitService = createMockGitService(repo);
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
+      captureMessages();
+
+      const editor = await runWithEditor(
+        () =>
+          (cmds as unknown as CommandsInternal)._handleAction(
+            'squashCommits',
+            [HASH_NEWEST, HASH_MID],
+            NODES_4
+          ),
+        (e) => e.simulateSave('user-chosen squashed message')
+      );
+
+      for (const h of [HASH_MID, HASH_NEWEST]) {
+        const body = `body for ${h.substring(0, 8)}`;
+        assert.ok(
+          editor.lastSeed?.includes(body),
+          `seed must carry the commit body "${body}"; got: ${editor.lastSeed}`
+        );
+        const subject = `subject for ${h.substring(0, 8)}`;
+        assert.ok(
+          editor.lastSeed?.includes(`${subject}\n\n${body}`),
+          'body follows its subject after a blank line'
+        );
+      }
     });
 
     it('starts rebase onto oldest^ and delivers the combined message via a reword override on the target', async () => {

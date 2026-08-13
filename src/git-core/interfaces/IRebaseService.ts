@@ -29,7 +29,15 @@ export type RebaseStatus =
  */
 export interface IRebaseCommit {
   hash: string;
+  /** Subject line — the plan row's one-line label. */
   message: string;
+  /**
+   * The commit's complete message (subject + body). Seeds the reword box and
+   * any message-rewriting consumer — reading `message` there drops the body.
+   * Absent on sessions reconstructed from an on-disk todo (detectActiveRebase),
+   * whose todo lines carry subjects only; consumers fall back to `message`.
+   */
+  fullMessage?: string;
   action: RebaseAction;
   /** User-edited message override for 'reword' action (H1 inline editing). */
   newMessage?: string;

@@ -17,7 +17,10 @@ export interface IRebaseActionOption {
 export interface IRebaseEditorCommit {
   hash: string;
   shortHash: string;
+  /** Subject line — the plan row's one-line label. */
   message: string;
+  /** Complete message (subject + body) — the reword box reseeds from this. */
+  fullMessage: string;
   action: RebaseAction;
   actionClass: string;
   showMessageEditor: boolean;

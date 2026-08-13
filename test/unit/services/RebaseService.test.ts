@@ -165,7 +165,7 @@ describe('RebaseService', () => {
       // Mock getting commits to rebase
       mockGitCli.setExecResult(
         'log --reverse',
-        createMockResult(0, 'abc123\0First commit\ndef456\0Second commit\n')
+        createMockResult(0, 'abc123\x1fFirst commit\n\0def456\x1fSecond commit\n\0')
       );
 
       const session = await rebaseService.startInteractiveRebase(mockRepo, 'main');
@@ -186,7 +186,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       let firedSession: IRebaseSession | undefined;
       const disposable = rebaseService.onDidChangeRebaseSession((session) => {
@@ -214,6 +214,32 @@ describe('RebaseService', () => {
       assert.strictEqual(session.commits.length, 0);
     });
 
+    it('carries each commit FULL message (body included) beside the subject', async () => {
+      // The reword box and every message-rewriting consumer read the full
+      // message; an enumeration that only captures %s drops commit bodies.
+      mockGitCli.setExecResult(
+        'rev-parse --abbrev-ref HEAD',
+        createMockResult(0, 'feature-branch\n')
+      );
+      mockGitCli.setExecResult(
+        'log --reverse',
+        createMockResult(0, 'abc123\x1fFirst commit\n\nfirst body\n\0\ndef456\x1fSecond commit\n\0')
+      );
+
+      const session = await rebaseService.startInteractiveRebase(mockRepo, 'main');
+
+      assert.strictEqual(session.commits.length, 2);
+      assert.strictEqual(session.commits[0].hash, 'abc123');
+      assert.strictEqual(session.commits[0].message, 'First commit', 'row label stays the subject');
+      assert.strictEqual(
+        session.commits[0].fullMessage,
+        'First commit\n\nfirst body',
+        'the full message carries the body'
+      );
+      assert.strictEqual(session.commits[1].hash, 'def456');
+      assert.strictEqual(session.commits[1].fullMessage, 'Second commit');
+    });
+
     it('enumerates the rebase commits with --no-merges (plain rebase -i flattens merges)', async () => {
       // `git rebase -i` (no --rebase-merges) omits merge commits from the todo.
       // If the commit list includes a merge that git's flattened todo doesn't,
@@ -223,7 +249,7 @@ describe('RebaseService', () => {
         'rev-parse --abbrev-ref HEAD',
         createMockResult(0, 'feature-branch\n')
       );
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
 
@@ -248,7 +274,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       const session = rebaseService.getRebaseSession(mockRepo);
@@ -267,7 +293,10 @@ describe('RebaseService', () => {
 
       mockGitCli.setExecResult(
         'log --reverse',
-        createMockResult(0, 'abc123\0First commit\ndef456\0Second commit\nghi789\0Third commit\n')
+        createMockResult(
+          0,
+          'abc123\x1fFirst commit\n\0def456\x1fSecond commit\n\0ghi789\x1fThird commit\n\0'
+        )
       );
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
@@ -387,7 +416,7 @@ describe('RebaseService', () => {
       tmpRebaseService = new RebaseService(mockGitCli);
 
       mockGitCli.setExecResult('rev-parse --abbrev-ref HEAD', createMockResult(0, 'feature\n'));
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
       await tmpRebaseService.startInteractiveRebase(tmpRepoObj, 'main');
       mockGitCli.clearCalls();
     });
@@ -560,7 +589,10 @@ describe('RebaseService', () => {
       mockGitCli.setExecResult('rev-parse --abbrev-ref HEAD', createMockResult(0, 'feature\n'));
       mockGitCli.setExecResult(
         'log --reverse',
-        createMockResult(0, 'aaa111\0First commit\nbbb222\0Second commit\nccc333\0Third commit\n')
+        createMockResult(
+          0,
+          'aaa111\x1fFirst commit\n\0bbb222\x1fSecond commit\n\0ccc333\x1fThird commit\n\0'
+        )
       );
       await tmpRebaseService.startInteractiveRebase(tmpRepoObj, 'main');
       mockGitCli.clearCalls();
@@ -639,7 +671,7 @@ describe('RebaseService', () => {
       tmpRepoObj = createMockRepository(tmpRepo);
       tmpRebaseService = new RebaseService(mockGitCli);
       mockGitCli.setExecResult('rev-parse --abbrev-ref HEAD', createMockResult(0, 'feature\n'));
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
     });
 
     afterEach(() => {
@@ -694,7 +726,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       mockGitCli.clearCalls();
@@ -717,7 +749,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       mockGitCli.clearCalls();
@@ -737,7 +769,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
 
@@ -755,7 +787,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
 
@@ -781,7 +813,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       mockGitCli.clearCalls();
@@ -802,7 +834,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       mockGitCli.clearCalls();
@@ -826,7 +858,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
 
@@ -855,7 +887,7 @@ describe('RebaseService', () => {
 
       mockGitCli.setExecResult(
         'log --reverse',
-        createMockResult(0, 'abc123\0First commit\ndef456\0Second commit\n')
+        createMockResult(0, 'abc123\x1fFirst commit\n\0def456\x1fSecond commit\n\0')
       );
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
@@ -1101,7 +1133,7 @@ describe('RebaseService', () => {
         'rev-parse --abbrev-ref HEAD',
         createMockResult(0, 'feature-branch\n')
       );
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
     });
 
     it('clearSession drops a cached planning session so it cannot poison later ops', async () => {
@@ -1197,7 +1229,7 @@ describe('RebaseService', () => {
         createMockResult(0, 'feature-branch\n')
       );
 
-      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\x1fFirst commit\n\0'));
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       rebaseService.dispose();
@@ -1219,7 +1251,10 @@ describe('RebaseService', () => {
 
       mockGitCli.setExecResult(
         'log --reverse',
-        createMockResult(0, 'abc123\0First commit\ndef456\0Second commit\nghi789\0Third commit\n')
+        createMockResult(
+          0,
+          'abc123\x1fFirst commit\n\0def456\x1fSecond commit\n\0ghi789\x1fThird commit\n\0'
+        )
       );
 
       await rebaseService.startInteractiveRebase(mockRepo, 'main');

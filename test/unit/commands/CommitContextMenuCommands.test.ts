@@ -708,10 +708,14 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     it('soft-resets HEAD and prefills the composer with the undone commit message', async () => {
       const repo = createMockRepo(testHash); // head.commit === testHash → HEAD guard passes
       const gitService = createMockGitService(repo, {
+        // Production shape (parseLog): `message` = subject alone, body
+        // separate. The prefill must reassemble the FULL message — a
+        // subject-only prefill loses the body on the next commit.
         getCommit: async () => ({
           hash: testHash,
           shortHash: 'abc1234',
-          message: 'feat: original subject\n\noriginal body',
+          message: 'feat: original subject',
+          body: 'original body',
           author: { name: '', email: '' },
           committer: { name: '', email: '' },
           parents: ['parent'],
@@ -3564,13 +3568,14 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       const repo = createMockRepo('head_hash');
       const gitService = createMockGitService(repo, {
+        // Production shape (parseLog): `message` is the SUBJECT alone (%s);
+        // the body lives in the separate `body` field. Folding the body into
+        // `message` here hid the drops-the-body bug from the combine pin.
         getCommit: async (_r: IRepository, hash: string) => ({
           hash: hash === 'HEAD' ? createdHash : hash,
           shortHash: hash.substring(0, 7),
-          message:
-            hash === 'HEAD'
-              ? 'squash! Fix the widget\n\nextra detail'
-              : 'Fix the widget\n\ntarget body',
+          message: hash === 'HEAD' ? 'squash! Fix the widget' : 'Fix the widget',
+          body: hash === 'HEAD' ? 'extra detail' : 'target body',
           author: { name: 'a', email: 'a@x' },
           committer: { name: 'a', email: 'a@x' },
           parents: ['0'.repeat(40)],

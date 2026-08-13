@@ -12,6 +12,7 @@ import {
   parseBlame,
   parseLog,
   parseTags,
+  fullCommitMessage,
   getLogFormat,
   getBranchFormat,
   getTagFormat,
@@ -853,6 +854,43 @@ index 1234567,abcdefg..fedcba9
       // Regular block keeps its hunks; combined block reports none.
       assert.ok(result[0].hunks.length >= 1, 'regular diff retains hunks');
       assert.strictEqual(result[1].hunks.length, 0, 'combined diff has no parsed hunks');
+    });
+  });
+
+  describe('fullCommitMessage', () => {
+    // parseLog splits %s (subject → `message`) from %b (body); this is the
+    // ONE sanctioned reassembly for consumers that need what the user wrote.
+
+    it('round-trips a subject+body commit out of parseLog', () => {
+      const sep = '\x1f';
+      const line = [
+        'a'.repeat(40),
+        'a'.repeat(7),
+        'Author',
+        'a@x',
+        '2026-01-01T00:00:00+00:00',
+        'Author',
+        'a@x',
+        '2026-01-01T00:00:00+00:00',
+        '',
+        'Fix the widget',
+        'G',
+      ].join(sep);
+      const output = `${line}\nFirst body line.\n\nSecond paragraph.\n\0`;
+      const [commit] = parseLog(output);
+      assert.strictEqual(commit.message, 'Fix the widget');
+      assert.strictEqual(
+        fullCommitMessage(commit),
+        'Fix the widget\n\nFirst body line.\n\nSecond paragraph.'
+      );
+    });
+
+    it('returns the subject alone when there is no body', () => {
+      assert.strictEqual(fullCommitMessage({ message: 'Just a subject' }), 'Just a subject');
+      assert.strictEqual(
+        fullCommitMessage({ message: 'Just a subject', body: undefined }),
+        'Just a subject'
+      );
     });
   });
 

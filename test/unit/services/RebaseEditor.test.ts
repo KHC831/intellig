@@ -329,6 +329,22 @@ describe('RebaseEditor', () => {
       assert.strictEqual(init.commits[1].rewordValue, '');
     });
 
+    it('seeds reword rows with the FULL message when the session carries one', () => {
+      // Session commits split the row label (subject) from the full message;
+      // a reword box seeded from the subject alone drops the commit body the
+      // moment the user submits any edit.
+      internals()._session!.commits = [
+        {
+          hash: HASH_A,
+          message: 'A subject',
+          fullMessage: 'A subject\n\nA body line',
+          action: 'reword',
+        },
+      ] as IRebaseCommit[];
+      const init = internals()._getInit();
+      assert.strictEqual(init.commits[0].rewordValue, 'A subject\n\nA body line');
+    });
+
     it('keeps a typed message in the seed for re-renders', () => {
       internals()._handleUpdateMessage(HASH_B, 'typed combined message');
       const init = internals()._getInit();

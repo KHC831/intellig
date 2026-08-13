@@ -221,17 +221,13 @@ export function statusCodeToFileStatus(
  * Expects format ({@link getLogFormat}):
  * %H<sep>%h<sep>%an<sep>%ae<sep>%aI<sep>%cn<sep>%ce<sep>%cI<sep>%P<sep>%s<sep>%G?%n%b
  *
- * Separator switched from `|` to `\x1f` (ASCII Unit Separator,
- * RFC 1345). The previous pipe separator collided with author/committer
- * names containing `|` (legitimate in Unicode-name policies, common in
- * imported histories) and silently corrupted every downstream field.
- * `\x1f` is in the C0 control range and never appears in a normalised
- * git ident; a commit SUBJECT is free text and can carry it, which is why
- * the subject is read as the rejoined tail rather than one positional field.
+ * The `\x1f` separator (C0 control, never in a normalised git ident) exists
+ * because a `|` separator collided with author/committer names containing `|`
+ * and silently corrupted every downstream field. A commit SUBJECT is free
+ * text and can still carry `\x1f`, which is why the subject is read as the
+ * rejoined tail rather than one positional field.
  *
- * @param output - The output from `git log` with the specified format
  * @param separator - The field separator (default: `\x1f`)
- * @returns Array of commit objects
  */
 export function parseLog(output: string, separator: string = '\x1f'): ICommit[] {
   const commits: ICommit[] = [];
@@ -302,17 +298,21 @@ export function parseLog(output: string, separator: string = '\x1f'): ICommit[] 
 }
 
 /**
- * Parse a single commit from Git show output.
- *
- * Separator default switched to `\x1f` to match `parseLog`.
- *
- * @param output - The output from `git show` with the specified format
- * @param separator - The field separator (default: `\x1f`)
- * @returns The commit object, or undefined if parsing fails
+ * Parse a single commit from `git show` output (same format and `\x1f`
+ * separator default as {@link parseLog}); undefined when parsing fails.
  */
 export function parseCommit(output: string, separator: string = '\x1f'): ICommit | undefined {
   const commits = parseLog(output, separator);
   return commits.length > 0 ? commits[0] : undefined;
+}
+
+/**
+ * Full message from {@link parseLog}'s subject/body split (`message` is `%s`
+ * ALONE). Message-rewriting consumers (squash seeds, autosquash combining,
+ * composer prefill) must route through this — `.message` drops the body.
+ */
+export function fullCommitMessage(commit: Pick<ICommit, 'message' | 'body'>): string {
+  return commit.body ? `${commit.message}\n\n${commit.body}` : commit.message;
 }
 
 /**

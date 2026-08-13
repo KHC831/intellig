@@ -223,13 +223,14 @@ function render(init: IRebaseEditorInit): void {
 
     const showEditor = action === 'reword' || action === 'squash';
     const editor = item.querySelector('.reword-message-editor');
-    // Reword seeds with the commit's own message (edit it in place); squash
+    // Reword seeds with the commit's own FULL message (edit it in place —
+    // the subject-only row label would drop the body on submit); squash
     // seeds EMPTY — blank means "auto-combine both messages" (the git squash
     // rule), and a typed value overrides the whole fold's message. The host
     // clears any typed message on an action change, so an existing box is
     // reseeded here rather than keeping a value whose meaning changed.
     const orig = init.commits.find((c: IRebaseEditorCommit) => c.hash === hash);
-    const seed = action === 'reword' && orig ? orig.message : '';
+    const seed = action === 'reword' && orig ? orig.fullMessage : '';
     if (showEditor && !editor) {
       item.append(buildMessageEditor(hash, action, seed));
     } else if (showEditor && editor) {

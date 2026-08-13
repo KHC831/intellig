@@ -9,6 +9,7 @@ import { IRebaseAction } from '../git-core/interfaces/IRebaseService';
 import { revParseVerified } from '../git-core/gitCli';
 import { isFirstParentAncestor } from '../git-core/rebaseRange';
 import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
+import { fullCommitMessage } from '../git-core/gitParser';
 import {
   runHistoryRewrite,
   resolveRewriteBase,
@@ -155,7 +156,13 @@ export async function runAutosquashNow(
     ]);
     let combinedMessage: string | undefined;
     if (mode === 'squash' && target) {
-      combinedMessage = combineAutosquashMessages(target.message.trim(), created.message);
+      // Full messages on both sides: `.message` is the subject alone, which
+      // drops the target's body from the result and leaves the squash!
+      // commit's body with nothing after the marker trim (losing it too).
+      combinedMessage = combineAutosquashMessages(
+        fullCommitMessage(target).trim(),
+        fullCommitMessage(created)
+      );
     }
 
     const node = ctx.dispatchNodes.find((n) => n.hash === targetHash);

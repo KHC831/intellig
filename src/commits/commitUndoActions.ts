@@ -9,6 +9,7 @@ import type { IGitService, IRepository } from '../git-core/interfaces/IGitServic
 import type { GitCli } from '../git-core/gitCli';
 import type { GitToolWindowProvider } from '../ui-shell/GitToolWindowProvider';
 import { formatActionFailureToast } from '../git-core/gitError';
+import { fullCommitMessage } from '../git-core/gitParser';
 import {
   hashesReferToSameCommit,
   reloadAndRefresh,
@@ -62,11 +63,13 @@ export async function undoCommit(ctx: ICommitUndoContext, commitHashes: string[]
     return;
   }
 
-  // Capture the message BEFORE the reset so it can be restored to the
+  // Capture the FULL message BEFORE the reset so it can be restored to the
   // composer afterward (IntelliJ repopulates the message on uncommit).
+  // `.message` is the subject alone — prefilling from it would lose the body
+  // on the next commit.
   let undoneMessage = '';
   try {
-    undoneMessage = (await ctx.gitService.getCommit(repo, hash)).message;
+    undoneMessage = fullCommitMessage(await ctx.gitService.getCommit(repo, hash));
   } catch {
     undoneMessage = '';
   }

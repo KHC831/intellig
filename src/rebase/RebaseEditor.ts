@@ -142,8 +142,7 @@ export class RebaseEditor {
    */
   async show(repository: IRepository, options: IRebaseEditorOptions): Promise<IRebaseEditorResult> {
     this._repository = repository;
-    // A fresh rebase must open at the top, not wherever the previous rebase's
-    // list was left scrolled.
+    // A fresh rebase opens at the top, not at the previous rebase's scroll.
     this._hasRendered = false;
 
     try {
@@ -517,14 +516,18 @@ export class RebaseEditor {
   private _getInit(preserveScroll = false): IRebaseEditorInit {
     const commits: IRebaseEditorCommit[] = (this._session?.commits ?? []).map((commit) => {
       const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
-      // Reword seeds with the commit's own message; squash seeds EMPTY (blank
-      // = git's auto-combine keeps both messages; typed = whole-fold override
-      // — an own-message seed would silently drop the fold target's message).
-      const seed = commit.action === 'squash' ? '' : commit.message;
+      // Reword seeds the commit's own FULL message (a subject-only seed drops
+      // the body on any edit; the fallback covers on-disk-todo sessions, which
+      // carry subjects only); squash seeds EMPTY (blank = git's auto-combine;
+      // typed = whole-fold override — an own-message seed would silently drop
+      // the fold target's message).
+      const fullMessage = commit.fullMessage ?? commit.message;
+      const seed = commit.action === 'squash' ? '' : fullMessage;
       return {
         hash: commit.hash,
         shortHash: commit.hash.substring(0, 7),
         message: commit.message,
+        fullMessage,
         action: commit.action,
         actionClass: `action-${commit.action}`,
         showMessageEditor,

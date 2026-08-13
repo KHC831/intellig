@@ -283,6 +283,7 @@ export class RebaseService implements IRebaseService {
         // only the former may later fire the inline reword/squash override
         // machinery in executeRebase.
         message: action.newMessage || existingCommit.message,
+        fullMessage: existingCommit.fullMessage,
         action: action.action,
         newMessage: action.newMessage,
       };
@@ -906,26 +907,22 @@ export class RebaseService implements IRebaseService {
   }
 
   /**
-   * Get commits that will be rebased.
+   * Enumerate the commits `onto..HEAD` that the rebase will replay.
    *
-   * @param repo - The repository
-   * @param onto - The commit/branch to rebase onto
-   * @returns Array of commits to be rebased
+   * `--no-merges` is essential: a plain `git rebase -i` (no `--rebase-merges`)
+   * FLATTENS history and omits merges from its todo, so a merge in the plan
+   * would make transformRebaseTodo throw ("references commit not in todo")
+   * and abort the rebase. `%B` (FULL message), NUL-terminated records: the
+   * reword box and the message-override machinery need the body — a
+   * `%s`-only enumeration silently dropped it. `%x1f` splits hash from
+   * message; the message is free text, so only its FIRST occurrence delimits.
    */
   private async getCommitsToRebase(repo: IRepository, onto: string): Promise<IRebaseCommit[]> {
     const cwd = repo.rootUri.fsPath;
-
-    // Get commits between onto and HEAD — these are the commits that will be
-    // rebased. `--no-merges` is essential: the interactive rebase runs as a
-    // plain `git rebase -i` (no `--rebase-merges`), which FLATTENS the history
-    // and omits merge commits from the todo. Without `--no-merges` here, a
-    // merge in `onto..HEAD` would appear in the plan but not in git's todo, and
-    // transformRebaseTodo would throw ("references commit not in todo"),
-    // aborting the rebase over any merge history.
     const result = await this._gitCli.exec(
       buildGitArgs(
         'log',
-        ['--reverse', '--no-merges', '--format=%H%x00%s'],
+        ['--reverse', '--no-merges', '--format=%H%x1f%B%x00'],
         // A --root rebase replays the ENTIRE history reachable from HEAD.
         [onto === REBASE_ROOT ? 'HEAD' : `${onto}..HEAD`]
       ),
@@ -937,19 +934,22 @@ export class RebaseService implements IRebaseService {
     }
 
     const commits: IRebaseCommit[] = [];
-    const lines = result.stdout.trim().split('\n');
-
-    for (const line of lines) {
-      const [hash, message] = line.split('\0');
-      if (hash && message) {
+    for (const record of result.stdout.split('\0')) {
+      const sep = record.indexOf('\x1f');
+      if (sep === -1) {
+        continue; // inter-record newline residue, not a commit
+      }
+      const hash = record.slice(0, sep).trim();
+      const fullMessage = record.slice(sep + 1).replace(/\n+$/, '');
+      if (hash && fullMessage) {
         commits.push({
-          hash: hash.trim(),
-          message: message.trim(),
-          action: 'pick', // Default action
+          hash,
+          message: fullMessage.split('\n')[0].trim(), // row label: subject alone
+          fullMessage,
+          action: 'pick',
         });
       }
     }
-
     return commits;
   }
 
