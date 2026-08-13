@@ -549,8 +549,9 @@ describe('UI fix #37 — BranchTreeProvider folder grouping', () => {
  * in `GitRepositoryModel.favoriteRefs` (`GitFavoriteRefs`).
  *
  * Here we mirror that with:
- *   - a synthetic `'head'` root node showing the current branch at the very
- *     top (above Local/Remote/Tags), only when HEAD is attached;
+ *   - the current branch marked on its own row inside Local (no separate
+ *     pinned HEAD row; HEAD-specific presentation exists only for the
+ *     detached state, as the synthetic row inside Local);
  *   - a `Favorites` category listing starred local branches, only when at
  *     least one favorite exists;
  *   - `toggleFavorite` / `isFavorite` backed by an injected
@@ -592,28 +593,38 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     return provider;
   }
 
-  // --- HEAD root node ---
+  // --- no pinned HEAD row ---
+  //
+  // The current branch is conveyed by the checked row inside Local; a pinned
+  // HEAD row on top duplicated it. HEAD-specific presentation survives ONLY
+  // for the detached state (the synthetic row inside Local), where no branch
+  // row can carry it.
 
-  it('renders a HEAD root node at the very top when HEAD is attached to a branch', async () => {
+  it('renders no pinned HEAD row when HEAD is attached to a branch', async () => {
     const provider = providerWith([
-      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+      { name: 'topic', type: 'local', commit: 'b'.repeat(40), isHead: true },
     ]);
     const root = await provider.getChildren();
-    assert.strictEqual(root[0].itemType, 'head', 'HEAD node must be the first root child');
-    assert.strictEqual(root[0].label, 'main', 'HEAD node label is the current branch name');
-    assert.strictEqual(root[0].contextValue, CONTEXT_VALUES.HEAD_NODE);
-    assert.strictEqual(root[0].isCurrentBranch, true);
+    assert.strictEqual(root[0].label, 'Local', 'root starts with the categories');
+    assert.deepStrictEqual(
+      root.map((c) => c.itemType),
+      ['category', 'category', 'category'],
+      'no synthetic head row anywhere in the root'
+    );
   });
 
-  it('HEAD root node carries the current branch ref so selection can navigate', async () => {
+  it('marks the current branch inside Local instead', async () => {
     const provider = providerWith([
-      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+      { name: 'topic', type: 'local', commit: 'b'.repeat(40), isHead: true },
     ]);
     const root = await provider.getChildren();
-    assert.strictEqual(root[0].branch?.name, 'main');
+    const locals = await provider.getChildren(root.find((c) => c.label === 'Local'));
+    const current = locals.find((l) => l.isCurrentBranch)!;
+    assert.ok(current, 'the current branch row exists in Local');
+    assert.strictEqual(current.branch?.name, 'topic');
   });
 
-  it('omits the HEAD root node when HEAD is detached', async () => {
+  it('keeps the synthetic detached row inside Local when HEAD is detached', async () => {
     // A non-default branch name keeps this spec about detached HEAD alone —
     // `main` would be starred by default and add a Favorites category.
     const provider = providerWith(
@@ -621,20 +632,20 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
       detachedRepo('a'.repeat(40))
     );
     const root = await provider.getChildren();
-    assert.strictEqual(
-      root.filter((c) => c.itemType === 'head').length,
-      0,
-      'detached HEAD → no head node (the synthetic Local row covers it)'
-    );
-    assert.strictEqual(root[0].label, 'Local', 'first root child falls back to Local');
+    assert.strictEqual(root[0].label, 'Local', 'first root child is Local');
+    const locals = await provider.getChildren(root[0]);
+    assert.strictEqual(locals[0].itemType, 'detached-head', 'the detached row survives');
   });
 
-  it('omits the HEAD root node for an empty repo', async () => {
+  it('renders only the categories for an empty repo', async () => {
     const gitService = createMockGitService(emptyRepo());
     const provider = new BranchTreeProvider(gitService);
     provider.setRepository(emptyRepo());
     const root = await provider.getChildren();
-    assert.strictEqual(root.filter((c) => c.itemType === 'head').length, 0);
+    assert.deepStrictEqual(
+      root.map((c) => c.label),
+      ['Local', 'Remote', 'Tags']
+    );
   });
 
   // --- favorite toggle + persistence ---
@@ -683,7 +694,7 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
 
   // --- favorites section ---
 
-  it('renders a Favorites category (after HEAD) when at least one favorite exists', async () => {
+  it('renders a Favorites category first when at least one favorite exists', async () => {
     const provider = providerWith(
       [
         { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
@@ -693,12 +704,11 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
       new InMemoryStore(['release'])
     );
     const root = await provider.getChildren();
-    assert.strictEqual(root[0].itemType, 'head');
-    assert.strictEqual(root[1].label, 'Favorites', 'Favorites category sits right below HEAD');
-    assert.strictEqual(root[1].itemType, 'category');
+    assert.strictEqual(root[0].label, 'Favorites', 'Favorites category leads the root');
+    assert.strictEqual(root[0].itemType, 'category');
     // The remaining sections are preserved in order.
     assert.deepStrictEqual(
-      root.slice(2).map((c) => c.label),
+      root.slice(1).map((c) => c.label),
       ['Local', 'Remote', 'Tags']
     );
   });
@@ -836,7 +846,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(root[0].contextValue, CONTEXT_VALUES.REPOSITORY);
   });
 
-  it('expands a repository node into HEAD + Local/Remote/Tags scoped to that repo', async () => {
+  it('expands a repository node into Local/Remote/Tags scoped to that repo (no HEAD row)', async () => {
     const repoA = repoAt('alpha', 'main');
     const repoB = repoAt('beta', 'dev');
     const provider = multiRepoProvider(
@@ -851,14 +861,61 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     const repoBNode = root[1];
     const sections = await provider.getChildren(repoBNode);
 
-    // HEAD node first (repoB's current branch is "dev"), then categories.
-    assert.strictEqual(sections[0].itemType, 'head');
-    assert.strictEqual(sections[0].label, 'dev', 'HEAD node reflects THIS repo, not repoA');
     assert.deepStrictEqual(
-      sections.slice(1).map((s) => s.label),
+      sections.map((s) => s.label),
       ['Local', 'Remote', 'Tags'],
-      'repoB holds only `dev`, so no default is starred and Favorites stays hidden'
+      'categories only — the checked row inside Local carries the current branch; ' +
+        'repoB holds only `dev`, so no default is starred and Favorites stays hidden'
     );
+    const locals = await provider.getChildren(sections[0]);
+    const current = locals.find((l) => l.isCurrentBranch)!;
+    assert.strictEqual(current.branch?.name, 'dev', 'current marker reflects THIS repo, not repoA');
+  });
+
+  it('colors each repository row icon with a name-stable charts.* theme color', async () => {
+    const repoA = repoAt('alpha');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const chartIds = [
+      'charts.blue',
+      'charts.orange',
+      'charts.yellow',
+      'charts.purple',
+      'charts.green',
+      'charts.red',
+    ];
+    for (const node of root) {
+      const icon = node.iconPath as { id?: string; color?: { id?: string } };
+      assert.strictEqual(icon.id, 'repo', 'repository rows keep the repo glyph');
+      assert.ok(
+        icon.color && chartIds.includes(icon.color.id ?? ''),
+        `repository icon carries a charts.* color (got ${String(icon.color?.id)})`
+      );
+    }
+
+    // Name-stable: a rebuilt provider assigns the same repo the same color.
+    const provider2 = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+    const root2 = await provider2.getChildren();
+    for (let i = 0; i < root.length; i++) {
+      const a = root[i].iconPath as { color?: { id?: string } };
+      const b = root2[i].iconPath as { color?: { id?: string } };
+      assert.strictEqual(a.color?.id, b.color?.id, 'same repo name → same color across builds');
+    }
+    provider2.dispose();
   });
 
   it("lists a repository node's local branches from THAT repository only", async () => {
@@ -1108,10 +1165,10 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
       0,
       'single repo → no repository wrapper node'
     );
-    assert.strictEqual(root[0].itemType, 'head', 'flat layout still starts with the HEAD node');
     assert.deepStrictEqual(
-      root.filter((n) => n.itemType === 'category').map((n) => n.label),
-      ['Favorites', 'Local', 'Remote', 'Tags']
+      root.map((n) => n.label),
+      ['Favorites', 'Local', 'Remote', 'Tags'],
+      'flat layout is the categories alone (main is starred by default)'
     );
   });
 

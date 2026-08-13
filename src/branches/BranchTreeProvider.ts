@@ -31,6 +31,37 @@ function repositoryLabel(repo: IRepository): string {
 }
 
 /**
+ * charts.* theme colors usable on tree icons, blue first to match the
+ * graph's blue-leads convention. git4idea parity: repository nodes render a
+ * per-repository color (VcsRepositoryIconsProvider, colored square); here
+ * the repo glyph itself takes the color.
+ */
+const REPOSITORY_ICON_COLORS: readonly string[] = [
+  'charts.blue',
+  'charts.orange',
+  'charts.yellow',
+  'charts.purple',
+  'charts.green',
+  'charts.red',
+];
+
+/**
+ * Per-repository icon color from a STABLE hash of the repo label (the same
+ * `String.hashCode` idiom as the graph's branchColorFor), so a repository
+ * keeps its color across refreshes and sessions. Two same-named roots share
+ * a color — the same accepted collision class as two branches sharing a
+ * palette slot.
+ */
+function repositoryIconColor(label: string): vscode.ThemeColor {
+  let h = 0;
+  for (let i = 0; i < label.length; i++) {
+    h = (Math.imul(31, h) + label.charCodeAt(i)) | 0;
+  }
+  const n = REPOSITORY_ICON_COLORS.length;
+  return new vscode.ThemeColor(REPOSITORY_ICON_COLORS[((h % n) + n) % n]);
+}
+
+/**
  * Tree item types for the branch tree
  */
 export type BranchTreeItemType =
@@ -38,9 +69,8 @@ export type BranchTreeItemType =
   | 'remote-branch'
   | 'tag'
   | 'category'
-  | 'detached-head' // Synthetic row for detached HEAD state
+  | 'detached-head' // Synthetic row for detached HEAD state — the only HEAD-specific row (an attached HEAD is the checked row inside Local)
   | 'branch-folder' // IntelliJ-parity nesting node ("feature" container with feature/* children)
-  | 'head' // HEAD root node — current branch pinned at the very top (git4idea parity)
   | 'repository'; // Per-repository root node in a multi-repo workspace (git4idea GitBranchesTreeMultiRepoModel)
 
 /**
@@ -61,7 +91,6 @@ export const CONTEXT_VALUES = {
   CATEGORY: 'intellig.category',
   DETACHED_HEAD: 'intellig.detachedHead',
   BRANCH_FOLDER: 'intellig.branchFolder',
-  HEAD_NODE: 'intellig.headNode',
   REPOSITORY: 'intellig.repository',
 } as const;
 
@@ -541,8 +570,6 @@ export class BranchTreeItem extends vscode.TreeItem {
         return CONTEXT_VALUES.DETACHED_HEAD;
       case 'branch-folder':
         return CONTEXT_VALUES.BRANCH_FOLDER;
-      case 'head':
-        return CONTEXT_VALUES.HEAD_NODE;
       case 'repository':
         return CONTEXT_VALUES.REPOSITORY;
       default:
@@ -553,16 +580,12 @@ export class BranchTreeItem extends vscode.TreeItem {
   private _getIcon(): vscode.ThemeIcon {
     switch (this.itemType) {
       case 'repository':
-        // Per-repository root node — the VS Code repo glyph, matching
-        // git4idea's RepositoryNode (which renders the repository icon).
-        return new vscode.ThemeIcon('repo');
-      case 'head':
-        // The HEAD root node IS the current branch — reuse the green
-        // check so "you are here" reads consistently with the current
-        // row inside Local.
+        // Per-repository root node — the repo glyph in this repository's
+        // stable color, so repos are tellable apart at a glance in the
+        // grouped multi-root layout.
         return new vscode.ThemeIcon(
-          'check',
-          new vscode.ThemeColor('gitDecoration.addedResourceForeground')
+          'repo',
+          repositoryIconColor(typeof this.label === 'string' ? this.label : '')
         );
       case 'local-branch':
         if (this.isCurrentBranch) {
@@ -606,11 +629,6 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getDescription(): string | undefined {
-    // HEAD root node: a short "HEAD" tag so the row reads as the
-    // current-branch pointer rather than a duplicate branch entry.
-    if (this.itemType === 'head') {
-      return 'HEAD';
-    }
     // Synthetic detached-head row description. Distinct from
     // 'current' (which implies a branch is checked out) — 'detached'
     // reads as "you are at this commit; HEAD is not bound to a branch".
@@ -652,11 +670,6 @@ export class BranchTreeItem extends vscode.TreeItem {
       const name = typeof this.label === 'string' ? this.label : '';
       const path = this.repository?.rootUri.fsPath;
       return path ? `Repository: ${name}\n${path}` : `Repository: ${name}`;
-    }
-    // HEAD root node tooltip.
-    if (this.itemType === 'head') {
-      const name = typeof this.label === 'string' ? this.label : '';
-      return `HEAD → ${name}\n(Current branch)`;
     }
     // Synthetic detached-head row tooltip.
     if (this.itemType === 'detached-head') {
@@ -1056,11 +1069,10 @@ export class BranchTreeProvider
   }
 
   /**
-   * Build the category-level rows for `repo`: a HEAD node pinned at the
-   * very top (when HEAD is attached to a branch), an optional Favorites
-   * section, then the Local / Remote / Tags categories. Mirrors
-   * git4idea's `GitBranchesTreeModel`, which sorts the current ref first
-   * and favorites next; here those become explicit top rows.
+   * Build the category-level rows for `repo`: an optional Favorites
+   * section, then the Local / Remote / Tags categories. The current branch
+   * is conveyed by its checked row inside Local (a pinned HEAD row would
+   * duplicate it); the detached state keeps its synthetic row inside Local.
    *
    * In the flat single-repo layout these are the tree's root children; in
    * the multi-repo layout they hang under a `'repository'` node. Each node
@@ -1070,40 +1082,13 @@ export class BranchTreeProvider
   private async _getCategoryNodes(repo: IRepository): Promise<BranchTreeItem[]> {
     const nodes: BranchTreeItem[] = [];
 
-    const head = repo.head;
-    const currentBranchName = head?.name?.replace('refs/heads/', '');
-
-    // One branch read serves every node in this pass (HEAD resolution and
-    // the Favorites gate); best-effort, so a failed read still renders the
-    // categories.
+    // One branch read for the Favorites gate; best-effort, so a failed
+    // read still renders the categories.
     let branches: IBranch[] = [];
     try {
       branches = await this._gitService.getBranches(repo);
     } catch {
       branches = [];
-    }
-
-    // HEAD root node. Only when HEAD is attached to a branch — detached
-    // and empty states are surfaced inside Local (synthetic detached row
-    // or nothing), so a top HEAD node there would be misleading.
-    if (currentBranchName) {
-      const currentBranch = this._findCurrentBranch(branches, currentBranchName);
-      nodes.push(
-        new BranchTreeItem(
-          currentBranchName,
-          vscode.TreeItemCollapsibleState.None,
-          'head',
-          currentBranch,
-          undefined,
-          true,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          false,
-          repo
-        )
-      );
     }
 
     // Favorites section — only when a ref that exists here is starred.
@@ -1159,19 +1144,6 @@ export class BranchTreeProvider
       false,
       repo
     );
-  }
-
-  /**
-   * Resolve the {@link IBranch} for the current branch name so the HEAD
-   * node carries a real ref (selection → graph navigation). Returns
-   * `undefined` (best-effort) when the branch isn't in the list — the HEAD
-   * node still renders by name.
-   */
-  private _findCurrentBranch(
-    branches: readonly IBranch[],
-    currentBranchName: string
-  ): IBranch | undefined {
-    return branches.find((b) => b.type === 'local' && (b.name === currentBranchName || b.isHead));
   }
 
   /**
