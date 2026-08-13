@@ -56,7 +56,7 @@ import { IGitService, IRepository, IStash, FileStatus } from '../git-core/interf
 import { performCommit, LAST_NO_VERIFY_SLOT } from './CommitDialog';
 import { AmendMessageTracker, loadHeadCommitMessage } from './amendMessage';
 import { runBeforeCommitChecks } from './CheckinChecks';
-import { resolveRepo } from '../utils/resolveRepo';
+import { CtwRepoTarget } from './ctwRepoTarget';
 import { initIslandHtml } from '../utils/webviewInit';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
 import { assertNever } from '../utils/assertNever';
@@ -295,6 +295,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   private _committing = false;
   private _composerMessage = '';
 
+  /** Sticky target repository — see {@link CtwRepoTarget}. */
+  private readonly _repoTarget: CtwRepoTarget;
+
   private _changelists: IChangelist[] = [];
   private _shelfItems: IShelfItem[] = [];
   /** Most recent `git stash list` snapshot. */
@@ -343,6 +346,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     private readonly _workspaceState: vscode.Memento
   ) {
     super(extensionUri);
+    this._repoTarget = new CtwRepoTarget(_gitService);
     // Restore persisted active tab (defaults to localChanges).
     const persistedTab = loadPersisted(this._workspaceState, ACTIVE_TAB_SLOT);
     if (persistedTab !== undefined) {
@@ -770,8 +774,8 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       }
     }
 
-    // Refresh after commit.
-    await this._reloadState();
+    // Refresh after commit — the repo the commit ran against, no re-resolve.
+    await this._reloadState(repo);
   }
 
   private _handleChangelistAction(message: ICommitToolWebviewMessage): Promise<void> {
@@ -817,8 +821,10 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     return undefined;
   }
 
-  private async _reloadState(): Promise<void> {
-    const repo = await this._resolveRepo();
+  private async _reloadState(repoOverride?: IRepository): Promise<void> {
+    // Reloads are background work (boot, post-action refreshes) and must
+    // NEVER prompt — the interactive resolve belongs to user actions.
+    const repo = repoOverride ?? (await this._repoTarget.resolveForBackground());
     if (!repo) {
       return;
     }
@@ -876,13 +882,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     if (!this._view || this._disposed) {
       return;
     }
-    const repo =
-      repoOverride ??
-      (await resolveRepo(this._gitService, {
-        preferActive: true,
-        silent: true,
-        nonInteractive: true,
-      }));
+    // Sticky-first background resolve — the bare non-interactive resolver
+    // found no repo in multi-root and left the rendered list stale.
+    const repo = repoOverride ?? (await this._repoTarget.resolveForBackground());
     if (repo) {
       this._changelists = this._changelistService.getChangelists(repo);
       this._shelfItems = this._shelfService.getShelfItems(repo);
@@ -932,19 +934,15 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     this._lastPostDelivered = await this.postMessage({ type: 'updateModel', model });
   }
 
-  /**
-   * Resolve the target repository for commit / selectFile / _reloadState.
-   * Honors the preferActive path so multi-root
-   * workspaces route to the active-editor's repo instead of
-   * `repositories[0]`. The `silent` flag suppresses the toast — callers
-   * handle the undefined return (commit surfaces its own error; reload
-   * simply no-ops).
-   */
+  /** Selector seam: point the view at `repo` (sticky target) and reload. */
+  public setRepository(repo: IRepository): void {
+    this._repoTarget.set(repo);
+    safeFireAndForget(this._reloadState(repo), 'CommitToolWindow.setRepository: reload');
+  }
+
+  /** Target repo for a USER action (sticky, else the interactive chain). */
   private async _resolveRepo(): Promise<IRepository | undefined> {
-    return resolveRepo(this._gitService, {
-      preferActive: true,
-      silent: true,
-    });
+    return this._repoTarget.resolveForAction();
   }
 
   /**

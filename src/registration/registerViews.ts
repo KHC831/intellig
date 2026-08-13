@@ -1334,12 +1334,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     );
     ctx.context.subscriptions.push(toggleFavoriteCommand);
 
-    // Wire the repository selector to BOTH downstream views: the Log/Graph
-    // (Git) view AND the Branches tree view. Without the branch-tree side,
-    // switching repos in the dropdown updates the graph but leaves the
-    // branches tree pointing at the previously-selected repo. The dual
-    // wiring is centralized in `wireRepositorySelection` so the behavior
-    // is unit-testable end-to-end (see repoSelectionWiring.test.ts).
+    // Wire the repository selector to every downstream view — the Log/Graph,
+    // the Branches tree, and the Commit tool window's sticky target repo —
+    // centralized in `wireRepositorySelection` so one selection drives them
+    // all and the behavior is unit-testable (repoSelectionWiring.test.ts).
     //
     // `hoistedLoadLogCommitsForRepo` is bound in the first
     // `if (ctx.services)` block above. Both blocks share this
@@ -1357,6 +1355,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         loadLogCommitsForRepo: loadLog,
         loadAllRootsLog: loadAllRoots,
         activeLogFilter: () => ctx.gitToolWindowProvider?.getActiveLogFilter(),
+        commitToolWindow: ctx.commitToolWindow,
       });
       ctx.context.subscriptions.push(...repoSelectionDisposables);
     }

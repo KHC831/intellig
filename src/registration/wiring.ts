@@ -89,6 +89,9 @@ export interface IRepoSelectionToolWindowProvider {
 export interface IRepoSelectionBranchTreeProvider {
   setRepository(repo: IRepository): void;
 }
+export interface IRepoSelectionCommitToolWindow {
+  setRepository(repo: IRepository): void;
+}
 
 /**
  * Wire the Git tool window's repository scope off the single
@@ -121,6 +124,12 @@ export function wireRepositorySelection(deps: {
    * filter row still shows the old values.
    */
   activeLogFilter: () => ILogFilter | undefined;
+  /**
+   * The Commit tool window's sticky target repo follows the same selection,
+   * so its rendered changelists and its actions target the repo the user
+   * chose in the dropdown — never a per-action disambiguation prompt.
+   */
+  commitToolWindow?: IRepoSelectionCommitToolWindow;
 }): vscode.Disposable[] {
   const scopeListener = deps.toolWindowProvider.onDidChangeRepositoryScope(async (scope) => {
     const filter = deps.activeLogFilter();
@@ -129,6 +138,7 @@ export function wireRepositorySelection(deps: {
       return;
     }
     deps.branchTreeProvider.setRepository(scope.repository);
+    deps.commitToolWindow?.setRepository(scope.repository);
     await deps.loadLogCommitsForRepo(scope.repository, filter);
   });
   return [scopeListener];

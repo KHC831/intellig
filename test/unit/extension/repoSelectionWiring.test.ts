@@ -171,6 +171,32 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
     assert.strictEqual(allRootsCalls, 0, 'specific selection must NOT call the merged loader');
   });
 
+  it('forwards a specific selection to the Commit tool window when one is wired', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+    const ctwCalls: IRepository[] = [];
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
+      commitToolWindow: {
+        setRepository: (repo: IRepository) => {
+          ctwCalls.push(repo);
+        },
+      },
+    });
+
+    const repoA = createMockRepository('/workspace/repo-a');
+    toolWindow.fire({ kind: 'repository', repository: repoA });
+    toolWindow.fire({ kind: 'all' });
+
+    assert.strictEqual(ctwCalls.length, 1, 'specific selection reaches the Commit tool window');
+    assert.strictEqual(ctwCalls[0].rootUri.fsPath, '/workspace/repo-a');
+  });
+
   it('routes the "All Repositories" scope to the merged log loader and leaves the branch tree untouched', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
