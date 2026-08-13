@@ -118,7 +118,20 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
       p.textContent = 'No changed files';
       list.appendChild(p);
     } else {
-      appendTree(list, tree, 0, { next: 0 }, model.kind === 'single' ? model.hash : undefined);
+      // Reserve the twistie column on FILE rows only when the forest nests:
+      // without the spacer a child file's name starts LEFT of its parent
+      // directory's name (the dir name sits after an 18px chevron column) and
+      // the tree reads as unindented. A directory-free list (flat mode, or a
+      // commit touching only root files) stays flush.
+      const reserveTwistie = tree.some((n) => n.kind === 'directory');
+      appendTree(
+        list,
+        tree,
+        0,
+        { next: 0 },
+        model.kind === 'single' ? model.hash : undefined,
+        reserveTwistie
+      );
     }
     wrap.appendChild(list);
     return wrap;
@@ -345,7 +358,8 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
     nodes: DetailsTreeNode[],
     depth: number,
     ids: { next: number },
-    commitHash: string | undefined
+    commitHash: string | undefined,
+    reserveTwistie: boolean
   ): void {
     (nodes || []).forEach(function (node) {
       if (node.kind === 'directory') {
@@ -371,7 +385,7 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
         childrenWrap.className = 'changed-dir-children';
         childrenWrap.setAttribute('role', 'group');
         childrenWrap.id = containerId;
-        appendTree(childrenWrap, node.children, depth + 1, ids, commitHash);
+        appendTree(childrenWrap, node.children, depth + 1, ids, commitHash, reserveTwistie);
         parent.appendChild(childrenWrap);
       } else {
         const padding = depth * 16 + 4;
@@ -389,6 +403,14 @@ export function buildDetailsPanelDom(model: DetailsPanelModel): HTMLElement {
         item.setAttribute('role', 'treeitem');
         item.setAttribute('tabindex', '0');
         item.setAttribute('style', 'padding-left: ' + padding + 'px;');
+        // Blank twistie column (mirrors .dir-chevron's 16px + 2px margin) so
+        // a file's name lands RIGHT of its parent directory's name.
+        if (reserveTwistie) {
+          const spacer = document.createElement('span');
+          spacer.className = 'dir-chevron-spacer';
+          spacer.setAttribute('aria-hidden', 'true');
+          item.appendChild(spacer);
+        }
         // No M/A/D status letter — the file-name colour (+ the per-file
         // line stat below) conveys the change kind. The status still
         // rides as a title for hover / screen readers.

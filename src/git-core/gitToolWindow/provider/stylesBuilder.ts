@@ -863,11 +863,11 @@ ${commitRowStyles()}
         white-space: nowrap;
       }
 
-      /* Twisty for the directory row. The webview script swaps the glyph
-         between codicon-chevron-down (expanded) and codicon-chevron-right
-         (collapsed) on toggle — the two glyphs differ, so no CSS rotation is
-         needed. The chevron is a fixed-width click target sized to the row. */
-      .changed-dir-item .dir-chevron {
+      /* Directory twisty (the script swaps chevron-down/right glyphs on
+         toggle, so no CSS rotation). File rows in a nested tree carry the
+         SAME box as an empty spacer — names align past the parent's name. */
+      .changed-dir-item .dir-chevron,
+      .changed-file-item .dir-chevron-spacer {
         flex-shrink: 0;
         width: 16px;
         font-size: 14px;
