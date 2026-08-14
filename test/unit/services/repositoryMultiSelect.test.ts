@@ -56,10 +56,7 @@ describe('Repository multi-select scope', () => {
     select([a, b, c]);
     assert.strictEqual(provider.isAllReposSelected(), true);
     assert.strictEqual(provider.getVisibleRepoRoots(), null);
-    assert.deepStrictEqual(
-      scopeEvents.map((e) => e.kind),
-      ['all']
-    );
+    assert.deepStrictEqual(scopeEvents, [{ kind: 'all', visibleRoots: null }]);
   });
 
   it('no roots checked → explicit empty subset (show none), NOT a snap-back to all', () => {
@@ -69,10 +66,7 @@ describe('Repository multi-select scope', () => {
     assert.strictEqual(provider.isAllReposSelected(), true);
     assert.deepStrictEqual(provider.getVisibleRepoRoots(), []);
     assert.strictEqual(provider.getVisibleRepositories().length, 0);
-    assert.deepStrictEqual(
-      scopeEvents.map((e) => e.kind),
-      ['all']
-    );
+    assert.deepStrictEqual(scopeEvents, [{ kind: 'all', visibleRoots: [] }]);
   });
 
   it('an empty subset survives a repo re-discovery (not reset to all)', () => {
@@ -109,9 +103,9 @@ describe('Repository multi-select scope', () => {
     assert.strictEqual(provider.isAllReposSelected(), true, 'subset renders as merged');
     assert.deepStrictEqual(provider.getVisibleRepoRoots(), [a, c]);
     assert.deepStrictEqual(
-      scopeEvents.map((e) => e.kind),
-      ['all'],
-      'subset fires a single all-scope change so the loader re-reads the subset'
+      scopeEvents,
+      [{ kind: 'all', visibleRoots: [a, c] }],
+      'the single all-scope event carries the subset for the branch tree; the loader re-reads it'
     );
   });
 

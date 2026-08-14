@@ -10,6 +10,18 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Fixed
+
+- The Branches window follows the repository selector again: picking a repo
+  shows only that repo's branches (the repo's own header row stays), checking
+  a subset in the Repository filter shows exactly those repos, and All
+  Repositories restores the full list.
+
+### Changed
+
+- Repository icons in the Branches window are all one color (green) instead
+  of a different color per repository.
+
 ## [0.5.6] - 2026-08-14
 
 ### Fixed

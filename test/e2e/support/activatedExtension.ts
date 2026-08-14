@@ -22,6 +22,7 @@ import type {
   getGitToolWindowProvider as GetGitToolWindowProviderFn,
   __getCommitContextMenuCommandsForTest as GetCommitContextMenuCommandsFn,
   getCommitToolWindow as GetCommitToolWindowFn,
+  getBranchTreeProvider as GetBranchTreeProviderFn,
 } from '../../../src/extension';
 import type { getOutputChannel as GetOutputChannelFn } from '../../../src/utils/outputChannel';
 
@@ -32,6 +33,7 @@ const activated = require('../../../../dist/extension') as {
   getServices: typeof GetServicesFn;
   getGitToolWindowProvider: typeof GetGitToolWindowProviderFn;
   getCommitToolWindow: typeof GetCommitToolWindowFn;
+  getBranchTreeProvider: typeof GetBranchTreeProviderFn;
   getOutputChannel: typeof GetOutputChannelFn;
   __getCommitContextMenuCommandsForTest: typeof GetCommitContextMenuCommandsFn;
 };
@@ -39,5 +41,6 @@ const activated = require('../../../../dist/extension') as {
 export const getServices = activated.getServices;
 export const getGitToolWindowProvider = activated.getGitToolWindowProvider;
 export const getCommitToolWindow = activated.getCommitToolWindow;
+export const getBranchTreeProvider = activated.getBranchTreeProvider;
 export const getOutputChannel = activated.getOutputChannel;
 export const getCommitContextMenuCommands = activated.__getCommitContextMenuCommandsForTest;

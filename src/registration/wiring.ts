@@ -8,12 +8,13 @@ import { buildIntelligGitUri } from '../commands/registration/explorerCommands';
 
 /**
  * The repository SCOPE the Git tool window's selector emits. `'all'` shows
- * the merged multi-root log; a `repository` scope narrows the LOG to a single
- * repo and records that repo on the branch tree (whose grouped multi-root
- * layout persists either way — the selector filters the log, not the tree).
+ * the merged multi-root log, narrowed to `visibleRoots` when the Repository
+ * filter checked a subset (`null` = every root); a `repository` scope narrows
+ * to a single repo. The branch tree follows the same scope, so the log and
+ * the tree always show the same repositories.
  */
 export type RepositoryScopeSelection =
-  | { readonly kind: 'all' }
+  | { readonly kind: 'all'; readonly visibleRoots: readonly string[] | null }
   | { readonly kind: 'repository'; readonly repository: IRepository };
 
 /**
@@ -88,6 +89,7 @@ export interface IRepoSelectionToolWindowProvider {
 }
 export interface IRepoSelectionBranchTreeProvider {
   setRepository(repo: IRepository): void;
+  setVisibleRepoRoots(roots: readonly string[] | null): void;
 }
 export interface IRepoSelectionCommitToolWindow {
   setRepository(repo: IRepository): void;
@@ -96,15 +98,16 @@ export interface IRepoSelectionCommitToolWindow {
 /**
  * Wire the Git tool window's repository scope off the single
  * `onDidChangeRepositoryScope` event:
- *   - scope `'all'`        → merged multi-root log (`loadAllRootsLog`)
+ *   - scope `'all'`        → merged multi-root log (`loadAllRootsLog`) +
+ *                            the branch tree's visible set follows
+ *                            `visibleRoots` (`null` = every repo)
  *   - scope `repository`   → single-repo log (`loadLogCommitsForRepo`) +
- *                            record the repo on the branch tree
- *                            (`setRepository` — the tree's grouped layout
- *                            persists; only its fallback repo updates)
+ *                            the branch tree narrows to that repo and
+ *                            records it as the row fallback
  *
  * Routing everything off one event is what keeps the log and the branch
- * tree's recorded repo from disagreeing — the original bug was the dropdown
- * updating one view while the other silently desynced.
+ * tree from disagreeing — the original bug was the dropdown updating one
+ * view while the other silently desynced.
  *
  * Returns the disposables so the caller can register them with
  * `context.subscriptions.push(...)`.
@@ -134,10 +137,12 @@ export function wireRepositorySelection(deps: {
   const scopeListener = deps.toolWindowProvider.onDidChangeRepositoryScope(async (scope) => {
     const filter = deps.activeLogFilter();
     if (scope.kind === 'all') {
+      deps.branchTreeProvider.setVisibleRepoRoots(scope.visibleRoots);
       await deps.loadAllRootsLog(filter);
       return;
     }
     deps.branchTreeProvider.setRepository(scope.repository);
+    deps.branchTreeProvider.setVisibleRepoRoots([scope.repository.rootUri.fsPath]);
     deps.commitToolWindow?.setRepository(scope.repository);
     await deps.loadLogCommitsForRepo(scope.repository, filter);
   });

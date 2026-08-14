@@ -3,10 +3,10 @@
  * BOTH the Git tool window's Log/Graph view AND the Branches tree view from a
  * single repository-scope change event.
  *
- * The selector exposes one scope state: `'all'` (merged log + grouped branch
- * tree) or a specific repository (single-repo log + that repo's category
- * nodes). Both downstream views must react to the SAME
- * `onDidChangeRepositoryScope` event so the log and branches can never disagree.
+ * The selector exposes one scope state: `'all'` (merged log, optionally
+ * narrowed to a checked subset of roots) or a specific repository. Both
+ * downstream views must react to the SAME `onDidChangeRepositoryScope` event
+ * so the log and the branches tree always show the same repositories.
  *
  * `wireRepositorySelection` is exported from `extension.ts` for the same
  * reason `loadAllPanelDataCore` is — the production wiring lives inside an
@@ -73,16 +73,21 @@ class StubToolWindowProvider implements IRepoSelectionToolWindowProvider {
 }
 
 /**
- * Stub branch tree provider that records every `setRepository` call so the
- * test can assert the dropdown's selection reaches the branches view. (The
- * tree's grouped layout persists across scope changes, so recording the repo
- * is the wiring's only branch-tree effect.)
+ * Stub branch tree provider that records every `setRepository` and
+ * `setVisibleRepoRoots` call so the test can assert the selector's scope
+ * reaches the branches view: the recorded repo backs row fallbacks, the
+ * visible-roots set is what actually hides non-selected repos.
  */
 class RecordingBranchTreeProvider implements IRepoSelectionBranchTreeProvider {
   public setRepositoryCalls: IRepository[] = [];
+  public setVisibleRepoRootsCalls: Array<readonly string[] | null> = [];
 
   setRepository(repo: IRepository): void {
     this.setRepositoryCalls.push(repo);
+  }
+
+  setVisibleRepoRoots(roots: readonly string[] | null): void {
+    this.setVisibleRepoRootsCalls.push(roots);
   }
 }
 
@@ -145,6 +150,50 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
     assert.strictEqual(branchTree.setRepositoryCalls[1].rootUri.fsPath, '/workspace/repo-b');
   });
 
+  it('narrows the branches tree to the selected repo (hides the others)', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
+    });
+
+    toolWindow.fire({ kind: 'repository', repository: createMockRepository('/workspace/repo-a') });
+
+    assert.deepStrictEqual(
+      branchTree.setVisibleRepoRootsCalls,
+      [['/workspace/repo-a']],
+      'a specific selection narrows the tree to that one repo'
+    );
+  });
+
+  it('passes a checked-subset scope through to the branches tree', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async () => undefined,
+      activeLogFilter: () => undefined,
+    });
+
+    const subset = ['/workspace/repo-a', '/workspace/repo-c'];
+    toolWindow.fire({ kind: 'all', visibleRoots: subset });
+    toolWindow.fire({ kind: 'all', visibleRoots: null });
+
+    assert.deepStrictEqual(
+      branchTree.setVisibleRepoRootsCalls,
+      [subset, null],
+      'the merged scope forwards its visible subset (null = every repo)'
+    );
+  });
+
   it('reloads the single-repo Log/Graph view via loadLogCommitsForRepo on a specific selection', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
@@ -191,13 +240,13 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
 
     const repoA = createMockRepository('/workspace/repo-a');
     toolWindow.fire({ kind: 'repository', repository: repoA });
-    toolWindow.fire({ kind: 'all' });
+    toolWindow.fire({ kind: 'all', visibleRoots: null });
 
     assert.strictEqual(ctwCalls.length, 1, 'specific selection reaches the Commit tool window');
     assert.strictEqual(ctwCalls[0].rootUri.fsPath, '/workspace/repo-a');
   });
 
-  it('routes the "All Repositories" scope to the merged log loader and leaves the branch tree untouched', () => {
+  it('routes the "All Repositories" scope to the merged log loader without recording a repo', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
     const loadLogCalls: IRepository[] = [];
@@ -215,7 +264,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       activeLogFilter: () => undefined,
     });
 
-    toolWindow.fire({ kind: 'all' });
+    toolWindow.fire({ kind: 'all', visibleRoots: null });
 
     assert.strictEqual(allRootsCalls, 1, 'all scope must call the merged log loader');
     assert.strictEqual(loadLogCalls.length, 0, 'all scope must NOT call the single-repo loader');
@@ -299,7 +348,7 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       activeLogFilter: () => active,
     });
 
-    toolWindow.fire({ kind: 'all' });
+    toolWindow.fire({ kind: 'all', visibleRoots: null });
 
     assert.strictEqual(received.length, 1);
     assert.strictEqual(received[0], active, 'the merged scope reload must carry the active filter');

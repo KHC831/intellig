@@ -673,12 +673,12 @@ export function getCommitToolWindow(): CommitToolWindow | undefined {
 }
 
 // Module-identity seam for the Electron test lanes: the host runs the
-// dist/extension.js bundle, so its module-level singletons (logger, output
-// channel) are reachable ONLY through the bundle's own exports — a require
-// of any other compiled copy yields separate, never-populated instances.
-// See test/e2e/support/activatedExtension.ts.
+// dist/extension.js bundle, so singletons living in other source files are
+// reachable ONLY through the bundle's entry exports; any other compiled copy
+// is separate and never populated (see test/e2e/support/activatedExtension.ts).
 export { getLogger } from './utils/logger';
 export { getOutputChannel } from './utils/outputChannel';
+export { getBranchTreeProvider } from './branches/BranchTreeProvider';
 
 /**
  * Lazily instantiate the Pull Dialog, reusing the singleton after the

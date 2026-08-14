@@ -872,7 +872,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(current.branch?.name, 'dev', 'current marker reflects THIS repo, not repoA');
   });
 
-  it('colors each repository row icon with a name-stable charts.* theme color', async () => {
+  it('colors every repository row icon with the single green theme color', async () => {
     const repoA = repoAt('alpha');
     const repoB = repoAt('beta', 'dev');
     const provider = multiRepoProvider(
@@ -884,38 +884,15 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     );
 
     const root = await provider.getChildren();
-    const chartIds = [
-      'charts.blue',
-      'charts.orange',
-      'charts.yellow',
-      'charts.purple',
-      'charts.green',
-      'charts.red',
-    ];
     for (const node of root) {
       const icon = node.iconPath as { id?: string; color?: { id?: string } };
       assert.strictEqual(icon.id, 'repo', 'repository rows keep the repo glyph');
-      assert.ok(
-        icon.color && chartIds.includes(icon.color.id ?? ''),
-        `repository icon carries a charts.* color (got ${String(icon.color?.id)})`
+      assert.strictEqual(
+        icon.color?.id,
+        'charts.green',
+        'every repository icon uses the one green color'
       );
     }
-
-    // Name-stable: a rebuilt provider assigns the same repo the same color.
-    const provider2 = multiRepoProvider(
-      [repoA, repoB],
-      new Map([
-        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
-        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
-      ])
-    );
-    const root2 = await provider2.getChildren();
-    for (let i = 0; i < root.length; i++) {
-      const a = root[i].iconPath as { color?: { id?: string } };
-      const b = root2[i].iconPath as { color?: { id?: string } };
-      assert.strictEqual(a.color?.id, b.color?.id, 'same repo name → same color across builds');
-    }
-    provider2.dispose();
   });
 
   it("lists a repository node's local branches from THAT repository only", async () => {
@@ -1172,44 +1149,14 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     );
   });
 
-  // --- the grouped layout persists across repository selection ---
+  // --- the tree shows the repos in the log's scope ---
   //
-  // The Git tool window's repository selector narrows the LOG only; the
-  // Branches tree keeps its multi-repo presentation (git4idea parity: the
-  // branches component is independent of the log's root filter). Selecting a
-  // repo used to collapse the tree to the flat single-repo layout, losing the
-  // repo-name context ("it only shows Local").
+  // The Git tool window's repository selector scopes the Branches tree the
+  // same way it scopes the log: a single-repo selection shows only that
+  // repo's group row (the row keeps the repo-name context), a checked subset
+  // shows those repos, and "All Repositories" shows every repo.
 
-  it('keeps the per-repo grouped layout when the selector narrows to one repo', async () => {
-    const repoA = repoAt('alpha', 'main');
-    const repoB = repoAt('beta', 'dev');
-    const provider = multiRepoProvider(
-      [repoA, repoB],
-      new Map([
-        [
-          repoA,
-          [
-            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
-            { name: 'alpha-only', type: 'local', commit: 'c'.repeat(40), isHead: false },
-          ],
-        ],
-        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
-      ])
-    );
-
-    // setRepository(repoA) in the helper selected repoA in the dropdown.
-    const root = await provider.getChildren();
-
-    assert.strictEqual(root.length, 2, 'both repository root nodes stay');
-    assert.ok(
-      root.every((n) => n.itemType === 'repository'),
-      'the tree stays grouped per repo after a repository is selected'
-    );
-    assert.strictEqual(root[0].label, repoDisplayName(repoA));
-    assert.strictEqual(root[1].label, repoDisplayName(repoB));
-  });
-
-  it('stays grouped when the selection moves to another repo', async () => {
+  it('hides non-selected repos when the selector narrows to one repo', async () => {
     const repoA = repoAt('alpha', 'main');
     const repoB = repoAt('beta', 'dev');
     const provider = multiRepoProvider(
@@ -1220,14 +1167,131 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
       ])
     );
 
-    provider.setRepository(repoB);
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath]);
     const root = await provider.getChildren();
 
-    assert.ok(
-      root.every((n) => n.itemType === 'repository'),
-      'still grouped after switching the selected repo'
+    assert.strictEqual(root.length, 1, 'only the selected repository row remains');
+    assert.strictEqual(root[0].itemType, 'repository', 'the row keeps the repo-name context');
+    assert.strictEqual(root[0].label, repoDisplayName(repoA));
+  });
+
+  it('follows the selection when it moves to another repo', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
     );
-    assert.strictEqual(root.length, 2, 'both repository root nodes stay');
+
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath]);
+    provider.setVisibleRepoRoots([repoB.rootUri.fsPath]);
+    const root = await provider.getChildren();
+
+    assert.strictEqual(root.length, 1);
+    assert.strictEqual(root[0].label, repoDisplayName(repoB));
+  });
+
+  it('shows exactly the checked repos for a multi-select subset', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const repoC = repoAt('gamma', 'main');
+    const branches = new Map([
+      [repoA, [{ name: 'main', type: 'local' as const, commit: 'a'.repeat(40), isHead: true }]],
+      [repoB, [{ name: 'dev', type: 'local' as const, commit: 'b'.repeat(40), isHead: true }]],
+      [repoC, [{ name: 'main', type: 'local' as const, commit: 'c'.repeat(40), isHead: true }]],
+    ]);
+    const provider = multiRepoProvider([repoA, repoB, repoC], branches);
+
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath, repoC.rootUri.fsPath]);
+    const root = await provider.getChildren();
+
+    assert.deepStrictEqual(
+      root.map((n) => n.label),
+      [repoDisplayName(repoA), repoDisplayName(repoC)],
+      'the subset keeps repo order and hides the unchecked repo'
+    );
+  });
+
+  it('restores every repo when the scope returns to all', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath]);
+    provider.setVisibleRepoRoots(null);
+    const root = await provider.getChildren();
+
+    assert.strictEqual(root.length, 2, 'all repository rows return');
+  });
+
+  it('shows no repo rows for an explicit empty subset (the log shows no commits)', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    provider.setVisibleRepoRoots([]);
+    const root = await provider.getChildren();
+
+    assert.strictEqual(root.length, 0, 'empty subset hides every repository row');
+  });
+
+  it('ignores visible roots that match no live repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath, '/no/such/repo']);
+    const root = await provider.getChildren();
+
+    assert.deepStrictEqual(
+      root.map((n) => n.label),
+      [repoDisplayName(repoA)],
+      'a stale root is dropped by intersecting with the live repository list'
+    );
+  });
+
+  it('fires a tree refresh when the visible set changes, and not on a no-op', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+    let fires = 0;
+    provider.onDidChangeTreeData(() => {
+      fires++;
+    });
+
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath]);
+    provider.setVisibleRepoRoots([repoA.rootUri.fsPath]);
+    provider.setVisibleRepoRoots(null);
+    provider.setVisibleRepoRoots(null);
+
+    assert.strictEqual(fires, 2, 'one fire per real change, no fire on a no-op repeat');
   });
 
   // --- favorites are per-repository in the grouped layout ---

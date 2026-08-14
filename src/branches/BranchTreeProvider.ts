@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
+import { normalizeRepoPath, normalizeRepoPathString } from '../utils/normalizeRepoPath';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
@@ -30,36 +31,8 @@ function repositoryLabel(repo: IRepository): string {
   return fsPath.split(/[\\/]/).filter(Boolean).pop() ?? fsPath;
 }
 
-/**
- * charts.* theme colors usable on tree icons, blue first to match the
- * graph's blue-leads convention. git4idea parity: repository nodes render a
- * per-repository color (VcsRepositoryIconsProvider, colored square); here
- * the repo glyph itself takes the color.
- */
-const REPOSITORY_ICON_COLORS: readonly string[] = [
-  'charts.blue',
-  'charts.orange',
-  'charts.yellow',
-  'charts.purple',
-  'charts.green',
-  'charts.red',
-];
-
-/**
- * Per-repository icon color from a STABLE hash of the repo label (the same
- * `String.hashCode` idiom as the graph's branchColorFor), so a repository
- * keeps its color across refreshes and sessions. Two same-named roots share
- * a color — the same accepted collision class as two branches sharing a
- * palette slot.
- */
-function repositoryIconColor(label: string): vscode.ThemeColor {
-  let h = 0;
-  for (let i = 0; i < label.length; i++) {
-    h = (Math.imul(31, h) + label.charCodeAt(i)) | 0;
-  }
-  const n = REPOSITORY_ICON_COLORS.length;
-  return new vscode.ThemeColor(REPOSITORY_ICON_COLORS[((h % n) + n) % n]);
-}
+/** The one color repository-row icons render in (per UX decision). */
+const REPOSITORY_ICON_COLOR = 'charts.green';
 
 /**
  * Tree item types for the branch tree
@@ -580,13 +553,7 @@ export class BranchTreeItem extends vscode.TreeItem {
   private _getIcon(): vscode.ThemeIcon {
     switch (this.itemType) {
       case 'repository':
-        // Per-repository root node — the repo glyph in this repository's
-        // stable color, so repos are tellable apart at a glance in the
-        // grouped multi-root layout.
-        return new vscode.ThemeIcon(
-          'repo',
-          repositoryIconColor(typeof this.label === 'string' ? this.label : '')
-        );
+        return new vscode.ThemeIcon('repo', new vscode.ThemeColor(REPOSITORY_ICON_COLOR));
       case 'local-branch':
         if (this.isCurrentBranch) {
           return new vscode.ThemeIcon(
@@ -772,6 +739,15 @@ export class BranchTreeProvider
    */
   private _searchQuery: string | undefined;
 
+  /**
+   * Normalized repo-root paths the tree shows in the grouped multi-root
+   * layout, mirroring the log's repository scope: `null` shows every repo,
+   * an explicit empty set shows none. Fed by the selector via
+   * {@link setVisibleRepoRoots}; intersected with the live repository list
+   * at render, so a stale root is dropped rather than resurrected.
+   */
+  private _visibleRepoRoots: Set<string> | null = null;
+
   constructor(
     gitService: IGitService,
     incomingOutgoingFetcher?: IncomingOutgoingFetcher,
@@ -837,6 +813,9 @@ export class BranchTreeProvider
       return;
     }
     this._disposed = true;
+    if (activeBranchTreeProvider === this) {
+      activeBranchTreeProvider = undefined;
+    }
     for (const d of this._disposables) {
       d.dispose();
     }
@@ -884,15 +863,33 @@ export class BranchTreeProvider
   }
 
   /**
-   * Record the repository selected in the Git tool window's selector. The
-   * tree's LAYOUT never changes with the selection (a multi-root workspace
-   * always renders the grouped per-repo layout — git4idea parity: the
-   * branches component is independent of the log's root filter); the
-   * recorded repo backs the single-repo flat layout and the fallback repo
-   * for rows that don't carry their own.
+   * Record the repository selected in the Git tool window's selector. Backs
+   * the single-repo flat layout and the fallback repo for rows that don't
+   * carry their own; which repos the grouped layout SHOWS is governed by
+   * {@link setVisibleRepoRoots}.
    */
   setRepository(repo: IRepository): void {
     this._currentRepository = repo;
+    this.refresh();
+  }
+
+  /**
+   * Narrow the grouped multi-root layout to `roots` (repo-root fsPaths),
+   * mirroring the log's repository scope: a dropdown selection passes that
+   * one repo, a checked subset passes those repos, `null` shows every repo,
+   * and an explicit empty set shows none. A no-op change does not refire.
+   */
+  setVisibleRepoRoots(roots: readonly string[] | null): void {
+    const next = roots === null ? null : new Set(roots.map((r) => normalizeRepoPathString(r)));
+    const prev = this._visibleRepoRoots;
+    const unchanged =
+      next === null
+        ? prev === null
+        : prev !== null && next.size === prev.size && [...next].every((r) => prev.has(r));
+    if (unchanged) {
+      return;
+    }
+    this._visibleRepoRoots = next;
     this.refresh();
   }
 
@@ -982,12 +979,18 @@ export class BranchTreeProvider
     if (!element) {
       const repositories = this._gitService.getRepositories();
       // Group under per-repo root nodes (git4idea MultiRepoModel) whenever
-      // the workspace holds more than one repo. The repository selector
-      // narrows the LOG only — the grouped layout persists so the tree never
-      // loses the repo-name context (and never collapses to a bare "Local").
+      // the workspace holds more than one repo. The selector's scope narrows
+      // WHICH repos render — the tree mirrors the log's repository scope —
+      // while the grouped presentation itself persists, so even a single
+      // visible repo keeps its repo-name row (never a bare "Local").
       const groupByRepository = repositories.length > 1;
       if (groupByRepository) {
-        return repositories.map(
+        const visible = this._visibleRepoRoots;
+        const shown =
+          visible === null
+            ? repositories
+            : repositories.filter((repo) => visible.has(normalizeRepoPath(repo.rootUri)));
+        return shown.map(
           (repo) =>
             new BranchTreeItem(
               repositoryLabel(repo),
@@ -1552,5 +1555,24 @@ export function createBranchTreeProvider(
   // Wire the incoming/outgoing fetcher when the concrete GitService exposes
   // it so tracked branches in the tree show ↑N/↓N badges (ADR-001: the method
   // is off the frozen IGitService interface, detected via duck-typing).
-  return new BranchTreeProvider(gitService, getIncomingOutgoingFetcher(gitService), favoritesStore);
+  const provider = new BranchTreeProvider(
+    gitService,
+    getIncomingOutgoingFetcher(gitService),
+    favoritesStore
+  );
+  activeBranchTreeProvider = provider;
+  return provider;
+}
+
+/** The factory-created provider instance, for {@link getBranchTreeProvider}. */
+let activeBranchTreeProvider: BranchTreeProvider | undefined;
+
+/**
+ * The live Branches tree provider (factory-created; cleared on dispose).
+ * Bundle-singleton seam for the Electron test bridge — re-exported from
+ * extension.ts so the e2e lane can assert the tree's repository scoping
+ * against real multi-root fixtures (see test/e2e/support/activatedExtension.ts).
+ */
+export function getBranchTreeProvider(): BranchTreeProvider | undefined {
+  return activeBranchTreeProvider;
 }

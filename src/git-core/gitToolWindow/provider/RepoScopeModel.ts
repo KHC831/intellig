@@ -159,7 +159,7 @@ export class RepoScopeModel {
       const prevRepoPath = prevScopeIsAll ? undefined : previousSelectedPath;
       if (prevScopeIsAll !== newScopeIsAll || prevRepoPath !== newRepoPath) {
         if (newScopeIsAll) {
-          this._host.fireScopeChange({ kind: 'all' });
+          this._host.fireScopeChange({ kind: 'all', visibleRoots: this._visibleRootsSnapshot() });
         } else if (newRepo) {
           this._host.fireScopeChange({ kind: 'repository', repository: newRepo });
         }
@@ -249,7 +249,7 @@ export class RepoScopeModel {
       this._visibleRepoRoots = null;
       this._scopeUserChosen = true;
       this._host.fireStateChange();
-      this._host.fireScopeChange({ kind: 'all' });
+      this._host.fireScopeChange({ kind: 'all', visibleRoots: null });
       return;
     }
 
@@ -296,8 +296,9 @@ export class RepoScopeModel {
    *
    * Roots arrive as fsPath strings from the untrusted webview and are matched by
    * normalized path (spec L14); unknown roots are ignored. The subset case fires
-   * a single `{ kind: 'all' }` scope change — the loader re-reads the subset from
-   * {@link getVisibleRepoRoots} — so the merged log re-routes in lockstep.
+   * a single `{ kind: 'all' }` scope change carrying the visible roots (the
+   * branch tree consumes them; the log loader re-reads {@link getVisibleRepoRoots})
+   * so every scoped view re-routes in lockstep.
    *
    * @param roots - fsPaths of the repositories the user checked
    */
@@ -333,7 +334,7 @@ export class RepoScopeModel {
     this._visibleRepoRoots = matched.map((r) => r.rootUri.fsPath);
     this._scopeUserChosen = true;
     this._host.fireStateChange();
-    this._host.fireScopeChange({ kind: 'all' });
+    this._host.fireScopeChange({ kind: 'all', visibleRoots: this._visibleRootsSnapshot() });
   }
 
   /**
@@ -345,8 +346,13 @@ export class RepoScopeModel {
     if (this._visibleRepoRoots !== null && this._visibleRepoRoots.length === 0) {
       this._visibleRepoRoots = null;
       this._host.fireStateChange();
-      this._host.fireScopeChange({ kind: 'all' });
+      this._host.fireScopeChange({ kind: 'all', visibleRoots: null });
     }
+  }
+
+  /** Copy of the visible-roots subset for an event payload (`null` = all). */
+  private _visibleRootsSnapshot(): readonly string[] | null {
+    return this._visibleRepoRoots ? [...this._visibleRepoRoots] : null;
   }
 
   /**
