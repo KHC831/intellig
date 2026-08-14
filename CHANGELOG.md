@@ -10,6 +10,32 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.6] - 2026-08-14
+
+### Fixed
+
+- The Commit tool window in a multi-root workspace no longer asks "Select a
+  repository" on every action: the window keeps one target repository (picked
+  once, and switched by the Git tool window's repository selector), and the
+  file list refreshes after a commit or amend instead of going permanently
+  stale.
+- Squash, reword, and undo-commit flows keep the full commit message. Commit
+  bodies were silently dropped in four places: the Squash Commits message seed,
+  the squash-into combine, the rebase editor's reword box, and the Undo Commit
+  prefill.
+- In a multi-root workspace, clicking a branch in the Branches tree while the
+  log shows all repositories now jumps to the branch tip; it used to silently
+  do nothing. Picking a repository in the dropdown now filters the log only,
+  instead of collapsing the Branches tree to a flat single-repo layout.
+- Nested files in the commit details Tree view are indented under their parent
+  directory instead of rendering flush with it.
+
+### Changed
+
+- Repository rows in the Branches window show the repo icon in a stable
+  per-repository color, matching IntelliJ. The pinned HEAD row is gone: it
+  duplicated the checked current-branch row; HEAD still shows when detached.
+
 ## [0.5.5] - 2026-08-12
 
 ### Removed
