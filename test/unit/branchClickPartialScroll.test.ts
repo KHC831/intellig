@@ -85,7 +85,7 @@ describe('Feature: git-graph-branch-click-scroll - branch click uses the partial
     provider.dispose();
   });
 
-  it('posts scrollToCommit + selectGraphRow, performs no full HTML re-render, and selects the tip', () => {
+  it('posts scrollToCommit + selectGraphRow, performs no full HTML re-render, and selects the tip', async () => {
     const tipHash = '1111111111111111111111111111111111111111';
     const branchName = 'feature/x';
 
@@ -130,7 +130,7 @@ describe('Feature: git-graph-branch-click-scroll - branch click uses the partial
     /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 
     // Act: click the branch.
-    provider.focus.handleBranchClick(branchName);
+    await provider.focus.handleBranchClick(branchName);
 
     // A scrollToCommit message must be posted with the resolved tip hash.
     const scrollMsg = posted.find((m) => m.type === 'scrollToCommit');

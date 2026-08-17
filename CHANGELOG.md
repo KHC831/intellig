@@ -16,6 +16,14 @@ fresh empty `[Unreleased]` block is added on top.
   shows only that repo's branches (the repo's own header row stays), checking
   a subset in the Repository filter shows exactly those repos, and All
   Repositories restores the full list.
+- Clicking a branch (or tag) in the Branches window now jumps to it even when
+  its commit sits below the loaded part of the graph: the log loads further
+  back and then selects it. It used to do nothing at all, which looked like
+  the two windows were disconnected. When the commit genuinely isn't in the
+  current scope, you now get a message instead of silence.
+- The Branches window follows the Git window's branch filter: filtering the log
+  to a set of branches lists those branches in the tree (plus the one you have
+  checked out, which never hides). Clearing the filter brings them all back.
 
 ### Changed
 

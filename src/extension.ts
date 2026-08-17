@@ -50,12 +50,12 @@ import {
   setupEventListeners,
 } from './registration/registerViews';
 // Re-export the relocated pure wiring functions + their structural test
-// interfaces so the by-name `from '../../../extension'` import path used by
-// loadAllPanelData / repoSelectionWiring / rebasePausedWarning /
-// contentProvider tests keeps resolving (RULE E2).
+// interfaces so the by-name `from '../../../extension'` import path their unit
+// tests use keeps resolving (RULE E2).
 export {
   loadAllPanelDataCore,
   wireRepositorySelection,
+  wireBranchFilterToTree,
   wireAvailableRepositorySync,
   resolveCommitRepoByRoot,
   resolveRepoForCommitDiff,
@@ -117,10 +117,10 @@ let gitToolWindowProvider: GitToolWindowProvider | undefined;
 let commitDialog: CommitDialog | undefined;
 
 /**
- * Global reference to the Commit Tool Window.
- * Registered even when the feature flag is off so programmatic callers can
- * still obtain the instance; user-visible mounting is controlled by the
- * `when` clause on the view contribution in package.json.
+ * Global reference to the Commit Tool Window. Registered even when the feature
+ * flag is off so programmatic callers can still obtain the instance;
+ * user-visible mounting is controlled by the `when` clause on the view
+ * contribution in package.json.
  */
 let commitToolWindow: CommitToolWindow | undefined;
 

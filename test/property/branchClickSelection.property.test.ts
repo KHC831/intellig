@@ -309,9 +309,9 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
      * that branch. After selection, the generated HTML shall contain a Details
      * Panel with that commit's metadata.
      */
-    it('Feature: intellig-ui-fixes, Property 3: Branch click selects correct commit — clicking a branch selects the correct commit and shows details', () => {
-      fc.assert(
-        fc.property(arbitraryBranchClickScenario(), (scenario) => {
+    it('Feature: intellig-ui-fixes, Property 3: Branch click selects correct commit — clicking a branch selects the correct commit and shows details', async () => {
+      await fc.assert(
+        fc.asyncProperty(arbitraryBranchClickScenario(), async (scenario) => {
           const testProvider = createProvider();
 
           try {
@@ -336,7 +336,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
 
             // Drive the branch click through the focus controller's public
             // entry point.
-            testProvider.focus.handleBranchClick(selectedBranch);
+            await testProvider.focus.handleBranchClick(selectedBranch);
 
             // Verify that the correct commit was selected
             const stateAfterClick = testProvider.getExtendedLogState();
@@ -463,7 +463,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
      * order). This is the production contract; the property generator must
      * compute `expectedHash` consistently with this rule.
      */
-    it('shared branch name across hashes — _handleBranchClick selects first-inserted hash', () => {
+    it('shared branch name across hashes — _handleBranchClick selects first-inserted hash', async () => {
       const provider = createProvider();
       try {
         const hashA = '1111111111111111111111111111111111111111';
@@ -488,7 +488,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
         const tagMap = new Map<string, string[]>();
         provider.updateLogState(commits, branchMap, tagMap);
 
-        provider.focus.handleBranchClick('a');
+        await provider.focus.handleBranchClick('a');
 
         const state = provider.getExtendedLogState();
         assert.strictEqual(
@@ -509,7 +509,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
      * This pair of specs together pins the contract: tie-break is
      * map-insertion order, not lexical-hash order, not last-write-wins.
      */
-    it('shared branch name — reverse insertion order selects first-inserted hash (hashB)', () => {
+    it('shared branch name — reverse insertion order selects first-inserted hash (hashB)', async () => {
       const provider = createProvider();
       try {
         const hashA = '1111111111111111111111111111111111111111';
@@ -533,7 +533,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
         const tagMap = new Map<string, string[]>();
         provider.updateLogState(commits, branchMap, tagMap);
 
-        provider.focus.handleBranchClick('a');
+        await provider.focus.handleBranchClick('a');
 
         const state = provider.getExtendedLogState();
         assert.strictEqual(

@@ -23,7 +23,6 @@ import type { IChangedFile, ILogFilter } from '../git-core/interfaces/IGitToolWi
 import { createMultiCommitFilesLoader } from './multiCommitFilesLoad';
 import { createSingleCommitFilesLoader } from './singleCommitFilesLoad';
 import { ensureStashView, ensureShelfView } from '../shelf/viewSingletons';
-import { graphTargetForTreeSelection } from '../branches/BranchTreeProvider';
 import { graphRowKey } from '../git-core/graphRowKey';
 import { createBranchContextMenuCommands, createCommitContextMenuCommands } from '../commits';
 import { CONTEXT_KEYS, setContextKey } from '../utils/contextKeys';
@@ -39,6 +38,8 @@ import { createCoalescedRunner } from './coalesceAsync';
 import {
   loadAllPanelDataCore,
   wireRepositorySelection,
+  wireBranchFilterToTree,
+  wireBranchTreeNavigation,
   wireAvailableRepositorySync,
   resolveCommitRepoByRoot,
   resolveRepoForCommitDiff,
@@ -1360,21 +1361,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       ctx.context.subscriptions.push(...repoSelectionDisposables);
     }
 
-    // Link native BRANCHES tree view selection to the git graph.
-    // When the user clicks a branch in the tree view, scroll the graph
-    // panel to that branch's HEAD commit.
+    // Link the Branches tree to the Git window both ways: selecting a row
+    // jumps the graph, and the log's BRANCH filter scopes the tree (so both
+    // windows always show the same refs).
     if (ctx.gitToolWindowProvider) {
-      const branchSelectionListener = branchTreeView.onDidChangeSelection((e) => {
-        if (e.selection.length > 0) {
-          const target = graphTargetForTreeSelection(e.selection[0]);
-          if (target?.kind === 'branch') {
-            ctx.gitToolWindowProvider!.navigateToBranch(target.name, target.repoRoot);
-          } else if (target?.kind === 'commit') {
-            ctx.gitToolWindowProvider!.navigateToCommit(target.hash);
-          }
-        }
-      });
-      ctx.context.subscriptions.push(branchSelectionListener);
+      ctx.context.subscriptions.push(
+        wireBranchTreeNavigation({
+          treeView: branchTreeView,
+          toolWindowProvider: ctx.gitToolWindowProvider,
+        }),
+        ...wireBranchFilterToTree({
+          toolWindowProvider: ctx.gitToolWindowProvider,
+          branchTreeProvider,
+        })
+      );
 
       // `intellig.branch.focusOnGraph` inline icon command.
       // Routes the click on the branch tree's eye icon to the provider's

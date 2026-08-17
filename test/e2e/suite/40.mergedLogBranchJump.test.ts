@@ -108,13 +108,13 @@ describe('e2e — branch jump in the merged multi-root log', function () {
     );
 
     // The BRANCHES-tree selection path: jump to a branch only repo B has.
-    provider.navigateToBranch('b-only', rootB);
+    await provider.navigateToBranch('b-only', rootB);
     let state = provider.getExtendedLogState();
     assert.strictEqual(state.expandedCommit, bOnlyTip, 'jump lands on the BARE b-only tip hash');
     assert.ok(state.selectedCommits.has(bOnlyTip), 'the b-only tip row is selected');
 
     // Same-named branch in both roots: the clicked row's repo wins.
-    provider.navigateToBranch(fixA.defaultBranch, rootA);
+    await provider.navigateToBranch(fixA.defaultBranch, rootA);
     state = provider.getExtendedLogState();
     assert.strictEqual(
       state.expandedCommit,
@@ -122,7 +122,7 @@ describe('e2e — branch jump in the merged multi-root log', function () {
       `${fixA.defaultBranch} in repo A lands on A's tip`
     );
 
-    provider.navigateToBranch(fixB.defaultBranch, rootB);
+    await provider.navigateToBranch(fixB.defaultBranch, rootB);
     state = provider.getExtendedLogState();
     assert.strictEqual(
       state.expandedCommit,

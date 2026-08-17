@@ -19,11 +19,12 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { wireRepositorySelection } from '../../../src/extension';
+import { wireRepositorySelection, wireBranchFilterToTree } from '../../../src/extension';
 import type {
   IRepoSelectionToolWindowProvider,
   IRepoSelectionBranchTreeProvider,
 } from '../../../src/extension';
+import type { IBranchFilterToolWindowProvider } from '../../../src/registration/wiring';
 import type { RepositoryScopeSelection } from '../../../src/registration/wiring';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../src/git-core/interfaces/IGitService';
@@ -382,6 +383,47 @@ describe('wireRepositorySelection — scope change updates BOTH the Git view AND
       active,
       'the second fire must observe the filter applied AFTER wiring — the read is call-time, not a snapshot'
     );
+  });
+
+  it('forwards the log branch filter to the branches tree', () => {
+    const listeners: Array<(f: ILogFilter | undefined) => void> = [];
+    const calls: Array<readonly string[] | null> = [];
+    let disposed = 0;
+
+    const disposables = wireBranchFilterToTree({
+      toolWindowProvider: {
+        onDidRequestLogFilter: ((listener: (f: ILogFilter | undefined) => unknown) => {
+          listeners.push(listener as (f: ILogFilter | undefined) => void);
+          return {
+            dispose: (): void => {
+              disposed++;
+            },
+          };
+        }) as unknown as IBranchFilterToolWindowProvider['onDidRequestLogFilter'],
+      },
+      branchTreeProvider: {
+        setVisibleBranches: (names): void => {
+          calls.push(names);
+        },
+      },
+    });
+
+    const fire = (f: ILogFilter | undefined): void => listeners.forEach((l) => l(f));
+    fire({ branches: ['main', 'origin/dev'] });
+    fire({ branch: 'solo' });
+    fire({ branches: [] });
+    fire(undefined);
+
+    assert.deepStrictEqual(
+      calls,
+      [['main', 'origin/dev'], ['solo'], null, null],
+      'multi-select and legacy single filters both narrow the tree; empty/cleared restores it'
+    );
+
+    for (const d of disposables) {
+      d.dispose();
+    }
+    assert.strictEqual(disposed, 1, 'the filter subscription is disposed with the extension');
   });
 
   it('returns disposables that tear down the scope subscription when disposed', () => {

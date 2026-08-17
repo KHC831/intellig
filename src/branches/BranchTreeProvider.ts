@@ -5,8 +5,8 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
-import { normalizeRepoPath, normalizeRepoPathString } from '../utils/normalizeRepoPath';
 import { resolveRepo } from '../utils/resolveRepo';
+import { BranchTreeScope } from './branchTreeScope';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 import {
@@ -739,14 +739,8 @@ export class BranchTreeProvider
    */
   private _searchQuery: string | undefined;
 
-  /**
-   * Normalized repo-root paths the tree shows in the grouped multi-root
-   * layout, mirroring the log's repository scope: `null` shows every repo,
-   * an explicit empty set shows none. Fed by the selector via
-   * {@link setVisibleRepoRoots}; intersected with the live repository list
-   * at render, so a stale root is dropped rather than resurrected.
-   */
-  private _visibleRepoRoots: Set<string> | null = null;
+  /** What the Git tool window's scope leaves visible (repos + branches). */
+  private readonly _scope = new BranchTreeScope();
 
   constructor(
     gitService: IGitService,
@@ -880,17 +874,20 @@ export class BranchTreeProvider
    * and an explicit empty set shows none. A no-op change does not refire.
    */
   setVisibleRepoRoots(roots: readonly string[] | null): void {
-    const next = roots === null ? null : new Set(roots.map((r) => normalizeRepoPathString(r)));
-    const prev = this._visibleRepoRoots;
-    const unchanged =
-      next === null
-        ? prev === null
-        : prev !== null && next.size === prev.size && [...next].every((r) => prev.has(r));
-    if (unchanged) {
-      return;
+    if (this._scope.setRepoRoots(roots)) {
+      this.refresh();
     }
-    this._visibleRepoRoots = next;
-    this.refresh();
+  }
+
+  /**
+   * Narrow the tree to the branches the log's branch filter selected; `null`
+   * (an empty or cleared filter) lists every branch again. A no-op change
+   * does not refire.
+   */
+  setVisibleBranches(names: readonly string[] | null): void {
+    if (this._scope.setBranchNames(names)) {
+      this.refresh();
+    }
   }
 
   /**
@@ -967,6 +964,19 @@ export class BranchTreeProvider
     return name.toLowerCase().includes(this._searchQuery.toLowerCase());
   }
 
+  /**
+   * The single gate every branch ROW passes: the tree's own search query AND
+   * the log's branch filter. One predicate rather than a check per list, so
+   * the categories, favorites and folder children can't drift apart.
+   *
+   * The checked-out branch always survives the log filter — the tree must not
+   * hide where HEAD is, and that row is the checkout anchor. The search query
+   * still applies to it (the user typed that one themselves).
+   */
+  private _branchRowVisible(branch: IBranch): boolean {
+    return this._matchesSearch(branch.name) && this._scope.branchVisible(branch);
+  }
+
   getTreeItem(element: BranchTreeItem): vscode.TreeItem {
     return element;
   }
@@ -985,28 +995,25 @@ export class BranchTreeProvider
       // visible repo keeps its repo-name row (never a bare "Local").
       const groupByRepository = repositories.length > 1;
       if (groupByRepository) {
-        const visible = this._visibleRepoRoots;
-        const shown =
-          visible === null
-            ? repositories
-            : repositories.filter((repo) => visible.has(normalizeRepoPath(repo.rootUri)));
-        return shown.map(
-          (repo) =>
-            new BranchTreeItem(
-              repositoryLabel(repo),
-              vscode.TreeItemCollapsibleState.Expanded,
-              'repository',
-              undefined,
-              undefined,
-              false,
-              undefined,
-              undefined,
-              undefined,
-              undefined,
-              false,
-              repo
-            )
-        );
+        return repositories
+          .filter((repo) => this._scope.repoVisible(repo))
+          .map(
+            (repo) =>
+              new BranchTreeItem(
+                repositoryLabel(repo),
+                vscode.TreeItemCollapsibleState.Expanded,
+                'repository',
+                undefined,
+                undefined,
+                false,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                false,
+                repo
+              )
+          );
       }
       if (!this._currentRepository) {
         return [];
@@ -1160,7 +1167,7 @@ export class BranchTreeProvider
     let favorites = branches.filter(
       (b) =>
         this.isFavorite(repo, b.name, b.type === 'remote' ? 'remote' : 'local') &&
-        this._matchesSearch(b.name)
+        this._branchRowVisible(b)
     );
     if (this._incomingOutgoingFetcher) {
       favorites = await enrichBranchesWithIncomingOutgoing(
@@ -1240,7 +1247,7 @@ export class BranchTreeProvider
     }
 
     const branches = await this._gitService.getBranches(repo);
-    let localBranches = branches.filter((b) => b.type === 'local' && this._matchesSearch(b.name));
+    let localBranches = branches.filter((b) => b.type === 'local' && this._branchRowVisible(b));
     // Enrich tracked branches with ahead/behind counts so the tree renders
     // ↑N/↓N — matching the branch popup. No fetcher → branches pass through
     // untouched (no badges).
@@ -1273,9 +1280,7 @@ export class BranchTreeProvider
 
   private async _getRemoteBranches(repo: IRepository): Promise<BranchTreeItem[]> {
     const branches = await this._gitService.getBranches(repo);
-    const remoteBranches = branches.filter(
-      (b) => b.type === 'remote' && this._matchesSearch(b.name)
-    );
+    const remoteBranches = branches.filter((b) => b.type === 'remote' && this._branchRowVisible(b));
 
     // First level under "Remote": one folder per remote name (origin,
     // upstream, …). The remote name is segment 0 of the branch's full
@@ -1354,7 +1359,7 @@ export class BranchTreeProvider
     }
     const branches = await this._gitService.getBranches(repo);
     const filtered = branches.filter(
-      (b) => b.type === folder.folderScope && this._matchesSearch(b.name)
+      (b) => b.type === folder.folderScope && this._branchRowVisible(b)
     );
 
     const head = repo.head;

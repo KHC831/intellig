@@ -70,6 +70,7 @@ import {
   buildFileContextMenuHtml,
   getFileStatusColor,
 } from './provider/htmlBuilders';
+import { safeFireAndForget } from '../../utils/safeFireAndForget';
 import { buildWebviewCsp } from '../../utils/webviewCsp';
 import { initIslandHtml } from '../../utils/webviewInit';
 import {
@@ -557,6 +558,10 @@ export class GitToolWindowProvider
         getSelectedRepository: (): IRepository | undefined => this.getSelectedRepository(),
         selectCommit: (hash): void => this.selectCommit(hash),
         scrollWebviewToCommit: (hash): void => this._scrollWebviewToCommit(hash),
+        ensureFullLogLoaded: (): Promise<boolean> => this.ensureFullLogLoaded(),
+        warn: (message): void => {
+          void vscode.window.showWarningMessage(message);
+        },
       },
       this.log
     );
@@ -2107,25 +2112,19 @@ export class GitToolWindowProvider
    * multi-root workspace — disambiguates same-named branches across roots in
    * the merged log.
    */
-  public navigateToBranch(branchName: string, repoRoot?: string): void {
-    this.focus.handleBranchClick(branchName, repoRoot);
+  public async navigateToBranch(branchName: string, repoRoot?: string): Promise<void> {
+    return this.focus.handleBranchClick(branchName, repoRoot);
   }
 
   /**
    * Navigate the graph to a specific commit hash — the tag-row analog of
    * {@link navigateToBranch} (tags aren't in the branch map, so the tree
-   * hands over the tag's peeled commit directly). Same partial-update
-   * contract as `_handleBranchClick`: selectCommit + scroll posts, never a
-   * full re-render, so the panel's scroll position survives. A hash beyond
-   * the loaded window is a silent no-op, matching branch clicks whose tip
-   * isn't loaded.
+   * hands over the tag's peeled commit directly). Shares the branch click's
+   * reveal skeleton, so a tag whose commit sits outside the loaded window
+   * grows the window instead of dying silently.
    */
-  public navigateToCommit(commitHash: string): void {
-    if (!commitHash) {
-      return;
-    }
-    this.selectCommit(commitHash);
-    this._scrollWebviewToCommit(commitHash);
+  public async navigateToCommit(commitHash: string): Promise<void> {
+    return this.focus.revealCommitOrWarn(commitHash);
   }
 
   /**
@@ -2538,7 +2537,7 @@ export class GitToolWindowProvider
   }
 
   branchClick(branchName: string): void {
-    this.focus.handleBranchClick(branchName);
+    safeFireAndForget(this.focus.handleBranchClick(branchName), 'graph: branch chip click');
   }
 
   columnResize(widths: [number, number]): void {

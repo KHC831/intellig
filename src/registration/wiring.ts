@@ -4,6 +4,8 @@ import type { ILogFilter } from '../git-core/interfaces/IGitToolWindowProvider';
 import { buildGitArgs } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
 import { resolveRepo } from '../utils/resolveRepo';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { graphTargetForTreeSelection, type BranchTreeItem } from '../branches/BranchTreeProvider';
 import { buildIntelligGitUri } from '../commands/registration/explorerCommands';
 
 /**
@@ -90,6 +92,76 @@ export interface IRepoSelectionToolWindowProvider {
 export interface IRepoSelectionBranchTreeProvider {
   setRepository(repo: IRepository): void;
   setVisibleRepoRoots(roots: readonly string[] | null): void;
+}
+
+/** Minimal surfaces {@link wireBranchTreeNavigation} needs. */
+export interface IBranchTreeNavigationTreeView {
+  onDidChangeSelection: vscode.Event<{ readonly selection: readonly BranchTreeItem[] }>;
+}
+export interface IBranchTreeNavigationProvider {
+  navigateToBranch(branchName: string, repoRoot?: string): Promise<void>;
+  navigateToCommit(commitHash: string): Promise<void>;
+}
+
+/**
+ * Jump the graph to whatever ref the user selects in the Branches tree.
+ *
+ * Both navigations grow the log window when the target isn't loaded, so the
+ * handler hands the promise to `safeFireAndForget` rather than blocking the
+ * synchronous tree-selection callback.
+ */
+export function wireBranchTreeNavigation(deps: {
+  treeView: IBranchTreeNavigationTreeView;
+  toolWindowProvider: IBranchTreeNavigationProvider;
+}): vscode.Disposable {
+  return deps.treeView.onDidChangeSelection((e) => {
+    if (e.selection.length === 0) {
+      return;
+    }
+    const target = graphTargetForTreeSelection(e.selection[0]);
+    if (target?.kind === 'branch') {
+      safeFireAndForget(
+        deps.toolWindowProvider.navigateToBranch(target.name, target.repoRoot),
+        'branchTree: navigate to branch'
+      );
+    } else if (target?.kind === 'commit') {
+      safeFireAndForget(
+        deps.toolWindowProvider.navigateToCommit(target.hash),
+        'branchTree: navigate to commit'
+      );
+    }
+  });
+}
+
+/** Minimal provider surfaces {@link wireBranchFilterToTree} needs. */
+export interface IBranchFilterToolWindowProvider {
+  onDidRequestLogFilter: vscode.Event<ILogFilter | undefined>;
+}
+export interface IBranchFilterBranchTreeProvider {
+  setVisibleBranches(names: readonly string[] | null): void;
+}
+
+/**
+ * Keep the Branches tree in step with the log's BRANCH filter: the tree lists
+ * the branches the filter selected, the same way it lists the repos the
+ * repository scope selected. Without this the tree offers rows whose commits
+ * the filtered log cannot show, so clicking them can never jump anywhere.
+ *
+ * Both the legacy single `branch` and the multi-select `branches` are honored
+ * (either may carry the selection); an empty result clears the narrowing.
+ *
+ * Returns the disposables so the caller can register them with
+ * `context.subscriptions.push(...)`.
+ */
+export function wireBranchFilterToTree(deps: {
+  toolWindowProvider: IBranchFilterToolWindowProvider;
+  branchTreeProvider: IBranchFilterBranchTreeProvider;
+}): vscode.Disposable[] {
+  const listener = deps.toolWindowProvider.onDidRequestLogFilter((filter) => {
+    const names = [...(filter?.branches ?? []), ...(filter?.branch ? [filter.branch] : [])];
+    deps.branchTreeProvider.setVisibleBranches(names.length > 0 ? names : null);
+  });
+  return [listener];
 }
 export interface IRepoSelectionCommitToolWindow {
   setRepository(repo: IRepository): void;

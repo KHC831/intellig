@@ -1294,6 +1294,112 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(fires, 2, 'one fire per real change, no fire on a no-op repeat');
   });
 
+  // --- the tree follows the log's branch filter ---
+  //
+  // Filtering the log to a set of branches narrows the tree to the same set,
+  // so it never offers rows whose commits the filtered log cannot show. The
+  // checked-out branch is exempt: the tree must not hide where HEAD is.
+
+  it('lists only the filtered branches, plus the checked-out one', async () => {
+    const repo = repoAt('solo', 'main');
+    const provider = multiRepoProvider(
+      [repo],
+      new Map([
+        [
+          repo,
+          [
+            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+            { name: 'alpha', type: 'local', commit: 'b'.repeat(40), isHead: false },
+            { name: 'beta', type: 'local', commit: 'c'.repeat(40), isHead: false },
+          ],
+        ],
+      ])
+    );
+
+    provider.setVisibleBranches(['alpha']);
+    const root = await provider.getChildren();
+    const local = root.find((n) => n.label === 'Local')!;
+    const names = (await provider.getChildren(local)).map((n) => n.branch?.name ?? n.label);
+
+    assert.ok(names.includes('alpha'), 'the filtered branch is listed');
+    assert.ok(names.includes('main'), 'the checked-out branch survives the filter');
+    assert.ok(!names.includes('beta'), 'an unselected branch is hidden');
+  });
+
+  it('restores every branch when the filter clears', async () => {
+    const repo = repoAt('solo', 'main');
+    const branches = new Map([
+      [
+        repo,
+        [
+          { name: 'main', type: 'local' as const, commit: 'a'.repeat(40), isHead: true },
+          { name: 'alpha', type: 'local' as const, commit: 'b'.repeat(40), isHead: false },
+        ],
+      ],
+    ]);
+    const provider = multiRepoProvider([repo], branches);
+
+    provider.setVisibleBranches(['alpha']);
+    provider.setVisibleBranches(null);
+    const root = await provider.getChildren();
+    const local = root.find((n) => n.label === 'Local')!;
+    const names = (await provider.getChildren(local)).map((n) => n.branch?.name ?? n.label);
+
+    assert.ok(names.includes('main') && names.includes('alpha'), 'both branches return');
+  });
+
+  it('treats an empty filter selection as unfiltered', async () => {
+    const repo = repoAt('solo', 'main');
+    const provider = multiRepoProvider(
+      [repo],
+      new Map([
+        [
+          repo,
+          [
+            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+            { name: 'alpha', type: 'local', commit: 'b'.repeat(40), isHead: false },
+          ],
+        ],
+      ])
+    );
+
+    provider.setVisibleBranches([]);
+    const root = await provider.getChildren();
+    const local = root.find((n) => n.label === 'Local')!;
+    const names = (await provider.getChildren(local)).map((n) => n.branch?.name ?? n.label);
+
+    assert.ok(names.includes('alpha'), 'an empty selection must not blank the tree');
+  });
+
+  it('narrows remote rows by their full ref name', async () => {
+    const repo = repoAt('solo', 'main');
+    const provider = multiRepoProvider(
+      [repo],
+      new Map([
+        [
+          repo,
+          [
+            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+            { name: 'origin/keep', type: 'remote', commit: 'b'.repeat(40), isHead: false },
+            { name: 'origin/drop', type: 'remote', commit: 'c'.repeat(40), isHead: false },
+          ],
+        ],
+      ])
+    );
+
+    provider.setVisibleBranches(['origin/keep']);
+    const root = await provider.getChildren();
+    const remote = root.find((n) => n.label === 'Remote')!;
+    // Remote nests under a per-remote folder ("origin"), so descend one level.
+    const originFolder = (await provider.getChildren(remote))[0];
+    const names = (await provider.getChildren(originFolder)).map((n) => n.branch?.name ?? n.label);
+
+    assert.ok(
+      names.includes('origin/keep') && !names.includes('origin/drop'),
+      'remote rows match the filter on the full ref name'
+    );
+  });
+
   // --- favorites are per-repository in the grouped layout ---
 
   it('stars a branch under the repo the row belongs to, not the selected repo', async () => {

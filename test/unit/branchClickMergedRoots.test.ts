@@ -90,7 +90,7 @@ describe('branch click in the merged all-roots log', () => {
     /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
   }
 
-  it('resolves a composite-keyed branch tip to the bare hash and navigates', () => {
+  it('resolves a composite-keyed branch tip to the bare hash and navigates', async () => {
     seedMergedState(
       new Map([
         [graphRowKey(TIP_A, ROOT_A), [{ name: 'main', type: 'local' as const }]],
@@ -98,7 +98,7 @@ describe('branch click in the merged all-roots log', () => {
       ])
     );
 
-    provider.navigateToBranch('dev');
+    await provider.navigateToBranch('dev');
 
     const selectMsg = posted.find((m) => m.type === 'selectGraphRow');
     assert.ok(selectMsg, 'branch click must post selectGraphRow in merged mode');
@@ -112,7 +112,7 @@ describe('branch click in the merged all-roots log', () => {
     assert.strictEqual(state.expandedCommit, TIP_B, 'selection lands on the bare hash');
   });
 
-  it('prefers the clicked row’s own repo when the branch name exists in several roots', () => {
+  it('prefers the clicked row’s own repo when the branch name exists in several roots', async () => {
     seedMergedState(
       new Map([
         [graphRowKey(TIP_A, ROOT_A), [{ name: 'main', type: 'local' as const }]],
@@ -120,7 +120,7 @@ describe('branch click in the merged all-roots log', () => {
       ])
     );
 
-    provider.navigateToBranch('main', ROOT_B);
+    await provider.navigateToBranch('main', ROOT_B);
 
     const selectMsg = posted.find((m) => m.type === 'selectGraphRow');
     assert.strictEqual(
@@ -130,7 +130,7 @@ describe('branch click in the merged all-roots log', () => {
     );
   });
 
-  it('falls back to the name match when the preferred root has no such branch', () => {
+  it('falls back to the name match when the preferred root has no such branch', async () => {
     seedMergedState(
       new Map([
         [graphRowKey(TIP_A, ROOT_A), [{ name: 'alpha-only', type: 'local' as const }]],
@@ -138,7 +138,7 @@ describe('branch click in the merged all-roots log', () => {
       ])
     );
 
-    provider.navigateToBranch('alpha-only', ROOT_B);
+    await provider.navigateToBranch('alpha-only', ROOT_B);
 
     const selectMsg = posted.find((m) => m.type === 'selectGraphRow');
     assert.strictEqual(selectMsg?.commitHash, TIP_A, 'name match stands when the root has no hit');

@@ -77,7 +77,7 @@ describe('graphTargetForTreeSelection', () => {
 });
 
 describe('GitToolWindowProvider.navigateToCommit', () => {
-  it('posts selectGraphRow + scrollToCommit for the hash without a full re-render', () => {
+  it('posts selectGraphRow + scrollToCommit for the hash without a full re-render', async () => {
     const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
     const posted: Array<{ type?: string; commitHash?: string }> = [];
     let htmlSetCount = 0;
@@ -111,7 +111,7 @@ describe('GitToolWindowProvider.navigateToCommit', () => {
     };
     /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 
-    provider.navigateToCommit(TAG_COMMIT);
+    await provider.navigateToCommit(TAG_COMMIT);
 
     const scrollMsg = posted.find((m) => m.type === 'scrollToCommit');
     assert.ok(scrollMsg, 'scrollToCommit must be posted');

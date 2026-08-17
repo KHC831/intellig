@@ -32,6 +32,14 @@ export interface IFocusHost {
   selectCommit: (hash: string) => void;
   /** Non-selecting scroll — preserves selection / anchor / expandedCommit. */
   scrollWebviewToCommit: (hash: string) => void;
+  /**
+   * Grow the log window to the active scope's full history and await the
+   * reload; false when growth isn't available (merged view, cold start, or an
+   * unverifiable total). The jump-to-hash command grows through the same seam.
+   */
+  ensureFullLogLoaded: () => Promise<boolean>;
+  /** Surface a warning to the user (a jump target that stayed unreachable). */
+  warn: (message: string) => void;
 }
 
 export class BranchFocusController {
@@ -299,30 +307,73 @@ export class BranchFocusController {
   }
 
   /**
-   * Handle a branch click: scroll the graph to the branch's HEAD commit.
-   * Finds the branch's tip via {@link _resolveBranchTipHash} (branch map
-   * first, per-node branches as fallback; merged-mode row keys decompose to
-   * bare hashes there), then selects that commit and asks the webview to
-   * scroll to it. `preferredRepoRoot` — the clicked tree row's repo — breaks
-   * ties when several roots carry a same-named branch.
+   * Handle a branch click: jump the graph to the branch's tip commit.
+   * Finds the tip via {@link _resolveBranchTipHash} (branch map first,
+   * per-node branches as fallback; merged-mode row keys decompose to bare
+   * hashes there), then reveals it through {@link revealCommit}.
+   * `preferredRepoRoot` — the clicked tree row's repo — breaks ties when
+   * several roots carry a same-named branch.
+   */
+  public async handleBranchClick(branchName: string, preferredRepoRoot?: string): Promise<void> {
+    const targetCommitHash = this._resolveBranchTipHash(branchName, preferredRepoRoot);
+    if (!targetCommitHash) {
+      this._host.warn(`Branch '${branchName}' has no commit in this repository's log`);
+      return;
+    }
+    if (!(await this.revealCommit(targetCommitHash))) {
+      this._host.warn(
+        `The tip of '${branchName}' (${targetCommitHash.substring(0, 7)}) is not loaded in the graph`
+      );
+    }
+  }
+
+  /**
+   * Select a commit and bring it into view, growing the log window first when
+   * the target isn't loaded.
+   *
+   * The branch map is built from every ref (`getBranches`), while the graph
+   * paints one bounded page — so a resolved tip can name a row that was never
+   * loaded. Selecting it then stamps state against a row the webview cannot
+   * show, and the click reads as dead. Growth goes through the same
+   * full-history seam the jump-to-hash command uses, and the target is
+   * re-checked after the reload before anything is selected.
    *
    * Uses the partial-update path (selectCommit + a non-selecting scroll post)
    * rather than a full re-render, so the graph panel's scroll position is
-   * preserved and the visibility-aware inline scrollToCommit only scrolls
-   * when the target row is not already fully visible.
+   * preserved and the visibility-aware inline scrollToCommit only scrolls when
+   * the target row is not already fully visible.
+   *
+   * @returns true once the commit is a loaded row and selected; false when it
+   *   stayed unreachable (growth unavailable or the commit is outside the
+   *   scope's history), leaving selection untouched.
    */
-  public handleBranchClick(branchName: string, preferredRepoRoot?: string): void {
-    const targetCommitHash = this._resolveBranchTipHash(branchName, preferredRepoRoot);
-
-    if (targetCommitHash) {
-      // Use the partial-update path (no full re-render) so the graph panel's
-      // scroll position is preserved. selectCommit posts selectGraphRow +
-      // updateDetailsPanel; the scroll post is gated by the now
-      // visibility-aware inline scrollToCommit. Avoiding a full render means
-      // scrollTop is never reset to the top, so the inline visibility check
-      // runs against the user's real scroll position.
-      this._host.selectCommit(targetCommitHash);
-      this._host.scrollWebviewToCommit(targetCommitHash);
+  public async revealCommit(hash: string): Promise<boolean> {
+    if (!this._isLoadedRow(hash)) {
+      if (!(await this._host.ensureFullLogLoaded()) || !this._isLoadedRow(hash)) {
+        return false;
+      }
     }
+    this._host.selectCommit(hash);
+    this._host.scrollWebviewToCommit(hash);
+    return true;
+  }
+
+  /**
+   * {@link revealCommit} for callers that hand over a hash directly (the
+   * Branches tree's tag rows), warning when it stays unreachable. An empty
+   * hash is ignored.
+   */
+  public async revealCommitOrWarn(hash: string): Promise<void> {
+    if (!hash) {
+      return;
+    }
+    if (!(await this.revealCommit(hash))) {
+      this._host.warn(`Commit ${hash.substring(0, 7)} is not loaded in the graph`);
+    }
+  }
+
+  /** Whether `hash` names a commit in the currently loaded window. */
+  private _isLoadedRow(hash: string): boolean {
+    return this._log.state.commitNodes.some((n) => n.commit.hash === hash);
   }
 }
