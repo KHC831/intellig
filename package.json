@@ -2,7 +2,7 @@
   "name": "intellig",
   "displayName": "IntelliG",
   "description": "IntelliJ IDEA-style Git workflows for VS Code",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "publisher": "KaHoChan",
   "engines": {
     "vscode": "^1.85.0"
