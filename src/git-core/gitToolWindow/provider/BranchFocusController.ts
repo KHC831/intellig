@@ -317,7 +317,10 @@ export class BranchFocusController {
   public async handleBranchClick(branchName: string, preferredRepoRoot?: string): Promise<void> {
     const targetCommitHash = this._resolveBranchTipHash(branchName, preferredRepoRoot);
     if (!targetCommitHash) {
-      this._host.warn(`Branch '${branchName}' has no commit in this repository's log`);
+      // Not "this branch has no commits" — the branch map belongs to whichever
+      // load last landed, so a click that races a repository switch lands here
+      // for a branch that does have a tip.
+      this._host.warn(`Could not locate '${branchName}' in the loaded log`);
       return;
     }
     if (!(await this.revealCommit(targetCommitHash))) {
