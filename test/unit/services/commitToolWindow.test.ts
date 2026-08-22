@@ -1112,6 +1112,28 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
+  it('openFileDiff dispatches intellig.explorer.showDiff with a repo-resolved file Uri', async () => {
+    const { tw, executed } = createFileContextWindow();
+    // The double-click message carries only the path — no changelistId, since
+    // the gesture is a plain row activation rather than a menu pick.
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'openFileDiff',
+      path: 'src/sub/a.ts',
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
+    tw.dispose();
+  });
+
+  it('openFileDiff without a path dispatches nothing', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'openFileDiff' });
+    assert.deepStrictEqual(
+      executed.map((e) => e.command),
+      []
+    );
+    tw.dispose();
+  });
+
   it('jumpToSource dispatches intellig.localChanges.openFile with a repo-resolved file Uri', async () => {
     const { tw, executed } = createFileContextWindow();
     await asTestSurface(tw)._handleWebviewMessage({

@@ -22,7 +22,7 @@ import type {
   ICtwChangelistModel,
   ICtwFileEntry,
 } from '../commitToolWindow.types';
-import type { IDiff, IHunk, IDiffLine } from '../../git-core/interfaces/gitModels';
+import { buildDiffPreviewPane, renderDiffPreview, resetPreviewPane } from './ctwDiffPreview';
 import { INIT_ELEMENT_ID, parseInitIsland } from '../../utils/webviewInit';
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
@@ -192,26 +192,6 @@ function buildLocalTreeContent(model: ICommitToolWindowInitModel): DocumentFragm
   }
   frag.appendChild(tree);
   return frag;
-}
-
-/** Persistent diff-preview pane, born with the placeholder. */
-function buildDiffPreviewPane(): HTMLDivElement {
-  const pane = el('div', { className: 'ctw-diff-preview' });
-  setAttrs(pane, { 'data-diff-preview': '' });
-  resetPreviewPane(pane);
-  return pane;
-}
-
-function resetPreviewPane(pane: Element): void {
-  while (pane.firstChild) {
-    pane.removeChild(pane.firstChild);
-  }
-  pane.appendChild(
-    el('div', {
-      className: 'ctw-diff-preview-empty',
-      textContent: 'Select a file to preview changes',
-    })
-  );
 }
 
 function buildComposerPanel(model: ICommitToolWindowInitModel): HTMLDivElement {
@@ -513,54 +493,6 @@ function render(INIT: ICommitToolWindowInitModel): void {
   wireControls();
 }
 
-// Render a diff into the preview pane. Builds DOM nodes (no innerHTML with
-// interpolated content) so a hostile path/line can't inject markup.
-function renderDiffPreview(
-  pane: Element,
-  path: string | undefined,
-  diff: IDiff | undefined,
-  error: string | undefined
-): void {
-  while (pane.firstChild) {
-    pane.removeChild(pane.firstChild);
-  }
-  const head = document.createElement('div');
-  head.className = 'ctw-diff-preview-head';
-  head.textContent = path || '';
-  pane.appendChild(head);
-  if (error) {
-    const err = document.createElement('div');
-    err.className = 'ctw-diff-preview-empty';
-    err.textContent = 'Failed to load diff: ' + error;
-    pane.appendChild(err);
-    return;
-  }
-  if (!diff || diff.binary || !diff.hunks || diff.hunks.length === 0) {
-    const note = document.createElement('div');
-    note.className = 'ctw-diff-preview-empty';
-    note.textContent = diff && diff.binary ? 'Binary file' : 'No changes';
-    pane.appendChild(note);
-    return;
-  }
-  const body = document.createElement('pre');
-  body.className = 'ctw-diff-preview-body';
-  (diff.hunks || []).forEach((hunk: IHunk) => {
-    const h = document.createElement('div');
-    h.className = 'ctw-diff-hunk-header';
-    h.textContent = hunk.header || '';
-    body.appendChild(h);
-    (hunk.lines || []).forEach((line: IDiffLine) => {
-      const rowDiv = document.createElement('div');
-      const t = line.type === 'add' ? 'add' : line.type === 'delete' ? 'del' : 'ctx';
-      rowDiv.className = 'ctw-diff-line ctw-diff-' + t;
-      const prefix = t === 'add' ? '+' : t === 'del' ? '-' : ' ';
-      rowDiv.textContent = prefix + (line.content ?? '');
-      body.appendChild(rowDiv);
-    });
-  });
-  pane.appendChild(body);
-}
-
 // Snapshot the composer + selected files for a commit / commit-and-push post.
 function getComposerPayload(): {
   message: string;
@@ -627,6 +559,19 @@ function wireControls(): void {
         if (path) {
           post({ type: 'selectFile', path });
         }
+      }
+    });
+    // Double-click opens the file's diff in an editor tab (single click only
+    // fills the inline preview pane). The checkbox is excluded: two fast
+    // clicks there are an include/exclude toggle, not a request to open.
+    localTree.addEventListener('dblclick', (e) => {
+      if (!(e.target instanceof Element) || (e.target as HTMLElement).tagName === 'INPUT') {
+        return;
+      }
+      const row = e.target.closest('.ctw-file-row');
+      const path = row ? row.getAttribute('data-path') : null;
+      if (path) {
+        post({ type: 'openFileDiff', path });
       }
     });
     localTree.addEventListener('change', (e) => {

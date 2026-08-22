@@ -6,7 +6,7 @@
     "branches/BranchContextMenuCommands.ts": 952,
     "git-core/GitService.ts": 2888,
     "commits/CommitDialog.ts": 1654,
-    "commits/CommitToolWindow.ts": 1401,
+    "commits/CommitToolWindow.ts": 1358,
     "shelf/ShelfService.ts": 1778,
     "shelf/ShelfView.ts": 1663,
     "registration/registerViews.ts": 1620,
@@ -34,7 +34,6 @@
     "conflicts/ConflictResolutionService.ts": 923,
     "patches/ApplyPatchDialog.ts": 869,
     "git-core/ops/BranchOps.ts": 845,
-    "commits/webview/commitToolWindow.ts": 810,
     "branches/BranchComparisonView.ts": 803,
     "diff-engine/comparison/TrimUtil.ts": 801
   }

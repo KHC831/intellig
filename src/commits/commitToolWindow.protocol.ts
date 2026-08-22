@@ -21,6 +21,7 @@ type Fields = Omit<ICommitToolWebviewMessage, 'type'>;
 export type CommitToolWindowInbound =
   | ({ type: 'tabChange' } & Fields)
   | ({ type: 'selectFile' } & Fields)
+  | ({ type: 'openFileDiff' } & Fields)
   | ({ type: 'toggleFile' } & Fields)
   | ({ type: 'updateComposerField' } & Fields)
   | ({ type: 'commit' } & Fields)
@@ -51,6 +52,7 @@ export type CommitToolWindowOutbound =
 export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
   'tabChange',
   'selectFile',
+  'openFileDiff',
   'toggleFile',
   'updateComposerField',
   'commit',

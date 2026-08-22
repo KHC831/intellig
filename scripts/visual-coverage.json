@@ -46,9 +46,9 @@
       "status": "backlog",
       "note": "commit dialog stylesheet; needs the dialog body markup rendered before its buttons, inputs and diff rows can be asserted"
     },
-    "src/commits/CommitToolWindow.ts::commitToolWindowStyles": {
+    "src/commits/commitToolWindowStyles.ts::commitToolWindowStyles": {
       "status": "backlog",
-      "note": "commit tool window stylesheet; module-local, so it needs exporting or a render seam before a spec can reach it"
+      "note": "commit tool window stylesheet; reachable (exported from its own module) but no spec renders it against the entry's tab strip, changelist tree, diff preview and composer yet"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts::historyTabStyles": {
       "status": "tested",

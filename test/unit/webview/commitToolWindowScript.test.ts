@@ -135,6 +135,54 @@ describe('webview: Commit Tool Window entry (jsdom)', () => {
     assert.strictEqual(box.checked, true, 'the plain-path checkbox syncs');
   });
 
+  it('double-clicking a file row asks the host to open the diff', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+    });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+
+    const row = Array.from(h.document.querySelectorAll('.ctw-file-row')).find(
+      (r) => r.getAttribute('data-path') === 'src/dir/b.ts'
+    );
+    assert.ok(row, 'a row for the path must render');
+    row.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
+
+    assert.ok(
+      h.posted.some(
+        (m) =>
+          (m as { type?: string; path?: string }).type === 'openFileDiff' &&
+          (m as { path?: string }).path === 'src/dir/b.ts'
+      ),
+      `expected an openFileDiff post; got: ${JSON.stringify(h.posted)}`
+    );
+  });
+
+  it('double-clicking a file checkbox does not ask for a diff', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+    });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+
+    const box = h.document.querySelector('.ctw-file-check');
+    assert.ok(box, 'a checkbox must render');
+    // Two fast clicks on the checkbox are an include/exclude toggle, not a
+    // request to open the file — the diff must not hijack that gesture.
+    box.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
+
+    assert.deepStrictEqual(
+      h.posted.filter((m) => (m as { type?: string }).type === 'openFileDiff'),
+      []
+    );
+  });
+
   it('tolerates representative and garbage messages without throwing', () => {
     const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',
