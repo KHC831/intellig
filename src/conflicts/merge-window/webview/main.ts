@@ -1195,14 +1195,14 @@ class MergeWindow {
       this.leftEditor,
       ThreeSide.LEFT,
       Side.LEFT,
-      'toward-result-right'
+      'result-right'
     );
     this.layoutActionStrip(
       mustGet('action-right'),
       this.rightEditor,
       ThreeSide.RIGHT,
       Side.RIGHT,
-      'toward-result-left'
+      'result-left'
     );
   }
 
@@ -1217,7 +1217,7 @@ class MergeWindow {
     editor: Monaco.editor.IStandaloneCodeEditor,
     side: ThreeSide,
     actionSide: Side,
-    applyDirectionClass: string
+    resultSideClass: string
   ): void {
     for (const old of Array.from(stripBody.querySelectorAll('.action-btn, .action-band'))) {
       old.remove();
@@ -1262,14 +1262,14 @@ class MergeWindow {
         continue;
       }
       const applyBtn = document.createElement('button');
-      applyBtn.className = `action-btn apply ${applyDirectionClass}`;
+      applyBtn.className = `action-btn apply ${resultSideClass}`;
       applyBtn.title = 'Apply this change to the result';
       applyBtn.style.top = `${y}px`;
       applyBtn.addEventListener('click', () => this.applySide(change.index, actionSide));
       stripBody.appendChild(applyBtn);
 
       const ignoreBtn = document.createElement('button');
-      ignoreBtn.className = 'action-btn ignore';
+      ignoreBtn.className = `action-btn ignore ${resultSideClass}`;
       ignoreBtn.title = 'Ignore this change (mark resolved without applying)';
       ignoreBtn.style.top = `${y}px`;
       ignoreBtn.addEventListener('click', () => this.ignoreSide(change.index, actionSide));

@@ -10,6 +10,24 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Added
+
+- Double-clicking a file in the Commit window opens its diff in an editor
+  tab, the same as double-clicking a file in the Source Control view. Single
+  click still just fills the inline preview.
+
+### Fixed
+
+- Show Diff on a conflicted file in the Commit window opened a plain
+  before/after diff, which showed the raw `<<<<<<<` / `=======` / `>>>>>>>`
+  markers as if they were file content. It now opens the merge view.
+- The Git and Commit windows painted themselves the sidebar colour while
+  sitting in the bottom panel, so they were a visibly different shade from
+  the panel and the Branches tree beside them. They use the panel colour now.
+- In the merge window's left action strip the accept arrow sat on the far edge
+  with the reject X between it and the result. The accept arrow now hugs the
+  divider on both sides, so the left strip reads reject then accept.
+
 ## [0.5.7] - 2026-08-17
 
 ### Fixed
