@@ -37,8 +37,19 @@ export function applyFilterOptionsMessage(
         order: string[];
         leaf: string | null;
       }
+      // Segments key `children` directly, and a branch may legally be named
+      // `constructor` / `toString` / `__proto__`. With a plain object those
+      // read as already-present nodes: the branch is dropped from the list (and
+      // from the leaf count the all/subset state is derived from), or the walk
+      // steps into the inherited value and throws mid-render, leaving the whole
+      // popup empty. A prototype-less map has no inherited keys to collide with.
+      const newNode = (): ITreeNode => ({
+        children: Object.create(null) as Record<string, ITreeNode>,
+        order: [],
+        leaf: null,
+      });
       const buildTree = function (names: string[], stripPrefix: string): ITreeNode {
-        const root: ITreeNode = { children: {}, order: [], leaf: null };
+        const root: ITreeNode = newNode();
         names.forEach(function (full) {
           const shown =
             stripPrefix && full.indexOf(stripPrefix) === 0 ? full.slice(stripPrefix.length) : full;
@@ -46,7 +57,7 @@ export function applyFilterOptionsMessage(
           let node = root;
           parts.forEach(function (seg, i) {
             if (!node.children[seg]) {
-              node.children[seg] = { children: {}, order: [], leaf: null };
+              node.children[seg] = newNode();
               node.order.push(seg);
             }
             node = node.children[seg];
