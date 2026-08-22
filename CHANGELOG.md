@@ -16,6 +16,12 @@ fresh empty `[Unreleased]` block is added on top.
   tab, the same as double-clicking a file in the Source Control view. Single
   click still just fills the inline preview.
 
+### Fixed
+
+- Show Diff on a conflicted file in the Commit window opened a plain
+  before/after diff, which showed the raw `<<<<<<<` / `=======` / `>>>>>>>`
+  markers as if they were file content. It now opens the merge view.
+
 ## [0.5.7] - 2026-08-17
 
 ### Fixed

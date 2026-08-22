@@ -68,6 +68,7 @@ import type {
   IGitService,
   IRepository,
   ICommit,
+  FileStatus,
 } from '../../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { noopEvent } from '../../mocks/noopEvent';
@@ -1047,7 +1048,7 @@ describe('CommitToolWindow — host behavior', () => {
   // ─── File-context actions dispatch to registered commands with their
   //     expected argument shapes (Uri resolved against the repo root) ────────
 
-  function createFileContextWindow(): {
+  function createFileContextWindow(status: FileStatus = 'modified'): {
     tw: CommitToolWindow;
     executed: Array<{ command: string; args: unknown[] }>;
   } {
@@ -1059,7 +1060,7 @@ describe('CommitToolWindow — host behavior', () => {
         name: 'Default',
         isDefault: true,
         isActive: true,
-        files: [{ path: 'src/sub/a.ts', status: 'modified', staged: false }],
+        files: [{ path: 'src/sub/a.ts', status, staged: false }],
       },
     ];
     const services = createMockServices(repo, changelists);
@@ -1123,6 +1124,39 @@ describe('CommitToolWindow — host behavior', () => {
     assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
     tw.dispose();
   });
+
+  // A conflicted file's working tree holds the raw <<<<<<< / ======= / >>>>>>>
+  // markers, so a two-sided HEAD ↔ working-tree diff renders the markers as
+  // ordinary content instead of showing the conflict. IntelliJ routes a
+  // conflicting change to a three-side merge request rather than a diff
+  // (platform ChangeDiffRequestProducer.createRequest / ChangesUtil
+  // .isTextConflictingChange); both of our entry points do the same.
+  for (const entry of [
+    {
+      name: 'openFileDiff (double-click)',
+      message: { type: 'openFileDiff', path: 'src/sub/a.ts' },
+    },
+    {
+      name: 'showDiff (context menu)',
+      message: {
+        type: 'changelistContextAction',
+        action: 'showDiff',
+        changelistId: 'def',
+        path: 'src/sub/a.ts',
+      },
+    },
+  ]) {
+    it(`${entry.name} opens the merge view for a conflicted file, not a two-sided diff`, async () => {
+      const { tw, executed } = createFileContextWindow('conflicted');
+      await asTestSurface(tw)._handleWebviewMessage(entry.message);
+      assertRepoResolvedUriDispatch(executed, 'intellig.merge.openMergeView');
+      assert.ok(
+        !executed.some((e) => e.command === 'intellig.explorer.showDiff'),
+        'a conflicted file must NOT open the HEAD ↔ working-tree diff (it renders the markers as content)'
+      );
+      tw.dispose();
+    });
+  }
 
   it('openFileDiff without a path dispatches nothing', async () => {
     const { tw, executed } = createFileContextWindow();
