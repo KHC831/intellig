@@ -47,8 +47,8 @@
       "note": "commit dialog stylesheet; needs the dialog body markup rendered before its buttons, inputs and diff rows can be asserted"
     },
     "src/commits/commitToolWindowStyles.ts::commitToolWindowStyles": {
-      "status": "backlog",
-      "note": "commit tool window stylesheet; reachable (exported from its own module) but no spec renders it against the entry's tab strip, changelist tree, diff preview and composer yet"
+      "status": "tested",
+      "note": "surface token identity under the sentinel palette in both themes: the body resolves to panel-background, not the sideBar-background it shipped with (the view is contributed to a panel viewsContainer) — panelSurface.visual.test.ts. Tab strip, changelist tree, diff preview and composer are not yet rendered"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts::historyTabStyles": {
       "status": "tested",
