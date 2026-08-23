@@ -32,24 +32,29 @@ export function applyFilterOptionsMessage(
         header.textContent = title;
         list.appendChild(header);
       };
+      // A Map, not an object: a branch may legally be named `constructor` /
+      // `toString` / `__proto__`, and an object literal inherits those keys.
       interface ITreeNode {
-        children: Record<string, ITreeNode>;
+        children: Map<string, ITreeNode>;
         order: string[];
         leaf: string | null;
       }
+      const newNode = (): ITreeNode => ({ children: new Map(), order: [], leaf: null });
       const buildTree = function (names: string[], stripPrefix: string): ITreeNode {
-        const root: ITreeNode = { children: {}, order: [], leaf: null };
+        const root: ITreeNode = newNode();
         names.forEach(function (full) {
           const shown =
             stripPrefix && full.indexOf(stripPrefix) === 0 ? full.slice(stripPrefix.length) : full;
           const parts = shown.split('/').filter(Boolean);
           let node = root;
           parts.forEach(function (seg, i) {
-            if (!node.children[seg]) {
-              node.children[seg] = { children: {}, order: [], leaf: null };
+            let child = node.children.get(seg);
+            if (!child) {
+              child = newNode();
+              node.children.set(seg, child);
               node.order.push(seg);
             }
-            node = node.children[seg];
+            node = child;
             if (i === parts.length - 1) {
               node.leaf = full;
             }
@@ -60,7 +65,10 @@ export function applyFilterOptionsMessage(
       const renderTree = function (container: HTMLElement, node: ITreeNode, depth: number): void {
         node.order.sort();
         node.order.forEach(function (seg) {
-          const child = node.children[seg];
+          const child = node.children.get(seg);
+          if (!child) {
+            return;
+          }
           const hasChildren = child.order.length > 0;
           const wrap = document.createElement('div');
           wrap.className = 'log-filter-tree-node';

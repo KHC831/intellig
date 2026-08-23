@@ -10,6 +10,18 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Fixed
+
+- A branch whose name is a JavaScript built-in (`constructor`, `toString`) went
+  missing from the Log tab's branch filter, and deleting a filtered branch could
+  silently reset the filter back to all branches.
+- With the IntelliG merge window turned off and VS Code's built-in Git extension
+  disabled, opening a conflicted file reported an error and opened nothing. It
+  now falls back to the bundled merge window.
+- In the merge window's left action strip the accept arrow sat on the far edge
+  with the reject X between it and the result. The accept arrow now hugs the
+  divider on both sides, so the left strip reads reject then accept.
+
 ## [0.5.7] - 2026-08-17
 
 ### Fixed

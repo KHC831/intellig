@@ -166,7 +166,13 @@ function expectedContext(inputContext: Record<string, unknown> | undefined): unk
   if (Object.keys(result.record.context).length === 0) {
     return undefined;
   }
-  return result.record.context;
+  // The actual side is captured from the sink's RENDERED text and parsed back,
+  // so it is a plain object by construction. The sanitizer builds its bag with
+  // a null prototype (a caller-supplied `__proto__` key must land as a field
+  // rather than move the record's prototype), and deepStrictEqual compares
+  // prototypes. Round-trip the expectation the same way the sink does, so the
+  // assertion stays about VALUES.
+  return JSON.parse(JSON.stringify(result.record.context)) as unknown;
 }
 
 // ─── Generators ─────────────────────────────────────────────────────────────

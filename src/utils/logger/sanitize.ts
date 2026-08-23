@@ -202,7 +202,7 @@ function sanitizeContextRoot(
     return {};
   }
   visited.add(context);
-  const out: { [key: string]: JsonValue | undefined } = {};
+  const out = Object.create(null) as { [key: string]: JsonValue | undefined };
   // Object.keys returns own enumerable string keys only — Symbol keys
   // are dropped silently, matching JSON.stringify behaviour.
   for (const key of Object.keys(context)) {
@@ -253,7 +253,7 @@ function sanitizeJsonValue(value: JsonValue, visited: WeakSet<object>): JsonValu
     return CIRCULAR_MARKER;
   }
   visited.add(value);
-  const out: { [key: string]: JsonValue | undefined } = {};
+  const out = Object.create(null) as { [key: string]: JsonValue | undefined };
   for (const key of Object.keys(value)) {
     const child = (value as { readonly [key: string]: JsonValue | undefined })[key];
     if (child === undefined) {

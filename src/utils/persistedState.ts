@@ -141,7 +141,7 @@ export function readRecordOfStringArrays(v: unknown): Record<string, string[]> |
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     return undefined;
   }
-  const out: Record<string, string[]> = {};
+  const out = Object.create(null) as Record<string, string[]>;
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
     if (!Array.isArray(val) || !val.every((x): x is string => typeof x === 'string')) {
       return undefined;

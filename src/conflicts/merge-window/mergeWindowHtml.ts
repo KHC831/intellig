@@ -285,10 +285,16 @@ body { display: flex; flex-direction: column; font-family: var(--vscode-font-fam
 .action-btn { position: absolute; z-index: 1; width: 16px; height: 18px; line-height: 18px; text-align: center; border: none; background: none; cursor: pointer; padding: 0; color: var(--vscode-icon-foreground, #c5c5c5); }
 .action-btn::before { font-family: codicon; font-size: 14px; display: inline-block; }
 .action-btn:hover { filter: brightness(1.4); }
-.action-btn.apply { left: 0; }
-.action-btn.apply.toward-result-right::before { content: '\\ea9c'; }
-.action-btn.apply.toward-result-left::before { content: '\\ea9b'; }
-.action-btn.ignore { right: 0; }
+/* Each strip faces the result on a different edge: the LEFT strip's result-facing
+   edge is its right one, the RIGHT strip's is its left one. The accept arrow points
+   at the result, so it hugs that facing edge and the reject X sits outside it —
+   reject-then-accept on the left, accept-then-reject on the right. */
+.action-btn.result-right.apply { right: 0; }
+.action-btn.result-right.ignore { left: 0; }
+.action-btn.result-left.apply { left: 0; }
+.action-btn.result-left.ignore { right: 0; }
+.action-btn.apply.result-right::before { content: '\\ea9c'; }
+.action-btn.apply.result-left::before { content: '\\ea9b'; }
 .action-btn.ignore::before { content: '\\ea76'; }
 .action-btn.revert { left: 0; right: 0; margin: 0 auto; background-color: var(--vscode-icon-foreground, #c5c5c5); -webkit-mask: ${REVERT_ICON_MASK} center / 14px 14px no-repeat; mask: ${REVERT_ICON_MASK} center / 14px 14px no-repeat; }
 #bottombar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex: none; border-top: 1px solid var(--vscode-panel-border); }

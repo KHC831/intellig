@@ -17,6 +17,8 @@
  */
 
 import '../setup';
+import * as assert from 'assert';
+import type { Page } from 'playwright-core';
 import {
   mergeWindowStyles,
   MERGE_FILL_ALPHA,
@@ -32,6 +34,7 @@ import {
 } from './support/assert';
 import {
   chromeWithActionBand,
+  chromeWithActionButtons,
   mergeWindowChrome,
   MERGE_BG_TOKEN,
   MERGE_FILL_KINDS,
@@ -190,6 +193,87 @@ describe('merge window chrome (computed style)', () => {
           );
         });
       }
+    });
+  }
+});
+
+/**
+ * The x of the accept and reject buttons inside one action strip. Read from the
+ * rendered boxes, so it reflects the cascade rather than the rule text.
+ */
+async function stripOrder(
+  page: Page,
+  stripBodyId: string
+): Promise<{ apply: number; ignore: number }> {
+  const boxes = await page.evaluate((id: string) => {
+    const body = document.getElementById(id);
+    const at = (sel: string): number | null => {
+      const el = body ? body.querySelector(sel) : null;
+      return el ? el.getBoundingClientRect().left : null;
+    };
+    return { apply: at('.action-btn.apply'), ignore: at('.action-btn.ignore') };
+  }, stripBodyId);
+  assert.ok(
+    boxes.apply !== null && boxes.ignore !== null,
+    `#${stripBodyId} must render both an accept and a reject button; got ${JSON.stringify(boxes)}`
+  );
+  return { apply: boxes.apply, ignore: boxes.ignore };
+}
+
+/**
+ * Per-change accept/reject icon order in the two action strips.
+ *
+ * Each strip hugs the divider between its side editor and the result, but on
+ * opposite edges: the left strip's result-facing edge is its RIGHT one, the
+ * right strip's is its LEFT one. The accept arrow points at the result and must
+ * sit on that facing edge, with the reject X on the outside — so the pair reads
+ * reject-then-accept on the left and accept-then-reject on the right.
+ *
+ * Placing both buttons by the same absolute edges puts the left strip's accept
+ * arrow on the far side, pointing at the result across the X it has to skip.
+ * That is a cascade fact, not a stylesheet-contains fact: only rendering the
+ * production chrome and reading the boxes back can tell the two apart.
+ */
+describe('merge window action strips (computed geometry)', () => {
+  for (const theme of THEMES) {
+    describe(`${theme} theme`, () => {
+      it('orders the LEFT strip reject-then-accept, accept hugging the divider', async () => {
+        await withRenderedPage(
+          {
+            css: mergeWindowStyles(),
+            body: chromeWithActionButtons(),
+            theme,
+            bodyStyle: FULL_HEIGHT,
+          },
+          async (page) => {
+            const order = await stripOrder(page, 'action-left');
+            assert.ok(
+              order.ignore < order.apply,
+              `left strip must read reject then accept; got reject at x=${order.ignore}, ` +
+                `accept at x=${order.apply}`
+            );
+          }
+        );
+      });
+
+      it('orders the RIGHT strip accept-then-reject, accept hugging the divider', async () => {
+        await withRenderedPage(
+          {
+            css: mergeWindowStyles(),
+            body: chromeWithActionButtons(),
+            theme,
+            bodyStyle: FULL_HEIGHT,
+          },
+          async (page) => {
+            const order = await stripOrder(page, 'action-right');
+            assert.ok(
+              order.apply < order.ignore,
+              `right strip must read accept then reject; got accept at x=${order.apply}, ` +
+                `reject at x=${order.ignore}`
+            );
+          }
+        );
+      });
     });
   }
 });

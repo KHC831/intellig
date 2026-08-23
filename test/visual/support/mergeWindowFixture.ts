@@ -167,3 +167,39 @@ export function chromeWithActionBand(kind: MergeFillKind): string {
   const band = `<div class="action-band k-${kind}" style="top:4px;height:20px;"></div>`;
   return chrome.slice(0, at + anchor.length) + band + chrome.slice(at + anchor.length);
 }
+
+/**
+ * The production chrome with an apply/ignore button pair injected into BOTH
+ * action-strip bodies, mirroring the runtime composition site
+ * (webview/main.ts `layoutActionStrip`: `action-btn apply ${side}` and
+ * `action-btn ignore ${side}`, each with `top` set inline). The buttons are runtime
+ * markup no builder emits, so they are hand-built here with that limitation
+ * stated; the strips they land in are the production builder's.
+ *
+ * The direction class per strip matches the runtime call sites: the left strip
+ * sits between the left editor and the result, so its accept arrow points
+ * right; the right strip is mirrored.
+ */
+export function chromeWithActionButtons(): string {
+  let chrome = mergeWindowChrome();
+  for (const [bodyId, side] of [
+    ['action-left', 'result-right'],
+    ['action-right', 'result-left'],
+  ] as const) {
+    const anchor = `id="${bodyId}" class="action-strip-body">`;
+    const at = chrome.indexOf(anchor);
+    if (at === -1) {
+      throw new Error(
+        `chromeWithActionButtons found no ${bodyId} action-strip body in the production ` +
+          'chrome; buildMergeWindowDom changed shape and ' +
+          'test/visual/support/mergeWindowFixture.ts needs updating rather than rendering ' +
+          'no buttons.'
+      );
+    }
+    const buttons =
+      `<button class="action-btn apply ${side}" style="top:4px;"></button>` +
+      `<button class="action-btn ignore ${side}" style="top:4px;"></button>`;
+    chrome = chrome.slice(0, at + anchor.length) + buttons + chrome.slice(at + anchor.length);
+  }
+  return chrome;
+}

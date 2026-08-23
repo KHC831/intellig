@@ -144,6 +144,47 @@ describe('Branch popup — client population on logFilterOptionsReady', () => {
     assert.strictEqual(anyLeafChecked, false, 'no leaves checked in the none state');
   });
 
+  // The name→node map is a plain object, so a segment that names an
+  // Object.prototype key reads as an already-present node. Both branch names
+  // below are legal per git-check-ref-format.
+  it('lists branches whose name is an Object.prototype key', () => {
+    const document = render('all', [], {
+      local: ['constructor', 'main', 'toString'],
+      remotes: [],
+    });
+    const list = document.getElementById('filter-branch-list')!;
+    // Dropping one silently also miscounts the leaves, so "every box checked"
+    // resolves to `all` while a real branch is missing from the filter.
+    assert.deepStrictEqual(leafRefs(list), ['constructor', 'main', 'toString']);
+  });
+
+  it('lists branches under a folder whose name is an Object.prototype key', () => {
+    const document = render('all', [], {
+      local: ['__proto__/x', 'main'],
+      remotes: [],
+    });
+    const list = document.getElementById('filter-branch-list')!;
+    // Walking into the inherited value throws mid-render, so the whole popup
+    // comes up empty — `main` disappears along with the offending name.
+    assert.deepStrictEqual(leafRefs(list), ['__proto__/x', 'main']);
+  });
+
+  // Reconciliation asks "is this saved ref still on offer?" through the same
+  // kind of plain-object map. An inherited key answers yes for a branch that is
+  // gone, so the kept count reaches the leaf count and the whole filter
+  // silently resets to "all branches" instead of narrowing to what survived.
+  it('drops a saved branch that no longer exists even when it names an Object.prototype key', () => {
+    const document = render('subset', ['toString', 'main'], {
+      local: ['dev', 'main'],
+      remotes: [],
+    });
+    const list = document.getElementById('filter-branch-list')!;
+    const checked = Array.from(list.querySelectorAll<HTMLInputElement>('input[data-branch]'))
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.getAttribute('data-branch'));
+    assert.deepStrictEqual(checked, ['main'], 'only the surviving saved branch stays checked');
+  });
+
   it('builds rows as inert text (no markup injection)', () => {
     const document = render('all', [], {
       local: ['<img src=x onerror=alert(1)>'],

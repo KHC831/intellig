@@ -178,7 +178,7 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
   let legacyDefaultId: string | undefined;
   const changelists: IChangelistStorageItem[] = rawItems.map((raw) => {
     const item = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-    const unknownItem: Record<string, unknown> = {};
+    const unknownItem = Object.create(null) as Record<string, unknown>;
     for (const k of Object.keys(item)) {
       if (!KNOWN_ITEM_KEYS.has(k)) {
         unknownItem[k] = item[k];
@@ -210,7 +210,7 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
       ? parsed.activeChangelistId
       : (legacyDefaultId ?? DEFAULT_CHANGELIST_ID);
 
-  const unknownTopLevel: Record<string, unknown> = {};
+  const unknownTopLevel = Object.create(null) as Record<string, unknown>;
   for (const k of Object.keys(parsed)) {
     if (!KNOWN_TOP_LEVEL_KEYS.has(k)) {
       unknownTopLevel[k] = parsed[k];
