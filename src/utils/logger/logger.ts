@@ -259,7 +259,10 @@ class LoggerImpl implements Logger {
     // Merge non-special bindings into the inherited context. Build a
     // mutable map first, then freeze the structural shape via
     // `Readonly<...>` for the field type.
-    const merged: Record<string, JsonValue> = { ...this._inheritedContext };
+    const merged = Object.assign(
+      Object.create(null) as Record<string, JsonValue>,
+      this._inheritedContext
+    );
     for (const key of Object.keys(bindings)) {
       if (key === 'component' || key === 'correlationId') {
         continue;

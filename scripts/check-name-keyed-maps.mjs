@@ -17,21 +17,42 @@
 //    field is silently dropped by the code that exists to preserve it.
 //
 // 2. Heuristic + how it scales
-//    Flag a declaration that types a value as a string-keyed record and
-//    initialises it with an empty object literal:
+//    Flag a declaration that types a value as a string-keyed record AT THE
+//    CONSTRUCTION SITE and initialises it with an empty object literal:
 //      `: Record<string, T> = {}`  /  `: { [key: string]: T } = {}`
 //      `= {} as Record<string, T>`
-//    Those are the shapes the three shipped bugs had. `new Map()` /
+//    That is the shape the ADR-003 accumulator bug had. The two branch-filter
+//    bugs did NOT have it — see section 4. `new Map()` /
 //    `new Set()` / `Object.create(null)` are all invisible to it, which is the
 //    point: the guard only sees the wrong one. Scales for free — a new record
 //    accumulator anywhere under src/ is caught with no per-site edit.
+//    What detects regex DRIFT is the companion spec's per-shape teeth cases,
+//    not the floor below: zero hits is this guard's goal state, so the floor
+//    can only catch the tree becoming unreadable, never a pattern going stale.
 //
 // 3. Known false-positive cases
-//    A record whose keys are all compile-time literals owned by this codebase
-//    (a config table, a fixed lookup) is safe and annotates with
+//    A record whose keys AND whose LOOKUP keys are program-owned (a config
+//    table read by literal) is safe, and annotates with
 //    `// name-keyed-map-exempt: <reason>` on the line or the line above.
+//    Both halves are required. Literal keys alone are NOT enough: a table of
+//    literal command ids indexed by an untrusted webview string is exactly the
+//    hazardous case (`constructor` returns a truthy function), and a criterion
+//    naming only the keys would sanction it.
 //
 // 4. Known false-negative cases
+//    A record whose key type is declared on an INTERFACE MEMBER rather than at
+//    the construction site is invisible: `interface N { children: Record<string,
+//    N> }` built as `{ children: {}, … }` has no annotation to match, and that
+//    is exactly the shape of two of the three shipped bugs (the branch named
+//    `constructor`, the `__proto__` folder segment). Reintroducing that shape
+//    would not be caught here; those sites are Maps now, and the ref-rendering
+//    suites are what cover them.
+//    The READ shape is not fenced: this guard sees where a record is BUILT, not
+//    where it is indexed, so `table[untrustedKey]` on a record declared
+//    elsewhere (or inline, as an object literal argument) is invisible. The
+//    three shipped bugs were accumulators, which is why the write shape is the
+//    scope; the branch filter's third failure mode was a read, so this is a
+//    real gap, closed today by review rather than by the guard.
 //    An untyped `const m = {}` later used as a map is invisible (no annotation
 //    to key on), as is a record built by spread rather than assignment. Both
 //    stay on review. The guard reads text, not types, so a record aliased
