@@ -118,7 +118,6 @@ export function tabStripStyles(): string {
       display: flex;
       gap: 0;
       border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
-      background: var(--vscode-editor-background, transparent);
       padding: 0 4px;
       user-select: none;
     }

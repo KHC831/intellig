@@ -7,7 +7,11 @@
 
 export function commitToolWindowStyles(): string {
   return `
-    body { margin: 0; font: var(--vscode-font-size) var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-panel-background); }
+    /* No background: VS Code's injected _defaultStyles paints the webview body
+       transparent, so it composites over whatever container hosts the view. Naming
+       any surface token here overrides that (an unlayered author rule beats
+       @layer vscode-default) and hard-codes one container. */
+    body { margin: 0; font: var(--vscode-font-size) var(--vscode-font-family); color: var(--vscode-foreground); }
     .ctw-tab-strip { display: flex; align-items: center; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); padding: 0 4px; }
     .ctw-tab { background: transparent; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; color: inherit; font: inherit; cursor: pointer; }
     .ctw-tab:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.15)); }

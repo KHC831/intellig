@@ -48,7 +48,7 @@
     },
     "src/commits/commitToolWindowStyles.ts::commitToolWindowStyles": {
       "status": "tested",
-      "note": "surface token identity under the sentinel palette in both themes: the body resolves to panel-background, not the sideBar-background it shipped with (the view is contributed to a panel viewsContainer) — panelSurface.visual.test.ts. Tab strip, changelist tree, diff preview and composer are not yet rendered"
+      "note": "in both themes, mutation-proven: the body declares no surface colour of its own, so VS Code's injected transparent default lets it track its host container (re-adding a background fails the spec; killing the paired positive-control rule fails it too) — panelSurface.visual.test.ts. Changelist tree, diff preview and composer are not yet rendered"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts::historyTabStyles": {
       "status": "tested",

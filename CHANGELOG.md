@@ -21,9 +21,10 @@ fresh empty `[Unreleased]` block is added on top.
 - Show Diff on a conflicted file in the Commit window opened a plain
   before/after diff, which showed the raw `<<<<<<<` / `=======` / `>>>>>>>`
   markers as if they were file content. It now opens the merge view.
-- The Git and Commit windows painted themselves the sidebar colour while
-  sitting in the bottom panel, so they were a visibly different shade from
-  the panel and the Branches tree beside them. They use the panel colour now.
+- The Git and Commit windows painted their own background colour, which did not
+  match the panel they sit in. They now leave it to whatever panel or sidebar
+  hosts them, so they match wherever you move them. The Git window's tab strip
+  followed the same rule.
 - Show Diff on a conflicted file opened the marker-filled diff from the file
   explorer too, not just the Commit window; the decision now lives in the
   command itself and reads status fresh, so both entry points agree.

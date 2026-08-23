@@ -46,7 +46,7 @@ export function buildInlineStyles(): string {
         font-family: var(--vscode-font-family);
         font-size: var(--vscode-font-size);
         color: var(--vscode-foreground);
-        background-color: var(--vscode-panel-background);
+        /* No background: the injected default paints it transparent so it tracks its container. */
       }
 
       /* Visually-hidden utility for assistive-tech-only text. Removes the

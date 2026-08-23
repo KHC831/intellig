@@ -85,17 +85,14 @@ describe('git tool window tab strip (computed style)', () => {
         );
       });
 
-      it('paints the strip on the editor background token, not a browser default', async () => {
+      // The strip's border is themed; its SURFACE is deliberately not, so it
+      // tracks whichever container hosts the view rather than pinning one
+      // theme's editor colour across the top of the panel. The absence itself
+      // is asserted (with a positive control) in panelSurface.visual.test.ts.
+      it('themes the strip border rather than painting a browser default', async () => {
         await withRenderedPage(
           { css: gitToolWindowCss(), body: tallConsoleBody(), theme },
           async (page) => {
-            await assertResolvesToToken(
-              page,
-              '.intellig-tab-strip',
-              'background-color',
-              theme,
-              'vscode-editor-background'
-            );
             await assertResolvesToToken(
               page,
               '.intellig-tab-strip',
