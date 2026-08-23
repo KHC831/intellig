@@ -29,8 +29,15 @@ declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 
 const vscodeApi = acquireVsCodeApi();
 
+/**
+ * Every outbound message carries the repo its rows were rendered from. Stamped
+ * here rather than per call site: the host drops a repo-scoped action whose
+ * stamp is stale, and a call site that forgot the field would silently opt out
+ * of that guard — which is how the commit and stash actions, the two that
+ * mutate, were left unprotected.
+ */
 function post(message: CommitToolWindowInbound): void {
-  vscodeApi.postMessage(message);
+  vscodeApi.postMessage({ ...message, repoRoot: renderedRepoRoot });
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -399,7 +406,7 @@ function applyModel(model: ICommitToolWindowInitModel): void {
     if (modelHasPath(model, previewedPath)) {
       // Content may have changed under the preview — ask the host for a
       // fresh diff of the same path.
-      post({ type: 'selectFile', path: previewedPath, repoRoot: renderedRepoRoot });
+      post({ type: 'selectFile', path: previewedPath });
     } else {
       const pane = document.querySelector('[data-diff-preview]');
       if (pane) {
@@ -577,7 +584,7 @@ function wireControls(): void {
       // host-side re-request in applyModel stays unconditional — content there
       // may genuinely have changed.
       if (path && path !== previewedPath) {
-        post({ type: 'selectFile', path, repoRoot: renderedRepoRoot });
+        post({ type: 'selectFile', path });
       }
     });
     // Double-click opens the file's diff in an editor tab (single click only
@@ -586,7 +593,7 @@ function wireControls(): void {
     localTree.addEventListener('dblclick', (e) => {
       const path = fileRowPathFrom(e);
       if (path) {
-        post({ type: 'openFileDiff', path, repoRoot: renderedRepoRoot });
+        post({ type: 'openFileDiff', path });
       }
     });
     localTree.addEventListener('change', (e) => {
@@ -595,7 +602,7 @@ function wireControls(): void {
       }
       const path = e.target.getAttribute('data-path');
       if (path) {
-        post({ type: 'toggleFile', path, repoRoot: renderedRepoRoot });
+        post({ type: 'toggleFile', path });
       }
     });
   }
@@ -650,7 +657,6 @@ function wireControls(): void {
     const changelistId = row.getAttribute('data-changelist');
     post({
       type: 'changelistContextAction',
-      repoRoot: renderedRepoRoot,
       action: 'contextOpen',
       changelistId: changelistId ?? undefined,
       path: path ?? undefined,

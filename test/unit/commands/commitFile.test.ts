@@ -168,10 +168,13 @@ function repoAt(
   } as unknown as IRepository;
 }
 
-function makeContext(gitService: IGitService): ICommandContext {
+function makeContext(
+  gitService: IGitService,
+  getConflictedFiles: () => Promise<Array<{ path: string }>> = () => Promise.resolve([])
+): ICommandContext {
   return {
     context: { subscriptions: [], extensionUri: Uri.file('/ext') },
-    services: { gitService },
+    services: { gitService, conflictResolutionService: { getConflictedFiles } },
     gitToolWindowProvider: { refresh: (): void => {} },
   } as unknown as ICommandContext;
 }
@@ -199,9 +202,12 @@ describe('intellig.explorer.showDiff — conflicted files', () => {
     restoreMessageFunctions();
   });
 
-  function showDiffHandler(gitService: IGitService): (...args: unknown[]) => unknown {
+  function showDiffHandler(
+    gitService: IGitService,
+    getConflictedFiles?: () => Promise<Array<{ path: string }>>
+  ): (...args: unknown[]) => unknown {
     patch = patchRegisterCommand();
-    registerExplorerCommands(makeContext(gitService));
+    registerExplorerCommands(makeContext(gitService, getConflictedFiles));
     const found = patch.handlers.find((h) => h.id === 'intellig.explorer.showDiff');
     assert.ok(found, 'intellig.explorer.showDiff should be registered');
     return found.cb;
@@ -215,11 +221,10 @@ describe('intellig.explorer.showDiff — conflicted files', () => {
   // window's row.
   it('opens the merge view instead of a two-sided diff', async () => {
     const repo = repoAt('/repo');
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [{ path: 'src/foo.ts', indexStatus: 'U', workTreeStatus: 'U' }],
-    });
-    await showDiffHandler(git)(Uri.file('/repo/src/foo.ts'));
+    const git = createMockGitService(repo, { getRepositories: () => [repo] });
+    await showDiffHandler(git, () => Promise.resolve([{ path: 'src/foo.ts' }]))(
+      Uri.file('/repo/src/foo.ts')
+    );
 
     const ids = executed.map((e) => e.command);
     assert.ok(
@@ -234,11 +239,8 @@ describe('intellig.explorer.showDiff — conflicted files', () => {
 
   it('still opens a two-sided diff for a modified file', async () => {
     const repo = repoAt('/repo');
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => [{ path: 'src/foo.ts', indexStatus: ' ', workTreeStatus: 'M' }],
-    });
-    await showDiffHandler(git)(Uri.file('/repo/src/foo.ts'));
+    const git = createMockGitService(repo, { getRepositories: () => [repo] });
+    await showDiffHandler(git, () => Promise.resolve([]))(Uri.file('/repo/src/foo.ts'));
 
     const ids = executed.map((e) => e.command);
     assert.ok(ids.includes('vscode.diff'), `expected a diff; got: ${ids.join(', ') || '(none)'}`);
@@ -249,13 +251,10 @@ describe('intellig.explorer.showDiff — conflicted files', () => {
   // two-sided diff is the safe degrade.
   it('falls back to the diff when the status read fails', async () => {
     const repo = repoAt('/repo');
-    const git = createMockGitService(repo, {
-      getRepositories: () => [repo],
-      getStatus: async () => {
-        throw new Error('git exploded');
-      },
-    });
-    await showDiffHandler(git)(Uri.file('/repo/src/foo.ts'));
+    const git = createMockGitService(repo, { getRepositories: () => [repo] });
+    await showDiffHandler(git, () => Promise.reject(new Error('git exploded')))(
+      Uri.file('/repo/src/foo.ts')
+    );
     assert.ok(
       executed.map((e) => e.command).includes('vscode.diff'),
       'a failed status read degrades to the plain diff'

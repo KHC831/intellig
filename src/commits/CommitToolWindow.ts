@@ -65,6 +65,7 @@ import { performCommit, LAST_NO_VERIFY_SLOT } from './CommitDialog';
 import { AmendMessageTracker, loadHeadCommitMessage } from './amendMessage';
 import { runBeforeCommitChecks } from './CheckinChecks';
 import { CtwRepoTarget } from './ctwRepoTarget';
+import { isStaleForTarget } from './ctwRetargetGuard';
 import { initIslandHtml } from '../utils/webviewInit';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
 import { assertNever } from '../utils/assertNever';
@@ -568,12 +569,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     if (!msg) {
       return;
     }
-    // Retarget guard: the repository selector can switch this view's target
-    // while rows from the previous repo are still on screen, and the reload it
-    // fires is asynchronous. A file action stamped with the old root would
-    // resolve its repo-relative path against the NEW root — the wrong file for
-    // a diff, and the wrong repo's file for a rollback.
-    if (msg.repoRoot !== undefined && !this._repoTarget.isCurrent(msg.repoRoot)) {
+    if (isStaleForTarget(msg, (root) => this._repoTarget.isCurrent(root))) {
       return;
     }
     switch (msg.type) {
@@ -669,7 +665,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     // Track the selection for F4 / Jump to Source: the keybinding invokes
     // localChanges.openFile with no argument and can't read the webview's
     // selection, so it falls back to this (IntelliJ EditSource semantics).
-    this._lastSelectedFileUri = vscode.Uri.joinPath(repo.rootUri, path);
+    this._lastSelectedFileUri = await this._resolveFileUri(path);
     try {
       const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
       void this.postMessage({ type: 'updateDiffPreview', path, diff });

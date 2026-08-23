@@ -11,13 +11,8 @@ import { openRevisionDiff } from '../../git-core/diff/openRevisionDiff';
 import { PatchWriteFailed, CommitDialog } from '../../services';
 import { canonicalizeFsPath } from '../../utils/repoRelativePath';
 import { safeFireAndForget } from '../../utils/safeFireAndForget';
-import { isConflictedStatus, statusCodeToFileStatus } from '../../git-core/gitParser';
-import type {
-  FileStatus,
-  IFileStatus,
-  IGitService,
-  IRepository,
-} from '../../git-core/interfaces/IGitService';
+import { statusCodeToFileStatus } from '../../git-core/gitParser';
+import type { FileStatus, IFileStatus } from '../../git-core/interfaces/IGitService';
 import { presentFileHistory } from './commitHelpers';
 import type { ICommandContext } from './CommandContext';
 import { registerFileCommand, registerSelectionCommand } from './commandSpine';
@@ -192,23 +187,6 @@ export function fileStatusFor(
  * (RULE E4).
  */
 
-/**
- * Repo-relative paths git currently reports as unmerged. A failed status read
- * degrades to "none conflicted": the plain diff is the safe answer, and
- * stranding the user with nothing would be worse than a marker-filled one.
- */
-async function conflictedPaths(
-  gitService: IGitService,
-  repo: IRepository
-): Promise<ReadonlySet<string>> {
-  try {
-    const status = await gitService.getStatus(repo);
-    return new Set(status.filter(isConflictedStatus).map((f) => f.path));
-  } catch {
-    return new Set<string>();
-  }
-}
-
 export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposable[] {
   const explorerShowHistoryCommand = registerFileCommand(ctx, {
     id: 'intellig.explorer.showHistory',
@@ -357,7 +335,7 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   const explorerShowDiffCommand = registerSelectionCommand(ctx, {
     id: 'intellig.explorer.showDiff',
     failureTitle: 'Failed to show diff',
-    run: async ({ gitService, repo, targets, paths }) => {
+    run: async ({ services, repo, targets, paths }) => {
       // Every Show Diff entry point funnels through here, so the
       // conflicted-vs-plain decision lives here too rather than at each
       // caller (IntelliJ makes it once, inside the single request producer:
@@ -365,7 +343,14 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       // ChangesUtil.isTextConflictingChange). Read status fresh: an unmerged
       // file resolved seconds ago would otherwise still open the merge view,
       // and one that just conflicted would still get the marker diff.
-      const conflicted = await conflictedPaths(gitService, repo);
+      // The one definition of "which files are unmerged", shared with every
+      // other conflict-aware command. A failed read degrades to "none": the
+      // plain diff beats stranding the user with nothing.
+      const conflicted = new Set<string>(
+        (await services.conflictResolutionService.getConflictedFiles(repo).catch(() => [])).map(
+          (f) => f.path
+        )
+      );
       for (let i = 0; i < targets.length; i++) {
         const filePath = paths[i];
         if (conflicted.has(filePath)) {
