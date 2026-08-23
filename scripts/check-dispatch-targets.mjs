@@ -33,9 +33,15 @@
 //    above) with `// dispatch-exempt: <reason>`.
 //
 // 4. Known false-negative cases
-//    Ids assembled at runtime (`'intellig.' + verb`) are invisible to the
-//    literal scan, as are argument-contract mismatches (right id, wrong
-//    payload shape) — those stay on unit/e2e coverage. A registration that
+//    Ids assembled at runtime (`'intellig.' + verb`) are invisible to BOTH
+//    scans: the literal arm reads only the first quoted token, and the
+//    computed arm skips anything starting with a quote. Argument-contract
+//    mismatches (right id, wrong payload shape) are invisible too — those stay
+//    on unit/e2e coverage. The computed arm is also anchored on `commands.`,
+//    so an aliased or destructured `executeCommand(` with a computed id
+//    escapes it while a literal one would still be caught by the literal arm.
+//    The anchor is deliberate (the merge model has its own unrelated
+//    `undoManager.executeCommand`) and the asymmetry is the price. A registration that
 //    exists but is never reached at runtime is check-command-reachability's
 //    territory, not this guard's.
 //
@@ -137,8 +143,10 @@ function main() {
   for (const f of files) {
     const text = fs.readFileSync(f, 'utf8');
     for (const m of text.matchAll(ANY_DISPATCH_RE)) {
-      // A literal first argument (on this line or wrapped onto the next) is
-      // what DISPATCH_RE already covers; only a computed one is invisible.
+      // A literal first argument (on this line or wrapped onto the next) is what
+      // DISPATCH_RE already covers. A CONCATENATED id ('intellig.' + verb) also
+      // starts with a quote, so it is skipped here and stays invisible to both
+      // arms — see section 4.
       if (/^['"`]/.test(m[1].replace(/^\s+/, ''))) continue;
       const { lineNo, line, prevLine } = lineContext(text, m.index);
       const trimmed = line.trimStart();

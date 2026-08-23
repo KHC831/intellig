@@ -136,6 +136,22 @@ describe('check-dispatch-targets guard', () => {
     assert.strictEqual(status, 0, `annotated dynamic dispatch must pass; stderr:\n${stderr}`);
   });
 
+  // The literal arm exits before the computed arm, so a WRAPPED literal
+  // misclassified as computed would still exit 1 with matching stderr — the
+  // multiline case above cannot tell the two apart. This pins the positive:
+  // a registered wrapped literal must PASS, which is the regression the
+  // zero-width lookahead was written to fix.
+  it('classifies a wrapped literal as a literal, not as a computed id', () => {
+    const { src, pkg } = makeFixture(
+      {
+        'sender.ts': `await vscode.commands.executeCommand(\n  'intellig.declared',\n  arg\n);\n`,
+      },
+      { contributes: { commands: [{ command: 'intellig.declared' }] } }
+    );
+    const { status, stderr } = runGuard([src, pkg]);
+    assert.strictEqual(status, 0, `a wrapped registered literal must pass; stderr:\n${stderr}`);
+  });
+
   it('is FAIL-CLOSED: a scan matching zero dispatches fails', () => {
     const { src, pkg } = makeFixture({ 'sender.ts': `const x = 1;\n` });
     const { status, stderr } = runGuard([src, pkg]);

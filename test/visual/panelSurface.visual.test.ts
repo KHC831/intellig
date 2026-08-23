@@ -29,22 +29,13 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { buildThreePanelStyles } from '../../src/git-core/gitToolWindow/provider/stylesBuilder';
-import { toolWindowTabStyles } from '../../src/git-core/gitToolWindow/provider/documentShell';
 import { commitToolWindowStyles } from '../../src/commits/commitToolWindowStyles';
+import { gitToolWindowCss } from './support/gitToolWindowFixture';
 import { withRenderedPage } from './support/browser';
 import { assertComputedEquals, assertResolvesToToken } from './support/assert';
 import type { ThemeName } from './support/theme';
 
 const THEMES: readonly ThemeName[] = ['dark', 'light'];
-
-/**
- * The sheet the Git tool window actually ships: `buildThreePanelStyles()` (a
- * superset of `buildInlineStyles()`) plus the tab sheets, exactly as
- * documentShell assembles them. Rendering the inner sheet instead would make
- * the lane blind to an outer rule overpainting the body.
- */
-const gitToolWindowStyles = (): string => `${buildThreePanelStyles()}\n${toolWindowTabStyles()}`;
 
 /** The lane reset's body colour: what a container the view does not repaint looks like. */
 const CONTAINER_TOKEN = 'vscode-editor-background';
@@ -62,7 +53,7 @@ const PANEL_VIEWS: ReadonlyArray<{
 }> = [
   {
     name: 'Git tool window',
-    css: () => gitToolWindowStyles(),
+    css: () => gitToolWindowCss(),
     body:
       '<div class="intellig-tabbed"><div class="intellig-tab-strip">' +
       '<button class="intellig-tab intellig-tab-active"></button></div></div>',
@@ -116,7 +107,7 @@ describe('panel-hosted view surfaces (computed style)', () => {
     it(`leaves the Git tab strip to the host container in the ${theme} theme`, async () => {
       await withRenderedPage(
         {
-          css: gitToolWindowStyles(),
+          css: gitToolWindowCss(),
           body: '<div class="intellig-tab-strip"><button class="intellig-tab"></button></div>',
           theme,
         },
@@ -148,7 +139,7 @@ describe('panel-hosted view surfaces (computed style)', () => {
   for (const theme of THEMES) {
     it(`keeps the sticky Log column header opaque in the ${theme} theme`, async () => {
       await withRenderedPage(
-        { css: gitToolWindowStyles(), body: '<div class="log-column-header"></div>', theme },
+        { css: gitToolWindowCss(), body: '<div class="log-column-header"></div>', theme },
         async (page) => {
           const sticky = await page.evaluate(() => {
             const el = document.querySelector('.log-column-header');
