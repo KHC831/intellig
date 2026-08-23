@@ -150,7 +150,23 @@ export class MergeView implements IMergeView {
     if (gitCli) {
       await this._injectSyntheticBase(repository, relPath, gitCli);
     }
-    await this._openNativeMergeEditor(absolutePath);
+    try {
+      await this._openNativeMergeEditor(absolutePath);
+    } catch (err) {
+      // `git.openMergeEditor` is contributed by the BUILT-IN Git extension,
+      // which some IntelliG users disable (see the scheme note above). Without
+      // this the user asked for a merge surface and got a toast: fall back to
+      // the bundled window, which needs no other extension.
+      if (!this._mergeWindowDeps || !gitCli) {
+        throw err;
+      }
+      getLogger()
+        .child({ component: 'MergeView' })
+        .info('native merge editor unavailable; falling back to the merge window', {
+          file: relPath,
+        });
+      await this._openMergeWindow(repository, absolutePath, relPath, gitCli);
+    }
   }
 
   /**
