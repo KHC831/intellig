@@ -166,6 +166,36 @@ describe('webview: Commit Tool Window entry (jsdom)', () => {
     );
   });
 
+  // Every outbound message is stamped in post() so the host can drop an action
+  // aimed at a repo the view no longer targets. An UNSTAMPED message is always
+  // allowed by design, so deleting the stamp disables the guard silently — this
+  // is the assertion that notices.
+  it('stamps outbound messages with the repo the rows were rendered from', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+      repoRoot: '/repo/rendered',
+    });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+
+    const row = h.document.querySelector('.ctw-file-row');
+    assert.ok(row, 'a row must render');
+    row.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
+
+    const opened = h.posted.find((m) => (m as { type?: string }).type === 'openFileDiff') as
+      | { repoRoot?: string }
+      | undefined;
+    assert.ok(opened, `expected an openFileDiff post; got: ${JSON.stringify(h.posted)}`);
+    assert.strictEqual(
+      opened.repoRoot,
+      '/repo/rendered',
+      'the post must carry the rendered repo, or the host guard is inert'
+    );
+  });
+
   it('double-clicking a file checkbox does not ask for a diff', () => {
     const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',

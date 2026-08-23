@@ -55,6 +55,22 @@ describe('CommitToolWindow — fingerprintCtwModel', () => {
     assert.strictEqual(typing, quiet, 'composer state must not participate in the fingerprint');
   });
 
+  // The host DROPS any repo-scoped message whose stamp is not the current
+  // target, and the webview only learns its stamp from a pushed model. So a
+  // retarget that produces an identical model must still push: two clean repos
+  // in a multi-root workspace differ in nothing else, and skipping the push
+  // leaves the view holding the previous repo's stamp with every action —
+  // including Commit — silently dropped and no way to recover.
+  it('a repoRoot delta produces a different fingerprint', () => {
+    const a = buildCommitToolWindowInitModel(makeInput({ repoRoot: '/repo/a' }));
+    const b = buildCommitToolWindowInitModel(makeInput({ repoRoot: '/repo/b' }));
+    assert.notStrictEqual(
+      fingerprintCtwModel(a),
+      fingerprintCtwModel(b),
+      'a field the host guards on is part of what makes a model distinct'
+    );
+  });
+
   it('a changelist-content delta produces a different fingerprint', () => {
     const before = fingerprintCtwModel(buildCommitToolWindowInitModel(makeInput()));
     const after = fingerprintCtwModel(

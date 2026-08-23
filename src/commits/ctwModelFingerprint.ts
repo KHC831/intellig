@@ -17,6 +17,13 @@ import type { ICommitToolWindowInitModel } from './commitToolWindow.types';
 
 export function fingerprintCtwModel(model: ICommitToolWindowInitModel): string {
   return JSON.stringify({
+    // The webview learns its retarget stamp ONLY from a pushed model, and the
+    // host drops any repo-scoped message carrying a stale one. Two clean repos
+    // in a multi-root workspace differ in nothing else, so leaving this out
+    // makes a switch between them skip the push and wedge the view — Commit
+    // included — with no toast and no way back. A field the host GUARDS on is
+    // part of what makes a model distinct.
+    repoRoot: model.repoRoot,
     activeTab: model.activeTab,
     grouping: model.grouping,
     local: model.local,
