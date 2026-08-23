@@ -82,6 +82,7 @@ import { writableCommands, writableWindow } from '../../typed/windowStub';
  */
 interface CommitToolWindowTestSurface {
   _changelists: IChangelist[];
+  _repoTarget: { root(): string | undefined };
   _composerMessage: string;
   _signOff: boolean;
   _handleWebviewMessage: (message: unknown) => Promise<void>;
@@ -1154,6 +1155,38 @@ describe('CommitToolWindow — host behavior', () => {
       tw.dispose();
     });
   }
+
+  // The repository selector can retarget this view while rows from the previous
+  // repo are still on screen, and the reload it fires is asynchronous. A click
+  // in that window carries the OLD root; acting on it would resolve the row's
+  // repo-relative path against the NEW root — the wrong file for a diff, and
+  // the wrong repo's file for a rollback.
+  it('drops a file action stamped with a repo that is no longer the target', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'openFileDiff',
+      path: 'src/sub/a.ts',
+      repoRoot: '/some/other-repo',
+    });
+    assert.deepStrictEqual(
+      executed.map((e) => e.command),
+      [],
+      'a stale-stamped action must not reach a command'
+    );
+    tw.dispose();
+  });
+
+  it('honors a file action stamped with the current target', async () => {
+    const { tw, executed } = createFileContextWindow();
+    const current = asTestSurface(tw)._repoTarget.root();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'openFileDiff',
+      path: 'src/sub/a.ts',
+      repoRoot: current,
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
+    tw.dispose();
+  });
 
   it('openFileDiff without a path dispatches nothing', async () => {
     const { tw, executed } = createFileContextWindow();

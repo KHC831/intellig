@@ -133,6 +133,14 @@ export interface ICommitToolWebviewMessage {
   grouping?: ChangesGroupingMode;
   /** Row kind being operated on when `action` targets a Shelf-tab row. */
   rowKind?: 'shelf' | 'stash';
+  /**
+   * Repo root the view was rendered against, echoed back on file actions. The
+   * host drops a message whose root is no longer the sticky target: the
+   * selector can retarget mid-flight and rows still on screen belong to the
+   * previous repo, so acting on them would resolve a stale path against the
+   * new root.
+   */
+  repoRoot?: string;
   /** Shelf entry id (when rowKind === 'shelf'). */
   shelfId?: string;
   /** Stash index (when rowKind === 'stash'). */
@@ -167,6 +175,8 @@ export interface ICtwChangelistModel {
  */
 export interface ICommitToolWindowInitModel {
   activeTab: CommitToolWindowTab;
+  /** Repo root these rows were built from; echoed back on every file action. */
+  repoRoot?: string;
   showLocal: boolean;
   grouping: ChangesGroupingMode;
   gearItems: Array<{ id: 'toggleNoVerify'; label: string; checked: boolean }>;

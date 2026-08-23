@@ -24,6 +24,19 @@ export class CtwRepoTarget {
     this._root = repo.rootUri.fsPath;
   }
 
+  /** The sticky root path, for stamping the render model. */
+  root(): string | undefined {
+    return this._root;
+  }
+
+  /** Whether `root` is still the sticky target (retarget guard). */
+  isCurrent(root: string): boolean {
+    return (
+      this._root !== undefined &&
+      normalizeRepoPathString(this._root) === normalizeRepoPathString(root)
+    );
+  }
+
   /** The live IRepository for the sticky root, or undefined if it closed. */
   live(): IRepository | undefined {
     if (this._root === undefined) {

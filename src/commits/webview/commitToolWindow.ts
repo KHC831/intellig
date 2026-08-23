@@ -67,6 +67,12 @@ function cssEscapeAttr(value: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch);
 }
 
+/**
+ * Repo root the rendered rows belong to. Echoed on every file action so the
+ * host can drop a click that lands after the selector retargeted the view.
+ */
+let renderedRepoRoot: string | undefined;
+
 /** Path currently shown in the diff preview pane (undefined = placeholder). */
 let previewedPath: string | undefined;
 
@@ -360,6 +366,7 @@ function modelHasPath(model: ICommitToolWindowInitModel, path: string): boolean 
  * `model.composer` — a live update must not stomp in-progress typing.
  */
 function applyModel(model: ICommitToolWindowInitModel): void {
+  renderedRepoRoot = model.repoRoot;
   const localTree = document.getElementById('ctw-local-tree');
   const shelfList = document.getElementById('ctw-shelf-list');
   if (!localTree || !shelfList) {
@@ -392,7 +399,7 @@ function applyModel(model: ICommitToolWindowInitModel): void {
     if (modelHasPath(model, previewedPath)) {
       // Content may have changed under the preview — ask the host for a
       // fresh diff of the same path.
-      post({ type: 'selectFile', path: previewedPath });
+      post({ type: 'selectFile', path: previewedPath, repoRoot: renderedRepoRoot });
     } else {
       const pane = document.querySelector('[data-diff-preview]');
       if (pane) {
@@ -411,6 +418,7 @@ function gearItemText(label: string, checked: boolean): string {
 }
 
 function render(INIT: ICommitToolWindowInitModel): void {
+  renderedRepoRoot = INIT.repoRoot;
   function buildTabStrip(): HTMLDivElement {
     const strip = el('div', { className: 'ctw-tab-strip' });
     setAttrs(strip, { role: 'tablist' });
@@ -557,7 +565,7 @@ function wireControls(): void {
       if (row) {
         const path = row.getAttribute('data-path');
         if (path) {
-          post({ type: 'selectFile', path });
+          post({ type: 'selectFile', path, repoRoot: renderedRepoRoot });
         }
       }
     });
@@ -571,7 +579,7 @@ function wireControls(): void {
       const row = e.target.closest('.ctw-file-row');
       const path = row ? row.getAttribute('data-path') : null;
       if (path) {
-        post({ type: 'openFileDiff', path });
+        post({ type: 'openFileDiff', path, repoRoot: renderedRepoRoot });
       }
     });
     localTree.addEventListener('change', (e) => {
@@ -580,7 +588,7 @@ function wireControls(): void {
       }
       const path = e.target.getAttribute('data-path');
       if (path) {
-        post({ type: 'toggleFile', path });
+        post({ type: 'toggleFile', path, repoRoot: renderedRepoRoot });
       }
     });
   }
@@ -635,6 +643,7 @@ function wireControls(): void {
     const changelistId = row.getAttribute('data-changelist');
     post({
       type: 'changelistContextAction',
+      repoRoot: renderedRepoRoot,
       action: 'contextOpen',
       changelistId: changelistId ?? undefined,
       path: path ?? undefined,
