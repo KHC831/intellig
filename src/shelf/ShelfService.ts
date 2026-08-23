@@ -344,7 +344,7 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
   const rawItems = Array.isArray(record.items) ? record.items : [];
   const items: IShelfStorageItem[] = rawItems.map((raw) => {
     const item = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-    const unknownItem: Record<string, unknown> = {};
+    const unknownItem = Object.create(null) as Record<string, unknown>;
     for (const k of Object.keys(item)) {
       if (!KNOWN_SHELF_ITEM_KEYS.has(k)) {
         unknownItem[k] = item[k];
@@ -353,7 +353,7 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
     const files = Array.isArray(item.files)
       ? (item.files as unknown[]).map((f): IShelfStorageFile => {
           const fileRec = f !== null && typeof f === 'object' ? (f as Record<string, unknown>) : {};
-          const unknownFileField: Record<string, unknown> = {};
+          const unknownFileField = Object.create(null) as Record<string, unknown>;
           for (const k of Object.keys(fileRec)) {
             if (!KNOWN_SHELF_FILE_KEYS.has(k)) {
               unknownFileField[k] = fileRec[k];
@@ -392,7 +392,7 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
     };
   });
 
-  const unknownTopLevel: Record<string, unknown> = {};
+  const unknownTopLevel = Object.create(null) as Record<string, unknown>;
   for (const k of Object.keys(record)) {
     if (!KNOWN_SHELF_TOP_LEVEL_KEYS.has(k)) {
       unknownTopLevel[k] = record[k];

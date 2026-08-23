@@ -32,22 +32,14 @@ export function applyFilterOptionsMessage(
         header.textContent = title;
         list.appendChild(header);
       };
+      // A Map, not an object: a branch may legally be named `constructor` /
+      // `toString` / `__proto__`, and an object literal inherits those keys.
       interface ITreeNode {
-        children: Record<string, ITreeNode>;
+        children: Map<string, ITreeNode>;
         order: string[];
         leaf: string | null;
       }
-      // Segments key `children` directly, and a branch may legally be named
-      // `constructor` / `toString` / `__proto__`. With a plain object those
-      // read as already-present nodes: the branch is dropped from the list (and
-      // from the leaf count the all/subset state is derived from), or the walk
-      // steps into the inherited value and throws mid-render, leaving the whole
-      // popup empty. A prototype-less map has no inherited keys to collide with.
-      const newNode = (): ITreeNode => ({
-        children: Object.create(null) as Record<string, ITreeNode>,
-        order: [],
-        leaf: null,
-      });
+      const newNode = (): ITreeNode => ({ children: new Map(), order: [], leaf: null });
       const buildTree = function (names: string[], stripPrefix: string): ITreeNode {
         const root: ITreeNode = newNode();
         names.forEach(function (full) {
@@ -56,11 +48,13 @@ export function applyFilterOptionsMessage(
           const parts = shown.split('/').filter(Boolean);
           let node = root;
           parts.forEach(function (seg, i) {
-            if (!node.children[seg]) {
-              node.children[seg] = newNode();
+            let child = node.children.get(seg);
+            if (!child) {
+              child = newNode();
+              node.children.set(seg, child);
               node.order.push(seg);
             }
-            node = node.children[seg];
+            node = child;
             if (i === parts.length - 1) {
               node.leaf = full;
             }
@@ -71,7 +65,10 @@ export function applyFilterOptionsMessage(
       const renderTree = function (container: HTMLElement, node: ITreeNode, depth: number): void {
         node.order.sort();
         node.order.forEach(function (seg) {
-          const child = node.children[seg];
+          const child = node.children.get(seg);
+          if (!child) {
+            return;
+          }
           const hasChildren = child.order.length > 0;
           const wrap = document.createElement('div');
           wrap.className = 'log-filter-tree-node';

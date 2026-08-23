@@ -345,7 +345,12 @@ class LoggerImpl implements Logger {
     // Merge inherited + per-call into the record context. Skip
     // special keys (component / correlationId) — they are top-level
     // fields, not context fields.
-    const mergedContext: Record<string, JsonValue> = { ...this._inheritedContext };
+    // Prototype-less: context keys are caller-supplied, so `__proto__` would hit
+    // the prototype setter and move the record's prototype instead of storing.
+    const mergedContext = Object.assign(
+      Object.create(null) as Record<string, JsonValue>,
+      this._inheritedContext
+    );
     if (context !== undefined) {
       for (const key of Object.keys(context)) {
         if (key === 'component' || key === 'correlationId') {

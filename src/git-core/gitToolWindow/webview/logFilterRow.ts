@@ -158,16 +158,15 @@ export function setupLogFilterRow(deps: ILogFilterRowDeps): IFilterBridge | null
     if (filterState.branchMode === 'subset') {
       const leaves = list.querySelectorAll('input[data-branch]');
       if (leaves.length > 0) {
-        // Prototype-less: a branch may legally be named `constructor` /
-        // `toString`, and an inherited key would report a deleted branch as
-        // still on offer — the kept count then reaches the leaf count and the
-        // filter resets itself to "all branches".
-        const present = Object.create(null) as Record<string, boolean>;
+        // A Set, not an object: an inherited key (`toString`) would report a
+        // deleted branch as still on offer, the kept count would reach the leaf
+        // count, and the filter would reset itself to "all branches".
+        const present = new Set<string>();
         leaves.forEach(function (cb) {
-          present[cb.getAttribute('data-branch') || ''] = true;
+          present.add(cb.getAttribute('data-branch') || '');
         });
         const kept = filterState.branches.filter(function (r) {
-          return present[r];
+          return present.has(r);
         });
         if (kept.length === 0 || kept.length === leaves.length) {
           filterState.branchMode = 'all';
