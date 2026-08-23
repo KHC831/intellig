@@ -44,7 +44,7 @@ import {
   type IShelfTabShelfController,
   type IShelfTabStashController,
 } from './shelfTab';
-import { handleChangelistAction } from './changelistTab';
+import { handleChangelistAction, openFileDiffSurface } from './changelistTab';
 import {
   UNVERSIONED_PSEUDO_CHANGELIST_ID,
   basename,
@@ -692,11 +692,10 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
    * points can't drift apart.
    */
   private _handleOpenFileDiff(path: string): Promise<void> {
-    return this._handleChangelistAction({
-      type: 'changelistContextAction',
-      action: 'showDiff',
-      path,
-    });
+    if (this._activeTab !== 'localChanges') {
+      return Promise.resolve();
+    }
+    return openFileDiffSurface({ resolveFileUri: (p) => this._resolveFileUri(p) }, path);
   }
 
   private _handleToggleFile(path: string): void {
@@ -841,9 +840,8 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
    * dispatch to the owning commands (their handlers expect a `vscode.Uri`,
    * not the bare relative string the webview carries).
    */
-  private async _resolveFileUri(path: string): Promise<vscode.Uri | undefined> {
-    const repo = await this._resolveRepo();
-    return repo ? vscode.Uri.joinPath(repo.rootUri, path) : undefined;
+  private _resolveFileUri(path: string): Promise<vscode.Uri | undefined> {
+    return this._repoTarget.resolveFileUri(path);
   }
 
   // ── State helpers ──────────────────────────────────────────────────────

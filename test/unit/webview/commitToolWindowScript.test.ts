@@ -159,6 +159,11 @@ describe('webview: Commit Tool Window entry (jsdom)', () => {
       ),
       `expected an openFileDiff post; got: ${JSON.stringify(h.posted)}`
     );
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      [],
+      'the dblclick listener must not throw after posting'
+    );
   });
 
   it('double-clicking a file checkbox does not ask for a diff', () => {
@@ -180,6 +185,11 @@ describe('webview: Commit Tool Window entry (jsdom)', () => {
     assert.deepStrictEqual(
       h.posted.filter((m) => (m as { type?: string }).type === 'openFileDiff'),
       []
+    );
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      [],
+      'the checkbox guard must not throw'
     );
   });
 

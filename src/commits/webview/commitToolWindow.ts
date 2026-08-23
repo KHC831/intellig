@@ -522,6 +522,19 @@ function getComposerPayload(): {
   };
 }
 
+/**
+ * The file path a row-targeting mouse event refers to, or undefined. The
+ * checkbox is excluded here once rather than at each gesture: two fast clicks
+ * on it are an include/exclude toggle, not a request to open.
+ */
+function fileRowPathFrom(e: Event): string | undefined {
+  if (!(e.target instanceof Element) || (e.target as HTMLElement).tagName === 'INPUT') {
+    return undefined;
+  }
+  const row = e.target.closest('.ctw-file-row');
+  return row ? (row.getAttribute('data-path') ?? undefined) : undefined;
+}
+
 function wireControls(): void {
   // Tab click (persistent nodes → direct listeners).
   document.querySelectorAll('.ctw-tab').forEach((btn) => {
@@ -558,26 +571,20 @@ function wireControls(): void {
         }
         return;
       }
-      if ((e.target as HTMLElement).tagName === 'INPUT') {
-        return; // checkbox handled by the change listener below
-      }
-      const row = e.target.closest('.ctw-file-row');
-      if (row) {
-        const path = row.getAttribute('data-path');
-        if (path) {
-          post({ type: 'selectFile', path, repoRoot: renderedRepoRoot });
-        }
+      const path = fileRowPathFrom(e);
+      // Already previewed: a double-click's second click would otherwise spawn
+      // a redundant `git diff` for the row the pane is already showing. The
+      // host-side re-request in applyModel stays unconditional — content there
+      // may genuinely have changed.
+      if (path && path !== previewedPath) {
+        post({ type: 'selectFile', path, repoRoot: renderedRepoRoot });
       }
     });
     // Double-click opens the file's diff in an editor tab (single click only
     // fills the inline preview pane). The checkbox is excluded: two fast
     // clicks there are an include/exclude toggle, not a request to open.
     localTree.addEventListener('dblclick', (e) => {
-      if (!(e.target instanceof Element) || (e.target as HTMLElement).tagName === 'INPUT') {
-        return;
-      }
-      const row = e.target.closest('.ctw-file-row');
-      const path = row ? row.getAttribute('data-path') : null;
+      const path = fileRowPathFrom(e);
       if (path) {
         post({ type: 'openFileDiff', path, repoRoot: renderedRepoRoot });
       }

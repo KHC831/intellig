@@ -84,6 +84,25 @@ export interface IChangelistActionDeps {
   reloadState: () => Promise<void>;
 }
 
+/**
+ * Open a changed file's diff. The command itself picks the merge view over a
+ * two-sided diff for an unmerged file, off a fresh status read, so this is
+ * unconditional.
+ *
+ * Named rather than reached through a synthesized `changelistContextAction`
+ * message: the row's menu entry and the row's double-click are the same action,
+ * and a fake envelope would bypass any pre-processing later added to that arm.
+ */
+export async function openFileDiffSurface(
+  deps: Pick<IChangelistActionDeps, 'resolveFileUri'>,
+  path: string
+): Promise<void> {
+  const fileUri = await deps.resolveFileUri(path);
+  if (fileUri) {
+    await vscode.commands.executeCommand('intellig.explorer.showDiff', fileUri);
+  }
+}
+
 export async function handleChangelistAction(
   deps: IChangelistActionDeps,
   message: ICommitToolWebviewMessage
@@ -226,12 +245,7 @@ export async function handleChangelistAction(
     }
     case 'showDiff':
       if (message.path) {
-        const fileUri = await deps.resolveFileUri(message.path);
-        if (fileUri) {
-          // Unconditional: the command itself picks the merge view over a
-          // two-sided diff for an unmerged file, off a fresh status read.
-          await vscode.commands.executeCommand('intellig.explorer.showDiff', fileUri);
-        }
+        await openFileDiffSurface(deps, message.path);
       }
       return;
     case 'jumpToSource':
