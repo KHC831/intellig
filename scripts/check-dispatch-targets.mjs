@@ -58,6 +58,15 @@ const REGISTRATION_RES = [
   /id:\s*['"`](intellig\.[^'"`]+)['"`]/g,
 ];
 const EXEMPT_RE = /\/\/\s*dispatch-exempt:/;
+// Every `commands.executeCommand(` call plus the text that follows it, so the
+// first argument can be classified in code rather than by a lookahead — a
+// greedy `\s*` backtracks to zero width and reads a WRAPPED literal (the id on
+// the next line) as computed. Anchored on `commands.` so the merge model's own
+// `undoManager.executeCommand` (a different method entirely) stays out of scope.
+// The trailing text is captured through a LOOKAHEAD so the match stays
+// zero-width past the paren: consuming it would advance matchAll's cursor over
+// the next call and silently skip it.
+const ANY_DISPATCH_RE = /commands\.executeCommand(?:<[^>]*>)?\((?=([\s\S]{0,120}))/g;
 
 function listSourceFiles(srcDir) {
   const files = [];
@@ -118,6 +127,30 @@ function main() {
     }
   }
 
+  // Anti-vacuity: a computed first argument (a ternary, a variable, a template)
+  // matches DISPATCH_RE nowhere, so the id it dispatches silently leaves this
+  // guard's inventory — a rename would then pass green. A ternary over two
+  // intellig ids did exactly that and emptied the inventory for both. Dynamic
+  // dispatch is legitimate in menu plumbing, so it annotates instead.
+  const nonLiteral = [];
+  let annotatedComputed = 0;
+  for (const f of files) {
+    const text = fs.readFileSync(f, 'utf8');
+    for (const m of text.matchAll(ANY_DISPATCH_RE)) {
+      // A literal first argument (on this line or wrapped onto the next) is
+      // what DISPATCH_RE already covers; only a computed one is invisible.
+      if (/^['"`]/.test(m[1].replace(/^\s+/, ''))) continue;
+      const { lineNo, line, prevLine } = lineContext(text, m.index);
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+      if (EXEMPT_RE.test(line) || EXEMPT_RE.test(prevLine)) {
+        annotatedComputed++;
+        continue;
+      }
+      nonLiteral.push({ file: f, lineNo });
+    }
+  }
+
   const unresolved = [];
   for (const f of files) {
     const text = fs.readFileSync(f, 'utf8');
@@ -145,8 +178,38 @@ function main() {
     process.exit(1);
   }
 
+  if (nonLiteral.length > 0) {
+    console.error(
+      `dispatch-targets guard FAILED — ${nonLiteral.length} commands.executeCommand call(s) pass a computed id, which this guard cannot see:`
+    );
+    for (const u of nonLiteral) console.error(`  ${u.file}:${u.lineNo}`);
+    console.error(
+      'A computed first argument removes that id from the guard\'s inventory, so a rename would pass green. ' +
+        'Prefer a literal per branch (if/else over a ternary). Genuine dynamic dispatch annotates with ' +
+        '`// dispatch-exempt: <reason>`.'
+    );
+    process.exit(1);
+  }
+
+  // Fail-closed floor: a refactor that renames the dispatch helper would leave
+  // both scans matching nothing and this guard reporting OK over an empty
+  // inventory. The tree has dozens of literal dispatches; zero means the
+  // heuristic stopped seeing the code, not that the code stopped dispatching.
+  let literalDispatches = 0;
+  for (const f of files) {
+    literalDispatches += [...fs.readFileSync(f, 'utf8').matchAll(DISPATCH_RE)].length;
+  }
+  if (literalDispatches === 0) {
+    console.error(
+      'dispatch-targets guard FAILED — matched zero intellig.* executeCommand dispatches. ' +
+        'The scan is vacuous; the dispatch shape changed and DISPATCH_RE needs updating.'
+    );
+    process.exit(1);
+  }
+
   console.log(
-    `dispatch-targets guard OK — all intellig.* executeCommand dispatches resolve to registered ids (${registered.size} registered id(s) known).`
+    `dispatch-targets guard OK — ${literalDispatches} intellig.* executeCommand dispatch(es) resolve to registered ids ` +
+      `(${registered.size} registered id(s) known); ${annotatedComputed} computed dispatch(es) annotated.`
   );
 }
 

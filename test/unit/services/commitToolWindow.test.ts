@@ -1125,12 +1125,9 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
-  // A conflicted file's working tree holds the raw <<<<<<< / ======= / >>>>>>>
-  // markers, so a two-sided HEAD ↔ working-tree diff renders the markers as
-  // ordinary content instead of showing the conflict. IntelliJ routes a
-  // conflicting change to a three-side merge request rather than a diff
-  // (platform ChangeDiffRequestProducer.createRequest / ChangesUtil
-  // .isTextConflictingChange); both of our entry points do the same.
+  // The conflicted-vs-plain decision moved into intellig.explorer.showDiff
+  // itself (one seam, fresh status read), so BOTH entry points here dispatch
+  // that id unconditionally and must not re-decide off the cached changelist.
   for (const entry of [
     {
       name: 'openFileDiff (double-click)',
@@ -1146,13 +1143,13 @@ describe('CommitToolWindow — host behavior', () => {
       },
     },
   ]) {
-    it(`${entry.name} opens the merge view for a conflicted file, not a two-sided diff`, async () => {
+    it(`${entry.name} dispatches showDiff unconditionally for a conflicted file`, async () => {
       const { tw, executed } = createFileContextWindow('conflicted');
       await asTestSurface(tw)._handleWebviewMessage(entry.message);
-      assertRepoResolvedUriDispatch(executed, 'intellig.merge.openMergeView');
+      assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
       assert.ok(
-        !executed.some((e) => e.command === 'intellig.explorer.showDiff'),
-        'a conflicted file must NOT open the HEAD ↔ working-tree diff (it renders the markers as content)'
+        !executed.some((e) => e.command === 'intellig.merge.openMergeView'),
+        'the view must not pick the surface off its cached model'
       );
       tw.dispose();
     });

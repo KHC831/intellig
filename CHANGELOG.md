@@ -24,6 +24,15 @@ fresh empty `[Unreleased]` block is added on top.
 - The Git and Commit windows painted themselves the sidebar colour while
   sitting in the bottom panel, so they were a visibly different shade from
   the panel and the Branches tree beside them. They use the panel colour now.
+- Show Diff on a conflicted file opened the marker-filled diff from the file
+  explorer too, not just the Commit window; the decision now lives in the
+  command itself and reads status fresh, so both entry points agree.
+- A branch whose name is a JavaScript built-in (`constructor`, `toString`) went
+  missing from the Log tab's branch filter, and deleting a filtered branch could
+  silently reset the filter back to all branches.
+- In the merge window's left action strip the accept arrow sat on the far edge
+  with the reject X between it and the result. The accept arrow now hugs the
+  divider on both sides, so the left strip reads reject then accept.
 
 ## [0.5.7] - 2026-08-17
 

@@ -557,6 +557,7 @@ export function wireRebasePausedWarning(deps: {
     );
     const chosen = toast.actions.find(([label]) => label === choice);
     if (chosen) {
+      // dispatch-exempt: the id is the user-picked entry of a caller-supplied action list
       await deps.commands.executeCommand(chosen[1]);
     }
     // Other choices (Esc / dismissed): leave the warned-set entry in

@@ -505,6 +505,7 @@ export function dispatchLogMessage(ctx: IGtwControllerContext, message: IWebview
       if (command && msg.commitHash) {
         // Pin the repo that OWNS this commit so the command acts on the
         // row's context instead of re-resolving (and re-prompting) by hash.
+        // dispatch-exempt: the id rides the webview message; the sender owns the allow-list
         void vscode.commands.executeCommand(command, {
           hash: msg.commitHash,
           path: msg.path,

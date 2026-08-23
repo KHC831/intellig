@@ -228,16 +228,9 @@ export async function handleChangelistAction(
       if (message.path) {
         const fileUri = await deps.resolveFileUri(message.path);
         if (fileUri) {
-          // An unmerged file's working tree holds the raw conflict markers, so
-          // a two-sided HEAD ↔ working-tree diff renders them as ordinary
-          // content and hides the conflict. Send it to the merge view instead
-          // (IntelliJ ChangeDiffRequestProducer.createRequest opens a
-          // three-side merge request for a conflicting change).
-          const conflicted = deps.findChangeStatus(message.path) === 'conflicted';
-          await vscode.commands.executeCommand(
-            conflicted ? 'intellig.merge.openMergeView' : 'intellig.explorer.showDiff',
-            fileUri
-          );
+          // Unconditional: the command itself picks the merge view over a
+          // two-sided diff for an unmerged file, off a fresh status read.
+          await vscode.commands.executeCommand('intellig.explorer.showDiff', fileUri);
         }
       }
       return;
