@@ -68,6 +68,7 @@ import type {
   IGitService,
   IRepository,
   ICommit,
+  FileStatus,
 } from '../../../src/git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { noopEvent } from '../../mocks/noopEvent';
@@ -81,6 +82,7 @@ import { writableCommands, writableWindow } from '../../typed/windowStub';
  */
 interface CommitToolWindowTestSurface {
   _changelists: IChangelist[];
+  _repoTarget: { root(): string | undefined };
   _composerMessage: string;
   _signOff: boolean;
   _handleWebviewMessage: (message: unknown) => Promise<void>;
@@ -1047,7 +1049,7 @@ describe('CommitToolWindow — host behavior', () => {
   // ─── File-context actions dispatch to registered commands with their
   //     expected argument shapes (Uri resolved against the repo root) ────────
 
-  function createFileContextWindow(): {
+  function createFileContextWindow(status: FileStatus = 'modified'): {
     tw: CommitToolWindow;
     executed: Array<{ command: string; args: unknown[] }>;
   } {
@@ -1059,7 +1061,7 @@ describe('CommitToolWindow — host behavior', () => {
         name: 'Default',
         isDefault: true,
         isActive: true,
-        files: [{ path: 'src/sub/a.ts', status: 'modified', staged: false }],
+        files: [{ path: 'src/sub/a.ts', status, staged: false }],
       },
     ];
     const services = createMockServices(repo, changelists);
@@ -1108,6 +1110,90 @@ describe('CommitToolWindow — host behavior', () => {
     assert.ok(
       !executed.some((e) => e.command === 'intellig.localChanges.showDiff'),
       'must NOT post the unregistered intellig.localChanges.showDiff id'
+    );
+    tw.dispose();
+  });
+
+  it('openFileDiff dispatches intellig.explorer.showDiff with a repo-resolved file Uri', async () => {
+    const { tw, executed } = createFileContextWindow();
+    // The double-click message carries only the path — no changelistId, since
+    // the gesture is a plain row activation rather than a menu pick.
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'openFileDiff',
+      path: 'src/sub/a.ts',
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
+    tw.dispose();
+  });
+
+  // The conflicted-vs-plain decision moved into intellig.explorer.showDiff
+  // itself (one seam, fresh status read), so BOTH entry points here dispatch
+  // that id unconditionally and must not re-decide off the cached changelist.
+  for (const entry of [
+    {
+      name: 'openFileDiff (double-click)',
+      message: { type: 'openFileDiff', path: 'src/sub/a.ts' },
+    },
+    {
+      name: 'showDiff (context menu)',
+      message: {
+        type: 'changelistContextAction',
+        action: 'showDiff',
+        changelistId: 'def',
+        path: 'src/sub/a.ts',
+      },
+    },
+  ]) {
+    it(`${entry.name} dispatches showDiff unconditionally for a conflicted file`, async () => {
+      const { tw, executed } = createFileContextWindow('conflicted');
+      await asTestSurface(tw)._handleWebviewMessage(entry.message);
+      assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
+      assert.ok(
+        !executed.some((e) => e.command === 'intellig.merge.openMergeView'),
+        'the view must not pick the surface off its cached model'
+      );
+      tw.dispose();
+    });
+  }
+
+  // The repository selector can retarget this view while rows from the previous
+  // repo are still on screen, and the reload it fires is asynchronous. A click
+  // in that window carries the OLD root; acting on it would resolve the row's
+  // repo-relative path against the NEW root — the wrong file for a diff, and
+  // the wrong repo's file for a rollback.
+  it('drops a file action stamped with a repo that is no longer the target', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'openFileDiff',
+      path: 'src/sub/a.ts',
+      repoRoot: '/some/other-repo',
+    });
+    assert.deepStrictEqual(
+      executed.map((e) => e.command),
+      [],
+      'a stale-stamped action must not reach a command'
+    );
+    tw.dispose();
+  });
+
+  it('honors a file action stamped with the current target', async () => {
+    const { tw, executed } = createFileContextWindow();
+    const current = asTestSurface(tw)._repoTarget.root();
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'openFileDiff',
+      path: 'src/sub/a.ts',
+      repoRoot: current,
+    });
+    assertRepoResolvedUriDispatch(executed, 'intellig.explorer.showDiff');
+    tw.dispose();
+  });
+
+  it('openFileDiff without a path dispatches nothing', async () => {
+    const { tw, executed } = createFileContextWindow();
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'openFileDiff' });
+    assert.deepStrictEqual(
+      executed.map((e) => e.command),
+      []
     );
     tw.dispose();
   });

@@ -496,15 +496,20 @@ export function dispatchLogMessage(ctx: IGtwControllerContext, message: IWebview
       // registered command (reference: Vcs.RepositoryChangesBrowserMenu),
       // so the menu and the palette-hidden command stay one surface.
       // Allow-list the untrusted action string at the boundary.
-      const commandByFileAction: Record<string, string> = {
-        showDiff: 'intellig.commit.showDiff',
-        openRepositoryVersion: 'intellig.commit.showFileInRevision',
-        fileHistoryFromHere: 'intellig.commit.fileHistoryFromHere',
-      };
-      const command = typeof msg.action === 'string' ? commandByFileAction[msg.action] : undefined;
+      // A Map, not an object: `msg.action` is an untrusted webview string, and
+      // an object lookup answers `constructor` with a truthy function that
+      // would pass the guard below and reach executeCommand.
+      const commandByFileAction = new Map<string, string>([
+        ['showDiff', 'intellig.commit.showDiff'],
+        ['openRepositoryVersion', 'intellig.commit.showFileInRevision'],
+        ['fileHistoryFromHere', 'intellig.commit.fileHistoryFromHere'],
+      ]);
+      const command =
+        typeof msg.action === 'string' ? commandByFileAction.get(msg.action) : undefined;
       if (command && msg.commitHash) {
         // Pin the repo that OWNS this commit so the command acts on the
         // row's context instead of re-resolving (and re-prompting) by hash.
+        // dispatch-exempt: the id comes from the host-side map above, keyed by the untrusted action
         void vscode.commands.executeCommand(command, {
           hash: msg.commitHash,
           path: msg.path,

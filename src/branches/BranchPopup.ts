@@ -1426,7 +1426,7 @@ export class BranchPopup {
           cancelled: false,
         };
       }
-      await vscode.commands.executeCommand(commandId, shim);
+      await vscode.commands.executeCommand(commandId, shim); // dispatch-exempt: the id comes from the branch action-menu descriptor
       return {
         branch: selected.branch,
         tag: selected.tag,
@@ -1455,7 +1455,7 @@ export class BranchPopup {
         void vscode.window.showInformationMessage(`Coming soon: ${commandId}`);
         return;
       }
-      await vscode.commands.executeCommand(commandId);
+      await vscode.commands.executeCommand(commandId); // dispatch-exempt: the id comes from the branch action-menu descriptor
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(

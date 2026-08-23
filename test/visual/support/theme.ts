@@ -79,6 +79,7 @@ const TOKENS = [
   'vscode-textPreformat-foreground',
   'vscode-gitDecoration-addedResourceForeground',
   'vscode-gitDecoration-conflictingResourceForeground',
+  'vscode-panel-background',
 ] as const;
 
 const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> = {
@@ -110,6 +111,7 @@ const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> =
     'vscode-list-activeSelectionBackground': '#04395e',
     'vscode-list-activeSelectionForeground': '#ffffff',
     'vscode-panel-border': '#2b2b2b',
+    'vscode-panel-background': '#181818',
     'vscode-inputValidation-errorBackground': '#5a1d1d',
     'vscode-inputValidation-errorBorder': '#be1100',
     'vscode-icon-foreground': '#c5c5c5',
@@ -162,6 +164,7 @@ const REALISTIC: Readonly<Record<ThemeName, Readonly<Record<string, string>>>> =
     'vscode-list-activeSelectionBackground': '#e8e8e8',
     'vscode-list-activeSelectionForeground': '#000000',
     'vscode-panel-border': '#e5e5e5',
+    'vscode-panel-background': '#f8f8f8',
     'vscode-inputValidation-errorBackground': '#f2dede',
     'vscode-inputValidation-errorBorder': '#be1100',
     'vscode-icon-foreground': '#424242',

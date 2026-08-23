@@ -46,7 +46,7 @@ export function buildInlineStyles(): string {
         font-family: var(--vscode-font-family);
         font-size: var(--vscode-font-size);
         color: var(--vscode-foreground);
-        background-color: var(--vscode-sideBar-background);
+        /* No background: the injected default paints it transparent so it tracks its container. */
       }
 
       /* Visually-hidden utility for assistive-tech-only text. Removes the
@@ -422,7 +422,7 @@ ${commitRowStyles()}
         align-items: center;
         height: 22px;
         border-bottom: 1px solid var(--vscode-panel-border);
-        background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
+        background-color: var(--vscode-panel-background, var(--vscode-editor-background));
         font-size: 11px;
         font-weight: 600;
         color: var(--vscode-descriptionForeground);

@@ -135,6 +135,94 @@ describe('webview: Commit Tool Window entry (jsdom)', () => {
     assert.strictEqual(box.checked, true, 'the plain-path checkbox syncs');
   });
 
+  it('double-clicking a file row asks the host to open the diff', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+    });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+
+    const row = Array.from(h.document.querySelectorAll('.ctw-file-row')).find(
+      (r) => r.getAttribute('data-path') === 'src/dir/b.ts'
+    );
+    assert.ok(row, 'a row for the path must render');
+    row.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
+
+    assert.ok(
+      h.posted.some(
+        (m) =>
+          (m as { type?: string; path?: string }).type === 'openFileDiff' &&
+          (m as { path?: string }).path === 'src/dir/b.ts'
+      ),
+      `expected an openFileDiff post; got: ${JSON.stringify(h.posted)}`
+    );
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      [],
+      'the dblclick listener must not throw after posting'
+    );
+  });
+
+  // Every outbound message is stamped in post() so the host can drop an action
+  // aimed at a repo the view no longer targets. An UNSTAMPED message is always
+  // allowed by design, so deleting the stamp disables the guard silently — this
+  // is the assertion that notices.
+  it('stamps outbound messages with the repo the rows were rendered from', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+      repoRoot: '/repo/rendered',
+    });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+
+    const row = h.document.querySelector('.ctw-file-row');
+    assert.ok(row, 'a row must render');
+    row.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
+
+    const opened = h.posted.find((m) => (m as { type?: string }).type === 'openFileDiff') as
+      | { repoRoot?: string }
+      | undefined;
+    assert.ok(opened, `expected an openFileDiff post; got: ${JSON.stringify(h.posted)}`);
+    assert.strictEqual(
+      opened.repoRoot,
+      '/repo/rendered',
+      'the post must carry the rendered repo, or the host guard is inert'
+    );
+  });
+
+  it('double-clicking a file checkbox does not ask for a diff', () => {
+    const { body } = buildCommitToolWindowBodyParts({
+      activeTab: 'localChanges',
+      changelists: [makeChangelist()],
+      shelfItems: [],
+      composer: { message: '', amend: false, signOff: false },
+      activeChangelistId: 'default',
+    });
+    h = bootWebviewEntry('commits/webview/commitToolWindow', { bodyHtml: body });
+
+    const box = h.document.querySelector('.ctw-file-check');
+    assert.ok(box, 'a checkbox must render');
+    // Two fast clicks on the checkbox are an include/exclude toggle, not a
+    // request to open the file — the diff must not hijack that gesture.
+    box.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
+
+    assert.deepStrictEqual(
+      h.posted.filter((m) => (m as { type?: string }).type === 'openFileDiff'),
+      []
+    );
+    assert.deepStrictEqual(
+      h.errors.map((e) => e.message),
+      [],
+      'the checkbox guard must not throw'
+    );
+  });
+
   it('tolerates representative and garbage messages without throwing', () => {
     const { body } = buildCommitToolWindowBodyParts({
       activeTab: 'localChanges',

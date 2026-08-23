@@ -168,13 +168,99 @@ function repoAt(
   } as unknown as IRepository;
 }
 
-function makeContext(gitService: IGitService): ICommandContext {
+function makeContext(
+  gitService: IGitService,
+  getConflictedFiles: () => Promise<Array<{ path: string }>> = () => Promise.resolve([])
+): ICommandContext {
   return {
     context: { subscriptions: [], extensionUri: Uri.file('/ext') },
-    services: { gitService },
+    services: { gitService, conflictResolutionService: { getConflictedFiles } },
     gitToolWindowProvider: { refresh: (): void => {} },
   } as unknown as ICommandContext;
 }
+
+describe('intellig.explorer.showDiff — conflicted files', () => {
+  let patch: ReturnType<typeof patchRegisterCommand>;
+  let executed: Array<{ command: string; args: unknown[] }>;
+  const originalExecute = writableCommands().executeCommand;
+
+  beforeEach(() => {
+    executed = [];
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
+      executed.push({ command, args });
+      return Promise.resolve(undefined);
+    };
+    installErrorMessageTracker();
+    installInfoMessageTracker();
+  });
+
+  afterEach(() => {
+    if (patch) {
+      patch.restore();
+    }
+    writableCommands().executeCommand = originalExecute;
+    restoreMessageFunctions();
+  });
+
+  function showDiffHandler(
+    gitService: IGitService,
+    getConflictedFiles?: () => Promise<Array<{ path: string }>>
+  ): (...args: unknown[]) => unknown {
+    patch = patchRegisterCommand();
+    registerExplorerCommands(makeContext(gitService, getConflictedFiles));
+    const found = patch.handlers.find((h) => h.id === 'intellig.explorer.showDiff');
+    assert.ok(found, 'intellig.explorer.showDiff should be registered');
+    return found.cb;
+  }
+
+  // An unmerged file's working tree holds the raw conflict markers, so the
+  // HEAD-vs-working-tree diff renders them as ordinary added lines. IntelliJ
+  // decides this inside the single request producer every Show Diff funnels
+  // through (ChangeDiffRequestProducer.createRequest -> createMergeRequest),
+  // so the explorer entry point must reach the same surface as the Commit
+  // window's row.
+  it('opens the merge view instead of a two-sided diff', async () => {
+    const repo = repoAt('/repo');
+    const git = createMockGitService(repo, { getRepositories: () => [repo] });
+    await showDiffHandler(git, () => Promise.resolve([{ path: 'src/foo.ts' }]))(
+      Uri.file('/repo/src/foo.ts')
+    );
+
+    const ids = executed.map((e) => e.command);
+    assert.ok(
+      ids.includes('intellig.merge.openMergeView'),
+      `expected the merge view to open; got: ${ids.join(', ') || '(none)'}`
+    );
+    assert.ok(
+      !ids.includes('vscode.diff'),
+      'a conflicted file must not open the HEAD-vs-working-tree diff'
+    );
+  });
+
+  it('still opens a two-sided diff for a modified file', async () => {
+    const repo = repoAt('/repo');
+    const git = createMockGitService(repo, { getRepositories: () => [repo] });
+    await showDiffHandler(git, () => Promise.resolve([]))(Uri.file('/repo/src/foo.ts'));
+
+    const ids = executed.map((e) => e.command);
+    assert.ok(ids.includes('vscode.diff'), `expected a diff; got: ${ids.join(', ') || '(none)'}`);
+    assert.ok(!ids.includes('intellig.merge.openMergeView'), 'no merge view for a modified file');
+  });
+
+  // A status read that fails must not strand the user with nothing; the
+  // two-sided diff is the safe degrade.
+  it('falls back to the diff when the status read fails', async () => {
+    const repo = repoAt('/repo');
+    const git = createMockGitService(repo, { getRepositories: () => [repo] });
+    await showDiffHandler(git, () => Promise.reject(new Error('git exploded')))(
+      Uri.file('/repo/src/foo.ts')
+    );
+    assert.ok(
+      executed.map((e) => e.command).includes('vscode.diff'),
+      'a failed status read degrades to the plain diff'
+    );
+  });
+});
 
 describe('intellig.explorer.commitFile — handler', () => {
   let patch: ReturnType<typeof patchRegisterCommand>;

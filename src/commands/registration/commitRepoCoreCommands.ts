@@ -803,7 +803,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       }
       const link = (notification.deepLinks ?? []).find((l) => l.label === choice);
       if (link) {
-        await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? []));
+        await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? [])); // dispatch-exempt: the id comes from a registered link descriptor
       }
     },
   });
@@ -1451,7 +1451,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         matchOnDescription: true,
       });
       if (picked) {
-        await vscode.commands.executeCommand(picked.commandId);
+        await vscode.commands.executeCommand(picked.commandId); // dispatch-exempt: the id comes from the QuickPick item the user selected
       }
     }
   );

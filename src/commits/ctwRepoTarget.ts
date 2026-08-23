@@ -10,7 +10,9 @@
  * live object is re-derived per use ({@link live}).
  */
 
+import * as vscode from 'vscode';
 import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import { isPathInsideOrEqual } from '../git-core/repo/RepositoryDiscovery';
 import { resolveRepo } from '../utils/resolveRepo';
 import { normalizeRepoPathString } from '../utils/normalizeRepoPath';
 
@@ -22,6 +24,37 @@ export class CtwRepoTarget {
   /** Point the target at `repo` (the selector's explicit choice). */
   set(repo: IRepository): void {
     this._root = repo.rootUri.fsPath;
+  }
+
+  /**
+   * Absolute Uri for a row's repo-relative path, resolved against the sticky
+   * target. `joinPath` normalises `..`, so a webview-supplied path can name a
+   * file outside the repo; every file action funnels through here, so
+   * containment is checked once rather than per action.
+   */
+  async resolveFileUri(path: string): Promise<vscode.Uri | undefined> {
+    if (!path) {
+      return undefined;
+    }
+    const repo = await this.resolveForAction();
+    if (!repo) {
+      return undefined;
+    }
+    const joined = vscode.Uri.joinPath(repo.rootUri, path);
+    return isPathInsideOrEqual(repo.rootUri.fsPath, joined.fsPath) ? joined : undefined;
+  }
+
+  /** The sticky root path, for stamping the render model. */
+  root(): string | undefined {
+    return this._root;
+  }
+
+  /** Whether `root` is still the sticky target (retarget guard). */
+  isCurrent(root: string): boolean {
+    return (
+      this._root !== undefined &&
+      normalizeRepoPathString(this._root) === normalizeRepoPathString(root)
+    );
   }
 
   /** The live IRepository for the sticky root, or undefined if it closed. */

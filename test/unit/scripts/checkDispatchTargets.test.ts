@@ -92,10 +92,70 @@ describe('check-dispatch-targets guard', () => {
   });
 
   it('ignores dispatches under test subtrees', () => {
-    const { src, pkg } = makeFixture({
-      'test/e2e.ts': `await vscode.commands.executeCommand('intellig.testOnly');\n`,
-    });
+    // The src dispatch keeps the scan non-vacuous, so this asserts the test
+    // subtree is EXCLUDED rather than that the guard saw nothing at all.
+    const { src, pkg } = makeFixture(
+      {
+        'test/e2e.ts': `await vscode.commands.executeCommand('intellig.testOnly');\n`,
+        'ok.ts': `await vscode.commands.executeCommand('intellig.declared');\n`,
+      },
+      { contributes: { commands: [{ command: 'intellig.declared' }] } }
+    );
     const { status } = runGuard([src, pkg]);
     assert.strictEqual(status, 0, 'test subtree dispatches are out of scope');
+  });
+
+  // A computed first argument matches the literal scan nowhere, so the id it
+  // dispatches leaves the guard's inventory entirely — a rename then passes
+  // green. A ternary over two intellig ids did exactly that in this repo.
+  it('rejects a computed dispatch id (anti-vacuity)', () => {
+    const { src, pkg } = makeFixture(
+      {
+        'sender.ts':
+          `await vscode.commands.executeCommand('intellig.declared');\n` +
+          `await vscode.commands.executeCommand(cond ? 'intellig.declared' : 'intellig.other');\n`,
+      },
+      { contributes: { commands: [{ command: 'intellig.declared' }] } }
+    );
+    const { status, stderr } = runGuard([src, pkg]);
+    assert.strictEqual(status, 1, `a computed id must fail; stderr:\n${stderr}`);
+    assert.ok(/computed id/.test(stderr), `expected the computed-id arm; got:\n${stderr}`);
+  });
+
+  it('lets a computed dispatch through when it is exempt-annotated', () => {
+    const { src, pkg } = makeFixture(
+      {
+        'sender.ts':
+          `await vscode.commands.executeCommand('intellig.declared');\n` +
+          `// dispatch-exempt: the id comes from a registered menu descriptor\n` +
+          `await vscode.commands.executeCommand(item.commandId);\n`,
+      },
+      { contributes: { commands: [{ command: 'intellig.declared' }] } }
+    );
+    const { status, stderr } = runGuard([src, pkg]);
+    assert.strictEqual(status, 0, `annotated dynamic dispatch must pass; stderr:\n${stderr}`);
+  });
+
+  // The literal arm exits before the computed arm, so a WRAPPED literal
+  // misclassified as computed would still exit 1 with matching stderr — the
+  // multiline case above cannot tell the two apart. This pins the positive:
+  // a registered wrapped literal must PASS, which is the regression the
+  // zero-width lookahead was written to fix.
+  it('classifies a wrapped literal as a literal, not as a computed id', () => {
+    const { src, pkg } = makeFixture(
+      {
+        'sender.ts': `await vscode.commands.executeCommand(\n  'intellig.declared',\n  arg\n);\n`,
+      },
+      { contributes: { commands: [{ command: 'intellig.declared' }] } }
+    );
+    const { status, stderr } = runGuard([src, pkg]);
+    assert.strictEqual(status, 0, `a wrapped registered literal must pass; stderr:\n${stderr}`);
+  });
+
+  it('is FAIL-CLOSED: a scan matching zero dispatches fails', () => {
+    const { src, pkg } = makeFixture({ 'sender.ts': `const x = 1;\n` });
+    const { status, stderr } = runGuard([src, pkg]);
+    assert.strictEqual(status, 1, 'a vacuous scan must fail, not report OK');
+    assert.ok(/vacuous/.test(stderr), `expected the vacuity arm; got:\n${stderr}`);
   });
 });

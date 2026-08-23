@@ -186,6 +186,7 @@ export function fileStatusFor(
  * the disposables; extension.ts owns the single `context.subscriptions.push`
  * (RULE E4).
  */
+
 export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposable[] {
   const explorerShowHistoryCommand = registerFileCommand(ctx, {
     id: 'intellig.explorer.showHistory',
@@ -334,14 +335,35 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   const explorerShowDiffCommand = registerSelectionCommand(ctx, {
     id: 'intellig.explorer.showDiff',
     failureTitle: 'Failed to show diff',
-    run: async ({ repo, targets, paths }) => {
-      // Diff each working-tree file against its HEAD revision via the
-      // `intellig-git:` content provider (the scheme this extension serves;
-      // the built-in `git:` scheme is unavailable when the user runs IntelliG
-      // in place of the bundled Git extension). The repo root is encoded so
-      // the provider resolves the right repo for a nested/multi-root layout.
+    run: async ({ services, repo, targets, paths }) => {
+      // Every Show Diff entry point funnels through here, so the
+      // conflicted-vs-plain decision lives here too rather than at each
+      // caller (IntelliJ makes it once, inside the single request producer:
+      // ChangeDiffRequestProducer.createRequest -> createMergeRequest when
+      // ChangesUtil.isTextConflictingChange). Read status fresh: an unmerged
+      // file resolved seconds ago would otherwise still open the merge view,
+      // and one that just conflicted would still get the marker diff.
+      // The one definition of "which files are unmerged", shared with every
+      // other conflict-aware command. A failed read degrades to "none": the
+      // plain diff beats stranding the user with nothing.
+      const conflicted = new Set<string>(
+        (await services.conflictResolutionService.getConflictedFiles(repo).catch(() => [])).map(
+          (f) => f.path
+        )
+      );
       for (let i = 0; i < targets.length; i++) {
         const filePath = paths[i];
+        if (conflicted.has(filePath)) {
+          // An unmerged file's working tree holds the raw conflict markers, so
+          // a two-sided diff would render them as ordinary added lines.
+          await vscode.commands.executeCommand('intellig.merge.openMergeView', targets[i]);
+          continue;
+        }
+        // Diff each working-tree file against its HEAD revision via the
+        // `intellig-git:` content provider (the scheme this extension serves;
+        // the built-in `git:` scheme is unavailable when the user runs IntelliG
+        // in place of the bundled Git extension). The repo root is encoded so
+        // the provider resolves the right repo for a nested/multi-root layout.
         const headUri = buildIntelligGitUri(filePath, 'HEAD', repo.rootUri.fsPath);
         await openRevisionDiff(
           {

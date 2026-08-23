@@ -46,9 +46,9 @@
       "status": "backlog",
       "note": "commit dialog stylesheet; needs the dialog body markup rendered before its buttons, inputs and diff rows can be asserted"
     },
-    "src/commits/CommitToolWindow.ts::commitToolWindowStyles": {
-      "status": "backlog",
-      "note": "commit tool window stylesheet; module-local, so it needs exporting or a render seam before a spec can reach it"
+    "src/commits/commitToolWindowStyles.ts::commitToolWindowStyles": {
+      "status": "tested",
+      "note": "in both themes, mutation-proven: the body declares no surface colour of its own, so VS Code's injected transparent default lets it track its host container (re-adding a background fails the spec; killing the paired positive-control rule fails it too) — panelSurface.visual.test.ts. Changelist tree, diff preview and composer are not yet rendered"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts::historyTabStyles": {
       "status": "tested",

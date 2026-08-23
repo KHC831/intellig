@@ -22,15 +22,22 @@ import type {
   ICtwChangelistModel,
   ICtwFileEntry,
 } from '../commitToolWindow.types';
-import type { IDiff, IHunk, IDiffLine } from '../../git-core/interfaces/gitModels';
+import { buildDiffPreviewPane, renderDiffPreview, resetPreviewPane } from './ctwDiffPreview';
 import { INIT_ELEMENT_ID, parseInitIsland } from '../../utils/webviewInit';
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 
 const vscodeApi = acquireVsCodeApi();
 
+/**
+ * Every outbound message carries the repo its rows were rendered from. Stamped
+ * here rather than per call site: the host drops a repo-scoped action whose
+ * stamp is stale, and a call site that forgot the field would silently opt out
+ * of that guard — which is how the commit and stash actions, the two that
+ * mutate, were left unprotected.
+ */
 function post(message: CommitToolWindowInbound): void {
-  vscodeApi.postMessage(message);
+  vscodeApi.postMessage({ ...message, repoRoot: renderedRepoRoot });
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -66,6 +73,12 @@ function cssEscapeAttr(value: string): string {
   }
   return s.replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch);
 }
+
+/**
+ * Repo root the rendered rows belong to. Echoed on every file action so the
+ * host can drop a click that lands after the selector retargeted the view.
+ */
+let renderedRepoRoot: string | undefined;
 
 /** Path currently shown in the diff preview pane (undefined = placeholder). */
 let previewedPath: string | undefined;
@@ -192,26 +205,6 @@ function buildLocalTreeContent(model: ICommitToolWindowInitModel): DocumentFragm
   }
   frag.appendChild(tree);
   return frag;
-}
-
-/** Persistent diff-preview pane, born with the placeholder. */
-function buildDiffPreviewPane(): HTMLDivElement {
-  const pane = el('div', { className: 'ctw-diff-preview' });
-  setAttrs(pane, { 'data-diff-preview': '' });
-  resetPreviewPane(pane);
-  return pane;
-}
-
-function resetPreviewPane(pane: Element): void {
-  while (pane.firstChild) {
-    pane.removeChild(pane.firstChild);
-  }
-  pane.appendChild(
-    el('div', {
-      className: 'ctw-diff-preview-empty',
-      textContent: 'Select a file to preview changes',
-    })
-  );
 }
 
 function buildComposerPanel(model: ICommitToolWindowInitModel): HTMLDivElement {
@@ -380,6 +373,7 @@ function modelHasPath(model: ICommitToolWindowInitModel, path: string): boolean 
  * `model.composer` — a live update must not stomp in-progress typing.
  */
 function applyModel(model: ICommitToolWindowInitModel): void {
+  renderedRepoRoot = model.repoRoot;
   const localTree = document.getElementById('ctw-local-tree');
   const shelfList = document.getElementById('ctw-shelf-list');
   if (!localTree || !shelfList) {
@@ -431,6 +425,7 @@ function gearItemText(label: string, checked: boolean): string {
 }
 
 function render(INIT: ICommitToolWindowInitModel): void {
+  renderedRepoRoot = INIT.repoRoot;
   function buildTabStrip(): HTMLDivElement {
     const strip = el('div', { className: 'ctw-tab-strip' });
     setAttrs(strip, { role: 'tablist' });
@@ -513,54 +508,6 @@ function render(INIT: ICommitToolWindowInitModel): void {
   wireControls();
 }
 
-// Render a diff into the preview pane. Builds DOM nodes (no innerHTML with
-// interpolated content) so a hostile path/line can't inject markup.
-function renderDiffPreview(
-  pane: Element,
-  path: string | undefined,
-  diff: IDiff | undefined,
-  error: string | undefined
-): void {
-  while (pane.firstChild) {
-    pane.removeChild(pane.firstChild);
-  }
-  const head = document.createElement('div');
-  head.className = 'ctw-diff-preview-head';
-  head.textContent = path || '';
-  pane.appendChild(head);
-  if (error) {
-    const err = document.createElement('div');
-    err.className = 'ctw-diff-preview-empty';
-    err.textContent = 'Failed to load diff: ' + error;
-    pane.appendChild(err);
-    return;
-  }
-  if (!diff || diff.binary || !diff.hunks || diff.hunks.length === 0) {
-    const note = document.createElement('div');
-    note.className = 'ctw-diff-preview-empty';
-    note.textContent = diff && diff.binary ? 'Binary file' : 'No changes';
-    pane.appendChild(note);
-    return;
-  }
-  const body = document.createElement('pre');
-  body.className = 'ctw-diff-preview-body';
-  (diff.hunks || []).forEach((hunk: IHunk) => {
-    const h = document.createElement('div');
-    h.className = 'ctw-diff-hunk-header';
-    h.textContent = hunk.header || '';
-    body.appendChild(h);
-    (hunk.lines || []).forEach((line: IDiffLine) => {
-      const rowDiv = document.createElement('div');
-      const t = line.type === 'add' ? 'add' : line.type === 'delete' ? 'del' : 'ctx';
-      rowDiv.className = 'ctw-diff-line ctw-diff-' + t;
-      const prefix = t === 'add' ? '+' : t === 'del' ? '-' : ' ';
-      rowDiv.textContent = prefix + (line.content ?? '');
-      body.appendChild(rowDiv);
-    });
-  });
-  pane.appendChild(body);
-}
-
 // Snapshot the composer + selected files for a commit / commit-and-push post.
 function getComposerPayload(): {
   message: string;
@@ -580,6 +527,19 @@ function getComposerPayload(): {
       .map((c) => c.getAttribute('data-path'))
       .filter((p): p is string => p !== null),
   };
+}
+
+/**
+ * The file path a row-targeting mouse event refers to, or undefined. The
+ * checkbox is excluded here once rather than at each gesture: two fast clicks
+ * on it are an include/exclude toggle, not a request to open.
+ */
+function fileRowPathFrom(e: Event): string | undefined {
+  if (!(e.target instanceof Element) || (e.target as HTMLElement).tagName === 'INPUT') {
+    return undefined;
+  }
+  const row = e.target.closest('.ctw-file-row');
+  return row ? (row.getAttribute('data-path') ?? undefined) : undefined;
 }
 
 function wireControls(): void {
@@ -618,15 +578,22 @@ function wireControls(): void {
         }
         return;
       }
-      if ((e.target as HTMLElement).tagName === 'INPUT') {
-        return; // checkbox handled by the change listener below
+      const path = fileRowPathFrom(e);
+      // Already previewed: a double-click's second click would otherwise spawn
+      // a redundant `git diff` for the row the pane is already showing. The
+      // host-side re-request in applyModel stays unconditional — content there
+      // may genuinely have changed.
+      if (path && path !== previewedPath) {
+        post({ type: 'selectFile', path });
       }
-      const row = e.target.closest('.ctw-file-row');
-      if (row) {
-        const path = row.getAttribute('data-path');
-        if (path) {
-          post({ type: 'selectFile', path });
-        }
+    });
+    // Double-click opens the file's diff in an editor tab (single click only
+    // fills the inline preview pane). The checkbox is excluded: two fast
+    // clicks there are an include/exclude toggle, not a request to open.
+    localTree.addEventListener('dblclick', (e) => {
+      const path = fileRowPathFrom(e);
+      if (path) {
+        post({ type: 'openFileDiff', path });
       }
     });
     localTree.addEventListener('change', (e) => {
