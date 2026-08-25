@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
+import { partitionRefsByPathSegment } from './refPathGrouping';
 import { resolveRepo } from '../utils/resolveRepo';
 import { BranchTreeScope } from './branchTreeScope';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -47,11 +48,10 @@ export type BranchTreeItemType =
   | 'repository'; // Per-repository root node in a multi-repo workspace (git4idea GitBranchesTreeMultiRepoModel)
 
 /**
- * Branch-folder scope (the kind of branches the folder groups).
- * Used to dispatch back to the right branch list when expanding the
- * folder.
+ * Folder scope (the kind of ref the folder groups). Used to dispatch back
+ * to the right ref list when expanding the folder.
  */
-export type BranchFolderScope = 'local' | 'remote';
+export type BranchFolderScope = 'local' | 'remote' | 'tag';
 
 /**
  * Context values for tree items (used in when clauses for menus)
@@ -1357,6 +1357,9 @@ export class BranchTreeProvider
     if (!folder.folderScope) {
       return [];
     }
+    if (folder.folderScope === 'tag') {
+      return this._groupTagsByPath(await this._visibleTags(repo), folder.folderPath ?? '', repo);
+    }
     const branches = await this._gitService.getBranches(repo);
     const filtered = branches.filter(
       (b) => b.type === folder.folderScope && this._branchRowVisible(b)
@@ -1405,81 +1408,13 @@ export class BranchTreeProvider
     remotePrefix: string | undefined,
     repo: IRepository
   ): BranchTreeItem[] {
-    // Compute, for each branch, the path-stripped suffix relative to
-    // the current folder. Drop branches that don't fall under the
-    // folder.
-    const stripPrefix = (name: string): string | undefined => {
-      let rest = name;
-      if (remotePrefix) {
-        const remoteWithSlash = `${remotePrefix}/`;
-        if (!rest.startsWith(remoteWithSlash)) {
-          return undefined;
-        }
-        rest = rest.slice(remoteWithSlash.length);
-      }
-      if (folderPath) {
-        const folderWithSlash = `${folderPath}/`;
-        if (!rest.startsWith(folderWithSlash)) {
-          return undefined;
-        }
-        rest = rest.slice(folderWithSlash.length);
-      }
-      return rest;
-    };
+    const { folders, leaves } = partitionRefsByPathSegment(branches, folderPath, remotePrefix);
 
-    // Bucket: first segment of the suffix → either the leaf branch (no
-    // more `/` in the suffix) or a list of branches grouped under that
-    // segment as a folder.
-    const leaves: IBranch[] = [];
-    const folderBuckets = new Map<string, IBranch[]>();
-    for (const branch of branches) {
-      const suffix = stripPrefix(branch.name);
-      if (suffix === undefined || suffix === '') {
-        continue;
-      }
-      const slash = suffix.indexOf('/');
-      if (slash === -1) {
-        leaves.push(branch);
-      } else {
-        const segment = suffix.slice(0, slash);
-        const list = folderBuckets.get(segment) ?? [];
-        list.push(branch);
-        folderBuckets.set(segment, list);
-      }
-    }
+    const items: BranchTreeItem[] = folders.map((f) =>
+      this._folderNode(f.segment, f.childPath, scope, remotePrefix, repo)
+    );
 
-    // Render order (IntelliJ parity): folders first (alpha-sorted),
-    // then leaves (alpha-sorted). The user scans top-down; folders
-    // group related work, leaves are direct children.
-    const items: BranchTreeItem[] = [];
-    const folderSegments = Array.from(folderBuckets.keys()).sort();
-    for (const segment of folderSegments) {
-      const childPath = folderPath ? `${folderPath}/${segment}` : segment;
-      items.push(
-        new BranchTreeItem(
-          segment,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          'branch-folder',
-          undefined,
-          undefined,
-          false,
-          undefined,
-          childPath,
-          scope,
-          remotePrefix,
-          false,
-          repo
-        )
-      );
-    }
-
-    leaves.sort((a, b) => a.name.localeCompare(b.name));
-    for (const branch of leaves) {
-      const suffix = stripPrefix(branch.name)!;
-      // The leaf's display name is the trailing segment, not the full
-      // path — IntelliJ parity, and the parent folders already convey
-      // the prefix in the tree breadcrumb.
-      const displayName = suffix;
+    for (const { ref: branch, displayName } of leaves) {
       if (scope === 'local') {
         const isCurrentBranch = branch.name === currentBranchName || branch.isHead;
         items.push(
@@ -1522,24 +1457,70 @@ export class BranchTreeProvider
   }
 
   private async _getTags(repo: IRepository): Promise<BranchTreeItem[]> {
-    const tags = (await this._gitService.getTags(repo)).filter((t) => this._matchesSearch(t.name));
+    return this._groupTagsByPath(await this._visibleTags(repo), '', repo);
+  }
 
-    return tags.map((tag) => {
-      return new BranchTreeItem(
-        tag.name,
-        vscode.TreeItemCollapsibleState.None,
-        'tag',
-        undefined,
-        tag,
-        false,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        false,
-        repo
+  /** Tags surviving the search filter; the folder layout is built from these. */
+  private async _visibleTags(repo: IRepository): Promise<ITag[]> {
+    return (await this._gitService.getTags(repo)).filter((t) => this._matchesSearch(t.name));
+  }
+
+  /**
+   * Partition tags into the children at one folder level, mirroring
+   * {@link _groupBranchesByPath}. Tags have no remote prefix and no
+   * current-ref affordance, so the leaf arm is the whole difference.
+   */
+  private _groupTagsByPath(tags: ITag[], folderPath: string, repo: IRepository): BranchTreeItem[] {
+    const { folders, leaves } = partitionRefsByPathSegment(tags, folderPath, undefined);
+
+    const items: BranchTreeItem[] = folders.map((f) =>
+      this._folderNode(f.segment, f.childPath, 'tag', undefined, repo)
+    );
+
+    for (const { ref: tag, displayName } of leaves) {
+      items.push(
+        new BranchTreeItem(
+          displayName,
+          vscode.TreeItemCollapsibleState.None,
+          'tag',
+          undefined,
+          tag,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          repo
+        )
       );
-    });
+    }
+
+    return items;
+  }
+
+  /** One nesting node, shared by every ref kind that folds on `/`. */
+  private _folderNode(
+    segment: string,
+    childPath: string,
+    scope: BranchFolderScope,
+    remotePrefix: string | undefined,
+    repo: IRepository
+  ): BranchTreeItem {
+    return new BranchTreeItem(
+      segment,
+      vscode.TreeItemCollapsibleState.Collapsed,
+      'branch-folder',
+      undefined,
+      undefined,
+      false,
+      undefined,
+      childPath,
+      scope,
+      remotePrefix,
+      false,
+      repo
+    );
   }
 }
 

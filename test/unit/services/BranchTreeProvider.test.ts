@@ -41,7 +41,7 @@ import {
   rebasingRepo,
   corruptRepo,
 } from '../../mocks/mockGitService';
-import type { IBranch, IRepository } from '../../../src/git-core/interfaces/IGitService';
+import type { IBranch, IRepository, ITag } from '../../../src/git-core/interfaces/IGitService';
 import type { IncomingOutgoingFetcher } from '../../../src/branches/BranchPopup';
 import type { IIncomingOutgoing } from '../../../src/git-core/ops/IncomingOutgoingOps';
 import { repoDisplayName } from '../../../src/sync/updateProject';
@@ -537,6 +537,110 @@ describe('UI fix #37 — BranchTreeProvider folder grouping', () => {
     // Alpha-sorted.
     assert.strictEqual(items[0].label, 'develop');
     assert.strictEqual(items[1].label, 'main');
+  });
+});
+
+/**
+ * Tags nest by path exactly as branches do (issue #5).
+ *
+ * North star: git4idea feeds ONE prefix grouper with every ref kind —
+ * `NodeDescriptorsModel.buildTreeNodes` walks a `RefsCollection(localBranches,
+ * remoteBranches, tags)` and each collection goes through the same
+ * `groupByPrefix`. So `release/2026/08/17` folds the way `feature/auth` does.
+ */
+describe('BranchTreeProvider tag folder grouping', () => {
+  function repoWithTags(tags: ITag[]): BranchTreeProvider {
+    const repo = attachedRepo('main', 'b'.repeat(40));
+    const gitService = createMockGitService(repo, { getTags: async () => tags });
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(repo);
+    return provider;
+  }
+
+  function tag(name: string, commit = 'a'.repeat(40)): ITag {
+    return { name, commit, isAnnotated: false };
+  }
+
+  function tagsFromTree(provider: BranchTreeProvider): Promise<BranchTreeItem[]> {
+    return provider.getChildren().then((rootChildren) => {
+      const tagsCategory = rootChildren.find((c) => c.label === 'Tags');
+      if (!tagsCategory) {
+        throw new Error('Tags category missing');
+      }
+      return provider.getChildren(tagsCategory);
+    });
+  }
+
+  it('groups release/* tags into a "release" folder, folders before leaves', async () => {
+    const provider = repoWithTags([
+      tag('v2026.6'),
+      tag('release/2026/08/17'),
+      tag('release/2026/08/03'),
+    ]);
+
+    const items = await tagsFromTree(provider);
+    assert.strictEqual(
+      items.length,
+      2,
+      `expected one folder + one leaf; got: ${items.map((i) => i.label).join(',')}`
+    );
+    assert.strictEqual(items[0].itemType, 'branch-folder');
+    assert.strictEqual(items[0].label, 'release');
+    assert.strictEqual(items[0].folderPath, 'release');
+    assert.strictEqual(items[0].folderScope, 'tag');
+    assert.strictEqual(items[1].itemType, 'tag');
+    assert.strictEqual(items[1].label, 'v2026.6');
+  });
+
+  it('nests each path segment and labels the leaf with the trailing segment only', async () => {
+    const provider = repoWithTags([tag('release/2026/08/17', 'c'.repeat(40))]);
+
+    const [release] = await tagsFromTree(provider);
+    assert.strictEqual(release.folderPath, 'release');
+
+    const [year] = await provider.getChildren(release);
+    assert.strictEqual(year.itemType, 'branch-folder');
+    assert.strictEqual(year.label, '2026');
+    assert.strictEqual(year.folderPath, 'release/2026');
+
+    const [month] = await provider.getChildren(year);
+    assert.strictEqual(month.label, '08');
+    assert.strictEqual(month.folderPath, 'release/2026/08');
+
+    const [leaf] = await provider.getChildren(month);
+    assert.strictEqual(leaf.itemType, 'tag');
+    assert.strictEqual(leaf.label, '17', 'label is the trailing segment, not the full path');
+    assert.strictEqual(leaf.tag?.name, 'release/2026/08/17', 'the tag ref keeps its full name');
+    assert.strictEqual(leaf.tag?.commit, 'c'.repeat(40));
+  });
+
+  it('leaves flat tags (no `/`) as plain rows, alpha-sorted', async () => {
+    const provider = repoWithTags([tag('v2026.7'), tag('v2026.6')]);
+    const items = await tagsFromTree(provider);
+    assert.deepStrictEqual(
+      items.map((i) => i.label),
+      ['v2026.6', 'v2026.7']
+    );
+    assert.ok(items.every((i) => i.itemType === 'tag'));
+  });
+
+  it('a tag folder carries the folder context value, not a tag one', async () => {
+    const provider = repoWithTags([tag('release/1.0')]);
+    const [folder] = await tagsFromTree(provider);
+    assert.strictEqual(folder.contextValue, CONTEXT_VALUES.BRANCH_FOLDER);
+  });
+
+  it('keeps the search filter working through the folder levels', async () => {
+    const provider = repoWithTags([tag('release/2026/08/17'), tag('release/2025/01/01')]);
+    provider.setSearchQuery('2026');
+
+    const [release] = await tagsFromTree(provider);
+    const years = await provider.getChildren(release);
+    assert.deepStrictEqual(
+      years.map((y) => y.label),
+      ['2026'],
+      'a filtered-out tag must not leave its folder behind'
+    );
   });
 });
 
