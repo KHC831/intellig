@@ -12,9 +12,10 @@ import * as assert from 'assert';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 const SCRIPT = path.join(process.cwd(), 'scripts/check-rebase-containment-guarded.mjs');
-const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 function runFixture(source: string): { status: number | null; stderr: string; stdout: string } {
   fs.mkdirSync(TMP_ROOT, { recursive: true });

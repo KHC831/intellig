@@ -66,6 +66,36 @@ describe('ShelfService — binary revert failure propagates to failedPaths (R4-1
     }
   });
 
+  // This site's `checkout HEAD -- literalPathspec(path)` needs a behavioural
+  // test: the structural guard pins the SOURCE TEXT, not that a real revert
+  // leaves an unrelated neighbour alone.
+  it('reverting a modified binary file with pathspec-magic characters does not also revert a same-shaped neighbour', async () => {
+    // '[1]' is a character class: a BARE `git checkout HEAD -- 'a[1].bin'`
+    // also matches 'a1.bin' and reverts it too, discarding that work with no
+    // error and nothing to undo — the exact class literalPathspec() closes.
+    fs.writeFileSync(path.join(repoPath, 'a[1].bin'), Buffer.from([1]));
+    fs.writeFileSync(path.join(repoPath, 'a1.bin'), Buffer.from([2]));
+    await gitCli.exec(['add', 'a[1].bin', 'a1.bin'], { cwd: repoPath });
+    await gitCli.exec(['commit', '-m', 'seed'], { cwd: repoPath });
+
+    fs.writeFileSync(path.join(repoPath, 'a[1].bin'), Buffer.from([9]));
+    fs.writeFileSync(path.join(repoPath, 'a1.bin'), Buffer.from([9]));
+
+    const ok = await surface.revertBinaryShelfFile(repo, makeBinaryFile('a[1].bin', 'modified'));
+    assert.strictEqual(ok, true, 'the targeted revert must succeed');
+
+    assert.deepStrictEqual(
+      [...fs.readFileSync(path.join(repoPath, 'a[1].bin'))],
+      [1],
+      'the targeted file must be restored to its committed bytes'
+    );
+    assert.deepStrictEqual(
+      [...fs.readFileSync(path.join(repoPath, 'a1.bin'))],
+      [9],
+      'a same-shaped neighbour must be left untouched'
+    );
+  });
+
   it('revertBinaryShelfFile returns false when checkout fails (modified file not in HEAD)', async () => {
     // Stage a binary file but never commit it — `git checkout HEAD -- <file>`
     // will return non-zero because there is no HEAD blob for it.

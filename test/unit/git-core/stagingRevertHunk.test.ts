@@ -13,6 +13,7 @@ import * as assert from 'assert';
 import { StagingOps } from '../../../src/git-core/ops/StagingOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository, IHunk } from '../../../src/git-core/interfaces/IGitService';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 interface ExecCall {
   args: string[];
@@ -90,7 +91,7 @@ describe('StagingOps — revertHunk refuses to leave a stale index', () => {
       '--cached',
       '--name-only',
       '--',
-      'dir/sub file.txt',
+      literalPathspec('dir/sub file.txt'),
     ]);
   });
 });

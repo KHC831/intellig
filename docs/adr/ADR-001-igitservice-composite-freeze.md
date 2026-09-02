@@ -118,7 +118,7 @@ would eventually express.
 
 ## References
 
-- `src/services/interfaces/IGitService.ts` — composite interface + the
+- `src/git-core/interfaces/IGitService.ts` — composite interface + the
   `@internal IGitServiceCli` escape hatch.
 - `docs/testing.md` section 3 — `variadic-unknown[] throwError` stub pattern.
 - `docs/testing.md` section 5 — relationship between the production escape

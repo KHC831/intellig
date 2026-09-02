@@ -10,8 +10,10 @@
 import type {
   ICommitToolWebviewMessage,
   ICommitToolWindowInitModel,
+  ICtwMenuItem,
 } from './commitToolWindow.types';
 import type { IDiff } from '../git-core/interfaces/gitModels';
+
 import type { AssertInboundArrayTie, InboundArrayTie } from '../utils/protocolTie';
 
 /** Shared field bag (every wire field except the discriminant), reused verbatim. */
@@ -22,6 +24,8 @@ export type CommitToolWindowInbound =
   | ({ type: 'tabChange' } & Fields)
   | ({ type: 'selectFile' } & Fields)
   | ({ type: 'openFileDiff' } & Fields)
+  | ({ type: 'resolveConflicts' } & Fields)
+  | ({ type: 'resolveConflictFile'; path: string } & Fields)
   | ({ type: 'toggleFile' } & Fields)
   | ({ type: 'updateComposerField' } & Fields)
   | ({ type: 'commit' } & Fields)
@@ -47,12 +51,24 @@ export type CommitToolWindowOutbound =
   | { type: 'updateDiffPreview'; path: string; diff?: IDiff; error?: string }
   | { type: 'updateFileCheckbox'; path: string; checked: boolean }
   | { type: 'setGearState'; noVerify: boolean }
-  | { type: 'commitDone'; success: boolean };
+  | { type: 'commitDone'; success: boolean }
+  | {
+      type: 'showRowContextMenu';
+      path?: string;
+      changelistId?: string;
+      rowKind?: 'shelf' | 'stash';
+      shelfId?: string;
+      stashIndex?: number;
+      stashSha?: string;
+      items: ICtwMenuItem[];
+    };
 
 export const COMMIT_TOOL_WINDOW_INBOUND_TYPES = [
   'tabChange',
   'selectFile',
   'openFileDiff',
+  'resolveConflicts',
+  'resolveConflictFile',
   'toggleFile',
   'updateComposerField',
   'commit',

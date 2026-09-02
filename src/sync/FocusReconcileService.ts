@@ -159,7 +159,7 @@ export class FocusReconcileService implements vscode.Disposable {
   private static _listingKey(listing: IBranch[]): string {
     return listing
       .map((b) => `${b.type}\x1f${b.name}\x1f${b.commit}\x1f${b.isHead ? 1 : 0}`)
-      .sort()
+      .sort() // ref-sort-exempt: an opaque comparison key, never displayed
       .join('\n');
   }
 }

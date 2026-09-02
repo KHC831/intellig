@@ -25,14 +25,7 @@
 
 import * as vscode from 'vscode';
 import { readConfig } from '../config/configKeys';
-import {
-  loadPersisted,
-  savePersisted,
-  readBoolean,
-  readEnum,
-  readStringArray,
-  type PersistedSlot,
-} from '../utils/persistedState';
+import { loadPersisted, savePersisted } from '../utils/persistedState';
 import {
   IChangelist,
   IFileChange,
@@ -45,14 +38,38 @@ import {
   type IShelfTabStashController,
 } from './shelfTab';
 import { handleChangelistAction, openFileDiffSurface } from './changelistTab';
-import {
-  UNVERSIONED_PSEUDO_CHANGELIST_ID,
-  basename,
-  groupFilesByDirectory,
-  partitionUnversionedFiles,
-  shortStatusChar,
-} from './ctwChangesTree';
+import { countConflictRegionsPerFile } from './ctwConflictCounts';
 import { commitToolWindowStyles } from './commitToolWindowStyles';
+import {
+  ACTIVE_TAB_SLOT,
+  isChangesGroupingMode,
+  isShelfTabFilter,
+  CHANGES_GROUPING_SLOT,
+  RECENT_MESSAGES_SLOT,
+  SHELF_TAB_FILTER_SLOT,
+  SIGN_OFF_SLOT,
+} from './ctwPersistedSlots';
+export {
+  ACTIVE_TAB_SLOT,
+  ACTIVE_TAB_STATE_KEY,
+  CHANGES_GROUPING_SLOT,
+  CHANGES_GROUPING_STATE_KEY,
+  RECENT_MESSAGES_SLOT,
+  RECENT_MESSAGES_STATE_KEY,
+  SHELF_TAB_FILTER_SLOT,
+  SHELF_TAB_FILTER_STATE_KEY,
+  SIGN_OFF_SLOT,
+  SIGN_OFF_STATE_KEY,
+  isChangesGroupingMode,
+  isShelfTabFilter,
+} from './ctwPersistedSlots';
+
+import { buildShelfTabEntries } from './shelfTab';
+import { buildCommitToolWindowInitModel } from './ctwInitModel';
+export { buildCommitToolWindowInitModel } from './ctwInitModel';
+export type { IRenderInput } from './ctwInitModel';
+import type { IRenderInput } from './ctwInitModel';
+export { buildShelfTabEntries, gearMenuItems } from './shelfTab';
 export { changelistContextMenuLabels, fileContextMenuLabels } from './changelistTab';
 export {
   type IShelfTabShelfController,
@@ -80,11 +97,7 @@ import type {
   CommitToolWindowTab,
   ShelfTabFilter,
   ChangesGroupingMode,
-  IShelfTabEntry,
   ICommitToolWebviewMessage,
-  ICommitToolWindowInitModel,
-  ICtwChangelistModel,
-  ICtwFileEntry,
 } from './commitToolWindow.types';
 
 // The pure wire shapes + render model live in the vscode-free
@@ -107,21 +120,6 @@ export const COMMIT_TOOL_WINDOW_VIEW_ID = 'intellig.commitToolWindow';
 
 /** Config flag — when true, the new Commit tool window is exposed to users. */
 export const COMMIT_TOOL_WINDOW_CONFIG_KEY = 'useCommitToolWindow';
-
-/** workspaceState key for the currently-active tab (Local Changes / Shelf). */
-export const ACTIVE_TAB_STATE_KEY = 'intellig.commitToolWindow.activeTab';
-
-/** workspaceState key for the recent-commit-messages LRU. */
-export const RECENT_MESSAGES_STATE_KEY = 'intellig.recentCommitMessages';
-
-/**
- * workspaceState key for the Shelf-tab filter toggle.
- * One of `'shelves' | 'stashes' | 'both'` (default `'both'`).
- */
-export const SHELF_TAB_FILTER_STATE_KEY = 'intellig.commitToolWindow.shelfFilter';
-
-/** workspaceState key for the sticky Sign-off checkbox. */
-export const SIGN_OFF_STATE_KEY = 'intellig.commitToolWindow.signOff';
 
 /** Maximum size of the recent-commit-messages LRU. */
 export const RECENT_MESSAGES_MAX = 20;
@@ -174,116 +172,6 @@ export function sortChangelistsForDisplay(changelists: readonly IChangelist[]): 
   });
 }
 
-/**
- * Build the unified Shelf-tab entry list from the two source arrays and
- * apply the requested filter. Pure — a new array is returned. Rows are
- * sorted by timestamp descending (newest first). When both sources are
- * visible, shelves and stashes interleave purely by timestamp, which mirrors
- * IntelliJ's unified pane.
- *
- * @param shelfItems - Current `IShelfItem[]` from `IShelfService`.
- * @param stashes    - Current `IStash[]` from `IGitService.stashList`.
- * @param filter     - `'shelves' | 'stashes' | 'both'`.
- */
-export function buildShelfTabEntries(
-  shelfItems: readonly IShelfItem[],
-  stashes: readonly IStash[],
-  filter: ShelfTabFilter
-): IShelfTabEntry[] {
-  const entries: IShelfTabEntry[] = [];
-
-  if (filter === 'shelves' || filter === 'both') {
-    for (const it of shelfItems) {
-      entries.push({
-        kind: 'shelf',
-        id: it.id,
-        name: it.name,
-        timestamp: it.timestamp,
-        fileCount: it.files.length,
-        unshelvedAt: it.unshelvedAt,
-      });
-    }
-  }
-  if (filter === 'stashes' || filter === 'both') {
-    for (const s of stashes) {
-      entries.push({
-        kind: 'stash',
-        id: `stash@{${s.index}}`,
-        name: s.message,
-        timestamp: s.date,
-        index: s.index,
-      });
-    }
-  }
-
-  // Newest-first sort. Break ties deterministically by id so snapshots are
-  // stable across runs.
-  entries.sort((a, b) => {
-    const delta = b.timestamp.getTime() - a.timestamp.getTime();
-    if (delta !== 0) {
-      return delta;
-    }
-    return a.id.localeCompare(b.id);
-  });
-  return entries;
-}
-
-/**
- * Whitelist valid filter strings. Used when hydrating persisted filter
- * state so a corrupt workspaceState value falls back to `'both'`.
- */
-export function isShelfTabFilter(value: unknown): value is ShelfTabFilter {
-  return value === 'shelves' || value === 'stashes' || value === 'both';
-}
-
-/** Persisted slot for the active tab (Local Changes / Shelf). */
-export const ACTIVE_TAB_SLOT: PersistedSlot<CommitToolWindowTab> = {
-  key: ACTIVE_TAB_STATE_KEY,
-  version: 1,
-  validate: readEnum<CommitToolWindowTab>(['localChanges', 'shelf']),
-};
-
-/** Persisted slot for the Shelf-tab filter toggle. */
-export const SHELF_TAB_FILTER_SLOT: PersistedSlot<ShelfTabFilter> = {
-  key: SHELF_TAB_FILTER_STATE_KEY,
-  version: 1,
-  validate: (raw) => (isShelfTabFilter(raw) ? raw : undefined),
-};
-
-/** Persisted slot for the recent-commit-messages LRU (shared with CommitDialog). */
-export const RECENT_MESSAGES_SLOT: PersistedSlot<string[]> = {
-  key: RECENT_MESSAGES_STATE_KEY,
-  version: 1,
-  validate: readStringArray,
-};
-
-/**
- * Persisted slot for the Sign-off checkbox — a sticky preference like
- * IntelliJ's (GitCommitOptions persists it), not per-commit state.
- */
-export const SIGN_OFF_SLOT: PersistedSlot<boolean> = {
-  key: SIGN_OFF_STATE_KEY,
-  version: 1,
-  validate: readBoolean,
-};
-
-/**
- * Gear-menu items for the composer. The single entry toggles the persisted
- * no-verify flag the commit path reads (shared with CommitDialog's gear via
- * LAST_NO_VERIFY_SLOT); `checked` mirrors that flag.
- */
-export function gearMenuItems(
-  noVerify: boolean
-): Array<{ id: 'toggleNoVerify'; label: string; checked: boolean }> {
-  return [
-    {
-      id: 'toggleNoVerify',
-      label: 'Disable pre-commit hooks (--no-verify)',
-      checked: noVerify,
-    },
-  ];
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // CommitToolWindow
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,6 +206,8 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
   private _stashEntries: IStash[] = [];
   /** Trailing coalescer for {@link _pushLiveUpdate} (service-event bursts). */
   private _liveUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Conflict-region count per unmerged path, refreshed on every push. */
+  private _conflictRegionCounts: Map<string, number> = new Map();
   /** Fingerprint of the last pushed model; reset on every resolve. */
   private _lastPushedFingerprint = '';
   /** Delivery result of the last live post; drives visibility redelivery. */
@@ -628,6 +518,31 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       case 'shelfTabContextAction':
         await this._handleShelfTabAction(msg);
         break;
+      case 'resolveConflicts': {
+        // The Resolve link on the Merge Conflicts header. Routed to the same
+        // command the status-bar in-progress badge uses, so both entry points
+        // land on one dialog that infers the operation from repository state.
+        //
+        // The sticky repo is passed explicitly. Without it the repo-scoped
+        // spine falls back to the ACTIVE EDITOR, which in multi-root opens the
+        // dialog on whatever repo the focused file belongs to rather than the
+        // one whose rows are on screen — and the per-row Resolve beside it
+        // already resolves through CtwRepoTarget.
+        const target = await this._repoTarget.resolveForAction();
+        await vscode.commands.executeCommand(
+          'intellig.showResolveConflictsDialog',
+          target?.rootUri
+        );
+        break;
+      }
+      case 'resolveConflictFile':
+        // Per-row Resolve. Goes through the same Show Diff seam every row
+        // uses, which routes an unmerged path to the merge window before it
+        // ever builds a two-pane diff.
+        if (msg.path) {
+          await this._handleOpenFileDiff(msg.path);
+        }
+        break;
       case 'gearAction':
         if (msg.id === 'toggleNoVerify') {
           const next = !(loadPersisted(this._workspaceState, LAST_NO_VERIFY_SLOT) ?? false);
@@ -666,8 +581,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     // localChanges.openFile with no argument and can't read the webview's
     // selection, so it falls back to this (IntelliJ EditSource semantics).
     this._lastSelectedFileUri = await this._resolveFileUri(path);
+    // A fully-staged file (index carries the change, nothing further in the
+    // working tree) has an EMPTY unstaged diff — the row's own `staged` flag
+    // says which side of `git diff` actually holds the content.
+    const staged = this._findFileChange(path)?.staged ?? false;
     try {
-      const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
+      const diff = await this._gitService.getDiff(repo, path, staged);
       void this.postMessage({ type: 'updateDiffPreview', path, diff });
     } catch (error) {
       void this.postMessage({
@@ -826,6 +745,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         findChangeStatus: (path) => this._findChangeStatus(path),
         findFileChange: (path) => this._findFileChange(path),
         reloadState: () => this._reloadState(),
+        showContextMenu: async (m) => {
+          await this.postMessage(m);
+        },
       },
       message
     );
@@ -922,6 +844,11 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     // Sticky-first background resolve — the bare non-interactive resolver
     // found no repo in multi-root and left the rendered list stale.
     const repo = repoOverride ?? (await this._repoTarget.resolveForBackground());
+    if (!repo) {
+      // No repo resolved: the previous repo's conflict counts must not be
+      // stamped onto whatever renders next.
+      this._conflictRegionCounts = new Map();
+    }
     if (repo) {
       this._changelists = this._changelistService.getChangelists(repo);
       this._shelfItems = this._shelfService.getShelfItems(repo);
@@ -960,6 +887,11 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         }
         this._knownActiveFiles = new Set(activeTracked);
       }
+
+      this._conflictRegionCounts = await countConflictRegionsPerFile(
+        repo,
+        this._changelists.flatMap((cl) => cl.files)
+      );
     }
 
     const model = buildCommitToolWindowInitModel(this._renderInput());
@@ -1059,6 +991,7 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
       activeChangelistId: findActiveChangelistId(this._changelists),
       grouping: this._changesGrouping,
       selectedFiles: [...this._selectedFiles],
+      conflictRegionCounts: this._conflictRegionCounts,
     };
   }
 
@@ -1070,6 +1003,9 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
         getShelfController: () => this._shelfController,
         getStashController: () => this._stashController,
         getShelfItems: () => this._shelfItems,
+        showContextMenu: async (m) => {
+          await this.postMessage(m);
+        },
       },
       message
     );
@@ -1101,125 +1037,6 @@ function findActiveChangelistId(changelists: readonly IChangelist[]): string | u
 // HTML template (pure — safe to unit-test without a Webview instance)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface IRenderInput {
-  activeTab: CommitToolWindowTab;
-  changelists: readonly IChangelist[];
-  shelfItems: readonly IShelfItem[];
-  /** Unified shelf+stash entries. Derived from shelfItems + stashes. */
-  shelfTabEntries?: readonly IShelfTabEntry[];
-  /** Active Shelf-tab filter, used to render the segmented control. */
-  shelfTabFilter?: ShelfTabFilter;
-  composer: { message: string; amend: boolean; signOff: boolean; noVerify?: boolean };
-  activeChangelistId?: string;
-  /** Local Changes file-grouping mode. Defaults to `flat` when omitted. */
-  grouping?: ChangesGroupingMode;
-  /** Checked file paths (host-owned inclusion model). Defaults to none. */
-  selectedFiles?: readonly string[];
-  /** Repo root these rows were built from (the retarget guard's stamp). */
-  repoRoot?: string;
-}
-
-/** Map an {@link IFileChange} to its render-model entry. */
-function buildCtwFileEntry(f: IFileChange, displayName: string): ICtwFileEntry {
-  return { path: f.path, statusChar: shortStatusChar(f.status), displayName };
-}
-
-/**
- * Build the file portion of a changelist's render model, honoring the grouping
- * mode. Flat mode yields a `files` array (full paths); directory mode yields
- * `dirGroups` bucketed by directory (basenames), mirroring renderChangelistFiles.
- */
-function buildCtwChangelistFiles(
-  files: readonly IFileChange[],
-  grouping: ChangesGroupingMode
-): Pick<ICtwChangelistModel, 'files' | 'dirGroups'> {
-  if (grouping === 'directory') {
-    return {
-      dirGroups: groupFilesByDirectory(files).map((node) => ({
-        dir: node.dir.length > 0 ? node.dir : null,
-        files: node.files.map((f) => buildCtwFileEntry(f, basename(f.path))),
-      })),
-    };
-  }
-  return { files: files.map((f) => buildCtwFileEntry(f, f.path)) };
-}
-
-/**
- * Precompute the full {@link ICommitToolWindowInitModel} from render input.
- * Exported for unit/jsdom tests that assert the built DOM.
- */
-export function buildCommitToolWindowInitModel(input: IRenderInput): ICommitToolWindowInitModel {
-  const { activeTab, changelists, shelfItems, composer, activeChangelistId } = input;
-  const grouping: ChangesGroupingMode = input.grouping ?? 'flat';
-  // Derive combined entries when not already computed. Callers that skip
-  // the field get a shelf-only view (legacy behavior).
-  const shelfTabFilter: ShelfTabFilter = input.shelfTabFilter ?? 'shelves';
-  const shelfTabEntries: readonly IShelfTabEntry[] =
-    input.shelfTabEntries ?? buildShelfTabEntries(shelfItems, [], shelfTabFilter);
-
-  const { changelists: tracked, unversioned } = partitionUnversionedFiles(changelists);
-  const changelistModels: ICtwChangelistModel[] = tracked.map((cl) => ({
-    id: cl.id,
-    name: cl.name,
-    isActive: cl.id === activeChangelistId,
-    fileCount: cl.files.length,
-    ...buildCtwChangelistFiles(cl.files, grouping),
-  }));
-  const unversionedModel: ICtwChangelistModel | null =
-    unversioned.length === 0
-      ? null
-      : {
-          id: UNVERSIONED_PSEUDO_CHANGELIST_ID,
-          name: 'Unversioned Files',
-          isActive: false,
-          fileCount: unversioned.length,
-          ...buildCtwChangelistFiles(unversioned, grouping),
-        };
-
-  const emptyCopy =
-    shelfTabFilter === 'stashes'
-      ? 'No stash entries.'
-      : shelfTabFilter === 'shelves'
-        ? 'Shelf is empty.'
-        : 'No shelf or stash entries.';
-
-  return {
-    activeTab,
-    repoRoot: input.repoRoot,
-    showLocal: activeTab === 'localChanges',
-    grouping,
-    gearItems: gearMenuItems(composer.noVerify ?? false),
-    composer: { message: composer.message, amend: composer.amend, signOff: composer.signOff },
-    selectedFiles: [...(input.selectedFiles ?? [])],
-    local: {
-      empty: changelists.length === 0,
-      changelists: changelistModels,
-      unversioned: unversionedModel,
-    },
-    shelf: {
-      filter: shelfTabFilter,
-      empty: shelfTabEntries.length === 0,
-      emptyCopy,
-      rows: shelfTabEntries.map((entry) =>
-        entry.kind === 'shelf'
-          ? {
-              kind: 'shelf' as const,
-              id: entry.id,
-              name: entry.name,
-              alreadyUnshelved: entry.unshelvedAt !== undefined,
-              fileCount: entry.fileCount,
-            }
-          : {
-              kind: 'stash' as const,
-              index: entry.index,
-              name: entry.name,
-              id: entry.id,
-            }
-      ),
-    },
-  };
-}
-
 export function buildCommitToolWindowBodyParts(input: IRenderInput): {
   body: string;
 } {
@@ -1233,21 +1050,6 @@ export function buildCommitToolWindowBodyParts(input: IRenderInput): {
   <div id="ctw-root"></div>${initIslandHtml(model)}`;
   return { body };
 }
-
-/** workspaceState key persisting the Local Changes grouping mode. */
-export const CHANGES_GROUPING_STATE_KEY = 'intellig.commitToolWindow.changesGrouping';
-
-/** Type-guard for a persisted grouping value. */
-export function isChangesGroupingMode(value: unknown): value is ChangesGroupingMode {
-  return value === 'flat' || value === 'directory';
-}
-
-/** Persisted slot for the Local Changes grouping mode. */
-export const CHANGES_GROUPING_SLOT: PersistedSlot<ChangesGroupingMode> = {
-  key: CHANGES_GROUPING_STATE_KEY,
-  version: 1,
-  validate: (raw) => (isChangesGroupingMode(raw) ? raw : undefined),
-};
 
 /**
  * Read the `intellig.useCommitToolWindow` flag. The manifest default is

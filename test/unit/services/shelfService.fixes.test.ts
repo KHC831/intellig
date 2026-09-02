@@ -19,7 +19,8 @@ import * as path from 'path';
 import { ShelfService } from '../../../src/shelf/ShelfService';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
-import { IGitCommandResult } from '../../../src/git-core/gitCli';
+import { IGitCommandResult, literalPathspec } from '../../../src/git-core/gitCli';
+import { pathspecTarget } from '../../helpers/pathspec';
 
 /**
  * Minimal mock GitCli capturing args and returning scripted results per test.
@@ -98,7 +99,7 @@ describe('ShelfService — additions', () => {
       const isFullFileDiff = args[0] === 'diff' && args[1] === 'HEAD' && args[2] === '--';
       const isUnstagedDiff = args[0] === 'diff' && args[1] === '--';
       if (isFullFileDiff || isUnstagedDiff) {
-        const filePath = args[args.length - 1];
+        const filePath = pathspecTarget(args[args.length - 1]);
         const file = files.find((f) => f.path === filePath);
         return {
           exitCode: 0,
@@ -409,7 +410,7 @@ describe('ShelfService — additions', () => {
         const isDiff =
           args[0] === 'diff' && ((args[1] === 'HEAD' && args[2] === '--') || args[1] === '--');
         if (isDiff) {
-          const p = args[args.length - 1];
+          const p = pathspecTarget(args[args.length - 1]);
           const f = files.find((x) => x.path === p);
           return { exitCode: 0, stdout: f ? f.diff : '', stderr: '', combined: '' };
         }
@@ -497,7 +498,7 @@ describe('ShelfService — additions', () => {
   // saved on the shelf AND still in the working tree. The fix surfaces a
   // warning and sets partialCleanupFailures on the returned IShelfItem.
 
-  describe('shelve — partial cleanup failure (finding #8)', () => {
+  describe('shelve — partial cleanup failure', () => {
     /**
      * Script the mock CLI so that:
      *   - `diff HEAD -- <file>` returns a real diff (the shelf save succeeds)
@@ -512,7 +513,7 @@ describe('ShelfService — additions', () => {
       const diff = `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n@@ -1 +1 @@\n-old\n+new\n`;
       mockCli.nextResult = (args): IGitCommandResult => {
         // Capture the diff for the file.
-        if (args[0] === 'diff' && args.includes(filePath)) {
+        if (args[0] === 'diff' && args.map(pathspecTarget).includes(filePath)) {
           return { exitCode: 0, stdout: diff, stderr: '', combined: '' };
         }
         // cat-file: file IS in HEAD (so checkout path is taken, not rm).
@@ -577,7 +578,7 @@ describe('ShelfService — additions', () => {
       const diff =
         'diff --git a/clean.ts b/clean.ts\n--- a/clean.ts\n+++ b/clean.ts\n@@ -1 +1 @@\n-old\n+new\n';
       mockCli.nextResult = (args): IGitCommandResult => {
-        if (args[0] === 'diff' && args.includes('clean.ts')) {
+        if (args[0] === 'diff' && args.map(pathspecTarget).includes('clean.ts')) {
           return { exitCode: 0, stdout: diff, stderr: '', combined: '' };
         }
         // All other commands (checkout, etc.) succeed.
@@ -589,6 +590,44 @@ describe('ShelfService — additions', () => {
       assert.ok(
         !item.partialCleanupFailures || item.partialCleanupFailures.length === 0,
         'partialCleanupFailures must be absent or empty on a clean shelve'
+      );
+    });
+  });
+
+  // ─── literalPathspec sites with no behavioural test ───
+
+  describe('shelve — staged-new full-file revert', () => {
+    it('removes the file with a literal-wrapped git rm -f --, even with pathspec-magic characters in the name', async () => {
+      // A staged-NEW file (no HEAD blob): checkout fails, cat-file confirms
+      // it is genuinely absent from HEAD, so the removal path is `rm -f --`.
+      // The name carries `[1]`, a pathspec character class — bare, `rm -f --
+      // 'a[1].ts'` would ALSO delete a same-shaped neighbour with no error
+      // and nothing to undo.
+      const filePath = 'a[1].ts';
+      const diff = `diff --git a/${filePath} b/${filePath}\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1 @@\n+new\n`;
+      mockCli.nextResult = (args): IGitCommandResult => {
+        if (args[0] === 'diff' && args.map(pathspecTarget).includes(filePath)) {
+          return { exitCode: 0, stdout: diff, stderr: '', combined: '' };
+        }
+        if (args[0] === 'checkout') {
+          return { exitCode: 1, stdout: '', stderr: 'fatal: no such path in HEAD', combined: '' };
+        }
+        if (args[0] === 'cat-file') {
+          return { exitCode: 1, stdout: '', stderr: '', combined: '' };
+        }
+        return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+      };
+
+      await svc.shelve(repo, 'staged-new', { files: [filePath] });
+
+      const rmCall = mockCli.exec_.find((rec) => rec.args[0] === 'rm');
+      assert.ok(
+        rmCall,
+        `expected an rm call; calls: ${JSON.stringify(mockCli.exec_.map((r) => r.args))}`
+      );
+      assert.ok(
+        rmCall.args.includes('-f') && rmCall.args.includes(literalPathspec(filePath)),
+        `rm must be literal-wrapped ('-f', '--', ${JSON.stringify(literalPathspec(filePath))}); got: ${JSON.stringify(rmCall.args)}`
       );
     });
   });

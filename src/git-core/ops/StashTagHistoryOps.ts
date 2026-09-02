@@ -9,7 +9,7 @@ import {
   ILogOptions,
   IFileHistoryOptions,
 } from '../interfaces/IGitService';
-import { buildGitArgs } from '../gitCli';
+import { buildGitArgs, literalPathspec } from '../gitCli';
 import {
   GitError,
   CommandFailedError,
@@ -549,7 +549,7 @@ export class StashTagHistoryOps {
     // `-`/`.` in a path can't smuggle a flag — no per-path guard needed.
     const paths = options?.paths ?? (options?.path ? [options.path] : []);
     if (paths.length > 0) {
-      args.push('--full-history', '--simplify-merges', '--', ...paths);
+      args.push('--full-history', '--simplify-merges', '--', ...paths.map(literalPathspec));
     }
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
@@ -658,7 +658,7 @@ export class StashTagHistoryOps {
     }
     const paths = options?.paths ?? (options?.path ? [options.path] : []);
     if (paths.length > 0) {
-      args.push('--full-history', '--simplify-merges', '--', ...paths);
+      args.push('--full-history', '--simplify-merges', '--', ...paths.map(literalPathspec));
     }
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
@@ -758,7 +758,7 @@ export class StashTagHistoryOps {
     }
 
     // buildGitArgs writes the trailing `-- <path>` for us when `paths` is
-    // non-undefined.
+    // non-undefined, wrapping it literal per PATH_SLOT_KIND['log'].
     const args = buildGitArgs('log', flags, refs, [path]);
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });

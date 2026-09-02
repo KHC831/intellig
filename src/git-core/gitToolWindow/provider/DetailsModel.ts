@@ -127,7 +127,7 @@ export class DetailsModel {
    * selected.
    */
   public selectionKeyOf(hashes: readonly string[]): string {
-    return [...hashes].sort().join(',');
+    return [...hashes].sort().join(','); // ref-sort-exempt: commit hashes, a cache key
   }
 
   /**

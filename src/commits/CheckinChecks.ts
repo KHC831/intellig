@@ -414,9 +414,15 @@ async function readAttributedPaths(
   const excluded = new Set<string>();
   for (const batch of chunkPathsForArgv(paths)) {
     try {
-      const result = await gitCli.exec(['check-attr', '-z', 'text', 'crlf', '--', ...batch], {
-        cwd,
-      });
+      const result = await gitCli.exec(
+        // check-attr takes PATHNAMES, not pathspecs, and echoes each argument
+        // back verbatim as the path column `excluded` is matched against below.
+        // pathspec-exempt: wrapping it would corrupt that key.
+        ['check-attr', '-z', 'text', 'crlf', '--', ...batch],
+        {
+          cwd,
+        }
+      );
       if (result.exitCode === 0) {
         for (const p of parseLineAttrPaths(result.stdout)) {
           excluded.add(p);

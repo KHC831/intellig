@@ -40,6 +40,7 @@ import type { IRenderInput } from '../../../src/services';
 import { LAST_NO_VERIFY_SLOT } from '../../../src/commits/CommitDialog';
 import { loadPersisted } from '../../../src/utils/persistedState';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
+import { captureWarnCalls } from '../../helpers/captureWarnCalls';
 
 // Boot the bundled Commit Tool Window entry against the host body (empty
 // `#ctw-root` + the `#intellig-init` island) and return the built document; the
@@ -211,6 +212,23 @@ describe('CommitToolWindow — fileContextMenuLabels', () => {
   it('omits Add to VCS for non-untracked files', () => {
     const labels = fileContextMenuLabels(modifiedFile).map((e) => e.label);
     assert.ok(!labels.includes('Add to VCS'));
+  });
+
+  it('puts the conflict actions FIRST for an unmerged file', () => {
+    // IntelliJ anchors its conflict group first in the changes-view popup
+    // (Git.ChangesView.Conflicts, anchor="first"), so the actions you need
+    // when a merge stopped are not buried under Show Diff and Rollback.
+    const conflicted: IFileChange = { path: 'c.java', status: 'conflicted', staged: false };
+    const labels = fileContextMenuLabels(conflicted).map((e) => e.label);
+    assert.deepStrictEqual(labels.slice(0, 3), ['Resolve…', 'Accept Yours', 'Accept Theirs']);
+    assert.ok(labels.includes('Show Diff'), 'the ordinary file actions stay available');
+  });
+
+  it('offers no conflict actions for a file that is not unmerged', () => {
+    const labels = fileContextMenuLabels(modifiedFile).map((e) => e.label);
+    assert.ok(!labels.includes('Resolve…'));
+    assert.ok(!labels.includes('Accept Yours'));
+    assert.ok(!labels.includes('Accept Theirs'));
   });
 
   it('includes keyboard shortcuts for the usual IntelliJ accelerators', () => {
@@ -443,7 +461,10 @@ describe('CommitToolWindow — host behavior', () => {
         calls.push({ method: 'commit', args });
         return okAsync(undefined);
       },
-      getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
+      getDiff: async (...args: unknown[]) => {
+        calls.push({ method: 'getDiff', args });
+        return { path: '', status: 'modified' as const, hunks: [], binary: false };
+      },
 
       // Stash operations — stashList is the only one invoked via
       // _reloadState. The rest are throw-on-call.
@@ -682,6 +703,56 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
+  it('selectFile requests the STAGED diff for a fully-staged file, and the unstaged diff otherwise', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      {
+        id: 'def',
+        name: 'Default',
+        isDefault: true,
+        isActive: true,
+        files: [
+          { path: 'README', status: 'modified', staged: true },
+          { path: 'src/main/java/Service.java', status: 'modified', staged: false },
+        ],
+      },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'selectFile', path: 'README' });
+    const stagedCall = services.calls.find((c) => c.method === 'getDiff');
+    assert.ok(stagedCall, 'expected a getDiff call for README');
+    assert.strictEqual(
+      stagedCall?.args[2],
+      true,
+      'a fully-staged file must request the staged diff, or its content never renders'
+    );
+
+    services.calls.length = 0;
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'selectFile',
+      path: 'src/main/java/Service.java',
+    });
+    const unstagedCall = services.calls.find((c) => c.method === 'getDiff');
+    assert.ok(unstagedCall, 'expected a getDiff call for the nested file');
+    assert.strictEqual(
+      unstagedCall?.args[2],
+      false,
+      'an unstaged file must request the unstaged diff'
+    );
+
+    tw.dispose();
+  });
+
   it('commitAndPush invokes intellig.push after a successful commit', async () => {
     const memento = createMockMemento();
     const repo = createMockRepo();
@@ -865,7 +936,7 @@ describe('CommitToolWindow — host behavior', () => {
 
   // ─── SR-4: contextOpen right-click menu wiring ─────────────────────────────
 
-  it('contextOpen on a changelist row shows a QuickPick of changelist menu labels', async () => {
+  it('contextOpen on a changelist row sends the changelist menu items to the webview', async () => {
     const memento = createMockMemento();
     const repo = createMockRepo();
     const changelists: IChangelist[] = [
@@ -886,21 +957,23 @@ describe('CommitToolWindow — host behavior', () => {
     );
     asTestSurface(tw)._changelists = changelists;
 
-    const pickCalls: Array<{ items: Array<{ label: string }>; options: { title?: string } }> = [];
-    writableWindow().showQuickPick = (items: unknown[], options?: unknown): Promise<unknown> => {
-      const labeled = items as Array<{ label: string }>;
-      const opts = (options as { title?: string } | undefined) ?? {};
-      pickCalls.push({ items: labeled, options: opts });
-      // Pick the "Rename Changelist…" entry so we can also confirm the
-      // recursive re-dispatch fires the rename command.
-      return Promise.resolve(labeled.find((i) => i.label === 'Rename Changelist…'));
+    const posted: Array<{ type?: string; items?: Array<{ label: string }> }> = [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
     };
-
-    const executed: Array<{ command: string; args: unknown[] }> = [];
-    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
-      executed.push({ command, args });
-      return Promise.resolve(undefined);
-    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
 
     await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
@@ -908,28 +981,58 @@ describe('CommitToolWindow — host behavior', () => {
       changelistId: 'feat',
     });
 
-    assert.strictEqual(pickCalls.length, 1);
-    const menuLabels = pickCalls[0].items.map((i) => i.label);
+    const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+    assert.strictEqual(menus.length, 1, 'the host answers with items for the webview to draw');
+    const menuLabels = (menus[0].items ?? []).map((i) => i.label);
     assert.ok(menuLabels.includes('Rename Changelist…'));
-    assert.ok(
-      menuLabels.includes('Set Active Changelist') === false,
-      'Set Active Changelist should be filtered out when the row is already active'
-    );
     assert.ok(menuLabels.includes('Commit Only This Changelist…'));
-
-    // The pick should have been re-dispatched → intellig.changelist.rename
-    // with the changelist id.
-    const renameCall = executed.find((e) => e.command === 'intellig.changelist.rename');
+    const setActive = (menus[0].items ?? []).find((i) => i.label === 'Set Active Changelist');
     assert.ok(
-      renameCall,
-      `expected intellig.changelist.rename to fire; executed: ${executed.map((e) => e.command).join(', ')}`
+      !setActive || (setActive as { disabled?: boolean }).disabled === true,
+      'Set Active Changelist must not be offered when the row is already active'
     );
-    assert.deepStrictEqual(renameCall?.args, ['feat']);
 
     tw.dispose();
   });
 
-  it('contextOpen on a file row shows a QuickPick of fileContextMenu labels in order', async () => {
+  it('Resolve on the conflicts header targets the STICKY repo, not the active editor', async () => {
+    // A repo-scoped command with no argument resolves via active editor →
+    // picker. In multi-root that opens the dialog on whichever repo the editor
+    // happens to belong to, while the rows on screen belong to the sticky
+    // target — and the per-row Resolve already routes through CtwRepoTarget,
+    // so the two siblings would resolve the repo two different ways.
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const services = createMockServices(repo, []);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    tw.setRepository(repo);
+
+    const executed: Array<{ command: string; args: unknown[] }> = [];
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
+      executed.push({ command, args });
+      return Promise.resolve(undefined);
+    };
+
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'resolveConflicts' });
+
+    const call = executed.find((e) => e.command === 'intellig.showResolveConflictsDialog');
+    assert.ok(call, 'the Resolve link must reach the dialog command');
+    assert.strictEqual(
+      (call.args[0] as { fsPath?: string } | undefined)?.fsPath,
+      repo.rootUri.fsPath,
+      'it must carry the sticky repo so the spine does not fall back to the active editor'
+    );
+
+    tw.dispose();
+  });
+
+  it('contextOpen on a file row sends the file menu items to the webview, in order', async () => {
     const memento = createMockMemento();
     const repo = createMockRepo();
     const changelists: IChangelist[] = [
@@ -951,12 +1054,23 @@ describe('CommitToolWindow — host behavior', () => {
     );
     asTestSurface(tw)._changelists = changelists;
 
-    const pickCalls: Array<{ items: Array<{ label: string }> }> = [];
-    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> => {
-      pickCalls.push({ items: items as Array<{ label: string }> });
-      // Cancel — returning undefined should leave no side effects.
-      return Promise.resolve(undefined);
+    const posted: Array<{ type?: string; path?: string; items?: Array<{ label: string }> }> = [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
     };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
     const executed: string[] = [];
     writableCommands().executeCommand = (command: string): Promise<unknown> => {
       executed.push(command);
@@ -970,21 +1084,245 @@ describe('CommitToolWindow — host behavior', () => {
       path: 'src/a.ts',
     });
 
-    assert.strictEqual(pickCalls.length, 1);
-    const labels = pickCalls[0].items.map((i) => i.label);
-    // IntelliJ-parity order for modified files — matches
-    // fileContextMenuLabels.
-    assert.deepStrictEqual(labels, [
-      'Show Diff',
-      'Jump to Source',
-      'Move to Another Changelist…',
-      'Rollback…',
-      'Shelve Changes…',
-      'Show History',
-      'Annotate with Git Blame',
-    ]);
-    // Cancelling → no command invocation.
+    const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+    assert.strictEqual(menus.length, 1);
+    assert.strictEqual(menus[0].path, 'src/a.ts', 'the reply names the row it was opened on');
+    // IntelliJ-parity order for modified files — matches fileContextMenuLabels.
+    assert.deepStrictEqual(
+      (menus[0].items ?? []).map((i) => i.label),
+      [
+        'Show Diff',
+        'Jump to Source',
+        'Move to Another Changelist…',
+        'Rollback…',
+        'Shelve Changes…',
+        'Show History',
+        'Annotate with Git Blame',
+      ]
+    );
+    // Offering the menu is not choosing from it: nothing runs until the user picks.
     assert.deepStrictEqual(executed, []);
+
+    tw.dispose();
+  });
+
+  it('contextOpen on a path with no changelist metadata still answers with a fallback menu', async () => {
+    // The file arm never bails: a stale path (state raced ahead of the
+    // webview) still renders a minimal modified-file menu rather than
+    // silently dropping the right-click.
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [] },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+
+    const posted: Array<{ type?: string; path?: string; items?: Array<{ label: string }> }> = [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'contextOpen',
+      changelistId: 'def',
+      path: 'stale/gone.ts',
+    });
+
+    const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+    assert.strictEqual(menus.length, 1, 'a stale path still gets a menu, not silence');
+    assert.strictEqual(menus[0].path, 'stale/gone.ts');
+    assert.deepStrictEqual(
+      (menus[0].items ?? []).map((i) => i.label),
+      fileContextMenuLabels({ path: 'stale/gone.ts', status: 'modified', staged: false }).map(
+        (i) => i.label
+      ),
+      'falls back to a minimal modified-file menu'
+    );
+
+    tw.dispose();
+  });
+
+  it('contextOpen on an unknown changelist id still answers with default flags', async () => {
+    // The changelist arm never bails either: an id that no longer matches
+    // any changelist still renders a menu with isActive/isDefault false
+    // rather than dropping the right-click.
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [] },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+
+    const posted: Array<{ type?: string; items?: Array<{ label: string; disabled?: boolean }> }> =
+      [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'contextOpen',
+      changelistId: 'no-such-id',
+    });
+
+    const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+    assert.strictEqual(menus.length, 1, 'an unknown changelist id still gets a menu, not silence');
+    assert.deepStrictEqual(
+      (menus[0].items ?? []).map((i) => i.label),
+      changelistContextMenuLabels({ isActive: false, isDefault: false }).map((i) => i.label)
+    );
+
+    tw.dispose();
+  });
+
+  it('contextOpen logs a warning when the isActive lookup throws, under the same component every time', async () => {
+    const { calls, restore } = captureWarnCalls();
+    try {
+      const memento = createMockMemento();
+      const repo = createMockRepo();
+      const changelists: IChangelist[] = [
+        { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [] },
+      ];
+      const services = createMockServices(repo, changelists);
+      services.changelistService.getActiveChangelist = async () => {
+        throw new Error('boom');
+      };
+      const tw = new CommitToolWindow(
+        Uri.file('/ext'),
+        services.gitService,
+        services.changelistService,
+        services.shelfService,
+        memento
+      );
+      asTestSurface(tw)._changelists = changelists;
+      /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+      (tw as any)._view = {
+        webview: {
+          html: '',
+          options: {},
+          cspSource: 'test:',
+          asWebviewUri: (u: unknown) => u,
+          postMessage: () => Promise.resolve(true),
+          onDidReceiveMessage: () => ({ dispose: () => {} }),
+        },
+        onDidDispose: () => ({ dispose: () => {} }),
+      };
+      /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+
+      await asTestSurface(tw)._handleWebviewMessage({
+        type: 'changelistContextAction',
+        action: 'contextOpen',
+        changelistId: 'def',
+      });
+
+      assert.strictEqual(calls.length, 1, 'the swallowed throw must still be logged');
+      assert.strictEqual(calls[0].component, 'changelistTab');
+    } finally {
+      restore();
+    }
+  });
+
+  it('contextOpen swallows a failing isActive lookup and still answers', async () => {
+    // The changelist arm's isActive probe is wrapped in try/catch: a
+    // throwing changelist service must not turn a right-click into a
+    // dropped menu.
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [] },
+    ];
+    const services = createMockServices(repo, changelists);
+    services.changelistService.getActiveChangelist = async () => {
+      throw new Error('boom');
+    };
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+
+    const posted: Array<{ type?: string; items?: Array<{ label: string; disabled?: boolean }> }> =
+      [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (tw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'contextOpen',
+      changelistId: 'def',
+    });
+
+    const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+    assert.strictEqual(
+      menus.length,
+      1,
+      'a throwing isActive lookup still gets a menu, not silence'
+    );
+    assert.deepStrictEqual(
+      (menus[0].items ?? []).map((i) => i.label),
+      changelistContextMenuLabels({ isActive: false, isDefault: true }).map((i) => i.label),
+      'falls back to isActive:false rather than crashing the right-click'
+    );
 
     tw.dispose();
   });

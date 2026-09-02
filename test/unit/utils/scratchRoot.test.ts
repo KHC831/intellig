@@ -1,88 +1,212 @@
 /**
- * Tests for the shared test-scratch root helper (test/helpers/scratchRoot.ts):
- * the self-healing sweep that empties workspace-notes/tmp before and after a
- * mocha run, so repos leaked by an interrupted run never accumulate (and never
- * show up in the extension's repo discovery).
+ * The scratch base, this process's own root inside it, and the sweep that
+ * reclaims abandoned roots before and after a run.
+ *
+ * The sweep runs in EVERY mocha process on the checkout, and lanes overlap, so
+ * these pin what it must not touch as firmly as what it must.
  */
-
-import '../../setup';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { SCRATCH_ROOT, cleanScratchRoot } from '../../helpers/scratchRoot';
+import {
+  SCRATCH_BASE,
+  SCRATCH_ROOT,
+  cleanScratchRoot,
+  dropOwnScratchRoot,
+  __pidIsAliveForTest,
+} from '../../helpers/scratchRoot';
 
-describe('scratchRoot — self-healing test scratch dir', () => {
-  it('SCRATCH_ROOT is the gitignored workspace-notes/tmp inside this repo', () => {
-    assert.strictEqual(SCRATCH_ROOT, path.resolve(__dirname, '../../../workspace-notes/tmp'));
+describe('scratch root', () => {
+  it('SCRATCH_BASE is the gitignored workspace-notes/tmp inside this repo', () => {
+    assert.strictEqual(SCRATCH_BASE, path.resolve(__dirname, '../../../workspace-notes/tmp'));
   });
 
-  it('cleanScratchRoot removes every entry but keeps the root itself', () => {
-    const leakedRepo = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'leaked-'));
-    fs.mkdirSync(path.join(leakedRepo, '.git'));
-    fs.writeFileSync(path.join(leakedRepo, '.git', 'HEAD'), 'ref: refs/heads/main\n');
-    const strayFile = path.join(SCRATCH_ROOT, 'stray.txt');
-    fs.writeFileSync(strayFile, 'junk');
-
-    cleanScratchRoot();
-
-    assert.ok(!fs.existsSync(leakedRepo), 'leaked repo dir removed');
-    assert.ok(!fs.existsSync(strayFile), 'stray file removed');
-    assert.ok(fs.existsSync(SCRATCH_ROOT), 'the scratch root itself survives');
-    assert.strictEqual(fs.readdirSync(SCRATCH_ROOT).length, 0, 'root left empty');
-  });
-
-  it('creates the root when it does not exist yet', () => {
-    fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
-    cleanScratchRoot();
-    assert.ok(fs.existsSync(SCRATCH_ROOT));
+  it('this process owns a subdirectory named for its pid', () => {
+    assert.strictEqual(SCRATCH_ROOT, path.join(SCRATCH_BASE, String(process.pid)));
   });
 
   it('refuses to sweep a directory that is not a workspace-notes/tmp', () => {
-    assert.throws(() => cleanScratchRoot('/some/other/dir'), /workspace-notes.tmp/);
+    assert.throws(() => cleanScratchRoot('/tmp/somewhere-else'), /refusing to sweep/);
   });
 
-  /**
-   * Finder recreates .DS_Store inside a directory while the recursive delete is
-   * walking it, so the rmdir lands on a now-non-empty directory and throws
-   * ENOTEMPTY. That killed a whole suite run mid-sweep. One retry absorbs the
-   * concurrent write; a second failure is a real fault and still propagates.
-   */
-  it('retries once when a concurrent write makes the sweep fail ENOTEMPTY', () => {
+  // The fixtures below use a base of their own: sweeping the real one would be
+  // the very race these tests exist to pin.
+  function fixtureBase(): string {
+    const dir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'sweep-'));
+    const base = path.join(dir, 'workspace-notes', 'tmp');
+    fs.mkdirSync(base, { recursive: true });
+    return base;
+  }
+
+  it('reclaims a root whose owning process is gone', () => {
+    const base = fixtureBase();
+    // Pid 1 exists; a very high pid almost certainly does not. Assert the
+    // premise rather than trusting it, so this cannot pass for the wrong reason.
+    const deadPid = '4194303';
+    let dead = false;
+    try {
+      process.kill(Number(deadPid), 0);
+    } catch {
+      dead = true;
+    }
+    assert.ok(dead, 'the fixture pid must not be a live process');
+    fs.mkdirSync(path.join(base, deadPid));
+    fs.writeFileSync(path.join(base, deadPid, 'leaked.txt'), 'x');
+
+    cleanScratchRoot(base, undefined, path.join(base, '999999'));
+
+    assert.ok(!fs.existsSync(path.join(base, deadPid)), 'an abandoned root is reclaimed');
+  });
+
+  it('leaves a root whose owning process is still alive', () => {
+    const base = fixtureBase();
+    const livePid = String(process.pid);
+    fs.mkdirSync(path.join(base, livePid), { recursive: true });
+    fs.writeFileSync(path.join(base, livePid, 'live.txt'), 'x');
+
+    cleanScratchRoot(base, undefined, path.join(base, '999999'));
+
+    assert.ok(
+      fs.existsSync(path.join(base, livePid, 'live.txt')),
+      "another lane's live fixture must survive the sweep"
+    );
+  });
+
+  it('reclaims a long-abandoned root even while that pid is alive', () => {
+    // Pids are recycled: a leaked root can be adopted by an unrelated
+    // long-lived process, and liveness alone would leave it there forever.
+    const base = fixtureBase();
+    const livePid = String(process.pid);
+    const dir = path.join(base, livePid);
+    fs.mkdirSync(dir, { recursive: true });
+    const longAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    fs.utimesSync(dir, longAgo, longAgo);
+
+    cleanScratchRoot(base, undefined, path.join(base, '999999'));
+
+    assert.ok(!fs.existsSync(dir), 'a day-old root is reclaimed whatever owns that pid now');
+  });
+
+  it('keeps a freshly-touched root belonging to a live pid', () => {
+    // The negative control for the rule above: the age fallback must not reach
+    // a lane that is running right now.
+    const base = fixtureBase();
+    const dir = path.join(base, String(process.pid));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'live.txt'), 'x');
+
+    cleanScratchRoot(base, undefined, path.join(base, '999999'));
+
+    assert.ok(fs.existsSync(path.join(dir, 'live.txt')), "a running lane's fixture survives");
+  });
+
+  it('reclaims an entry not named for a pid', () => {
+    const base = fixtureBase();
+    fs.mkdirSync(path.join(base, 'legacy-leak'), { recursive: true });
+
+    cleanScratchRoot(base, undefined, path.join(base, '999999'));
+
+    assert.ok(!fs.existsSync(path.join(base, 'legacy-leak')), 'a pre-layout leak is reclaimed');
+  });
+
+  it('creates this run its own empty root', () => {
+    const base = fixtureBase();
+    const own = path.join(base, '999999');
+    fs.mkdirSync(own, { recursive: true });
+    fs.writeFileSync(path.join(own, 'stale.txt'), 'x');
+
+    cleanScratchRoot(base, undefined, own);
+
+    assert.ok(fs.existsSync(own), 'the run gets a root');
+    assert.deepStrictEqual(fs.readdirSync(own), [], 'and it starts empty');
+  });
+
+  it('teardown drops only this run’s root', () => {
+    const base = fixtureBase();
+    const own = path.join(base, '999999');
+    const other = path.join(base, String(process.pid));
+    fs.mkdirSync(own, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+
+    dropOwnScratchRoot(own);
+
+    assert.ok(!fs.existsSync(own), 'own root goes');
+    assert.ok(fs.existsSync(other), "another lane's root stays");
+  });
+
+  it('refuses to remove a target whose parent is not workspace-notes/tmp', () => {
+    // Calling dropOwnScratchRoot with `own` set to the BASE itself (exactly
+    // what its default becomes if someone "simplifies" SCRATCH_ROOT to
+    // SCRATCH_BASE) must not silently empty every concurrent lane's
+    // fixtures — it must refuse, the same way cleanScratchRoot already
+    // refuses a non-workspace-notes/tmp base.
+    const base = fixtureBase();
+    const other = path.join(base, String(process.pid));
+    fs.mkdirSync(other, { recursive: true });
+    fs.writeFileSync(path.join(other, 'live.txt'), 'x');
+
+    assert.throws(() => dropOwnScratchRoot(base), /refusing to remove/);
+    assert.ok(
+      fs.existsSync(path.join(other, 'live.txt')),
+      "a concurrent lane's fixtures must survive the refusal"
+    );
+  });
+
+  it('retries once on a concurrent-write errno', () => {
+    const base = fixtureBase();
+    fs.mkdirSync(path.join(base, 'legacy'), { recursive: true });
     let calls = 0;
-    const removeTree = (target: string): void => {
-      calls++;
+    const flaky = (target: string): void => {
+      calls += 1;
       if (calls === 1) {
-        const err = new Error('ENOTEMPTY: directory not empty') as NodeJS.ErrnoException;
-        err.code = 'ENOTEMPTY';
-        throw err;
+        const e = new Error('busy') as NodeJS.ErrnoException;
+        e.code = 'ENOTEMPTY';
+        throw e;
       }
       fs.rmSync(target, { recursive: true, force: true });
     };
 
-    assert.doesNotThrow(() => cleanScratchRoot(SCRATCH_ROOT, removeTree));
-    assert.strictEqual(calls, 2, 'swept again after the concurrent write');
+    cleanScratchRoot(base, flaky, path.join(base, '999999'));
+
+    assert.ok(calls >= 2, 'the transient failure was retried');
   });
 
-  it('rethrows when the sweep keeps failing', () => {
-    const removeTree = (): void => {
-      const err = new Error('ENOTEMPTY: directory not empty') as NodeJS.ErrnoException;
-      err.code = 'ENOTEMPTY';
-      throw err;
+  it('propagates a non-transient failure', () => {
+    const base = fixtureBase();
+    fs.mkdirSync(path.join(base, 'legacy'), { recursive: true });
+    const denied = (): void => {
+      const e = new Error('nope') as NodeJS.ErrnoException;
+      e.code = 'EACCES';
+      throw e;
     };
 
-    assert.throws(() => cleanScratchRoot(SCRATCH_ROOT, removeTree), /ENOTEMPTY/);
+    assert.throws(() => cleanScratchRoot(base, denied, path.join(base, '999999')), /nope/);
   });
 
-  it('does not retry an unrelated failure', () => {
-    let calls = 0;
-    const removeTree = (): void => {
-      calls++;
-      const err = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
-      err.code = 'EACCES';
-      throw err;
-    };
+  describe('pidIsAlive', () => {
+    it('treats EPERM as alive (the pid exists, owned by someone else)', () => {
+      const eperm = (): never => {
+        const e = new Error('perm') as NodeJS.ErrnoException;
+        e.code = 'EPERM';
+        throw e;
+      };
+      assert.strictEqual(__pidIsAliveForTest(1, eperm), true);
+    });
 
-    assert.throws(() => cleanScratchRoot(SCRATCH_ROOT, removeTree), /EACCES/);
-    assert.strictEqual(calls, 1, 'a permission fault is not a race — fail fast');
+    it('treats ESRCH (no such process) as dead', () => {
+      const esrch = (): never => {
+        const e = new Error('no such process') as NodeJS.ErrnoException;
+        e.code = 'ESRCH';
+        throw e;
+      };
+      assert.strictEqual(__pidIsAliveForTest(4194303, esrch), false);
+    });
+
+    it('treats a successful signal-0 as alive', () => {
+      assert.strictEqual(
+        __pidIsAliveForTest(process.pid, () => {}),
+        true
+      );
+    });
   });
 });

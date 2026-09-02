@@ -10,6 +10,8 @@ import * as assert from 'assert';
 import { GitService } from '../../../src/git-core/GitService';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
+import { literalPathspec } from '../../../src/git-core/gitCli';
+import { pathspecTarget } from '../../helpers/pathspec';
 
 interface ExecCall {
   args: string[];
@@ -49,9 +51,12 @@ function installGitService(): { gitService: GitService; calls: ExecCall[] } {
         return { exitCode: 0, stdout: 'baseSha', stderr: '', combined: '' };
       }
       // The final range diff — if scoped correctly it is limited to a.ts + c.ts.
+      // git's own diff header always names the real file, regardless of the
+      // pathspec magic used to select it — so the mock resolves each arg back
+      // to its target the way real git would, not the literal wire form.
       if (args[0] === 'diff') {
         const sep = args.indexOf('--');
-        const paths = sep >= 0 ? args.slice(sep + 1) : [];
+        const paths = sep >= 0 ? args.slice(sep + 1).map(pathspecTarget) : [];
         // Emit a diff block for each requested path (proving scoping is applied).
         const blocks = paths
           .map((p) => `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n@@ -1 +1 @@\n-x\n+y\n`)
@@ -78,11 +83,16 @@ describe('getMultiCommitDiff — selected-commit union scoping', () => {
       'a file only the unselected commit touched must be excluded'
     );
 
-    // The final diff must carry the `-- <paths>` scope.
+    // The final diff must carry the `-- <paths>` scope, each wrapped literal so
+    // a touched path holding pathspec-magic characters can't also match an
+    // unselected neighbour (PATH_SLOT_KIND['diff'] = 'pathspec').
     const diff = calls.find((c) => c.args[0] === 'diff');
     assert.ok(diff, 'a diff must run');
     const sep = diff.args.indexOf('--');
     assert.ok(sep >= 0, 'the diff must be path-scoped behind --');
-    assert.deepStrictEqual([...diff.args.slice(sep + 1)].sort(), ['a.ts', 'c.ts']);
+    assert.deepStrictEqual(
+      [...diff.args.slice(sep + 1)].sort(),
+      [literalPathspec('a.ts'), literalPathspec('c.ts')].sort()
+    );
   });
 });

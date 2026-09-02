@@ -88,6 +88,13 @@ export interface IGtwControllerContext {
   postSyncSelection(): void;
   /** Post the recomputed context-menu enable map to the webview. */
   postMenuStateUpdate(): void;
+
+  /**
+   * Would the menu rules allow `action` on `hashes`? The webview's gating map
+   * describes the selection it was computed for, not necessarily the one a
+   * pick carries, so the rules are re-checked here before the action fires.
+   */
+  isMenuActionEnabled(action: string, hashes: readonly string[]): boolean;
   /** Post the details-panel payload for the currently-expanded commit. */
   postDetailsForExpandedCommit(): void;
   /**

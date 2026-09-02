@@ -5,8 +5,11 @@
  * {@link import('./commitDialogStyles')}).
  */
 
+import { contextMenuStyles } from '../webview-common/contextMenuStyles';
+
 export function commitToolWindowStyles(): string {
   return `
+    ${contextMenuStyles()}
     /* No background: VS Code's injected _defaultStyles paints the webview body
        transparent, so it composites over whatever container hosts the view. Naming
        any surface token here overrides that (an unlayered author rule beats
@@ -34,6 +37,18 @@ export function commitToolWindowStyles(): string {
     .ctw-file-row { display: flex; align-items: center; padding: 1px 8px 1px 28px; cursor: pointer; user-select: none; }
     .ctw-file-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
     .ctw-file-status { width: 18px; color: var(--vscode-gitDecoration-modifiedResourceForeground); font-family: var(--vscode-editor-font-family, monospace); }
+    .ctw-conflicts-block { margin-bottom: 2px; }
+    .ctw-conflicts-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; font-weight: 600; user-select: none; }
+    .ctw-conflicts-name { color: var(--vscode-gitDecoration-conflictingResourceForeground); }
+    .ctw-conflicts-resolve { background: transparent; border: none; padding: 0; font: inherit; font-weight: 600; cursor: pointer; color: var(--vscode-textLink-foreground); }
+    .ctw-conflicts-resolve:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+    .ctw-file-conflicted .ctw-file-path { color: var(--vscode-gitDecoration-conflictingResourceForeground); }
+    .ctw-file-conflicted .ctw-file-status { color: var(--vscode-gitDecoration-conflictingResourceForeground); }
+    .ctw-file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctw-file-conflict-count { margin-left: auto; color: var(--vscode-descriptionForeground); font-size: 0.85em; white-space: nowrap; }
+    .ctw-file-resolve { margin-left: auto; flex: none; background: transparent; border: 1px solid var(--vscode-button-border, var(--vscode-textLink-foreground)); border-radius: 3px; padding: 0 6px; font: inherit; font-size: 0.85em; cursor: pointer; color: var(--vscode-textLink-foreground); }
+    .ctw-file-conflict-count + .ctw-file-resolve { margin-left: 8px; }
+    .ctw-file-resolve:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(128,128,128,0.2)); color: var(--vscode-textLink-activeForeground); }
     .ctw-grouping { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
     .ctw-grouping-label { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin-right: 4px; }
     .ctw-grouping-btn { background: transparent; border: 1px solid transparent; color: inherit; padding: 2px 10px; cursor: pointer; font: inherit; border-radius: 3px; }

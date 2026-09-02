@@ -15,6 +15,7 @@ import {
   InvalidArgumentError,
   classifyGitCommandError,
 } from '../errors';
+import { literalPathspec } from '../gitCli';
 import { parseStatus } from '../gitParser';
 import { buildHunkPatch } from '../patchBuilder';
 import {
@@ -59,8 +60,18 @@ export class StagingOps {
   }
 
   stage(repo: IRepository, paths: string[]): ResultAsync<void, GitError> {
+    // paths.map(literalPathspec) runs SYNCHRONOUSLY here, outside
+    // ResultAsync.fromPromise below — a throw (e.g. an empty path) would
+    // otherwise escape this method entirely instead of surfacing through the
+    // ResultAsync channel every caller relies on.
+    let argv: string[];
+    try {
+      argv = ['add', '--', ...paths.map(literalPathspec)];
+    } catch (error) {
+      return errAsync(classifyGitCommandError(error));
+    }
     return ResultAsync.fromPromise(
-      this.ctx.gitCli.exec(['add', '--', ...paths], {
+      this.ctx.gitCli.exec(argv, {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       }),
@@ -81,9 +92,12 @@ export class StagingOps {
     // exactly the state when un-staging the FIRST files of a fresh repo. git4idea
     // special-cases this: with no HEAD there is nothing to diff the index
     // against, so `git rm --cached` empties the index entry directly.
-    const reset = await this.ctx.gitCli.exec(['reset', 'HEAD', '--', ...paths], { cwd });
+    const reset = await this.ctx.gitCli.exec(
+      ['reset', 'HEAD', '--', ...paths.map(literalPathspec)],
+      { cwd }
+    );
     if (reset.exitCode !== 0 && isUnbornHeadStderr(reset.stderr)) {
-      await this.ctx.gitCli.exec(['rm', '--cached', '-r', '--', ...paths], {
+      await this.ctx.gitCli.exec(['rm', '--cached', '-r', '--', ...paths.map(literalPathspec)], {
         cwd,
         throwOnError: true,
       });
@@ -205,10 +219,13 @@ export class StagingOps {
     // has staged changes the index keeps its pre-revert content, so the
     // "discarded" hunk silently reappears on the next commit. Refuse rather
     // than leave a stale index behind.
-    // git-path-quote-exempt: output is only tested for emptiness, never parsed
-    const staged = await this.ctx.gitCli.exec(['diff', '--cached', '--name-only', '--', path], {
-      cwd: repo.rootUri.fsPath,
-    });
+    const staged = await this.ctx.gitCli.exec(
+      // git-path-quote-exempt: output is only tested for emptiness, never parsed
+      ['diff', '--cached', '--name-only', '--', literalPathspec(path)],
+      {
+        cwd: repo.rootUri.fsPath,
+      }
+    );
     if (staged.exitCode === 0 && staged.stdout.trim().length > 0) {
       throw new InvalidArgumentError(
         'Stage or unstage this file first — it has staged changes that would otherwise keep the reverted hunk in the next commit.'

@@ -3,7 +3,12 @@ import { spawn, SpawnOptions, execFileSync } from 'child_process';
 import { StringDecoder } from 'string_decoder';
 import { ResultAsync, ok, err } from 'neverthrow';
 import { getOutputChannel } from '../utils/outputChannel';
-import { GitError, CommandFailedError, classifyGitCommandError } from './errors';
+import {
+  GitError,
+  CommandFailedError,
+  InvalidArgumentError,
+  classifyGitCommandError,
+} from './errors';
 
 /**
  * Upper bound (in chars) on each captured stream — stdout, stderr, and the
@@ -672,6 +677,72 @@ export async function revParseVerified(
 }
 
 /**
+ * The `:(literal)` magic signature {@link literalPathspec} wraps a path in.
+ * Exported so the one other place this codebase needs the bare prefix
+ * (test/helpers/pathspec.ts, which strips it back off a fixture's captured
+ * argv) shares this definition instead of hard-coding a second copy.
+ */
+export const LITERAL_PATHSPEC_PREFIX = ':(literal)';
+
+/**
+ * A repo-relative path is a git PATHSPEC, not a filename: `*`, `?` and `[`
+ * are wildcards, and `--` only separates paths from options — it does not
+ * make what follows literal. `git checkout -- 'a[1].ts'` also matches
+ * `a1.ts` (`[1]` is a character class), so an operation aimed at one file
+ * can silently touch another. Wrapping the path in the `:(literal)` magic
+ * signature disables pathspec matching for it entirely. Callers that build
+ * a pathspec from a real file path (as opposed to a glob the caller wants
+ * to match) should route it through here.
+ *
+ * `:(literal)` with an EMPTY payload is itself a valid pathspec that matches
+ * every path, where the bare `''` git receives today is a hard `fatal`
+ * (`empty string is not a valid pathspec`). Wrapping an empty path would
+ * therefore convert git's own refusal into a silent whole-working-tree
+ * match on every destructive caller (checkout/add/reset/rm) — refuse here,
+ * the one seam every one of them routes through, rather than at each call
+ * site. Never a legitimate input: an empty repo-relative path names the
+ * repo root itself, and no caller means that.
+ */
+export function literalPathspec(repoRelativePath: string): string {
+  if (repoRelativePath === '') {
+    // The diagnostic detail stays in the log, not the toast: a user cannot
+    // act on "literalPathspec" or ":(literal)", both internal to this file.
+    getOutputChannel().appendLine(
+      `literalPathspec: empty path would wrap to ${LITERAL_PATHSPEC_PREFIX}, a pathspec that matches every path — refusing`
+    );
+    throw new InvalidArgumentError('No file was given for this action — nothing to do.');
+  }
+  return `${LITERAL_PATHSPEC_PREFIX}${repoRelativePath}`;
+}
+
+/**
+ * Whether a git subcommand's positional path argument (the slot after `--`)
+ * is a PATHSPEC — glob magic honoured, so a real file path must be wrapped
+ * literal — or a bare FILENAME that git reads or echoes verbatim, where
+ * wrapping it corrupts the value or breaks the call outright (`git blame --
+ * ':(literal)a[1].ts'` is a hard `fatal:`). This fact belongs to the
+ * subcommand, not the call site: {@link buildGitArgs} looks it up here and
+ * wraps (or doesn't) for every caller, so a new caller cannot re-decide it
+ * wrong, and an undeclared subcommand fails loudly instead of guessing.
+ *
+ * `check-attr` and `hash-object` are FILENAME subcommands too, but they are
+ * never spawned through `buildGitArgs` today (their argv shape differs) —
+ * listed here anyway so this table stays the single source of truth if
+ * either moves onto it.
+ */
+export const PATH_SLOT_KIND: Readonly<Record<string, 'pathspec' | 'filename'>> = {
+  diff: 'pathspec',
+  log: 'pathspec',
+  checkout: 'pathspec',
+  'ls-tree': 'pathspec', // git-path-quote-exempt: a table key, not a git ls-tree invocation
+  am: 'filename',
+  apply: 'filename',
+  blame: 'filename',
+  'check-attr': 'filename',
+  'hash-object': 'filename',
+};
+
+/**
  * argv-injection-safe ref splice.
  *
  * Composes git argv from `subcommand`, `flags`, and user-controlled
@@ -687,6 +758,11 @@ export async function revParseVerified(
  * `paths` is empty — callers that want "no path filter" should pass
  * `undefined` instead of `[]`.
  *
+ * `paths` are wrapped or left bare according to {@link PATH_SLOT_KIND} for
+ * `subcommand` — callers pass real paths straight through and never call
+ * {@link literalPathspec} themselves. A subcommand missing from the table
+ * throws rather than silently choosing either behavior.
+ *
  * Introduced this discipline ad-hoc in `getMergeBase`;
  * generalizes it across every ref-consuming GitService method.
  */
@@ -701,7 +777,16 @@ export function buildGitArgs(
     argv.push('--end-of-options', ...refs);
   }
   if (paths !== undefined) {
-    argv.push('--', ...paths);
+    const kind = PATH_SLOT_KIND[subcommand];
+    if (kind === undefined) {
+      throw new Error(
+        `buildGitArgs: no PATH_SLOT_KIND entry for "${subcommand}" — is its path slot a ` +
+          'pathspec (glob magic honoured) or a filename (read/echoed verbatim)? ' +
+          'Add it to PATH_SLOT_KIND in src/git-core/gitCli.ts.'
+      );
+    }
+    // pathspec-exempt: decides pathspec-vs-filename per PATH_SLOT_KIND above
+    argv.push('--', ...(kind === 'pathspec' ? paths.map(literalPathspec) : paths));
   }
   return argv;
 }

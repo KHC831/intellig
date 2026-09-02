@@ -10,6 +10,28 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+### Added
+
+- The Commit window's Changes tab now shows merge-conflict rows with their own
+  right-click menu, matching the Git window.
+
+### Changed
+
+- Every right-click menu in the Git and Commit windows now shares one widget,
+  so placement, keyboard navigation, and dismissal behave the same everywhere
+  — including at the edge of the window, where a long menu used to run off
+  the bottom with no way back.
+- Branch and tag names now sort the same way everywhere they're listed.
+
+### Fixed
+
+- A right-click menu left open over a row that changed or disappeared during a
+  refresh no longer acts on stale state; it closes instead.
+- Committing a file whose name shares characters with another file (e.g.
+  `a[1].ts` next to `a1.ts`) no longer risks touching the other file.
+- A file excluded from CRLF warnings via `.gitattributes` stopped being
+  recognized as excluded and started warning on every commit; fixed.
+
 ## [0.5.8] - 2026-08-23
 
 ### Added

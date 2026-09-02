@@ -2,16 +2,19 @@
  * The Commit tool window's Shelf tab: the controller contracts the extension
  * binds to ShelfView/StashView, the pure row context-menu label builders, and
  * the action dispatcher for every shelf/stash row action (including the
- * contextOpen QuickPick flow, which recurses with the chosen action).
- * Extracted verbatim from CommitToolWindow; the deps are call-time getters
- * because the QuickPick awaits mean the item list and controllers must be
- * read live, never captured at dispatch start.
+ * contextOpen ping that answers a right-click with the menu's contents).
+ * The deps are call-time getters because the awaits in here mean the item list
+ * and controllers must be read live, never captured at dispatch start.
  */
 
-import * as vscode from 'vscode';
+import { answerContextOpen, CONTEXT_OPEN_BAIL } from './contextOpenAnswer';
+import type { IStash } from '../git-core/interfaces/IGitService';
+import type { IShelfTabEntry, ShelfTabFilter } from './commitToolWindow.types';
+import type { CommitToolWindowOutbound } from './commitToolWindow.protocol';
 import type { IShelfItem } from '../shelf/interfaces/IShelfService';
 import type {
   ICommitToolWebviewMessage,
+  ICtwMenuItem,
   ShelfTabShelfAction,
   ShelfTabStashAction,
 } from './commitToolWindow.types';
@@ -36,13 +39,18 @@ export interface IShelfTabShelfController {
  * Imperative bag for Stash-row context-menu actions. Backed by `StashView`
  * in production; tests pass a minimal stub.
  */
+/**
+ * A stash is addressed by POSITION, and positions move: popping one elsewhere
+ * renumbers the stack. `expectedSha` is the stash the clicked row displayed, so
+ * the view can refuse an index that now holds a different entry.
+ */
 export interface IShelfTabStashController {
-  apply?: (index: number) => Promise<void>;
-  pop?: (index: number) => Promise<void>;
-  drop?: (index: number) => Promise<void>;
-  showDiff?: (index: number) => Promise<void>;
-  rename?: (index: number) => Promise<void>;
-  branchFromStash?: (index: number) => Promise<void>;
+  apply?: (index: number, expectedSha?: string) => Promise<void>;
+  pop?: (index: number, expectedSha?: string) => Promise<void>;
+  drop?: (index: number, expectedSha?: string) => Promise<void>;
+  showDiff?: (index: number, expectedSha?: string) => Promise<void>;
+  rename?: (index: number, expectedSha?: string) => Promise<void>;
+  branchFromStash?: (index: number, expectedSha?: string) => Promise<void>;
   /** Clear the whole stash stack (warning confirm owned by the view). */
   clearAll?: () => Promise<void>;
 }
@@ -51,10 +59,8 @@ export interface IShelfTabStashController {
  * Menu entries for a Shelf row in the combined tab. Pure — unit-tested
  * directly. `isAlreadyUnshelved` surfaces the Restore entry.
  */
-export function shelfRowContextMenuLabels(input: {
-  isAlreadyUnshelved: boolean;
-}): Array<{ label: string; action: ShelfTabShelfAction }> {
-  const items: Array<{ label: string; action: ShelfTabShelfAction }> = [];
+export function shelfRowContextMenuLabels(input: { isAlreadyUnshelved: boolean }): ICtwMenuItem[] {
+  const items: ICtwMenuItem[] = [];
   if (input.isAlreadyUnshelved) {
     items.push({ label: 'Restore', action: 'shelfRestore' });
   }
@@ -64,7 +70,7 @@ export function shelfRowContextMenuLabels(input: {
     { label: 'Rename…', action: 'shelfRename' },
     { label: 'Create Patch from Shelf…', action: 'shelfCreatePatch' },
     { label: 'Import Patches…', action: 'shelfImportPatches' },
-    { label: 'Delete', action: 'shelfDelete' }
+    { label: 'Delete', action: 'shelfDelete', danger: true }
   );
   return items;
 }
@@ -74,18 +80,15 @@ export function shelfRowContextMenuLabels(input: {
  * above `Apply` so the right-click default (Enter) matches IntelliJ's
  * recommended action for stash entries.
  */
-export function stashRowContextMenuLabels(): Array<{
-  label: string;
-  action: ShelfTabStashAction;
-}> {
+export function stashRowContextMenuLabels(): ICtwMenuItem[] {
   return [
     { label: 'Pop', action: 'stashPop' },
     { label: 'Apply', action: 'stashApply' },
     { label: 'Show Diff', action: 'stashShowDiff' },
     { label: 'Rename…', action: 'stashRename' },
     { label: 'Create Branch from Stash…', action: 'stashBranchFromStash' },
-    { label: 'Drop', action: 'stashDrop' },
-    { label: 'Clear All Stashes', action: 'stashClearAll' },
+    { label: 'Drop', action: 'stashDrop', danger: true },
+    { label: 'Clear All Stashes', action: 'stashClearAll', danger: true },
   ];
 }
 
@@ -94,16 +97,18 @@ export interface IShelfTabActionDeps {
   getShelfController: () => IShelfTabShelfController;
   getStashController: () => IShelfTabStashController;
   getShelfItems: () => readonly IShelfItem[];
+  /** Send the computed menu to the webview, which draws it at the pointer. */
+  showContextMenu: (message: CommitToolWindowOutbound) => Promise<void> | void;
 }
 
 /**
  * Route a Shelf-tab context-menu action to the appropriate controller.
  * Unknown actions silently no-op so a stale webview bundle won't crash.
  *
- * When `action === 'contextOpen'`, the webview is asking the host to
- * display the menu. The host shows a QuickPick using
- * {@link shelfRowContextMenuLabels} / {@link stashRowContextMenuLabels}
- * and forwards the user's pick back through this same code path.
+ * When `action === 'contextOpen'`, the webview is asking the host what the
+ * menu contains. The host answers with the labels from
+ * {@link shelfRowContextMenuLabels} / {@link stashRowContextMenuLabels}; the
+ * webview draws them under the pointer and posts the pick back here.
  */
 export async function handleShelfTabAction(
   deps: IShelfTabActionDeps,
@@ -118,48 +123,39 @@ export async function handleShelfTabAction(
     return;
   }
 
-  // contextOpen branch — prompt the user, then recurse with the chosen
-  // action. Keeping the recursion tight means the action-dispatch switch
-  // below doesn't have to know whether the trigger was a right-click
-  // or a direct command invocation.
+  // contextOpen branch — hand the items to the webview, which draws them under
+  // the pointer and posts the pick back here as an ordinary action. The labels
+  // stay computed here so there is one definition of what the menu contains.
   if (action === 'contextOpen') {
     if (message.rowKind === 'shelf' && message.shelfId) {
-      const entry = deps.getShelfItems().find((i) => i.id === message.shelfId);
-      if (!entry) {
-        return;
-      }
-      const labels = shelfRowContextMenuLabels({
-        isAlreadyUnshelved: entry.unshelvedAt !== undefined,
-      });
-      const picked = await vscode.window.showQuickPick(
-        labels.map((l) => ({ label: l.label, _action: l.action })),
-        { title: `Shelf: ${entry.name}`, placeHolder: 'Select an action' }
-      );
-      if (!picked) {
-        return;
-      }
-      await handleShelfTabAction(deps, {
-        ...message,
-        action: picked._action,
+      const shelfId = message.shelfId;
+      // Bails when the entry is gone — unlike the file/changelist arms,
+      // there is no meaningful default menu for a shelf id that no longer
+      // exists.
+      await answerContextOpen(deps.showContextMenu, () => {
+        const entry = deps.getShelfItems().find((i) => i.id === shelfId);
+        if (!entry) {
+          return CONTEXT_OPEN_BAIL;
+        }
+        return {
+          type: 'showRowContextMenu',
+          rowKind: 'shelf',
+          shelfId,
+          items: shelfRowContextMenuLabels({ isAlreadyUnshelved: entry.unshelvedAt !== undefined }),
+        };
       });
       return;
     }
     if (message.rowKind === 'stash' && typeof message.stashIndex === 'number') {
-      const labels = stashRowContextMenuLabels();
-      const picked = await vscode.window.showQuickPick(
-        labels.map((l) => ({ label: l.label, _action: l.action })),
-        {
-          title: `stash@{${message.stashIndex}}`,
-          placeHolder: 'Select an action',
-        }
-      );
-      if (!picked) {
-        return;
-      }
-      await handleShelfTabAction(deps, {
-        ...message,
-        action: picked._action,
-      });
+      const stashIndex = message.stashIndex;
+      // No lookup and no bail: a stash row is addressed by position only,
+      // so any index renders the same menu.
+      await answerContextOpen(deps.showContextMenu, () => ({
+        type: 'showRowContextMenu',
+        rowKind: 'stash',
+        stashIndex,
+        items: stashRowContextMenuLabels(),
+      }));
       return;
     }
     return;
@@ -198,28 +194,33 @@ export async function handleShelfTabAction(
   }
 
   if (message.rowKind === 'stash') {
-    if (typeof message.stashIndex !== 'number') {
+    // A stash is addressed by position, so a NaN or a negative would drop or
+    // pop whatever git resolves `stash@{...}` to. The webview builds this with
+    // Number() over a DOM attribute, and the inbound validator checks only the
+    // message type, so this is the only place it can be rejected.
+    const idx = message.stashIndex;
+    if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0) {
       return;
     }
-    const idx = message.stashIndex;
+    const sha = typeof message.stashSha === 'string' ? message.stashSha : undefined;
     switch (action) {
       case 'stashApply':
-        await deps.getStashController().apply?.(idx);
+        await deps.getStashController().apply?.(idx, sha);
         return;
       case 'stashPop':
-        await deps.getStashController().pop?.(idx);
+        await deps.getStashController().pop?.(idx, sha);
         return;
       case 'stashDrop':
-        await deps.getStashController().drop?.(idx);
+        await deps.getStashController().drop?.(idx, sha);
         return;
       case 'stashShowDiff':
-        await deps.getStashController().showDiff?.(idx);
+        await deps.getStashController().showDiff?.(idx, sha);
         return;
       case 'stashRename':
-        await deps.getStashController().rename?.(idx);
+        await deps.getStashController().rename?.(idx, sha);
         return;
       case 'stashBranchFromStash':
-        await deps.getStashController().branchFromStash?.(idx);
+        await deps.getStashController().branchFromStash?.(idx, sha);
         return;
       case 'stashClearAll':
         await deps.getStashController().clearAll?.();
@@ -228,4 +229,76 @@ export async function handleShelfTabAction(
         return;
     }
   }
+}
+
+/**
+ * Build the unified Shelf-tab entry list from the two source arrays and
+ * apply the requested filter. Pure — a new array is returned. Rows are
+ * sorted by timestamp descending (newest first). When both sources are
+ * visible, shelves and stashes interleave purely by timestamp, which mirrors
+ * IntelliJ's unified pane.
+ *
+ * @param shelfItems - Current `IShelfItem[]` from `IShelfService`.
+ * @param stashes    - Current `IStash[]` from `IGitService.stashList`.
+ * @param filter     - `'shelves' | 'stashes' | 'both'`.
+ */
+export function buildShelfTabEntries(
+  shelfItems: readonly IShelfItem[],
+  stashes: readonly IStash[],
+  filter: ShelfTabFilter
+): IShelfTabEntry[] {
+  const entries: IShelfTabEntry[] = [];
+
+  if (filter === 'shelves' || filter === 'both') {
+    for (const it of shelfItems) {
+      entries.push({
+        kind: 'shelf',
+        id: it.id,
+        name: it.name,
+        timestamp: it.timestamp,
+        fileCount: it.files.length,
+        unshelvedAt: it.unshelvedAt,
+      });
+    }
+  }
+  if (filter === 'stashes' || filter === 'both') {
+    for (const s of stashes) {
+      entries.push({
+        kind: 'stash',
+        id: `stash@{${s.index}}`,
+        name: s.message,
+        timestamp: s.date,
+        index: s.index,
+        hash: s.hash,
+      });
+    }
+  }
+
+  // Newest-first sort. Break ties deterministically by id so snapshots are
+  // stable across runs.
+  entries.sort((a, b) => {
+    const delta = b.timestamp.getTime() - a.timestamp.getTime();
+    if (delta !== 0) {
+      return delta;
+    }
+    return a.id.localeCompare(b.id);
+  });
+  return entries;
+}
+
+/**
+ * Gear-menu items for the composer. The single entry toggles the persisted
+ * no-verify flag the commit path reads (shared with CommitDialog's gear via
+ * LAST_NO_VERIFY_SLOT); `checked` mirrors that flag.
+ */
+export function gearMenuItems(
+  noVerify: boolean
+): Array<{ id: 'toggleNoVerify'; label: string; checked: boolean }> {
+  return [
+    {
+      id: 'toggleNoVerify',
+      label: 'Disable pre-commit hooks (--no-verify)',
+      checked: noVerify,
+    },
+  ];
 }

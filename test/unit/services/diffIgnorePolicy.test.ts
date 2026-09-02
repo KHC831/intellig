@@ -132,3 +132,24 @@ describe('DiffOps applies configured ignore-policy', () => {
     );
   });
 });
+
+describe('DiffOps.getDiff degrades an empty path instead of crashing the caller', () => {
+  // getDiff() builds its argv (and calls literalPathspec) SYNCHRONOUSLY,
+  // before handing off to ResultAsync.fromPromise — so a throw from an empty
+  // path would escape the ResultAsync chain entirely and crash whatever
+  // called getDiff(), rather than surfacing as an Err GitService.getDiff's
+  // absorb boundary (.match() above) can log and degrade.
+  afterEach(() => {
+    resetMockConfiguration();
+  });
+
+  it('never spawns git and never throws for an empty path', async () => {
+    const cli = new ScriptedGitCli();
+    const svc = createGitServiceWithCli(cli);
+
+    const diff = await svc.getDiff(fakeRepo(), '');
+
+    assert.strictEqual(cli.executed.length, 0, 'git must never be spawned for a refused path');
+    assert.deepStrictEqual(diff, { path: '', status: 'modified', hunks: [], binary: false });
+  });
+});

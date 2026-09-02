@@ -8,31 +8,40 @@
  */
 
 import type { GitToolWindowInbound } from '../gitToolWindow.protocol';
+import { ContextMenu } from '../../../webview-common/contextMenu';
+
+/** Height the ref popup is expected to reach once laid out. */
+const POPUP_HEIGHT = 400;
 
 type PostLog = (message: GitToolWindowInbound) => void;
 
 export function setupRefPopup(post: PostLog): void {
   let refPopupOpener: HTMLElement | null = null;
 
-  function closeRefPopup(restoreFocus: boolean): void {
-    const popup = document.getElementById('ref-popup');
-    if (popup) {
-      popup.hidden = true;
-    }
-    if (refPopupOpener) {
-      refPopupOpener.setAttribute('aria-expanded', 'false');
-      if (restoreFocus && typeof refPopupOpener.focus === 'function') {
-        refPopupOpener.focus();
+  const popup = new ContextMenu({
+    id: 'ref-popup',
+    ariaLabel: 'Branches at this commit',
+    actionAttr: 'data-branch-name',
+    expectedHeight: POPUP_HEIGHT,
+    onPick: (name): void => {
+      post({ type: 'branchClick', branchName: name });
+    },
+    // Runs however the popup closed, including when another menu opening
+    // dismissed it — so the chip can never be left claiming it is expanded.
+    onHide: (): void => {
+      if (refPopupOpener) {
+        refPopupOpener.setAttribute('aria-expanded', 'false');
       }
-    }
-    refPopupOpener = null;
-  }
+      refPopupOpener = null;
+    },
+  });
 
-  function openRefPopup(chip: HTMLElement, clientX: number, clientY: number): void {
-    const popup = document.getElementById('ref-popup');
-    if (!popup) {
-      return;
-    }
+  function openRefPopup(
+    chip: HTMLElement,
+    clientX: number,
+    clientY: number,
+    openedFor?: Event
+  ): void {
     const raw = chip.getAttribute('data-collapsed-branches') || '';
     let names: string[] = [];
     try {
@@ -49,70 +58,31 @@ export function setupRefPopup(post: PostLog): void {
       return;
     }
 
-    popup.innerHTML = '';
-    names.forEach(function (name) {
-      const row = document.createElement('div');
-      row.className = 'context-menu-item';
-      row.setAttribute('role', 'menuitem');
-      row.setAttribute('tabindex', '0');
-      row.setAttribute('data-branch-name', name);
-      row.textContent = name;
-      popup.appendChild(row);
-    });
-
-    const menuWidth = 220;
-    const menuHeight = 400;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const left = clientX + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : clientX;
-    const top = clientY + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : clientY;
-    popup.style.left = left + 'px';
-    popup.style.top = top + 'px';
-    popup.hidden = false;
+    popup.render(
+      names.map(function (name) {
+        return { action: name, label: name };
+      })
+    );
+    // The chip is the opener: dismissing hands focus back to it.
+    popup.showAt(clientX, clientY, chip, openedFor);
 
     refPopupOpener = chip;
     chip.setAttribute('aria-expanded', 'true');
-    const firstRow = popup.querySelector<HTMLElement>('.context-menu-item');
-    if (firstRow && typeof firstRow.focus === 'function') {
-      firstRow.focus();
-    }
-  }
-
-  function selectRefRow(row: Element): void {
-    const name = row.getAttribute('data-branch-name');
-    if (name) {
-      post({ type: 'branchClick', branchName: name });
-    }
-    closeRefPopup(true);
   }
 
   document.addEventListener('click', function (e) {
     const target = e.target instanceof Element ? e.target : null;
-    const popup = document.getElementById('ref-popup');
-    if (!popup) {
-      return;
-    }
-
     const chip = target
       ? target.closest<HTMLElement>('.branch-label-collapsed[data-collapsed-branches]')
       : null;
     if (chip) {
-      openRefPopup(chip, (e as MouseEvent).clientX, (e as MouseEvent).clientY);
+      openRefPopup(chip, (e as MouseEvent).clientX, (e as MouseEvent).clientY, e);
       return;
     }
-
-    if (popup.hidden) {
-      return;
-    }
-
-    const row = target ? target.closest('#ref-popup .context-menu-item') : null;
-    if (row) {
-      selectRefRow(row);
-      return;
-    }
-
-    if (!popup.contains(target as Node)) {
-      closeRefPopup(false);
+    // Picking a row is the widget's own click handler, which stops the event;
+    // anything that reaches here is a click away from the popup.
+    if (popup.isOpen && target && !popup.contains(target)) {
+      popup.hide();
     }
   });
 
@@ -129,46 +99,6 @@ export function setupRefPopup(post: PostLog): void {
     }
     e.preventDefault();
     const rect = chip.getBoundingClientRect();
-    openRefPopup(chip, rect.left, rect.bottom);
-  });
-
-  document.addEventListener('keydown', function (e) {
-    const popup = document.getElementById('ref-popup');
-    if (!popup || popup.hidden) {
-      return;
-    }
-
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closeRefPopup(true);
-      return;
-    }
-
-    const target = e.target instanceof Element ? e.target : null;
-    const row = target ? target.closest('#ref-popup .context-menu-item') : null;
-    if (!row) {
-      return;
-    }
-
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      selectRefRow(row);
-      return;
-    }
-
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const rows = Array.from(popup.querySelectorAll<HTMLElement>('.context-menu-item'));
-      const idx = rows.indexOf(row as HTMLElement);
-      if (idx === -1) {
-        return;
-      }
-      const nextIdx =
-        e.key === 'ArrowDown' ? (idx + 1) % rows.length : (idx - 1 + rows.length) % rows.length;
-      const next = rows[nextIdx];
-      if (next && typeof next.focus === 'function') {
-        next.focus();
-      }
-    }
+    openRefPopup(chip, rect.left, rect.bottom, e);
   });
 }

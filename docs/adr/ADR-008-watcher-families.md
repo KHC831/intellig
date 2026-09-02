@@ -191,16 +191,16 @@ the constructor grows by one — no other site change.
   `vendor` (legitimate Pascal-case directories on case-sensitive Linux)
   match EXACTLY. User-supplied `intellig.repositoryScanIgnoredFolders`
   matches case-INsensitively so Windows users don't have to guess
-  on-disk casing. See `src/utils/repoScan.ts` for the split.
+  on-disk casing. See `src/git-core/repoScan.ts` for the split.
 
 ## References
 
-- `src/services/GitService.ts` —
+- `src/git-core/GitService.ts` —
   - `_watcherMaps` declaration (registry)
   - constructor `_watcherMaps.push(...)` (registration)
   - `removeRepositoryWatcher` (registry walker for path-child cleanup)
   - `dispose()` (registry walker for full teardown)
-- `src/services/GitService.ts` `setupRepositoryWatcher` — installs
+- `src/git-core/GitService.ts` `setupRepositoryWatcher` — installs
   per-repo `.git/<entry>` watchers; the `HEAD` pattern hooks
   `onDidDelete` for the TL-88 deletion path.
 - TL-91 / #219 — the refactor that introduced the registry.

@@ -8,7 +8,8 @@ import {
   IRepository,
   IFileStatus,
 } from '../../../src/git-core/interfaces/IGitService';
-import { IGitCommandResult } from '../../../src/git-core/gitCli';
+import { IGitCommandResult, literalPathspec } from '../../../src/git-core/gitCli';
+import { pathspecTarget } from '../../helpers/pathspec';
 
 /**
  * Synthesize `git ls-files -u -z [-- <path>]` stdout from porcelain statuses so a
@@ -21,7 +22,7 @@ function lsFilesUnmerged(args: string[], status: IFileStatus[]): string | null {
     return null;
   }
   const dashDash = args.indexOf('--');
-  const only = dashDash >= 0 ? args[dashDash + 1] : undefined;
+  const only = dashDash >= 0 ? pathspecTarget(args[dashDash + 1]) : undefined;
   let out = '';
   for (const f of status) {
     if (only !== undefined && f.path !== only) {
@@ -242,7 +243,18 @@ describe('ConflictResolutionService', () => {
         if (args[0] === 'checkout' && args[1] === '--ours') {
           checkoutCalled = true;
         }
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+        // The file has to READ as unmerged: taking a side on a path with no
+        // conflict is refused, because `git checkout --ours` on an ordinary
+        // file silently rewrites it from HEAD.
+        const unmerged = lsFilesUnmerged(args, [
+          { path: 'file1.txt', indexStatus: 'U', workTreeStatus: 'U' },
+        ]);
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: unmerged ?? '',
+          stderr: '',
+          combined: '',
+        });
       };
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
@@ -253,6 +265,41 @@ describe('ConflictResolutionService', () => {
     });
   });
 
+  describe('accept when git spells the path differently', () => {
+    it('resolves a conflict git reports under another spelling', async () => {
+      // The stage read is scoped to the path (`ls-files -u -z -- <path>`), so
+      // anything it returns IS this path. Git can echo it back spelled
+      // differently than the caller has it — a case-insensitive filesystem, or
+      // macOS handing VS Code an NFD filename git recorded as NFC. Keying the
+      // conflict check on the caller's spelling reads a real conflict as none
+      // and leaves the file impossible to resolve.
+      let checkoutCalled = false;
+      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+        if (args[0] === 'checkout' && args[1] === '--ours') {
+          checkoutCalled = true;
+        }
+        const unmerged =
+          args[0] === 'ls-files'
+            ? lsFilesUnmerged(args.slice(0, args.indexOf('--')), [
+                { path: 'Caf\u00e9.txt', indexStatus: 'U', workTreeStatus: 'U' },
+              ])
+            : null;
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: unmerged ?? '',
+          stderr: '',
+          combined: '',
+        });
+      };
+      mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
+
+      const result = await conflictService.acceptCurrent(mockRepo, 'cafe\u0301.txt');
+
+      assert.strictEqual(result.success, true, result.error);
+      assert.strictEqual(checkoutCalled, true, 'the side is taken, not refused');
+    });
+  });
+
   describe('acceptIncoming()', () => {
     it('should checkout --theirs and stage the file', async () => {
       let checkoutCalled = false;
@@ -260,7 +307,18 @@ describe('ConflictResolutionService', () => {
         if (args[0] === 'checkout' && args[1] === '--theirs') {
           checkoutCalled = true;
         }
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+        // The file has to READ as unmerged: taking a side on a path with no
+        // conflict is refused, because `git checkout --ours` on an ordinary
+        // file silently rewrites it from HEAD.
+        const unmerged = lsFilesUnmerged(args, [
+          { path: 'file1.txt', indexStatus: 'U', workTreeStatus: 'U' },
+        ]);
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: unmerged ?? '',
+          stderr: '',
+          combined: '',
+        });
       };
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
@@ -293,7 +351,7 @@ describe('ConflictResolutionService', () => {
       const result = await conflictService.acceptCurrent(mockRepo, 'gone.txt');
       assert.strictEqual(result.success, true);
       assert.ok(
-        calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'),
+        calls.some((a) => a[0] === 'rm' && a[2] === literalPathspec('gone.txt')),
         'ours-deleted file must be resolved with git rm'
       );
       assert.ok(
@@ -312,7 +370,7 @@ describe('ConflictResolutionService', () => {
       const result = await conflictService.acceptIncoming(mockRepo, 'gone.txt');
       assert.strictEqual(result.success, true);
       assert.ok(
-        calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'),
+        calls.some((a) => a[0] === 'rm' && a[2] === literalPathspec('gone.txt')),
         'theirs-deleted file must be resolved with git rm'
       );
       assert.ok(
@@ -344,8 +402,12 @@ describe('ConflictResolutionService', () => {
 
       const result = await conflictService.acceptAllCurrent(mockRepo);
       assert.strictEqual(result.success, true);
-      assert.ok(calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'));
-      assert.ok(calls.some((a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'both.txt'));
+      assert.ok(calls.some((a) => a[0] === 'rm' && a[2] === literalPathspec('gone.txt')));
+      assert.ok(
+        calls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === literalPathspec('both.txt')
+        )
+      );
       assert.deepStrictEqual(stagedFiles, ['both.txt'], 'only the checked-out file is staged');
     });
 
@@ -359,9 +421,11 @@ describe('ConflictResolutionService', () => {
 
       const result = await conflictService.acceptAllIncoming(mockRepo);
       assert.strictEqual(result.success, true);
-      assert.ok(calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'));
+      assert.ok(calls.some((a) => a[0] === 'rm' && a[2] === literalPathspec('gone.txt')));
       assert.ok(
-        calls.some((a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'both.txt')
+        calls.some(
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === literalPathspec('both.txt')
+        )
       );
       assert.deepStrictEqual(stagedFiles, ['both.txt'], 'only the checked-out file is staged');
     });
@@ -386,7 +450,9 @@ describe('ConflictResolutionService', () => {
       assert.strictEqual(r2.skipped, true);
       assert.strictEqual(r2.error, undefined);
 
-      const checkouts = calls.filter((a) => a[0] === 'checkout' && a[3] === 'both.txt');
+      const checkouts = calls.filter(
+        (a) => a[0] === 'checkout' && a[3] === literalPathspec('both.txt')
+      );
       assert.strictEqual(
         checkouts.length,
         1,
@@ -421,7 +487,7 @@ describe('ConflictResolutionService', () => {
           });
         }
         if (args[0] === 'checkout' && args[1] === 'HEAD') {
-          const paths = args.slice(args.indexOf('--') + 1);
+          const paths = args.slice(args.indexOf('--') + 1).map(pathspecTarget);
           const missing = paths.find((p) => !inHead.has(p));
           if (missing || opts.failCheckout) {
             const stderr = missing
@@ -451,11 +517,15 @@ describe('ConflictResolutionService', () => {
       const checkout = calls.find((c) => c[0] === 'checkout' && c[1] === 'HEAD');
       assert.ok(checkout, 'expected a checkout HEAD for the tracked path');
       const checkoutPaths = checkout.slice(checkout.indexOf('--') + 1);
-      assert.deepStrictEqual(checkoutPaths, ['tracked.ts'], 'only the HEAD path is checked out');
+      assert.deepStrictEqual(
+        checkoutPaths,
+        [literalPathspec('tracked.ts')],
+        'only the HEAD path is checked out'
+      );
 
       const unindex = calls.find((c) => c[0] === 'rm' && c.includes('--cached'));
       assert.ok(unindex, 'the add/add path must be unindexed');
-      assert.ok(unindex.includes('addadd.ts'), 'unindex targets the add/add path');
+      assert.ok(unindex.includes(literalPathspec('addadd.ts')), 'unindex targets the add/add path');
       // git4idea GitRollbackEnvironment.rollbackChanges unversions (keeps on disk)
       // a NEW file — no working-tree delete for an added-only path.
       assert.ok(!calls.some((c) => c[0] === 'rm' && !c.includes('--cached')));
@@ -471,7 +541,10 @@ describe('ConflictResolutionService', () => {
       const checkout = calls.find((c) => c[0] === 'checkout' && c[1] === 'HEAD');
       assert.ok(checkout, 'expected a checkout HEAD call');
       const checkoutPaths = checkout.slice(checkout.indexOf('--') + 1);
-      assert.deepStrictEqual(checkoutPaths.sort(), ['a.ts', 'b.ts']);
+      assert.deepStrictEqual(
+        checkoutPaths.sort(),
+        [literalPathspec('a.ts'), literalPathspec('b.ts')].sort()
+      );
       assert.ok(!calls.some((c) => c[0] === 'rm' && c.includes('--cached')));
     });
 
@@ -521,8 +594,8 @@ describe('ConflictResolutionService', () => {
 
       const result = await conflictService.acceptAllCurrent(mockRepo);
       assert.strictEqual(result.success, true);
-      assert.ok(checkedOutFiles.includes('file1.txt'));
-      assert.ok(checkedOutFiles.includes('file2.txt'));
+      assert.ok(checkedOutFiles.includes(literalPathspec('file1.txt')));
+      assert.ok(checkedOutFiles.includes(literalPathspec('file2.txt')));
     });
 
     it('should succeed when no conflicts', async () => {
@@ -552,8 +625,8 @@ describe('ConflictResolutionService', () => {
 
       const result = await conflictService.acceptAllIncoming(mockRepo);
       assert.strictEqual(result.success, true);
-      assert.ok(checkedOutFiles.includes('file1.txt'));
-      assert.ok(checkedOutFiles.includes('file2.txt'));
+      assert.ok(checkedOutFiles.includes(literalPathspec('file1.txt')));
+      assert.ok(checkedOutFiles.includes(literalPathspec('file2.txt')));
     });
   });
 

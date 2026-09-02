@@ -14,7 +14,8 @@ import {
   buildRollbackConfirmMessage,
   enrichRollbackChanges,
   extractRollbackChanges,
-} from '../../../src/commands/registration/commitRepoCoreCommands';
+} from '../../../src/commands/registration/commitRollbackChanges';
+import { captureWarnCalls } from '../../helpers/captureWarnCalls';
 
 describe('extractRollbackChanges', () => {
   it('returns undefined for the no-arg palette invocation', () => {
@@ -41,6 +42,57 @@ describe('extractRollbackChanges', () => {
 
   it('returns undefined when nothing in the array is valid', () => {
     assert.strictEqual(extractRollbackChanges([{ foo: 'bar' }]), undefined);
+  });
+
+  it('drops an entry whose path is the empty string', () => {
+    // An empty path reaches restorePathsToHead → the literal-pathspec
+    // writer — where it must never land. `''` passes
+    // `typeof path === 'string'`, so nothing upstream of this narrowing
+    // filters it; refuse it here, before it ever reaches a confirm modal or
+    // git.
+    const out = extractRollbackChanges([
+      { path: '', status: 'modified' },
+      { path: 'a.ts', status: 'modified' },
+    ]);
+    assert.deepStrictEqual(out, [{ path: 'a.ts', status: 'modified' }]);
+  });
+
+  it('returns undefined when the only entry has an empty path', () => {
+    assert.strictEqual(extractRollbackChanges([{ path: '', status: 'modified' }]), undefined);
+  });
+
+  it('logs the dropped-entry count instead of silently rolling back fewer files than confirmed', () => {
+    // buildRollbackConfirmMessage counts the FILTERED set, so
+    // a mixed-validity array's confirm modal already reads "Roll back local
+    // changes to 1 file?" for what the user gestured as two — the fix is not
+    // to change that count, but to make the drop observable instead of
+    // silent.
+    const { calls, restore } = captureWarnCalls();
+    try {
+      const out = extractRollbackChanges([
+        { path: '', status: 'modified' },
+        { path: 'a.ts', status: 'modified' },
+      ]);
+      assert.deepStrictEqual(
+        out,
+        [{ path: 'a.ts', status: 'modified' }],
+        'still proceeds filtered'
+      );
+    } finally {
+      restore();
+    }
+    assert.strictEqual(calls.length, 1, 'exactly one warn for the one dropped entry');
+    assert.deepStrictEqual(calls[0].context, { droppedCount: 1, kept: 1 });
+  });
+
+  it('does not warn when every entry in the array is well-formed', () => {
+    const { calls, restore } = captureWarnCalls();
+    try {
+      extractRollbackChanges([{ path: 'a.ts', status: 'modified' }]);
+    } finally {
+      restore();
+    }
+    assert.deepStrictEqual(calls, []);
   });
 });
 

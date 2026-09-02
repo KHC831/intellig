@@ -2,3 +2,4 @@
 # Everything else must be invoked by check:all — see check-all-complete.mjs.
 
 check:patch-coverage  needs a c8 report (npm run coverage) that the headless gate does not produce; run in the coverage lane
+check:mutations  mutates real source in a throwaway git worktree per manifest entry; too slow and too invasive for every npm test — runs in gate:full instead

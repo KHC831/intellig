@@ -10,21 +10,20 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { buildCommitContextMenuHtml } from '../../src/git-core/gitToolWindow/provider/htmlBuilders';
+import { renderMenuMarkup } from '../helpers/renderMenuMarkup';
+import {
+  COMMIT_MENU,
+  COMMIT_MENU_ITEMS,
+} from '../../src/git-core/gitToolWindow/webview/menuDefinitions';
 import { buildInlineStyles } from '../../src/git-core/gitToolWindow/provider/stylesBuilder';
-import type { IGtwControllerContext } from '../../src/git-core/gitToolWindow/provider/IGtwControllerContext';
 import { withRenderedPage } from './support/browser';
-import { assertComputedEquals, assertReadable } from './support/assert';
+import { assertComputedEquals, assertReadable, assertResolvesToToken } from './support/assert';
 import { shownMenuMarkup, withMenuItemClass } from './support/markup';
 import type { ThemeName } from './support/theme';
 
-/** The builder reads only `extendedLogState.commitNodes` to stamp the head hash. */
-const CTX = {
-  extendedLogState: { commitNodes: [] },
-} as unknown as IGtwControllerContext;
-
 // Built per spec, not at module scope: see contextMenuTheming.visual.test.ts.
-const menu = (): string => shownMenuMarkup(buildCommitContextMenuHtml(CTX), 'commit-context-menu');
+const menu = (): string =>
+  shownMenuMarkup(renderMenuMarkup(COMMIT_MENU_ITEMS, COMMIT_MENU), 'commit-context-menu');
 
 const THEMES: readonly ThemeName[] = ['dark', 'light'];
 
@@ -49,6 +48,34 @@ describe('commit context menu interaction states (computed style)', () => {
         );
       });
 
+      // showAt() focuses the first row on open and handleKey() moves focus
+      // with Arrow/Home/End — a row's markup carries tabindex="0" only when
+      // enabled (ContextMenu._buildItem), so a real DOM focus() here exercises
+      // the same :focus state the widget puts a row into.
+      it('outlines a focused item with the focus token', async () => {
+        await withRenderedPage({ css: buildInlineStyles(), body: menu(), theme }, async (page) => {
+          const selector = '[data-action="cherryPick"]';
+          await page.focus(selector);
+          await assertResolvesToToken(page, selector, 'outline-color', theme, 'vscode-focusBorder');
+          // outline-color alone passes a zero-width or "none" outline, which
+          // paints nothing — the exact defect this pin exists to catch.
+          await assertComputedEquals(
+            page,
+            selector,
+            'outline-style',
+            'solid',
+            'a non-solid outline-style can paint nothing at all even with the right colour'
+          );
+          await assertComputedEquals(
+            page,
+            selector,
+            'outline-width',
+            '1px',
+            'a zero-width outline paints nothing, so the focus ring would be invisible even with the right colour'
+          );
+        });
+      });
+
       for (const action of DANGER_ACTIONS) {
         it(`keeps the destructive "${action}" item readable while hovered`, async () => {
           await withRenderedPage(
@@ -71,7 +98,7 @@ describe('commit context menu interaction states (computed style)', () => {
       // The hover loop above iterates DANGER_ACTIONS, so a third destructive
       // item added in production would silently skip it without this pin.
       const shipped = [
-        ...buildCommitContextMenuHtml(CTX).matchAll(
+        ...renderMenuMarkup(COMMIT_MENU_ITEMS, COMMIT_MENU).matchAll(
           /class="[^"]*context-menu-danger[^"]*"[^>]*data-action="([^"]+)"/g
         ),
       ].map((m) => m[1]);

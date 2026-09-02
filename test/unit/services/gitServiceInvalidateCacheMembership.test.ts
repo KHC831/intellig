@@ -27,6 +27,7 @@ import { wireAvailableRepositorySync } from '../../../src/registration/wiring';
 import type { IAvailableRepositoriesProvider } from '../../../src/registration/wiring';
 import type { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 /** Narrow view of the private cache-invalidation seam, for the test. */
 type InvalidateSeam = { invalidateCache(rootPath: string): void };
@@ -78,7 +79,7 @@ describe('GitService.invalidateCache preserves repository membership', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     (gitService as any)._gitCli = cli;
     // Temp fixtures live under the gitignored workspace-notes/tmp, never os.tmpdir().
-    const notesTmp = path.resolve(__dirname, '../../../workspace-notes/tmp');
+    const notesTmp = SCRATCH_ROOT;
     fs.mkdirSync(notesTmp, { recursive: true });
     baseDir = fs.realpathSync.native(fs.mkdtempSync(path.join(notesTmp, 'invalidate-')));
   });

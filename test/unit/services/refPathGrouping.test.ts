@@ -10,7 +10,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { partitionRefsByPathSegment } from '../../../src/branches/refPathGrouping';
+import { compareRefNames, partitionRefsByPathSegment } from '../../../src/branches/refPathGrouping';
 
 const refs = (...names: string[]): Array<{ name: string }> => names.map((name) => ({ name }));
 
@@ -121,9 +121,46 @@ describe('partitionRefsByPathSegment', () => {
     );
   });
 
+  it('sorts folders and leaves by the SAME rule, case-insensitively', () => {
+    // A bare .sort() orders by code unit, putting every capitalised name ahead
+    // of every lowercase one, while localeCompare interleaves them. Using one
+    // for folders and the other for leaves sorts halves of the same tree by
+    // different rules: folders read Release, alpha; leaves read alpha, Release.
+    const { folders, leaves } = partitionRefsByPathSegment(
+      refs('Release/1.0', 'alpha/1.0', 'Beta/1.0', 'Zulu', 'apple', 'Mango'),
+      '',
+      undefined
+    );
+    assert.deepStrictEqual(
+      folders.map((f) => f.segment),
+      ['alpha', 'Beta', 'Release']
+    );
+    assert.deepStrictEqual(
+      leaves.map((l) => l.ref.name),
+      ['apple', 'Mango', 'Zulu']
+    );
+  });
+
   it('returns nothing for an empty ref list', () => {
     const { folders, leaves } = partitionRefsByPathSegment([], '', undefined);
     assert.deepStrictEqual(folders, []);
     assert.deepStrictEqual(leaves, []);
+  });
+
+  it('exports the comparator so a tree can sort its own headers by it', () => {
+    // The remote GROUP headers of the Branches tree are sorted by their owner,
+    // not by this function, and a bare .sort() there would order the headers by
+    // code unit while everything nested under them used localeCompare.
+    const remotes = ['origin', 'Upstream', 'fork', 'Backup'];
+    assert.deepStrictEqual(
+      remotes.slice().sort(compareRefNames),
+      ['Backup', 'fork', 'origin', 'Upstream'],
+      'one rule for headers and the refs beneath them'
+    );
+    assert.notDeepStrictEqual(
+      remotes.slice().sort(compareRefNames),
+      remotes.slice().sort(),
+      'and it is genuinely different from a bare sort'
+    );
   });
 });

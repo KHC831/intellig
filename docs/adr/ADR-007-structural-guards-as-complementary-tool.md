@@ -45,10 +45,11 @@ Two related artefacts are _not_ structural guards by the rule below
 but were sometimes discussed alongside them in review notes:
 
 - **NotificationService dispose-lifecycle tests** (Wave 6, see
-  `test/unit/services/notificationService.test.ts`) — these are
-  per-method behaviour specs (constructor wires, `init()` registers
-  with `context.subscriptions`, listeners are no-ops post-dispose),
-  not a structural-shape guard. Belong under "per-site spec."
+  `test/unit/services/notificationService.test.ts`)
+  — these were per-method behaviour specs (constructor wires,
+  `init()` registers with `context.subscriptions`, listeners are
+  no-ops post-dispose), not a structural-shape guard. Belonged under
+  "per-site spec."
 - **TLR3-2 task-ID sweep** (Wave 7, task #105) — was a one-off
   cleanup pass, not a recurring CI guard. The hygiene rule
   (`feedback_history_hygiene.md`) is enforced by review attention,
@@ -366,7 +367,7 @@ pre-sanitized | non-error-data`) is a per-guard concern, not a
   log: a future field whose disposer registration is conditional on
   configuration would slip past the disposer-array regex.
 
-- **`scripts/check-output-channel-test-surface.sh` (TL-58).**
+- **`scripts/check-test-only-surface.sh` (TL-58).**
   Asserts NO production caller invokes `__resetOutputChannelForTest`
   — that helper is test-only state-reset machinery and a
   production caller would erase the OutputChannel mid-session.
@@ -434,7 +435,7 @@ the Marketplace) is irreversible.
   — TL-93 placeholder-fingerprint dispatcher + JSON sidecar.
 - `scripts/check-publish-vsix.sh` — TL-95 dogfood-filename guard.
 - `scripts/check-watcher-families-registered.mjs` — TL-87 watcher-family registration guard.
-- `scripts/check-output-channel-test-surface.sh` — TL-58 OutputChannel test-surface boundary guard.
+- `scripts/check-test-only-surface.sh` — TL-58 OutputChannel test-surface boundary guard.
 - ADR-006 — error-state binding by view type. The rule TL-74 enforces.
 - `docs/testing.md` — TestSurface idiom (section 3) and tier-escalation
   guidance (referenced by the per-site spec column).

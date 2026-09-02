@@ -1,0 +1,277 @@
+[
+  {
+    "id": "shelf-revert-binary-checkout-literal",
+    "file": "src/shelf/ShelfService.ts",
+    "anchor": "literalPathspec(file.path)], // checkout-head-exempt: modified/deleted",
+    "mutation": {
+      "kind": "replace",
+      "with": "file.path], // checkout-head-exempt: modified/deleted"
+    },
+    "test": "test/unit/services/shelfBinaryRevertFailure.test.ts",
+    "title": "reverting a modified binary file with pathspec-magic characters does not also revert a same-shaped neighbour",
+    "why": "a pathspec-magic filename (e.g. a[1].bin) would also revert a same-shaped neighbour with no error and nothing to undo"
+  },
+  {
+    "id": "ctw-context-menu-row-signature-untracked-arm",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "(row.classList.contains('ctw-file-untracked') ? 'untracked' : 'tracked')",
+    "mutation": {
+      "kind": "replace",
+      "with": "'tracked'"
+    },
+    "test": "test/unit/webview/ctwContextMenu.test.ts",
+    "title": "closes when its row flips untracked-ness underneath it, changelist and path unchanged",
+    "why": "rowSignature's untracked-ness arm is defence-in-depth for the stale-menu contract, not the only thing catching it today (every untracked file also lives in the _unversioned pseudo-changelist, so a tracked<->untracked flip already changes data-changelist); a defence with no manifest entry is indistinguishable from dead code"
+  },
+  {
+    "id": "ctw-init-model-untracked-flag",
+    "file": "src/commits/ctwInitModel.ts",
+    "anchor": "entry.untracked = true;",
+    "mutation": {
+      "kind": "delete-line"
+    },
+    "test": "test/unit/services/commitToolWindowGrouping.test.ts",
+    "title": "marks an untracked file row with ctw-file-untracked, driven from a real untracked IFileChange",
+    "why": "the render-model builder dropping the untracked flag would hide the ctw-file-untracked row class and the Add to VCS menu arm it gates, with no test in the file catching it"
+  },
+  {
+    "id": "shelf-staged-new-rm-literal",
+    "file": "src/shelf/ShelfService.ts",
+    "anchor": "['rm', '-f', '--', literalPathspec(file.path)]",
+    "mutation": {
+      "kind": "replace",
+      "with": "['rm', '-f', '--', file.path]"
+    },
+    "test": "test/unit/services/shelfService.fixes.test.ts",
+    "title": "removes the file with a literal-wrapped git rm -f --, even with pathspec-magic characters in the name",
+    "why": "a pathspec-magic filename in a staged-new full-file revert would also delete a same-shaped neighbour with no error and nothing to undo"
+  },
+  {
+    "id": "commit-drop-added-rm-literal",
+    "file": "src/commits/commitDropActions.ts",
+    "anchor": "['rm', '-f', '--', literalPathspec(p)]",
+    "mutation": {
+      "kind": "replace",
+      "with": "['rm', '-f', '--', p]"
+    },
+    "test": "test/unit/commands/historyRewriteOutcomes.test.ts",
+    "title": "an added dropped file is removed with `git rm -f --`, path wrapped literal",
+    "why": "dropping a commit that added a pathspec-magic filename would also delete a same-shaped neighbour with no error and nothing to undo"
+  },
+  {
+    "id": "scratch-root-clean-basename-guard",
+    "file": "test/helpers/scratchRoot.ts",
+    "anchor": "if (path.basename(base) !== 'tmp' || path.basename(path.dirname(base)) !== 'workspace-notes') {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/utils/scratchRoot.test.ts",
+    "title": "refuses to sweep a directory that is not a workspace-notes/tmp",
+    "why": "a mistaken base outside workspace-notes/tmp would sweep (delete) whatever real directory is passed in"
+  },
+  {
+    "id": "scratch-root-drop-basename-guard",
+    "file": "test/helpers/scratchRoot.ts",
+    "anchor": "path.basename(parent) !== 'tmp' ||\n    path.basename(path.dirname(parent)) !== 'workspace-notes'",
+    "mutation": {
+      "kind": "replace",
+      "with": "(path.basename(parent) !== 'tmp' ||\n    path.basename(path.dirname(parent)) !== 'workspace-notes') && false"
+    },
+    "test": "test/unit/utils/scratchRoot.test.ts",
+    "title": "refuses to remove a target whose parent is not workspace-notes/tmp",
+    "why": "dropOwnScratchRoot with own mistakenly set to SCRATCH_BASE would silently empty every concurrent test lane's fixtures instead of refusing"
+  },
+  {
+    "id": "ctw-hide-clears-pending",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "hide(): void {\n    this._menu.hide();\n    this._pending = undefined;\n  }",
+    "mutation": {
+      "kind": "replace",
+      "with": "hide(): void {\n    this._menu.hide();\n  }"
+    },
+    "test": "test/unit/webview/ctwContextMenu.test.ts",
+    "title": "drops an unanswered right-click when the user clicks away",
+    "why": "a right-click reply landing after the user dismissed the menu (click-away, Escape, losing the window) would reopen a menu the user already moved past"
+  },
+  {
+    "id": "ctw-remember-click-hides-open-menu",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "rememberClick(x: number, y: number, target: ICtwMenuTarget, opener?: HTMLElement): void {\n    this.hide();",
+    "mutation": {
+      "kind": "replace",
+      "with": "rememberClick(x: number, y: number, target: ICtwMenuTarget, opener?: HTMLElement): void {"
+    },
+    "test": "test/unit/webview/ctwContextMenu.test.ts",
+    "title": "closes an open menu on a second right-click even when the host never answers it",
+    "why": "a host bail on the second right-click would leave the previous row's menu painted over a row it no longer describes, with nothing left to close it"
+  },
+  {
+    "id": "context-menu-applystates-null-fallback",
+    "file": "src/webview-common/contextMenu.ts",
+    "anchor": "const enabled = state ? state.enabled !== false : !declared?.disabled;",
+    "mutation": {
+      "kind": "replace",
+      "with": "const enabled = state ? state.enabled !== false : true;"
+    },
+    "test": "test/unit/webview/contextMenuWidget.test.ts",
+    "title": "applyStates(null) falls back to the declared enabled state, never to \"everything allowed\"",
+    "why": "a menu drawn before the host's enable-state map arrives would read every declared-disabled row as clickable instead of respecting the item's own declared disabled flag"
+  },
+  {
+    "id": "conflict-accept-side-index-readable-threading",
+    "file": "src/conflicts/ConflictResolutionService.ts",
+    "anchor": "takeSide(root, filePath, flag, entry, read.ok)",
+    "mutation": {
+      "kind": "replace",
+      "with": "takeSide(root, filePath, flag, entry, true)"
+    },
+    "test": "test/unit/services/conflictIndexWriter.test.ts",
+    "title": "threads a failed index read through to takeSide as indexReadable=false, not the refusing default",
+    "why": "dropping the real readStages() result makes a system-fault index read masquerade as a clean 'no merge conflict to resolve' refusal instead of falling through to checkout"
+  },
+  {
+    "id": "ctw-row-signature-onpick-stale-pick",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "if (rowSignature(this._target) !== this._signature) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/webview/ctwMenuOutlivesContext.test.ts",
+    "title": "does not accept a conflict side for a file that is no longer conflicted",
+    "why": "picking an item on a menu left open over a row the tree rebuild changed (e.g. a file that is no longer conflicted) would act on stale row state"
+  },
+  {
+    "id": "ctw-row-signature-show-null-bail",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "if (signature === null) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/webview/ctwMenuOutlivesContext.test.ts",
+    "title": "draws nothing when the row goes while the host is still answering",
+    "why": "a host reply landing after the target row disappeared from the DOM would draw a menu over a dead target instead of drawing nothing"
+  },
+  {
+    "id": "ctw-revalidate-guard",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "if (this._menu.isOpen && rowSignature(this._target) !== this._signature) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/webview/ctwMenuOutlivesContext.test.ts",
+    "title": "does not act on a row a same-repo refresh removed",
+    "why": "a tree rebuild that removes or changes the row a menu is open on would leave the menu hanging over whatever now sits under the pointer instead of closing it"
+  },
+  {
+    "id": "ctw-show-sametarget-check",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "if (!sameTarget(at.target, target)) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (!sameTarget(at.target, target) && false) {"
+    },
+    "test": "test/unit/webview/ctwMenuTargeting.test.ts",
+    "title": "drops a menu reply that does not match the right-click still pending",
+    "why": "two right-clicks in flight at once, with replies landing out of order, would draw the OLD row's menu at the NEW row's pointer instead of ignoring the mismatched reply"
+  },
+  {
+    "id": "ctw-stash-sha-row-signature",
+    "file": "src/commits/webview/ctwContextMenu.ts",
+    "anchor": "data-stash-sha",
+    "mutation": {
+      "kind": "replace",
+      "with": "data-stash-sha-DISABLED"
+    },
+    "test": "test/unit/webview/ctwMenuOutlivesContext.test.ts",
+    "title": "tells two identically-named stashes apart by sha",
+    "why": "a stash identified only by index survives renumbering and Drop would target the wrong stash after the stack shifts under an open menu"
+  },
+  {
+    "id": "gtw-menu-action-enabled-recheck",
+    "file": "src/git-core/gitToolWindow/provider/messageHandlers.ts",
+    "anchor": "if (!ctx.isMenuActionEnabled(action, commitHashes)) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/services/gitToolWindow/multiSelectR1.test.ts",
+    "title": "re-checks the action against the rules and refuses one the selection does not allow",
+    "why": "the row's menu was drawn for an earlier selection; without the re-check, an action the current selection does not allow would fire anyway once the hashes themselves pass the staleness check"
+  },
+  {
+    "id": "gitcli-path-slot-kind-fail-closed",
+    "file": "src/git-core/gitCli.ts",
+    "anchor": "if (kind === undefined) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/utils/gitCli.test.ts",
+    "title": "throws for a subcommand with no declared PATH_SLOT_KIND",
+    "why": "a subcommand added to buildGitArgs without a PATH_SLOT_KIND entry would silently guess bare (filename) treatment instead of failing loudly, re-opening the class this table exists to close"
+  },
+  {
+    "id": "gitcli-check-attr-bare-argv",
+    "file": "src/commits/CheckinChecks.ts",
+    "anchor": "['check-attr', '-z', 'text', 'crlf', '--', ...batch],",
+    "mutation": {
+      "kind": "replace",
+      "with": "['check-attr', '-z', 'text', 'crlf', '--', ...batch.map((p) => ':(literal)' + p)],"
+    },
+    "test": "test/unit/services/checkinChecksCrlfRealGit.test.ts",
+    "title": "does not warn on a CRLF file whose text/crlf attribute is specified via * text=auto",
+    "why": "check-attr echoes each argument back verbatim as the path column; wrapping it as a literal pathspec corrupts the key readAttributedPaths matches against, so every attributed file starts firing the CRLF warning it should be exempt from"
+  },
+  {
+    "id": "exemptwindow-eof-string-selfcheck",
+    "file": "scripts/lib/exemptWindow.js",
+    "anchor": "if (pendingUnterminatedKind === 'string') {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/scripts/exemptWindow.test.ts",
+    "title": "throws, naming the file, when the file ends still inside a string",
+    "why": "a lexer bug that leaves an unterminated string pending at end of file would silently return a partially-scanned result instead of failing loudly and naming the file, desyncing every guard built on this shared lexer"
+  },
+  {
+    "id": "exemptwindow-eof-template-selfcheck",
+    "file": "scripts/lib/exemptWindow.js",
+    "anchor": "if (pendingUnterminatedKind === 'template') {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/scripts/exemptWindow.test.ts",
+    "title": "throws, naming the file, when the file ends still inside a template literal",
+    "why": "a lexer bug that leaves an open template literal pending at end of file would silently return a partially-scanned result instead of failing loudly and naming the file, desyncing every guard built on this shared lexer"
+  },
+  {
+    "id": "exemptwindow-eof-block-comment-selfcheck",
+    "file": "scripts/lib/exemptWindow.js",
+    "anchor": "if (pendingUnterminatedKind === 'comment') {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/scripts/exemptWindow.test.ts",
+    "title": "throws, naming the file, when the file ends still inside a block comment",
+    "why": "a lexer bug that leaves a block comment unterminated pending at end of file would silently return the comment text as if it were blanked source instead of failing loudly and naming the file, desyncing every guard built on this shared lexer"
+  },
+  {
+    "id": "literal-pathspec-empty-path-guard",
+    "file": "src/git-core/gitCli.ts",
+    "anchor": "if (repoRelativePath === '') {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (false) {"
+    },
+    "test": "test/unit/utils/gitCli.test.ts",
+    "title": "throws rather than producing the :(literal) match-everything pathspec",
+    "why": ":(literal) with no payload is itself a pathspec that matches every path, where the bare '' git receives today is a hard fatal — a neutered guard would silently widen every destructive caller (checkout/add/reset/rm) into reverting/staging/deleting the whole working tree"
+  }
+]

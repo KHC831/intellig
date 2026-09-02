@@ -14,7 +14,11 @@
  */
 
 import '../setup';
-import { buildFileContextMenuHtml } from '../../src/git-core/gitToolWindow/provider/htmlBuilders';
+import { renderMenuMarkup } from '../helpers/renderMenuMarkup';
+import {
+  FILE_MENU,
+  FILE_MENU_ITEMS,
+} from '../../src/git-core/gitToolWindow/webview/menuDefinitions';
 import { buildInlineStyles } from '../../src/git-core/gitToolWindow/provider/stylesBuilder';
 import { withRenderedPage } from './support/browser';
 import {
@@ -30,7 +34,8 @@ import type { ThemeName } from './support/theme';
 // Built per spec, not at module scope: shownMenuMarkup throws when its edit
 // stops matching, and a module-scope throw surfaces as ts-node's opaque
 // "Cannot find module test/setup" instead of the guard's own message.
-const menu = (): string => shownMenuMarkup(buildFileContextMenuHtml(), 'file-context-menu');
+const menu = (): string =>
+  shownMenuMarkup(renderMenuMarkup(FILE_MENU_ITEMS, FILE_MENU), 'file-context-menu');
 
 const THEMES: readonly ThemeName[] = ['dark', 'light'];
 

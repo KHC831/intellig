@@ -18,8 +18,9 @@ import { GitCli } from '../../../src/git-core/gitCli';
 import { ConflictResolutionService } from '../../../src/conflicts/ConflictResolutionService';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
-const TMP_ROOT = path.join(__dirname, '../../../workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 describe('accept side with an absent index stage (real git)', () => {
   let repoPath: string;

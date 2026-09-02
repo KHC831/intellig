@@ -15,10 +15,11 @@ import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import * as path from 'path';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts/check-render-guards.mjs');
-const SCRATCH = path.join(REPO_ROOT, 'workspace-notes/tmp');
+const SCRATCH = SCRATCH_ROOT;
 
 interface Run {
   status: number;

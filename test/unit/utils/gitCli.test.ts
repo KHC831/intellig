@@ -14,7 +14,11 @@ import {
   resolveGitTimeoutMs,
   NETWORK_GIT_TIMEOUT_MS,
   LOCAL_GIT_TIMEOUT_MS,
+  buildGitArgs,
+  literalPathspec,
+  PATH_SLOT_KIND,
 } from '../../../src/git-core/gitCli';
+import { InvalidArgumentError } from '../../../src/git-core/errors';
 
 describe('appendCapped — runaway-output guard (crash regression)', () => {
   // Regression: on a huge repo, `stdout += chunk` grew past V8's max string
@@ -710,5 +714,87 @@ describe('GitCli command timeout — kill machinery', () => {
     child.emit('close', 0);
     const result = await pending;
     assert.strictEqual(result.exitCode, 0);
+  });
+});
+
+describe('literalPathspec — refuses an empty path', () => {
+  it('throws rather than producing the :(literal) match-everything pathspec', () => {
+    // `:(literal)` with an empty payload is a valid pathspec
+    // that matches EVERY path, while git's bare '' is a hard fatal. Measured
+    // on real git 2.50.1: `git checkout HEAD -- ''` exits 128
+    // ("empty string is not a valid pathspec"); `git checkout HEAD --
+    // ':(literal)'` exits 0 and reverts the whole working tree. Wrapping must
+    // never convert git's own refusal into "match everything".
+    assert.throws(() => literalPathspec(''), InvalidArgumentError);
+  });
+
+  it('still wraps a genuinely non-empty path', () => {
+    assert.strictEqual(literalPathspec('a[1].ts'), ':(literal)a[1].ts');
+  });
+
+  it('throws a message a user can act on, not internal jargon', () => {
+    // The thrown message is rendered verbatim by formatActionFailureToast at
+    // every caller that toasts (StagingOps.stage, DiffOps.getDiff, …) — it
+    // must read like the sibling refusal in StagingOps._revertHunk, not name
+    // an internal function or a git pathspec magic word.
+    try {
+      literalPathspec('');
+      assert.fail('literalPathspec("") must throw');
+    } catch (error) {
+      const message = (error as Error).message;
+      assert.doesNotMatch(message, /literalPathspec/, `leaks the function name:\n${message}`);
+      assert.doesNotMatch(message, /:\(literal\)/, `leaks git pathspec magic:\n${message}`);
+    }
+  });
+});
+
+describe('buildGitArgs — PATH_SLOT_KIND decides pathspec wrapping', () => {
+  it('wraps paths literal for a PATHSPEC subcommand (diff)', () => {
+    const argv = buildGitArgs('diff', [], [], ['a[1].ts']);
+    assert.deepStrictEqual(argv, ['diff', '--', literalPathspec('a[1].ts')]);
+  });
+
+  it('leaves paths bare for a FILENAME subcommand (blame)', () => {
+    const argv = buildGitArgs('blame', ['--porcelain'], [], ['a[1].ts']);
+    assert.deepStrictEqual(argv, ['blame', '--porcelain', '--', 'a[1].ts']);
+  });
+
+  it('throws for a subcommand with no declared PATH_SLOT_KIND', () => {
+    assert.throws(
+      () => buildGitArgs('bogus-subcommand', [], [], ['x']),
+      /PATH_SLOT_KIND/,
+      'an undeclared subcommand must fail loudly, not guess'
+    );
+  });
+
+  it('never wraps when no paths are passed (paths undefined)', () => {
+    // An undeclared subcommand with NO path slot in use must still work —
+    // only passing `paths` triggers the PATH_SLOT_KIND lookup.
+    const argv = buildGitArgs('bogus-subcommand', ['--flag'], ['ref']);
+    assert.deepStrictEqual(argv, ['bogus-subcommand', '--flag', '--end-of-options', 'ref']);
+  });
+
+  it('throws for an empty path (buildGitArgs pathspec-kind subcommand)', () => {
+    // `:(literal)` with an empty payload is a VALID pathspec that matches
+    // every path, where the bare '' git receives today is a hard fatal —
+    // wrapping an empty path would silently widen a destructive command
+    // (checkout/add/reset/rm) to "match everything".
+    assert.throws(
+      () => buildGitArgs('diff', [], [], ['']),
+      /InvalidArgumentError|empty/i,
+      'an empty path must never reach git as :(literal), even wrapped'
+    );
+  });
+
+  it('PATH_SLOT_KIND declares every subcommand this repo routes a path through buildGitArgs', () => {
+    assert.strictEqual(PATH_SLOT_KIND['diff'], 'pathspec');
+    assert.strictEqual(PATH_SLOT_KIND['log'], 'pathspec');
+    assert.strictEqual(PATH_SLOT_KIND['checkout'], 'pathspec');
+    assert.strictEqual(PATH_SLOT_KIND['ls-tree'], 'pathspec');
+    assert.strictEqual(PATH_SLOT_KIND['am'], 'filename');
+    assert.strictEqual(PATH_SLOT_KIND['apply'], 'filename');
+    assert.strictEqual(PATH_SLOT_KIND['blame'], 'filename');
+    assert.strictEqual(PATH_SLOT_KIND['check-attr'], 'filename');
+    assert.strictEqual(PATH_SLOT_KIND['hash-object'], 'filename');
   });
 });

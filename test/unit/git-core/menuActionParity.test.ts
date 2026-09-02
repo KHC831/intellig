@@ -2,7 +2,7 @@
  * newBranch / newTag are single-only commit-menu actions, and the commit
  * context menu's data-actions must not drift from the multi-select gating map.
  *
- * The bug this pins: an action rendered in buildCommitContextMenuHtml but
+ * The bug this pins: an action listed in COMMIT_MENU_ITEMS but
  * absent from MultiSelectMenuAction is never covered by computeMenuState, so
  * the webview's applyMenuEnableMap falls back to visible+enabled and the row
  * stays clickable at N>=2 (acting on an arbitrary member of the selection).
@@ -15,8 +15,7 @@ import {
   computeMenuEnableState,
   MultiSelectMenuAction,
 } from '../../../src/git-core/gitToolWindow/multiSelect';
-import { buildCommitContextMenuHtml } from '../../../src/git-core/gitToolWindow/provider/htmlBuilders';
-import { IGtwControllerContext } from '../../../src/git-core/gitToolWindow/provider/IGtwControllerContext';
+import { COMMIT_MENU_ITEMS } from '../../../src/git-core/gitToolWindow/webview/menuDefinitions';
 
 describe('newBranch / newTag multi-select gating', () => {
   it('hidden at N>=2 (single-only visibility)', () => {
@@ -46,17 +45,7 @@ describe('newBranch / newTag multi-select gating', () => {
 
 describe('commit context menu ⊆ multi-select gating map (drift fence)', () => {
   function menuActions(): string[] {
-    const ctx = {
-      extendedLogState: { commitNodes: [] },
-    } as unknown as IGtwControllerContext;
-    const html = buildCommitContextMenuHtml(ctx);
-    const found: string[] = [];
-    const re = /data-action="([^"]+)"/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) {
-      found.push(m[1]);
-    }
-    return found;
+    return COMMIT_MENU_ITEMS.filter((i) => !i.separator).map((i) => i.action ?? '');
   }
 
   it('every rendered data-action is a key of the gating map (else it escapes multi-select)', () => {

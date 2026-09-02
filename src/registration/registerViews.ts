@@ -1,3 +1,4 @@
+import { registerEditorDecorationProviders } from './registerEditorProviders';
 import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
@@ -10,9 +11,6 @@ import {
   createStatusBarService,
   KeymapService,
   createBranchComparisonView,
-  createGutterBlameProvider,
-  createLineStatusTracker,
-  createLineStatusHoverProvider,
   createRebaseProgressView,
   createBranchTreeProvider,
   createCommitToolWindow,
@@ -371,29 +369,31 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       {
         // Interactive apply/pop: the CTW Shelf tab goes through the same
         // reinstate-index prompt as the sidebar Stash view (one seam).
-        apply: async (idx): Promise<void> => {
+        apply: async (idx, expectedSha): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.applyStashInteractive(idx);
+          await stashViewRef.applyStashInteractive(idx, expectedSha);
         },
-        pop: async (idx): Promise<void> => {
+        pop: async (idx, expectedSha): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.popStashInteractive(idx);
+          await stashViewRef.popStashInteractive(idx, expectedSha);
         },
-        drop: async (idx): Promise<void> => {
+        drop: async (idx, expectedSha): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.dropStash(idx);
+          await stashViewRef.dropStash(idx, expectedSha);
         },
+        // Read-only: a diff for a renumbered stash is a wrong picture, not a
+        // wrong write, and refusing it would toast on a harmless action.
         showDiff: async (idx): Promise<void> => {
           await bindShelfRepo();
           await stashViewRef.viewStash(idx);
         },
-        rename: async (idx): Promise<void> => {
+        rename: async (idx, expectedSha): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.renameStash(idx);
+          await stashViewRef.renameStash(idx, expectedSha);
         },
-        branchFromStash: async (idx): Promise<void> => {
+        branchFromStash: async (idx, expectedSha): Promise<void> => {
           await bindShelfRepo();
-          await stashViewRef.branchFromStash(idx);
+          await stashViewRef.branchFromStash(idx, expectedSha);
         },
         clearAll: async (): Promise<void> => {
           await bindShelfRepo();
@@ -1500,22 +1500,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Same late-bind for the branch menu's Compare With Current.
     branchContextMenuCommands.setBranchComparisonView(ctx.branchComparisonView);
 
-    // Initialize Gutter Blame Provider
-    ctx.gutterBlameProvider = createGutterBlameProvider(
-      ctx.services.blameService,
-      gitService,
-      ctx.services.blameOptionsSource
-    );
-    ctx.context.subscriptions.push(ctx.gutterBlameProvider);
-
-    // Initialize the live changed-line gutter tracker (LineStatusTracker
-    // parity). Self-contained and config-driven, so it isn't stored on the
-    // context — just registered for disposal.
-    ctx.context.subscriptions.push(createLineStatusTracker(gitService));
-
-    // Inline-diff hover popup on a change marker (LineStatusMarkerPopup parity):
-    // shows the committed content for the hovered range + revert/copy actions.
-    ctx.context.subscriptions.push(createLineStatusHoverProvider(gitService));
+    registerEditorDecorationProviders(ctx, ctx.services, gitService);
 
     // Initialize Rebase Progress View
     ctx.rebaseProgressView = createRebaseProgressView(

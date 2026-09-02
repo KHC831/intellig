@@ -34,8 +34,11 @@ function encodeCollapsed(names: string[]): string {
 let harness: IWebviewEntryHarness;
 
 /**
- * Boot the entry over a document carrying a collapsed chip + the #ref-popup
- * overlay. Returns the window/document plus the captured postMessage log.
+ * Boot the entry over a document carrying a collapsed chip. The #ref-popup
+ * overlay is NOT pre-rendered here: the host never renders it (pinned by
+ * GitToolWindowProvider.test.ts's `!html.includes('id="ref-popup"')`) — the
+ * shared ContextMenu widget creates it on first open, the same as it does
+ * for every other menu.
  */
 function bootDom(branchNames: string[]): {
   window: IWebviewEntryHarness['window'];
@@ -47,8 +50,7 @@ function bootDom(branchNames: string[]): {
       <div class="graph-panel">
         <span class="branch-label-collapsed" data-collapsed-branches="${encodeCollapsed(branchNames)}"
               role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">+${branchNames.length}</span>
-      </div>
-      <div id="ref-popup" class="context-menu" hidden role="menu"></div>`,
+      </div>`,
   });
   return {
     window: harness.window,
@@ -81,10 +83,14 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('opens the popup with one row per collapsed ref on chip click', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
-    assert.strictEqual(popup.hidden, true, 'popup starts hidden');
+    assert.strictEqual(
+      document.getElementById('ref-popup'),
+      null,
+      'the widget creates the popup on first open, not before'
+    );
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     assert.strictEqual(popup.hidden, false, 'popup is shown after chip click');
 
     const rows = popup.querySelectorAll('.context-menu-item');
@@ -100,10 +106,10 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('opens the popup on Enter when the chip is keyboard-focused', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     const evt = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
     chip.dispatchEvent(evt);
+    const popup = document.getElementById('ref-popup')!;
     assert.strictEqual(popup.hidden, false, 'popup opens on Enter');
     assert.strictEqual(popup.querySelectorAll('.context-menu-item').length, 2);
   });
@@ -111,9 +117,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('emits branchClick for the chosen ref and dismisses the popup on row click', () => {
     const { window, document, posted } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const row = popup.querySelector('.context-menu-item[data-branch-name="upstream/main"]')!;
     const rowEvt = new window.MouseEvent('click', { bubbles: true, cancelable: true });
     row.dispatchEvent(rowEvt);
@@ -127,9 +133,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('dismisses the popup on click-outside', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     assert.strictEqual(popup.hidden, false);
 
     const outside = document.querySelector('.graph-panel')!;
@@ -141,9 +147,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('dismisses the popup on Escape', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     assert.strictEqual(popup.hidden, false);
 
     const evt = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
@@ -154,9 +160,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('renders ref names via textContent so markup in a branch name cannot inject', () => {
     const { window, document } = bootDom(['a', '<img src=x onerror=alert(1)>']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     // The name round-trips raw through JSON; the popup assigns it via
     // textContent, so no <img> element is ever created.
     assert.strictEqual(popup.querySelectorAll('img').length, 0, 'no injected <img> element');
@@ -174,9 +180,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
     // split into two spurious rows.
     const { window, document } = bootDom(['origin/main', 'feat|x']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const rows = popup.querySelectorAll('.context-menu-item');
     assert.strictEqual(rows.length, 2, 'a pipe in a name must NOT create an extra row');
     assert.strictEqual(rows[1].getAttribute('data-branch-name'), 'feat|x');
@@ -187,9 +193,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('moves focus to the first row when the popup opens', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const firstRow = popup.querySelector('.context-menu-item');
     assert.strictEqual(
       document.activeElement,
@@ -201,9 +207,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('selects the focused row on Enter — emits branchClick + dismisses (the WCAG 2.1.1 regression)', () => {
     const { window, document, posted } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
     // Keyboard activation on the focused row — must navigate, not no-op.
     keydown(window, firstRow, 'Enter');
@@ -217,9 +223,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('selects the focused row on Space too', () => {
     const { window, document, posted } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
     keydown(window, firstRow, ' ');
     assert.strictEqual(posted.filter((m) => m.type === 'branchClick').length, 1, 'Space selects');
@@ -228,9 +234,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('moves focus between rows with ArrowDown / ArrowUp (wrapping)', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const rows = popup.querySelectorAll<HTMLElement>('.context-menu-item');
     assert.strictEqual(document.activeElement, rows[0], 'starts on first row');
 
@@ -247,9 +253,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('returns focus to the +N chip on Escape and flips aria-expanded back to false', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     assert.strictEqual(chip.getAttribute('aria-expanded'), 'true', 'chip is expanded while open');
     const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
 
@@ -262,9 +268,9 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('returns focus to the +N chip after selecting a row', () => {
     const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
-    const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
+    const popup = document.getElementById('ref-popup')!;
     const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
     keydown(window, firstRow, 'Enter');
     assert.strictEqual(document.activeElement, chip, 'focus returns to the opener after select');

@@ -27,6 +27,7 @@ import {
 } from '../../../src/commits/commitActionGuards';
 import type { IConflictResolutionService } from '../../../src/conflicts/interfaces/IConflictResolutionService';
 import type { GitCli } from '../../../src/git-core/gitCli';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import {
   IRebaseAction,
@@ -4370,16 +4371,16 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const checkoutHead = calls.filter((c) => c[0] === 'checkout' && c[1] === 'HEAD');
       const checkoutTargets = checkoutHead.flatMap((c) => c.slice(c.indexOf('--') + 1));
       assert.ok(
-        !checkoutTargets.includes('renamed-new.ts'),
+        !checkoutTargets.includes(literalPathspec('renamed-new.ts')),
         'the rename DESTINATION must never be checked out from the parent (it does not exist there)'
       );
       assert.ok(
-        checkoutTargets.includes('renamed-old.ts'),
+        checkoutTargets.includes(literalPathspec('renamed-old.ts')),
         `the rename SOURCE must be restored from the parent; checkouts: ${JSON.stringify(checkoutTargets)}`
       );
       const rm = calls.find((c) => c[0] === 'rm' && c.includes('--cached'));
       assert.ok(rm, 'the new path must be unindexed');
-      assert.ok(rm.slice(rm.indexOf('--') + 1).includes('renamed-new.ts'));
+      assert.ok(rm.slice(rm.indexOf('--') + 1).includes(literalPathspec('renamed-new.ts')));
       assert.strictEqual(
         messages.error.length,
         0,

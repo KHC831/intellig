@@ -10,7 +10,7 @@
 import '../setup';
 import * as assert from 'assert';
 import * as fc from 'fast-check';
-import { buildGitArgs } from '../../src/git-core/gitCli';
+import { buildGitArgs, literalPathspec } from '../../src/git-core/gitCli';
 
 describe('argv injection property', () => {
   it('any ref containing --flag-shape lands AFTER --end-of-options', () => {
@@ -48,14 +48,20 @@ describe('argv injection property', () => {
     assert.deepStrictEqual(argv, ['status', '--porcelain']);
   });
 
-  it('paths after refs separated by `--`', () => {
+  it('paths after refs separated by `--`, wrapped literal for a pathspec subcommand', () => {
     const argv = buildGitArgs('checkout', [], ['main'], ['src/file.ts']);
-    assert.deepStrictEqual(argv, ['checkout', '--end-of-options', 'main', '--', 'src/file.ts']);
+    assert.deepStrictEqual(argv, [
+      'checkout',
+      '--end-of-options',
+      'main',
+      '--',
+      literalPathspec('src/file.ts'),
+    ]);
   });
 
   it('empty refs but with paths still inserts `--`', () => {
-    const argv = buildGitArgs('rm', ['-r'], [], ['some/path']);
-    assert.deepStrictEqual(argv, ['rm', '-r', '--', 'some/path']);
+    const argv = buildGitArgs('log', ['-n', '1'], [], ['some/path']);
+    assert.deepStrictEqual(argv, ['log', '-n', '1', '--', literalPathspec('some/path')]);
   });
 
   it('no flags + refs only emits subcommand + --end-of-options + refs', () => {

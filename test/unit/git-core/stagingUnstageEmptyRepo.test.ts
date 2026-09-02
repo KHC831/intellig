@@ -12,6 +12,7 @@ import * as assert from 'assert';
 import { StagingOps } from '../../../src/git-core/ops/StagingOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 interface ExecCall {
   args: string[];
@@ -57,14 +58,14 @@ describe('StagingOps.unstage — unborn branch fallback', () => {
     assert.ok(result.isOk(), `unstage should succeed via fallback; got ${JSON.stringify(result)}`);
     const rm = calls.find((c) => c.args[0] === 'rm');
     assert.ok(rm, 'expected a rm --cached fallback');
-    assert.deepStrictEqual(rm.args, ['rm', '--cached', '-r', '--', 'first.ts']);
+    assert.deepStrictEqual(rm.args, ['rm', '--cached', '-r', '--', literalPathspec('first.ts')]);
   });
 
   it('uses plain reset HEAD when a commit exists (no fallback)', async () => {
     const { ops, calls } = makeOps(false);
     const result = await ops.unstage(repo(), ['a.ts']);
     assert.ok(result.isOk());
-    assert.deepStrictEqual(calls[0].args, ['reset', 'HEAD', '--', 'a.ts']);
+    assert.deepStrictEqual(calls[0].args, ['reset', 'HEAD', '--', literalPathspec('a.ts')]);
     assert.ok(!calls.some((c) => c.args[0] === 'rm'), 'no rm fallback when reset succeeds');
   });
 });

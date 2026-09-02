@@ -1,4 +1,4 @@
-import { GitCli, IGitCommandOptions } from '../git-core/gitCli';
+import { GitCli, IGitCommandOptions, literalPathspec } from '../git-core/gitCli';
 import {
   IUnmergedEntry,
   UnmergedStagesRead,
@@ -38,7 +38,14 @@ export interface IConflictIndexWriter {
     repoRoot: string,
     filePath: string,
     flag: '--ours' | '--theirs',
-    entry: IUnmergedEntry | undefined
+    entry: IUnmergedEntry | undefined,
+    /**
+     * Whether the index STAGE read succeeded. A readable index reporting no
+     * entry means the path has no conflict, and taking a side on it would
+     * discard uncommitted work; unreadable leaves it unknown, which falls
+     * through to checkout as before. Defaults to the refusing side.
+     */
+    indexReadable?: boolean
   ): Promise<boolean>;
 
   /**
@@ -64,23 +71,31 @@ export class ConflictIndexWriter implements IConflictIndexWriter {
     repoRoot: string,
     filePath: string,
     flag: '--ours' | '--theirs',
-    entry: IUnmergedEntry | undefined
+    entry: IUnmergedEntry | undefined,
+    indexReadable = true
   ): Promise<boolean> {
     const options: IGitCommandOptions = { cwd: repoRoot, throwOnError: true };
     const side = flag === '--ours' ? 'ours' : 'theirs';
+    // `git checkout --ours -- <path>` exits 0 on an ordinary file and rewrites
+    // it from HEAD, so running it on a path with no conflict silently discards
+    // whatever the user had not committed. Refuse where the command is issued:
+    // callers reach here with a target the user did not necessarily pick.
+    if (indexReadable && !entry) {
+      throw new Error(`${filePath} has no merge conflict to resolve`);
+    }
     // Only route to `git rm` when the path IS unmerged (entry present) but the
     // wanted stage is absent — never for a non-conflicted file (which would
     // wrongly delete it); an unknown entry falls through to checkout.
     if (entry && sideStatus(entry, side) === 'deleted') {
-      await this._gitCli.exec(['rm', '--', filePath], options);
+      await this._gitCli.exec(['rm', '--', literalPathspec(filePath)], options);
       return false;
     }
-    await this._gitCli.exec(['checkout', flag, '--', filePath], options);
+    await this._gitCli.exec(['checkout', flag, '--', literalPathspec(filePath)], options);
     return true;
   }
 
   async restoreConflict(repoRoot: string, filePath: string): Promise<void> {
-    await this._gitCli.exec(['checkout', '--merge', '--', filePath], {
+    await this._gitCli.exec(['checkout', '--merge', '--', literalPathspec(filePath)], {
       cwd: repoRoot,
       throwOnError: true,
     });

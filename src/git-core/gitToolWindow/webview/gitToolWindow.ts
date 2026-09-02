@@ -117,6 +117,11 @@ function main(vscode: IVsCodeApi): void {
     if (message.type === 'updateDetailsPanel' && message.model) {
       const detailsPanel = document.getElementById('details-panel');
       if (detailsPanel) {
+        // Only the changed-file menu: it remembers the commit and path it was
+        // opened on, and both are about to be replaced. Closing every menu here
+        // would dismiss the commit menu the user just opened — selecting an
+        // unselected commit posts this in the same tick.
+        rowMenus.hideChangedFileMenu();
         detailsPanel.replaceChildren(buildDetailsPanelDom(message.model));
       }
     }
@@ -137,12 +142,11 @@ function main(vscode: IVsCodeApi): void {
     }
     if (message.type === 'updateMenuEnableState' && message.state) {
       sel.menuEnableMap = message.state as typeof sel.menuEnableMap;
-      const openMenu = document.getElementById('commit-context-menu');
-      if (openMenu && !openMenu.hidden) {
-        rowMenus.applyMenuEnableMap(openMenu);
-      }
+      rowMenus.applyMenuEnableMap();
     }
     if (message.type === 'syncSelection') {
+      // The selection an open commit menu was built for no longer holds.
+      rowMenus.dropStaleCommitMenu();
       sel.anchorHash =
         typeof message.anchorHash === 'string' && message.anchorHash.length > 0
           ? message.anchorHash

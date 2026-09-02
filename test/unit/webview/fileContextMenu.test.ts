@@ -11,10 +11,6 @@
 import '../../setup';
 import * as assert from 'assert';
 import { bootWebviewEntry, IWebviewEntryHarness } from '../../helpers/bootWebviewEntry';
-import {
-  buildFileContextMenuHtml,
-  buildHistoryContextMenuHtml,
-} from '../../../src/git-core/gitToolWindow/provider/htmlBuilders';
 
 const ENTRY = 'git-core/gitToolWindow/webview/gitToolWindow';
 const SHA = 'a'.repeat(40);
@@ -43,9 +39,8 @@ describe('webview: details-panel file context menu', () => {
 
   function boot(): void {
     h = bootWebviewEntry(ENTRY, {
-      bodyHtml:
-        buildFileContextMenuHtml() +
-        `<div class="changed-file-item" data-path="src/a.ts" data-commit-hash="${SHA}">a.ts</div>`,
+      // No menu markup is seeded: the webview builds its own menus at boot.
+      bodyHtml: `<div class="changed-file-item" data-path="src/a.ts" data-commit-hash="${SHA}">a.ts</div>`,
     });
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),
@@ -101,9 +96,7 @@ describe('webview: history-tab revision context menu', () => {
 
   function boot(): void {
     h = bootWebviewEntry(ENTRY, {
-      bodyHtml:
-        buildHistoryContextMenuHtml() +
-        `<div class="history-commit-row" data-rev="${SHA}">row</div>`,
+      bodyHtml: `<div class="history-commit-row" data-rev="${SHA}">row</div>`,
     });
     assert.deepStrictEqual(
       h.errors.map((e) => e.message),

@@ -14,7 +14,7 @@ import {
 } from './interfaces/IShelfService';
 import { IRepository, IDiff, IHunk, IGitService } from '../git-core/interfaces/IGitService';
 import { IChangelistService } from '../changelists/interfaces/IChangelistService';
-import { GitCli, createGitCli, IGitCommandResult } from '../git-core/gitCli';
+import { GitCli, createGitCli, IGitCommandResult, literalPathspec } from '../git-core/gitCli';
 import { getLogger, type Logger } from '../utils/logger';
 
 // Typeguard for GitService's @internal cli escape hatch.
@@ -27,6 +27,14 @@ import { buildPatchHeader, serializeHunkLines } from '../git-core/patchBuilder';
 import { splitPatchByFile } from '../patches/PatchService';
 import { applyTextPatch } from '../patches/applyTextPatch';
 import { isPathInsideOrEqual, resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
+import {
+  SHELF_STORAGE_FILE,
+  SHELF_STORAGE_VERSION,
+  migrateShelfStorageForTest,
+  serializeShelfForDisk,
+  type IShelfStorage,
+  type IShelfStorageItem,
+} from './shelfStorageMigrate';
 
 /**
  * True when a shelved file path, resolved against the repository root, stays
@@ -165,306 +173,6 @@ function rejectFinalSymlink(absPath: string): void {
 }
 
 /**
- * Shelf storage file format version.
- * Increment this when making breaking changes to the storage format.
- *
- * v1: initial format (id, name, timestamp, files).
- * v2: adds optional per-item lifecycle markers — `unshelvedAt`
- *   (Already-Unshelved) and `deletedAt` (recycle bin / Recently Deleted).
- *   Both are additive: a file written without them loads with the field
- *   absent, and unknown fields round-trip via the `_unknown*` capture.
- */
-const SHELF_STORAGE_VERSION = 2;
-
-/**
- * Shelf storage file name.
- * Stored in the .git directory to keep it repository-specific.
- */
-const SHELF_STORAGE_FILE = 'intellig-shelf.json';
-
-/**
- * Shelf storage model for JSON persistence.
- *
- * Forward-compat round-trip: unknown top-level keys and unknown per-item
- * keys are preserved verbatim across load/save cycles, mirroring the same
- * pattern applied to ChangelistService. A newer version of the extension
- * can introduce new fields without older versions silently dropping them
- * when they persist back to disk. The shape we recognise is narrow (see
- * {@link KNOWN_SHELF_TOP_LEVEL_KEYS} / {@link KNOWN_SHELF_ITEM_KEYS});
- * everything else is captured into `_unknownTopLevel` / `_unknownItem`
- * and re-emitted on save. These two fields are purely in-memory
- * bookkeeping — they are never written to disk as named keys.
- */
-interface IShelfStorage {
-  version: number;
-  items: IShelfStorageItem[];
-  /**
-   * Unknown top-level keys captured during load. Spread back out when
-   * saving so forward-compat fields survive a round trip.
-   * @internal
-   */
-  _unknownTopLevel?: Record<string, unknown>;
-}
-
-/**
- * Shelf storage item model.
- */
-interface IShelfStorageItem {
-  id: string;
-  name: string;
-  timestamp: number;
-  files: IShelfStorageFile[];
-  /** v2: epoch ms of successful unshelve, if the entry is Already-Unshelved. */
-  unshelvedAt?: number;
-  /** v2: epoch ms of deletion into the recycle bin, if the entry is Recently-Deleted. */
-  deletedAt?: number;
-  /**
-   * Unknown per-item keys captured during load. Spread back out when
-   * saving so forward-compat fields survive a round trip.
-   * @internal
-   */
-  _unknownItem?: Record<string, unknown>;
-}
-
-/**
- * Shelf storage file model.
- *
- * Per-file fields are fixed — the diff payload itself is opaque text. For
- * forward-compat with possible future per-file metadata (e.g. binary-flag,
- * mode bits, encoding hint), unknown keys encountered at this nesting
- * level are captured into `_unknownFileField` and re-emitted on save,
- * mirroring the top-level / per-item pattern above.
- */
-interface IShelfStorageFile {
-  path: string;
-  originalContent: string;
-  patchContent: string;
-  /**
-   * `true` for a binary file entry. Binary entries store their bytes in
-   * `binaryContent` (base64) rather than a text patch in `patchContent`, and
-   * are restored by writing those bytes to disk instead of via `git apply`.
-   * Mirrors IntelliJ's binary-aware shelf (ShelvedBinaryFile.java).
-   */
-  isBinary?: boolean;
-  /** Base64 of the shelved binary "after" bytes; absent for a deleted binary. */
-  binaryContent?: string;
-  /** Change status for a binary entry. Absent for text entries. */
-  binaryStatus?: 'added' | 'modified' | 'deleted';
-  /**
-   * Unknown per-file keys captured during load. Spread back out when
-   * saving so forward-compat per-file fields survive a round trip.
-   * @internal
-   */
-  _unknownFileField?: Record<string, unknown>;
-}
-
-/**
- * The set of known top-level keys. Used by the forward-compat round-trip
- * logic to partition a parsed payload into known vs. unknown halves. Kept in
- * sync with {@link IShelfStorage} via the compile-time `satisfies` clause —
- * adding a field to the interface without listing it here fails the build.
- * `_unknownTopLevel` is excluded as in-memory bookkeeping.
- */
-const KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC = {
-  version: true,
-  items: true,
-} as const satisfies Record<Exclude<keyof IShelfStorage, '_unknownTopLevel'>, true>;
-
-const KNOWN_SHELF_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC)
-);
-
-/**
- * The set of known per-item keys. Same purpose as
- * {@link KNOWN_SHELF_TOP_LEVEL_KEYS} but for individual shelf records. Same
- * compile-time audit — adding a field to {@link IShelfStorageItem} requires a
- * matching entry here or the build fails. `_unknownItem` is excluded as
- * in-memory bookkeeping.
- */
-const KNOWN_SHELF_ITEM_KEYS_SPEC = {
-  id: true,
-  name: true,
-  timestamp: true,
-  files: true,
-  unshelvedAt: true,
-  deletedAt: true,
-} as const satisfies Record<Exclude<keyof IShelfStorageItem, '_unknownItem'>, true>;
-
-const KNOWN_SHELF_ITEM_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_SHELF_ITEM_KEYS_SPEC));
-
-/**
- * The set of known per-file keys. Partitions a parsed shelf-file record into
- * known vs. unknown halves so the unknown half survives a load/save round
- * trip. Compile-time audit mirrors the top-level / per-item registries —
- * `_unknownFileField` is the only excluded key because it's in-memory
- * bookkeeping.
- */
-const KNOWN_SHELF_FILE_KEYS_SPEC = {
-  path: true,
-  originalContent: true,
-  patchContent: true,
-  isBinary: true,
-  binaryContent: true,
-  binaryStatus: true,
-} as const satisfies Record<Exclude<keyof IShelfStorageFile, '_unknownFileField'>, true>;
-
-const KNOWN_SHELF_FILE_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_SHELF_FILE_KEYS_SPEC));
-
-/**
- * Pure version of {@link ShelfService.loadShelfStorage}'s parse half,
- * exported so property tests can exercise the load logic without
- * constructing the whole service. Unit tests rely on this matching the
- * class method exactly.
- *
- * Accepts anything JSON.parse might return (including non-object or
- * missing-keys shapes) and always returns a well-formed {@link IShelfStorage}.
- *
- * @internal
- */
-export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {
-      version: SHELF_STORAGE_VERSION,
-      items: [],
-    };
-  }
-
-  const record = parsed as Record<string, unknown>;
-
-  const version = typeof record.version === 'number' ? record.version : 1;
-  if (version > SHELF_STORAGE_VERSION) {
-    getLogger()
-      .child({ component: 'ShelfService' })
-      .warn('Shelf storage version is newer than expected; reading best-effort', {
-        observedVersion: version,
-        expectedVersion: SHELF_STORAGE_VERSION,
-      });
-  }
-
-  const rawItems = Array.isArray(record.items) ? record.items : [];
-  const items: IShelfStorageItem[] = rawItems.map((raw) => {
-    const item = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-    const unknownItem = Object.create(null) as Record<string, unknown>;
-    for (const k of Object.keys(item)) {
-      if (!KNOWN_SHELF_ITEM_KEYS.has(k)) {
-        unknownItem[k] = item[k];
-      }
-    }
-    const files = Array.isArray(item.files)
-      ? (item.files as unknown[]).map((f): IShelfStorageFile => {
-          const fileRec = f !== null && typeof f === 'object' ? (f as Record<string, unknown>) : {};
-          const unknownFileField = Object.create(null) as Record<string, unknown>;
-          for (const k of Object.keys(fileRec)) {
-            if (!KNOWN_SHELF_FILE_KEYS.has(k)) {
-              unknownFileField[k] = fileRec[k];
-            }
-          }
-          const binaryStatus =
-            fileRec.binaryStatus === 'added' ||
-            fileRec.binaryStatus === 'modified' ||
-            fileRec.binaryStatus === 'deleted'
-              ? fileRec.binaryStatus
-              : undefined;
-          return {
-            path: typeof fileRec.path === 'string' ? fileRec.path : '',
-            originalContent:
-              typeof fileRec.originalContent === 'string' ? fileRec.originalContent : '',
-            patchContent: typeof fileRec.patchContent === 'string' ? fileRec.patchContent : '',
-            ...(typeof fileRec.isBinary === 'boolean' ? { isBinary: fileRec.isBinary } : {}),
-            ...(typeof fileRec.binaryContent === 'string'
-              ? { binaryContent: fileRec.binaryContent }
-              : {}),
-            ...(binaryStatus ? { binaryStatus } : {}),
-            ...(Object.keys(unknownFileField).length > 0
-              ? { _unknownFileField: unknownFileField }
-              : {}),
-          };
-        })
-      : [];
-    return {
-      id: typeof item.id === 'string' ? item.id : '',
-      name: typeof item.name === 'string' ? item.name : '',
-      timestamp: typeof item.timestamp === 'number' ? item.timestamp : 0,
-      files,
-      ...(typeof item.unshelvedAt === 'number' ? { unshelvedAt: item.unshelvedAt } : {}),
-      ...(typeof item.deletedAt === 'number' ? { deletedAt: item.deletedAt } : {}),
-      ...(Object.keys(unknownItem).length > 0 ? { _unknownItem: unknownItem } : {}),
-    };
-  });
-
-  const unknownTopLevel = Object.create(null) as Record<string, unknown>;
-  for (const k of Object.keys(record)) {
-    if (!KNOWN_SHELF_TOP_LEVEL_KEYS.has(k)) {
-      unknownTopLevel[k] = record[k];
-    }
-  }
-
-  return {
-    // Always re-tag the version to the current schema so the next save
-    // writes the canonical shape. v1 → v2 is pure-additive (added
-    // `unshelvedAt`), and a future v3 etc. would follow the same rule.
-    version: SHELF_STORAGE_VERSION,
-    items,
-    ...(Object.keys(unknownTopLevel).length > 0 ? { _unknownTopLevel: unknownTopLevel } : {}),
-  };
-}
-
-/**
- * Serialize an in-memory shelf storage back to the on-disk JSON shape.
- *
- * Known keys emit in the fixed order `{version, items, ...unknownTopLevel}`;
- * per-item keys emit in the fixed order
- * `{id, name, timestamp, files, unshelvedAt?, deletedAt?, ...unknownItem}`; per-file
- * keys emit in the fixed order
- * `{path, originalContent, patchContent, ...unknownFileField}`. The internal
- * bookkeeping fields (`_unknownTopLevel`, `_unknownItem`, `_unknownFileField`)
- * are consumed here and MUST NOT appear in the emitted JSON.
- *
- * Exported only for tests — production code always goes through
- * {@link ShelfService.saveShelfStorage}.
- *
- * @internal
- */
-export function serializeShelfForDisk(storage: IShelfStorage): Record<string, unknown> {
-  const items = storage.items.map((item) => {
-    const known: Record<string, unknown> = {
-      id: item.id,
-      name: item.name,
-      timestamp: item.timestamp,
-      files: item.files.map((f) => {
-        const knownFile: Record<string, unknown> = {
-          path: f.path,
-          originalContent: f.originalContent,
-          patchContent: f.patchContent,
-        };
-        if (f.isBinary !== undefined) {
-          knownFile.isBinary = f.isBinary;
-        }
-        if (f.binaryContent !== undefined) {
-          knownFile.binaryContent = f.binaryContent;
-        }
-        if (f.binaryStatus !== undefined) {
-          knownFile.binaryStatus = f.binaryStatus;
-        }
-        return f._unknownFileField ? { ...knownFile, ...f._unknownFileField } : knownFile;
-      }),
-    };
-    if (item.unshelvedAt !== undefined) {
-      known.unshelvedAt = item.unshelvedAt;
-    }
-    if (item.deletedAt !== undefined) {
-      known.deletedAt = item.deletedAt;
-    }
-    return item._unknownItem ? { ...known, ...item._unknownItem } : known;
-  });
-  const known: Record<string, unknown> = {
-    version: storage.version,
-    items,
-  };
-  return storage._unknownTopLevel ? { ...known, ...storage._unknownTopLevel } : known;
-}
-
-/**
  * Shelf Service implementation.
  * Manages IDE-specific shelf storage for temporary changes.
  * The shelf is separate from Git stash and persists across VS Code sessions.
@@ -582,12 +290,13 @@ export class ShelfService implements IShelfService {
       }
 
       const selectedHunks = changes.hunks?.get(filePath);
+      const spec = literalPathspec(filePath);
       let diffContent = '';
       if (selectedHunks && selectedHunks.length > 0) {
         // Partial-hunk shelve operates on the UNSTAGED working-tree diff (the
         // hunks the UI presented to the user); index-aware whole-change capture
         // applies only to full-file shelves.
-        const diffResult = await this._gitCli.exec(['diff', '--', filePath], { cwd });
+        const diffResult = await this._gitCli.exec(['diff', '--', spec], { cwd });
         this._assertDiffNotTruncated(diffResult, filePath);
         if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
           diffContent = this.generateHunksDiff(filePath, selectedHunks);
@@ -598,7 +307,7 @@ export class ShelfService implements IShelfService {
         // rather than silently dropped. Unshelve forward-applies it as an
         // unstaged change (IntelliJ parity). A staged-new file (in the index,
         // absent from HEAD) shows here as a creation diff and round-trips too.
-        const diffResult = await this._gitCli.exec(['diff', 'HEAD', '--', filePath], { cwd });
+        const diffResult = await this._gitCli.exec(['diff', 'HEAD', '--', spec], { cwd });
         this._assertDiffNotTruncated(diffResult, filePath);
         if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
           // A binary change emits only "Binary files a/… and b/… differ" with no
@@ -714,10 +423,7 @@ export class ShelfService implements IShelfService {
       }
       try {
         // Apply the patch to the working directory
-        const result = await this._gitCli.exec(['apply', '--3way', '-'], {
-          cwd,
-          input: file.diff,
-        });
+        const result = await this._gitCli.exec(['apply', '--3way', '-'], { cwd, input: file.diff });
 
         if (result.exitCode !== 0) {
           // Check if it's a conflict
@@ -1055,21 +761,23 @@ export class ShelfService implements IShelfService {
   }
 
   /**
-   * Re-activate an Already-Unshelved entry. Idempotent.
+   * Re-activate an Already-Unshelved entry. Idempotent. Returns whether it
+   * actually changed anything.
    */
-  restoreShelf(repo: IRepository, shelfId: string): void {
+  restoreShelf(repo: IRepository, shelfId: string): boolean {
     const storage = this.loadShelfStorage(repo);
     const item = storage.items.find((i) => i.id === shelfId);
     if (!item) {
-      return;
+      return false;
     }
     if (item.unshelvedAt === undefined) {
-      return;
+      return false;
     }
     item.unshelvedAt = undefined;
     this.saveShelfStorage(repo, storage);
     this._shelfCache.delete(this.getRepoKey(repo));
     this._onDidChangeShelf.fire(this.getShelfItems(repo));
+    return true;
   }
 
   /**
@@ -1234,10 +942,8 @@ export class ShelfService implements IShelfService {
     // change is detected too — otherwise it would slip past as a contentless
     // "Binary files differ" text diff and be lost on shelve (no bytes captured).
     // git-path-quote-exempt: only the byte-count columns are read, never the path
-    const numstat = await this._gitCli.exec(['diff', '--numstat', 'HEAD', '--', filePath], {
-      cwd,
-      throwOnError: false,
-    });
+    const numArgs = ['diff', '--numstat', 'HEAD', '--', literalPathspec(filePath)];
+    const numstat = await this._gitCli.exec(numArgs, { cwd, throwOnError: false });
     const line = numstat.stdout
       .split('\n')
       .map((l) => l.trim())
@@ -1313,6 +1019,7 @@ export class ShelfService implements IShelfService {
             cwd: root,
             throwOnError: false,
           });
+          // pathspec-exempt: hash-object takes a FILENAME, not a pathspec
           const diskBlob = await this._gitCli.exec(['hash-object', '--', absPath], {
             cwd: root,
             throwOnError: false,
@@ -1389,14 +1096,15 @@ export class ShelfService implements IShelfService {
       }
       // Clear any intent-to-add staging so the file no longer shows as a change.
       // This is best-effort; the working-tree copy is already gone at this point.
-      await this._gitCli.exec(['reset', '--', file.path], { cwd, throwOnError: false });
+      const spec = literalPathspec(file.path);
+      await this._gitCli.exec(['reset', '--', spec], { cwd, throwOnError: false });
       return true;
     }
     // modified or deleted → restore the committed bytes from HEAD. The added
     // case is handled above, so this file is present in HEAD and the checkout
     // can never fatal on a missing pathspec.
     const result = await this._gitCli.exec(
-      ['checkout', 'HEAD', '--', file.path], // checkout-head-exempt: modified/deleted file is present in HEAD
+      ['checkout', 'HEAD', '--', literalPathspec(file.path)], // checkout-head-exempt: modified/deleted file is present in HEAD
       { cwd, throwOnError: false }
     );
     return result.exitCode === 0;
@@ -1518,7 +1226,7 @@ export class ShelfService implements IShelfService {
       // staged content is dropped too (a plain `checkout -- <file>` would
       // restore from the index and leave staged changes behind).
       const checkout = await this._gitCli.exec(
-        ['checkout', 'HEAD', '--', file.path], // checkout-head-exempt: a HEAD-absent (staged-NEW) path is handled by the cat-file fallback below
+        ['checkout', 'HEAD', '--', literalPathspec(file.path)], // checkout-head-exempt: a HEAD-absent (staged-NEW) path is handled by the cat-file fallback below
         { cwd, throwOnError: false }
       );
       if (checkout.exitCode === 0) {
@@ -1546,7 +1254,7 @@ export class ShelfService implements IShelfService {
         failedPaths.push(file.path);
         continue;
       }
-      const removed = await this._gitCli.exec(['rm', '-f', '--', file.path], {
+      const removed = await this._gitCli.exec(['rm', '-f', '--', literalPathspec(file.path)], {
         cwd,
         throwOnError: false,
       });

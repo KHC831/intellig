@@ -15,6 +15,14 @@ import { EventEmitter, Uri, Webview, setMockConfigValue } from '../../mocks/vsco
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import type { ICommitNode, IBranchRef } from '../../../src/git-core/commitGraph';
 import type { IRemoteUrl } from '../../../src/utils/remoteUrl';
+import { renderMenuMarkup } from '../../helpers/renderMenuMarkup';
+import {
+  COMMIT_MENU,
+  COMMIT_MENU_ITEMS,
+} from '../../../src/git-core/gitToolWindow/webview/menuDefinitions';
+
+/** The commit menu's markup, as the webview widget renders it. */
+const commitMenuMarkup = (): string => renderMenuMarkup(COMMIT_MENU_ITEMS, COMMIT_MENU);
 
 /** Source of the bundled Git tool-window client entry (was `_getInlineScript()`). */
 const ENTRY_SOURCE = readGtwWebviewSource();
@@ -2817,7 +2825,7 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(html.includes('margin-left: 4px'), 'Should include margin-left 4px');
     });
 
-    it('collapsed chip is clickable (cursor:pointer) and the #ref-popup overlay is rendered', () => {
+    it("collapsed chip is clickable (cursor:pointer), and the popup is the webview's to build", () => {
       const mockWebview = {
         html: '',
         options: {},
@@ -2841,10 +2849,12 @@ describe('_getBranchLabelsHtml', () => {
         !/\.branch-label-collapsed[\s\S]*?cursor:\s*help/.test(html),
         'the dead-end cursor:help must be gone'
       );
-      // The popup overlay element ships in the panel markup.
+      // The host renders no menu boxes: every one of them, this popup
+      // included, is created by the shared widget in the webview, which owns
+      // the class, the hidden state and the aria labelling.
       assert.ok(
-        html.includes('id="ref-popup"'),
-        'the #ref-popup overlay element must be rendered for the collapsed-chip popup'
+        !html.includes('id="ref-popup"'),
+        "the popup element is the widget's to create, not the host's to pre-render"
       );
     });
   });
@@ -3194,16 +3204,12 @@ describe('pushUpToCommit — commit context menu wiring (Gap B)', () => {
     p.dispose();
   });
 
-  it('commit-context-menu HTML includes a "Push All up to Here…" item with data-action="pushUpToCommit"', () => {
-    const html = p._getCommitContextMenuHtml();
-    assert.ok(
-      /data-action="pushUpToCommit"/.test(html),
-      'Commit context menu must include a pushUpToCommit action item'
-    );
-    assert.ok(
-      /Push All up to Here/i.test(html),
-      'Item label must say "Push All up to Here" (IntelliJ Git.PushUpToCommit)'
-    );
+  it('the commit menu offers Push All up to Here… (IntelliJ Git.PushUpToCommit)', () => {
+    // Reads the item list rather than rendered markup: the rows are data now,
+    // and the provider this describe builds has nothing to do with them.
+    const item = COMMIT_MENU_ITEMS.find((i) => i.action === 'pushUpToCommit');
+    assert.ok(item, 'the menu must carry a pushUpToCommit action');
+    assert.strictEqual(item.label, 'Push All up to Here…');
   });
 
   it('commitContextMenu webview message with action pushUpToCommit fires onDidRequestLogContextAction', (done) => {
@@ -3242,7 +3248,7 @@ describe('goToParent/goToChild — commit context menu wiring (G9)', () => {
   });
 
   it('commit-context-menu HTML includes a "Go to Parent" item with data-action="goToParent"', () => {
-    const html = p._getCommitContextMenuHtml();
+    const html = commitMenuMarkup();
     assert.ok(
       /data-action="goToParent"/.test(html),
       'Commit context menu must include a goToParent action item'
@@ -3251,7 +3257,7 @@ describe('goToParent/goToChild — commit context menu wiring (G9)', () => {
   });
 
   it('commit-context-menu HTML includes a "Go to Child" item with data-action="goToChild"', () => {
-    const html = p._getCommitContextMenuHtml();
+    const html = commitMenuMarkup();
     assert.ok(
       /data-action="goToChild"/.test(html),
       'Commit context menu must include a goToChild action item'
@@ -3260,7 +3266,7 @@ describe('goToParent/goToChild — commit context menu wiring (G9)', () => {
   });
 
   it('goToParent and goToChild are rendered and gated single-only (hidden at N>=2)', () => {
-    const html = p._getCommitContextMenuHtml();
+    const html = commitMenuMarkup();
     assert.ok(html.includes('data-action="goToParent"'), 'goToParent item must be present');
     assert.ok(html.includes('data-action="goToChild"'), 'goToChild item must be present');
     assert.strictEqual(computeMenuVisibility(2).goToParent, false, 'goToParent hidden in multi');

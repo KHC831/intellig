@@ -10,7 +10,12 @@ import { acceptLabels } from '../../conflicts/conflictSideNames';
 import { runUnresolveFlow } from '../../conflicts/unresolveFlow';
 import { isConflictedStatus } from '../../git-core/gitParser';
 import type { ICommandContext } from './CommandContext';
-import { registerBareCommand, registerRepoCommand, registerSelectionCommand } from './commandSpine';
+import {
+  registerBareCommand,
+  registerFileCommand,
+  registerRepoCommand,
+  registerSelectionCommand,
+} from './commandSpine';
 
 /**
  * Merge-editor, conflict-resolution, and rebase-recovery command handlers
@@ -106,6 +111,10 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
   const showResolveConflictsDialogCommand = registerRepoCommand(ctx, {
     id: 'intellig.showResolveConflictsDialog',
     failureTitle: 'Failed to open the Resolve Conflicts dialog',
+    // Callers that know which repo they mean (the Commit window's Merge
+    // Conflicts header) pass its root; the status-bar badge and the palette
+    // pass nothing and keep the active-editor/picker fallback.
+    hintFromRawUri: true,
     run: async ({ services, repo }) => {
       const conflictService = services.conflictResolutionService;
       const conflicts = await conflictService.getConflictedFiles(repo);
@@ -474,6 +483,39 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     },
   });
 
+  // Per-FILE accepts, for the Commit window's conflicted-row menu. The
+  // bulk siblings below take the whole repo; these take one path and skip the
+  // confirm, because the row you right-clicked is the confirmation.
+  //
+  // `reversed` is left to the service, which auto-detects it from repository
+  // state: a rebase puts the user's own commit on stage 3, and re-deciding
+  // that here would be a second place for the swap to be got wrong.
+  const acceptCurrentFileCommand = registerFileCommand(ctx, {
+    id: 'intellig.conflict.acceptCurrentFile',
+    noTargetMessage: 'No file selected to resolve',
+    failureTitle: 'Failed to accept yours',
+    refreshOnSuccess: true,
+    run: async ({ services, repo, path }) => {
+      const result = await services.conflictResolutionService.acceptCurrent(repo, path);
+      if (!result.success && !result.skipped) {
+        void vscode.window.showErrorMessage(result.error || `Failed to accept yours for ${path}`);
+      }
+    },
+  });
+
+  const acceptIncomingFileCommand = registerFileCommand(ctx, {
+    id: 'intellig.conflict.acceptIncomingFile',
+    noTargetMessage: 'No file selected to resolve',
+    failureTitle: 'Failed to accept theirs',
+    refreshOnSuccess: true,
+    run: async ({ services, repo, path }) => {
+      const result = await services.conflictResolutionService.acceptIncoming(repo, path);
+      if (!result.success && !result.skipped) {
+        void vscode.window.showErrorMessage(result.error || `Failed to accept theirs for ${path}`);
+      }
+    },
+  });
+
   const acceptAllCurrentFilesCommand = registerRepoCommand(ctx, {
     id: 'intellig.conflict.acceptAllCurrent',
     failureTitle: 'Failed to accept all current',
@@ -689,6 +731,8 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     amAbortCommand,
     markFileResolvedCommand,
     unresolveCommand,
+    acceptCurrentFileCommand,
+    acceptIncomingFileCommand,
     acceptAllCurrentFilesCommand,
     acceptAllIncomingFilesCommand,
     completeMergeCommand,

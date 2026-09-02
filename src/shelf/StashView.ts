@@ -29,6 +29,7 @@ import {
 } from '../git-core/gitProse';
 import type { IStashClearCapable } from '../git-core/ops/StashTagHistoryOps';
 import { renderDiffAsText } from './diffText';
+import { relativeTime } from '../utils/relativeTime';
 
 /**
  * Quick pick item for stash list
@@ -308,7 +309,11 @@ export class StashView implements IStashView {
    *   {@link applyStashInteractive} to let the user choose.
    * @returns Promise resolving to the action result
    */
-  async applyStash(index: number, reinstateIndex = false): Promise<IStashActionResult> {
+  async applyStash(
+    index: number,
+    reinstateIndex = false,
+    expectedSha?: string
+  ): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -318,7 +323,7 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
-    if (!(await this._revalidateStashTarget(index, stash))) {
+    if (!(await this._revalidateStashTarget(index, stash, expectedSha))) {
       return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
@@ -426,7 +431,11 @@ export class StashView implements IStashView {
    *   {@link popStashInteractive} to let the user choose.
    * @returns Promise resolving to the action result
    */
-  async popStash(index: number, reinstateIndex = false): Promise<IStashActionResult> {
+  async popStash(
+    index: number,
+    reinstateIndex = false,
+    expectedSha?: string
+  ): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -436,7 +445,7 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
-    if (!(await this._revalidateStashTarget(index, stash))) {
+    if (!(await this._revalidateStashTarget(index, stash, expectedSha))) {
       return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
@@ -481,7 +490,7 @@ export class StashView implements IStashView {
    *
    * @param index - The stash index to branch from
    */
-  async branchFromStash(index: number): Promise<IStashActionResult> {
+  async branchFromStash(index: number, expectedSha?: string): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -490,7 +499,7 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
-    if (!(await this._revalidateStashTarget(index, stash))) {
+    if (!(await this._revalidateStashTarget(index, stash, expectedSha))) {
       return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
@@ -571,7 +580,7 @@ export class StashView implements IStashView {
    *
    * @param index - The stash index to rename
    */
-  async renameStash(index: number): Promise<IStashActionResult> {
+  async renameStash(index: number, expectedSha?: string): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -580,7 +589,7 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
-    if (!(await this._revalidateStashTarget(index, stash))) {
+    if (!(await this._revalidateStashTarget(index, stash, expectedSha))) {
       return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
@@ -631,7 +640,7 @@ export class StashView implements IStashView {
    * @param index - The stash index to drop
    * @returns Promise resolving to the action result
    */
-  async dropStash(index: number): Promise<IStashActionResult> {
+  async dropStash(index: number, expectedSha?: string): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -641,7 +650,7 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
-    if (!(await this._revalidateStashTarget(index, stash))) {
+    if (!(await this._revalidateStashTarget(index, stash, expectedSha))) {
       return { success: false, error: 'Stash list changed; refreshed. Please retry.' };
     }
 
@@ -937,21 +946,21 @@ export class StashView implements IStashView {
    * entry point (sidebar context menu, CTW Shelf tab) routes through.
    * Returns `{ success: false }` without touching git when the user cancels.
    */
-  async applyStashInteractive(index: number): Promise<IStashActionResult> {
+  async applyStashInteractive(index: number, expectedSha?: string): Promise<IStashActionResult> {
     const reinstateIndex = await this._promptReinstateIndex('apply');
     if (reinstateIndex === undefined) {
       return { success: false };
     }
-    return this.applyStash(index, reinstateIndex);
+    return this.applyStash(index, reinstateIndex, expectedSha);
   }
 
   /** Prompt-then-pop counterpart of {@link applyStashInteractive}. */
-  async popStashInteractive(index: number): Promise<IStashActionResult> {
+  async popStashInteractive(index: number, expectedSha?: string): Promise<IStashActionResult> {
     const reinstateIndex = await this._promptReinstateIndex('pop');
     if (reinstateIndex === undefined) {
       return { success: false };
     }
-    return this.popStash(index, reinstateIndex);
+    return this.popStash(index, reinstateIndex, expectedSha);
   }
 
   /**
@@ -1096,13 +1105,13 @@ export class StashView implements IStashView {
     // Add stash items
     for (const item of this._state.stashes) {
       const stash = item.stash;
-      const relativeTime = this._getRelativeTime(stash.date);
+      const age = relativeTime(stash.date);
       const branchInfo = stash.branch ? ` on ${stash.branch}` : '';
 
       items.push({
         label: `$(archive) stash@{${stash.index}}`,
         description: stash.message || 'No message',
-        detail: `${relativeTime}${branchInfo}`,
+        detail: `${age}${branchInfo}`,
         stash,
       });
     }
@@ -1142,8 +1151,16 @@ export class StashView implements IStashView {
    * selected stash carries no sha (legacy list form), or the re-list itself
    * failed transiently — rather than blocking a legitimate action.
    */
-  private async _revalidateStashTarget(index: number, selected: IStash): Promise<boolean> {
-    if (!this._repository || selected.hash === undefined) {
+  private async _revalidateStashTarget(
+    index: number,
+    selected: IStash,
+    expectedSha?: string
+  ): Promise<boolean> {
+    // `expectedSha` is the stash a CALLER's row displayed. Prefer it: this
+    // view's own list can be stale in a different way than the caller's, and
+    // then validating against `selected` confirms the wrong row.
+    const wanted = expectedSha ?? selected.hash;
+    if (!this._repository || wanted === undefined) {
       return true;
     }
     let fresh: IStash[];
@@ -1154,7 +1171,7 @@ export class StashView implements IStashView {
       return true;
     }
     const atIndex = fresh.find((s) => s.index === index);
-    if (!atIndex || atIndex.hash !== selected.hash) {
+    if (!atIndex || atIndex.hash !== wanted) {
       void vscode.window.showWarningMessage(
         'The stash list changed since it was shown. Refreshed — please retry.'
       );
@@ -1162,34 +1179,6 @@ export class StashView implements IStashView {
       return false;
     }
     return true;
-  }
-
-  /**
-   * Get relative time string from a date.
-   */
-  private _getRelativeTime(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffWeeks = Math.floor(diffDays / 7);
-    const diffMonths = Math.floor(diffDays / 30);
-
-    if (diffSecs < 60) {
-      return 'just now';
-    } else if (diffMins < 60) {
-      return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-    } else if (diffWeeks < 4) {
-      return `${diffWeeks} week${diffWeeks !== 1 ? 's' : ''} ago`;
-    } else {
-      return `${diffMonths} month${diffMonths !== 1 ? 's' : ''} ago`;
-    }
   }
 
   /**

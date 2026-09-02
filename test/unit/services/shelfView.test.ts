@@ -150,13 +150,15 @@ function makeMockShelfService(): IShelfService & {
         emitter.fire(items.slice());
       }
     },
-    restoreShelf(_repo: IRepository, shelfId: string): void {
-      restored.push(shelfId);
+    restoreShelf(_repo: IRepository, shelfId: string): boolean {
       const match = items.find((i) => i.id === shelfId);
-      if (match) {
-        match.unshelvedAt = undefined;
-        emitter.fire(items.slice());
+      if (!match || match.unshelvedAt === undefined) {
+        return false;
       }
+      restored.push(shelfId);
+      match.unshelvedAt = undefined;
+      emitter.fire(items.slice());
+      return true;
     },
     filterShelfFiles(): IShelfItem | undefined {
       return undefined;
@@ -329,6 +331,38 @@ describe('ShelfView', () => {
       const result = view.restoreShelfItem('a');
       assert.strictEqual(result.success, true);
       assert.deepStrictEqual(svc._restored, ['a']);
+    });
+
+    it('does not report success when the entry was not actually unshelved', async () => {
+      // ShelfService.restoreShelf no-ops (and returns false) when the entry
+      // is not already-unshelved — restoreShelfItem must not claim success
+      // (toast + onDidRequestAction) on a service call that changed nothing.
+      svc._items.push({
+        id: 'a',
+        name: 'never-unshelved',
+        timestamp: new Date(),
+        files: [],
+        unshelvedAt: undefined,
+      });
+      await view.refresh();
+
+      const infoMessages = installInfoMessageTracker();
+      try {
+        const fired: string[] = [];
+        view.onDidRequestAction((e) => fired.push(e.action));
+
+        const result = view.restoreShelfItem('a');
+
+        assert.strictEqual(result.success, false, 'a no-op restore must not report success');
+        assert.deepStrictEqual(fired, [], 'onDidRequestAction must not fire on a no-op');
+        assert.deepStrictEqual(
+          infoMessages.calls,
+          [],
+          `must not toast "Restored" on a no-op; got ${JSON.stringify(infoMessages.calls)}`
+        );
+      } finally {
+        restoreMessageFunctions();
+      }
     });
   });
 

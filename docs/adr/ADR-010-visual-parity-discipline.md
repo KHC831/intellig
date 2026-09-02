@@ -294,7 +294,7 @@ serve the same comparison need without duplicating the surface.
   adds snap-back-references in section 2.
 - `docs/parity/repo-states.md` — Wave F seed for Layer 4 (repo-state
   landmap + detached-HEAD section 1).
-- `src/utils/gitParser.ts` `parseBranches` — Wave F filter for git's
+- `src/git-core/gitParser.ts` `parseBranches` — Wave F filter for git's
   parenthesized pseudo-refs; covered by `parseBranches-detached-1..5`,
   snap-8a, snap-8b, and the `parseBranches.property.test.ts` property.
 

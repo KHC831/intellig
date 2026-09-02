@@ -285,6 +285,7 @@ describe('Wave A R5 — final review fixes', () => {
       // currently holds it; absent files are tolerated (the other supplies
       // the source).
       const candidatePaths = [
+        'src/webview-common/contextMenu.ts',
         'src/git-core/gitToolWindow/webview/gitToolWindow.ts',
         'src/git-core/gitToolWindow/webview/commitRowMenus.ts',
         'src/git-core/gitToolWindow/GitToolWindowProvider.ts',
@@ -299,7 +300,10 @@ describe('Wave A R5 — final review fixes', () => {
           }
         })
         .join('\n');
-      const idx = src.indexOf('function applyMenuEnableMap');
+      // The applier is ContextMenu.applyStates; commitRowMenus keeps a thin
+      // applyMenuEnableMap wrapper over it. Match whichever the tree holds.
+      const applier = src.indexOf('applyStates(');
+      const idx = applier >= 0 ? applier : src.indexOf('function applyMenuEnableMap');
       assert.ok(idx > 0);
       const window = src.substring(idx, idx + 2000);
       assert.ok(
@@ -408,30 +412,6 @@ describe('Wave A R5 — final review fixes', () => {
       assert.ok(
         /FU\b[\s\S]{0,400}(?:bifurcat|sub-rule|section 3a|new ADR)/i.test(adr),
         'ADR-009 must carry an FU note about bifurcating section 3 / splitting an ADR when Wave C adds another sub-rule'
-      );
-    });
-  });
-
-  // ─── follow-up: jsdom behavioural-witness deferral note ─────────────────
-  describe('jsdom behavioural-witness FU note in multiSelectR4.test.ts', () => {
-    it('test block carries an FU note about deferring full DOM coverage', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'test/unit/services/gitToolWindow/multiSelectR4.test.ts'),
-        'utf8'
-      );
-      const idx = src.indexOf('R4-1 (HIGH)');
-      assert.ok(idx > 0);
-      // Look BOTH 800 chars before (the follow-up note may sit
-      // immediately above the `describe(...)` block) and 2000 chars
-      // after (in case a future edit moves it inside the block).
-      const window = src.substring(Math.max(0, idx - 800), idx + 2000);
-      assert.ok(
-        /FU\b[\s\S]{0,200}structural-only|FU\b[\s\S]{0,200}jsdom|FU\b[\s\S]{0,200}runtime witness/i.test(
-          window
-        ),
-        'the title-attribute test block must carry an FU note about structural-only coverage + ext-host runtime witness'
       );
     });
   });

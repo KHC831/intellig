@@ -45,7 +45,7 @@ export function stableLogFilterKey(
   }
   const keys = Object.keys(filter)
     .filter((k) => filter[k] !== undefined)
-    .sort();
+    .sort(); // ref-sort-exempt: filter object keys, a stable cache key
   if (keys.length === 0) {
     return '';
   }

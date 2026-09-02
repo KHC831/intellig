@@ -13,6 +13,7 @@ import * as assert from 'assert';
 import { StashTagHistoryOps } from '../../../src/git-core/ops/StashTagHistoryOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 function makeOps(): { ops: StashTagHistoryOps; calls: string[][] } {
   const calls: string[][] = [];
@@ -40,7 +41,10 @@ describe('StashTagHistoryOps.getLog — path filter full history (P1)', () => {
     assert.ok(args.includes('--full-history'), '--full-history must be present');
     assert.ok(args.includes('--simplify-merges'), '--simplify-merges must be present');
     const sep = args.indexOf('--');
-    assert.ok(sep !== -1 && args[sep + 1] === 'src/foo.ts', 'pathspec follows -- separator');
+    assert.ok(
+      sep !== -1 && args[sep + 1] === literalPathspec('src/foo.ts'),
+      'pathspec follows -- separator'
+    );
   });
 
   it('places a dash-leading path AFTER the -- separator so it cannot become a flag', async () => {
@@ -51,7 +55,7 @@ describe('StashTagHistoryOps.getLog — path filter full history (P1)', () => {
     assert.ok(sep !== -1, 'a -- pathspec separator must be present');
     assert.strictEqual(
       args[sep + 1],
-      '--output=/tmp/pwn',
+      literalPathspec('--output=/tmp/pwn'),
       'the path rides after --, never as a flag'
     );
     // No occurrence of the value BEFORE the separator (where it could be parsed as a flag).

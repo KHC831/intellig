@@ -8,6 +8,7 @@
 
 import type { GitToolWindowOutbound } from '../gitToolWindow.protocol';
 import type { IFilterBridge } from './logFilterRow';
+import { compareRefNames } from '../../../utils/refNameSort';
 
 /**
  * Apply the two filter-list host messages (`logFilterOptionsReady`,
@@ -63,7 +64,7 @@ export function applyFilterOptionsMessage(
         return root;
       };
       const renderTree = function (container: HTMLElement, node: ITreeNode, depth: number): void {
-        node.order.sort();
+        node.order.sort(compareRefNames);
         node.order.forEach(function (seg) {
           const child = node.children.get(seg);
           if (!child) {

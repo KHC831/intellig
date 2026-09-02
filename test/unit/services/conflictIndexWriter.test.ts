@@ -35,7 +35,7 @@ describe('ConflictIndexWriter.takeSide', () => {
     const writer = new ConflictIndexWriter(fakeGitCli(calls));
     const needsStage = await writer.takeSide('/r', 'f.txt', '--theirs', bothStages);
     assert.strictEqual(needsStage, true);
-    assert.deepStrictEqual(calls[0], ['checkout', '--theirs', '--', 'f.txt']);
+    assert.deepStrictEqual(calls[0], ['checkout', '--theirs', '--', ':(literal)f.txt']);
   });
 
   it('git-rm-s when the wanted stage is absent (AU + accept theirs)', async () => {
@@ -43,15 +43,30 @@ describe('ConflictIndexWriter.takeSide', () => {
     const writer = new ConflictIndexWriter(fakeGitCli(calls));
     const needsStage = await writer.takeSide('/r', 'f.txt', '--theirs', oursOnly);
     assert.strictEqual(needsStage, false);
-    assert.deepStrictEqual(calls[0], ['rm', '--', 'f.txt']);
+    assert.deepStrictEqual(calls[0], ['rm', '--', ':(literal)f.txt']);
   });
 
-  it('falls through to checkout for an unknown (non-unmerged) entry', async () => {
+  it('falls through to checkout when the index could not be read', async () => {
+    // Unknown is not the same as not-conflicted: an unreadable index leaves
+    // the stage model unknown, and checkout with throwOnError fails loudly
+    // rather than refusing a resolve the user can still complete.
     const calls: string[][] = [];
     const writer = new ConflictIndexWriter(fakeGitCli(calls));
-    const needsStage = await writer.takeSide('/r', 'f.txt', '--ours', undefined);
+    const needsStage = await writer.takeSide('/r', 'f.txt', '--ours', undefined, false);
     assert.strictEqual(needsStage, true);
     assert.strictEqual(calls[0][0], 'checkout');
+  });
+
+  it('refuses when the index is readable and the path is not unmerged', async () => {
+    // `git checkout --ours` exits 0 on an ordinary file and rewrites it from
+    // HEAD, so this is where uncommitted work would go.
+    const calls: string[][] = [];
+    const writer = new ConflictIndexWriter(fakeGitCli(calls));
+    await assert.rejects(
+      () => writer.takeSide('/r', 'f.txt', '--ours', undefined),
+      /no merge conflict/i
+    );
+    assert.deepStrictEqual(calls, [], 'no git command runs at all');
   });
 });
 
@@ -79,6 +94,49 @@ describe('ConflictResolutionService — injected index writer (fault injection)'
     assert.ok(res.error && res.error.includes('index locked'), res.error);
     service.dispose();
   });
+
+  // `_acceptSide` threads `readStages()`'s `.ok` through to `takeSide` as
+  // `indexReadable` — this is the ONE place that fact reaches takeSide, and
+  // nothing else pins it. `takeSide`'s own unit tests
+  // (above) only prove the function behaves correctly GIVEN the right
+  // argument; they cannot see whether the orchestrator hands it the right
+  // one.
+  it('threads a failed index read through to takeSide as indexReadable=false, not the refusing default', async () => {
+    let capturedIndexReadable: boolean | undefined;
+    const faultWriter: IConflictIndexWriter = {
+      readStages: async () => ({ ok: false as const, stderr: 'index read failed' }),
+      takeSide: async (_root, _filePath, _flag, _entry, indexReadable) => {
+        capturedIndexReadable = indexReadable;
+        // The documented escape: falls through to checkout and succeeds,
+        // rather than refusing with "no merge conflict to resolve".
+        return true;
+      },
+      restoreConflict: async () => undefined,
+    };
+    const gitService = {
+      getStatus: async () => [],
+      stage: () => okAsync(undefined),
+      getRepositories: () => [],
+      onDidChangeRepository: () => ({ dispose: () => undefined }),
+    } as unknown as IGitService;
+
+    const service = new ConflictResolutionService(gitService, faultWriter);
+    const repo = { rootUri: { fsPath: '/r' }, state: 'merging' } as unknown as IRepository;
+
+    const res = await service.acceptCurrent(repo, 'f.txt', false);
+
+    assert.strictEqual(
+      capturedIndexReadable,
+      false,
+      'a failed readStages() must reach takeSide as indexReadable=false, not undefined/true'
+    );
+    assert.strictEqual(
+      res.success,
+      true,
+      `an unreadable index must fall through to checkout, not report a refusal; got: ${JSON.stringify(res)}`
+    );
+    service.dispose();
+  });
 });
 
 describe('ConflictIndexWriter.restoreConflict', () => {
@@ -86,7 +144,7 @@ describe('ConflictIndexWriter.restoreConflict', () => {
     const calls: string[][] = [];
     const writer = new ConflictIndexWriter(fakeGitCli(calls));
     await writer.restoreConflict('/r', 'f.txt');
-    assert.deepStrictEqual(calls[0], ['checkout', '--merge', '--', 'f.txt']);
+    assert.deepStrictEqual(calls[0], ['checkout', '--merge', '--', ':(literal)f.txt']);
   });
 });
 

@@ -72,7 +72,18 @@ describe('ConflictResolutionService uses the shared index lock', () => {
       withIndexLock: <T>(root: string, fn: () => Promise<T>) => Promise<T>;
     } = {
       gitCli: {
-        exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
+        // `ls-files -u` has to report the path as unmerged: an accept on a
+        // path with no conflict is refused before it reaches the lock.
+        exec: async (args: string[]) => ({
+          exitCode: 0,
+          stdout:
+            args[0] === 'ls-files'
+              ? `100644 ${'2'.repeat(40)} 2\tsrc/conflict.ts\x00` +
+                `100644 ${'3'.repeat(40)} 3\tsrc/conflict.ts\x00`
+              : '',
+          stderr: '',
+          combined: '',
+        }),
         onCommandExecuted: (): { dispose: () => void } => ({ dispose: (): void => {} }),
       },
       onDidChangeRepository: () => ({ dispose: (): void => {} }),

@@ -13,6 +13,7 @@ import * as assert from 'assert';
 import { StagingOps } from '../../../src/git-core/ops/StagingOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 interface ExecCall {
   args: string[];
@@ -48,7 +49,7 @@ describe('StagingOps.revertFile', () => {
     assert.ok(result.isOk());
     const checkout = calls.find((c) => c.args[0] === 'checkout');
     assert.ok(checkout, 'expected a checkout call');
-    assert.deepStrictEqual(checkout.args, ['checkout', 'HEAD', '--', 'src/a.ts']);
+    assert.deepStrictEqual(checkout.args, ['checkout', 'HEAD', '--', literalPathspec('src/a.ts')]);
     // The old bug was `checkout -- <path>` (index restore) with no HEAD.
     assert.ok(!calls.some((c) => c.args[0] === 'checkout' && c.args[1] === '--'));
   });

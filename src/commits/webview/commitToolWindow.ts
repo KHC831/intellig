@@ -17,15 +17,16 @@ import type {
   CommitToolWindowInbound,
   CommitToolWindowOutbound,
 } from '../commitToolWindow.protocol';
-import type {
-  ICommitToolWindowInitModel,
-  ICtwChangelistModel,
-  ICtwFileEntry,
-} from '../commitToolWindow.types';
+import type { ICommitToolWindowInitModel, ICtwChangelistModel } from '../commitToolWindow.types';
+import { buttonMenuTrigger, closeButtonMenus, createButtonMenuPanel } from './ctwButtonMenus';
 import { buildDiffPreviewPane, renderDiffPreview, resetPreviewPane } from './ctwDiffPreview';
 import { INIT_ELEMENT_ID, parseInitIsland } from '../../utils/webviewInit';
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
+
+import { cssEscapeAttr, el, setAttrs } from './ctwDom';
+import { buildLocalTreeContent } from './ctwLocalTree';
+import { CtwContextMenu } from './ctwContextMenu';
 
 const vscodeApi = acquireVsCodeApi();
 
@@ -33,45 +34,20 @@ const vscodeApi = acquireVsCodeApi();
  * Every outbound message carries the repo its rows were rendered from. Stamped
  * here rather than per call site: the host drops a repo-scoped action whose
  * stamp is stale, and a call site that forgot the field would silently opt out
- * of that guard — which is how the commit and stash actions, the two that
- * mutate, were left unprotected.
+ * of that guard.
  */
 function post(message: CommitToolWindowInbound): void {
-  vscodeApi.postMessage({ ...message, repoRoot: renderedRepoRoot });
+  postFrom(message, renderedRepoRoot);
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props?: Partial<HTMLElementTagNameMap[K]>
-): HTMLElementTagNameMap[K] {
-  return Object.assign(document.createElement(tag), props ?? {});
-}
-
-function setAttrs<T extends Element>(
-  node: T,
-  attrs: Record<string, string | number | boolean | null | undefined>
-): T {
-  for (const k in attrs) {
-    const v = attrs[k];
-    if (v !== null && v !== undefined) {
-      node.setAttribute(k, String(v));
-    }
-  }
-  return node;
-}
-
-// Escape a value before splicing it into an attribute selector
-// ([data-path="<path>"]). Prefers the native CSS.escape (present in the
-// Chromium webview), falls back to a minimal escaper under test DOMs that lack
-// the CSS global. A filename may legally contain a backslash on POSIX, which a
-// quote-only escape would leave as an invalid selector that throws.
-function cssEscapeAttr(value: string): string {
-  const s = String(value);
-  const cssGlobal = (globalThis as { CSS?: { escape?: (v: string) => string } }).CSS;
-  if (cssGlobal && typeof cssGlobal.escape === 'function') {
-    return cssGlobal.escape(s);
-  }
-  return s.replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch);
+/**
+ * Post stamped with an explicit root. A context-menu pick is a SECOND message,
+ * sent after the host answered the right-click, and the view can retarget in
+ * between — so a pick carries the root captured at the gesture rather than the
+ * one the view has drifted to.
+ */
+function postFrom(message: CommitToolWindowInbound, repoRoot: string | undefined): void {
+  vscodeApi.postMessage({ ...message, repoRoot });
 }
 
 /**
@@ -80,132 +56,44 @@ function cssEscapeAttr(value: string): string {
  */
 let renderedRepoRoot: string | undefined;
 
+/**
+ * The Commit window's context menu. Drawn here under the pointer; WHAT it
+ * contains still comes from the host, so the label helpers keep one home.
+ */
+const contextMenu = new CtwContextMenu({
+  onPick: (target, action): void => {
+    // The row the menu was opened on decides which channel answers, and which
+    // repo the action is stamped with.
+    if (target.rowKind) {
+      postFrom(
+        {
+          type: 'shelfTabContextAction',
+          action,
+          rowKind: target.rowKind,
+          shelfId: target.shelfId,
+          stashIndex: target.stashIndex,
+          stashSha: target.stashSha,
+        },
+        target.repoRoot
+      );
+      return;
+    }
+    postFrom(
+      {
+        type: 'changelistContextAction',
+        action,
+        changelistId: target.changelistId,
+        path: target.path,
+      },
+      target.repoRoot
+    );
+  },
+});
+
 /** Path currently shown in the diff preview pane (undefined = placeholder). */
 let previewedPath: string | undefined;
 
 // ─── Pure builders (shared by boot and applyModel) ───────────────────────────
-
-function buildFileRow(
-  f: ICtwFileEntry,
-  changelistId: string,
-  selected: ReadonlySet<string>
-): HTMLDivElement {
-  const row = el('div', { className: 'ctw-file-row' });
-  setAttrs(row, { 'data-path': f.path, 'data-changelist': changelistId });
-  const chk = el('input', {
-    type: 'checkbox',
-    className: 'ctw-file-check',
-    checked: selected.has(f.path),
-  });
-  setAttrs(chk, { 'data-path': f.path });
-  row.appendChild(chk);
-  row.appendChild(el('span', { className: 'ctw-file-status', textContent: f.statusChar }));
-  row.appendChild(el('span', { className: 'ctw-file-path', textContent: f.displayName }));
-  return row;
-}
-
-// Append a changelist's files into its block, honoring grouping. Flat mode
-// appends file rows directly; directory mode wraps each bucket in a
-// .ctw-dir-group (with an optional .ctw-dir-row header).
-function appendChangelistFiles(
-  block: HTMLElement,
-  cl: ICtwChangelistModel,
-  selected: ReadonlySet<string>
-): void {
-  if (cl.dirGroups) {
-    cl.dirGroups.forEach((g) => {
-      const group = el('div', { className: 'ctw-dir-group' });
-      if (g.dir !== null && g.dir !== undefined) {
-        const dirRow = el('div', { className: 'ctw-dir-row' });
-        setAttrs(dirRow, { 'data-dir': g.dir });
-        dirRow.appendChild(el('span', { className: 'ctw-dir-chevron', textContent: '▾' }));
-        dirRow.appendChild(el('span', { className: 'ctw-dir-path', textContent: g.dir }));
-        group.appendChild(dirRow);
-      }
-      (g.files || []).forEach((f) => {
-        group.appendChild(buildFileRow(f, cl.id, selected));
-      });
-      block.appendChild(group);
-    });
-  } else {
-    (cl.files || []).forEach((f) => {
-      block.appendChild(buildFileRow(f, cl.id, selected));
-    });
-  }
-}
-
-function buildChangelistBlock(
-  cl: ICtwChangelistModel,
-  selected: ReadonlySet<string>,
-  opts?: { unversioned?: boolean }
-): HTMLDivElement {
-  const block = el('div', {
-    className: 'ctw-changelist-block' + (opts && opts.unversioned ? ' ctw-unversioned-block' : ''),
-  });
-  const header = el('div', {
-    className: 'ctw-changelist-row' + (opts && opts.unversioned ? ' ctw-unversioned-row' : ''),
-  });
-  setAttrs(header, { 'data-changelist': cl.id });
-  header.appendChild(el('span', { className: 'ctw-chevron', textContent: '▾' }));
-  const name = el('span', {
-    className: 'ctw-changelist-name' + (cl.isActive ? ' ctw-changelist-active' : ''),
-  });
-  name.appendChild(document.createTextNode(cl.name));
-  if (cl.isActive) {
-    name.appendChild(document.createTextNode(' '));
-    name.appendChild(el('span', { className: 'ctw-active-tag', textContent: '(Active)' }));
-  }
-  header.appendChild(name);
-  header.appendChild(
-    el('span', {
-      className: 'ctw-count',
-      textContent: cl.fileCount + ' file' + (cl.fileCount === 1 ? '' : 's'),
-    })
-  );
-  block.appendChild(header);
-  appendChangelistFiles(block, cl, selected);
-  return block;
-}
-
-function buildGroupingToggle(model: ICommitToolWindowInitModel): HTMLDivElement {
-  const wrap = el('div', { className: 'ctw-grouping' });
-  setAttrs(wrap, { role: 'radiogroup', 'aria-label': 'Group by' });
-  wrap.appendChild(el('span', { className: 'ctw-grouping-label', textContent: 'Group by:' }));
-  const btn = (value: string, label: string): HTMLButtonElement => {
-    const b = el('button', {
-      className: 'ctw-grouping-btn' + (model.grouping === value ? ' ctw-grouping-active' : ''),
-      textContent: label,
-    });
-    setAttrs(b, { 'data-grouping': value, 'aria-pressed': model.grouping === value });
-    return b;
-  };
-  wrap.appendChild(btn('directory', 'Directory'));
-  wrap.appendChild(btn('flat', 'Flat'));
-  return wrap;
-}
-
-/** Grouping toggle + changelist tree (or empty note) — the replaceable Local Changes content. */
-function buildLocalTreeContent(model: ICommitToolWindowInitModel): DocumentFragment {
-  const frag = document.createDocumentFragment();
-  frag.appendChild(buildGroupingToggle(model));
-  if (model.local.empty) {
-    frag.appendChild(el('div', { className: 'ctw-empty', textContent: 'No uncommitted changes.' }));
-    return frag;
-  }
-  const selected = new Set(model.selectedFiles ?? []);
-  const tree = el('div', { className: 'ctw-changelist-tree' });
-  setAttrs(tree, { role: 'tree' });
-  model.local.changelists.forEach((cl) => {
-    tree.appendChild(buildChangelistBlock(cl, selected));
-  });
-  if (model.local.unversioned) {
-    tree.appendChild(
-      buildChangelistBlock(model.local.unversioned, selected, { unversioned: true })
-    );
-  }
-  frag.appendChild(tree);
-  return frag;
-}
 
 function buildComposerPanel(model: ICommitToolWindowInitModel): HTMLDivElement {
   const c = model.composer;
@@ -235,7 +123,7 @@ function buildComposerPanel(model: ICommitToolWindowInitModel): HTMLDivElement {
   setAttrs(dropdown, { type: 'button', 'aria-haspopup': 'menu' });
   group.appendChild(dropdown);
   actions.appendChild(group);
-  const menu = el('div', { className: 'ctw-primary-menu', hidden: true });
+  const menu = createButtonMenuPanel('ctw-primary-menu');
   const cap = el('button', {
     className: 'ctw-btn-commit-and-push',
     textContent: 'Commit and Push…',
@@ -268,6 +156,7 @@ function buildShelfFilterHeader(model: ICommitToolWindowInitModel): HTMLDivEleme
 
 function buildShelfRow(entry: ICommitToolWindowInitModel['shelf']['rows'][number]): HTMLDivElement {
   const row = el('div', { className: 'ctw-shelf-row' });
+  setAttrs(row, { tabindex: -1 });
   setAttrs(row, { role: 'listitem' });
   if (entry.kind === 'shelf') {
     setAttrs(row, { 'data-row-kind': 'shelf', 'data-shelf-id': entry.id });
@@ -294,6 +183,12 @@ function buildShelfRow(entry: ICommitToolWindowInitModel['shelf']['rows'][number
     );
   } else {
     setAttrs(row, { 'data-row-kind': 'stash', 'data-stash-index': entry.index });
+    if (entry.hash) {
+      // The index names a SLOT; popping a stash elsewhere renumbers the stack
+      // and hands that slot to a different stash. The sha is what says which
+      // stash a row is, so a menu opened on one can tell it has moved.
+      setAttrs(row, { 'data-stash-sha': entry.hash });
+    }
     const badge = el('span', { className: 'ctw-shelf-badge', textContent: '📦' });
     setAttrs(badge, { title: 'Git stash' });
     row.appendChild(badge);
@@ -355,6 +250,9 @@ function applyChrome(model: ICommitToolWindowInitModel): void {
 
 function modelHasPath(model: ICommitToolWindowInitModel, path: string): boolean {
   const inChangelist = (cl: ICtwChangelistModel): boolean => {
+    if (cl.conflicts && cl.conflicts.files.some((f) => f.path === path)) {
+      return true;
+    }
     if (cl.files && cl.files.some((f) => f.path === path)) {
       return true;
     }
@@ -373,6 +271,13 @@ function modelHasPath(model: ICommitToolWindowInitModel, path: string): boolean 
  * `model.composer` — a live update must not stomp in-progress typing.
  */
 function applyModel(model: ICommitToolWindowInitModel): void {
+  // A menu anchored to a row from another repo must not stay up. Only on an
+  // actual retarget: a routine refresh redraws the same rows, and closing the
+  // menu under the user on every watcher tick would be its own bug.
+  if (renderedRepoRoot !== model.repoRoot) {
+    contextMenu.hide();
+    contextMenu.cancelPending();
+  }
   renderedRepoRoot = model.repoRoot;
   const localTree = document.getElementById('ctw-local-tree');
   const shelfList = document.getElementById('ctw-shelf-list');
@@ -394,6 +299,12 @@ function applyModel(model: ICommitToolWindowInitModel): void {
   shelfList.appendChild(buildShelfListContent(model));
 
   applyChrome(model);
+
+  // The rows an open menu points at have just been replaced. Same row redrawn:
+  // the menu stays, so a background tick does not close it under the user.
+  // After applyChrome, not before: it owns which panel is showing, and a row
+  // in the hidden one is not on screen either.
+  contextMenu.revalidate();
 
   if (local) {
     local.scrollTop = localScroll;
@@ -444,7 +355,7 @@ function render(INIT: ICommitToolWindowInitModel): void {
     const gear = el('button', { className: 'ctw-gear', textContent: '⚙' });
     setAttrs(gear, { title: 'Options', 'aria-haspopup': 'menu' });
     gearWrap.appendChild(gear);
-    const gearMenu = el('div', { className: 'ctw-gear-menu', hidden: true });
+    const gearMenu = createButtonMenuPanel('ctw-gear-menu');
     (INIT.gearItems || []).forEach((i) => {
       const item = el('button', {
         className: 'ctw-gear-item',
@@ -531,11 +442,17 @@ function getComposerPayload(): {
 
 /**
  * The file path a row-targeting mouse event refers to, or undefined. The
- * checkbox is excluded here once rather than at each gesture: two fast clicks
- * on it are an include/exclude toggle, not a request to open.
+ * The row's own controls are excluded here once rather than at each gesture.
  */
 function fileRowPathFrom(e: Event): string | undefined {
-  if (!(e.target instanceof Element) || (e.target as HTMLElement).tagName === 'INPUT') {
+  if (!(e.target instanceof Element)) {
+    return undefined;
+  }
+  // The row's own controls are not the row: a gesture on the checkbox is an
+  // include/exclude toggle, and one on Resolve already opens the merge window.
+  // Without this a double-click on Resolve opens that window twice AND the
+  // row's diff on top.
+  if ((e.target as HTMLElement).tagName === 'INPUT' || e.target.closest('.ctw-file-resolve')) {
     return undefined;
   }
   const row = e.target.closest('.ctw-file-row');
@@ -568,6 +485,26 @@ function wireControls(): void {
   if (localTree) {
     localTree.addEventListener('click', (e) => {
       if (!(e.target instanceof Element)) {
+        return;
+      }
+      // Resolve on the Merge Conflicts header: the host dialog over every
+      // unmerged file, the same surface the status-bar badge reaches.
+      if (e.target.closest('.ctw-conflicts-resolve')) {
+        e.preventDefault();
+        post({ type: 'resolveConflicts' });
+        return;
+      }
+      // Per-row Resolve: the merge window for that one file. Handled in this
+      // same listener rather than a second one, because two listeners on this
+      // node both run regardless of stopPropagation — the row would get
+      // selected as well and open a second surface for one press.
+      const rowResolve = e.target.closest('.ctw-file-resolve');
+      if (rowResolve) {
+        e.preventDefault();
+        const path = rowResolve.getAttribute('data-path');
+        if (path) {
+          post({ type: 'resolveConflictFile', path });
+        }
         return;
       }
       const groupingBtn = e.target.closest('.ctw-grouping-btn');
@@ -638,29 +575,97 @@ function wireControls(): void {
       return;
     }
     e.preventDefault();
-    // Shelf/stash rows take precedence — they open a QuickPick via a dedicated
-    // host message rather than the changelist-flavored context-action.
+    // The gear/commit-dropdown panels are plain divs outside the ContextMenu
+    // widget registry, so rememberClick's own hide() cannot reach them — this
+    // is the one call that can.
+    closeButtonMenus();
+    // The pointer is gone by the time the host answers with the item list, so
+    // hold the position now and draw there when the reply lands.
+    const me = e as MouseEvent;
+    // Shelf/stash rows answer on their own channel — same menu, same drawing.
     if (row.classList.contains('ctw-shelf-row')) {
       const rowKind = row.getAttribute('data-row-kind');
       const shelfId = row.getAttribute('data-shelf-id');
       const stashIdxAttr = row.getAttribute('data-stash-index');
+      const kind = rowKind === 'shelf' || rowKind === 'stash' ? rowKind : undefined;
+      const stashIndex = stashIdxAttr === null ? undefined : Number(stashIdxAttr);
+      const stashSha = row.getAttribute('data-stash-sha') || undefined;
+      contextMenu.rememberClick(
+        me.clientX || 0,
+        me.clientY || 0,
+        {
+          rowKind: kind,
+          shelfId: shelfId || undefined,
+          stashIndex,
+          stashSha,
+          repoRoot: renderedRepoRoot,
+        },
+        row as HTMLElement
+      );
       post({
         type: 'shelfTabContextAction',
         action: 'contextOpen',
-        rowKind: rowKind === 'shelf' || rowKind === 'stash' ? rowKind : undefined,
+        rowKind: kind,
         shelfId: shelfId || undefined,
-        stashIndex: stashIdxAttr === null ? undefined : Number(stashIdxAttr),
+        stashIndex,
       });
       return;
     }
     const path = row.getAttribute('data-path');
     const changelistId = row.getAttribute('data-changelist');
+    contextMenu.rememberClick(
+      me.clientX || 0,
+      me.clientY || 0,
+      {
+        path: path ?? undefined,
+        changelistId: changelistId ?? undefined,
+        repoRoot: renderedRepoRoot,
+      },
+      row as HTMLElement
+    );
     post({
       type: 'changelistContextAction',
       action: 'contextOpen',
       changelistId: changelistId ?? undefined,
       path: path ?? undefined,
     });
+  });
+
+  // Dismissal: a click anywhere outside, or Escape. Capture phase so a click
+  // that also lands on a row still closes the menu first.
+  document.addEventListener(
+    'click',
+    (e) => {
+      const clicked = e.target instanceof Node ? e.target : null;
+      closeButtonMenus(clicked, buttonMenuTrigger(clicked));
+      if (clicked && contextMenu.isOpen && contextMenu.contains(clicked)) {
+        return;
+      }
+      // Also drops an unanswered right-click: a reply arriving after the user
+      // clicked away would otherwise open the menu where the pointer used to be.
+      contextMenu.hide();
+    },
+    true
+  );
+
+  // Losing the window dismisses too. VS Code delivers no click to a webview
+  // document when focus moves to the editor or another view, so without this
+  // the menu stays painted over the Commit view until the user clicks back in.
+  window.addEventListener('blur', () => {
+    closeButtonMenus();
+    contextMenu.hide();
+  });
+
+  // The shared key router answers Escape only while a menu is OPEN. A
+  // right-click whose reply is still in flight has drawn nothing yet, and that
+  // pending gesture is this window's own state. Escape is a global dismiss
+  // key, so it answers every menu this window has, the same as losing the
+  // window does.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeButtonMenus();
+      contextMenu.hide();
+    }
   });
 
   // Composer fields (persistent).
@@ -742,6 +747,18 @@ function wireControls(): void {
       if (box) {
         box.checked = !!m.checked;
       }
+    }
+    if (m.type === 'showRowContextMenu' && Array.isArray(m.items)) {
+      contextMenu.show(
+        {
+          path: m.path,
+          changelistId: m.changelistId,
+          rowKind: m.rowKind,
+          shelfId: m.shelfId,
+          stashIndex: m.stashIndex,
+        },
+        m.items
+      );
     }
     if (m.type === 'updateDiffPreview') {
       const pane = document.querySelector('[data-diff-preview]');

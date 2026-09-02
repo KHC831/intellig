@@ -10,6 +10,8 @@ import * as gitToolWindowProvider from '../../../src/ui-shell/GitToolWindowProvi
 import { ICommitNode } from '../../../src/git-core/commitGraph';
 import { ICommit } from '../../../src/git-core/interfaces/IGitService';
 import { computeMenuVisibility } from '../../../src/git-core/gitToolWindow/multiSelect';
+import { COMMIT_MENU_ITEMS } from '../../../src/git-core/gitToolWindow/webview/menuDefinitions';
+import type { IContextMenuItem } from '../../../src/webview-common/contextMenu';
 import { Uri } from '../../mocks/vscode';
 
 /**
@@ -632,308 +634,155 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Commit context menu with all required options', () => {
-    it('should contain Copy Revision Number option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        html.includes('Copy Revision Number'),
-        'Should contain Copy Revision Number option'
-      );
-    });
+  describe('Commit context menu items', () => {
+    const actions = COMMIT_MENU_ITEMS.filter((i) => !i.separator).map((i) => i.action);
+    const labels = COMMIT_MENU_ITEMS.filter((i) => !i.separator).map((i) => i.label ?? '');
+    const at = (action: string): number => COMMIT_MENU_ITEMS.findIndex((i) => i.action === action);
+    const item = (action: string): IContextMenuItem | undefined =>
+      COMMIT_MENU_ITEMS.find((i) => i.action === action);
 
-    it('should contain Create Patch option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Create Patch'), 'Should contain Create Patch option');
-    });
-
-    it('should contain Cherry-Pick option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Cherry-Pick'), 'Should contain Cherry-Pick option');
-    });
-
-    it('should contain Checkout Revision option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Checkout Revision'), 'Should contain Checkout Revision option');
-    });
-
-    it('should contain Show Repository at Revision option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        html.includes('Show Repository at Revision'),
-        'Should contain Show Repository at Revision option'
-      );
-    });
-
-    it('should contain Compare with Local option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Compare with Local'), 'Should contain Compare with Local option');
-    });
-
-    it('should contain Reset Current Branch to Here option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        html.includes('Reset Current Branch to Here'),
-        'Should contain Reset Current Branch to Here option'
-      );
-    });
-
-    it('should contain Revert Commit option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Revert Commit'), 'Should contain Revert Commit option');
-    });
-
-    it('should contain Undo Commit option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Undo Commit'), 'Should contain Undo Commit option');
-    });
-
-    it('should contain Drop Commit option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Drop Commit'), 'Should contain Drop Commit option');
-    });
-
-    it('should contain Edit Commit Message option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Edit Commit Message'), 'Should contain Edit Commit Message option');
-    });
-
-    it('labels the Edit Commit Message item with a trailing ellipsis (it opens a reword input)', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const match = html.match(/data-action="editCommitMessage"[^>]*>([^<]*)</);
-      assert.ok(match, 'Should find the editCommitMessage menu item');
-      const label = match[1];
-      assert.ok(
-        label.endsWith('…'),
-        `Reword menu item label must end with a unicode ellipsis (got "${label}")`
-      );
-      assert.strictEqual(label, 'Edit Commit Message…');
-    });
-
-    it('should NOT contain Merge into Current Branch (not in git4idea Git.Log.ContextMenu)', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        !html.includes('data-action="mergeIntoCurrent"'),
-        'Merge into Current is a branch action, not a commit-log-menu item'
-      );
-    });
-
-    it('should contain Interactively Rebase from Here option', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        html.includes('Interactively Rebase from Here'),
-        'Should contain Interactively Rebase from Here option'
-      );
-    });
-
-    it('should contain all required context menu options', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const requiredOptions = [
+    it('offers every option the log menu is required to carry', () => {
+      const required = [
         'Copy Revision Number',
-        'Create Patch',
+        'Create Patch…',
+        'Create Patch to Clipboard',
         'Cherry-Pick',
         'Checkout Revision',
         'Show Repository at Revision',
         'Compare with Local',
-        'Reset Current Branch to Here',
+        'Reset Current Branch to Here…',
         'Revert Commit',
         'Undo Commit',
         'Drop Commit',
-        'Edit Commit Message',
-        'Interactively Rebase from Here',
-        'New Branch',
-        'New Tag',
+        'Edit Commit Message…',
+        'Fixup…',
+        'Squash Into…',
+        'Interactively Rebase from Here…',
+        'Push All up to Here…',
+        'New Branch…',
+        'New Tag…',
+        'Go to Child Commit',
+        'Go to Parent Commit',
       ];
-      for (const option of requiredOptions) {
-        assert.ok(html.includes(option), `Should contain "${option}" option`);
+      for (const label of required) {
+        assert.ok(labels.includes(label), `menu must offer "${label}"`);
       }
     });
 
-    it('should have correct data-action attributes for all menu items', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const requiredActions = [
+    it('carries the data-action for every option', () => {
+      const required = [
         'copyHash',
         'createPatch',
+        'createPatchToClipboard',
         'cherryPick',
         'checkoutRevision',
         'showRepoAtRevision',
         'compareWithLocal',
+        'compareVersions',
         'resetToHere',
         'revert',
         'undoCommit',
-        'dropCommit',
         'editCommitMessage',
+        'fixup',
+        'squashInto',
+        'squashCommits',
+        'dropCommit',
         'interactiveRebase',
+        'pushUpToCommit',
         'newBranch',
         'newTag',
+        'goToChild',
+        'goToParent',
       ];
-      for (const action of requiredActions) {
-        assert.ok(html.includes(`data-action="${action}"`), `Should have data-action="${action}"`);
+      for (const action of required) {
+        assert.ok(actions.includes(action), `menu must carry the ${action} action`);
       }
     });
 
-    it('exposes New Branch… (Git.CreateNewBranch.FromCommit) as a single-only item', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = html.indexOf('data-action="newBranch"');
-      assert.ok(idx !== -1, 'Should expose the newBranch action');
-      const item = html.substring(idx, idx + 140);
-      assert.strictEqual(computeMenuVisibility(2).newBranch, false, 'newBranch is single-only');
-      assert.ok(item.includes('New Branch…'), 'New Branch label uses the unicode ellipsis');
+    it('ends the reword label with an ellipsis (it opens a reword input)', () => {
+      assert.strictEqual(item('editCommitMessage')?.label, 'Edit Commit Message…');
     });
 
-    it('exposes New Tag… (Git.CreateNewTag) as a single-only item', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = html.indexOf('data-action="newTag"');
-      assert.ok(idx !== -1, 'Should expose the newTag action');
-      const item = html.substring(idx, idx + 140);
-      assert.strictEqual(computeMenuVisibility(2).newTag, false, 'newTag is single-only');
-      assert.ok(item.includes('New Tag…'), 'New Tag label uses the unicode ellipsis');
+    it('leaves out Merge into Current (a branch action, not a git4idea log-menu item)', () => {
+      assert.ok(!actions.includes('mergeIntoCurrent'));
     });
 
-    it('groups New Branch… before New Tag… in the branch-operations cluster', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
-      assert.ok(idx('newBranch') !== -1, 'has New Branch');
-      assert.ok(idx('newBranch') < idx('newTag'), 'New Branch before New Tag');
+    it('leaves out Copy Commit Message', () => {
+      assert.ok(!actions.includes('copyCommitMessage'));
     });
 
-    it('does not offer Compare with Branch in the commit menu (removed)', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        !html.includes('data-action="compareWithBranch"'),
-        'Compare with Branch was removed from the commit context menu'
-      );
-    });
-
-    it('places Push All up to Here… immediately after Interactively Rebase from Here…', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
-      assert.ok(
-        idx('interactiveRebase') < idx('pushUpToCommit'),
-        'Push All up to Here follows Interactively Rebase'
-      );
-      assert.ok(html.includes('Push All up to Here…'), 'uses the IntelliJ label');
-      // Nothing sits between them (they are adjacent menu items).
-      assert.ok(idx('pushUpToCommit') < idx('newBranch'), 'Push precedes the branch-ops cluster');
-    });
-
-    it('exposes Fixup… (Git.Fixup.To.Commit) as a single-only item', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = html.indexOf('data-action="fixup"');
-      assert.ok(idx !== -1, 'Should expose the fixup action');
-      const item = html.substring(idx, idx + 140);
-      assert.strictEqual(computeMenuVisibility(2).fixup, false, 'fixup is single-only');
-      assert.ok(item.includes('Fixup…'), 'Fixup label uses the unicode ellipsis');
-    });
-
-    it('exposes Squash Into… (Git.Squash.Into.Commit) as a single-only item', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = html.indexOf('data-action="squashInto"');
-      assert.ok(idx !== -1, 'Should expose the squashInto action');
-      const item = html.substring(idx, idx + 140);
-      assert.strictEqual(computeMenuVisibility(2).squashInto, false, 'squashInto is single-only');
-      assert.ok(item.includes('Squash Into…'), 'Squash Into label uses the unicode ellipsis');
-    });
-
-    it('orders Reword → Fixup… → Squash Into… per git4idea Git.Log.ContextMenu', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
-      // git4idea places Fixup / Squash Into immediately after Reword
-      // (editCommitMessage), and before the existing with-previous rewrites.
-      assert.ok(idx('editCommitMessage') < idx('fixup'), 'Reword before Fixup');
-      assert.ok(idx('fixup') < idx('squashInto'), 'Fixup before Squash Into');
-    });
-
-    it('should render the commit context menu as hidden by default', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const menuStart = html.indexOf('id="commit-context-menu"');
-      assert.ok(menuStart !== -1, 'Should have commit-context-menu element');
-      const menuSection = html.substring(menuStart - 50, menuStart + 100);
-      assert.ok(menuSection.includes('hidden'), 'Should be hidden by default');
-    });
-
-    it('should have role="menu" for accessibility', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('role="menu"'), 'Should have role="menu" for accessibility');
-    });
-
-    it('should have role="menuitem" on each menu item', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      // git4idea-parity set; Compare with Branch removed from the commit menu,
-      // Create Patch to Clipboard added (the silent Clipboard action variant).
-      assert.strictEqual(menuItemCount, 22, 'Should have 22 menu items with role="menuitem"');
-    });
-
-    it('should have aria-label on the menu', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('aria-label="Commit actions"'), 'Should have aria-label');
-    });
-
-    it('should NOT contain Copy Commit Message (removed for parity)', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        !html.includes('data-action="copyCommitMessage"'),
-        'copyCommitMessage was removed from the commit menu'
-      );
-    });
-
-    it('should mark Reset Current Branch to Here as a danger action', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const resetIdx = html.indexOf('data-action="resetToHere"');
-      assert.ok(resetIdx !== -1, 'Should have resetToHere action');
-      const resetSection = html.substring(Math.max(0, resetIdx - 100), resetIdx);
-      assert.ok(
-        resetSection.includes('context-menu-danger'),
-        'Reset Current Branch to Here should have danger class'
-      );
-    });
-
-    it('should mark Drop Commit as a danger action', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const dropIdx = html.indexOf('data-action="dropCommit"');
-      assert.ok(dropIdx !== -1, 'Should have dropCommit action');
-      const dropSection = html.substring(Math.max(0, dropIdx - 100), dropIdx);
-      assert.ok(
-        dropSection.includes('context-menu-danger'),
-        'Drop Commit should have danger class'
-      );
+    it('marks the two destructive options as danger actions', () => {
+      const danger = COMMIT_MENU_ITEMS.filter((i) => i.danger).map((i) => i.action);
+      assert.deepStrictEqual(danger.slice().sort(), ['dropCommit', 'resetToHere']);
     });
 
     it('orders the history block to match git4idea Git.Log.ContextMenu (Reset at the head)', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
       // The destructive/undo trio leads the history block, mirroring
       // git4idea's Reset → Revert → Uncommit ordering.
-      assert.ok(idx('resetToHere') < idx('revert'), 'Reset before Revert');
-      assert.ok(idx('revert') < idx('undoCommit'), 'Revert before Undo');
-      // Reset is no longer buried beneath the history-rewrite actions.
-      assert.ok(idx('resetToHere') < idx('editCommitMessage'), 'Reset before Edit Commit Message');
-      assert.ok(idx('resetToHere') < idx('dropCommit'), 'Reset before Drop Commit');
+      assert.ok(at('resetToHere') < at('revert'), 'Reset before Revert');
+      assert.ok(at('revert') < at('undoCommit'), 'Revert before Undo');
+      // Reset leads the history-rewrite block rather than sitting beneath it.
+      assert.ok(at('resetToHere') < at('editCommitMessage'), 'Reset before Edit Commit Message');
+      assert.ok(at('resetToHere') < at('dropCommit'), 'Reset before Drop Commit');
       // Branch-integration actions still follow the history-rewrite block.
-      assert.ok(idx('dropCommit') < idx('newBranch'), 'history rewrite before integration');
+      assert.ok(at('dropCommit') < at('newBranch'), 'history rewrite before integration');
     });
 
-    it('should have data-head-hash attribute on the menu root element', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('data-head-hash='), 'Should have data-head-hash attribute');
+    it('carries no icons in its labels', () => {
+      for (const label of labels) {
+        assert.ok(
+          !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(label),
+          `menu labels stay text-only (got "${label}")`
+        );
+      }
     });
 
-    it('should not contain any context-menu-icon elements', () => {
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        !html.includes('context-menu-icon'),
-        'Should not contain any context-menu-icon elements'
-      );
+    it('exposes the single-only items, gated single-only by the host', () => {
+      // Each pairs a menu row with the visibility map the host computes for a
+      // multi-selection; a row added here without a gate would stay clickable.
+      const singleOnly = ['newBranch', 'newTag', 'fixup', 'squashInto'] as const;
+      for (const action of singleOnly) {
+        assert.ok(actions.includes(action), `menu must expose ${action}`);
+        assert.strictEqual(
+          computeMenuVisibility(2)[action],
+          false,
+          `${action} must be single-only`
+        );
+      }
     });
 
-    it('should have five context-menu-separator dividers between six sections', () => {
-      const html = provider._getCommitContextMenuHtml();
-      const separatorCount = (html.match(/context-menu-separator/g) || []).length;
+    it('uses the unicode ellipsis on every option that opens an input', () => {
+      for (const action of ['newBranch', 'newTag', 'fixup', 'squashInto', 'pushUpToCommit']) {
+        assert.ok(item(action)?.label?.endsWith('…'), `${action} label needs the ellipsis`);
+      }
+    });
+
+    it('groups New Branch… before New Tag… in the branch-operations cluster', () => {
+      assert.ok(at('newBranch') < at('newTag'), 'New Branch before New Tag');
+    });
+
+    it('does not offer Compare with Branch in the commit menu (removed)', () => {
+      assert.ok(!actions.includes('compareWithBranch'));
+    });
+
+    it('places Push All up to Here… immediately after Interactively Rebase from Here…', () => {
+      assert.strictEqual(at('pushUpToCommit'), at('interactiveRebase') + 1, 'they are adjacent');
+      assert.ok(at('pushUpToCommit') < at('newBranch'), 'Push precedes the branch-ops cluster');
+    });
+
+    it('orders Reword → Fixup… → Squash Into… per git4idea Git.Log.ContextMenu', () => {
+      // git4idea places Fixup / Squash Into immediately after Reword
+      // (editCommitMessage), and before the existing with-previous rewrites.
+      assert.ok(at('editCommitMessage') < at('fixup'), 'Reword before Fixup');
+      assert.ok(at('fixup') < at('squashInto'), 'Fixup before Squash Into');
+    });
+
+    it('separates six sections with five dividers', () => {
       // Six sections (copy/patch · checkout/compare · reset/revert/undo ·
       // edit/fixup/squash/drop/rebase/push · branch+tag · navigate), separated
       // by five dividers. "Push All up to Here" folded into the rebase section
       // (after Interactively Rebase), collapsing its standalone divider.
-      assert.strictEqual(separatorCount, 5, 'Should have 5 separators between 6 sections');
+      assert.strictEqual(COMMIT_MENU_ITEMS.filter((i) => i.separator).length, 5);
     });
   });
 
@@ -972,23 +821,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('should not include the commit context menu HTML in the graph panel output (moved to top-level layout)', () => {
-      const node = makeCommitNode();
-      const html = provider._getGraphPanelHtml([node]);
-
-      assert.ok(
-        !html.includes('id="commit-context-menu"'),
-        'Graph panel should NOT include the commit context menu overlay (it is at the top-level layout)'
-      );
-    });
-
-    it('should not include the commit context menu HTML in graph panel even when no commits are provided (moved to top-level layout)', () => {
-      const html = provider._getGraphPanelHtml([]);
-
-      assert.ok(
-        !html.includes('id="commit-context-menu"'),
-        'Graph panel should NOT include the commit context menu overlay even with no commits (it is at the top-level layout)'
-      );
+    it('leaves the commit menu to the webview, which builds it from the item list', () => {
+      // Was two assertions that the graph panel HTML does not contain
+      // `id="commit-context-menu"`. No host code path can emit that string any
+      // more, so neither could ever fail. What is worth pinning is the live
+      // invariant: the menu exists, and it exists on the webview side.
+      const html = provider._getGraphPanelHtml([makeCommitNode()]);
+      assert.ok(!html.includes('context-menu-item'), 'the host renders no menu rows');
+      assert.ok(COMMIT_MENU_ITEMS.length > 0, 'the webview has an item list to render');
     });
   });
 

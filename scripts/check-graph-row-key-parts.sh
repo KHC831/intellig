@@ -46,6 +46,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# shellcheck source=scripts/lib/exempt-marker.sh
+source scripts/lib/exempt-marker.sh
+
 PATTERN='\.(branchMap|tagMap)\.(entries|keys)\('
 MARKER='row-key-exempt:'
 
@@ -61,15 +64,7 @@ if [ -n "$raw" ]; then
     file="${line%%:*}"
     rest="${line#*:}"
     lineno="${rest%%:*}"
-    # Exempt marker on the hit line, or a comment on the line directly above
-    # it (prettier moves trailing comments off multi-clause statements, so
-    # the above-line form is the stable placement).
-    if printf '%s\n' "$line" | grep -qF "$MARKER"; then
-      continue
-    fi
-    if [ "$lineno" -gt 1 ] && sed -n "$((lineno - 1))p" "$file" | grep -qF "$MARKER"; then
-      continue
-    fi
+    is_exempt "$file" "$lineno" "$MARKER" && continue
     # File decomposes keys through the shared helper.
     if grep -qF 'graphRowKeyParts' "$file" 2>/dev/null; then
       continue
