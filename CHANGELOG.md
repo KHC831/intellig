@@ -10,6 +10,8 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.9] - 2026-09-02
+
 ### Added
 
 - The Commit window's Changes tab now shows merge-conflict rows with their own
@@ -31,6 +33,8 @@ fresh empty `[Unreleased]` block is added on top.
   `a[1].ts` next to `a1.ts`) no longer risks touching the other file.
 - A file excluded from CRLF warnings via `.gitattributes` stopped being
   recognized as excluded and started warning on every commit; fixed.
+- Clicking a fully staged file in the Commit window showed an empty diff.
+  The preview now reads the staged side of the change.
 
 ## [0.5.8] - 2026-08-23
 
