@@ -139,4 +139,52 @@ describe('e2e — local patch / rollback (real git)', function () {
       'file content should match the committed version'
     );
   });
+
+  it('intellig.rollbackChanges — an empty selection refuses rather than reverting the tree', async () => {
+    await setup();
+    fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'locally modified 0\n');
+    fs.writeFileSync(path.join(fix.rootPath, 'file1.txt'), 'locally modified 1\n');
+    const dirtyBefore = (await execGit(fix.rootPath, ['status', '--porcelain'])).stdout.trim();
+    assert.ok(dirtyBefore.length > 0, 'precondition: the working tree must be dirty');
+
+    // An empty arg array narrows to `undefined` (no explicit selection), so
+    // the command falls through to its own interactive picker; answering it
+    // with zero picks is what "nothing selected" looks like end to end. The
+    // destructive confirm must never even be reached.
+    let quickPickShown = false;
+    stubs = stubPrompts({
+      quickPick: (): unknown[] => {
+        quickPickShown = true;
+        return [];
+      },
+      warningMessage: () => 'Rollback',
+    });
+
+    await vscode.commands.executeCommand('intellig.rollbackChanges', []);
+
+    assert.ok(
+      quickPickShown,
+      'an empty selection must fall through to the interactive file picker, not act silently'
+    );
+    assert.strictEqual(
+      stubs.warningMessageCalls.length,
+      0,
+      'the destructive rollback confirm must never be reached when nothing was picked'
+    );
+
+    const dirtyAfter = (await execGit(fix.rootPath, ['status', '--porcelain'])).stdout.trim();
+    assert.strictEqual(
+      dirtyAfter,
+      dirtyBefore,
+      'nothing selected must leave the working tree fully untouched, not reverted'
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(fix.rootPath, 'file0.txt'), 'utf8'),
+      'locally modified 0\n'
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(fix.rootPath, 'file1.txt'), 'utf8'),
+      'locally modified 1\n'
+    );
+  });
 });
