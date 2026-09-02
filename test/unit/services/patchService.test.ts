@@ -54,6 +54,7 @@ import type {
 } from '../../../src/conflicts/interfaces/IConflictResolutionService';
 import type { IPatchService } from '../../../src/patches/interfaces/IPatchService';
 import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 interface RecordedExec {
   args: string[];
@@ -674,7 +675,15 @@ describe('PatchService.createPatchFromLocalChanges', () => {
 
     await svc.createPatchFromLocalChanges(repo, { files: ['a.ts', 'b.ts'] });
     assert.deepStrictEqual(diffExecs(git), [
-      ['diff', 'HEAD', '--binary', '--no-textconv', '--', 'a.ts', 'b.ts'],
+      [
+        'diff',
+        'HEAD',
+        '--binary',
+        '--no-textconv',
+        '--',
+        literalPathspec('a.ts'),
+        literalPathspec('b.ts'),
+      ],
     ]);
   });
 
@@ -1317,7 +1326,7 @@ describe('PatchService.createPatchFromLocalChanges — reverse (-R)', () => {
       '--no-textconv',
       '-R',
       '--',
-      'a.ts',
+      literalPathspec('a.ts'),
     ]);
   });
 });

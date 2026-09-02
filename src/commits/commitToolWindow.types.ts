@@ -9,6 +9,8 @@
  * importers (and the `src/services` barrel) are unchanged.
  */
 
+import type { IContextMenuItem } from '../webview-common/contextMenuItem';
+
 /** Valid tab ids for this view. */
 export type CommitToolWindowTab = 'localChanges' | 'shelf';
 
@@ -60,6 +62,12 @@ export type IShelfTabEntry =
       timestamp: Date;
       /** Stash index used for apply/pop/drop plumbing. */
       index: number;
+      /**
+       * The stash's commit sha, when git reported one. Survives the stack
+       * renumbering that `index` does not, so a row opened on one stash can be
+       * told apart from whatever later occupies its slot.
+       */
+      hash?: string;
     };
 
 /** Action payload on a changelist-level context menu entry. */
@@ -74,6 +82,9 @@ export type ChangelistAction =
 
 /** Action payload on a file-level context menu entry. */
 export type FileAction =
+  | 'resolveConflictFile'
+  | 'acceptYours'
+  | 'acceptTheirs'
   | 'showDiff'
   | 'jumpToSource'
   | 'moveToChangelist'
@@ -114,9 +125,9 @@ export interface ICommitToolWebviewMessage {
   signOff?: boolean;
   files?: string[];
   /**
-   * `contextOpen` is the right-click ping that asks the host to present the
-   * QuickPick menu; the host then recurses with the concrete action the user
-   * picked. It rides the same `action` field as the concrete actions.
+   * `contextOpen` is the right-click ping that asks the host for the menu's
+   * items; the webview draws them and posts back the concrete action the user
+   * picked. It rides the same `action` field as those concrete actions.
    */
   action?:
     | ChangelistAction
@@ -145,6 +156,53 @@ export interface ICommitToolWebviewMessage {
   shelfId?: string;
   /** Stash index (when rowKind === 'stash'). */
   stashIndex?: number;
+  /**
+   * Stash commit sha the row displayed. A stash is addressed by POSITION and
+   * positions move, so the index alone cannot tell the host whether the entry
+   * it is about to act on is the one the user clicked.
+   */
+  stashSha?: string;
+}
+
+/** An action a context-menu row can carry — the union the wire message accepts. */
+export type CtwMenuAction =
+  | ChangelistAction
+  | FileAction
+  | ShelfTabShelfAction
+  | ShelfTabStashAction;
+
+/**
+ * One row of the Commit window's context menu, as the host describes it.
+ *
+ * Extends the shared row type rather than restating a subset of it, so this
+ * window can express everything the widget can draw — `danger` and
+ * `separator` included — and both windows tint a destructive row alike.
+ */
+export interface ICtwMenuItem extends IContextMenuItem {
+  label: string;
+  action: CtwMenuAction;
+}
+
+/**
+ * What a context menu was opened on, so a pick is attributed back to it.
+ *
+ * `rowKind` decides which wire message the pick becomes: a Shelf or Stash row
+ * answers on the Shelf tab's channel, everything else on the changelist one.
+ */
+export interface ICtwMenuTarget {
+  path?: string;
+  changelistId?: string;
+  rowKind?: 'shelf' | 'stash';
+  shelfId?: string;
+  stashIndex?: number;
+  stashSha?: string;
+  /**
+   * Repo the row belonged to when it was right-clicked. The pick is a second,
+   * later message, and the selector can retarget the view in between — so the
+   * host's staleness guard has to be handed the root from the GESTURE, not
+   * whatever the view is showing by the time the user picks.
+   */
+  repoRoot?: string;
 }
 
 /** A single file entry in the Local Changes render model. */
@@ -153,6 +211,45 @@ export interface ICtwFileEntry {
   statusChar: string;
   /** Full path in flat mode, basename in directory mode. */
   displayName: string;
+  /**
+   * Unmerged, per git's index rather than any marker text in the file. Set
+   * host-side from the shared status mapping so the webview never re-derives
+   * it from `statusChar` — a `=== 'U'` test misses the AA and DD conflicts
+   * that carry no `U` column (see `isConflictedStatusCode`).
+   */
+  conflicted?: boolean;
+  /**
+   * Set when `status === 'untracked'`. `fileContextMenuLabels` adds "Add to
+   * VCS" on this state, so `rowSignature` (ctwContextMenu.ts) must be able to
+   * tell a tracked row from an untracked one to keep a stale menu from
+   * outliving a tracked<->untracked flip.
+   */
+  untracked?: boolean;
+}
+
+/**
+ * A conflicted row lifted into the Merge Conflicts node. It keeps the id of
+ * the changelist it came from so its row actions still target the right list.
+ */
+export interface ICtwConflictEntry extends ICtwFileEntry {
+  changelistId: string;
+  /**
+   * Conflict regions git marked up in the file. Absent when the file has none
+   * to count — a binary or delete/modify conflict — so the row shows no count
+   * rather than a misleading zero.
+   */
+  conflictCount?: number;
+}
+
+/**
+ * The Merge Conflicts node: every unmerged file across all changelists,
+ * pulled out of its normal position so a conflict cannot go unnoticed.
+ * Always flat and always full paths — the rows are few and knowing where each
+ * one lives matters more than the tree shape here.
+ */
+export interface ICtwConflictsModel {
+  fileCount: number;
+  files: ICtwConflictEntry[];
 }
 
 /** One changelist (or the unversioned pseudo-node) in the render model. */
@@ -161,6 +258,13 @@ export interface ICtwChangelistModel {
   name: string;
   isActive: boolean;
   fileCount: number;
+  /**
+   * Unmerged files, lifted to the top of THIS changelist's subtree. Null when
+   * the list holds none. Nested here rather than above the changelists because
+   * that is where IntelliJ puts it, and because a list holding only conflicts
+   * must keep its header and its own actions.
+   */
+  conflicts?: ICtwConflictsModel | null;
   /** Present in flat grouping: file rows rendered directly. */
   files?: ICtwFileEntry[];
   /** Present in directory grouping: files bucketed under directory nodes. */
@@ -198,7 +302,7 @@ export interface ICommitToolWindowInitModel {
     emptyCopy: string;
     rows: Array<
       | { kind: 'shelf'; id: string; name: string; alreadyUnshelved: boolean; fileCount: number }
-      | { kind: 'stash'; index: number; name: string; id: string }
+      | { kind: 'stash'; index: number; name: string; id: string; hash?: string }
     >;
   };
 }

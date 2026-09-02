@@ -15,8 +15,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { clearShots } from '../../visual/support/capture';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
-const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 function withDir(fn: (dir: string) => void): void {
   fs.mkdirSync(TMP_ROOT, { recursive: true });

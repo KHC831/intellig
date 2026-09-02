@@ -113,7 +113,7 @@ the cost of a little bootstrap plumbing.
 - (3) `__resetOutputChannelForTest()` drops the cached instance for
   unit tests. The `__<name>ForTest` prefix is the TestSurface
   function-name convention (see `docs/testing.md` section 3); a structural CI
-  guard (`scripts/check-output-channel-test-surface.sh`) fails the build
+  guard (`scripts/check-test-only-surface.sh`) fails the build
   if any production file references it.
 - (4) `initOutputChannel(context)` pushes the channel onto
   `context.subscriptions` so deactivation tears it down alongside

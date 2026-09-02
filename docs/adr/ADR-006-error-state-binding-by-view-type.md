@@ -212,15 +212,15 @@ error block is part of that markup.
 
 ## References
 
-- `src/services/ShelfView.ts` + `src/services/interfaces/IShelfView.ts`
+- `src/shelf/ShelfView.ts` + `src/shelf/interfaces/IShelfView.ts`
   — canonical-channel reference implementation.
-- `src/services/StashView.ts` + `src/services/interfaces/IStashView.ts`
+- `src/shelf/StashView.ts` + `src/shelf/interfaces/IStashView.ts`
   — Wave 8 migration.
-- `src/services/BranchComparisonView.ts` +
-  `src/services/interfaces/IBranchComparisonView.ts` — Wave 8 migration.
-- `src/services/gitToolWindow/html/historyHtml.ts` — template-binding
+- `src/branches/BranchComparisonView.ts` +
+  `src/branches/interfaces/IBranchComparisonView.ts` — Wave 8 migration.
+- `src/git-core/gitToolWindow/html/historyHtml.ts` — template-binding
   exception; the canonical example for the `_state.error` pattern.
-- `src/services/BranchTreeProvider.ts` — canonical example for the
+- `src/branches/BranchTreeProvider.ts` — canonical example for the
   TreeView / async-`getChildren` pattern.
 - ADR-005 — sanitiser-pass ordering; orthogonal to the channel choice
   but constrains the message that travels through whichever channel.

@@ -21,6 +21,7 @@ import * as path from 'path';
 import { StagingOps } from '../../../src/git-core/ops/StagingOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 interface ExecCall {
   args: string[];
@@ -54,7 +55,13 @@ describe('StagingOps.rollbackChanges', () => {
     ]);
     const revert = calls.find((c) => c.args[0] === 'checkout')!;
     assert.ok(revert, 'expected a checkout call');
-    assert.deepStrictEqual(revert.args, ['checkout', 'HEAD', '--', 'src/a.ts', 'src/gone.ts']);
+    assert.deepStrictEqual(revert.args, [
+      'checkout',
+      'HEAD',
+      '--',
+      literalPathspec('src/a.ts'),
+      literalPathspec('src/gone.ts'),
+    ]);
   });
 
   it('argv is injection-safe — a path that looks like a flag stays positional', async () => {
@@ -64,7 +71,12 @@ describe('StagingOps.rollbackChanges', () => {
     // The `--` terminator must precede the path so git can never read it as a flag.
     const sep = revert.args.indexOf('--');
     assert.ok(sep > 0, 'expected -- terminator');
-    assert.ok(revert.args.indexOf('--force') > sep, 'path must follow the -- terminator');
+    // The signature makes it doubly safe: `:(literal)--force` cannot be read as
+    // a flag OR as a pathspec pattern.
+    assert.ok(
+      revert.args.indexOf(literalPathspec('--force')) > sep,
+      'path must follow the -- terminator'
+    );
   });
 
   it('rolls back a RENAME by restoring the old path, not the (HEAD-absent) new path', async () => {
@@ -76,14 +88,17 @@ describe('StagingOps.rollbackChanges', () => {
     // one restored via checkout — checking out the new path would fatal.
     const rm = calls.find((c) => c.args[0] === 'rm');
     const checkout = calls.find((c) => c.args[0] === 'checkout');
-    assert.ok(rm && rm.args.includes('src/new-name.ts'), 'new path must be unindexed');
+    assert.ok(
+      rm && rm.args.includes(literalPathspec('src/new-name.ts')),
+      'new path must be unindexed'
+    );
     assert.ok(checkout, 'a checkout must run');
     assert.ok(
-      checkout.args.includes('src/old-name.ts'),
+      checkout.args.includes(literalPathspec('src/old-name.ts')),
       `the OLD path must be restored (got: ${checkout.args.join(' ')})`
     );
     assert.ok(
-      !checkout.args.includes('src/new-name.ts'),
+      !checkout.args.includes(literalPathspec('src/new-name.ts')),
       'the HEAD-absent new path must never be checked out'
     );
   });
@@ -105,7 +120,14 @@ describe('StagingOps.rollbackChanges', () => {
     await ops.rollbackChanges(repo('/r'), [{ path: 'new.ts', status: 'added' }]);
     const rm = calls.find((c) => c.args[0] === 'rm');
     assert.ok(rm, 'expected a rm --cached call');
-    assert.deepStrictEqual(rm.args, ['rm', '--cached', '-f', '--ignore-unmatch', '--', 'new.ts']);
+    assert.deepStrictEqual(rm.args, [
+      'rm',
+      '--cached',
+      '-f',
+      '--ignore-unmatch',
+      '--',
+      literalPathspec('new.ts'),
+    ]);
     assert.ok(!calls.some((c) => c.args[0] === 'checkout'), 'added file must not be checked out');
   });
 

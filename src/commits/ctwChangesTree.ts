@@ -80,6 +80,62 @@ export function partitionUnversionedFiles(changelists: readonly IChangelist[]): 
   return { changelists: filtered, unversioned };
 }
 
+/**
+ * Split a changelist's files into the unmerged ones and the rest.
+ *
+ * IntelliJ reparents conflicts within the changelist's own subtree, not above
+ * it: `DefaultChangesGroupingPolicy` returns a group flag and
+ * `SimpleChangesGroupingPolicy` inserts the node under `subtreeRoot`, which for
+ * Local Changes is the changelist node. The changelist header therefore always
+ * survives — a list holding nothing but conflicts must not vanish, or its own
+ * actions (Set Active, Rename, Commit Only This Changelist) go with it.
+ *
+ * `status === 'conflicted'` is the shared unmerged verdict from
+ * `statusCodeToFileStatus`, so AA and DD conflicts come along with the U-marked
+ * ones rather than being missed by a `U`-only test.
+ *
+ * Pure; exported for unit tests.
+ */
+export function partitionConflictedFiles(files: readonly IFileChange[]): {
+  rest: IFileChange[];
+  conflicted: IFileChange[];
+} {
+  const rest: IFileChange[] = [];
+  const conflicted: IFileChange[] = [];
+  for (const f of files) {
+    if (f.status === 'conflicted') {
+      conflicted.push(f);
+    } else {
+      rest.push(f);
+    }
+  }
+  conflicted.sort((a, b) => a.path.localeCompare(b.path));
+  return { rest, conflicted };
+}
+
+/**
+ * How many conflict regions git marked up in `text`.
+ *
+ * Counts `<<<<<<<` at the start of a line — exactly seven brackets, which is
+ * what git writes. A string literal or a doc line mentioning markers is not a
+ * region, and `merge.conflictStyle=diff3` adds a `|||||||` base section inside
+ * a region without adding one.
+ *
+ * Only ever asked about a file the INDEX already says is unmerged. It answers
+ * "how many hunks are waiting", never "is this conflicted" — a file can hold
+ * markers without being unmerged, and a binary or delete/modify conflict has
+ * none at all.
+ */
+export function countConflictRegions(text: string): number {
+  let count = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^<{7}(?!<)/.test(line)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 export function shortStatusChar(status: string): string {
   switch (status) {
     case 'modified':

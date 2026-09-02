@@ -31,13 +31,12 @@ function arbitraryFullHash(): fc.Arbitrary<string> {
 /**
  * Determines whether the "Undo Commit" menu item should be disabled.
  *
- * This mirrors the logic in showCommitContextMenu():
- * - If the selected commit hashes contain exactly one hash that matches
- *   the HEAD hash, the item is enabled (not disabled).
- * - Otherwise, the item is disabled.
+ * The same rule the host applies in `computeMenuState` (multiSelect.ts):
+ * - Exactly one selected hash, and it is HEAD → enabled.
+ * - Otherwise disabled.
  *
  * @param commitHashes - The commit hashes selected for the context menu
- * @param headHash - The HEAD commit hash from data-head-hash
+ * @param headHash - The HEAD commit hash the host resolved
  * @returns true if the item should have the 'disabled' class
  */
 function shouldUndoCommitBeDisabled(commitHashes: string[], headHash: string): boolean {

@@ -332,4 +332,203 @@ describe('e2e — conflict resolution commands', function () {
       await cfg.update('mergeWindow.enabled', undefined, vscode.ConfigurationTarget.Global);
     }
   });
+
+  /**
+   * Show Diff on an UNMERGED file must reach the merge window, not a two-pane
+   * diff — the working tree at that moment holds git's conflict markers, so a
+   * HEAD-vs-worktree diff would render them as ordinary added lines.
+   *
+   * This is the route a Commit-window double-click takes (openFileDiff →
+   * openFileDiffSurface → intellig.explorer.showDiff), and the one place the
+   * conflicted-vs-plain decision is made. IntelliJ makes the same substitution
+   * inside its single request producer (ChangeDiffRequestProducer.createRequest
+   * → createMergeRequest when ChangesUtil.isTextConflictingChange).
+   *
+   * The second half is the positive control: without it, a showDiff that
+   * opened NOTHING at all would satisfy the first assertions and the test
+   * would pass while blind.
+   */
+  it('Show Diff routes an unmerged file to the merge window, a clean one to a diff', async function () {
+    const cfg = vscode.workspace.getConfiguration('intellig');
+    await cfg.update('mergeWindow.enabled', true, vscode.ConfigurationTarget.Global);
+    try {
+      fix = await createFixtureRepo({ commits: 1 });
+      const shared = path.join(fix.rootPath, 'shared.txt');
+      const clean = path.join(fix.rootPath, 'clean.txt');
+
+      fs.writeFileSync(shared, 'base\n');
+      fs.writeFileSync(clean, 'clean base\n');
+      await execGit(fix.rootPath, ['add', 'shared.txt', 'clean.txt']);
+      await execGit(fix.rootPath, ['commit', '-m', 'add files']);
+
+      await execGit(fix.rootPath, ['checkout', '-b', 'feature']);
+      fs.writeFileSync(shared, 'feature change\n');
+      await execGit(fix.rootPath, ['commit', '-am', 'feature change']);
+
+      await execGit(fix.rootPath, ['checkout', fix.defaultBranch]);
+      fs.writeFileSync(shared, 'main change\n');
+      await execGit(fix.rootPath, ['commit', '-am', 'main change']);
+
+      // Conflict produced by a plain command-line merge — nothing in the
+      // extension recorded it, which is the whole point of issue #5.
+      await execGit(fix.rootPath, ['merge', 'feature'], { allowNonZero: true });
+      fs.writeFileSync(clean, 'clean edit\n');
+
+      const repo = await useFixtureWorkspace(fix.rootPath);
+      await getServices()?.gitService.reloadRepository(repo);
+      assert.strictEqual(repo.state, 'merging', 'sanity: extension sees the CLI merge');
+
+      stubs = stubPrompts({});
+
+      const diffTabCount = (): number =>
+        vscode.window.tabGroups.all
+          .flatMap((g) => g.tabs)
+          .filter((t) => t.input instanceof vscode.TabInputTextDiff).length;
+
+      const mergeTab = (): vscode.Tab | undefined =>
+        vscode.window.tabGroups.all
+          .flatMap((g) => g.tabs)
+          .find(
+            (t) =>
+              t.label === `Merge: ${path.basename(shared)}` ||
+              (t.input instanceof vscode.TabInputWebview && /mergeWindow/i.test(t.input.viewType))
+          );
+
+      const diffsBefore = diffTabCount();
+      await vscode.commands.executeCommand('intellig.explorer.showDiff', vscode.Uri.file(shared));
+
+      const deadline = Date.now() + 10_000;
+      while (!mergeTab() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      assert.ok(
+        mergeTab(),
+        `Show Diff on an unmerged file must open the merge window; open tabs: ${vscode.window.tabGroups.all
+          .flatMap((g) => g.tabs)
+          .map((t) => t.label)
+          .join(', ')}`
+      );
+      assert.strictEqual(
+        diffTabCount(),
+        diffsBefore,
+        'and must NOT also open a two-pane diff full of conflict markers'
+      );
+
+      // Positive control: the same command on a merely-modified file still
+      // opens an ordinary diff, so the assertions above discriminate.
+      await vscode.commands.executeCommand('intellig.explorer.showDiff', vscode.Uri.file(clean));
+      const controlDeadline = Date.now() + 10_000;
+      while (diffTabCount() === diffsBefore && Date.now() < controlDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.ok(
+        diffTabCount() > diffsBefore,
+        'a clean modified file must still open a two-pane diff'
+      );
+    } finally {
+      await cfg.update('mergeWindow.enabled', undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
+
+  /**
+   * Per-file accepts, the Commit window's conflicted-row menu entries.
+   *
+   * Tested against a REBASE specifically: git puts the user's own replayed
+   * commit on stage 3 there, so "Accept Yours" must still keep the user's work.
+   * The commands pass no explicit `reversed`, leaving the service to detect it
+   * from repository state — if that detection breaks, these fail while the
+   * merge-case tests would not.
+   */
+  it('acceptCurrentFile keeps the user own work for ONE file during a rebase', async () => {
+    fix = await setupMidRebaseConflict();
+    const shared = path.join(fix.rootPath, 'shared.txt');
+    const repo = await useFixtureWorkspace(fix.rootPath);
+    await getServices()?.gitService.reloadRepository(repo);
+    assert.strictEqual(repo.state, 'rebasing', 'sanity: extension sees a rebase in progress');
+
+    stubs = stubPrompts({});
+
+    await vscode.commands.executeCommand(
+      'intellig.conflict.acceptCurrentFile',
+      vscode.Uri.file(shared)
+    );
+
+    assert.strictEqual(
+      fs.readFileSync(shared, 'utf8'),
+      'feature change\n',
+      "Accept Yours during a rebase must keep the user's own commit, not upstream"
+    );
+    assert.strictEqual(
+      (await unmergedStages(fix.rootPath, 'shared.txt')).size,
+      0,
+      'the file must be staged as resolved, not left unmerged'
+    );
+  });
+
+  it('acceptIncomingFile keeps the upstream side for ONE file during a rebase', async () => {
+    fix = await setupMidRebaseConflict();
+    const shared = path.join(fix.rootPath, 'shared.txt');
+    const repo = await useFixtureWorkspace(fix.rootPath);
+    await getServices()?.gitService.reloadRepository(repo);
+    assert.strictEqual(repo.state, 'rebasing', 'sanity: extension sees a rebase in progress');
+
+    stubs = stubPrompts({});
+
+    await vscode.commands.executeCommand(
+      'intellig.conflict.acceptIncomingFile',
+      vscode.Uri.file(shared)
+    );
+
+    assert.strictEqual(
+      fs.readFileSync(shared, 'utf8'),
+      'main change\n',
+      'Accept Theirs during a rebase must take the upstream side'
+    );
+    assert.strictEqual(
+      (await unmergedStages(fix.rootPath, 'shared.txt')).size,
+      0,
+      'the file must be staged as resolved, not left unmerged'
+    );
+  });
+
+  it('acceptCurrentFile resolves ONLY the file it was given', async () => {
+    // The per-file commands must not behave like their bulk siblings; a
+    // second conflicted file has to survive untouched.
+    fix = await createFixtureRepo({ commits: 1 });
+    const one = path.join(fix.rootPath, 'one.txt');
+    const two = path.join(fix.rootPath, 'two.txt');
+
+    fs.writeFileSync(one, 'base\n');
+    fs.writeFileSync(two, 'base\n');
+    await execGit(fix.rootPath, ['add', 'one.txt', 'two.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'add files']);
+
+    await execGit(fix.rootPath, ['checkout', '-b', 'feature']);
+    fs.writeFileSync(one, 'feature one\n');
+    fs.writeFileSync(two, 'feature two\n');
+    await execGit(fix.rootPath, ['commit', '-am', 'feature edits']);
+
+    await execGit(fix.rootPath, ['checkout', fix.defaultBranch]);
+    fs.writeFileSync(one, 'main one\n');
+    fs.writeFileSync(two, 'main two\n');
+    await execGit(fix.rootPath, ['commit', '-am', 'main edits']);
+
+    await execGit(fix.rootPath, ['merge', 'feature'], { allowNonZero: true });
+
+    const repo = await useFixtureWorkspace(fix.rootPath);
+    await getServices()?.gitService.reloadRepository(repo);
+    stubs = stubPrompts({});
+
+    await vscode.commands.executeCommand(
+      'intellig.conflict.acceptCurrentFile',
+      vscode.Uri.file(one)
+    );
+
+    assert.strictEqual(fs.readFileSync(one, 'utf8'), 'main one\n', 'the named file resolves');
+    assert.ok(
+      (await unmergedStages(fix.rootPath, 'two.txt')).size > 0,
+      'the other conflicted file must be left alone'
+    );
+  });
 });

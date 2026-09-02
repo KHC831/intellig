@@ -235,6 +235,7 @@ export class WorktreeOps {
     if (newBranch !== undefined) {
       args.push('-b', newBranch);
     }
+    // pathspec-exempt: the worktree DIRECTORY and a ref, not pathspecs
     args.push('--', path, ref);
 
     return ResultAsync.fromPromise(
@@ -263,6 +264,7 @@ export class WorktreeOps {
     if (force) {
       args.push('--force');
     }
+    // pathspec-exempt: the worktree DIRECTORY to remove, not a pathspec
     args.push('--', path);
 
     return ResultAsync.fromPromise(

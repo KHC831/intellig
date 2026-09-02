@@ -32,6 +32,7 @@ import {
   type IPreApplyState,
 } from '../git-core/ops/preservedChanges';
 import { runAmSessionOp } from '../git-core/ops/amSession';
+import { scopedUnmergedEntry } from './conflictStageModel';
 
 /**
  * Interface for accessing GitCli from GitService
@@ -53,6 +54,7 @@ interface IGitServiceWithIndexLock extends IGitService {
  * Conflict Resolution Service implementation
  * Provides conflict detection, resolution, and merge/rebase completion functionality
  */
+
 export class ConflictResolutionService implements IConflictResolutionService {
   private _disposables: vscode.Disposable[] = [];
   private _onDidChangeConflicts: vscode.EventEmitter<{
@@ -419,14 +421,12 @@ export class ConflictResolutionService implements IConflictResolutionService {
   ): Promise<void> {
     const root = repo.rootUri.fsPath;
     await this._withIndexLock(root, async () => {
-      // An unreadable index leaves the entry unknown, which is what it was
-      // before: takeSide routes an unknown entry to checkout with
-      // throwOnError, so a genuinely absent stage fails loudly rather than
-      // deleting the file. Failing here instead would refuse a resolve the
-      // user can still complete.
-      const stagesRead = await this._indexWriter.readStages(root, filePath);
-      const entry = stagesRead.ok ? stagesRead.stages.get(filePath) : undefined;
-      const needsStage = await this._indexWriter.takeSide(root, filePath, flag, entry);
+      // An unreadable index leaves the entry unknown and takeSide falls through
+      // to checkout with throwOnError — loud failure, not a refused resolve. A
+      // readable index with no entry means no conflict, which takeSide refuses.
+      const read = await this._indexWriter.readStages(root, filePath);
+      const entry = scopedUnmergedEntry(read, filePath);
+      const needsStage = await this._indexWriter.takeSide(root, filePath, flag, entry, read.ok);
       if (needsStage) {
         await this._gitService.stage(repo, [filePath]).match(
           () => undefined,

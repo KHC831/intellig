@@ -24,10 +24,11 @@ import { createGitCli } from '../../../src/git-core/gitCli';
 import { createStashView } from '../../../src/shelf/StashView';
 import { bindShelfTabRepo } from '../../../src/registration/registerViews';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 // Real-git tmp repos live under the gitignored workspace-notes/tmp, never
 // os.tmpdir() or the repo root (project rule).
-const TMP_ROOT = path.resolve(__dirname, '../../../workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 function makeRealGitService(): IGitService {
   const ops = new StashTagHistoryOps({

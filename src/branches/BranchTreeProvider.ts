@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
-import { partitionRefsByPathSegment } from './refPathGrouping';
+import { compareRefNames, partitionRefsByPathSegment } from './refPathGrouping';
 import { resolveRepo } from '../utils/resolveRepo';
 import { BranchTreeScope } from './branchTreeScope';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -1305,7 +1305,7 @@ export class BranchTreeProvider
       byRemote.set(remote, list);
     }
 
-    const remoteNames = Array.from(byRemote.keys()).sort();
+    const remoteNames = Array.from(byRemote.keys()).sort(compareRefNames);
     return remoteNames.map((remoteName) => {
       if (remoteName === '') {
         // Malformed branches (no `/` in the name) — render them as

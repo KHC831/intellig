@@ -21,6 +21,7 @@ import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { createGitCli } from '../../../src/git-core/gitCli';
 import { parseHunks } from '../../../src/git-core/gitParser';
 import { IRepository, IHunk } from '../../../src/git-core/interfaces/IGitService';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 interface ExecCall {
   args: string[];
@@ -128,9 +129,7 @@ describe('StagingOps — line-subset staging at a no-newline EOF', () => {
 
   it('REAL GIT: a subset patch against a no-newline blob applies and preserves the EOF shape', async function () {
     this.timeout(20000);
-    const root = fs.mkdtempSync(
-      path.join(__dirname, '../../../workspace-notes/tmp/nonewline-subset-')
-    );
+    const root = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'nonewline-subset-'));
     const git = (...args: string[]): string =>
       execFileSync('git', args, { cwd: root, encoding: 'utf8' });
     try {

@@ -58,6 +58,7 @@ export async function ensureSyntheticMergeBase(
   const { stage2, stage3 } = entry;
 
   // Write the conflict-marked working file as a blob to serve as the base.
+  // pathspec-exempt: hash-object takes a FILENAME, not a pathspec
   const hashed = await gitCli.exec(['hash-object', '-w', '--', relPath], {
     cwd: repoRoot,
     throwOnError: true,

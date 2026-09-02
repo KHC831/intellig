@@ -48,6 +48,11 @@ export function handlePanelResize(ctx: IGtwControllerContext, widths: [number, n
  */
 export function selectIfNotSelected(ctx: IGtwControllerContext, hash: string): void {
   if (ctx.extendedLogState.selectedCommits.has(hash)) {
+    // Already selected, so nothing to change — but the webview asks for this on
+    // every right-click, and it is the only chance to answer with a gating map.
+    // A full re-render resets the webview's map to null while restoring the
+    // selected rows, so returning here left the menu with no gating at all.
+    ctx.postMenuStateUpdate();
     return;
   }
   ctx.selectCommit(hash);
@@ -630,6 +635,15 @@ export function handleCommitContextMenu(
   if (stale.length > 0) {
     void vscode.window.showInformationMessage(
       'Commit selection changed since the menu opened — please retry.'
+    );
+    return;
+  }
+  // The rows were drawn from a map the host posted for an earlier selection,
+  // so "the user could click it" is not proof the rules allow it. Re-check
+  // against the hashes this message carries.
+  if (!ctx.isMenuActionEnabled(action, commitHashes)) {
+    void vscode.window.showInformationMessage(
+      'That action is not available for the selected commits.'
     );
     return;
   }

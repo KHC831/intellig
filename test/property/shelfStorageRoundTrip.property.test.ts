@@ -18,7 +18,10 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { migrateShelfStorageForTest, serializeShelfForDisk } from '../../src/shelf/ShelfService';
+import {
+  migrateShelfStorageForTest,
+  serializeShelfForDisk,
+} from '../../src/shelf/shelfStorageMigrate';
 
 describe('ShelfService storage round-trip — TL-34', () => {
   // ── Arbitraries ────────────────────────────────────────────────────────

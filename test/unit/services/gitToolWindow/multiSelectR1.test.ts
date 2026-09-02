@@ -18,7 +18,6 @@
  *   - Right-click on a non-selected commit clears the
  *     selection and selects only that commit (host-side state mirrors
  *     the JS-side mutation).
- *   - `data-head-hash` is HTML-escaped.
  *   - `selectCommits(hashes, anchor?)` public API.
  *   - `_handleCommitContextMenu` validates each hash
  *     against `commitNodes` and aborts with a toast on drift.
@@ -31,6 +30,7 @@ import '../../../setup';
 import { readGtwWebviewSource } from '../../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { installInfoMessageTracker, restoreMessageFunctions } from '../../../typed/windowStub';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
@@ -45,6 +45,14 @@ import {
   computeMenuVisibility,
   type MultiSelectMenuAction,
 } from '../../../../src/git-core/gitToolWindow/multiSelect';
+import { renderMenuMarkup } from '../../../helpers/renderMenuMarkup';
+import {
+  COMMIT_MENU,
+  COMMIT_MENU_ITEMS,
+} from '../../../../src/git-core/gitToolWindow/webview/menuDefinitions';
+
+/** The commit menu's markup, as the webview widget renders it. */
+const commitMenuMarkup = (): string => renderMenuMarkup(COMMIT_MENU_ITEMS, COMMIT_MENU);
 
 /** Narrow surface into provider internals for state assertions. */
 interface MultiSelectInternalsR1 {
@@ -400,7 +408,7 @@ describe('provider integration', () => {
   // ───: resetToHere single-only at HTML level ──────────────────
   describe('R1 Step 5 H-1 — resetToHere is now single-only', () => {
     it('resetToHere is rendered and gated single-only (hidden at N>=2)', () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       assert.ok(html.includes('data-action="resetToHere"'), 'resetToHere row must be rendered');
       assert.strictEqual(
         computeMenuVisibility(2).resetToHere,
@@ -444,27 +452,6 @@ describe('provider integration', () => {
         Array.from(internals._extendedLogState.selectedCommits).sort(),
         ['aaa', 'bbb'],
         'right-click on a selected commit must keep the multi-selection intact'
-      );
-    });
-  });
-
-  // ───: data-head-hash escaped ─────────────────────────────────
-  describe('R1 Step 6 M-4 — data-head-hash is HTML-escaped', () => {
-    it('does not pass raw quotes through the data-head-hash interpolation', () => {
-      // Inject a malicious-looking hash via updateLogState. Real git
-      // hashes are hex-only, but defense-in-depth — every interpolation
-      // we control should round-trip through _escapeHtml.
-      const evilHash = 'ev"il<script>alert(1)</script>';
-      provider.updateLogState([mkCommit(evilHash)]);
-
-      const html = provider._getCommitContextMenuHtml();
-      assert.ok(
-        !html.includes('<script>alert(1)</script>'),
-        'data-head-hash must HTML-escape its interpolation'
-      );
-      assert.ok(
-        html.includes('&lt;script&gt;') || html.includes('&quot;') || !html.includes('<script>'),
-        'an escaped form of the malicious hash must appear in the rendered HTML'
       );
     });
   });
@@ -553,6 +540,39 @@ describe('provider integration', () => {
         commitHashes: ['aaa', 'bbb'],
       });
     });
+
+    it('re-checks the action against the rules and refuses one the selection does not allow', () => {
+      // The stale-hash check above only proves the hashes are still real
+      // commits, not that the rules still allow this action on them: the map
+      // the webview drew its rows from was computed for an earlier
+      // selection. compareVersions requires exactly two selected commits —
+      // a single-hash message must be refused even though the hash itself
+      // is valid.
+      const internals = provider as unknown as MultiSelectInternalsR1;
+      provider.updateLogState([mkCommit('aaa'), mkCommit('bbb', 'b', ['aaa'])]);
+
+      let fired = false;
+      const sub = provider.onDidRequestLogContextAction(() => {
+        fired = true;
+      });
+      const tracker = installInfoMessageTracker();
+      try {
+        internals._handleWebviewMessage({
+          type: 'commitContextMenu',
+          action: 'compareVersions',
+          commitHashes: ['aaa'],
+        });
+
+        assert.strictEqual(fired, false, 'the rules do not allow compareVersions on one commit');
+        assert.ok(
+          tracker.calls.some((c) => c.message.includes('not available for the selected commits')),
+          `expected a refusal toast; got: ${JSON.stringify(tracker.calls)}`
+        );
+      } finally {
+        sub.dispose();
+        restoreMessageFunctions();
+      }
+    });
   });
 
   // ─── Keyboard range-select ────────────────────────────────────────
@@ -592,7 +612,7 @@ describe('provider integration', () => {
   // ─── C-2 structural: every data-action has a CommitContextMenuCommands case
   describe('R1 Step 4 C-2 — every menu data-action has a matching case in CommitContextMenuCommands', () => {
     it('renders only data-action values that the action handler recognises', async () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       const renderedActions = Array.from(html.matchAll(/data-action="([a-zA-Z]+)"/g)).map(
         (m) => m[1]
       );

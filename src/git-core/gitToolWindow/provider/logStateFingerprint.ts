@@ -35,7 +35,7 @@ export function fingerprintLogState(
   }
   parts.push(SECTION_SEP);
   if (branchMap) {
-    // row-key-exempt: opaque fingerprint token, never a commit hash
+    // row-key-exempt: opaque fingerprint token, never a commit hash — ref-sort-exempt: never a displayed name either
     for (const key of [...branchMap.keys()].sort()) {
       const refs = branchMap.get(key) ?? [];
       parts.push(
@@ -43,16 +43,18 @@ export function fingerprintLogState(
           NAME_SEP +
           refs
             .map((ref) => ref.name + NAME_SEP + ref.type)
-            .sort()
+            .sort() // ref-sort-exempt: opaque fingerprint token
             .join(ENTRY_SEP)
       );
     }
   }
   parts.push(SECTION_SEP);
   if (tagMap) {
-    // row-key-exempt: opaque fingerprint token, never a commit hash
+    // row-key-exempt: opaque fingerprint token, never a commit hash — ref-sort-exempt: never a displayed name either
     for (const key of [...tagMap.keys()].sort()) {
-      parts.push(key + NAME_SEP + [...(tagMap.get(key) ?? [])].sort().join(ENTRY_SEP));
+      parts.push(
+        key + NAME_SEP + [...(tagMap.get(key) ?? [])].sort().join(ENTRY_SEP) // ref-sort-exempt: opaque fingerprint token
+      );
     }
   }
   parts.push(SECTION_SEP, headHash ?? '', headBranchName ?? '', String(totalAvailable ?? ''));

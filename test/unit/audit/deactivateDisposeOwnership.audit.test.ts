@@ -75,7 +75,15 @@ const MANUAL_OWNED = [
 
 describe('deactivate() disposal ownership', () => {
   const deactivateBody = functionBody(read('src/extension.ts'), 'deactivate');
-  const registerViews = read('src/registration/registerViews.ts');
+  // Registration is spread across a few modules as registerViews is split up.
+  // Read them as one corpus so this audit asserts "registered SOMEWHERE at
+  // activation", which is the actual invariant — pinning it to one filename
+  // makes the audit fail on a pure move, and worse, silently stop checking if
+  // the grep is later relaxed to match.
+  const registerViews = [
+    read('src/registration/registerViews.ts'),
+    read('src/registration/registerEditorProviders.ts'),
+  ].join('\n');
   // StashView/ShelfView are created (and disposal-registered) by the
   // singleton factory, not inline in registerViews.
   const viewSingletons = read('src/shelf/viewSingletons.ts');

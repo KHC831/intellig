@@ -383,11 +383,10 @@ export function setupLogFilterRow(deps: ILogFilterRowDeps): IFilterBridge | null
   }
 
   window.addEventListener('blur', function () {
+    // This module's own popups only. The context menus dismiss themselves
+    // through the shared widget, which also hands focus back to the row that
+    // opened them; hiding one from here would skip that.
     closeAllPopups();
-    const menu = document.getElementById('commit-context-menu');
-    if (menu) {
-      menu.hidden = true;
-    }
   });
 
   document.addEventListener('click', function (e) {

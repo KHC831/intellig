@@ -20,7 +20,7 @@
 
 import { promises as fsp } from 'fs';
 import * as nodePath from 'path';
-import { GitCli } from '../gitCli';
+import { GitCli, literalPathspec } from '../gitCli';
 
 /** One path to bring back to its HEAD state. */
 export interface IRestoreToHeadRequest {
@@ -140,10 +140,10 @@ export async function restorePathsToHead(
     // 128 having removed NOTHING — batch-mates silently stayed staged. With
     // it, a non-zero exit means something real (index.lock contention) and
     // must throw.
-    await gitCli.exec(['rm', '--cached', '-f', '--ignore-unmatch', '--', ...unindexPaths], {
-      cwd,
-      throwOnError: true,
-    });
+    await gitCli.exec(
+      ['rm', '--cached', '-f', '--ignore-unmatch', '--', ...unindexPaths.map(literalPathspec)],
+      { cwd, throwOnError: true }
+    );
   }
 
   for (const rel of diskDeletes) {
@@ -151,7 +151,7 @@ export async function restorePathsToHead(
   }
 
   if (checkoutPaths.length > 0) {
-    await gitCli.exec(['checkout', 'HEAD', '--', ...checkoutPaths], {
+    await gitCli.exec(['checkout', 'HEAD', '--', ...checkoutPaths.map(literalPathspec)], {
       cwd,
       throwOnError: true,
     });

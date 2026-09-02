@@ -1331,6 +1331,26 @@ index 1234567,abcdefg..fedcba9
       const output = ['refs/heads/main', '', '   ', 'refs/heads/dev'].join('\n');
       assert.deepStrictEqual(parseContainingBranches(output), ['dev', 'main']);
     });
+
+    it('parseContainingBranches-7: sorts through compareRefNames, not code-unit order', () => {
+      // Mixed case diverges from a bare .sort(): code-unit puts every
+      // capitalised name first (Backup, Upstream, fork, upstream); the
+      // Branches tree and the log filter both order this Backup, fork,
+      // upstream, Upstream (locale tie-break: lowercase before uppercase
+      // for an otherwise-equal name) — the commit-details panel must agree.
+      const output = [
+        'refs/heads/Backup',
+        'refs/heads/fork',
+        'refs/heads/Upstream',
+        'refs/heads/upstream',
+      ].join('\n');
+      assert.deepStrictEqual(parseContainingBranches(output), [
+        'Backup',
+        'fork',
+        'upstream',
+        'Upstream',
+      ]);
+    });
   });
 
   describe('parseBlame', () => {

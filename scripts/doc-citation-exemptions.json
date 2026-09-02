@@ -1,0 +1,52 @@
+[
+  {
+    "doc": "docs/testing.md",
+    "citedPath": "test/runTest.ts",
+    "reason": "the retired legacy aggregate harness this paragraph describes as removed"
+  },
+  {
+    "doc": "docs/testing.md",
+    "citedPath": "test/suite/index.ts",
+    "reason": "the retired legacy aggregate harness's recursive Mocha loader, described as removed in the same paragraph"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "scripts/restructure/plan.json",
+    "reason": "retired one-time migration artifact; the doc's own header marks its Decision/Consequences/References body as preserved verbatim as the original record"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "scripts/restructure/migrate.mjs",
+    "reason": "retired one-time migration artifact; the doc's own header marks its Decision/Consequences/References body as preserved verbatim as the original record"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "src/test/property/restructurePlanTotality.property.test.ts",
+    "reason": "retired migration-only property test, listed in the historical removal record table"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "src/test/property/migrateBoundary.property.test.ts",
+    "reason": "retired migration-only property test, listed in the historical removal record table"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "src/test/property/migrateIdempotence.property.test.ts",
+    "reason": "retired migration-only property test, listed in the historical removal record table"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "src/test/property/migrateImportRewrite.property.test.ts",
+    "reason": "retired migration-only property test, listed in the historical removal record table"
+  },
+  {
+    "doc": "docs/adr/ADR-012-topical-source-tree.md",
+    "citedPath": "src/services/GitService.ts",
+    "reason": "illustrative from-path in the completed migration's plan.json example"
+  },
+  {
+    "doc": "docs/adr/ADR-007-structural-guards-as-complementary-tool.md",
+    "citedPath": "test/unit/services/notificationService.test.ts",
+    "reason": "NotificationService was later deleted as dead code (never invoked in production); this bullet records what its test illustrated"
+  }
+]

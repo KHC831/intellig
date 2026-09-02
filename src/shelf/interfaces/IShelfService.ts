@@ -217,9 +217,11 @@ export interface IShelfService {
 
   /**
    * Re-activate a previously Already-Unshelved entry by clearing
-   * `unshelvedAt`. Idempotent.
+   * `unshelvedAt`. Idempotent. Returns whether it actually changed anything
+   * — false for an unknown id or an entry that was not already-unshelved, so
+   * a caller cannot report success for a call that changed nothing.
    */
-  restoreShelf(repo: IRepository, shelfId: string): void;
+  restoreShelf(repo: IRepository, shelfId: string): boolean;
 
   /**
    * Remove successfully-applied files from a shelf entry, preserving

@@ -22,6 +22,7 @@ import {
 import { sanitizeGitError } from '../git-core/gitError';
 import { openRevisionDiff } from '../git-core/diff/openRevisionDiff';
 import { buildGitArgs } from '../git-core/gitCli';
+import { relativeTime } from '../utils/relativeTime';
 
 /**
  * Quick pick item for branch selection
@@ -543,7 +544,7 @@ export class BranchComparisonView implements IBranchComparisonView {
         items.push({
           label: `  $(git-commit) ${commit.shortHash}`,
           description: this._truncateMessage(commit.message),
-          detail: `${commit.author.name} • ${this._getRelativeTime(commit.authorDate)}`,
+          detail: `${commit.author.name} • ${relativeTime(commit.authorDate)}`,
           type: 'commit-ahead',
           commit,
         });
@@ -562,7 +563,7 @@ export class BranchComparisonView implements IBranchComparisonView {
         items.push({
           label: `  $(git-commit) ${commit.shortHash}`,
           description: this._truncateMessage(commit.message),
-          detail: `${commit.author.name} • ${this._getRelativeTime(commit.authorDate)}`,
+          detail: `${commit.author.name} • ${relativeTime(commit.authorDate)}`,
           type: 'commit-behind',
           commit,
         });
@@ -657,10 +658,9 @@ export class BranchComparisonView implements IBranchComparisonView {
       // `-`-leading ref). Route the range through buildGitArgs so
       // `--end-of-options` is spliced ahead of it — git can never parse a
       // `-`-leading branch as a flag (e.g. `git diff --output=<file>`).
-      const result = await gitCli.exec(
-        buildGitArgs('diff', [], [`${this._state.branch1}...${this._state.branch2}`], [filePath]),
-        { cwd: this._repository.rootUri.fsPath }
-      );
+      const range = `${this._state.branch1}...${this._state.branch2}`;
+      const argv = buildGitArgs('diff', [], [range], [filePath]);
+      const result = await gitCli.exec(argv, { cwd: this._repository.rootUri.fsPath });
 
       if (result.exitCode !== 0 || !result.stdout.trim()) {
         void vscode.window.showInformationMessage('No differences found for this file');
@@ -761,34 +761,6 @@ export class BranchComparisonView implements IBranchComparisonView {
       return firstLine;
     }
     return firstLine.substring(0, maxLength - 3) + '...';
-  }
-
-  /**
-   * Get relative time string from a date.
-   */
-  private _getRelativeTime(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffWeeks = Math.floor(diffDays / 7);
-    const diffMonths = Math.floor(diffDays / 30);
-
-    if (diffSecs < 60) {
-      return 'just now';
-    } else if (diffMins < 60) {
-      return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-    } else if (diffWeeks < 4) {
-      return `${diffWeeks} week${diffWeeks !== 1 ? 's' : ''} ago`;
-    } else {
-      return `${diffMonths} month${diffMonths !== 1 ? 's' : ''} ago`;
-    }
   }
 }
 

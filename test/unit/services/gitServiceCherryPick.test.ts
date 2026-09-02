@@ -23,6 +23,7 @@ import * as assert from 'assert';
 import { GitService } from '../../../src/git-core/GitService';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 // ─── MockGitCli — copy of the pattern used in GitService.test.ts ─────────────
 
@@ -224,7 +225,13 @@ describe('GitService.cherryPick — variants', () => {
       // `checkout HEAD -- …` — restoring from HEAD, not the index.
       const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
       assert.ok(checkout, 'a checkout HEAD must restore the dropped files');
-      assert.deepStrictEqual(checkout.args, ['checkout', 'HEAD', '--', 'b.ts', 'c.ts']);
+      assert.deepStrictEqual(checkout.args, [
+        'checkout',
+        'HEAD',
+        '--',
+        literalPathspec('b.ts'),
+        literalPathspec('c.ts'),
+      ]);
       assert.strictEqual(
         mockGitCli.findCommand(['reset', 'HEAD']),
         undefined,
@@ -256,10 +263,10 @@ describe('GitService.cherryPick — variants', () => {
 
       const rm = mockGitCli.findCommand(['rm', '--cached']);
       assert.ok(rm, 'the commit-added file must be unindexed, not checked out');
-      assert.ok(rm.args.includes('added.ts'));
+      assert.ok(rm.args.includes(literalPathspec('added.ts')));
       const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
       assert.ok(
-        !checkout || !checkout.args.includes('added.ts'),
+        !checkout || !checkout.args.includes(literalPathspec('added.ts')),
         'the HEAD-absent added file must never be checked out'
       );
     });
@@ -285,7 +292,12 @@ describe('GitService.cherryPick — variants', () => {
       // from HEAD via the shared writer.
       const checkout = mockGitCli.findCommand(['checkout', 'HEAD']);
       assert.ok(checkout, 'a checkout HEAD should restore the dropped file');
-      assert.deepStrictEqual(checkout.args, ['checkout', 'HEAD', '--', 'other.ts']);
+      assert.deepStrictEqual(checkout.args, [
+        'checkout',
+        'HEAD',
+        '--',
+        literalPathspec('other.ts'),
+      ]);
     });
 
     it('forces --no-commit even when caller did not request it', async () => {
@@ -352,7 +364,10 @@ describe('GitService.cherryPick — variants', () => {
       assert.ok(checkout, 'a checkout HEAD should restore the dropped union');
       // Order of b.ts / c.ts depends on Set iteration; assert set equality.
       const dropped = checkout.args.slice(3); // skip 'checkout', 'HEAD', '--'
-      assert.deepStrictEqual([...dropped].sort(), ['b.ts', 'c.ts']);
+      assert.deepStrictEqual(
+        [...dropped].sort(),
+        [literalPathspec('b.ts'), literalPathspec('c.ts')].sort()
+      );
     });
   });
 

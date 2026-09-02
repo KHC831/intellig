@@ -1,19 +1,25 @@
 /**
- * The Commit tool window's changelist/file context-menu surface: the pure
- * row label builders and the action dispatcher for every changelist and file
- * action (including the contextOpen QuickPick flow, which recurses with the
- * chosen action). Extracted verbatim from CommitToolWindow; the deps are
- * live method views because the QuickPick awaits mean state must be read at
- * action time, never captured at dispatch start.
+ * The Commit tool window's changelist/file context-menu surface: the pure row
+ * label builders and the action dispatcher for every changelist and file
+ * action, including the `contextOpen` ping that answers a right-click with the
+ * menu's items.
+ *
+ * The deps are live method views, not captured values: a dispatch awaits (repo
+ * resolution, the active changelist, the user's own confirms) and the state
+ * must be read at action time rather than at dispatch start.
  */
 
+import type { CommitToolWindowOutbound } from './commitToolWindow.protocol';
+import { answerContextOpen } from './contextOpenAnswer';
 import * as vscode from 'vscode';
 import type { IChangelist, IFileChange } from '../changelists/interfaces/IChangelistService';
 import type { FileStatus, IRepository } from '../git-core/interfaces/IGitService';
+import { getLogger } from '../utils/logger';
 import type {
   ChangelistAction,
   FileAction,
   ICommitToolWebviewMessage,
+  ICtwMenuItem,
 } from './commitToolWindow.types';
 
 /**
@@ -23,18 +29,25 @@ import type {
  *
  * Entries are intentionally kept in the order the IR lists them.
  */
-export function fileContextMenuLabels(file: IFileChange): Array<{
-  label: string;
-  action: FileAction;
-  shortcut?: string;
-}> {
-  const items: Array<{ label: string; action: FileAction; shortcut?: string }> = [
+export function fileContextMenuLabels(file: IFileChange): ICtwMenuItem[] {
+  const items: ICtwMenuItem[] = [];
+  // Conflict actions lead for an unmerged file, matching IntelliJ's
+  // Git.ChangesView.Conflicts group (anchor="first"): when a merge has
+  // stopped, the actions that finish it should not sit under Rollback.
+  if (file.status === 'conflicted') {
+    items.push(
+      { label: 'Resolve…', action: 'resolveConflictFile' },
+      { label: 'Accept Yours', action: 'acceptYours' },
+      { label: 'Accept Theirs', action: 'acceptTheirs' }
+    );
+  }
+  items.push(
     { label: 'Show Diff', action: 'showDiff', shortcut: 'Ctrl+D' },
     { label: 'Jump to Source', action: 'jumpToSource', shortcut: 'F4' },
     { label: 'Move to Another Changelist…', action: 'moveToChangelist', shortcut: 'Alt+Shift+M' },
-    { label: 'Rollback…', action: 'rollback', shortcut: 'Ctrl+Alt+Z' },
-    { label: 'Shelve Changes…', action: 'shelve' },
-  ];
+    { label: 'Rollback…', action: 'rollback', shortcut: 'Ctrl+Alt+Z', danger: true },
+    { label: 'Shelve Changes…', action: 'shelve' }
+  );
   if (file.status === 'untracked') {
     items.push({ label: 'Add to VCS', action: 'addToVcs', shortcut: 'Ctrl+Alt+A' });
   }
@@ -53,7 +66,7 @@ export function fileContextMenuLabels(file: IFileChange): Array<{
 export function changelistContextMenuLabels(input: {
   isActive: boolean;
   isDefault: boolean;
-}): Array<{ label: string; action: ChangelistAction; disabled?: boolean }> {
+}): ICtwMenuItem[] {
   return [
     { label: 'New Changelist…', action: 'new' },
     {
@@ -67,6 +80,7 @@ export function changelistContextMenuLabels(input: {
       label: 'Remove Changelist',
       action: 'delete',
       disabled: input.isDefault,
+      danger: true,
     },
     { label: 'Commit Only This Changelist…', action: 'commitOnly' },
     { label: 'Shelve Changes', action: 'shelve' },
@@ -82,6 +96,8 @@ export interface IChangelistActionDeps {
   findChangeStatus: (path: string) => FileStatus | undefined;
   findFileChange: (path: string) => IFileChange | undefined;
   reloadState: () => Promise<void>;
+  /** Send the computed menu to the webview, which draws it at the pointer. */
+  showContextMenu: (message: CommitToolWindowOutbound) => Promise<void> | void;
 }
 
 /**
@@ -112,75 +128,61 @@ export async function handleChangelistAction(
     return;
   }
 
-  // The webview posts `contextOpen` on right-click to ask the host to
-  // present the IntelliJ-parity menu. We populate a QuickPick from the
-  // already-tested label helpers (fileContextMenuLabels /
-  // changelistContextMenuLabels) and recurse with the user's pick. A file
-  // path on the message wins: file rows take precedence because a right-
-  // click on a file row always carries both `path` and `changelistId`.
+  // The webview posts `contextOpen` on right-click and the host answers with
+  // the items, which the webview draws under the pointer. The labels stay here
+  // (fileContextMenuLabels / changelistContextMenuLabels) so there is one
+  // definition of what the menu contains. A file path on the message wins:
+  // right-clicking a file row carries both `path` and `changelistId`.
   if (action === 'contextOpen') {
     if (message.path) {
-      const file = deps.findFileChange(message.path);
-      // If we don't have metadata for the path (e.g. stale state), fall
-      // back to a minimal modified-file menu — better than silently
+      const path = message.path;
+      const changelistId = message.changelistId;
+      // Never bails: a path with no changelist metadata (e.g. stale state)
+      // still renders a minimal modified-file menu rather than silently
       // dropping the right-click.
-      const fallback: IFileChange = {
-        path: message.path,
-        status: 'modified',
-        staged: false,
-      };
-      const labels = fileContextMenuLabels(file ?? fallback);
-      const picked = await vscode.window.showQuickPick(
-        labels.map((l) => ({
-          label: l.label,
-          description: l.shortcut,
-          _action: l.action,
-        })),
-        { title: message.path, placeHolder: 'Select an action' }
-      );
-      if (!picked) {
-        return;
-      }
-      await handleChangelistAction(deps, {
-        ...message,
-        action: picked._action,
+      await answerContextOpen(deps.showContextMenu, () => {
+        const file = deps.findFileChange(path);
+        const fallback: IFileChange = { path, status: 'modified', staged: false };
+        return {
+          type: 'showRowContextMenu',
+          path,
+          changelistId,
+          items: fileContextMenuLabels(file ?? fallback),
+        };
       });
       return;
     }
     if (message.changelistId) {
-      const changelist = deps.getChangelists().find((c) => c.id === message.changelistId);
-      // isActive is resolved against the authoritative service call when
-      // available; if the lookup fails we still render the menu with
-      // default flags so the right-click isn't a no-op.
-      let isActive = false;
-      try {
-        const repo = await deps.resolveRepo();
-        if (repo) {
-          const active = await deps.getActiveChangelist(repo);
-          isActive = !!active && active.id === message.changelistId;
+      const changelistId = message.changelistId;
+      // Never bails either: an id that no longer matches any changelist, or
+      // a throwing isActive lookup, still renders a menu with default flags
+      // rather than dropping the right-click.
+      await answerContextOpen(deps.showContextMenu, async () => {
+        const changelist = deps.getChangelists().find((c) => c.id === changelistId);
+        let isActive = false;
+        try {
+          const repo = await deps.resolveRepo();
+          if (repo) {
+            const active = await deps.getActiveChangelist(repo);
+            isActive = !!active && active.id === changelistId;
+          }
+        } catch (error) {
+          // Best-effort — some tests stub the service with a resolved
+          // undefined / throw; we just fall back to isActive:false.
+          getLogger()
+            .child({ component: 'changelistTab' })
+            .warn('Failed to read the active changelist for a right-click menu', {
+              error: String(error),
+            });
         }
-        // eslint-disable-next-line no-restricted-syntax -- no logger in scope; best-effort isActive lookup falls back to false so the right-click menu still renders.
-      } catch {
-        // Best-effort — some tests stub the service with a resolved
-        // undefined / throw; we just fall back to isActive:false.
-      }
-      const labels = changelistContextMenuLabels({
-        isActive,
-        isDefault: changelist?.isDefault ?? false,
-      });
-      const picked = await vscode.window.showQuickPick(
-        labels.filter((l) => !l.disabled).map((l) => ({ label: l.label, _action: l.action })),
-        {
-          title: changelist?.name ?? 'Changelist',
-          placeHolder: 'Select an action',
-        }
-      );
-      if (!picked) {
-        return;
-      }
-      await handleChangelistAction(deps, {
-        ...message,
-        action: picked._action,
+        return {
+          type: 'showRowContextMenu',
+          changelistId,
+          items: changelistContextMenuLabels({
+            isActive,
+            isDefault: changelist?.isDefault ?? false,
+          }),
+        };
       });
       return;
     }
@@ -240,6 +242,36 @@ export async function handleChangelistAction(
       const files = message.targetFiles ?? (message.path ? [message.path] : undefined);
       if (files) {
         await vscode.commands.executeCommand('intellig.changelist.moveFilesTo', files);
+      }
+      return;
+    }
+    // Resolve routes through the shared Show Diff seam, which sends an
+    // unmerged path to the merge window before it builds a two-pane diff.
+    case 'resolveConflictFile':
+      if (message.path) {
+        await openFileDiffSurface(deps, message.path);
+      }
+      return;
+    // Accept one side without opening anything. `reversed` is left to the
+    // service, which auto-detects it from repository state — a rebase puts the
+    // user's own commit on stage 3, so re-deciding that here would be a second
+    // place for the swap to be got wrong.
+    case 'acceptYours':
+    case 'acceptTheirs': {
+      if (!message.path) {
+        return;
+      }
+      const fileUri = await deps.resolveFileUri(message.path);
+      if (!fileUri) {
+        return;
+      }
+      // A literal id per branch, not a computed one: the dispatch-targets
+      // guard inventories these, and an id built at runtime drops out of that
+      // inventory — a later rename would then pass the gate green.
+      if (action === 'acceptTheirs') {
+        await vscode.commands.executeCommand('intellig.conflict.acceptIncomingFile', fileUri);
+      } else {
+        await vscode.commands.executeCommand('intellig.conflict.acceptCurrentFile', fileUri);
       }
       return;
     }

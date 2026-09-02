@@ -31,6 +31,7 @@ import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { renderDiffAsText } from './diffText';
 import { gatherPatchFiles } from './gatherPatchFiles';
+import { relativeTime } from '../utils/relativeTime';
 
 /**
  * URI scheme for the read-only virtual document that holds the reconstructed
@@ -938,7 +939,7 @@ export class ShelfView implements IShelfView {
       (item) => ({
         label: `$(trash) ${item.name}`,
         description: `${item.files.length} file${item.files.length !== 1 ? 's' : ''}`,
-        detail: item.deletedAt ? `deleted ${this._getRelativeTime(item.deletedAt)}` : undefined,
+        detail: item.deletedAt ? `deleted ${relativeTime(item.deletedAt)}` : undefined,
         shelfItem: item,
       })
     );
@@ -1119,9 +1120,7 @@ export class ShelfView implements IShelfView {
     }
   }
 
-  /**
-   * Reactivate an Already-Unshelved entry by clearing its `unshelvedAt`.
-   */
+  /** Reactivate an Already-Unshelved entry; the service no-ops on a stale id. */
   restoreShelfItem(id: string): IShelfActionResult {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
@@ -1130,7 +1129,9 @@ export class ShelfView implements IShelfView {
     if (!shelfItem) {
       return { success: false, error: `Shelf item not found: ${id}` };
     }
-    this._shelfService.restoreShelf(this._repository, id);
+    if (!this._shelfService.restoreShelf(this._repository, id)) {
+      return { success: false, error: `Shelf item is not marked as unshelved: ${id}` };
+    }
     void vscode.window.showInformationMessage(`Restored shelf: "${shelfItem.name}"`);
     this._onDidRequestAction.fire({ action: 'restore', shelfItem });
     return { success: true, action: 'restore', shelfItem };
@@ -1513,13 +1514,13 @@ export class ShelfView implements IShelfView {
     // Add shelf items
     for (const item of this._state.shelfItems) {
       const shelfItem = item.shelfItem;
-      const relativeTime = this._getRelativeTime(shelfItem.timestamp);
+      const age = relativeTime(shelfItem.timestamp);
       const fileCount = shelfItem.files.length;
 
       items.push({
         label: `$(archive) ${shelfItem.name}`,
         description: `${fileCount} file${fileCount !== 1 ? 's' : ''}`,
-        detail: relativeTime,
+        detail: age,
         shelfItem,
       });
     }
@@ -1533,34 +1534,6 @@ export class ShelfView implements IShelfView {
   private _findShelfItemById(id: string): IShelfItem | undefined {
     const item = this._state.shelfItems.find((s) => s.shelfItem.id === id);
     return item?.shelfItem;
-  }
-
-  /**
-   * Get relative time string from a date.
-   */
-  private _getRelativeTime(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffWeeks = Math.floor(diffDays / 7);
-    const diffMonths = Math.floor(diffDays / 30);
-
-    if (diffSecs < 60) {
-      return 'just now';
-    } else if (diffMins < 60) {
-      return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-    } else if (diffWeeks < 4) {
-      return `${diffWeeks} week${diffWeeks !== 1 ? 's' : ''} ago`;
-    } else {
-      return `${diffMonths} month${diffMonths !== 1 ? 's' : ''} ago`;
-    }
   }
 
   /**

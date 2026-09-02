@@ -66,8 +66,6 @@ import {
   buildLoadingHtml,
   buildNoRepositoryHtml,
   buildUndockedPlaceholderHtml,
-  buildCommitContextMenuHtml,
-  buildFileContextMenuHtml,
   getFileStatusColor,
 } from './provider/htmlBuilders';
 import { safeFireAndForget } from '../../utils/safeFireAndForget';
@@ -111,6 +109,7 @@ import { dispatchGuardedWebviewMessage } from '../../utils/webviewMessageGuard';
 import {
   computeMenuState,
   type IMenuItemState,
+  type IMenuStateInputs,
   type IMenuStateNode,
   type MultiSelectMenuAction,
 } from './multiSelect';
@@ -1715,10 +1714,7 @@ export class GitToolWindowProvider
    * Cheap: the helper is O(N) on `commitNodes.length` and runs per
    * selection edit, not per render.
    */
-  private _postMenuStateUpdate(): void {
-    if (!this.hasView()) {
-      return;
-    }
+  private _menuStateInputs(selectedHashes: ReadonlySet<string>): IMenuStateInputs {
     const commitNodes = this._extendedLogState.commitNodes.map((n) => ({
       hash: n.commit.hash,
       parentCount: (n.commit.parents || []).length,
@@ -1726,19 +1722,44 @@ export class GitToolWindowProvider
       // (HEAD-ancestor reachability over the loaded window).
       parents: n.commit.parents || [],
     }));
-    // The real head hash, not the top row's: HEAD is only the newest commit
-    // when it sits at the tip of the loaded log. `computeMenuState`'s
-    // HEAD-membership rule gates "Reset to here", "Squash" and friends, so a
-    // detached HEAD at an older commit must not read as the first row.
-    const headHash = this._extendedLogState.headHash ?? '';
-    const state = computeMenuState({
-      selectedHashes: this._extendedLogState.selectedCommits,
+    return {
+      selectedHashes,
       commitNodes,
-      headHash,
+      // The real head hash, not the top row's: HEAD is only the newest commit
+      // when it sits at the tip of the loaded log. `computeMenuState`'s
+      // HEAD-membership rule gates "Reset to here", "Squash" and friends, so a
+      // detached HEAD at an older commit must not read as the first row.
+      headHash: this._extendedLogState.headHash ?? '',
       // Merged scope suppresses the single headHash; the per-root HEAD set
       // keeps undoCommit enabled for the clicked commit's own-repo HEAD.
       headHashes: this.log.getMergedHeads(),
-    });
+    };
+  }
+
+  /**
+   * Would the menu rules allow `action` on `hashes`?
+   *
+   * The map the webview draws its rows from is computed for one selection and
+   * posted; a right-click that moves the selection redraws the menu a
+   * round-trip before the new map lands, so what the user sees enabled is not
+   * proof the rules allow it. The rules live here, so the answer is taken here
+   * rather than trusted from the message.
+   */
+  isMenuActionEnabled(action: string, hashes: readonly string[]): boolean {
+    const state: Record<string, IMenuItemState> = computeMenuState(
+      this._menuStateInputs(new Set(hashes))
+    );
+    const entry = state[action];
+    // Actions the rules do not govern carry no entry — absent is unrestricted,
+    // the same convention the webview's own fallback applies.
+    return !entry || (entry.visible !== false && entry.enabled !== false);
+  }
+
+  private _postMenuStateUpdate(): void {
+    if (!this.hasView()) {
+      return;
+    }
+    const state = computeMenuState(this._menuStateInputs(this._extendedLogState.selectedCommits));
     const msg: WaveAOutboundMessage = {
       type: 'updateMenuEnableState',
       state,
@@ -2440,9 +2461,6 @@ export class GitToolWindowProvider
     // True only while `_renderForGesture` is on the stack.
     const restoreFocus = this._restoreFocusOnNextRender;
 
-    // Commit context menu (branch context menu removed — handled by native tree view)
-    const commitContextMenuHtml = this._getCommitContextMenuHtml();
-
     // Use 2-panel widths directly
     const graphWidth = widths[0];
     const detailsWidth = widths[1];
@@ -2455,9 +2473,6 @@ export class GitToolWindowProvider
     </div>
     <div class="panel-divider" data-divider="0" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
     <div id="details-panel" class="panel" style="width: ${detailsWidth}%;" role="region" aria-label="Details Panel"></div>
-    ${commitContextMenuHtml}
-    ${buildFileContextMenuHtml()}
-    <div id="ref-popup" class="context-menu" hidden role="menu" aria-label="Branches at this commit"></div>
   </div>`;
 
     // When the tabbed-layout flag is ON, wrap the Log body with the tab
@@ -2704,26 +2719,6 @@ export class GitToolWindowProvider
     branchColors?: ReadonlyMap<string, string>
   ): string {
     return buildBranchLabelsHtml(node, branchColors, this._extendedLogState);
-  }
-
-  /**
-   * Get the commit context menu HTML overlay for the Graph Panel.
-   * Renders a context menu with all 7 required options:
-   * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,
-   * Show Repository at Revision, Compare with Local, Reset Current Branch to Here,
-   * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message…,
-   * Merge into Current Branch, Interactively Rebase from Here.
-   *
-   * Items are organized into four sections separated by dividers:
-   * Navigation & Inspection, Branch Operations, History Manipulation, Merge & Integration.
-   *
-   * The menu is hidden by default and shown on right-click via JS handlers.
-   * The data-head-hash attribute stores the HEAD commit hash for disabled state logic.
-   *
-   * @returns HTML string for the commit context menu overlay
-   */
-  public _getCommitContextMenuHtml(): string {
-    return buildCommitContextMenuHtml(this);
   }
 
   /**

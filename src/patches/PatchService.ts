@@ -19,6 +19,7 @@ import {
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
+import { literalPathspec } from '../git-core/gitCli';
 import { isAmSession, resolveGitDir } from '../git-core/gitDirMarkers';
 import {
   createWorkingStateSnapshot,
@@ -320,12 +321,9 @@ export class PatchService implements IPatchService {
       argv.push('-R');
     }
     if (options.files && options.files.length > 0) {
-      argv.push('--', ...options.files);
+      argv.push('--', ...options.files.map(literalPathspec));
     }
-    const result = await gitCli.exec(argv, {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: false,
-    });
+    const result = await gitCli.exec(argv, { cwd: repo.rootUri.fsPath, throwOnError: false });
     // Fail closed on a capped diff: the captured stdout is a prefix of the
     // real diff, so the patch would be silently corrupt (apply/am would fail
     // downstream). Refuse to deliver rather than write junk.

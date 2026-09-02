@@ -25,10 +25,10 @@ describe('Git tool window entry — keyboard ContextMenu key (W1, jsdom)', () =>
   it('opens the LIVE commit-context-menu (not the removed log menu) on the ContextMenu key', () => {
     h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
       bodyHtml:
+        // No menu markup: the webview builds its own at boot.
         `<div class="graph-panel">` +
         `<div class="commit-row" data-hash="abc1234567890" tabindex="0"></div>` +
-        `</div>` +
-        `<div id="commit-context-menu" class="commit-context-menu context-menu" hidden></div>`,
+        `</div>`,
     });
 
     const row = h.document.querySelector('.commit-row') as HTMLElement;

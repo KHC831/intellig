@@ -32,6 +32,7 @@ import type { IConflictResolutionService } from '../../../src/conflicts/interfac
 import type { IMenuStateNode } from '../../../src/git-core/gitToolWindow/multiSelect';
 import { Uri, EventEmitter } from '../../mocks/vscode';
 import type { GitCli } from '../../../src/git-core/gitCli';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 import { writableWindow } from '../../typed/windowStub';
 import {
   installMessageEditorStubs,
@@ -156,6 +157,13 @@ interface HarnessOpts {
    * probe finds nothing, existing cases stay ungated).
    */
   repoRoot?: string;
+  /**
+   * 'dropme.ts's status in `getCommitDiff`. Omitted → 'modified', the
+   * existing cases' path (checkout HEAD^ restores it). 'added' rides the
+   * drop-selected paused-drive's OTHER branch (`git rm -f`, no parent
+   * revision to restore from).
+   */
+  dropmeStatus?: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied';
 }
 
 function makeHarness(tracker: RebaseTracker, opts: HarnessOpts = {}): Harness {
@@ -187,7 +195,7 @@ function makeHarness(tracker: RebaseTracker, opts: HarnessOpts = {}): Harness {
     }),
     getMergeBase: async (_r: IRepository, a: string) => a,
     getCommitDiff: async () => [
-      { path: 'dropme.ts', status: 'modified', hunks: [], binary: false },
+      { path: 'dropme.ts', status: opts.dropmeStatus ?? 'modified', hunks: [], binary: false },
       { path: 'kept.ts', status: 'modified', hunks: [], binary: false },
     ],
     getStatus: async () => [],
@@ -780,7 +788,8 @@ describe('history-rewrite outcome contract (shared runner invariants)', () => {
       // preserving message + author, then continue.
       assert.ok(
         h.gitCliCalls.some(
-          (c) => c[0] === 'checkout' && c.includes('HEAD^') && c.includes('dropme.ts')
+          (c) =>
+            c[0] === 'checkout' && c.includes('HEAD^') && c.includes(literalPathspec('dropme.ts'))
         ),
         `the dropped file must restore from the commit's parent; calls: ${JSON.stringify(
           h.gitCliCalls
@@ -798,6 +807,36 @@ describe('history-rewrite outcome contract (shared runner invariants)', () => {
         `expected the success toast; got ${JSON.stringify(h.messages.info)}`
       );
       assert.strictEqual(tracker.abortCalls, 0);
+    });
+
+    it('an added dropped file is removed with `git rm -f --`, path wrapped literal', async () => {
+      // Same pause, but the target added dropme.ts — no parent revision to
+      // restore from, so the paused drive removes it instead of checking it
+      // out. This site (commitDropActions.ts) had no test at all: stripping
+      // its literalPathspec() wrap left `rm -f -- 'dropme.ts'`, indistinguishable
+      // from this assertion's shape, EXCEPT that a real pathspec-magic name
+      // (`a[1].ts`) would also delete a same-shaped neighbour with no error
+      // and nothing to undo.
+      const tracker = blankTracker();
+      tracker.executeResult = { success: true, status: 'paused' };
+      const h = makeHarness(tracker, { dropmeStatus: 'added' });
+
+      await dropSelected.run(h);
+
+      assert.ok(
+        h.gitCliCalls.some(
+          (c) => c[0] === 'rm' && c.includes('-f') && c.includes(literalPathspec('dropme.ts'))
+        ),
+        `an added dropped file must be removed via literal-wrapped rm -f; calls: ${JSON.stringify(
+          h.gitCliCalls
+        )}`
+      );
+      assert.ok(
+        !h.gitCliCalls.some((c) => c[0] === 'checkout' && c.includes('HEAD^')),
+        `an added file has no parent revision to restore from; calls: ${JSON.stringify(
+          h.gitCliCalls
+        )}`
+      );
     });
 
     it('refuses when EVERY file is selected (use Drop Commit instead)', async () => {

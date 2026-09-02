@@ -15,6 +15,7 @@ import {
   FileStatus,
   BranchType,
 } from './interfaces/IGitService';
+import { compareRefNames } from '../utils/refNameSort';
 
 /**
  * Parse Git status output (porcelain v1 format) into file status objects.
@@ -411,17 +412,16 @@ export function parseBranches(output: string, separator: string = '\x1f'): IBran
 
 /**
  * Parse `git branch -a --contains <hash> --format=%(refname)` output into the
- * alphabetically-sorted list of branches that contain a commit.
- *
- * Mirrors git4idea `GitBranchUtil.getBranches` (local + remote, sorted): local
- * refs lose the `refs/heads/` prefix, remote refs lose `refs/remotes/` (keeping
- * the `<remote>/<branch>` form used elsewhere in this codebase), the remote
- * `HEAD` symref is dropped (it is an alias, not a branch), and git's
- * parenthesized pseudo-refs (detached/rebase/bisect) are filtered out — the same
- * narrow `^\(.*\)$` guard {@link parseBranches} uses.
+ * list of branches that contain a commit, sorted via {@link compareRefNames}
+ * like every other displayed ref-name list. Mirrors git4idea
+ * `GitBranchUtil.getBranches`: local refs lose `refs/heads/`, remote refs
+ * lose `refs/remotes/` (keeping `<remote>/<branch>`), the remote `HEAD`
+ * symref is dropped (an alias, not a branch), and git's parenthesized
+ * pseudo-refs (detached/rebase/bisect) are filtered — the same `^\(.*\)$`
+ * guard {@link parseBranches} uses.
  *
  * @param output - stdout of the `git branch … --format=%(refname)` call
- * @returns deduplicated branch names, sorted alphabetically
+ * @returns deduplicated branch names, sorted via compareRefNames
  */
 export function parseContainingBranches(output: string): string[] {
   const names = new Set<string>();
@@ -443,7 +443,7 @@ export function parseContainingBranches(output: string): string[] {
     }
   }
 
-  return [...names].sort();
+  return [...names].sort(compareRefNames);
 }
 
 /**

@@ -38,7 +38,9 @@ function replaceOrThrow(source: string, pattern: RegExp, replacement: string): s
  * cannot silently hit a different element.
  */
 export function shownMenuMarkup(markup: string, elementId: string): string {
-  const unhidden = replaceOrThrow(markup, /\s+hidden(?=[\s>])/, '');
+  // `hidden` serializes bare from an HTML string and as `hidden=""` from a
+  // DOM the widget built, so the edit has to accept both spellings.
+  const unhidden = replaceOrThrow(markup, /\s+hidden(="")?(?=[\s>])/, '');
   return replaceOrThrow(
     unhidden,
     new RegExp(`(<div id="${elementId}")`),
@@ -56,7 +58,7 @@ export function shownMenuMarkup(markup: string, elementId: string): string {
 export function withMenuItemClass(markup: string, action: string, extraClass: string): string {
   return replaceOrThrow(
     markup,
-    new RegExp(`class="(context-menu-item[^"]*)"( data-action="${action}")`),
+    new RegExp(`class="(context-menu-item[^"]*)"([^>]*? data-action="${action}")`),
     `class="$1 ${extraClass}"$2`
   );
 }

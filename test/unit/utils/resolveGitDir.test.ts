@@ -12,8 +12,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveGitDir } from '../../../src/git-core/gitDirMarkers';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
-const TMP_ROOT = path.join(__dirname, '../../../workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 describe('resolveGitDir', () => {
   let root: string;

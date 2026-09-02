@@ -13,9 +13,10 @@ import * as assert from 'assert';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 const SCRIPT = path.join(process.cwd(), 'scripts/check-rebase-conflict-flow.sh');
-const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 function runGuard(args: string[]): { status: number | null; stdout: string } {
   const r = spawnSync('bash', [SCRIPT, ...args], { encoding: 'utf8' });

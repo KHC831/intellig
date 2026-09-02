@@ -27,8 +27,9 @@ import * as path from 'path';
 import { GitService } from '../../../src/git-core/GitService';
 import { GitCli } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
-const TMP_ROOT = path.join(__dirname, '../../../workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 describe('loadRepository — state from .git markers (real git)', () => {
   let repoPath: string;

@@ -28,7 +28,7 @@ a test without rotting the production API.
   idle invariants. These are the only tests that can catch
   "extension.activate() threw silently in the host."
 - **E2E** — real VS Code host **and** real temp-dir git fixtures.
-  Per-test isolated via `test/e2e/support/Fixture.ts` +
+  Per-test isolated via `test/e2e/support/gitFixture.ts` +
   `workspaceHelper.ts`. Use for command flows that exercise real git
   state transitions. These are slow; budget carefully.
 - **Visual** — production CSS and production markup rendered in headless
@@ -332,7 +332,7 @@ reading across two files isn't paid back by a single caller.
 
 - Production-side escape hatch for raw `GitCli` access from call sites
   that the frozen `IGitService` composite deliberately doesn't wrap: see
-  `IGitServiceCli` in `src/services/interfaces/IGitService.ts`. That's a
+  `IGitServiceCli` in `src/git-core/interfaces/IGitService.ts`. That's a
   production interface (marked `@internal`), not a TestSurface.
 
 ## section 6. Lint rules that catch real bugs
@@ -435,10 +435,10 @@ object, per-item `labels`/`priority`, per-file `isBinary`/`encoding`).
 
 Reference implementations:
 
-- `src/services/ChangelistService.ts` — `KNOWN_TOP_LEVEL_KEYS_SPEC` /
+- `src/changelists/ChangelistService.ts` — `KNOWN_TOP_LEVEL_KEYS_SPEC` /
   `KNOWN_ITEM_KEYS_SPEC`; `migrateStorageForTest` /
   `serializeStorageForDisk`.
-- `src/services/ShelfService.ts` — `KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC` /
+- `src/shelf/shelfStorageMigrate.ts` — `KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC` /
   `KNOWN_SHELF_ITEM_KEYS_SPEC` / `KNOWN_SHELF_FILE_KEYS_SPEC`;
   `migrateShelfStorageForTest` / `serializeShelfForDisk`.
 

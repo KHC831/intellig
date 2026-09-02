@@ -1,5 +1,5 @@
 import { readConfig } from '../../config/configKeys';
-import { ResultAsync } from 'neverthrow';
+import { ResultAsync, errAsync } from 'neverthrow';
 import {
   IRepository,
   IDiff,
@@ -7,7 +7,7 @@ import {
   IRefDiffFile,
   CherryMark,
 } from '../interfaces/IGitService';
-import { buildGitArgs, revParseVerified } from '../gitCli';
+import { buildGitArgs, revParseVerified, literalPathspec } from '../gitCli';
 import { GitError, classifyGitCommandError } from '../errors';
 import { parseDiff, parseBlame } from '../gitParser';
 import { sortCommitsStable } from '../commitSort';
@@ -121,7 +121,15 @@ export class DiffOps {
       args.push('--cached');
     }
     args.push(...this.whitespaceFlags());
-    args.push('--', path);
+    // literalPathspec runs synchronously here, outside ResultAsync.fromPromise
+    // below — a throw (e.g. an empty path) would otherwise escape this
+    // method entirely rather than surfacing as an Err the caller's absorb
+    // boundary (GitService.getDiff's .match()) can log and degrade from.
+    try {
+      args.push('--', literalPathspec(path));
+    } catch (error) {
+      return errAsync(classifyGitCommandError(error));
+    }
 
     return ResultAsync.fromPromise(
       this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath }),
@@ -237,9 +245,11 @@ export class DiffOps {
     // selected commits changed shows its net effect across the range.
     // Both refs are user-controlled (baseRef may be a computed parent SHA;
     // newestCommit is direct user input) and the paths ride behind `--` via
-    // buildGitArgs, so nothing can be reinterpreted as a flag. When no touched
-    // paths are discovered (should not happen for real non-empty commits),
-    // fall back to the UNSCOPED range diff rather than hiding a real change.
+    // buildGitArgs, which wraps each one `:(literal)` (PATH_SLOT_KIND['diff'])
+    // so a touched path holding `*`, `?` or `[` cannot also match a same-shaped
+    // neighbour outside the selected commits. When no touched paths are
+    // discovered (should not happen for real non-empty commits), fall back to
+    // the UNSCOPED range diff rather than hiding a real change.
     const touchedPaths = await this._collectTouchedPaths(cwd, commits);
     const diffResult = await this.ctx.gitCli.exec(
       buildGitArgs(

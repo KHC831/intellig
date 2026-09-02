@@ -103,15 +103,15 @@ const out = {
 ```
 
 Per-item and per-file bags follow the same shape. See
-`src/services/ChangelistService.ts` (`KNOWN_TOP_LEVEL_KEYS_SPEC` +
-`KNOWN_ITEM_KEYS_SPEC`) and `src/services/ShelfService.ts`
-(`KNOWN_FILE_KEYS_SPEC`) for production references.
+`src/changelists/ChangelistService.ts` (`KNOWN_TOP_LEVEL_KEYS_SPEC` +
+`KNOWN_ITEM_KEYS_SPEC`) and `src/shelf/shelfStorageMigrate.ts`
+(`KNOWN_SHELF_FILE_KEYS_SPEC`) for production references.
 
 ## References
 
-- `src/services/ChangelistService.ts` — `KNOWN_TOP_LEVEL_KEYS_SPEC`,
+- `src/changelists/ChangelistService.ts` — `KNOWN_TOP_LEVEL_KEYS_SPEC`,
   `KNOWN_ITEM_KEYS_SPEC`, parse + serialize paths.
-- `src/services/ShelfService.ts` — per-file-level bag
+- `src/shelf/shelfStorageMigrate.ts` — per-file-level bag
   (`_unknownFileField`), same pattern.
 - `docs/testing.md` section 7 — storage forward-compat testing registry
   (round-trip spec must exercise an unknown top-level key _and_ a

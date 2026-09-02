@@ -26,6 +26,7 @@ import {
   isNoOperationInProgress,
   type ICommitHistoryRewriteContext,
 } from './commitHistoryRewriteRunner';
+import { literalPathspec } from '../git-core/gitCli';
 
 /**
  * Implementation for Drop Selected Changes. See
@@ -329,15 +330,18 @@ async function dropSelectedChangesViaRebase(
           const diff = diffByPath.get(p);
           const status = diff?.status;
           if (status === 'added' || status === 'renamed' || status === 'copied') {
-            await ctx.gitCli.exec(['rm', '-f', '--', p], { cwd, throwOnError: true });
+            await ctx.gitCli.exec(['rm', '-f', '--', literalPathspec(p)], {
+              cwd,
+              throwOnError: true,
+            });
             if ((status === 'renamed' || status === 'copied') && diff?.oldPath) {
-              await ctx.gitCli.exec(['checkout', 'HEAD^', '--', diff.oldPath], {
+              await ctx.gitCli.exec(['checkout', 'HEAD^', '--', literalPathspec(diff.oldPath)], {
                 cwd,
                 throwOnError: true,
               });
             }
           } else {
-            await ctx.gitCli.exec(['checkout', 'HEAD^', '--', p], {
+            await ctx.gitCli.exec(['checkout', 'HEAD^', '--', literalPathspec(p)], {
               cwd,
               throwOnError: true,
             });

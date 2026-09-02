@@ -8,6 +8,10 @@
  */
 
 import type { GitToolWindowInbound } from '../gitToolWindow.protocol';
+import { ContextMenu } from '../../../webview-common/contextMenu';
+
+/** Height the parent-navigation popup is expected to reach once laid out. */
+const POPUP_HEIGHT = 200;
 import {
   loadWebviewState,
   saveWebviewState,
@@ -65,7 +69,8 @@ export interface ILogSelection {
     hashes: string[],
     clientX: number,
     clientY: number,
-    onSelect: (hash: string) => void
+    onSelect: (hash: string) => void,
+    opener?: HTMLElement
   ) => void;
 }
 
@@ -107,10 +112,15 @@ export function setupLogSelection(
       return;
     }
     if (sel.anchorHash === null || allHashes.indexOf(sel.anchorHash) === -1) {
-      rows.forEach(function (r) {
-        r.classList.remove('selected');
-        r.setAttribute('aria-selected', 'false');
-      });
+      // No range to draw. An additive click still ADDS, matching the host's
+      // toggle fallback — clearing here would paint a collapse the host then
+      // repaints away. A plain click collapses to the clicked row.
+      if (!additive) {
+        rows.forEach(function (r) {
+          r.classList.remove('selected');
+          r.setAttribute('aria-selected', 'false');
+        });
+      }
       const target = rows[clickIdx];
       target.classList.add('selected');
       target.setAttribute('aria-selected', 'true');
@@ -190,57 +200,46 @@ export function setupLogSelection(
     post({ type: 'selectCommit', commitHash: hash });
   }
 
+  /**
+   * Whoever last opened the popup. The caller supplies the jump per opening —
+   * parents from the commit menu, children from the same menu's other entry —
+   * so the widget's single pick handler routes through this.
+   */
+  let onNavigationPick: ((hash: string) => void) | undefined;
+
+  const navigationPopup = new ContextMenu({
+    id: 'nav-popup',
+    ariaLabel: 'Commits to jump to',
+    actionAttr: 'data-nav-hash',
+    expectedHeight: POPUP_HEIGHT,
+    onPick: (hash): void => onNavigationPick?.(hash),
+  });
+
+  document.addEventListener(
+    'click',
+    function (e) {
+      const target = e.target instanceof Element ? e.target : null;
+      if (navigationPopup.isOpen && target && !navigationPopup.contains(target)) {
+        navigationPopup.hide();
+      }
+    },
+    true
+  );
+
   function openNavigationPopup(
     hashes: string[],
     clientX: number,
     clientY: number,
-    onSelect: (hash: string) => void
+    onSelect: (hash: string) => void,
+    opener?: HTMLElement
   ): void {
-    const popup = document.getElementById('ref-popup');
-    if (!popup) {
-      return;
-    }
-
-    popup.innerHTML = '';
-    hashes.forEach(function (h) {
-      const row = document.createElement('div');
-      row.className = 'context-menu-item';
-      row.setAttribute('role', 'menuitem');
-      row.setAttribute('tabindex', '0');
-      row.setAttribute('data-nav-hash', h);
-      row.textContent = h.substring(0, 8);
-      popup.appendChild(row);
-    });
-
-    const menuWidth = 220;
-    const menuHeight = 200;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const left = clientX + menuWidth > vw ? vw - menuWidth - 10 : clientX;
-    const top = clientY + menuHeight > vh ? vh - menuHeight - 10 : clientY;
-    popup.style.left = left + 'px';
-    popup.style.top = top + 'px';
-    popup.hidden = false;
-
-    function pickHandler(e: Event): void {
-      const target = e.target instanceof Element ? e.target : null;
-      const row = target ? target.closest('#ref-popup [data-nav-hash]') : null;
-      if (!row) {
-        if (!popup!.contains(e.target as Node)) {
-          popup!.hidden = true;
-          document.removeEventListener('click', pickHandler, true);
-        }
-        return;
-      }
-      e.stopPropagation();
-      const h = row.getAttribute('data-nav-hash');
-      popup!.hidden = true;
-      document.removeEventListener('click', pickHandler, true);
-      if (h) {
-        onSelect(h);
-      }
-    }
-    document.addEventListener('click', pickHandler, true);
+    onNavigationPick = onSelect;
+    navigationPopup.render(
+      hashes.map(function (h) {
+        return { action: h, label: h.substring(0, 8) };
+      })
+    );
+    navigationPopup.showAt(clientX, clientY, opener);
   }
 
   // Auto-scroll to commit on page load when data-scroll-to-commit is set.

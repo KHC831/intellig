@@ -36,6 +36,7 @@ import type {
   IFileStatus,
 } from '../../../src/git-core/interfaces/IGitService';
 import { Uri, resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 function makeRepo(): IRepository {
   return {
@@ -334,7 +335,7 @@ describe('badFilenameCheckinHandler', () => {
 // ─── CRLF gitattributes exclusion ────────────────────────────────────────────
 
 describe('gatherCheckinContext — CRLF gitattributes exclusion', () => {
-  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+  const TMP_ROOT = SCRATCH_ROOT;
 
   function makeAttrFixture(opts: {
     checkAttrStdout?: string;
@@ -753,7 +754,7 @@ describe('recommendedAutoCrlfValue', () => {
 // ─── F-B1: CRLF modal affordances (reference GitCrlfDialog) ──────────────────
 
 describe('runBeforeCommitChecks — CRLF affordances', () => {
-  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+  const TMP_ROOT = SCRATCH_ROOT;
 
   function makeCrlfFixture(opts?: { conflict?: boolean }): {
     repo: IRepository;

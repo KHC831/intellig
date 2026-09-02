@@ -10,6 +10,15 @@
 
 import type { GitToolWindowInbound } from '../gitToolWindow.protocol';
 import type { GitToolWindowTabsInbound } from '../gitToolWindowTabs.protocol';
+import { ContextMenu, hideAllContextMenus } from '../../../webview-common/contextMenu';
+import {
+  COMMIT_MENU,
+  COMMIT_MENU_ITEMS,
+  FILE_MENU,
+  FILE_MENU_ITEMS,
+  HISTORY_MENU,
+  HISTORY_MENU_ITEMS,
+} from './menuDefinitions';
 import { cssEscapeHash, type ILogSelection, type ISelectionState } from './logSelection';
 
 type PostLog = (message: GitToolWindowInbound | GitToolWindowTabsInbound) => void;
@@ -17,7 +26,26 @@ type PostLog = (message: GitToolWindowInbound | GitToolWindowTabsInbound) => voi
 /** The keyboard hook the entry's delegated keydown listener drives. */
 export interface ICommitRowMenus {
   handleCommitKeydown: (event: KeyboardEvent, hash: string) => void;
-  applyMenuEnableMap: (contextMenu: HTMLElement) => void;
+  /**
+   * Drop an open commit menu because the selection changed underneath it.
+   *
+   * The hashes a pick acts on are captured when the menu OPENS. A host-pushed
+   * selection change leaves the menu showing, still holding the old set — so a
+   * Drop Commit picked afterwards would act on commits that are no longer
+   * selected, with a different row highlighted.
+   */
+  dropStaleCommitMenu: () => void;
+  applyMenuEnableMap: () => void;
+  /**
+   * Close the changed-file menu, before the rows it points at are rebuilt.
+   *
+   * Named for the menu rather than the panel because it serves BOTH details
+   * panels: the file-row selector is not scoped to `#details-panel`, and
+   * buildDetailsPanelDom builds the History tab's panel too. Only the Log tab
+   * rebuilds incrementally today, so only it has to call this — but a future
+   * incremental History update needs the same call.
+   */
+  hideChangedFileMenu: () => void;
 }
 
 export function setupCommitRowMenus(
@@ -25,6 +53,16 @@ export function setupCommitRowMenus(
   sel: ISelectionState,
   selection: ILogSelection
 ): ICommitRowMenus {
+  // ─── The three menus ─────────────────────────────────────────────
+  // Their rows are fixed, so they render once here; only the enable map and
+  // the pointer position change between openings.
+  const commitMenu = new ContextMenu({ ...COMMIT_MENU, onPick: pickCommitAction });
+  const fileMenu = new ContextMenu({ ...FILE_MENU, onPick: pickFileAction });
+  const historyMenu = new ContextMenu({ ...HISTORY_MENU, onPick: pickHistoryAction });
+  commitMenu.render(COMMIT_MENU_ITEMS);
+  fileMenu.render(FILE_MENU_ITEMS);
+  historyMenu.render(HISTORY_MENU_ITEMS);
+
   // ─── Event delegation for commit rows ────────────────────────────
   document.addEventListener('click', function (e) {
     const target = e.target instanceof Element ? e.target : null;
@@ -66,14 +104,10 @@ export function setupCommitRowMenus(
 
   document.addEventListener('contextmenu', function (e) {
     const target = e.target instanceof Element ? e.target : null;
-    // Only one context menu at a time: hide all three, then re-show the
-    // matching one below.
-    ['commit-context-menu', 'file-context-menu', 'history-context-menu'].forEach(function (id) {
-      const m = document.getElementById(id);
-      if (m) {
-        m.hidden = true;
-      }
-    });
+    // Goes through the widget registry rather than this module's three
+    // menus by name, so the ref popup and the navigation popup — owned by
+    // other modules — close too instead of staying painted underneath.
+    hideAllContextMenus();
     const commitRow = target ? target.closest('.commit-row[data-hash]') : null;
     if (commitRow) {
       const hash = commitRow.getAttribute('data-hash');
@@ -90,74 +124,53 @@ export function setupCommitRowMenus(
     if (fileItem) {
       const commitHash = fileItem.getAttribute('data-commit-hash');
       const path = fileItem.getAttribute('data-path');
-      const menu = document.getElementById('file-context-menu');
-      if (commitHash && path && menu) {
+      if (commitHash && path) {
         e.preventDefault();
         e.stopPropagation();
         fileContextTarget = { commitHash: commitHash, path: path };
-        positionContextMenu(menu, e as MouseEvent);
+        showAtPointer(fileMenu, e as MouseEvent);
       }
       return;
     }
     const historyRow = target ? target.closest('.history-commit-row[data-rev]') : null;
     if (historyRow) {
       const rev = historyRow.getAttribute('data-rev');
-      const menu = document.getElementById('history-context-menu');
-      if (rev && menu) {
+      if (rev) {
         e.preventDefault();
         e.stopPropagation();
         historyContextRev = rev;
-        positionContextMenu(menu, e as MouseEvent);
+        showAtPointer(historyMenu, e as MouseEvent);
       }
     }
   });
 
   // Details-panel file context menu → fileContextAction relay; History-tab
-  // revision context menu → history.compareWith* relay. Click-away hides both.
+  // revision context menu → history.compareWith* relay.
   let fileContextTarget: { commitHash: string; path: string } | null = null;
   let historyContextRev: string | null = null;
 
-  document.addEventListener('click', function (e) {
-    const target = e.target instanceof Element ? e.target : null;
-    const fileMenu = document.getElementById('file-context-menu');
-    if (fileMenu && target && !fileMenu.contains(target)) {
-      fileMenu.hidden = true;
-    }
-    const historyMenu = document.getElementById('history-context-menu');
-    if (historyMenu && target && !historyMenu.contains(target)) {
-      historyMenu.hidden = true;
-    }
-
-    const fileEntry = target
-      ? target.closest('#file-context-menu .context-menu-item[data-file-action]')
-      : null;
-    if (fileEntry && fileMenu && fileContextTarget) {
-      const action = fileEntry.getAttribute('data-file-action');
-      if (action) {
-        post({
-          type: 'fileContextAction',
-          action: action,
-          commitHash: fileContextTarget.commitHash,
-          path: fileContextTarget.path,
-        });
-      }
-      fileMenu.hidden = true;
+  function pickFileAction(action: string): void {
+    if (!fileContextTarget) {
       return;
     }
+    post({
+      type: 'fileContextAction',
+      action: action,
+      commitHash: fileContextTarget.commitHash,
+      path: fileContextTarget.path,
+    });
+  }
 
-    const historyEntry = target
-      ? target.closest('#history-context-menu .context-menu-item[data-history-action]')
-      : null;
-    if (historyEntry && historyMenu && historyContextRev) {
-      const action = historyEntry.getAttribute('data-history-action');
-      if (action === 'compareWithHead') {
-        post({ type: 'history.compareWithHead', rev: historyContextRev });
-      } else if (action === 'compareWithRef') {
-        post({ type: 'history.compareWithRef', rev: historyContextRev });
-      }
-      historyMenu.hidden = true;
+  function pickHistoryAction(action: string): void {
+    if (!historyContextRev) {
+      return;
     }
-  });
+    if (action === 'compareWithHead') {
+      post({ type: 'history.compareWithHead', rev: historyContextRev });
+    } else if (action === 'compareWithRef') {
+      post({ type: 'history.compareWithRef', rev: historyContextRev });
+    }
+  }
 
   // ─── fixup!/squash! link click → jumpToFixupTarget ───────────────
   document.addEventListener('click', function (e) {
@@ -199,7 +212,7 @@ export function setupCommitRowMenus(
       const hash = parentHash.getAttribute('data-parent-hash');
       if (hash) {
         if (parentHash.closest('#history-details-panel')) {
-          const rowSel = '.history-commit-row[data-rev="' + hash + '"]';
+          const rowSel = '.history-commit-row[data-rev="' + cssEscapeHash(hash) + '"]';
           if (document.querySelector(rowSel)) {
             post({ type: 'history.selectRevision', rev: hash });
           }
@@ -391,7 +404,13 @@ export function setupCommitRowMenus(
           selection.jumpToCommitHash(parents[0]);
         } else {
           const rect = currentRow.getBoundingClientRect();
-          selection.openNavigationPopup(parents, rect.right, rect.top, selection.jumpToCommitHash);
+          selection.openNavigationPopup(
+            parents,
+            rect.right,
+            rect.top,
+            selection.jumpToCommitHash,
+            currentRow as HTMLElement
+          );
         }
         break;
       }
@@ -426,7 +445,8 @@ export function setupCommitRowMenus(
             childrenL,
             rect.right,
             rect.top,
-            selection.jumpToCommitHash
+            selection.jumpToCommitHash,
+            (currentRowL as HTMLElement) ?? undefined
           );
         }
         break;
@@ -483,182 +503,165 @@ export function setupCommitRowMenus(
       }
       sel.anchorHash = hash;
       selection.refreshSelectedCount();
-      post({ type: 'selectIfNotSelected', commitHash: hash });
       commitContextMenuHashes = [hash];
+      // The map in hand was computed for the selection this click just
+      // replaced, and would gate the rows by it for the round-trip it takes
+      // the host to answer. Dropping it falls the rows back to their declared
+      // state, which is the single-selection default and so is right for the
+      // one commit now selected. Deliberately NOT done when a right-click
+      // lands inside a selection painted here (a shift-click range). The map
+      // is then wrong in one direction only: it still hides the multi-only
+      // rows, which declare themselves hidden anyway, whereas dropping it
+      // would ALSO re-enable a row the map disables for a repo-state reason no
+      // declared state can express, such as a rewrite blocked by a merge commit
+      // in the range. That window is covered where the rules actually live, in
+      // the host's own re-check before it acts.
+      sel.menuEnableMap = null;
     } else if (selectedHashes.length > 1) {
       commitContextMenuHashes = selectedHashes;
     } else {
       commitContextMenuHashes = [hash];
     }
 
-    const contextMenu = document.getElementById('commit-context-menu');
-    if (contextMenu) {
-      applyMenuEnableMap(contextMenu);
-      positionContextMenu(contextMenu, event as MouseEvent);
+    // Always ask the host to recompute for this selection. Without it, a menu
+    // opened on an ALREADY-selected commit posts nothing, so after a re-render
+    // (which resets the map but restores the .selected rows) no map ever
+    // arrives and the rows stay at their declared state for good.
+    post({ type: 'selectIfNotSelected', commitHash: hash });
+    applyMenuEnableMap();
+    showAtPointer(commitMenu, event as MouseEvent);
+  }
+
+  /**
+   * Open `menu` where the gesture landed. A keyboard ContextMenu press has no
+   * pointer, and its synthesized event reports 0,0 — the menu then opens in the
+   * top-left corner, which is where it belongs for a keyboard user anyway.
+   *
+   * The row that was clicked becomes the menu's opener, so dismissing hands
+   * focus back to it rather than dropping it on <body>.
+   */
+  function showAtPointer(menu: ContextMenu, event: MouseEvent): void {
+    const opener = event.target instanceof Element ? event.target.closest('[tabindex]') : null;
+    menu.showAt(
+      event.clientX || 0,
+      event.clientY || 0,
+      (opener as HTMLElement) ?? undefined,
+      event
+    );
+  }
+
+  /**
+   * Push the host's per-selection gating onto the commit menu's rows. The
+   * widget owns how a row is greyed so the class, aria-disabled and tabindex
+   * cannot drift apart, and so a null map falls back to each row's declared
+   * state rather than to "everything allowed".
+   */
+  function applyMenuEnableMap(): void {
+    commitMenu.applyStates(sel.menuEnableMap);
+  }
+
+  /** Jump to the single parent/child, or offer the choice when there are several. */
+  function navigateFrom(action: string, event: MouseEvent): void {
+    const hash = commitContextMenuHashes[0];
+    if (!hash) {
+      return;
     }
-  }
-
-  /** Clamp a context menu near the pointer, then show it. Shared skeleton. */
-  function positionContextMenu(menu: HTMLElement, event: MouseEvent): void {
-    const x = event.clientX || 0;
-    const y = event.clientY || 0;
-
-    const menuWidth = 220;
-    const menuHeight = 400;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    const left = Math.max(8, x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x);
-    const top = Math.max(8, y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y);
-
-    menu.style.left = left + 'px';
-    menu.style.top = top + 'px';
-    menu.style.maxHeight = viewportHeight - top - 10 + 'px';
-    menu.style.overflowY = 'auto';
-    menu.hidden = false;
-  }
-
-  function applyMenuEnableMap(contextMenu: HTMLElement): void {
-    const map = sel.menuEnableMap;
-    const items = contextMenu.querySelectorAll('.context-menu-item');
-    items.forEach(function (item) {
-      const action = item.getAttribute('data-action') || '';
-      const entry = map ? map[action] : null;
-      const visible = entry ? entry.visible : true;
-      const enabled = entry ? entry.enabled : true;
-      if (visible) {
-        item.classList.remove('menu-multi-hidden');
-      } else {
-        item.classList.add('menu-multi-hidden');
-      }
-      if (enabled) {
-        item.classList.remove('disabled');
-      } else {
-        item.classList.add('disabled');
-      }
-      // Surface entry.reason as a title= tooltip on visible-disabled rows. The
-      // typeof check keeps a malformed payload from rendering "[object Object]"
-      // or "undefined" into the user's tooltip.
-      //
-      // INVARIANT (with multiSelect.ts:computeMenuState): the host sets reason
-      // ONLY when visible && !enabled. This gate mirrors that on the wire side.
-      // If a future host bug set reason on a hidden row, the title write would
-      // silently emit on a .menu-multi-hidden element — a sign the host
-      // invariant has drifted.
-      const titleAttr =
-        entry && !entry.enabled && typeof entry.reason === 'string' ? entry.reason : '';
-      if (titleAttr) {
-        item.setAttribute('title', titleAttr);
-      } else {
-        item.removeAttribute('title');
-      }
-    });
-  }
-
-  document.addEventListener('click', function (e) {
-    const target = e.target instanceof Element ? e.target : null;
-    const commitContextMenu = document.getElementById('commit-context-menu');
-    if (commitContextMenu && target && !commitContextMenu.contains(target)) {
-      commitContextMenu.hidden = true;
-    }
-
-    const menuItem = target ? target.closest('#commit-context-menu .context-menu-item') : null;
-    if (menuItem && commitContextMenuHashes.length > 0) {
-      if (menuItem.classList.contains('disabled')) {
+    let hashes: string[];
+    if (action === 'goToParent') {
+      const row = document.querySelector('.commit-row[data-hash="' + cssEscapeHash(hash) + '"]');
+      if (!row) {
         return;
       }
-      const action = (menuItem as HTMLElement).dataset.action;
-      if (action) {
-        if (action === 'goToParent' || action === 'goToChild') {
-          const menu = document.getElementById('commit-context-menu');
-          if (menu) {
-            menu.hidden = true;
-          }
-          const hash = commitContextMenuHashes[0];
-          if (!hash) {
-            return;
-          }
-          if (action === 'goToParent') {
-            const row = document.querySelector(
-              '.commit-row[data-hash="' + cssEscapeHash(hash) + '"]'
-            );
-            if (!row) {
-              return;
-            }
-            const parentsRaw = row.getAttribute('data-parents') || '';
-            const parents = parentsRaw.split(',').filter(function (h) {
-              return h.length > 0;
-            });
-            if (parents.length === 0) {
-              return;
-            }
-            if (parents.length === 1) {
-              selection.jumpToCommitHash(parents[0]);
-            } else {
-              selection.openNavigationPopup(
-                parents,
-                (e as MouseEvent).clientX,
-                (e as MouseEvent).clientY,
-                selection.jumpToCommitHash
-              );
-            }
-          } else {
-            const allRows = Array.from(document.querySelectorAll('.commit-row[data-hash]'));
-            const children = allRows
-              .filter(function (r) {
-                const p = r.getAttribute('data-parents') || '';
-                return p.split(',').indexOf(hash) !== -1;
-              })
-              .map(function (r) {
-                return r.getAttribute('data-hash') as string;
-              });
-            if (children.length === 0) {
-              return;
-            }
-            if (children.length === 1) {
-              selection.jumpToCommitHash(children[0]);
-            } else {
-              selection.openNavigationPopup(
-                children,
-                (e as MouseEvent).clientX,
-                (e as MouseEvent).clientY,
-                selection.jumpToCommitHash
-              );
-            }
-          }
-          return;
-        }
-        post({
-          type: 'commitContextMenu',
-          action: action,
-          commitHashes: commitContextMenuHashes,
+      hashes = (row.getAttribute('data-parents') || '').split(',').filter(function (h) {
+        return h.length > 0;
+      });
+    } else {
+      hashes = Array.from(document.querySelectorAll('.commit-row[data-hash]'))
+        .filter(function (r) {
+          return (r.getAttribute('data-parents') || '').split(',').indexOf(hash) !== -1;
+        })
+        .map(function (r) {
+          return r.getAttribute('data-hash') as string;
         });
-        const menu = document.getElementById('commit-context-menu');
-        if (menu) {
-          menu.hidden = true;
-        }
-      }
     }
-  });
+    if (hashes.length === 0) {
+      return;
+    }
+    if (hashes.length === 1) {
+      selection.jumpToCommitHash(hashes[0]);
+      return;
+    }
+    // The row the menu was opened on, not the menu row that was clicked: the
+    // menu is already closing, so focus has to come back to the graph.
+    const opener = document.querySelector<HTMLElement>(
+      '.commit-row[data-hash="' + cssEscapeHash(hash) + '"]'
+    );
+    selection.openNavigationPopup(
+      hashes,
+      event.clientX,
+      event.clientY,
+      selection.jumpToCommitHash,
+      opener ?? undefined
+    );
+  }
 
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      const commitContextMenu = document.getElementById('commit-context-menu');
-      if (commitContextMenu) {
-        commitContextMenu.hidden = true;
-      }
+  /** The hashes the graph currently shows as selected. */
+  function renderedSelection(): string[] {
+    return Array.from(document.querySelectorAll('.graph-panel .commit-row.selected'))
+      .map((row) => row.getAttribute('data-hash') || '')
+      .filter((hash) => hash.length > 0)
+      .sort(); // ref-sort-exempt: commit hashes, compared for set equality below
+  }
+
+  function pickCommitAction(action: string, event: MouseEvent): void {
+    if (commitContextMenuHashes.length === 0) {
+      return;
     }
+    // The hashes were captured when the menu opened. Anything that rewrites the
+    // rendered selection while it is up — syncSelection, selectGraphRow, or a
+    // message not yet written — leaves the menu describing commits that are no
+    // longer the ones selected, and a Drop Commit would act on them. Comparing
+    // here covers the whole class, so which messages move the selection stops
+    // being something a future author has to enumerate correctly.
+    const live = renderedSelection();
+    const captured = commitContextMenuHashes.slice().sort(); // ref-sort-exempt: commit hashes
+    if (live.length !== captured.length || live.some((hash, i) => hash !== captured[i])) {
+      return;
+    }
+    // Both navigation entries are answered in the webview: the rows are
+    // already here, so the host would only be asked to send them back.
+    if (action === 'goToParent' || action === 'goToChild') {
+      navigateFrom(action, event);
+      return;
+    }
+    post({ type: 'commitContextMenu', action: action, commitHashes: commitContextMenuHashes });
+  }
+
+  // Click-away, Escape and losing the window all dismiss whichever menu is up.
+  document.addEventListener('click', function (e) {
+    const target = e.target instanceof Element ? e.target : null;
+    // The widget decides what counts as "inside": every box has a few pixels of
+    // padding that belong to it but sit on no row, and naming the menus here
+    // let that strip read as a click away. It also spares the control that
+    // opened a menu, so this listener cannot close, in the same click, a popup
+    // another listener just put up.
+    hideAllContextMenus(target, e);
   });
 
   window.addEventListener('blur', function () {
-    const commitContextMenu = document.getElementById('commit-context-menu');
-    if (commitContextMenu) {
-      commitContextMenu.hidden = true;
-    }
+    hideAllContextMenus();
   });
 
   return {
     handleCommitKeydown: handleCommitKeydown,
     applyMenuEnableMap: applyMenuEnableMap,
+    dropStaleCommitMenu: (): void => {
+      commitMenu.hide();
+      commitContextMenuHashes = [];
+    },
+    hideChangedFileMenu: (): void => {
+      fileMenu.hide();
+      fileContextTarget = null;
+    },
   };
 }

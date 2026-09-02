@@ -54,6 +54,7 @@ export async function gatherPatchFiles(selection: readonly string[]): Promise<st
       } catch {
         return;
       }
+      // ref-sort-exempt: filesystem entry names, for deterministic traversal order
       for (const entry of entries.sort()) {
         await visit(path.join(target, entry));
       }

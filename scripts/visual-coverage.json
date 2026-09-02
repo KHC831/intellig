@@ -14,9 +14,9 @@
       "status": "tested",
       "note": "the log commit-row block and its cells, reached through buildInlineStyles, which interpolates it at the block's original position; rendered by the menu specs and the tab specs' css stack. No spec asserts the row rules' own values yet"
     },
-    "src/git-core/gitToolWindow/provider/contextMenuStyles.ts::contextMenuStyles": {
+    "src/webview-common/contextMenuStyles.ts::contextMenuStyles": {
       "status": "tested",
-      "note": "the commit/changed-file/revision menu stylesheet, reached through buildInlineStyles, which interpolates it; same specs, plus the runtime state flags: disabled items fade and drop the pointer cursor, multi-only items are display:none in single mode, and DANGER_ACTIONS is pinned set-equal to the danger items the menu ships"
+      "note": "the context-menu stylesheet every webview includes, reached through buildInlineStyles, which interpolates it; same specs, plus the runtime state flags: disabled items fade and drop the pointer cursor, multi-only items are display:none in single mode, DANGER_ACTIONS is pinned set-equal to the danger items the menu ships, and a focused item resolves its outline to the focus-border token"
     },
     "src/conflicts/merge-window/mergeWindowHtml.ts::mergeWindowStyles": {
       "status": "tested",
@@ -48,7 +48,7 @@
     },
     "src/commits/commitToolWindowStyles.ts::commitToolWindowStyles": {
       "status": "tested",
-      "note": "in both themes, mutation-proven: the body declares no surface colour of its own, so VS Code's injected transparent default lets it track its host container (re-adding a background fails the spec; killing the paired positive-control rule fails it too) — panelSurface.visual.test.ts. Changelist tree, diff preview and composer are not yet rendered"
+      "note": "in both themes, mutation-proven: the body declares no surface colour of its own, so VS Code's injected transparent default lets it track its host container (re-adding a background fails the spec; killing the paired positive-control rule fails it too) — panelSurface.visual.test.ts. Changelist tree, diff preview, composer and the Merge Conflicts node are not yet rendered; in particular no spec yet proves a conflicted row resolves the conflicting-resource token rather than the modified one it used to share"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts::historyTabStyles": {
       "status": "tested",

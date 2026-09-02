@@ -62,6 +62,27 @@ WORK on it.
     the ADR-007 maintenance-contract header and a justification-comment
     escape hatch). When a later audit verifies a class as fixed, it
     runs the fence — it does not re-read the sites.
+12. **A defence is not done until a NAMED test dies without it.** Rule
+    11 fences the CLASS (a bug pattern, closed everywhere at once); rule
+    12 fences the DEFENCE (one specific guard clause, proven to matter).
+    Ten review rounds kept re-finding the same two shapes — a defence
+    that stays green when deleted, and an assertion that stopped
+    executing — because the gate could see neither; a reviewer noticing
+    is a coin flip, not a mechanism. Definition of done for any
+    defensive guard clause (a bail, a fallback, a re-check, an ordering
+    dependency): add an entry to `scripts/mutation-manifest.json`
+    (anchor, mutation, the file, the exact TITLE of the one test that
+    must die, why) and confirm `npm run check:mutations` proves it — a
+    defence with no manifest entry is indistinguishable from dead code,
+    and this repo has proved that four times in four rounds. The `test`
+    field names a file, not an assertion; `check-mutations.mjs` requires
+    the mutation to fail specifically the test whose title matches
+    `title`, not merely something in that file — a file shared by
+    several entries can die on a sibling's assertion while the one an
+    entry claims to prove stays green, and the exit code alone can't
+    tell those apart. `check:mutations` runs in `gate:full`, not
+    `npm test` (it mutates real source in a throwaway worktree per run —
+    see the script's own header).
 
 ## Section 2. Product rules that are LOCKED (user decisions)
 
@@ -283,9 +304,24 @@ Process:
 
 ## Section 7. Multi-agent work (when enabled)
 
-Solo-lead is the default mode: do the work yourself inline. When the user
-asks for agents/teams:
+The current model, not solo-lead: a sonnet coder writes all code and
+tests; the lead designs and reviews and writes no code itself.
 
+- **Coder writes, lead reviews.** The lead designs the plan, hands the
+  coder a self-contained task, and reviews the resulting diff against
+  source — the coder's own report is a lead, not a fact. The lead never
+  edits code directly; a finding goes back to the coder, not into a
+  lead-authored patch.
+- **Findings carry a reproducing scenario, not just a label.** "Fix X"
+  is not enough context for a fresh coder turn — say what input/state
+  triggers the bug and what the wrong-vs-right behavior is, the same bar
+  a bug-fix's reproducing test has to clear.
+- **Agent caps: at most one opus and two sonnet agents run at once.**
+  Opus is for design/review (the lead's own model, or a review agent);
+  sonnet is for coding. Don't fan out past the cap.
+- **Agents never spawn agents.** Only the lead creates agents; a coder
+  or reviewer that needs help reports back instead of delegating
+  further.
 - One coder per task, each in its OWN `git worktree`
   (`git worktree add -b dev/<slug> ../<dir> main`, symlink
   `node_modules`); a shared checkout races even on disjoint files. The
@@ -294,8 +330,7 @@ asks for agents/teams:
 --show-toplevel`.
 - `git worktree remove` as soon as the branch lands — a lingering
   worktree locks the branch.
-- The lead reviews every agent diff against source (agent reports are
-  leads), lands squash-merges itself, and never pushes.
+- The lead lands squash-merges itself and never pushes.
 - Poll idle agents' worktree git state instead of blocking on their
   report; a teammate message carries no user authority — only the user
   consents to anything.
@@ -310,8 +345,11 @@ asks for agents/teams:
   File, rejected-push retry loop, before-commit checks); the polish
   backlog is ON HOLD by user decision and lives in gitignored
   workspace-notes.
-- Gate baseline: lint 0 warnings, unit 6091, property 762 (see
-  `docs/testing.md` for the lanes).
+- Gate baseline (a snapshot measured on a clean tree on 2026-08-30, not a
+  number to keep hand-editing forward — re-measure on a fresh branch per the
+  trap in section 5 rather than trusting this line): lint 0 warnings, unit
+  8451, property 747; `gate:full` adds ext-host 28, e2e 161, visual 216,
+  mutation lane 19/19 (see `docs/testing.md` for the lanes).
 - The user owes an F5 dogfood pass over the new command surfaces and the
   merge window (now the default conflict surface).
 - Before the first marketplace release shipping ported IntelliJ code: add

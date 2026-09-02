@@ -127,6 +127,10 @@ export function authorColorPalette(): ReadonlyArray<string> {
 
 /** Distinct, alphabetically-sorted authors — the sort IntelliJ applies. */
 function sortedDistinct(authors: Iterable<string>): string[] {
+  // Author names, not refs; code-unit order matches IntelliJ's own
+  // String.compareTo sort, which decides the deterministic color-assignment
+  // index — a locale-aware sort would reorder the palette.
+  // ref-sort-exempt: see above
   return Array.from(new Set(authors)).sort();
 }
 

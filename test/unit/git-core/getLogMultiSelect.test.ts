@@ -10,6 +10,7 @@ import * as assert from 'assert';
 import { StashTagHistoryOps } from '../../../src/git-core/ops/StashTagHistoryOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { pathspecTarget } from '../../helpers/pathspec';
 
 function makeOps(): { ops: StashTagHistoryOps; calls: string[][] } {
   const calls: string[][] = [];
@@ -38,7 +39,7 @@ function positionalRevs(args: string[]): string[] {
 
 function pathspecs(args: string[]): string[] {
   const dd = args.indexOf('--');
-  return dd === -1 ? [] : args.slice(dd + 1);
+  return dd === -1 ? [] : args.slice(dd + 1).map(pathspecTarget);
 }
 
 describe('getLog — multi-select branches (union)', () => {

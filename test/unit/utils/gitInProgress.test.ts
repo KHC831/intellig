@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { readInProgressOperation } from '../../../src/git-core/gitInProgress';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 const FAKE_SHORTEN = async (sha: string): Promise<string> => sha.substring(0, 7);
 
@@ -253,7 +254,7 @@ describe('readInProgressOperation', () => {
 // am-based rebase (git wt-status.c show_rebase_information). Misreading an
 // am session as a rebase offers recovery commands git refuses.
 describe('readInProgressOperation — git-am session (rebase-apply/applying)', () => {
-  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+  const TMP_ROOT = SCRATCH_ROOT;
   let amTmp: string;
   let amGitDir: string;
 

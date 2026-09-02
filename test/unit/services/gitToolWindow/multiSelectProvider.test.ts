@@ -29,6 +29,16 @@ import {
 } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 import { renderDetailsPanelHtml } from '../../../helpers/detailsPanelDom';
+import { JSDOM } from 'jsdom';
+import { selectIfNotSelected } from '../../../../src/git-core/gitToolWindow/provider/messageHandlers';
+import { renderMenuMarkup } from '../../../helpers/renderMenuMarkup';
+import {
+  COMMIT_MENU,
+  COMMIT_MENU_ITEMS,
+} from '../../../../src/git-core/gitToolWindow/webview/menuDefinitions';
+
+/** The commit menu's markup, as the webview widget renders it. */
+const commitMenuMarkup = (): string => renderMenuMarkup(COMMIT_MENU_ITEMS, COMMIT_MENU);
 
 /** Source of the bundled Git tool-window client entry (applyMenuEnableMap lives here). */
 const ENTRY_SOURCE = readGtwWebviewSource();
@@ -239,7 +249,7 @@ describe('provider integration', () => {
   // ─── A2: menu HTML adds new items with hidden-by-default ─────────────────
   describe('A2 — context menu HTML extensions', () => {
     it('includes data-action="squashCommits" on the commit context menu', () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       assert.ok(
         html.includes('data-action="squashCommits"'),
         'commit context menu must include squashCommits item'
@@ -247,7 +257,7 @@ describe('provider integration', () => {
     });
 
     it('includes data-action="compareVersions" on the commit context menu', () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       assert.ok(
         html.includes('data-action="compareVersions"'),
         'commit context menu must include compareVersions item'
@@ -255,38 +265,42 @@ describe('provider integration', () => {
     });
 
     it('renders "Squash Commits" label', () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       assert.ok(html.includes('Squash Commits'), 'must include "Squash Commits" label');
     });
 
     it('renders "Compare Versions" label', () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       assert.ok(html.includes('Compare Versions'), 'must include "Compare Versions" label');
     });
 
     it('squashCommits and compareVersions default to hidden via menu-multi-hidden class', () => {
-      const html = provider._getCommitContextMenuHtml();
-      // Find the squashCommits row — it must include `menu-multi-hidden` so
-      // it is hidden by default (only shown when N>=2).
-      const squashIdx = html.indexOf('data-action="squashCommits"');
-      assert.ok(squashIdx !== -1);
-      const squashRow = html.substring(Math.max(0, squashIdx - 200), squashIdx + 200);
-      assert.ok(
-        squashRow.includes('menu-multi-hidden'),
-        'squashCommits row must include menu-multi-hidden class so it is hidden by default'
+      // Asserted per row rather than by searching a window of characters around
+      // the action: a row is ~160 chars, so a fixed-size character window
+      // risks spanning two neighbours and a sibling's class could satisfy it.
+      const menu = renderMenuMarkup(COMMIT_MENU_ITEMS, COMMIT_MENU);
+      const dom = new JSDOM(`<!doctype html><body>${menu}</body>`);
+      for (const action of ['squashCommits', 'compareVersions']) {
+        const row = dom.window.document.querySelector(
+          `.context-menu-item[data-action="${action}"]`
+        );
+        assert.ok(row, `${action} must render`);
+        assert.ok(
+          row.classList.contains('menu-multi-hidden'),
+          `${action} is multi-only and must be hidden by default`
+        );
+      }
+      // A row that is NOT multi-only must not carry it — otherwise the check
+      // above would pass on a menu where every row was hidden.
+      const single = dom.window.document.querySelector(
+        '.context-menu-item[data-action="copyHash"]'
       );
-
-      const compareIdx = html.indexOf('data-action="compareVersions"');
-      assert.ok(compareIdx !== -1);
-      const compareRow = html.substring(Math.max(0, compareIdx - 200), compareIdx + 200);
-      assert.ok(
-        compareRow.includes('menu-multi-hidden'),
-        'compareVersions row must include menu-multi-hidden class so it is hidden by default'
-      );
+      assert.ok(single && !single.classList.contains('menu-multi-hidden'));
+      dom.window.close();
     });
 
     it('preserves all 13 single-action items (no regression of pre-Wave-A menu)', () => {
-      const html = provider._getCommitContextMenuHtml();
+      const html = commitMenuMarkup();
       const requiredActions = [
         'copyHash',
         'createPatch',
@@ -375,5 +389,43 @@ describe('provider integration', () => {
       assert.ok(html.includes('2 commits selected'));
       assert.ok(html.includes('data-selected-count="2"'));
     });
+  });
+});
+
+describe('selectIfNotSelected answers the gating request either way', () => {
+  it('posts a menu-state update for a commit that is already selected', () => {
+    // The webview asks on every right-click because a full re-render resets its
+    // map. Returning early here left the menu with no gating at all: the
+    // multi-only rows appeared on one commit and every destructive action
+    // rendered enabled.
+    let posted = 0;
+    const ctx = {
+      extendedLogState: { selectedCommits: new Set(['abc']) },
+      postMenuStateUpdate: (): void => {
+        posted++;
+      },
+      selectCommit: (): void => {
+        throw new Error('must not reselect an already-selected commit');
+      },
+    } as unknown as Parameters<typeof selectIfNotSelected>[0];
+
+    selectIfNotSelected(ctx, 'abc');
+
+    assert.strictEqual(posted, 1, 'the host answers with a fresh gating map');
+  });
+
+  it('still selects a commit that is not selected', () => {
+    const selected: string[] = [];
+    const ctx = {
+      extendedLogState: { selectedCommits: new Set<string>() },
+      postMenuStateUpdate: (): void => {},
+      selectCommit: (h: string): void => {
+        selected.push(h);
+      },
+    } as unknown as Parameters<typeof selectIfNotSelected>[0];
+
+    selectIfNotSelected(ctx, 'def');
+
+    assert.deepStrictEqual(selected, ['def']);
   });
 });

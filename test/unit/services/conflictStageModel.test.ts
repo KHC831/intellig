@@ -7,6 +7,7 @@
 import * as assert from 'assert';
 import {
   parseUnmergedStages,
+  scopedUnmergedEntry,
   sideStatus,
   IUnmergedEntry,
 } from '../../../src/conflicts/conflictStageModel';
@@ -72,5 +73,56 @@ describe('conflictStageModel — sideStatus', () => {
   it('deleted when theirs (stage 3) is absent — AU / UD / DD', () => {
     assert.strictEqual(sideStatus(oursOnly, 'theirs'), 'deleted');
     assert.strictEqual(sideStatus(baseOnly, 'theirs'), 'deleted');
+  });
+});
+
+describe('conflictStageModel — scopedUnmergedEntry', () => {
+  const read = (records: string): { ok: true; stages: Map<string, IUnmergedEntry> } => ({
+    ok: true,
+    stages: parseUnmergedStages(records),
+  });
+
+  it("returns the entry for the caller's own spelling when git agrees", () => {
+    const entry = scopedUnmergedEntry(read(rec(2, 'a.ts') + rec(3, 'a.ts')), 'a.ts');
+    assert.ok(entry?.stage2 && entry?.stage3);
+  });
+
+  it('falls back to the single entry when git spells the path differently', () => {
+    // A case-insensitive filesystem, or an NFD name recorded as NFC. The read
+    // was scoped to this path, so the one entry it found is this file.
+    const entry = scopedUnmergedEntry(read(rec(2, 'Caf\u00e9.txt')), 'cafe\u0301.txt');
+    assert.ok(entry?.stage2, "the scoped read describes the caller's file");
+  });
+
+  it('picks the exact path when a pathspec fanned out but still matched it', () => {
+    // A multi-entry read, which a raw pathspec produces: `ls-files -u --
+    // 'a[1].ts'` returns BOTH `a[1].ts` and `a1.ts`, because `[1]` is a
+    // character class. The caller's own file is in there, so an exact hit must
+    // win rather than the read being refused for having several entries.
+    const entry = scopedUnmergedEntry(
+      read(rec(2, 'a1.ts') + rec(2, 'a[1].ts') + rec(3, 'a[1].ts')),
+      'a[1].ts'
+    );
+    assert.ok(entry?.stage2 && entry?.stage3, "the caller's own entry, not a sibling");
+  });
+
+  it('refuses to guess when the scoped read matched SEVERAL paths', () => {
+    // Several entries and no exact hit: nothing says which is the caller's, and
+    // the entry decides whether the resolve removes the file (`git rm`) or
+    // checks a side out. The spelling fallback must not stretch this far.
+    const entry = scopedUnmergedEntry(read(rec(2, 'a1.ts') + rec(2, 'other.ts')), 'a[1].ts');
+    assert.strictEqual(entry, undefined, 'no arbitrary pick');
+  });
+
+  it('returns nothing when the read failed', () => {
+    assert.strictEqual(
+      scopedUnmergedEntry({ ok: false, stderr: 'boom' }, 'a.ts'),
+      undefined,
+      'an unreadable index is unknown, not empty'
+    );
+  });
+
+  it('returns nothing when the scoped read found no conflict', () => {
+    assert.strictEqual(scopedUnmergedEntry(read(''), 'a.ts'), undefined);
   });
 });

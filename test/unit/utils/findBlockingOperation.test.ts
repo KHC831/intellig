@@ -11,6 +11,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { findBlockingOperation } from '../../../src/git-core/gitDirMarkers';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 describe('findBlockingOperation', () => {
   let tmpDir: string;
@@ -66,7 +67,7 @@ describe('findBlockingOperation', () => {
 // interpolates this value, and calling it a rebase points the user at
 // rebase commands git will refuse during an am session.
 describe('findBlockingOperation — git-am session', () => {
-  const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+  const TMP_ROOT = SCRATCH_ROOT;
   let amTmp: string;
   let amGitDir: string;
 

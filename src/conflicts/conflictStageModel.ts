@@ -1,4 +1,4 @@
-import { GitCli } from '../git-core/gitCli';
+import { GitCli, literalPathspec } from '../git-core/gitCli';
 
 /**
  * Layer 0 — the pure index/stage model for a conflicted repository, git4idea's
@@ -84,7 +84,7 @@ export async function readUnmergedStages(
 ): Promise<UnmergedStagesRead> {
   const args = ['ls-files', '-u', '-z'];
   if (filePath !== undefined) {
-    args.push('--', filePath);
+    args.push('--', literalPathspec(filePath));
   }
   const result = await gitCli.exec(args, { cwd: repoRoot, throwOnError: false });
   if (result.exitCode !== 0) {
@@ -97,6 +97,43 @@ export async function readUnmergedStages(
 // that reached for it was wrong in a different way; a caller that genuinely
 // wants to degrade writes `read.ok ? read.stages : new Map()` at its own site,
 // where the choice is visible in review.
+
+/**
+ * The unmerged entry a PATH-SCOPED read describes, or undefined when the read
+ * failed or found none.
+ *
+ * `ls-files -u -z -- <path>` returns entries for that path alone, so anything
+ * it reports is the caller's file — but git echoes back its OWN spelling, and
+ * a case-insensitive filesystem or an NFD name recorded as NFC makes that
+ * differ from the caller's. Keying only on the caller's spelling reads a real
+ * conflict as none, which is why the lookup falls back to the single entry —
+ * and only ever to a SINGLE one, because a pathspec can fan out.
+ */
+export function scopedUnmergedEntry(
+  read: UnmergedStagesRead,
+  filePath: string
+): IUnmergedEntry | undefined {
+  if (!read.ok) {
+    return undefined;
+  }
+  const exact = read.stages.get(filePath);
+  if (exact) {
+    return exact;
+  }
+  // A miss is a spelling difference, not a different file: git echoes the path
+  // as the INDEX holds it, so an NFD-composed name off the filesystem misses an
+  // NFC-composed key. Take the entry only when the scoped read found exactly
+  // ONE conflict, which is unambiguous. With several there is nothing to say
+  // which is the caller's, and the entry decides whether resolving REMOVES the
+  // file (`git rm`) or checks a side out — not a guess worth taking.
+  if (read.stages.size !== 1) {
+    return undefined;
+  }
+  for (const entry of read.stages.values()) {
+    return entry;
+  }
+  return undefined;
+}
 
 /**
  * Whether the physical stage for `side` (ours = 2, theirs = 3) is present in the

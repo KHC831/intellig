@@ -6,6 +6,9 @@
  * tests, rather than a copy per ref kind.
  */
 
+import { compareRefNames } from '../utils/refNameSort';
+export { compareRefNames };
+
 /** A ref that can nest: anything with a slash-delimited name. */
 export interface INamedRef {
   name: string;
@@ -21,8 +24,8 @@ export interface INamedRef {
  * `groupByPrefix` with every ref kind (`NodeDescriptorsModel.buildTreeNodes`
  * over a `RefsCollection` of local branches, remote branches and tags).
  *
- * Folders sort before leaves, each alpha-sorted, matching
- * `BranchTreeNodeComparator`.
+ * Folders sort before leaves, both through the same locale-aware comparator
+ * so the two halves of one tree cannot order by different rules.
  */
 export function partitionRefsByPathSegment<T extends INamedRef>(
   refs: readonly T[],
@@ -68,11 +71,11 @@ export function partitionRefsByPathSegment<T extends INamedRef>(
     }
   }
 
-  leaves.sort((a, b) => a.ref.name.localeCompare(b.ref.name));
+  leaves.sort((a, b) => compareRefNames(a.ref.name, b.ref.name));
 
   return {
     folders: Array.from(folderSegments)
-      .sort()
+      .sort(compareRefNames)
       .map((segment) => ({
         segment,
         childPath: folderPath ? `${folderPath}/${segment}` : segment,

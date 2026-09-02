@@ -1,5 +1,5 @@
 {
-  "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer \u2014 invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' \u2014 the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet \u2014 printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
+  "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer — invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' — the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet — printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
   "statuses": ["tested", "backlog"],
   "files": {
     "src/git-core/gitToolWindow/webview/gitToolWindow.ts": {
@@ -8,11 +8,11 @@
     },
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
       "status": "tested",
-      "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom \u2014 no behavior script (toolWindowHtmlPieces.test.ts)"
+      "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom — no behavior script (toolWindowHtmlPieces.test.ts)"
     },
     "src/commits/webview/commitToolWindow.ts": {
       "status": "tested",
-      "note": "bundled Commit Tool Window entry booted in jsdom over #ctw-root island; localChanges + shelf tabs, file/diff/composer wiring, updateFileCheckbox sync (commitToolWindowScript.test.ts, commitToolWindow.test.ts, commitToolWindow.shelfTab.test.ts, commitToolWindowGrouping.test.ts)"
+      "note": "bundled Commit Tool Window entry booted in jsdom over #ctw-root island; localChanges + shelf tabs, file/diff/composer wiring, updateFileCheckbox sync (commitToolWindowScript.test.ts, commitToolWindow.test.ts, commitToolWindow.shelfTab.test.ts, commitToolWindowGrouping.test.ts). Issue-5 surfaces: the Merge Conflicts node nested in its changelist, the per-row Resolve button and its dblclick guard, and the pointer-positioned context menu (ctwMergeConflictsNode.test.ts, ctwResolveRowButton.test.ts, ctwContextMenu.test.ts)"
     },
     "src/commits/webview/commitDialog.ts": {
       "status": "tested",

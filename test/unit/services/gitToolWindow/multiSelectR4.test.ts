@@ -19,14 +19,13 @@
  */
 
 import '../../../setup';
-import { readGtwWebviewSource } from '../../../helpers/gtwWebviewSource';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 import { computeMenuState } from '../../../../src/git-core/gitToolWindow/multiSelect';
+import { bootWebviewEntry, IWebviewEntryHarness } from '../../../helpers/bootWebviewEntry';
 
 /** Source of the bundled Git tool-window client entry (applyMenuEnableMap lives here). */
-const ENTRY_SOURCE = readGtwWebviewSource();
 
 function mkCommit(
   hash: string,
@@ -107,65 +106,106 @@ describe('Wave A R4 — review fixes', () => {
     provider.dispose();
   });
 
-  // ─── applyMenuEnableMap surfaces reason as title ─────────────
-  // FU — structural-only coverage; the runtime witness
-  // lives in the ext-host smoke. When the inline-script extraction lands
-  // in `_getInlineScript`, add a jsdom-driven
-  // behavioural test that synthesizes a `message` event with a `reason`
-  // payload and asserts the `title` attribute lands on the row.
-  describe('R4-1 (HIGH) — applyMenuEnableMap pipes entry.reason → title attribute', () => {
-    function getInlineScript(): string {
-      return ENTRY_SOURCE;
+  // ─── the enable map surfaces reason as a title tooltip ───────
+  // These were four greps over the webview source, with a note to replace them
+  // with a behavioural test once the inline script was extracted. It has been:
+  // the rows are built by the shared ContextMenu widget, so the tooltip can be
+  // driven through a real DOM instead of pattern-matched in a string.
+  describe('R4-1 (HIGH) — the enable map pipes entry.reason to a title attribute', () => {
+    let h: IWebviewEntryHarness;
+
+    afterEach(() => {
+      if (h) {
+        h.dispose();
+      }
+    });
+
+    const HASH = 'e'.repeat(40);
+
+    function openMenu(): HTMLElement {
+      h = bootWebviewEntry('git-core/gitToolWindow/webview/gitToolWindow', {
+        bodyHtml:
+          `<div class="graph-panel">` +
+          `<div class="commit-row selected" data-hash="${HASH}" data-parents="" tabindex="0"></div>` +
+          `</div>`,
+      });
+      const row = h.document.querySelector<HTMLElement>('.commit-row');
+      assert.ok(row);
+      row.dispatchEvent(
+        new h.window.MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 10,
+          clientY: 10,
+        })
+      );
+      const menu = h.document.getElementById('commit-context-menu');
+      assert.ok(menu && !menu.hidden);
+      return menu;
     }
 
-    it('inline script reads entry.reason from menuEnableMap', () => {
-      const html = getInlineScript();
-      assert.ok(/entry\.reason/.test(html), 'applyMenuEnableMap must reference entry.reason');
+    function squashRow(menu: HTMLElement): HTMLElement {
+      const row = menu.querySelector<HTMLElement>(
+        '.context-menu-item[data-action="squashCommits"]'
+      );
+      assert.ok(row, 'squashCommits must render');
+      return row;
+    }
+
+    it('lands the reason as a tooltip on a visible-disabled row', () => {
+      const menu = openMenu();
+      h.post({
+        type: 'updateMenuEnableState',
+        state: { squashCommits: { visible: true, enabled: false, reason: 'not contiguous' } },
+      });
+      assert.strictEqual(squashRow(menu).getAttribute('title'), 'not contiguous');
     });
 
-    it('inline script defends against malformed payloads via typeof check', () => {
-      const html = getInlineScript();
-      // Defense-in-depth: typeof entry.reason === 'string' guards against a
-      // future host-side bug shipping a non-string reason.
-      assert.ok(
-        /typeof\s+entry\.reason\s*===\s*['"]string['"]/.test(html),
-        'applyMenuEnableMap must guard the reason read with typeof === "string"'
+    it('clears a stale tooltip when the row becomes available again', () => {
+      const menu = openMenu();
+      h.post({
+        type: 'updateMenuEnableState',
+        state: { squashCommits: { visible: true, enabled: false, reason: 'not contiguous' } },
+      });
+      h.post({
+        type: 'updateMenuEnableState',
+        state: { squashCommits: { visible: true, enabled: true } },
+      });
+      assert.strictEqual(
+        squashRow(menu).getAttribute('title'),
+        null,
+        'a tooltip explaining why a row is unavailable must not outlive that state'
       );
     });
 
-    it('inline script setAttributes title when reason is present and disabled', () => {
-      const html = getInlineScript();
-      assert.ok(
-        /setAttribute\(\s*['"]title['"]/.test(html),
-        'applyMenuEnableMap must call setAttribute("title", ...) for disabled rows with a reason'
-      );
+    it('ignores a malformed reason rather than rendering it', () => {
+      // A host bug shipping a non-string would otherwise put "[object Object]"
+      // in the user's tooltip.
+      const menu = openMenu();
+      h.post({
+        type: 'updateMenuEnableState',
+        state: {
+          squashCommits: {
+            visible: true,
+            enabled: false,
+            reason: { why: 'nope' } as unknown as string,
+          },
+        },
+      });
+      assert.strictEqual(squashRow(menu).getAttribute('title'), null);
     });
 
-    it('inline script removeAttribute title when reason is absent or enabled', () => {
-      const html = getInlineScript();
-      assert.ok(
-        /removeAttribute\(\s*['"]title['"]/.test(html),
-        'applyMenuEnableMap must call removeAttribute("title") to clear stale tooltips'
-      );
-    });
-
-    it('behavioural: simulating a host post + menu open lands the title on a disabled visible row', () => {
-      // Build a tiny DOM that mirrors the rendered menu, then run the
-      // body of applyMenuEnableMap by extracting the function string from
-      // the inline script and eval'ing it. We can't import the function
-      // (it's inside a template literal in the inline script), but we can
-      // assert the structural pattern — the integration check is in the
-      // ext-host smoke + e2e suites.
-      const html = getInlineScript();
-      // The `title` write should appear inside the apply-loop body that
-      // also flips the `disabled` class. Find both within a small window.
-      const applyBlock = html.match(/function\s+applyMenuEnableMap[\s\S]{0,2500}\}/);
-      assert.ok(applyBlock, 'applyMenuEnableMap function body must be present');
-      const body = applyBlock[0];
-      assert.ok(
-        /entry\.reason/.test(body) && /title/.test(body) && /disabled/.test(body),
-        'applyMenuEnableMap body must combine entry.reason + title write + disabled toggle in the same loop'
-      );
+    it('does not put a tooltip on a hidden row', () => {
+      // The host sets reason ONLY when visible && !enabled; a hidden row has no
+      // tooltip surface, so a title there would signal that invariant drifted.
+      const menu = openMenu();
+      h.post({
+        type: 'updateMenuEnableState',
+        state: { squashCommits: { visible: false, enabled: false, reason: 'single selection' } },
+      });
+      const row = squashRow(menu);
+      assert.ok(row.classList.contains('menu-multi-hidden'));
+      assert.strictEqual(row.getAttribute('title'), null);
     });
   });
 

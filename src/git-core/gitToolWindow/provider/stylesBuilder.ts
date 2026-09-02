@@ -1,4 +1,4 @@
-import { contextMenuStyles } from './contextMenuStyles';
+import { contextMenuStyles } from '../../../webview-common/contextMenuStyles';
 import { commitRowStyles } from './commitRowStyles';
 
 /**

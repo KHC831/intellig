@@ -230,10 +230,19 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
     // the validation is exercised positively rather than rejecting every
     // dispatch.
     beforeEach(() => {
-      provider.updateLogState([
-        createMockCommit('abc1234567890', 'First commit'),
-        createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
-      ]);
+      // HEAD is the tip (def, whose parent is abc). The menu rules are
+      // re-checked here before an action fires, and several of them read HEAD
+      // — a fixture that leaves it unset says "HEAD unknown", which is not the
+      // state any of these actions reach the handler in.
+      provider.updateLogState(
+        [
+          createMockCommit('abc1234567890', 'First commit'),
+          createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
+        ],
+        undefined,
+        undefined,
+        'def4567890123'
+      );
     });
 
     it('should fire onDidRequestLogContextAction event for cherry-pick', (done) => {
@@ -249,6 +258,66 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
         action: 'cherryPick',
         commitHashes: ['abc1234567890'],
       });
+    });
+
+    it('drops an action the menu rules disable for the posted commits', () => {
+      // The webview's gating map is advisory: it is computed for one selection
+      // and can still be in hand a round-trip later, when the right-click has
+      // already moved the selection somewhere else. The host owns the rules, so
+      // it re-checks them against the hashes the message actually carries —
+      // otherwise a stale map is enough to fire a single-commit Squash, or a
+      // rewrite of a commit the rules grey out.
+      const fired: string[] = [];
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        fired.push(event.action);
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'squashCommits',
+        commitHashes: ['abc1234567890'],
+      });
+
+      disposable.dispose();
+      assert.deepStrictEqual(fired, [], 'Squash Commits needs two commits');
+    });
+
+    it('drops a single-only action posted for several commits', () => {
+      // The mirror of the case above, and the one that covers a right-click
+      // landing inside a range the webview painted before the host caught up:
+      // the menu can still be showing the single-only rows, so the refusal has
+      // to happen here.
+      const fired: string[] = [];
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        fired.push(event.action);
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'resetToHere',
+        commitHashes: ['abc1234567890', 'def4567890123'],
+      });
+
+      disposable.dispose();
+      assert.deepStrictEqual(fired, [], 'Reset Current Branch to Here targets one commit');
+    });
+
+    it('still fires an action the menu rules allow', () => {
+      // The positive control for the check above: it must reject on the RULE,
+      // not on everything that reaches it.
+      const fired: string[] = [];
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        fired.push(event.action);
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'squashCommits',
+        commitHashes: ['abc1234567890', 'def4567890123'],
+      });
+
+      disposable.dispose();
+      assert.deepStrictEqual(fired, ['squashCommits'], 'two contiguous commits squash');
     });
 
     it('should fire event for revert action', (done) => {
@@ -357,9 +426,10 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
     });
 
     it('should fire event for undoCommit action', (done) => {
+      // Undo Commit is HEAD-only, so it is posted for HEAD.
       const disposable = provider.onDidRequestLogContextAction((event) => {
         assert.strictEqual(event.action, 'undoCommit');
-        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        assert.deepStrictEqual(event.commitHashes, ['def4567890123']);
         disposable.dispose();
         done();
       });
@@ -367,7 +437,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       handler({
         type: 'commitContextMenu',
         action: 'undoCommit',
-        commitHashes: ['abc1234567890'],
+        commitHashes: ['def4567890123'],
       });
     });
 
@@ -469,11 +539,12 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
         receivedActions.push(event.action);
       });
 
+      // HEAD, so the one HEAD-only action in the list is routable too.
       for (const action of allActions) {
         handler({
           type: 'commitContextMenu',
           action,
-          commitHashes: ['abc1234567890'],
+          commitHashes: ['def4567890123'],
         });
       }
 

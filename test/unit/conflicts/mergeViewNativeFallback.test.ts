@@ -15,6 +15,7 @@ import * as path from 'path';
 import { Uri, resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 import { MergeView } from '../../../src/conflicts/MergeView';
 import type { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 /** A MergeView whose two terminal surfaces are observable. */
 class ProbeMergeView extends MergeView {
@@ -46,7 +47,7 @@ describe('merge view: native editor unavailable', () => {
     // and the extension contributing it is not installed.
     resetMockConfiguration();
     setMockConfigValue('intellig', 'mergeWindow.enabled', false);
-    root = fs.mkdtempSync(path.join(process.cwd(), 'workspace-notes/tmp/mergeview-'));
+    root = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'mergeview-'));
     fs.writeFileSync(path.join(root, 'a.txt'), 'conflicted\n');
   });
 

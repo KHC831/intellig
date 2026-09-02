@@ -10,7 +10,10 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GitCli } from '../../../src/git-core/gitCli';
+import { InvalidArgumentError } from '../../../src/git-core/errors';
 import { restorePathsToHead } from '../../../src/git-core/worktree/restoreToHead';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
+import { pathspecTarget } from '../../helpers/pathspec';
 
 interface Scripted {
   cli: GitCli;
@@ -41,11 +44,11 @@ function makeCli(inHead: Set<string>): Scripted {
 /** The paths of a `checkout HEAD --` call, or [] if none ran. */
 function checkoutTargets(calls: string[][]): string[] {
   const call = calls.find((c) => c[0] === 'checkout' && c[1] === 'HEAD');
-  return call ? call.slice(3) : [];
+  return call ? call.slice(3).map(pathspecTarget) : [];
 }
 function unindexTargets(calls: string[][]): string[] {
   const call = calls.find((c) => c[0] === 'rm' && c.includes('--cached'));
-  return call ? call.slice(call.indexOf('--') + 1) : [];
+  return call ? call.slice(call.indexOf('--') + 1).map(pathspecTarget) : [];
 }
 
 describe('restorePathsToHead', () => {
@@ -54,6 +57,23 @@ describe('restorePathsToHead', () => {
     await restorePathsToHead(cli, '/repo', [{ path: 'mod.ts' }]);
     assert.deepStrictEqual(checkoutTargets(calls), ['mod.ts']);
     assert.deepStrictEqual(unindexTargets(calls), [], 'a tracked file must not be unindexed');
+  });
+
+  it('refuses an empty path rather than reverting the whole working tree', async () => {
+    // `git cat-file -e HEAD:` (the root tree) exits 0, so an empty path
+    // classifies as "in HEAD" and would otherwise reach the batched
+    // `checkout HEAD -- :(literal)` — a pathspec that matches every path,
+    // silently reverting everything with exit 0.
+    const { cli, calls } = makeCli(new Set());
+    await assert.rejects(
+      () => restorePathsToHead(cli, '/repo', [{ path: '', inHead: true }]),
+      InvalidArgumentError
+    );
+    assert.deepStrictEqual(
+      checkoutTargets(calls),
+      [],
+      'no checkout must run for a request the guard refused'
+    );
   });
 
   it('unindexes an ADDED file instead of checking it out (would fatal)', async () => {
@@ -145,9 +165,7 @@ describe('restorePathsToHead', () => {
     // `startsWith(root)` passes for /repo/link/sub/f.ts even when `link`
     // points OUTSIDE the repo — the delete then lands outside. The guard must
     // realpath the parent before the containment check.
-    const scratch = fs.mkdtempSync(
-      path.join(__dirname, '../../../workspace-notes/tmp/restore-symlink-')
-    );
+    const scratch = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'restore-symlink-'));
     try {
       const root = path.join(scratch, 'repo');
       const outside = path.join(scratch, 'outside');

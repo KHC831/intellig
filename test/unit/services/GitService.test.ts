@@ -14,6 +14,7 @@ import { GitService } from '../../../src/git-core/GitService';
 import { IRepository, ICommitOptions } from '../../../src/git-core/interfaces/IGitService';
 import { isConflictError } from '../../../src/sync/PullDialog';
 import { Uri } from '../../mocks/vscode';
+import { literalPathspec } from '../../../src/git-core/gitCli';
 
 // Mock GitCli for testing
 class MockGitCli {
@@ -352,7 +353,12 @@ describe('GitService - Commit Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['add', '--', 'file1.ts', 'file2.ts']);
+      assert.deepStrictEqual(lastCommand.args, [
+        'add',
+        '--',
+        literalPathspec('file1.ts'),
+        literalPathspec('file2.ts'),
+      ]);
     });
 
     it('should execute git add with single file', async () => {
@@ -360,7 +366,7 @@ describe('GitService - Commit Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['add', '--', 'single-file.ts']);
+      assert.deepStrictEqual(lastCommand.args, ['add', '--', literalPathspec('single-file.ts')]);
     });
 
     it('should pass the correct working directory', async () => {
@@ -376,7 +382,11 @@ describe('GitService - Commit Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['add', '--', 'path with spaces/file.ts']);
+      assert.deepStrictEqual(lastCommand.args, [
+        'add',
+        '--',
+        literalPathspec('path with spaces/file.ts'),
+      ]);
     });
 
     it('should handle multiple files in different directories', async () => {
@@ -387,9 +397,9 @@ describe('GitService - Commit Operations', () => {
       assert.deepStrictEqual(lastCommand.args, [
         'add',
         '--',
-        'src/file1.ts',
-        'test/file2.ts',
-        'lib/file3.ts',
+        literalPathspec('src/file1.ts'),
+        literalPathspec('test/file2.ts'),
+        literalPathspec('lib/file3.ts'),
       ]);
     });
   });
@@ -400,7 +410,13 @@ describe('GitService - Commit Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['reset', 'HEAD', '--', 'file1.ts', 'file2.ts']);
+      assert.deepStrictEqual(lastCommand.args, [
+        'reset',
+        'HEAD',
+        '--',
+        literalPathspec('file1.ts'),
+        literalPathspec('file2.ts'),
+      ]);
     });
 
     it('should execute git reset HEAD with single file', async () => {
@@ -408,7 +424,12 @@ describe('GitService - Commit Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['reset', 'HEAD', '--', 'single-file.ts']);
+      assert.deepStrictEqual(lastCommand.args, [
+        'reset',
+        'HEAD',
+        '--',
+        literalPathspec('single-file.ts'),
+      ]);
     });
 
     it('should pass the correct working directory', async () => {
@@ -424,7 +445,12 @@ describe('GitService - Commit Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['reset', 'HEAD', '--', 'path with spaces/file.ts']);
+      assert.deepStrictEqual(lastCommand.args, [
+        'reset',
+        'HEAD',
+        '--',
+        literalPathspec('path with spaces/file.ts'),
+      ]);
     });
 
     it('should handle multiple files in different directories', async () => {
@@ -436,9 +462,9 @@ describe('GitService - Commit Operations', () => {
         'reset',
         'HEAD',
         '--',
-        'src/file1.ts',
-        'test/file2.ts',
-        'lib/file3.ts',
+        literalPathspec('src/file1.ts'),
+        literalPathspec('test/file2.ts'),
+        literalPathspec('lib/file3.ts'),
       ]);
     });
   });
@@ -5873,7 +5899,7 @@ describe('GitService - Log Operations', () => {
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
         assert.ok(lastCommand.args.includes('--'), 'Should include -- separator');
-        assert.ok(lastCommand.args.includes('src/file.ts'), 'Should include path');
+        assert.ok(lastCommand.args.includes(literalPathspec('src/file.ts')), 'Should include path');
       });
 
       it('should handle paths with spaces', async () => {
@@ -5887,7 +5913,10 @@ describe('GitService - Log Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.ok(lastCommand.args.includes('src/my file.ts'), 'Should include path with spaces');
+        assert.ok(
+          lastCommand.args.includes(literalPathspec('src/my file.ts')),
+          'Should include path with spaces'
+        );
       });
 
       it('should handle directory paths', async () => {
@@ -5901,7 +5930,10 @@ describe('GitService - Log Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.ok(lastCommand.args.includes('src/components/'), 'Should include directory path');
+        assert.ok(
+          lastCommand.args.includes(literalPathspec('src/components/')),
+          'Should include directory path'
+        );
       });
     });
 
@@ -5996,7 +6028,7 @@ describe('GitService - Log Operations', () => {
         );
         assert.ok(lastCommand.args.includes('--grep=feature'), 'Should include grep');
         assert.ok(lastCommand.args.includes('--'), 'Should include -- separator');
-        assert.ok(lastCommand.args.includes('src/'), 'Should include path');
+        assert.ok(lastCommand.args.includes(literalPathspec('src/')), 'Should include path');
       });
     });
   });
@@ -6157,7 +6189,10 @@ describe('GitService - Log Operations', () => {
         assert.ok(lastCommand, 'Command should have been executed');
         assert.strictEqual(lastCommand.args[0], 'log');
         assert.ok(lastCommand.args.includes('--'), 'Should include -- separator');
-        assert.ok(lastCommand.args.includes('src/file.ts'), 'Should include file path');
+        assert.ok(
+          lastCommand.args.includes(literalPathspec('src/file.ts')),
+          'Should include file path'
+        );
       });
 
       it('should return commits that modified the file', async () => {
@@ -6203,7 +6238,7 @@ describe('GitService - Log Operations', () => {
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
         assert.ok(
-          lastCommand.args.includes('src/[special]/file.ts'),
+          lastCommand.args.includes(literalPathspec('src/[special]/file.ts')),
           'Should include path with special characters'
         );
       });
@@ -6220,7 +6255,7 @@ describe('GitService - Log Operations', () => {
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
         assert.ok(
-          lastCommand.args.includes('src/components/ui/Button.tsx'),
+          lastCommand.args.includes(literalPathspec('src/components/ui/Button.tsx')),
           'Should include nested path'
         );
       });

@@ -109,15 +109,15 @@ is on the author to justify why neither rule (1), (2), nor (3) applies.
 - `src/utils/atomicWrite.ts` — helper implementation + the JSDoc
   rationale for the rename-based strategy, including temp-file cleanup
   and the Windows-locked-target caveat.
-- `src/services/ChangelistService.ts` — `atomicWriteFileSync` for
+- `src/changelists/ChangelistService.ts` — `atomicWriteFileSync` for
   durable-state rule (1).
-- `src/services/ShelfService.ts` — `atomicWriteFileSync` for durable-
+- `src/shelf/ShelfService.ts` — `atomicWriteFileSync` for durable-
   state rule (1).
-- `src/services/ShelfView.ts` (patch export) +
-  `src/commands/CommitContextMenuCommands.ts` (patch save) +
-  `src/services/PatchService.ts` (user-chosen patch output) —
+- `src/shelf/ShelfView.ts` (patch export) +
+  `src/commits/commitPatchActions.ts` (patch save) +
+  `src/patches/PatchService.ts` (user-chosen patch output) —
   `atomicWriteFile` for user-chosen-path rule (2).
-- `src/services/PatchService.ts::_writeTempPatch` — explicit
+- `src/patches/PatchService.ts::_writeTempPatch` — explicit
   exception: direct `fs.promises.writeFile` into a `mkdtemp`
   subdirectory.
 - `docs/testing.md` section 7 — atomic-write testing patterns (`crash-during-

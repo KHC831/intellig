@@ -34,6 +34,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { literalPathspec } from '../../../src/git-core/gitCli';
+import { pathspecTarget } from '../../helpers/pathspec';
 import { ConflictResolutionService } from '../../../src/conflicts/ConflictResolutionService';
 import { ResolveConflictsDialog } from '../../../src/conflicts/ResolveConflictsDialog';
 import type { IConflictOpContext } from '../../../src/conflicts/interfaces/IConflictResolutionService';
@@ -228,7 +230,7 @@ function makeMockGitService(): IGitService & {
         }
         if (args[0] === 'ls-files' && args.includes('-u')) {
           const dashDash = args.indexOf('--');
-          const only = dashDash >= 0 ? args[dashDash + 1] : undefined;
+          const only = dashDash >= 0 ? pathspecTarget(args[dashDash + 1]) : undefined;
           let stdout = '';
           for (const [p, s] of statuses) {
             if (only !== undefined && p !== only) {
@@ -1209,7 +1211,7 @@ describe('ResolveConflictsDialog', () => {
       );
       assert.ok(
         gitService._execCalls.some(
-          (a) => a[0] === 'ls-tree' && a.includes(SHA) && a.includes('new.ts')
+          (a) => a[0] === 'ls-tree' && a.includes(SHA) && a.includes(literalPathspec('new.ts'))
         ),
         `expected an ls-tree presence probe against the snapshot; execs: ${JSON.stringify(gitService._execCalls)}`
       );
@@ -1218,9 +1220,9 @@ describe('ResolveConflictsDialog', () => {
           (a) =>
             a[0] === 'checkout' &&
             a.includes(SHA) &&
-            a.includes('sib.ts') &&
-            a.includes('target.ts') &&
-            !a.includes('new.ts')
+            a.includes(literalPathspec('sib.ts')) &&
+            a.includes(literalPathspec('target.ts')) &&
+            !a.includes(literalPathspec('new.ts'))
         ),
         `pre-apply paths must be checked out FROM THE SNAPSHOT; execs: ${JSON.stringify(gitService._execCalls)}`
       );
@@ -1255,7 +1257,11 @@ describe('ResolveConflictsDialog', () => {
 
       assert.ok(
         gitService._execCalls.some(
-          (a) => a[0] === 'checkout' && a[1] === 'HEAD' && a[2] === '--' && a.includes('target.ts')
+          (a) =>
+            a[0] === 'checkout' &&
+            a[1] === 'HEAD' &&
+            a[2] === '--' &&
+            a.includes(literalPathspec('target.ts'))
         ),
         `expected the legacy restore of unresolved paths; execs: ${JSON.stringify(gitService._execCalls)}`
       );
@@ -1902,7 +1908,7 @@ describe('ConflictResolutionService — (a) additions', () => {
       await conflictService.acceptAllCurrent(repo);
       assert.ok(
         gitService._execCalls.some(
-          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'a.ts'
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === literalPathspec('a.ts')
         ),
         'unstash bulk Accept All Current must still reverse to --theirs after the tab is closed'
       );
@@ -1930,7 +1936,7 @@ describe('ConflictResolutionService — (a) additions', () => {
       await conflictService.acceptAllCurrent(repo);
       assert.ok(
         gitService._execCalls.some(
-          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'b.ts'
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === literalPathspec('b.ts')
         ),
         'a later conflict must not inherit the cleared unstash reversal'
       );
@@ -1974,7 +1980,7 @@ describe('ConflictResolutionService — (a) additions', () => {
       await conflictService.acceptAllCurrent(repo);
       assert.ok(
         gitService._execCalls.some(
-          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'a.ts'
+          (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === literalPathspec('a.ts')
         ),
         'reopen via the recorded op keeps unstash reversal (--theirs preserves stashed work)'
       );
@@ -1999,7 +2005,7 @@ describe('ConflictResolutionService — (a) additions', () => {
       await conflictService.acceptAllCurrent(repo);
       assert.ok(
         gitService._execCalls.some(
-          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'a.ts'
+          (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === literalPathspec('a.ts')
         ),
         'a merge guess flips reversal off (--ours = current branch) — the data loss the fix prevents'
       );
@@ -2028,7 +2034,9 @@ describe('ConflictResolutionService — (a) additions', () => {
       const p2 = onMessage({ type: 'acceptTheirs', path: 'a.ts' });
       await Promise.all([p1, p2]);
 
-      const checkouts = gitService._execCalls.filter((a) => a[0] === 'checkout' && a[3] === 'a.ts');
+      const checkouts = gitService._execCalls.filter(
+        (a) => a[0] === 'checkout' && a[3] === literalPathspec('a.ts')
+      );
       assert.strictEqual(
         checkouts.length,
         1,
@@ -2062,11 +2070,11 @@ describe('ConflictResolutionService — (a) additions', () => {
       ]);
 
       assert.ok(
-        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'a.ts'),
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === literalPathspec('a.ts')),
         'a.ts must be resolved'
       );
       assert.ok(
-        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === 'b.ts'),
+        gitService._execCalls.some((a) => a[0] === 'checkout' && a[3] === literalPathspec('b.ts')),
         'b.ts must be resolved (different rows are independent)'
       );
       d.dispose();
@@ -2082,7 +2090,10 @@ describe('ConflictResolutionService — (a) additions', () => {
       const inner: ExecFn = cli.exec.bind(cli);
       cli.exec = async (args: string[]) => {
         if (args[0] === 'checkout' || args[0] === 'rm') {
-          gitService._statuses.delete(args[args.length - 1]);
+          const target = args[args.length - 1];
+          gitService._statuses.delete(
+            target.startsWith(':(literal)') ? target.slice(':(literal)'.length) : target
+          );
         }
         return inner(args);
       };
@@ -2160,7 +2171,9 @@ describe('ConflictResolutionService — (a) additions', () => {
 
       for (const f of ['a.ts', 'b.ts']) {
         assert.ok(
-          gitService._execCalls.some((a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === f),
+          gitService._execCalls.some(
+            (a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === literalPathspec(f)
+          ),
           `merge Accept Yours must checkout --ours for ${f}`
         );
       }
@@ -2179,7 +2192,7 @@ describe('ConflictResolutionService — (a) additions', () => {
       for (const f of ['a.ts', 'b.ts']) {
         assert.ok(
           gitService._execCalls.some(
-            (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === f
+            (a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === literalPathspec(f)
           ),
           `merge Accept Theirs must checkout --theirs for ${f}`
         );

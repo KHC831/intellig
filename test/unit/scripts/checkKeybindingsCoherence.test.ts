@@ -14,9 +14,10 @@ import * as assert from 'assert';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 const SCRIPT = path.join(process.cwd(), 'scripts/check-keybindings-coherence.mjs');
-const TMP_ROOT = path.join(process.cwd(), 'workspace-notes/tmp');
+const TMP_ROOT = SCRATCH_ROOT;
 
 interface IFixture {
   keybindings: { command: string; key?: string; mac?: string; when?: string }[];

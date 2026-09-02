@@ -6,6 +6,7 @@
 
 import type { ICommitNode } from '../../commitGraph';
 import type { IBranchFilterGroups } from '../gitToolWindow.wireTypes';
+import { compareRefNames } from '../../../utils/refNameSort';
 
 /**
  * BFS over `commitNodes`'s parent edges from `targetHash`
@@ -106,10 +107,10 @@ export function groupBranchFilterOptions(
     }
   }
   const groups: IBranchFilterGroups = {
-    local: [...local].sort(),
+    local: [...local].sort(compareRefNames),
     remotes: [...remotes.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([remote, set]) => ({ remote, branches: [...set].sort() })),
+      .sort((a, b) => compareRefNames(a[0], b[0]))
+      .map(([remote, set]) => ({ remote, branches: [...set].sort(compareRefNames) })),
   };
   return groups;
 }

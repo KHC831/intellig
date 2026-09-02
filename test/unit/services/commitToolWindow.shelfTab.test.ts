@@ -13,7 +13,7 @@
  *    matches the filter.
  *  - CommitToolWindow host-side: filter toggle persists to workspaceState,
  *    shelfTabContextAction dispatches to the correct controller method,
- *    and `contextOpen` escalates to a QuickPick that honors the row kind.
+ *    and `contextOpen` answers with the menu items for the row kind.
  */
 
 /*
@@ -477,13 +477,13 @@ describe('CommitToolWindow filter persistence', () => {
 });
 
 describe('CommitToolWindow shelfTabContextAction routing', () => {
-  function makeRig(): {
+  function makeRig(shelfItems: IShelfItem[] = []): {
     ctw: CommitToolWindow;
     shelfCalls: string[];
     stashCalls: string[];
   } {
     const mem = makeMemento();
-    const { svc: shelf } = makeShelfService();
+    const { svc: shelf } = makeShelfService(shelfItems);
     const ctw = new CommitToolWindow(
       Uri.file('/tmp/ext'),
       makeGitService(),
@@ -537,6 +537,10 @@ describe('CommitToolWindow shelfTabContextAction routing', () => {
       },
     };
     ctw.setShelfTabControllers(shelfCtrl, stashCtrl);
+    // The shelf list is normally filled by a state reload against a repo; seed
+    // it directly so the context-menu lookups have rows to find.
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (ctw as any)._shelfItems = shelfItems;
     return { ctw, shelfCalls, stashCalls };
   }
 
@@ -581,6 +585,172 @@ describe('CommitToolWindow shelfTabContextAction routing', () => {
       await dispatch(ctw, { action: 'shelfApply' }); // no rowKind
       assert.deepStrictEqual(shelfCalls, []);
       assert.deepStrictEqual(stashCalls, []);
+    } finally {
+      ctw.dispose();
+    }
+  });
+
+  const shelfEntry = (id: string, name: string): IShelfItem => ({
+    id,
+    name,
+    timestamp: new Date(1000),
+    files: [{ path: `${id}.ts`, diff: '' }],
+  });
+
+  /** Capture what the host posts to the webview. */
+  function capturePosts(ctw: CommitToolWindow): Array<{
+    type?: string;
+    rowKind?: string;
+    shelfId?: string;
+    stashIndex?: number;
+    items?: Array<{ label: string; action: string }>;
+  }> {
+    const posted: Array<{
+      type?: string;
+      rowKind?: string;
+      shelfId?: string;
+      stashIndex?: number;
+      items?: Array<{ label: string; action: string }>;
+    }> = [];
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    (ctw as any)._view = {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'test:',
+        asWebviewUri: (u: unknown) => u,
+        postMessage: (m: unknown) => {
+          posted.push(m as (typeof posted)[number]);
+          return Promise.resolve(true);
+        },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+      },
+      onDidDispose: () => ({ dispose: () => {} }),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
+    return posted;
+  }
+
+  it('answers a shelf-row right-click with the menu, not a QuickPick', async () => {
+    // showQuickPick is VS Code's command-palette widget, which opens at the
+    // top of the window nowhere near the row. The Local Changes tab draws a
+    // real menu; this one must too, from the same items.
+    const { ctw } = makeRig([shelfEntry('s1', 'wip')]);
+    const posted = capturePosts(ctw);
+    let quickPicks = 0;
+    const realQuickPick = vscode.window.showQuickPick;
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick =
+      (): Promise<undefined> => {
+        quickPicks++;
+        return Promise.resolve(undefined);
+      };
+    try {
+      await dispatch(ctw, { action: 'contextOpen', rowKind: 'shelf', shelfId: 's1' });
+
+      const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+      assert.strictEqual(menus.length, 1, 'the host answers with items for the webview to draw');
+      assert.strictEqual(quickPicks, 0, 'and never opens a QuickPick');
+      assert.strictEqual(menus[0].rowKind, 'shelf');
+      assert.strictEqual(menus[0].shelfId, 's1', 'the reply names the row it belongs to');
+      assert.deepStrictEqual(
+        (menus[0].items ?? []).map((i) => i.action),
+        shelfRowContextMenuLabels({ isAlreadyUnshelved: false }).map((i) => i.action),
+        'the same labels the host has always computed'
+      );
+    } finally {
+      (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = realQuickPick;
+      ctw.dispose();
+    }
+  });
+
+  it('answers a stash-row right-click with the stash menu', async () => {
+    const { ctw } = makeRig();
+    const posted = capturePosts(ctw);
+    try {
+      await dispatch(ctw, { action: 'contextOpen', rowKind: 'stash', stashIndex: 3 });
+
+      const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+      assert.strictEqual(menus.length, 1);
+      assert.strictEqual(menus[0].rowKind, 'stash');
+      assert.strictEqual(menus[0].stashIndex, 3);
+      assert.deepStrictEqual(
+        (menus[0].items ?? []).map((i) => i.action),
+        stashRowContextMenuLabels().map((i) => i.action)
+      );
+    } finally {
+      ctw.dispose();
+    }
+  });
+
+  it('offers Restore only on an already-unshelved entry', async () => {
+    const { ctw } = makeRig([
+      shelfEntry('plain', 'wip'),
+      { ...shelfEntry('unshelved', 'applied'), unshelvedAt: new Date(5000) },
+    ]);
+    const posted = capturePosts(ctw);
+    try {
+      await dispatch(ctw, { action: 'contextOpen', rowKind: 'shelf', shelfId: 'plain' });
+      await dispatch(ctw, { action: 'contextOpen', rowKind: 'shelf', shelfId: 'unshelved' });
+      const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+      assert.strictEqual(menus.length, 2);
+      assert.ok(
+        !(menus[0].items ?? []).some((i) => i.action === 'shelfRestore'),
+        'a shelf that was never unshelved has nothing to restore'
+      );
+      assert.ok(
+        (menus[1].items ?? []).some((i) => i.action === 'shelfRestore'),
+        'an entry that has been unshelved can be restored'
+      );
+    } finally {
+      ctw.dispose();
+    }
+  });
+
+  it('answers a stash-row right-click even for an index with no matching stash', async () => {
+    // Unlike the shelf arm, the stash arm never looks a stash up by index —
+    // it always renders the menu, so a stale/out-of-range index does not
+    // bail the way an unknown shelf id does above.
+    const { ctw } = makeRig();
+    const posted = capturePosts(ctw);
+    try {
+      await dispatch(ctw, { action: 'contextOpen', rowKind: 'stash', stashIndex: 9999 });
+      const menus = posted.filter((m) => m.type === 'showRowContextMenu');
+      assert.strictEqual(menus.length, 1, 'no bail for an out-of-range stash index');
+      assert.strictEqual(menus[0].stashIndex, 9999);
+    } finally {
+      ctw.dispose();
+    }
+  });
+
+  it('stays silent when the shelf entry is gone', async () => {
+    const { ctw } = makeRig([shelfEntry('s1', 'wip')]);
+    const posted = capturePosts(ctw);
+    try {
+      await dispatch(ctw, { action: 'contextOpen', rowKind: 'shelf', shelfId: 'no-such-id' });
+      assert.deepStrictEqual(
+        posted.filter((m) => m.type === 'showRowContextMenu'),
+        [],
+        'no menu for a row that no longer exists'
+      );
+    } finally {
+      ctw.dispose();
+    }
+  });
+
+  it('refuses a stash index that is not a whole non-negative number', async () => {
+    // A stash is addressed by position. The webview builds this with Number()
+    // over a DOM attribute and the inbound validator checks only the message
+    // type, so a NaN or a negative would otherwise reach drop/pop and act on
+    // whatever git resolves stash@{...} to.
+    const { ctw, stashCalls } = makeRig();
+    try {
+      for (const stashIndex of [Number.NaN, -1, 1.5]) {
+        await dispatch(ctw, { action: 'stashDrop', rowKind: 'stash', stashIndex });
+      }
+      assert.deepStrictEqual(stashCalls, [], 'none of those address a stash');
+
+      await dispatch(ctw, { action: 'stashDrop', rowKind: 'stash', stashIndex: 0 });
+      assert.deepStrictEqual(stashCalls, ['drop:0'], 'a real index still works');
     } finally {
       ctw.dispose();
     }

@@ -175,6 +175,16 @@ describe('CommitToolWindow Local Changes — grouping + unversioned + diff pane 
     assert.ok(block?.querySelector('.ctw-file-row[data-path="new.ts"]'));
   });
 
+  it('marks an untracked file row with ctw-file-untracked, driven from a real untracked IFileChange', () => {
+    // Drives the row from a real `status: 'untracked'` IFileChange rather
+    // than hand-setting `untracked` on an already-built model, so
+    // buildCtwFileEntry's `entry.untracked = true` line (the render-model
+    // builder, not the DOM) stays covered.
+    const doc = buildLocalDoc('flat');
+    const row = doc.querySelector('.ctw-file-row[data-path="new.ts"]');
+    assert.ok(row?.classList.contains('ctw-file-untracked'), 'untracked row must carry the class');
+  });
+
   it('renders the diff-preview pane surface', () => {
     const doc = buildLocalDoc();
     const pane = doc.querySelector('[data-diff-preview]');
