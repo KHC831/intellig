@@ -581,8 +581,12 @@ export class CommitToolWindow extends BaseWebviewView<CommitToolWindowOutbound> 
     // localChanges.openFile with no argument and can't read the webview's
     // selection, so it falls back to this (IntelliJ EditSource semantics).
     this._lastSelectedFileUri = await this._resolveFileUri(path);
+    // A fully-staged file (index carries the change, nothing further in the
+    // working tree) has an EMPTY unstaged diff — the row's own `staged` flag
+    // says which side of `git diff` actually holds the content.
+    const staged = this._findFileChange(path)?.staged ?? false;
     try {
-      const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
+      const diff = await this._gitService.getDiff(repo, path, staged);
       void this.postMessage({ type: 'updateDiffPreview', path, diff });
     } catch (error) {
       void this.postMessage({

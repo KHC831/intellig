@@ -461,7 +461,10 @@ describe('CommitToolWindow — host behavior', () => {
         calls.push({ method: 'commit', args });
         return okAsync(undefined);
       },
-      getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
+      getDiff: async (...args: unknown[]) => {
+        calls.push({ method: 'getDiff', args });
+        return { path: '', status: 'modified' as const, hunks: [], binary: false };
+      },
 
       // Stash operations — stashList is the only one invoked via
       // _reloadState. The rest are throw-on-call.
@@ -696,6 +699,56 @@ describe('CommitToolWindow — host behavior', () => {
     const commitCall = services.calls.find((c) => c.method === 'commit');
     assert.ok(commitCall);
     assert.strictEqual(commitCall?.args[1], 'feat: add thing');
+
+    tw.dispose();
+  });
+
+  it('selectFile requests the STAGED diff for a fully-staged file, and the unstaged diff otherwise', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      {
+        id: 'def',
+        name: 'Default',
+        isDefault: true,
+        isActive: true,
+        files: [
+          { path: 'README', status: 'modified', staged: true },
+          { path: 'src/main/java/Service.java', status: 'modified', staged: false },
+        ],
+      },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'selectFile', path: 'README' });
+    const stagedCall = services.calls.find((c) => c.method === 'getDiff');
+    assert.ok(stagedCall, 'expected a getDiff call for README');
+    assert.strictEqual(
+      stagedCall?.args[2],
+      true,
+      'a fully-staged file must request the staged diff, or its content never renders'
+    );
+
+    services.calls.length = 0;
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'selectFile',
+      path: 'src/main/java/Service.java',
+    });
+    const unstagedCall = services.calls.find((c) => c.method === 'getDiff');
+    assert.ok(unstagedCall, 'expected a getDiff call for the nested file');
+    assert.strictEqual(
+      unstagedCall?.args[2],
+      false,
+      'an unstaged file must request the unstaged diff'
+    );
 
     tw.dispose();
   });
