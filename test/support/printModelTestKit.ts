@@ -127,6 +127,7 @@ export function mkRowModel(
     inkedLanes,
     isLastRow: rest.isLastRow ?? false,
     chevronLanes: rest.chevronLanes ?? [],
+    chevronColors: rest.chevronColors,
     hasFocusedBranch: rest.hasFocusedBranch ?? false,
   };
 }

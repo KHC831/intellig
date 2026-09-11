@@ -8,18 +8,21 @@
  * and the graph column is sized to the max index, leaving a wide empty gap before
  * the message text.
  *
- * This pass relabels the print model's columns down to the lanes actually drawn.
- * It works on maximal DRAWN row-runs ("clusters"): a long edge contributes two
- * clusters (near each endpoint) with its freed middle in between, and clusters are
- * packed by interval-graph coloring so the column count equals the max lanes drawn
- * in any single row (a constant, not a function of window size). Runs on the FINAL
- * hidden print model — NOT the interval builder — so two branches' intervals are
- * never merged/confused, and per-element colors (already resolved) are untouched.
- * Mirrors IntelliJ's visible-graph layout, which lays out only collapsed edges.
+ * This pass relabels each row's columns independently, by RANK: a visible lane's
+ * packed column is the count of other visible lanes in that row with a smaller
+ * raw index. This is order-preserving by construction (rank cannot invert two
+ * lanes' relative order) and every row's column set is dense `{0..k-1}` where k
+ * is that row's visible-lane count, with zero cost for a hidden long edge's freed
+ * lane (not visible, so not ranked). Runs on the FINAL hidden print model — NOT
+ * the interval builder — so per-element colors (already resolved) are untouched.
+ * A raw lane's column can differ between two rows even when both draw it (a
+ * fork/merge changes which lanes are simultaneously visible); {@link linkSeams}
+ * is what keeps the painted line looking continuous across that boundary.
  */
 
 import { isValidLane } from '../../utils/graphRenderer';
 import { IRowPrintModel } from './printModel';
+import { linkSeams, type IRawEdgeEndpoints } from './laneLinking';
 
 /** Every lane a row occupies (node dot + each edge's own/from/target + inked set). */
 function lanesInRow(model: IRowPrintModel): Set<number> {
@@ -41,67 +44,17 @@ function lanesInRow(model: IRowPrintModel): Set<number> {
   return lanes;
 }
 
-interface ILaneCluster {
-  lane: number;
-  start: number;
-  end: number;
-  column: number;
-}
-
 /**
- * Split each raw lane's drawn rows into maximal consecutive runs (clusters) and
- * interval-graph-color them: process clusters by start row, giving each the lowest
- * column free at that row. Overlapping clusters (different lanes drawn in the same
- * rows) get distinct columns; a lane's disjoint clusters (the two ends of a hidden
- * long edge) are colored independently, so the total column count equals the max
- * lanes drawn in one row. The mainline (lane 0, drawn from row 0) sorts first and
- * keeps column 0.
+ * Per-row raw-lane -> packed-column map: each visible lane's rank (0-based
+ * position) among that row's visible lanes sorted ascending by raw index.
  */
-function buildClusters(models: IRowPrintModel[]): ILaneCluster[] {
-  const rowsOfLane = new Map<number, number[]>();
-  models.forEach((m, row) => {
-    for (const lane of lanesInRow(m)) {
-      let rows = rowsOfLane.get(lane);
-      if (!rows) {
-        rowsOfLane.set(lane, (rows = []));
-      }
-      rows.push(row);
-    }
+function buildRankMap(models: IRowPrintModel[]): Array<Map<number, number>> {
+  return models.map((m) => {
+    const sorted = [...lanesInRow(m)].sort((a, b) => a - b);
+    const map = new Map<number, number>();
+    sorted.forEach((lane, rank) => map.set(lane, rank));
+    return map;
   });
-
-  const clusters: ILaneCluster[] = [];
-  for (const [lane, rows] of rowsOfLane) {
-    rows.sort((a, b) => a - b);
-    let start = rows[0];
-    let prev = rows[0];
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i] === prev + 1) {
-        prev = rows[i];
-        continue;
-      }
-      clusters.push({ lane, start, end: prev, column: -1 });
-      start = prev = rows[i];
-    }
-    clusters.push({ lane, start, end: prev, column: -1 });
-  }
-
-  // Interval-graph greedy: sort by start (then lane for stability); assign the
-  // lowest column whose last cluster ended strictly before this one starts.
-  clusters.sort((a, b) => a.start - b.start || a.lane - b.lane);
-  const columnFreeAfter: number[] = []; // columnFreeAfter[c] = last end row on column c
-  for (const cl of clusters) {
-    let col = 0;
-    while (col < columnFreeAfter.length && columnFreeAfter[col] >= cl.start) {
-      col++;
-    }
-    if (col === columnFreeAfter.length) {
-      columnFreeAfter.push(cl.end);
-    } else {
-      columnFreeAfter[col] = cl.end;
-    }
-    cl.column = col;
-  }
-  return clusters;
 }
 
 /**
@@ -112,13 +65,14 @@ export function compactPrintModelLanes(models: IRowPrintModel[]): IRowPrintModel
   if (models.length === 0) {
     return models;
   }
-  // Per-row lane -> packed column.
-  const mapByRow: Array<Map<number, number>> = models.map(() => new Map<number, number>());
-  for (const cl of buildClusters(models)) {
-    for (let r = cl.start; r <= cl.end; r++) {
-      mapByRow[r].set(cl.lane, cl.column);
-    }
-  }
+  const mapByRow = buildRankMap(models);
+
+  // Capture every edge's RAW (pre-remap) endpoints before the loop below
+  // overwrites fromLane/targetLane with packed columns — linkSeams needs the
+  // raw values to look up the neighbor row's column for the same physical lane.
+  const rawEndpoints: IRawEdgeEndpoints[][] = models.map((m) =>
+    m.edges.map((e) => ({ from: e.fromLane, target: e.targetLane }))
+  );
 
   models.forEach((m, row) => {
     const map = mapByRow[row];
@@ -132,5 +86,7 @@ export function compactPrintModelLanes(models: IRowPrintModel[]): IRowPrintModel
     m.inkedLanes = m.inkedLanes.map(remap);
     m.chevronLanes = m.chevronLanes.map(remap);
   });
+
+  linkSeams(models, mapByRow, rawEndpoints);
   return models;
 }

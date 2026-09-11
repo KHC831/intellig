@@ -64,6 +64,12 @@ chain exists yet — every ADR below is in force.
   primitives (QuickPick, TreeView + context menus, SCM API, native
   modals) for menus, popups, dialogs, and commit/staging. The
   commit-row context menu is the one inherent hand-rolled exception.
+- [ADR-016](ADR-016-graph-column-packing.md) — Accepted —
+  Graph column packing by per-row rank (replaces the order-destroying
+  cluster/interval packer), plus seam docking across a lane's own
+  column changes at a row boundary. Downstream of ADR-013's frozen
+  data model; pinned by invariants E2, H2, I, J, K in
+  `test/support/graphInvariants.ts`.
 
 ### Enforcement & process
 

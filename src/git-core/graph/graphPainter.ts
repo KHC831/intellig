@@ -44,11 +44,32 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
     const dashAttr = el.style === 'dashed' ? ` stroke-dasharray="4,3"` : '';
     if (!el.curved) {
       const x = getColumnX(el.lane, config);
+      // Seam docking (laneLinking.ts's linkSeams): a segment whose neighbor
+      // row drew this lane on a DIFFERENT column slants its last pixels toward
+      // that column's midpoint instead of jumping sideways at the boundary.
+      // Undocked (topLane/bottomLane === lane, the common case), both seam x's
+      // collapse to `x` and the plain <line> below is byte-identical to before.
+      const upSeamX = (x + getColumnX(el.topLane ?? el.lane, config)) / 2;
+      const downSeamX = (x + getColumnX(el.bottomLane ?? el.lane, config)) / 2;
       const [y1, y2] =
         el.half === 'full' ? [0, bottomY] : el.half === 'up' ? [0, centerY] : [centerY, bottomY];
-      elements.push(
-        `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
-      );
+      const upX = el.half === 'down' ? x : upSeamX;
+      const downX = el.half === 'up' ? x : downSeamX;
+      if (upX === x && downX === x) {
+        elements.push(
+          `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
+        );
+      } else {
+        const points =
+          el.half === 'full'
+            ? `${upSeamX},0 ${x},${centerY} ${downSeamX},${bottomY}`
+            : el.half === 'up'
+              ? `${upSeamX},0 ${x},${centerY}`
+              : `${x},${centerY} ${downSeamX},${bottomY}`;
+        elements.push(
+          `<polyline points="${points}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
+        );
+      }
       if (el.arrow !== undefined) {
         // Long-edge cut: an arrowhead at the row center pointing INTO the hidden
         // gap ('down' near the child endpoint, 'up' near the parent).
@@ -63,10 +84,15 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
     } else {
       const fromX = getColumnX(el.fromLane, config);
       const toX = getColumnX(el.targetLane, config);
+      // Only the boundary-touching endpoint docks; the control points keep the
+      // curve's shape, so an undocked bend (topLane/bottomLane unset) paints
+      // byte-identically to before.
+      const upX = (fromX + getColumnX(el.topLane ?? el.fromLane, config)) / 2;
+      const downX = (toX + getColumnX(el.bottomLane ?? el.targetLane, config)) / 2;
       const d =
         el.half === 'up'
-          ? `M ${fromX},0 C ${fromX},${centerY} ${toX},0 ${toX},${centerY}`
-          : `M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}`;
+          ? `M ${upX},0 C ${fromX},${centerY} ${toX},0 ${toX},${centerY}`
+          : `M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${downX},${bottomY}`;
       elements.push(
         `<path d="${d}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
       );

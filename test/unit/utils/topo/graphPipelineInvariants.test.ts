@@ -11,13 +11,17 @@
 
 import '../../../setup';
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 import { generateCommitGraph, IBranchRef, ICommitNode } from '../../../../src/git-core/commitGraph';
 import { buildGraphPrintModel } from '../../../../src/git-core/graph/printModel';
 import { compactPrintModelLanes } from '../../../../src/git-core/graph/laneCompaction';
 import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
-import { assertGraphInvariants, mkCommit, TopoCase } from '../../../support/graphInvariants';
+import {
+  assertGraphInvariants,
+  loadAnonFixture,
+  mkCommit,
+  TopoCase,
+} from '../../../support/graphInvariants';
+import { INTELLIJ_TOPO } from './intellijTopo';
 
 /** Max column index across a compacted model set. */
 function maxColumn(nodes: ICommitNode[], headHash?: string): number {
@@ -69,6 +73,30 @@ function mergeSpine(n: number, fork: number): { commits: ICommit[]; headHash: st
     commits.push(mkCommit(`M${i}`, i < tail ? [`M${i + 1}`] : []));
   }
   return { commits, headHash: 'M0' };
+}
+
+/**
+ * A first-parent line that bends into a DIFFERENT, already-claimed lane more
+ * than one row below its source (`IGraphLine.endRow`, commitGraph.ts's
+ * "far-parent fork-point bend"): M1's own first parent is M2, but P0 — an
+ * earlier-processed side branch — reaches M2 first and claims it onto its own
+ * lane, so M1's edge to M2 bends onto that lane 2 rows down instead of
+ * continuing straight. The landing row (M2) is 2 rows below the source (M1),
+ * and M2's own lane differs from M1's, so the incoming bend is not adjacent
+ * to where the line left.
+ */
+function farParentBendLanding(): ICommit[] {
+  return [
+    mkCommit('M0', ['M1', 'P0']),
+    mkCommit('P0', ['M2']),
+    mkCommit('M1', ['M2', 'P1']),
+    mkCommit('P1', ['M3']),
+    mkCommit('M2', ['M3']),
+    mkCommit('M3', ['M4']),
+    mkCommit('M4', ['M5']),
+    mkCommit('M5', ['M6']),
+    mkCommit('M6', []),
+  ];
 }
 
 /** An octopus merge (3 parents) rejoining a shared base. */
@@ -145,6 +173,19 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
     },
     // detached HEAD in the middle of a chain.
     { label: 'detached-head', commits: linear(20), headHash: 'c9' },
+    {
+      label: 'far-parent-bend-landing',
+      commits: farParentBendLanding(),
+      headHash: 'M0',
+      headBranchName: 'main',
+      branchMap: singleBranchMap('M0'),
+    },
+    loadAnonFixture('realTopoAnon.json', 100),
+    loadAnonFixture('realTopoAnon.json', 413),
+    loadAnonFixture('selfTopoAnon.json', 125),
+    // No branch refs, no HEAD (see intellijTopo.ts) — G is vacuous for this
+    // case; it exists for structural coverage of the other ten invariants.
+    { label: 'intellij-topo(150)', commits: INTELLIJ_TOPO.map((c) => mkCommit(c.hash, c.parents)) },
   ];
 
   for (const tc of cases) {
@@ -172,8 +213,7 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
     }
     const packedMax = maxColumn(nodes, spine.headHash);
     // Compaction reuses each hidden long edge's freed middle, so the packed
-    // column count is strictly below the raw lane count (invariant H already
-    // pins it to the optimum = max lanes drawn in one row).
+    // column count is strictly below the raw lane count.
     assert.ok(
       packedMax < rawMax,
       `compaction should reduce columns (raw max ${rawMax}, packed max ${packedMax})`
@@ -181,30 +221,52 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
   });
 });
 
+describe('offWindow fixture — window bottom edge + off-window second-parent collapse', () => {
+  // Window: h(row0, parents p1 in-window + sideOff OFF-window) -> p1(row1) ->
+  // p2(row2, last row, sole parent deepOff OFF-window). All three sit on lane 0.
+  const nodes = generateCommitGraph(offWindow());
+  const models = buildGraphPrintModel(nodes);
+
+  it('rows 0 and 1 carry no chevrons; only the last row (the real off-window edge) does', () => {
+    assert.deepStrictEqual(models[0].chevronLanes, []);
+    assert.deepStrictEqual(models[1].chevronLanes, []);
+    assert.deepStrictEqual(models[2].chevronLanes, [0]);
+    assert.deepStrictEqual(models[2].chevronColors, ['#4CAF50']);
+  });
+
+  it("the last row's down-segment is dashed (history continues below the window) and its second edge carries the chevron", () => {
+    const downs = models[2].edges.filter((e) => e.half === 'down');
+    assert.strictEqual(downs.length, 1);
+    assert.strictEqual(downs[0].style, 'dashed');
+  });
+
+  it(
+    "h's off-window SECOND parent (sideOff) produces no independent edge element — " +
+      'it collapses into the single own-lane down-segment alongside the real first-parent line',
+    () => {
+      // DELIBERATE, not a gap: printModel.ts's own-lane segment builder draws
+      // exactly ONE down-half per lane no matter how many graphLines share it
+      // (see "Own-lane segments around the commit dot" in printModel.ts) —
+      // drawing a second same-lane stroke would paint identical pixels. The
+      // dashed/solid choice is decided by whether EVERY same-lane line is a
+      // dashed off-window stub; here one is real (p1) so the drawn segment is
+      // solid and the off-window merge marker leaves no visible trace.
+      const hRow = models[0];
+      assert.strictEqual(hRow.node.isMerge, true, 'h has 2 parents');
+      const downs = hRow.edges.filter((e) => e.half === 'down' && e.lane === 0);
+      assert.strictEqual(downs.length, 1, 'exactly one down segment, not one per graphLine');
+      assert.strictEqual(
+        downs[0].style,
+        'solid',
+        'the real in-window continuation wins over the off-window stub'
+      );
+    }
+  );
+});
+
 describe('Graph pipeline invariants — real bitcoin master (1000 commits)', () => {
-  interface AnonFixture {
-    commits: { hash: string; parents: string[] }[];
-    branches: { commit: string; name: string; type: 'local' | 'remote' }[];
-    headHash: string;
-    headBranchName: string;
-  }
-  const fx = JSON.parse(
-    fs.readFileSync(path.join(__dirname, 'bitcoinMasterTopo.json'), 'utf-8')
-  ) as AnonFixture;
-  const commits = fx.commits.map((c) => mkCommit(c.hash, c.parents));
-  const branchMap = new Map<string, IBranchRef[]>();
-  for (const b of fx.branches) {
-    const arr = branchMap.get(b.commit) ?? [];
-    arr.push({ name: b.name, type: b.type });
-    branchMap.set(b.commit, arr);
-  }
-  const tc: TopoCase = {
-    label: 'bitcoin-master',
-    commits,
-    branchMap,
-    headHash: fx.headHash,
-    headBranchName: fx.headBranchName,
-  };
+  const tc = loadAnonFixture('bitcoinMasterTopo.json');
+  const { commits, branchMap, headHash, headBranchName } = tc;
 
   it('is a genuinely merge-heavy window (fixture sanity)', () => {
     const merges = commits.filter((c) => c.parents.length > 1).length;
@@ -221,8 +283,8 @@ describe('Graph pipeline invariants — real bitcoin master (1000 commits)', () 
       branchMap,
       undefined,
       undefined,
-      fx.headBranchName,
-      fx.headHash
+      headBranchName,
+      headHash
     );
     let rawMax = 0;
     for (const n of nodes) {
@@ -232,7 +294,7 @@ describe('Graph pipeline invariants — real bitcoin master (1000 commits)', () 
         ...n.graphLines.flatMap((l) => [l.fromColumn, l.toColumn])
       );
     }
-    const packedMax = maxColumn(nodes, fx.headHash);
+    const packedMax = maxColumn(nodes, headHash);
     assert.ok(rawMax >= 20, `fixture should exercise many raw lanes, got ${rawMax}`);
     assert.ok(
       packedMax <= 15,

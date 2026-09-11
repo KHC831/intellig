@@ -1,5 +1,16 @@
 [
   {
+    "id": "print-model-test-kit-chevron-colors-carried",
+    "file": "test/support/printModelTestKit.ts",
+    "anchor": "chevronColors: rest.chevronColors,",
+    "mutation": {
+      "kind": "delete-line"
+    },
+    "test": "test/unit/graph/graphPainter.test.ts",
+    "title": "teeth test: swapping chevronColors flips which lane paints which colour (the bond is real, not coincidence)",
+    "why": "mkRowModel never carried chevronColors through to the built model, so any hand-built two-chevron row silently painted the shared lane-colour fallback for both chevrons and a colour-swap mutation on the real parallel array went undetected — every pin built on top of the helper was vacuous"
+  },
+  {
     "id": "shelf-revert-binary-checkout-literal",
     "file": "src/shelf/ShelfService.ts",
     "anchor": "literalPathspec(file.path)], // checkout-head-exempt: modified/deleted",
@@ -273,5 +284,14 @@
     "test": "test/unit/utils/gitCli.test.ts",
     "title": "throws rather than producing the :(literal) match-everything pathspec",
     "why": ":(literal) with no payload is itself a pathspec that matches every path, where the bare '' git receives today is a hard fatal — a neutered guard would silently widen every destructive caller (checkout/add/reset/rm) into reverting/staging/deleting the whole working tree"
+  },
+  {
+    "id": "graph-lane-linking-bend-raw-lane",
+    "file": "src/git-core/graph/laneLinking.ts",
+    "anchor": "rawToColumn[row - 1].get(raw.from)",
+    "mutation": { "kind": "replace", "with": "rawToColumn[row - 1].get(e.fromLane)" },
+    "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
+    "title": "upholds every layout invariant on real bitcoin topology",
+    "why": "after the rank remap e.fromLane is a column; a raw-keyed lookup returns another lane's column and the bend docks to the wrong line, silently — the whole suite stays green except invariant K"
   }
 ]

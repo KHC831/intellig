@@ -110,4 +110,59 @@ describe('compactPrintModelLanes', () => {
     compactPrintModelLanes(models);
     assert.strictEqual(maxColumn(models), 1);
   });
+
+  describe('gap termination survives packed-column reuse', () => {
+    // lane 0: mainline, drawn every row 0-41. lane 9: a long edge's two ends
+    // (rows 0-1 and 40-41), hidden in between. lane 5: an UNRELATED short
+    // branch drawn ONLY rows 10-20, entirely inside lane 9's hidden gap — it
+    // packs onto the SAME column lane 9 vacated (the module's own doc: "the
+    // total column count equals the max lanes drawn in one row"). A pin that
+    // checks "is there an edge on this packed column" would misread row 15 as
+    // "lane 9 continues"; the correct check is the edge's raw identity
+    // (edge.edge.lane), which compaction never remaps.
+    const models: IRowPrintModel[] = [];
+    for (let r = 0; r <= 41; r++) {
+      const lanes = [0];
+      if (r <= 1 || r >= 40) {
+        lanes.push(9);
+      }
+      if (r >= 10 && r <= 20) {
+        lanes.push(5);
+      }
+      models.push(row(r, 0, lanes));
+    }
+    compactPrintModelLanes(models);
+
+    const byIdentity = (r: number, rawLane: number): IRowEdgeElement | undefined =>
+      models[r].edges.find((e) => e.edge.lane === rawLane);
+
+    it('lane 9 is absent by identity from every interior row, including where lane 5 reuses its column', () => {
+      for (let r = 2; r <= 39; r++) {
+        assert.strictEqual(
+          byIdentity(r, 9),
+          undefined,
+          `row ${r} must not carry lane 9's identity`
+        );
+      }
+    });
+
+    it('lane 5 packs onto the exact column lane 9 vacated (the reuse this pin is guarding)', () => {
+      const col9 = byIdentity(0, 9)!.lane;
+      const col5 = byIdentity(15, 5)!.lane;
+      assert.strictEqual(col9, col5, "lane 5 should reuse lane 9's freed column");
+      // Column-only evidence at row 15 says "column col9 is drawn" — which is
+      // true, but belongs to lane 5's identity, not lane 9's.
+      assert.strictEqual(byIdentity(15, 9), undefined);
+    });
+
+    it('lane 9 reappears with its raw identity at both far-side boundary rows', () => {
+      for (const r of [0, 1, 40, 41]) {
+        assert.strictEqual(
+          byIdentity(r, 9)?.edge.lane,
+          9,
+          `row ${r} should carry lane 9's identity`
+        );
+      }
+    });
+  });
 });

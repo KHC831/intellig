@@ -95,6 +95,9 @@ export interface IRowEdgeElement {
    * the parent. Absent on ordinary segments.
    */
   arrow?: 'up' | 'down';
+  /** Seam docking columns — see laneLinking.ts. Optional, default `lane`. */
+  topLane?: number;
+  bottomLane?: number;
 }
 
 /** The commit dot for the row. */
