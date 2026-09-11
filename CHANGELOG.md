@@ -10,6 +10,13 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.10] - 2026-09-05
+
+### Fixed
+
+- Scrolling down a long commit graph no longer shows lines drifting into
+  neighboring columns.
+
 ## [0.5.9] - 2026-09-02
 
 ### Added
