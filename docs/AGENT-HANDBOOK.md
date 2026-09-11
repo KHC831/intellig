@@ -349,7 +349,8 @@ tests; the lead designs and reviews and writes no code itself.
   number to keep hand-editing forward — re-measure on a fresh branch per the
   trap in section 5 rather than trusting this line): lint 0 warnings, unit
   8451, property 747; `gate:full` adds ext-host 28, e2e 161, visual 216,
-  mutation lane 19/19 (see `docs/testing.md` for the lanes).
+  mutation lane 19/19 (see `docs/testing.md`, "The test surface is the CI
+  lanes", for the mutation lane's not-in-CI status and what it does).
 - The user owes an F5 dogfood pass over the new command surfaces and the
   merge window (now the default conflict surface).
 - Before the first marketplace release shipping ported IntelliJ code: add

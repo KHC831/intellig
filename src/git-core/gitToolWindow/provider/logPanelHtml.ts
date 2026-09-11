@@ -117,7 +117,8 @@ export function buildGraphPanelHtml(
   // lanes actually drawn per row (IntelliJ visible-graph parity). Without this
   // the column is sized to the highest raw lane index (~46 on a deep bitcoin
   // window) though only ~10 lanes ever show at once, leaving a wide empty gap
-  // before the message text. No-op when full edges are shown (nothing hidden).
+  // before the message text. Full-edge mode deliberately keeps raw lane
+  // indices instead — see ADR-016, known divergences.
   if (!props.showLongEdges) {
     compactPrintModelLanes(printModels);
   }

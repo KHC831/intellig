@@ -17,8 +17,10 @@ import { compactPrintModelLanes } from '../../../../src/git-core/graph/laneCompa
 import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 import {
   assertGraphInvariants,
+  assertRankMapMembership,
   loadAnonFixture,
   mkCommit,
+  rawPrintModels,
   TopoCase,
 } from '../../../support/graphInvariants';
 import { INTELLIJ_TOPO } from './intellijTopo';
@@ -143,6 +145,24 @@ function offWindow(): ICommit[] {
   ];
 }
 
+/**
+ * A side-branch tip whose SOLE parent fell off the loaded window, mid-window
+ * (not at the window bottom, and not sharing its lane with an in-window
+ * parent). The lone same-lane dashed stub this leaf emits merges into a
+ * single-row interval, so the straight drawn on its lane carries an identity
+ * with `childRow === parent.row` — a shape `offWindow()` above misses because
+ * its off-window parents are either a second parent (collapses onto the
+ * first-parent lane) or at the last row (spans more than one row).
+ */
+function offWindowLeafMidWindow(): ICommit[] {
+  return [
+    mkCommit('h', ['p1']),
+    mkCommit('tip', ['sideOff']),
+    mkCommit('p1', ['p2']),
+    mkCommit('p2', []),
+  ];
+}
+
 function singleBranchMap(tip: string, name = 'main'): Map<string, IBranchRef[]> {
   return new Map([[tip, [{ name, type: 'local' }]]]);
 }
@@ -164,6 +184,7 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
     { label: 'criss-cross', commits: crissCross() },
     { label: 'reused-lane', commits: reusedLane() },
     { label: 'off-window-parents', commits: offWindow() },
+    { label: 'off-window-leaf-mid-window', commits: offWindowLeafMidWindow() },
     {
       label: 'bitcoin-like-spine',
       commits: spine.commits,
@@ -184,7 +205,8 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
     loadAnonFixture('realTopoAnon.json', 413),
     loadAnonFixture('selfTopoAnon.json', 125),
     // No branch refs, no HEAD (see intellijTopo.ts) — G is vacuous for this
-    // case; it exists for structural coverage of the other ten invariants.
+    // case; it exists for structural coverage of every other invariant in
+    // the suite.
     { label: 'intellij-topo(150)', commits: INTELLIJ_TOPO.map((c) => mkCommit(c.hash, c.parents)) },
   ];
 
@@ -193,6 +215,39 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
       assertGraphInvariants(tc);
     });
   }
+
+  it('every lane a row contributes gets a rank: realTopoAnon.json@413', () => {
+    // Isolated from assertGraphInvariants's other invariants on purpose: H2
+    // (width/density, earlier in that function) cannot see this fixture's
+    // gap — the row's orphaned lane happens to remap to itself — so a call
+    // to the full assertGraphInvariants would prove nothing about M
+    // specifically even if it passed. This calls production's own rank-map
+    // builder (via assertRankMapMembership -> __buildRankMapForTest) against
+    // the row's real node/edges/inkedLanes/chevronLanes, the same witness
+    // the "upholds every layout invariant" loop above also runs for this
+    // fixture (and every other one) as part of the full invariant set.
+    const tc = loadAnonFixture('realTopoAnon.json', 413);
+    assertRankMapMembership(tc, rawPrintModels(tc));
+  });
+
+  it('the off-window leaf really does emit a straight whose child row is its parent row', () => {
+    // Without this the fixture above is green whether or not the shape occurs:
+    // no invariant reads childRow against parent.row, so nothing else would
+    // notice if a generator change stopped producing it.
+    const nodes = generateCommitGraph(offWindowLeafMidWindow());
+    const models = buildGraphPrintModel(nodes);
+    const selfRowed = models
+      .flatMap((m) => m.edges)
+      .filter(
+        (e) =>
+          !e.curved &&
+          e.fromLane === e.targetLane &&
+          e.edge.parent.kind === 'inWindow' &&
+          e.edge.parent.row === e.edge.childRow
+      );
+    assert.strictEqual(selfRowed.length, 1, 'expected exactly one self-rowed straight');
+    assert.strictEqual(selfRowed[0].style, 'dashed');
+  });
 
   it('compaction actually shrinks the merge-spine column count (freed lanes reused)', () => {
     const nodes = generateCommitGraph(
@@ -302,4 +357,39 @@ describe('Graph pipeline invariants — real bitcoin master (1000 commits)', () 
     );
     assert.ok(packedMax < rawMax, `packed (${packedMax}) must be below raw (${rawMax})`);
   });
+});
+
+describe('Graph pipeline invariants — packed gutter width pins', () => {
+  // H2 (density + width-vs-maxDistinctInARow) holds by construction under rank
+  // packing: every column counted is at most the global max, so the busiest
+  // row's lane count can never exceed it by more than one, and rank's densest
+  // row holds exactly that many — so H2 cannot catch a change in
+  // the actual rendered width. These are the only assertions in the tree tied
+  // to the real pixel gutter each oracle fixture renders; a widening here is a
+  // real user-visible regression that no other invariant would catch.
+  const cases: Array<[string, TopoCase, number]> = [
+    ['bitcoin@1000', loadAnonFixture('bitcoinMasterTopo.json'), 8],
+    ['realTopoAnon@413', loadAnonFixture('realTopoAnon.json', 413), 2],
+    ['realTopoAnon@100', loadAnonFixture('realTopoAnon.json', 100), 1],
+    ['selfTopoAnon@125', loadAnonFixture('selfTopoAnon.json', 125), 1],
+  ];
+
+  for (const [label, tc, expectedPackedMax] of cases) {
+    it(`pins the packed gutter width on ${label}`, () => {
+      const nodes = generateCommitGraph(
+        tc.commits,
+        tc.branchMap,
+        undefined,
+        undefined,
+        tc.headBranchName,
+        tc.headHash
+      );
+      const packedMax = maxColumn(nodes, tc.headHash);
+      assert.strictEqual(
+        packedMax,
+        expectedPackedMax,
+        `${label}: packed max column moved — the gutter width changed`
+      );
+    });
+  }
 });

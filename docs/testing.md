@@ -84,8 +84,7 @@ a test without rotting the production API.
 
 ### The test surface is the CI lanes
 
-The complete, runnable test surface is the six CI lanes, and nothing
-else:
+The complete CI test surface is the six lanes below:
 
 - `test:unit` — the Unit layer (in-process, `vscode` mock).
 - `test:property` — the Property layer (in-process, `vscode` mock).
@@ -107,6 +106,19 @@ cannot change what the assertions measure). Each Electron lane
 `--disable-extensions --disable-workspace-trust` so it runs fully
 unattended — no workspace-trust modal, no extension-recommendations
 prompt.
+
+**A seventh runnable lane sits outside CI: mutations.** `npm run
+check:mutations` neuters each defence named in
+`scripts/mutation-manifest.json` — applying the entry's own mutation to
+the exact code fragment it names, in a throwaway git worktree — and
+requires the entry's own named test to die (fail) under that mutation; an
+entry whose test still passes is an unfenced regression detector. It runs
+real Mocha specs against real production code, so it belongs to the
+runnable test surface in every sense except CI enforcement:
+`.github/workflows/ci.yml` never invokes `check:mutations`, and `npm run
+gate:full` is the only aggregate that does. Whether it should join CI is
+a scope decision for the user, not a documentation gap; until decided,
+run it locally before landing a change to a fenced defence.
 
 **Decision (Option B + compatibility alias): the aggregate _harness_ is
 retired, but `npm test` survives as a thin alias.** The legacy aggregate

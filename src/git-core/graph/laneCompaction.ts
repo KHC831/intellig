@@ -24,7 +24,7 @@ import { isValidLane } from '../../utils/graphRenderer';
 import { IRowPrintModel } from './printModel';
 import { linkSeams, type IRawEdgeEndpoints } from './laneLinking';
 
-/** Every lane a row occupies (node dot + each edge's own/from/target + inked set). */
+/** Every lane a row occupies (node dot + each edge's own/from/target + inked set + chevron set). */
 function lanesInRow(model: IRowPrintModel): Set<number> {
   const lanes = new Set<number>();
   const add = (l: number): void => {
@@ -41,6 +41,9 @@ function lanesInRow(model: IRowPrintModel): Set<number> {
   for (const l of model.inkedLanes) {
     add(l);
   }
+  for (const l of model.chevronLanes) {
+    add(l);
+  }
   return lanes;
 }
 
@@ -55,6 +58,11 @@ function buildRankMap(models: IRowPrintModel[]): Array<Map<number, number>> {
     sorted.forEach((lane, rank) => map.set(lane, rank));
     return map;
   });
+}
+
+/** Test-only access to the per-row rank map (see the arm-membership witness, invariant M, in graphInvariants.ts). */
+export function __buildRankMapForTest(models: IRowPrintModel[]): Array<Map<number, number>> {
+  return buildRankMap(models);
 }
 
 /**

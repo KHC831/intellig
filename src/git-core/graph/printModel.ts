@@ -48,14 +48,18 @@ export type EdgeEnd = { kind: 'inWindow'; row: number } | { kind: 'offWindow' };
  * RETAINED IDENTITY SEAM — not dead code. This is the deliberate Layer-3
  * edge-identity layer of the graph print model (DAG → layout → edge-segment
  * identity → dumb Layer-4 painter), mirroring IntelliJ's vcs-log/graph. The
- * current Layer-4 painter ({@link graphPainter}) draws geometry from
- * `lane/fromLane/targetLane/half/curved/color` and does NOT read `el.edge`
- * yet, so this apparatus (plus {@link laneEdgeId} and the off-window parent
- * tagging in {@link buildIntervalLookup}) is render-dead TODAY. It is kept as
- * the stable per-edge identity needed for future edge-level interactivity
- * (hover/highlight/select a specific edge) and is exercised by printModel.test
- * at the model level. Do not delete it as "unused" — it's an architectural
- * seam, not accidental cruft.
+ * Layer-4 painter ({@link graphPainter}) draws geometry from
+ * `lane/fromLane/targetLane/half/curved/color/topLane/bottomLane`, and
+ * `laneLinking.ts` DOES read `el.edge` (`edgeIdKey(e.edge)`, `e.edge.lane`)
+ * to resolve a seam column — but per ADR-016 that read has no independent
+ * effect on painted output today: the identity lookup, whenever it
+ * resolves, is provably identical to the raw-lane lookup that runs right
+ * after it (both are keyed off the same per-row rank map). This apparatus
+ * (plus {@link laneEdgeId}, which does the off-window parent tagging) is
+ * kept as the stable per-edge identity needed for future edge-level
+ * interactivity (hover/highlight/select a specific edge) and is exercised
+ * by printModel.test at the model level. Do not delete it as "unused" —
+ * it's an architectural seam, not accidental cruft.
  */
 export interface IGraphEdgeId {
   childRow: number;
@@ -154,7 +158,7 @@ function buildIntervalLookup(
 /**
  * Compute the {@link IGraphEdgeId} for a lane's segment on a row, including the
  * off-window parent tagging. Part of the retained Layer-3 identity seam — see
- * {@link IGraphEdgeId}; the Layer-4 painter doesn't consume the result yet.
+ * {@link IGraphEdgeId}.
  */
 function laneEdgeId(
   nodes: ICommitNode[],

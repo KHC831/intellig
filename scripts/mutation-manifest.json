@@ -293,5 +293,62 @@
     "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
     "title": "upholds every layout invariant on real bitcoin topology",
     "why": "after the rank remap e.fromLane is a column; a raw-keyed lookup returns another lane's column and the bend docks to the wrong line, silently — the whole suite stays green except invariant K"
+  },
+  {
+    "id": "graph-lane-compaction-rank-ordering-key",
+    "file": "src/git-core/graph/laneCompaction.ts",
+    "anchor": ".sort((a, b) => a - b)",
+    "mutation": {
+      "kind": "replace",
+      "with": ".sort((a, b) => (`${a}` < `${b}` ? -1 : `${a}` > `${b}` ? 1 : 0))"
+    },
+    "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
+    "title": "upholds every layout invariant on real bitcoin topology",
+    "why": "a lexicographic sort permutes columns within a row without changing their count, so density, width, seams and HEAD-on-column-0 all stay green while lanes cross - the exact order-inversion defect rank exists to eliminate"
+  },
+  {
+    "id": "graph-lane-rank-map-inked-lanes-arm",
+    "file": "src/git-core/graph/laneCompaction.ts",
+    "anchor": "  for (const l of model.inkedLanes) {\n    add(l);\n  }\n",
+    "mutation": { "kind": "replace", "with": "" },
+    "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
+    "title": "every lane a row contributes gets a rank: realTopoAnon.json@413",
+    "why": "inkedLanes is the only one of lanesInRow's four sources that ever contributes a lane no other source names on real history — dropping it leaves that lane out of the row's rank map. On this fixture the orphaned lane is 0, which remaps to itself under the map.get(lane) ?? lane fallback, so it does not visibly mispaint and neither H2's width budget nor K's off-canvas check would fire (measured directly: under this mutation, the only unit-suite failures are M's rank-map-membership assertion — on realTopoAnon.json@100 and @413 through assertGraphInvariants, plus the isolated test below — no H2 or K failure anywhere). This entry now targets the isolated 'every lane a row contributes gets a rank' test, which calls only assertRankMapMembership — the same witness assertGraphInvariants also runs for every fixture — so nothing else in the invariant list can fail first and mask what actually catches this mutation"
+  },
+  {
+    "id": "doc-citation-test-line-suffix-arm",
+    "file": "scripts/check-doc-citations.mjs",
+    "anchor": "const TEST_FILE_LINE_SUFFIX_RE = /(?<![\\w.\\/-])([\\w.\\/-]+\\.test\\.ts):(\\d+)(?:-(\\d+))?/g;",
+    "mutation": {
+      "kind": "replace",
+      "with": "const TEST_FILE_LINE_SUFFIX_RE = /(?!)/g;"
+    },
+    "test": "test/unit/scripts/checkDocCitations.test.ts",
+    "title": "has teeth on a MID-PATH (partial, unrooted) *.test.ts citation that carries a line-number suffix",
+    "why": "this scan is the only thing that rejects a *.test.ts:NNN citation in any form — bare filename, partial path, or fully rooted. CITATION_RE cannot substitute for it: it requires a src|test|scripts root, so it never sees the bare and partial-path shapes at all, and a rooted citation that has merely shifted still lands on a real in-bounds line, which no bounds check can distinguish from a correct one. Ablating this regex alone turns all three teeth specs (bare, mid-path, rooted) red, so none of them has a second, independent detector"
+  },
+  {
+    "id": "doc-citation-out-of-range-start-line-arm",
+    "file": "scripts/check-doc-citations.mjs",
+    "anchor": "if (citedStartLine < 1) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (citedStartLine < -1) {"
+    },
+    "test": "test/unit/scripts/checkDocCitations.test.ts",
+    "title": "has teeth on a citation whose start line is not a valid line number",
+    "why": "CITATION_RE's line-number group can only ever capture a non-negative integer, so a citedStartLine of 0 is the only value this arm exists to catch — widening the floor to -1 lets `path:0` through silently, and neither the other two outOfRangeReason arms nor any other spec notices"
+  },
+  {
+    "id": "doc-citation-out-of-range-inverted-range-arm",
+    "file": "scripts/check-doc-citations.mjs",
+    "anchor": "if (citedEndLine < citedStartLine) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "if (citedEndLine < citedStartLine - 100000) {"
+    },
+    "test": "test/unit/scripts/checkDocCitations.test.ts",
+    "title": "has teeth on a range citation whose end line is before its start line",
+    "why": "an inverted `path:end-start` citation (end before start) is a typo the regex still matches; loosening this arm's threshold lets any inverted range up to 100000 lines through silently, and neither the other two outOfRangeReason arms nor any other spec notices"
   }
 ]

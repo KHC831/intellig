@@ -48,7 +48,7 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
       // row drew this lane on a DIFFERENT column slants its last pixels toward
       // that column's midpoint instead of jumping sideways at the boundary.
       // Undocked (topLane/bottomLane === lane, the common case), both seam x's
-      // collapse to `x` and the plain <line> below is byte-identical to before.
+      // collapse to `x` and the element paints as the plain <line> below.
       const upSeamX = (x + getColumnX(el.topLane ?? el.lane, config)) / 2;
       const downSeamX = (x + getColumnX(el.bottomLane ?? el.lane, config)) / 2;
       const [y1, y2] =
@@ -86,7 +86,8 @@ export function paintRow(model: IRowPrintModel, config: IGraphRenderConfig): str
       const toX = getColumnX(el.targetLane, config);
       // Only the boundary-touching endpoint docks; the control points keep the
       // curve's shape, so an undocked bend (topLane/bottomLane unset) paints
-      // byte-identically to before.
+      // as the plain bezier the `d` computation below produces from
+      // fromX/toX alone.
       const upX = (fromX + getColumnX(el.topLane ?? el.fromLane, config)) / 2;
       const downX = (toX + getColumnX(el.bottomLane ?? el.targetLane, config)) / 2;
       const d =

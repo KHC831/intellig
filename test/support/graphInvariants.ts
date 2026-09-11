@@ -19,9 +19,12 @@ import {
   IRowPrintModel,
   IRowEdgeElement,
 } from '../../src/git-core/graph/printModel';
-import { compactPrintModelLanes } from '../../src/git-core/graph/laneCompaction';
+import {
+  compactPrintModelLanes,
+  __buildRankMapForTest,
+} from '../../src/git-core/graph/laneCompaction';
 import { paintRow } from '../../src/git-core/graph/graphPainter';
-import { DEFAULT_GRAPH_CONFIG, getColumnX } from '../../src/utils/graphRenderer';
+import { DEFAULT_GRAPH_CONFIG, getColumnX, isValidLane } from '../../src/utils/graphRenderer';
 import type { ICommit } from '../../src/git-core/interfaces/IGitService';
 
 export function mkCommit(hash: string, parents: string[]): ICommit {
@@ -172,6 +175,10 @@ function isolatedBoundaryX(e: IRowEdgeElement, y: number): number | undefined {
  * edges (`edge.edge.lane`, untouched by remap, -> `e.lane`, the packed
  * result) plus the row's own commit (`nodes[row].graphColumn`, the untouched
  * allocator output, -> `m.node.lane`). Never reads `topLane`/`bottomLane`.
+ * This ground truth is `rankMap[rawLane]` by definition, the same quantity
+ * `rawToColumn` holds — so K (below) validates that a seam function reads the
+ * right key/row, not that the rank map itself preserves lane order. That
+ * property is invariant L's job.
  */
 function rawLaneGroundTruth(m: IRowPrintModel, rawNodeLane: number): Map<number, number> {
   const map = new Map<number, number>();
@@ -298,6 +305,45 @@ function models(tc: TopoCase, nodes: ICommitNode[]): IRowPrintModel[] {
   return buildGraphPrintModel(nodes, { headHash: tc.headHash });
 }
 
+/** Raw (pre-compaction) print models for a topology — the pipeline stage
+ * invariant M's witness (below) checks against. */
+export function rawPrintModels(tc: TopoCase): IRowPrintModel[] {
+  return models(tc, build(tc));
+}
+
+/**
+ * Invariant M in isolation: every lane a row's node, its edges, its
+ * inkedLanes, or its chevronLanes contribute must get a rank from
+ * buildRankMap — a lane the map has no key for keeps its raw index after
+ * compaction (K arm 2's off-canvas paint). Checked against the raw,
+ * pre-compaction models (`rawPrintModels`) so a source that only ever
+ * duplicates another one's lanes — chevronLanes today, always already
+ * inked per printModel.ts — is a vacuous pass here; it starts catching a
+ * real gap the day that lane stops being duplicated.
+ */
+export function assertRankMapMembership(tc: TopoCase, before: IRowPrintModel[]): void {
+  const rankMaps = __buildRankMapForTest(before);
+  before.forEach((m, row) => {
+    const map = rankMaps[row];
+    const witness = (source: string, lane: number): void => {
+      if (isValidLane(lane)) {
+        assert.ok(
+          map.has(lane),
+          `${tc.label}: row ${row} lane ${lane} from ${source} has no rank in the row's map`
+        );
+      }
+    };
+    witness('node.lane', m.node.lane);
+    m.edges.forEach((e, i) => {
+      witness(`edges[${i}].lane`, e.lane);
+      witness(`edges[${i}].fromLane`, e.fromLane);
+      witness(`edges[${i}].targetLane`, e.targetLane);
+    });
+    m.inkedLanes.forEach((l) => witness('inkedLanes', l));
+    m.chevronLanes.forEach((l) => witness('chevronLanes', l));
+  });
+}
+
 /** Run the whole pipeline on a topology and assert every layout invariant. */
 export function assertGraphInvariants(tc: TopoCase): void {
   const nodes = build(tc);
@@ -361,10 +407,17 @@ export function assertGraphInvariants(tc: TopoCase): void {
   // separate model set (no shared references with `compacted` at all) proves
   // the same thing — compaction is a pure function of the topology, not of
   // incidental object identity — without that hazard.
-  const lanesOnce = compacted.map((m) => m.edges.map((e) => e.lane));
+  const shape = (ms: IRowPrintModel[]): unknown =>
+    ms.map((m) => ({
+      node: m.node.lane,
+      inked: [...m.inkedLanes].sort((a, b) => a - b),
+      chevrons: [...m.chevronLanes].sort((a, b) => a - b),
+      edges: m.edges.map((e) => [e.lane, e.fromLane, e.targetLane, e.topLane, e.bottomLane]),
+    }));
+  const shapeOnce = shape(compacted);
   const compactedAgain = compactPrintModelLanes(models(tc, nodes));
-  const lanesAgain = compactedAgain.map((m) => m.edges.map((e) => e.lane));
-  assert.deepStrictEqual(lanesAgain, lanesOnce, `${tc.label}: compaction must be deterministic`);
+  const shapeAgain = shape(compactedAgain);
+  assert.deepStrictEqual(shapeAgain, shapeOnce, `${tc.label}: compaction must be deterministic`);
 
   let globalMaxCol = 0;
   let maxDistinctInARow = 0;
@@ -378,11 +431,19 @@ export function assertGraphInvariants(tc: TopoCase): void {
 
     // K, arm 2 (containment): every painted x — lines, polylines, circles,
     // rects, every path (chevrons/arrowheads/beziers included) — stays inside
-    // this row's OWN svgWidth. A chevron lane the packer never mapped keeps
-    // its raw index and paints far off-canvas with no error otherwise.
+    // this row's OWN svgWidth. Any lane the packer never mapped keeps its raw
+    // index and paints far off-canvas with no error otherwise (see invariant
+    // M's rank-map-membership witness, which fences the actual gap).
     const widthMatch = /<svg width="(-?[\d.]+)"/.exec(svg);
     const svgWidth = widthMatch ? Number(widthMatch[1]) : 0;
-    for (const x of paintedXsAnywhere(svg)) {
+    const paintedXs = paintedXsAnywhere(svg);
+    if (m.node.lane >= 0 || m.edges.length > 0) {
+      assert.ok(
+        paintedXs.length > 0,
+        `${tc.label}: row ${row} painted nothing the containment arm can read`
+      );
+    }
+    for (const x of paintedXs) {
       assert.ok(
         x >= 0 && x <= svgWidth,
         `${tc.label}: row ${row} paints x=${x} outside its own svgWidth ${svgWidth}`
@@ -407,26 +468,39 @@ export function assertGraphInvariants(tc: TopoCase): void {
       );
     }
 
-    // E2. seam continuity: RANK legitimately relabels a lane's column at a
-    // fork/merge boundary (column continuity itself, old invariant E, is no
-    // longer required — expect ~200 adjacent-row column changes on
-    // bitcoin@1000 where there are 0 today), so what must hold instead is
-    // that each side's seam stamp faithfully names the OTHER side's real
-    // column — not that the two stamps equal each other. The painter's
+    // E2. seam continuity: rank legitimately relabels a lane's column at a
+    // fork/merge boundary — about 200 adjacent-row column changes on
+    // bitcoin@1000 — so what must hold is that each side's seam stamp
+    // faithfully names the OTHER side's real column, not that the two
+    // stamps equal each other. The painter's
     // docking midpoint is `(ownColumn + seamColumn) / 2` on both sides of a
     // boundary; that only lands on the same pixel when each stamp points at
     // the other row's actual `.lane`, e.g. own columns 1 (row r) and 0 (row
     // r+1) with seams 0 and 1 respectively both average to the same x —
     // seams 1 and 1 (equal to each other) would NOT. Quantified over every
-    // element, straight or curved: a curved bend's identity never continues
-    // by construction (see laneLinking.ts), so it never finds a `prev` here
-    // and this is a silent no-op for it, same as old E's straightVerticals
-    // filter was for bends.
+    // element, straight or curved: a merge bezier at row r IS the `prev` for
+    // the straight pass-through of its target lane at row r+1 (both key by
+    // the same edge identity, see laneLinking.ts), so this genuinely checks
+    // a curved/straight pair at that boundary, not just straight-on-straight.
     for (const e of m.edges) {
       const k = edgeKey(e);
       const prev = prevByKey.get(k);
+      if (e.half === 'full' || e.half === 'up') {
+        assert.notStrictEqual(
+          e.topLane,
+          undefined,
+          `${tc.label}: edge ${k} row ${row} carries no top seam stamp`
+        );
+      }
+      if (e.half === 'full' || e.half === 'down') {
+        assert.notStrictEqual(
+          e.bottomLane,
+          undefined,
+          `${tc.label}: edge ${k} row ${row} carries no bottom seam stamp`
+        );
+      }
       if ((e.half === 'full' || e.half === 'up') && prev && prev.row === row - 1) {
-        const topSeam = e.topLane ?? e.lane;
+        const topSeam = e.topLane!;
         assert.strictEqual(
           prev.bottomSeam,
           e.lane,
@@ -439,7 +513,7 @@ export function assertGraphInvariants(tc: TopoCase): void {
         );
       }
       if (e.half === 'full' || e.half === 'down') {
-        prevByKey.set(k, { row, lane: e.lane, bottomSeam: e.bottomLane ?? e.lane });
+        prevByKey.set(k, { row, lane: e.lane, bottomSeam: e.bottomLane! });
       }
     }
 
@@ -457,7 +531,7 @@ export function assertGraphInvariants(tc: TopoCase): void {
         }
       }
     }
-    for (const l of m.inkedLanes) {
+    for (const l of [...m.inkedLanes, ...m.chevronLanes]) {
       if (l >= 0) {
         cols.add(l);
         columnsUsed.add(l);
@@ -467,16 +541,26 @@ export function assertGraphInvariants(tc: TopoCase): void {
     maxDistinctInARow = Math.max(maxDistinctInARow, cols.size);
   });
 
-  // K, arm 1 (boundary ink continuity): compaction + seam linking must not ADD
-  // a row boundary where ink leaving row r fails to meet ink entering row r+1.
-  // Compared against the SAME models UNPACKED (`before`, post-hiding but
-  // pre-compaction) rather than 0 — a hidden long-edge gap or a terminating
-  // stub legitimately ends at a boundary, and those are already counted there.
+  // K, arm 1 (boundary ink continuity): compaction + seam linking must not
+  // leave a row boundary where ink leaving row r fails to meet ink entering
+  // row r+1. A legitimate termination (a hidden long-edge gap, an off-window
+  // stub, a leaf) has no ground-truth entry in the neighbor row and is
+  // structurally SKIPPED by `countBrokenBoundaries`, not counted — so the
+  // unpacked baseline is a positive control (must itself be clean; a nonzero
+  // count there means the counter or the painter changed shape, not that
+  // compaction introduced slack) and the target for both is zero, not a
+  // floating tolerance.
   const brokenCompacted = countBrokenBoundaries(compacted, nodes);
   const brokenUnpacked = countBrokenBoundaries(before, nodes);
-  assert.ok(
-    brokenCompacted <= brokenUnpacked,
-    `${tc.label}: compaction added a broken row boundary (unpacked ${brokenUnpacked}, compacted ${brokenCompacted})`
+  assert.strictEqual(
+    brokenUnpacked,
+    0,
+    `${tc.label}: unpacked baseline must be clean (positive control on K itself)`
+  );
+  assert.strictEqual(
+    brokenCompacted,
+    0,
+    `${tc.label}: compaction broke ${brokenCompacted} row boundaries`
   );
 
   // G. HEAD first-parent chain stays on column 0 after compaction.
@@ -549,4 +633,24 @@ export function assertGraphInvariants(tc: TopoCase): void {
       );
     }
   }
+
+  // L. order preservation: rank never inverts two visible lanes' relative
+  // order within a row (the property compaction exists to guarantee — a
+  // lexicographic sort instead of a numeric one permutes columns without
+  // changing their count or density, so every other invariant above stays
+  // green while lines cross).
+  compacted.forEach((m, row) => {
+    const gt = [...rawLaneGroundTruth(m, nodes[row].graphColumn)].sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < gt.length; i++) {
+      assert.ok(
+        gt[i][1] > gt[i - 1][1],
+        `${tc.label}: row ${row} inverts raw lanes ${gt[i - 1][0]}->col ${gt[i - 1][1]} and ${gt[i][0]}->col ${gt[i][1]}`
+      );
+    }
+  });
+
+  // M. lane rank-map membership — see assertRankMapMembership above; run
+  // here too so every fixture in this suite keeps the witness, not only the
+  // one fixture graphPipelineInvariants.test.ts also checks in isolation.
+  assertRankMapMembership(tc, before);
 }

@@ -1,14 +1,19 @@
 /**
  * Companion spec for scripts/check-doc-citations.mjs.
  *
- * Proves the guard passes on the real docs tree with its allowlist, has
- * teeth on a dead citation, exempts only an EXACT (doc, citedPath) match
- * from scripts/doc-citation-exemptions.json (no substring/prefix/suffix
- * collision), fails on a stale allowlist entry, anchors the path regex so a
- * directory prefix or a longer real extension cannot slip past, enforces a
- * citation exactly the same way whether it sits in prose, an HTML comment,
- * or a code fence (the scan is purely textual — no markdown parsing), and
- * keeps the anti-vacuity floor unconditional in real mode regardless of argv.
+ * Reaches the guard two ways. Spawning it as a child process — via the
+ * runGuard() helper, or spawnSync directly — either passes no args, running
+ * against the real docs tree and its real allowlist, or passes
+ * `--fixture [docsDir] [repoRoot] [minCitations] [exemptionsPath]`, against
+ * either a throwaway docs/src fixture built by makeFixture() or a docsDir
+ * chosen not to exist (the fail-closed vacuity arm). minCitations defaults
+ * to 0 (the anti-vacuity floor is off) and exemptionsPath to a nonexistent
+ * path (empty allowlist) unless a spec passes them explicitly. loadScript()
+ * imports the module in-process, letting a spec call an export like
+ * resolveInvocation directly with nothing spawned.
+ *
+ * The guarantees this file proves are exactly the `it(` titles below — this
+ * comment does not restate them, so it cannot drift out of sync with them.
  */
 import * as assert from 'assert';
 import { spawnSync } from 'child_process';
@@ -19,18 +24,11 @@ import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 const SCRIPT = path.join(process.cwd(), 'scripts/check-doc-citations.mjs');
 const TMP_ROOT = SCRATCH_ROOT;
 
-interface Exemption {
-  doc: string;
-  citedPath: string;
-  reason: string;
-}
-
+/** Only the two exports specs actually read off `loadScript()`'s result —
+ * declaring an unexercised member here would type-check against nothing,
+ * since the cast at `loadScript()` never runs the real module through it. */
 interface CheckDocCitationsModule {
-  CITATION_RE: RegExp;
   DEFAULT_MIN_CITATIONS: number;
-  findCitations: (text: string) => Array<{ lineNo: number; citedPath: string }>;
-  listMarkdownFiles: (dir: string) => string[];
-  loadExemptions: (exemptionsPath: string) => Exemption[];
   resolveInvocation: (argv: string[]) => {
     fixtureMode: boolean;
     docsDir: string;
@@ -38,11 +36,6 @@ interface CheckDocCitationsModule {
     minCitations: number;
     exemptionsPath: string;
   };
-  staleExemptions: (
-    exemptions: Exemption[],
-    repoRoot: string,
-    citationsByDoc: Map<string, Set<string>>
-  ) => Array<{ entry: Exemption; reason: string }>;
 }
 
 async function loadScript(): Promise<CheckDocCitationsModule> {
@@ -113,6 +106,80 @@ describe('check-doc-citations guard', () => {
     assert.ok(/scripts\/gone\.mjs/.test(stderr));
   });
 
+  it("has teeth on a citation whose line number is beyond the cited file's current length", () => {
+    const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/live.ts:50` for the split.\n' }, [
+      'src/utils/live.ts',
+    ]);
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(status, 1, `an out-of-range line citation must fail; stderr:\n${stderr}`);
+    assert.ok(/out-of-range/.test(stderr), stderr);
+    assert.ok(/src\/utils\/live\.ts:50/.test(stderr), stderr);
+  });
+
+  it("has teeth on a range citation whose end line is beyond the cited file's current length", () => {
+    const root = makeFixture(
+      { 'ADR-fixture.md': 'See `src/utils/live.ts:1-50` for the split.\n' },
+      ['src/utils/live.ts']
+    );
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(status, 1, `an out-of-range end line must fail; stderr:\n${stderr}`);
+    assert.ok(/src\/utils\/live\.ts:1-50/.test(stderr), stderr);
+  });
+
+  it("accepts a line citation that lands inside the cited file's current length", () => {
+    const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/live.ts:1` for the split.\n' }, [
+      'src/utils/live.ts',
+    ]);
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(status, 0, `an in-range line citation must pass; stderr:\n${stderr}`);
+  });
+
+  it("accepts a line citation to the trailing-newline slack line past a file's real content", () => {
+    const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/live.ts:3` for the split.\n' }, [
+      'src/utils/live.ts',
+    ]);
+    fs.writeFileSync(path.join(root, 'src/utils/live.ts'), 'line1\nline2\n', 'utf8');
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(
+      status,
+      0,
+      `line 3 is split('\\n').length of a trailing-newline 2-line file, deliberately accepted; stderr:\n${stderr}`
+    );
+  });
+
+  it('has teeth on a line citation one line past the trailing-newline slack line', () => {
+    const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/live.ts:4` for the split.\n' }, [
+      'src/utils/live.ts',
+    ]);
+    fs.writeFileSync(path.join(root, 'src/utils/live.ts'), 'line1\nline2\n', 'utf8');
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(
+      status,
+      1,
+      `line 4 is past even the trailing-newline slack; stderr:\n${stderr}`
+    );
+  });
+
+  it('has teeth on a citation whose start line is not a valid line number', () => {
+    const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/live.ts:0` for the split.\n' }, [
+      'src/utils/live.ts',
+    ]);
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(status, 1, `a zero start line must fail; stderr:\n${stderr}`);
+    assert.ok(/not a valid line number/.test(stderr), stderr);
+    assert.ok(/src\/utils\/live\.ts:0/.test(stderr), stderr);
+  });
+
+  it('has teeth on a range citation whose end line is before its start line', () => {
+    const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/live.ts:5-2` for the split.\n' }, [
+      'src/utils/live.ts',
+    ]);
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(status, 1, `an inverted range must fail; stderr:\n${stderr}`);
+    assert.ok(/before its start/.test(stderr), stderr);
+    assert.ok(/src\/utils\/live\.ts:5-2/.test(stderr), stderr);
+  });
+
   it('accepts a live test/*.ts and scripts/*.sh citation', () => {
     const root = makeFixture(
       { 'ADR-fixture.md': 'See `test/e2e/support/live.ts` and `scripts/live.sh`.\n' },
@@ -120,6 +187,83 @@ describe('check-doc-citations guard', () => {
     );
     const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
     assert.strictEqual(status, 0, `live citations must pass; stderr:\n${stderr}`);
+  });
+
+  it('has teeth on a rooted *.test.ts citation that carries a line-number suffix', () => {
+    // A spec file's line numbers move with every edit to it, and nothing
+    // else checks that a doc's line-number claim about a test still points
+    // at the right `it(` — the test's title, quoted in prose, is the citation
+    // that cannot drift out of sync with itself.
+    // Cites an IN-BOUNDS line (fixture files are 2 lines: `// fixture\n`),
+    // so a red here can only come from the new arm, never the existing
+    // out-of-range check (the dead-citation check is ruled out below by
+    // asserting the arm's own message text, not just a matching path).
+    const root = makeFixture(
+      { 'ADR-fixture.md': 'See `test/unit/thing.test.ts:1` for the case.\n' },
+      ['test/unit/thing.test.ts']
+    );
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(
+      status,
+      1,
+      `a *.test.ts citation with a line number must fail; stderr:\n${stderr}`
+    );
+    assert.ok(/test\/unit\/thing\.test\.ts/.test(stderr), stderr);
+    assert.ok(/line-number suffix/.test(stderr), stderr);
+  });
+
+  it('has teeth on an UNROOTED *.test.ts citation that carries a line-number suffix', () => {
+    // CITATION_RE requires a src|test|scripts root, so an unrooted citation
+    // like this one is not a "citation" CITATION_RE recognizes at all — it
+    // contributes 0 to the citation count and is invisible to the dead/
+    // out-of-range checks. This is the shape ADR-016 actually uses once a
+    // test file has been named once (see check-doc-citations.mjs section 4),
+    // so the rejection has to catch it independently of CITATION_RE.
+    const root = makeFixture({
+      'ADR-fixture.md': 'See `thing.test.ts:1` for the case.\n',
+    });
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(
+      status,
+      1,
+      `an unrooted *.test.ts citation with a line number must fail; stderr:\n${stderr}`
+    );
+    assert.ok(/thing\.test\.ts/.test(stderr), stderr);
+    assert.ok(/line-number suffix/.test(stderr), stderr);
+  });
+
+  it('has teeth on a MID-PATH (partial, unrooted) *.test.ts citation that carries a line-number suffix', () => {
+    // "graph/laneLinking.test.ts" — a directory prefix short of a
+    // src|test|scripts root — is the established partial-path convention
+    // this docs tree uses for source files (ARCHITECTURE.md, coverage.md,
+    // ADR-009, ADR-012), just never yet applied to a test file. Neither
+    // CITATION_RE (needs the full root) nor a lookbehind that only refuses
+    // a bare filename's own characters catches this: it has a path prefix,
+    // just not a rooted one.
+    const root = makeFixture({
+      'ADR-fixture.md': 'See `graph/thing.test.ts:1` for the case.\n',
+    });
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(
+      status,
+      1,
+      `a mid-path *.test.ts citation with a line number must fail; stderr:\n${stderr}`
+    );
+    assert.ok(/graph\/thing\.test\.ts/.test(stderr), stderr);
+    assert.ok(/line-number suffix/.test(stderr), stderr);
+  });
+
+  it('accepts a *.test.ts citation with no line-number suffix', () => {
+    const root = makeFixture(
+      { 'ADR-fixture.md': 'See `test/unit/thing.test.ts` for the case.\n' },
+      ['test/unit/thing.test.ts']
+    );
+    const { status, stderr } = runGuard(['--fixture', path.join(root, 'docs'), root]);
+    assert.strictEqual(
+      status,
+      0,
+      `a *.test.ts citation without a line number must pass; stderr:\n${stderr}`
+    );
   });
 
   it('does not read a directory-prefixed path as a citation of its suffix', () => {

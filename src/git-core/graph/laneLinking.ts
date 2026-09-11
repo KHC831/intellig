@@ -16,15 +16,33 @@
  *   straight: byIdentity[neighbor row][edge identity] ?? rawToColumn[neighbor row][raw lane] ?? own column
  *   bend:                                                rawToColumn[neighbor row][raw endpoint] ?? own column
  *
- * A bend skips the identity step: its continuation across a row boundary is
- * always a DIFFERENT edge by construction (the curve terminates at a node; the
- * line on the other side of the boundary belongs to a different parent/child).
+ * The identity step is currently INERT for everything the pipeline emits —
+ * not just for bends. `buildIdentityMaps` stores `edgeIdKey(e.edge) ->
+ * e.lane` from the already-remapped models, and `e.edge.lane` (compaction
+ * never touches the identity object) is the same raw lane `rawToColumn`
+ * would look up; both maps derive from the same row's rank map, so whenever
+ * `byIdentity` resolves it names the identical column `byRawLane` would
+ * already have returned. Two independent ablations confirm this changes no
+ * painted output on anything the pipeline emits — see ADR-016. `bendSeam`
+ * never consults `identityMaps` at all — the two bend directions differ in
+ * WHY that costs nothing. An 'up' bend at row r has `childRow === r` and
+ * would consult `identityMaps[r - 1]`, but every straight in row r - 1 has
+ * `childRow <= r - 1` — a merged interval's straight starts at the
+ * interval's own start row, and the no-interval arm falls back to the
+ * emitting row — so an up bend's key can NEVER be present in that map;
+ * checking would always miss. A 'down' bend's key CAN be present in the
+ * neighbor row's identity map (35 real hits on bitcoin@1000, measured), but
+ * its identity resolves (via the target lane's straight pass-through below)
+ * to the same column the raw-lane arm already returns — the same
+ * shared-rank-map argument the straight case makes above. The raw-lane arm
+ * alone is sufficient for both bend directions, for two different reasons.
+ * The identity step is kept anyway as the retained Layer-3
+ * edge-identity seam ({@link IGraphEdgeId}) for future edge-level
+ * interactivity, not because it is load-bearing today.
  *
- * The raw-lane fallback is load-bearing, not tidiness: without it (identity,
+ * The raw-lane fallback IS load-bearing, not tidiness: without it (identity,
  * then own column), a fork/merge boundary where two DIFFERENT edges share a
- * physical lane briefly fails to connect (measured: 173 broken row boundaries
- * on a real merge-heavy history, against 47 today — worse than shipped, in a
- * change whose whole point is that lines connect).
+ * physical lane fails to connect. Measurement + provenance: ADR-016.
  */
 
 import type { IRowEdgeElement, IRowPrintModel, IGraphEdgeId } from './printModel';
@@ -111,8 +129,7 @@ function bendSeam(
  * it straight through, do not rebuild it). `rawEndpoints[row][i]` is edge `i`
  * in that row's PRE-remap `{ from, target }` — must be captured before the
  * remap loop overwrites `fromLane`/`targetLane` with packed columns, or a
- * raw-keyed lookup silently docks to the wrong line (this is the one bug a
- * prototype shipped with every other invariant green).
+ * raw-keyed lookup silently docks to the wrong line.
  */
 export function linkSeams(
   models: IRowPrintModel[],

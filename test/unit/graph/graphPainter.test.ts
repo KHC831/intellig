@@ -1,9 +1,9 @@
 /**
- * Layer-4 painter geometry pins, characterizing behavior before the T2a/T2b
- * packer + painter rewrite so a coordinate/color regression there shows up as
- * a moved test, not a silent behavior change. Every model is hand-built or
- * hand-packed (never a generated topology sampled post-compaction), so these
- * pins stay valid regardless of which packer produced the column numbers.
+ * Layer-4 painter geometry pins: arrowheads, chevron parallel arrays, and seam
+ * docking, asserted against painted coordinates rather than tag names. Every
+ * model is hand-built or hand-packed, never a generated topology sampled
+ * post-compaction, so the pins do not depend on which columns the packer
+ * produced.
  */
 
 import '../../setup';
@@ -201,6 +201,14 @@ describe('paintRow — seam docking across a row boundary (topLane / bottomLane)
       bottomXRow0,
       topXRow1,
       "row 0's bottom seam x must equal row 1's top seam x so the line looks continuous"
+    );
+    // Symmetry alone doesn't pin the MIDPOINT: e.g. Math.min(x, seamX) is also
+    // symmetric here (min(20,40)=20 on both sides) and would pass the assert
+    // above. Pin the actual value the painter's docking formula produces.
+    assert.strictEqual(
+      bottomXRow0,
+      (getColumnX(0, DEFAULT_GRAPH_CONFIG) + getColumnX(1, DEFAULT_GRAPH_CONFIG)) / 2,
+      'the seam x must be the midpoint of both columns, not merely symmetric'
     );
   });
 });
