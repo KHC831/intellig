@@ -16,7 +16,7 @@
  * structural channel.
  */
 
-import { unquoteCStylePath } from './gitParser';
+import { unquoteCStylePath } from './cQuote';
 
 /**
  * Does this apply-family error text (stash/shelf/merge/checkout) look like
