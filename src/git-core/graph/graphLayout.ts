@@ -179,7 +179,7 @@ function buildFromSortedHeads(graph: ILinearGraph, sortedHeads: readonly number[
  * Java `Arrays.binarySearch` semantics: returns the index of `key` if present,
  * else `-(insertionPoint) - 1`. The array must be ascending.
  */
-function binarySearch(sortedAscending: readonly number[], key: number): number {
+export function binarySearch(sortedAscending: readonly number[], key: number): number {
   let low = 0;
   let high = sortedAscending.length - 1;
   while (low <= high) {

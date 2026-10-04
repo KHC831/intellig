@@ -31,8 +31,10 @@ import {
   computeActiveLanes,
   computeLaneContinuesFromAbove,
   computeLaneContinuesBelow,
-  collectMergedLaneIntervals,
+  collectRawLaneIntervals,
+  mergeLaneIntervals,
   isValidLane,
+  type ILaneInterval,
 } from '../../utils/graphRenderer';
 
 /**
@@ -139,9 +141,9 @@ export interface IRowPrintModel {
  */
 function buildIntervalLookup(
   nodes: ICommitNode[],
-  mergedIntervals: Map<number, Array<{ startRow: number; endRow: number }>>
-): Map<number, Map<number, { startRow: number; endRow: number }>> {
-  const byRow = new Map<number, Map<number, { startRow: number; endRow: number }>>();
+  mergedIntervals: Map<number, ILaneInterval[]>
+): Map<number, Map<number, ILaneInterval>> {
+  const byRow = new Map<number, Map<number, ILaneInterval>>();
   for (let i = 0; i < nodes.length; i++) {
     byRow.set(i, new Map());
   }
@@ -162,7 +164,7 @@ function buildIntervalLookup(
  */
 function laneEdgeId(
   nodes: ICommitNode[],
-  iv: { startRow: number; endRow: number } | undefined,
+  iv: ILaneInterval | undefined,
   lane: number,
   rowIndex: number
 ): IGraphEdgeId {
@@ -214,7 +216,7 @@ export interface IRowProjectionContext {
    */
   hashToRow?: ReadonlyMap<string, number>;
   /** Merged interval covering each lane at this row, for pass-through edge identity. */
-  intervalByLane: Map<number, { startRow: number; endRow: number }>;
+  intervalByLane: Map<number, ILaneInterval>;
   /**
    * Per-commit owning-branch color (`hash → color`) from {@link computeBranchColors}.
    * Optional/empty → every element falls back to its lane color (no behavior
@@ -648,11 +650,13 @@ export function buildGraphPrintModel(
   const branchColors =
     options.branchColors ??
     computeBranchColors(colorNodesFrom(nodes), { headBranchName: options.headBranchName });
-  // Compute the merged lane intervals ONCE and derive all four interval-driven
-  // maps from it — `computeActiveLanes`, both continues-* maps, and the
-  // per-row interval lookup each used to rebuild it independently (5 walks per
-  // render), which scales badly as the loaded window grows via "load more".
-  const mergedIntervals = collectMergedLaneIntervals(nodes);
+  // Walk the lane intervals ONCE. Every interval-driven projection below
+  // reads this one walk — `computeActiveLanes`, both continues-* maps and the
+  // per-row interval lookup from the merged spans, long-edge hiding from the
+  // per-edge ones, since merged spans cannot tell two edges sharing a lane
+  // apart. One walk matters as the loaded window grows via "load more".
+  const rawIntervals = collectRawLaneIntervals(nodes);
+  const mergedIntervals = mergeLaneIntervals(rawIntervals);
   const activeLaneMap = computeActiveLanes(nodes, mergedIntervals);
   const continuesFromAboveMap = computeLaneContinuesFromAbove(nodes, mergedIntervals);
   const continuesBelowMap = computeLaneContinuesBelow(nodes, mergedIntervals);
@@ -681,8 +685,7 @@ export function buildGraphPrintModel(
       isLastRow: rowIndex === nodes.length - 1,
       hasFocusedBranch,
       nodes,
-      intervalByLane:
-        intervalLookup.get(rowIndex) ?? new Map<number, { startRow: number; endRow: number }>(),
+      intervalByLane: intervalLookup.get(rowIndex) ?? new Map<number, ILaneInterval>(),
       hashToRow,
       branchColors,
     })
@@ -690,9 +693,9 @@ export function buildGraphPrintModel(
 
   // Long-edge hiding (IntelliJ default): cut edges longer than the threshold to
   // endpoint stubs + arrows so a merge-heavy history doesn't hold dozens of
-  // full-span lanes at once. Reuses the merged intervals computed above.
+  // full-span lanes at once.
   if (options.hideLongEdges !== false) {
-    applyLongEdgeHiding(models, computeLongEdgeCuts(nodes, mergedIntervals));
+    applyLongEdgeHiding(models, computeLongEdgeCuts(nodes, rawIntervals));
   }
   return models;
 }

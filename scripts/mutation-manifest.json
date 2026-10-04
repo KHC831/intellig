@@ -350,5 +350,65 @@
     "test": "test/unit/scripts/checkDocCitations.test.ts",
     "title": "has teeth on a range citation whose end line is before its start line",
     "why": "an inverted `path:end-start` citation (end before start) is a typo the regex still matches; loosening this arm's threshold lets any inverted range up to 100000 lines through silently, and neither the other two outOfRangeReason arms nor any other spec notices"
+  },
+  {
+    "id": "long-edge-per-edge-intervals-arm",
+    "file": "src/git-core/graph/printModel.ts",
+    "anchor": "computeLongEdgeCuts(nodes, rawIntervals)",
+    "mutation": {
+      "kind": "replace",
+      "with": "computeLongEdgeCuts(nodes, mergeLaneIntervals(rawIntervals))"
+    },
+    "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
+    "title": "upholds every layout invariant: longEdgeConvergeTopo.json",
+    "why": "long-edge hiding must see one interval per edge. Merged spans fuse two edges that share a lane into one, so a short edge beginning inside a long edge's span is hidden along with it and its line leaves a row without arriving in the next. Only longEdgeConvergeTopo carries that shape: under this mutation invariant J reports raw lane 1 inking row 27 inside the gap between the arrows at rows 1 and 29, and no other fixture or unit spec fails"
+  },
+  {
+    "id": "long-edge-run-cut-at-inked-row-arm",
+    "file": "src/git-core/graph/longEdges.ts",
+    "anchor": "      const runEnd = Math.min(end, i < inked.length ? inked[i][0] - 1 : end);",
+    "mutation": {
+      "kind": "replace",
+      "with": "      const runEnd = end;"
+    },
+    "test": "test/unit/graph/longEdges.test.ts",
+    "title": "keeps a short edge inked where it shares a lane with a long edge",
+    "why": "deciding visibility per edge only helps if a candidate's hidden stretch actually stops at the rows another edge inks; without this cut the run spans them and the shorter edge is erased exactly as a merged interval would erase it, one layer lower. The arrow stubs move too, so the spec's arrow rows are what die first"
+  },
+  {
+    "id": "long-edge-window-edge-exemption-scope-arm",
+    "file": "src/git-core/graph/longEdges.ts",
+    "anchor": "    if (iv.offWindow === true) {\n",
+    "mutation": {
+      "kind": "replace",
+      "with": "    if (iv.offWindow === true && intervals.length < 0) {\n"
+    },
+    "test": "test/unit/graph/longEdges.test.ts",
+    "title": "exempts only the edge reaching the window edge, not the rest of its lane",
+    "why": "an edge whose parent is off-window ends in a chevron, not at a commit, so there is no gap to arrow into and it must stay whole. This guard is the only thing keeping it whole, and it is also the guard whose scope per-edge intervals changed: a MERGED lane span always reaches the last loaded row, so under merging this exempted the entire lane including the mainline trunk. Neutering it hides the chevron interval's own middle, which the spec catches at the first arrowed chevron row"
+  },
+  {
+    "id": "long-edge-short-run-not-worth-hiding-arm",
+    "file": "src/git-core/graph/longEdges.ts",
+    "anchor": "      if (last - first < 2 * LONG_EDGE_PART_SIZE + 1) {",
+    "mutation": {
+      "kind": "replace",
+      "with": "      if (last - first < 2 * LONG_EDGE_PART_SIZE) {"
+    },
+    "test": "test/unit/graph/longEdges.test.ts",
+    "title": "leaves a run too short to be worth hiding fully drawn",
+    "why": "a stub costs a row at each end of a run, so a run with a single row left between them blanks one row and spends two on arrowheads. Losing the +1 restores exactly that: two stubs around one hidden row. No fixture reaches it (no fixture produces a run under 26 rows), so only this spec stands between the pathology and the tree"
+  },
+  {
+    "id": "long-edge-fixture-at-threshold-arm",
+    "file": "src/git-core/graph/longEdges.ts",
+    "anchor": "export const LONG_EDGE_SIZE = 30;",
+    "mutation": {
+      "kind": "replace",
+      "with": "export const LONG_EDGE_SIZE = 31;"
+    },
+    "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
+    "title": "longEdgeConvergeTopo still reaches the hiding threshold",
+    "why": "longEdgeConvergeTopo's containing span is exactly 30 rows (lane 1 holds 0..30 around 27..30), so one row of slack in the constant stops it exercising long-edge hiding at all. Every structural invariant keeps passing on it in that state -- measured: raising the constant to 31 leaves the whole suite green except this control -- so the fixture would go on asserting nothing about the layer it was built for"
   }
 ]

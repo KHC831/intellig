@@ -89,12 +89,10 @@ line's column within a row.** A column change across a hidden span is
 permitted, and the arrow stubs at the span's two ends are what make it
 readable.
 
-The span `computeLongEdgeCuts` arrows is a _merged lane interval_, not a
-single edge: it splits only at rows where a node sits on the lane, so an
-edge beginning inside another edge's span on the same lane is hidden with
-no arrow of its own. That is an open defect in the long-edge layer (see
-Honest limits), not a property of rank packing — it predates this
-decision, and `longEdges.ts` is unchanged by it.
+`computeLongEdgeCuts` decides visibility one edge at a time rather than over
+a merged lane interval, and hides a stretch only when nothing else draws it.
+An edge beginning inside another edge's span on the same lane therefore keeps
+its own ink, and every hidden span carries an arrow stub at both ends.
 
 ### Rejected alternative: bridging
 
@@ -522,26 +520,51 @@ The third is not cosmetic — it clips the message column:
   assert text colour against a stub model with lane 0 and zero edges. It stays green through any
   geometry regression in this pipeline; the invariants above, not the
   visual lane, are what cover column packing and seam docking today.
-- `computeLongEdgeCuts` (`src/git-core/graph/longEdges.ts`) splits a lane's
-  merged interval only at rows where a NODE sits on that lane, so two
-  distinct edges sharing one physical lane are treated as one long edge.
-  An edge beginning inside another's span — a second merge into the same
-  parent, say — has its ink hidden with no arrow stub of its own: the line
-  leaves one row and does not arrive in the next. Invariant J goes red on a
-  33-commit topology carrying that shape, so J's contract is already correct
-  and only the fixture corpus lacks the shape. The shape needs three
-  ingredients together: a long merge edge claiming a lane, a second merge to
-  the same parent starting inside that span, and a commit inside the span
-  whose single first parent skips rows. Random topologies whose first parent
-  is always the next row never produce it; generated at the first-parent skip
-  rate measured on bitcoin@1000, most do. Untouched by this decision, and
-  tracked as its own task.
-- Long-edge hiding is exercised by one fixture, not four: bitcoin@1000
-  emits 131 arrow stubs in each direction, and `realTopoAnon` at both
-  depths and `selfTopoAnon@125` emit none. Every "on all four fixtures"
-  measurement below that touches the long-edge layer therefore has the
-  breadth of a single fixture, and invariant J is vacuous on the other
-  three.
+- Long-edge hiding is exercised by two fixtures, not four: bitcoin@1000 emits
+  130 arrow stubs in each direction and the synthetic `longEdgeConvergeTopo`
+  emits one pair, while `realTopoAnon` at both depths and `selfTopoAnon@125`
+  emit none. Every "on all four fixtures" measurement below that touches the
+  long-edge layer therefore has the breadth of bitcoin alone, and invariant J
+  is vacuous on the three that emit nothing. Arrow counts here are measured
+  through the suite's own construction — `generateCommitGraph` with the
+  fixture's branchMap, headBranchName and headHash. A bare
+  `generateCommitGraph(commits)` reports 132 instead, because without the
+  spine anchor a divergent branch seizes lane 0 and the mainline moves: that
+  construction is not one the extension ever produces, and no number in this
+  document is taken from it.
+- The row threshold (`LONG_EDGE_SIZE`) qualifies an EDGE, never each hidden run
+  within it. A qualifying edge whose middle is partly inked by another edge on
+  the same lane is hidden in whatever contiguous runs are left, and a run is
+  hidden only when at least two rows survive the two arrow stubs — below that,
+  hiding blanks one row and spends two on arrowheads, so the run is left drawn.
+  Both numbers are judgement, not measurement: no fixture produces a run under
+  26 rows, so nothing here is evidence about what a short gap looks like.
+- The mainline trunk's long stretches are hidden in more windows than under
+  merged lane spans. An edge reaching the window's last row with no node on its
+  lane there stays whole (it ends in a chevron, not at a parent). A merged
+  trunk span reaches the last row, so whenever the window ends OFF the trunk
+  that exemption covered the trunk's whole lane; per edge it covers only the
+  trunk's final edge. A window that ends ON a trunk commit was never exempt
+  either way, so it is unchanged. On intellij-community --all at 12,000 rows,
+  which ends off the trunk, this changes the hidden set on 409 rows: the
+  trunk's long pass-throughs become arrow-capped gaps and 399 of those rows
+  narrow from two columns to one. No row is left blank, and IntelliJ's
+  `isEdgeVisibleInRow` hides a long trunk edge too (it asks about one edge and
+  knows nothing of lanes). Windows of 1,000 and 3,000 rows of that history
+  measure unchanged, which is a fact about where those windows end and what
+  they contain, not a guarantee about small windows — and no one has looked at
+  the change in a running editor.
+- Long-edge hiding reasons in intervals, never row by row: an edge is split
+  at the nodes on its lane by binary search, stretches shared by many edges are
+  counted once on the node axis, and each lane's undrawn gaps are walked once.
+  Its cost follows the edges and nodes plus the rows actually hidden, so many
+  merges into one parent do not multiply it — with or without commits of the
+  shared lane inside their spans. Unit specs hold 2,000 converging edges to
+  within ten times the cost of one, in both shapes, and a property test diffs
+  the result against a one-row-at-a-time statement of the rule.
+- Whether an edge is off the window is a fact the interval collector records
+  (`ILaneInterval.offWindow`) where it creates the continuation, not something
+  long-edge hiding infers from where an interval ends.
 - Whether a multi-column slant reads to a human eye as one continuous
   line is a judgement call, not a measured quantity. At the widest
   observed case a four-column seam travels 40px across a 12px

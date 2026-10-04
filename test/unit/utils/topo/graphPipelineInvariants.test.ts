@@ -204,6 +204,13 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
     loadAnonFixture('realTopoAnon.json', 100),
     loadAnonFixture('realTopoAnon.json', 413),
     loadAnonFixture('selfTopoAnon.json', 125),
+    // Synthetic, not captured history: the smallest topology that exercises a
+    // long edge sharing its lane with a second edge that begins inside the
+    // long edge's span. Needs all three of a long merge edge claiming a lane,
+    // a second merge to the same parent starting inside that span, and a
+    // commit inside the span whose single first parent skips rows — drop any
+    // one and the shape disappears.
+    loadAnonFixture('longEdgeConvergeTopo.json'),
     // No branch refs, no HEAD (see intellijTopo.ts) — G is vacuous for this
     // case; it exists for structural coverage of every other invariant in
     // the suite.
@@ -215,6 +222,28 @@ describe('Graph pipeline invariants — synthetic topologies', () => {
       assertGraphInvariants(tc);
     });
   }
+
+  // Positive control for longEdgeConvergeTopo. Its containing span is exactly
+  // LONG_EDGE_SIZE rows (lane 1: 0..30 holding 27..30), so raising the constant
+  // leaves the fixture structurally valid and silently blind to the layer it
+  // exists to cover — every invariant above would still pass, asserting
+  // nothing about hiding.
+  it('longEdgeConvergeTopo still reaches the hiding threshold', () => {
+    const tc = loadAnonFixture('longEdgeConvergeTopo.json');
+    let down = 0;
+    let up = 0;
+    for (const m of rawPrintModels(tc)) {
+      for (const e of m.edges) {
+        if (e.arrow === 'down') {
+          down++;
+        }
+        if (e.arrow === 'up') {
+          up++;
+        }
+      }
+    }
+    assert.deepStrictEqual({ down, up }, { down: 1, up: 1 });
+  });
 
   it('every lane a row contributes gets a rank: realTopoAnon.json@413', () => {
     // Isolated from assertGraphInvariants's other invariants on purpose: H2

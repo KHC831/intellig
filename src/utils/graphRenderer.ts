@@ -90,31 +90,81 @@ export function getColumnX(column: number, config: IGraphRenderConfig): number {
   return column * config.columnWidth + config.padding + config.columnWidth / 2;
 }
 
+/** One lane's span of rows: one edge's (raw) or several edges' merged. */
+export interface ILaneInterval {
+  startRow: number;
+  endRow: number;
+  /**
+   * The edge's parent is not loaded: it continues below the window and ends
+   * in a "more history below" chevron rather than at a commit. Set by
+   * {@link collectRawLaneIntervals}; merged spans do not carry it.
+   */
+  offWindow?: boolean;
+}
+
 /**
- * Compute the set of active lanes at each row index.
- *
- * A lane is "active" at row `i` if it has been introduced (by a commit's
- * graphColumn or a graphLine's toColumn) at or before row `i`, and its
- * target commit appears at or after row `i`.
- *
- * The nodes array is in topological order (newest first), so row 0 is the
- * most recent commit and higher row indices are older commits.
- *
- * Algorithm:
- * 1. Build a hash-to-row-index map so we can look up where each parent commit is
- * 2. For each row, collect all "lane intervals" — each interval is a (lane, startRow, endRow)
- *    tuple representing a lane that is active from startRow through endRow
- * 3. A commit's own graphColumn creates an interval at that single row (unless extended by lines)
- * 4. Each graphLine's toColumn creates an interval from the current row to the row where
- *    the target parent commit appears
- * 5. Build the ActiveLaneMap by iterating through all intervals
+ * Each lane's intervals merged into maximal spans — the shape every lane-state
+ * projection here reads (active lanes, continues-from-above, continues-below).
  *
  * @param nodes - Array of ICommitNode in topological order (newest first)
- * @returns Map from row index to the set of active lane indices at that row
+ * @returns Map from lane index to that lane's merged intervals, ascending
  */
-export function collectMergedLaneIntervals(
-  nodes: ICommitNode[]
-): Map<number, Array<{ startRow: number; endRow: number }>> {
+export function collectMergedLaneIntervals(nodes: ICommitNode[]): Map<number, ILaneInterval[]> {
+  return mergeLaneIntervals(collectRawLaneIntervals(nodes));
+}
+
+/**
+ * Merge each lane's raw intervals into maximal spans. Leaves the input alone,
+ * so a caller can hand the same raw intervals to another consumer.
+ *
+ * NOTE: two intervals that are merely ADJACENT but represent DIFFERENT lines (a
+ * lane reused one row after a previous line bent away) do NOT overlap (the
+ * second's startRow is strictly greater than the first's endRow), so they stay
+ * SEPARATE — which is what `computeLaneContinuesFromAbove` relies on to tell a
+ * reused lane apart from a genuine through-line.
+ */
+export function mergeLaneIntervals(
+  laneIntervals: ReadonlyMap<number, ReadonlyArray<ILaneInterval>>
+): Map<number, ILaneInterval[]> {
+  const mergedByLane = new Map<number, ILaneInterval[]>();
+  for (const [lane, rawIntervals] of laneIntervals) {
+    const sorted = [...rawIntervals].sort((a, b) => a.startRow - b.startRow);
+    const merged: ILaneInterval[] = [];
+    for (const interval of sorted) {
+      if (merged.length > 0 && interval.startRow <= merged[merged.length - 1].endRow) {
+        merged[merged.length - 1].endRow = Math.max(
+          merged[merged.length - 1].endRow,
+          interval.endRow
+        );
+      } else {
+        merged.push({ startRow: interval.startRow, endRow: interval.endRow });
+      }
+    }
+    mergedByLane.set(lane, merged);
+  }
+  return mergedByLane;
+}
+
+/**
+ * Every lane interval one edge at a time, before any merging — the shape
+ * long-edge hiding needs, because two edges can share a lane and only one of
+ * them may be long enough to hide. Merging them first makes the pair
+ * indistinguishable from a single edge spanning both.
+ *
+ * An interval is a (lane, startRow, endRow) triple: the lane is drawn from
+ * startRow through endRow. A commit's own graphColumn contributes its single
+ * row; each graphLine's toColumn contributes the span down to the row where
+ * the target parent sits. The line's fromColumn spans that same reach only
+ * when it runs straight — a bending line leaves its source lane at its own
+ * row, so the source contributes one row.
+ *
+ * The nodes array is in topological order (newest first), so row 0 is the most
+ * recent commit and higher row indices are older commits.
+ *
+ * @param nodes - Array of ICommitNode in topological order (newest first)
+ * @returns Map from lane index to that lane's intervals, one per edge
+ */
+export function collectRawLaneIntervals(nodes: ICommitNode[]): Map<number, ILaneInterval[]> {
   if (nodes.length === 0) {
     return new Map();
   }
@@ -127,7 +177,7 @@ export function collectMergedLaneIntervals(
 
   // Collect all lane intervals: [laneIndex, startRow, endRow]
   // A lane interval means the lane is active from startRow through endRow (inclusive)
-  const intervals: Array<{ lane: number; startRow: number; endRow: number }> = [];
+  const intervals: Array<ILaneInterval & { lane: number }> = [];
 
   for (let rowIndex = 0; rowIndex < nodes.length; rowIndex++) {
     const node = nodes[rowIndex];
@@ -184,7 +234,12 @@ export function collectMergedLaneIntervals(
         line.fromColumn === line.toColumn &&
         node.commit.parents.some((p) => hashToRow.has(p))
       ) {
-        intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: nodes.length - 1 });
+        intervals.push({
+          lane: line.fromColumn,
+          startRow: rowIndex,
+          endRow: nodes.length - 1,
+          offWindow: true,
+        });
         continue;
       }
 
@@ -243,62 +298,34 @@ export function collectMergedLaneIntervals(
       // mainline" artifact (and the node-vs-line colour mismatch, since
       // that stroke is a different colour than those rows' nodes). For a
       // bending line the source lane is active at the source row ONLY.
-      if (line.fromColumn === line.toColumn) {
-        if (targetRow > rowIndex) {
-          intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: targetRow });
-        }
-      } else {
+      if (line.fromColumn !== line.toColumn) {
         // Bending line: source lane present only at the source row.
         intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: rowIndex });
       }
 
       // The toColumn lane is active from this row to the target row — the
-      // destination lane genuinely runs down to the parent.
+      // destination lane genuinely runs down to the parent. For a straight
+      // line this is its source lane too, so the one interval covers both and
+      // each edge contributes a single span.
       if (targetRow >= rowIndex) {
         intervals.push({ lane: line.toColumn, startRow: rowIndex, endRow: targetRow });
       }
     }
   }
 
-  // Build the ActiveLaneMap from all intervals
-  // For each row, collect all lanes that have an interval covering that row
-  // To do this efficiently, we merge intervals per lane and then iterate
-
-  // Group intervals by lane
-  const laneIntervals = new Map<number, Array<{ startRow: number; endRow: number }>>();
-  for (const interval of intervals) {
-    if (!laneIntervals.has(interval.lane)) {
-      laneIntervals.set(interval.lane, []);
+  // Group intervals by lane; callers that want maximal spans run them through
+  // `mergeLaneIntervals`.
+  const laneIntervals = new Map<number, ILaneInterval[]>();
+  for (const { lane, ...interval } of intervals) {
+    const list = laneIntervals.get(lane);
+    if (list) {
+      list.push(interval);
+    } else {
+      laneIntervals.set(lane, [interval]);
     }
-    laneIntervals.get(interval.lane)!.push({
-      startRow: interval.startRow,
-      endRow: interval.endRow,
-    });
   }
 
-  // Merge overlapping/adjacent intervals per lane. NOTE: two intervals that
-  // are merely ADJACENT but represent DIFFERENT lines (a lane reused one row
-  // after a previous line bent away) do NOT overlap (the second's startRow is
-  // strictly greater than the first's endRow), so they stay SEPARATE — which is
-  // what `computeLaneContinuesFromAbove` relies on to tell a reused lane apart
-  // from a genuine through-line.
-  const mergedByLane = new Map<number, Array<{ startRow: number; endRow: number }>>();
-  for (const [lane, rawIntervals] of laneIntervals) {
-    rawIntervals.sort((a, b) => a.startRow - b.startRow);
-    const merged: Array<{ startRow: number; endRow: number }> = [];
-    for (const interval of rawIntervals) {
-      if (merged.length > 0 && interval.startRow <= merged[merged.length - 1].endRow) {
-        merged[merged.length - 1].endRow = Math.max(
-          merged[merged.length - 1].endRow,
-          interval.endRow
-        );
-      } else {
-        merged.push({ startRow: interval.startRow, endRow: interval.endRow });
-      }
-    }
-    mergedByLane.set(lane, merged);
-  }
-  return mergedByLane;
+  return laneIntervals;
 }
 
 /**
@@ -306,10 +333,7 @@ export function collectMergedLaneIntervals(
  */
 export function computeActiveLanes(
   nodes: ICommitNode[],
-  mergedIntervals: Map<
-    number,
-    Array<{ startRow: number; endRow: number }>
-  > = collectMergedLaneIntervals(nodes)
+  mergedIntervals: Map<number, ILaneInterval[]> = collectMergedLaneIntervals(nodes)
 ): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
@@ -334,10 +358,7 @@ export function computeActiveLanes(
  */
 export function computeLaneContinuesFromAbove(
   nodes: ICommitNode[],
-  mergedIntervals: Map<
-    number,
-    Array<{ startRow: number; endRow: number }>
-  > = collectMergedLaneIntervals(nodes)
+  mergedIntervals: Map<number, ILaneInterval[]> = collectMergedLaneIntervals(nodes)
 ): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {
@@ -364,10 +385,7 @@ export function computeLaneContinuesFromAbove(
  */
 export function computeLaneContinuesBelow(
   nodes: ICommitNode[],
-  mergedIntervals: Map<
-    number,
-    Array<{ startRow: number; endRow: number }>
-  > = collectMergedLaneIntervals(nodes)
+  mergedIntervals: Map<number, ILaneInterval[]> = collectMergedLaneIntervals(nodes)
 ): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
   for (let i = 0; i < nodes.length; i++) {

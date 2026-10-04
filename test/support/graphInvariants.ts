@@ -312,6 +312,62 @@ export function rawPrintModels(tc: TopoCase): IRowPrintModel[] {
 }
 
 /**
+ * Invariant J, gap termination: a hidden long edge's two arrow stubs
+ * (applyLongEdgeHiding) bound a span where its raw lane inks NOTHING at all.
+ * Asserted on `e.edge.lane` (the identity's raw lane, untouched by
+ * compaction), never `e.lane` — under rank the packed column in that span is
+ * freely reused by whichever unrelated lane is visible there, which is the
+ * entire payoff of compaction; asserting on the packed column would go red on
+ * correct code.
+ */
+export function assertGapsCapped(compacted: IRowPrintModel[], label: string): void {
+  const byLane = new Map<number, Array<{ row: number; dir: 'down' | 'up' }>>();
+  compacted.forEach((m, row) => {
+    for (const e of m.edges) {
+      if (e.arrow === 'down' || e.arrow === 'up') {
+        const stubs = byLane.get(e.edge.lane) ?? [];
+        stubs.push({ row, dir: e.arrow });
+        byLane.set(e.edge.lane, stubs);
+      }
+    }
+  });
+  // Spans on one physical lane CAN overlap — a second merge into the same
+  // parent starts inside the first's span — yet stubs must still alternate
+  // DOWN, UP, DOWN, UP down each lane: every edge's own endpoints count as
+  // inked, so overlapping long edges cut runs that are identical or disjoint,
+  // never interleaved. A stub with no partner is a gap with one end uncapped.
+  for (const [rawLane, stubs] of byLane) {
+    stubs.sort((a, b) => a.row - b.row);
+    let open: number | undefined;
+    for (const stub of stubs) {
+      if (stub.dir === 'down') {
+        assert.ok(
+          open === undefined,
+          `${label}: DOWN stub at row ${String(open)} on raw lane ${rawLane} is never closed (another opens at row ${stub.row})`
+        );
+        open = stub.row;
+        continue;
+      }
+      assert.ok(
+        open !== undefined,
+        `${label}: UP stub at row ${stub.row} on raw lane ${rawLane} has nothing opening it`
+      );
+      for (let r = open + 1; r < stub.row; r++) {
+        assert.ok(
+          !compacted[r].edges.some((e) => e.edge.lane === rawLane),
+          `${label}: hidden gap's raw lane ${rawLane} inks row ${r} (between arrows at rows ${open}/${stub.row})`
+        );
+      }
+      open = undefined;
+    }
+    assert.ok(
+      open === undefined,
+      `${label}: DOWN stub at row ${String(open)} on raw lane ${rawLane} is never closed`
+    );
+  }
+}
+
+/**
  * Invariant M in isolation: every lane a row's node, its edges, its
  * inkedLanes, or its chevronLanes contribute must get a rank from
  * buildRankMap — a lane the map has no key for keeps its raw index after
@@ -592,47 +648,8 @@ export function assertGraphInvariants(tc: TopoCase): void {
     }
   }
 
-  // J. gap termination: a hidden long edge's two arrow stubs (applyLongEdgeHiding)
-  // bound a span where its raw lane inks NOTHING at all. Asserted on
-  // `e.edge.lane` (the identity's raw lane, untouched by compaction), never
-  // `e.lane` — under rank the packed column in that span is freely reused by
-  // whichever unrelated lane is visible there, which is the entire payoff of
-  // compaction; asserting on the packed column would go red on correct code.
-  const downArrows: Array<{ row: number; rawLane: number }> = [];
-  const upArrows: Array<{ row: number; rawLane: number }> = [];
-  compacted.forEach((m, row) => {
-    for (const e of m.edges) {
-      if (e.arrow === 'down') {
-        downArrows.push({ row, rawLane: e.edge.lane });
-      } else if (e.arrow === 'up') {
-        upArrows.push({ row, rawLane: e.edge.lane });
-      }
-    }
-  });
-  for (const down of downArrows) {
-    // Distinct spans on the same physical lane number never overlap in row
-    // range (a lane is only reused once its previous interval fully ends), so
-    // the NEAREST following up-arrow on the same raw lane is unambiguously
-    // this gap's own closing stub.
-    let closingUp: { row: number; rawLane: number } | undefined;
-    for (const up of upArrows) {
-      if (up.rawLane === down.rawLane && up.row > down.row) {
-        if (closingUp === undefined || up.row < closingUp.row) {
-          closingUp = up;
-        }
-      }
-    }
-    if (closingUp === undefined) {
-      continue;
-    }
-    for (let r = down.row + 1; r < closingUp.row; r++) {
-      const inksRawLane = compacted[r].edges.some((e) => e.edge.lane === down.rawLane);
-      assert.ok(
-        !inksRawLane,
-        `${tc.label}: hidden gap's raw lane ${down.rawLane} inks row ${r} (between arrows at rows ${down.row}/${closingUp.row})`
-      );
-    }
-  }
+  // J. gap termination — see assertGapsCapped.
+  assertGapsCapped(compacted, tc.label);
 
   // L. order preservation: rank never inverts two visible lanes' relative
   // order within a row (the property compaction exists to guarantee — a
