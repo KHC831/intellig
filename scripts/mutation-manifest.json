@@ -410,5 +410,17 @@
     "test": "test/unit/utils/topo/graphPipelineInvariants.test.ts",
     "title": "longEdgeConvergeTopo still reaches the hiding threshold",
     "why": "longEdgeConvergeTopo's containing span is exactly 30 rows (lane 1 holds 0..30 around 27..30), so one row of slack in the constant stops it exercising long-edge hiding at all. Every structural invariant keeps passing on it in that state -- measured: raising the constant to 31 leaves the whole suite green except this control -- so the fixture would go on asserting nothing about the layer it was built for"
+  },
+  {
+    "id": "log-filter-prune-missing-branches-arm",
+    "file": "src/registration/graphLogPage.ts",
+    "anchor": "  const branches = (filter.branches ?? []).filter((b) => existing.has(b));",
+    "mutation": {
+      "kind": "replace",
+      "with": "  const branches = (filter.branches ?? []).filter(() => true);"
+    },
+    "test": "test/unit/extension/graphLogPage.test.ts",
+    "title": "keeps the selected branches that still exist, in order",
+    "why": "git log fails as a whole on one unknown ref, so a filter still naming a deleted or renamed branch loads no commits at all and the graph reads \"No commits match the current filter\" while the Branch popup shows the survivors"
   }
 ]

@@ -52,7 +52,13 @@ import {
   wireGraphLoadMore,
   type IGraphLoadMoreController,
 } from './graphLoadMore';
-import { fetchGraphPage, buildLogScope, narrowRefsForRepo } from './graphLogPage';
+import {
+  fetchGraphPage,
+  buildLogScope,
+  narrowRefsForRepo,
+  reconcileFilterBranches,
+  type ILogScopeFilter,
+} from './graphLogPage';
 import { createStalenessGuard } from './stalenessGuard';
 
 /**
@@ -482,6 +488,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       })
     );
 
+    const storeFilter = (f?: ILogScopeFilter): void => ctx.gitToolWindowProvider?.setLogFilter(f);
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: {
@@ -507,6 +514,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     ): Promise<void> => {
       try {
         const myGeneration = stalenessGuard.bump();
+        filter = await reconcileFilterBranches(gitService, [repo], filter, storeFilter);
 
         // Navigational = a different (repo, filter) than the previous
         // committed load: a repo switch, a filter change, or the first load.
@@ -909,6 +917,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       // discoverAllRepositories), so it already invalidates any in-flight
       // single-repo load. No second bump here — one bump per invocation.
       try {
+        filter = await reconcileFilterBranches(gitService, repos, filter, storeFilter);
         // ONE scope object (buildLogScope) so the merged view applies the same
         // filter mapping as the single-repo graph — including the "Message or
         // hash" box's hash-filter detection.

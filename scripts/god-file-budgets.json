@@ -9,7 +9,7 @@
     "commits/CommitToolWindow.ts": 1093,
     "shelf/ShelfService.ts": 1486,
     "shelf/ShelfView.ts": 1637,
-    "registration/registerViews.ts": 1620,
+    "registration/registerViews.ts": 1614,
     "branches/BranchTreeProvider.ts": 1564,
     "branches/BranchPopup.ts": 1544,
     "git-core/interfaces/IGitService.ts": 1503,

@@ -1,5 +1,6 @@
 import type { ICommit, IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { isHexObjectId } from '../git-core/gitDirMarkers';
+import { isLogFilterEmpty } from '../git-core/gitToolWindow/provider/logFilterSanitizer';
 
 /**
  * The Git tool window's log-filter shape (a subset of the UI filter bar). Kept
@@ -195,6 +196,68 @@ export function narrowRefsForRepo(
     return { skip: true };
   }
   return { skip: false, refs };
+}
+
+/**
+ * `filter` with its selected branches narrowed to the ones in `existing`, the
+ * way the Branch popup shows them after a selected branch is deleted or
+ * renamed: the survivors stay selected, and with none left the branch
+ * criterion goes (all branches). `undefined` when nothing else is left of the
+ * filter; the same object when nothing was dropped.
+ */
+export function pruneMissingBranches<F extends ILogScopeFilter>(
+  filter: F | undefined,
+  existing: ReadonlySet<string>
+): F | undefined {
+  if (!filter || (!filter.branch && !(filter.branches && filter.branches.length > 0))) {
+    return filter;
+  }
+  const branches = (filter.branches ?? []).filter((b) => existing.has(b));
+  const branch = filter.branch && existing.has(filter.branch) ? filter.branch : undefined;
+  if (branches.length === (filter.branches ?? []).length && branch === filter.branch) {
+    return filter;
+  }
+  const pruned: F = {
+    ...filter,
+    branches: branches.length > 0 ? branches : undefined,
+    branch,
+  };
+  if (pruned.branches === undefined) {
+    delete pruned.branches;
+  }
+  if (pruned.branch === undefined) {
+    delete pruned.branch;
+  }
+  return isLogFilterEmpty(pruned) ? undefined : pruned;
+}
+
+/**
+ * {@link pruneMissingBranches} against the branches `repos` have now, handing
+ * a changed filter to `store` so the filter row and the saved filter agree
+ * with what loads. A repository that lists none (git returns an empty list
+ * when the read fails) leaves the filter untouched: a passing failure must
+ * not clear the selection. No branch is read when the filter selects none.
+ */
+export async function reconcileFilterBranches<F extends ILogScopeFilter>(
+  gitService: Pick<IGitService, 'getBranches'>,
+  repos: readonly IRepository[],
+  filter: F | undefined,
+  store: (filter: F | undefined) => void = (): void => {}
+): Promise<F | undefined> {
+  if (!filter || (!filter.branch && !(filter.branches && filter.branches.length > 0))) {
+    return filter;
+  }
+  const perRepo = await Promise.all(
+    repos.map((repo) => gitService.getBranches(repo).catch(() => []))
+  );
+  if (perRepo.length === 0 || perRepo.some((branches) => branches.length === 0)) {
+    return filter;
+  }
+  const pruned = pruneMissingBranches(filter, new Set(perRepo.flat().map((b) => b.name)));
+  if (pruned !== filter) {
+    store(pruned);
+  }
+  return pruned;
 }
 
 /** One graph page: the windowed commit list plus the honest total available. */
