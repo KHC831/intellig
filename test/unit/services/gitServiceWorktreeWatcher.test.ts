@@ -71,23 +71,43 @@ describe('GitService — worktree-aware watcher rooting', () => {
     );
   });
 
-  it('roots watchers at the resolved gitdir for a linked worktree (.git is a file)', () => {
+  /** Each `.git` watcher's pattern mapped to the directory it is rooted at. */
+  function freshWatcherRoots(): Map<string, string> {
+    const roots = new Map<string, string>();
+    for (const w of getCreatedFileSystemWatchers().slice(baselineWatcherCount)) {
+      if (w._pattern instanceof RelativePattern && w._pattern.pattern !== '**') {
+        roots.set(w._pattern.pattern, w._pattern.base);
+      }
+    }
+    return roots;
+  }
+
+  it("roots a linked worktree's own files at its gitdir and the shared ones at the common dir", () => {
     const root = path.join(base, 'worktree');
     fs.mkdirSync(root, { recursive: true });
-    // The real per-worktree gitdir the pointer targets.
-    const realGitDir = path.join(base, 'main', '.git', 'worktrees', 'worktree');
+    const commonDir = path.join(base, 'main', '.git');
+    // The real per-worktree gitdir the pointer targets, with git's `commondir`
+    // file pointing back to the shared directory.
+    const realGitDir = path.join(commonDir, 'worktrees', 'worktree');
     fs.mkdirSync(realGitDir, { recursive: true });
+    fs.writeFileSync(path.join(realGitDir, 'commondir'), '../..\n');
     // `<root>/.git` is a FILE holding the gitdir pointer.
     fs.writeFileSync(path.join(root, '.git'), `gitdir: ${realGitDir}\n`);
 
     (gitService as unknown as WatcherSetupSurface).setupRepositoryWatcher(root);
 
-    const bases = freshWatcherBases();
-    const notWatched = Uri.file(path.join(root, '.git')).fsPath;
-    assert.deepStrictEqual(
-      bases,
-      [Uri.file(realGitDir).fsPath],
-      `worktree watchers must be rooted at the resolved gitdir, not the .git file (${notWatched}); got ${JSON.stringify(bases)}`
+    const roots = freshWatcherRoots();
+    const own = Uri.file(realGitDir).fsPath;
+    const shared = Uri.file(commonDir).fsPath;
+    for (const pattern of ['HEAD', 'index', 'MERGE_HEAD', 'rebase-merge/**']) {
+      assert.strictEqual(roots.get(pattern), own, `${pattern} is this worktree's own`);
+    }
+    for (const pattern of ['refs/**', 'packed-refs', 'config', 'logs/refs/stash']) {
+      assert.strictEqual(roots.get(pattern), shared, `${pattern} is shared by every worktree`);
+    }
+    assert.ok(
+      ![...roots.values()].includes(Uri.file(path.join(root, '.git')).fsPath),
+      'nothing is rooted at the .git pointer file'
     );
   });
 });

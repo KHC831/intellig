@@ -434,5 +434,17 @@
     "test": "test/unit/services/worktreeOps.test.ts",
     "title": "removes a locked worktree only when told to override the lock",
     "why": "git refuses a locked worktree unless --force is given twice; one --force fails again with \"cannot remove a locked working tree\", which is how Remove failed on every locked worktree before the force level existed"
+  },
+  {
+    "id": "watcher-shared-refs-at-common-dir-arm",
+    "file": "src/git-core/GitService.ts",
+    "anchor": "          GitService.PER_WORKTREE_GIT_PATTERNS.has(pattern) ? gitDir : commonDir,",
+    "mutation": {
+      "kind": "replace",
+      "with": "          GitService.PER_WORKTREE_GIT_PATTERNS.has(pattern) || commonDir ? gitDir : commonDir,"
+    },
+    "test": "test/unit/services/gitServiceWorktreeWatcher.test.ts",
+    "title": "roots a linked worktree's own files at its gitdir and the shared ones at the common dir",
+    "why": "refs, packed-refs, config and the stash reflog live in the common dir every worktree shares; watched under a linked worktree's own gitdir they never fire, so a commit or branch made from another worktree leaves that window's graph stale"
   }
 ]

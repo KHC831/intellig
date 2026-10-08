@@ -91,6 +91,28 @@ export function resolveWorktreeGitDir(repoRoot: string): string {
 }
 
 /**
+ * The git directory every worktree of `repoRoot`'s repository shares (`git
+ * rev-parse --git-common-dir`): refs, packed-refs, config and the stash live
+ * here, while HEAD, the index and in-progress markers stay in each worktree's
+ * own {@link resolveWorktreeGitDir}. A linked worktree's gitdir names it in a
+ * `commondir` file (relative to that gitdir); without one — a normal checkout,
+ * a submodule — the gitdir is its own common dir.
+ */
+export function resolveCommonGitDir(repoRoot: string): string {
+  const gitDir = resolveWorktreeGitDir(repoRoot);
+  try {
+    const pointer = fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim();
+    if (pointer) {
+      return path.resolve(gitDir, pointer);
+    }
+    // eslint-disable-next-line no-restricted-syntax -- no `commondir` file means the gitdir is its own common dir; absence is the normal case.
+  } catch {
+    // No commondir: not a linked worktree.
+  }
+  return gitDir;
+}
+
+/**
  * Given the fsPath of a created `.git/` directory, return the repo root that
  * owns it (its parent directory), or `undefined` when no usable parent exists
  * (the separator is at the start or absent).

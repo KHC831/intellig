@@ -53,6 +53,7 @@ import {
   isNewRepoBeyondScanDepth,
   isNewRepoPathIgnored,
   resolveWorktreeGitDir,
+  resolveCommonGitDir,
 } from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead } from './gitParser';
 import { sanitizeGitError } from './gitError';
@@ -304,34 +305,16 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   private static readonly STATUS_LANE_FLOOR_MS = 5000;
 
   /**
-   * Narrow allow-list of `.git/` entries we react to. Ordered roughly by
-   * hit frequency; each entry becomes its own `FileSystemWatcher` with a
-   * `RelativePattern(gitDir, entry)` glob.
-   *
-   * Deliberately EXCLUDED:
-   *  - `objects/**` — every git read/write touches this; watching it causes
-   *    an infinite refresh loop.
-   *  - `logs/**` — with the single exception of `logs/refs/stash` below,
-   *    reflog updates fire on every command; no user-visible state the UI
-   *    needs to re-render.
-   *  - `FETCH_HEAD` — redundant with `onDidFetch` which fires when our own
-   *    `fetch()` call completes.
-   *  - `ORIG_HEAD` — a side-effect file written by reset/merge; the real
-   *    branch change is captured by HEAD/refs/** which we already watch.
-   *
-   * `config` IS watched: `git remote set-url` (and user/alias edits) write it
-   * and fire no other event, and remote-derived caches (blame links,
-   * tool-window remotes) flush on the repository-lane event this produces.
-   * Config writes are rare — read-path git commands never touch it — so the
-   * watcher adds no churn.
-   *  - `modules/**` — submodule state changes surface through the parent
-   *    repo's `HEAD` / `index` updates; the inner `.git/modules/<name>/`
-   *    tree is deliberately not watched. Relies on the 5 s cache TTL +
-   *    explicit reload.
-   *  - `worktrees/**` — linked-worktree metadata (`git worktree add/remove`)
-   *    mutates here but the active worktree's state is already reflected
-   *    through the other allow-listed entries. Deliberately not watched;
-   *    relies on the 5 s cache TTL + explicit reload.
+   * Narrow allow-list of `.git/` entries we react to, each its own watcher.
+   * Deliberately EXCLUDED: `objects/**` (every git command touches it: an
+   * infinite refresh loop); `logs/**` but the stash reflog (reflogs change on
+   * every command); `FETCH_HEAD` (our own fetch fires `onDidFetch`);
+   * `ORIG_HEAD` (reset/merge side effect; HEAD and refs carry the change);
+   * `modules/**` (submodules surface through the parent's HEAD and index);
+   * `worktrees/**` (each linked worktree's HEAD and index churn there).
+   * `config` IS watched: `git remote set-url` and user edits write nothing
+   * else, and remote-derived caches flush on the event; read-path commands
+   * never write it.
    */
   private static readonly WATCHED_GIT_PATTERNS: readonly string[] = [
     'HEAD',
@@ -344,14 +327,25 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     'REVERT_HEAD',
     'BISECT_LOG',
     ...REBASE_STATE_DIRS.map((dir) => `${dir}/**`),
-    // The stash reflog is the ONE reflog worth watching (IntelliJ watches
-    // exactly this file: GitRepositoryFiles.isStashReflogFile, consumed by
-    // git4idea's GitStashTracker): dropping/renaming a NON-TOP stash rewrites
-    // only this file — `refs/stash` and `index` are untouched, so no other
-    // pattern fires. Loop-safe: only `git stash` mutations write it; reads
-    // (`git stash list`) never do.
+    // Dropping a NON-TOP stash rewrites only the stash reflog (git4idea
+    // GitRepositoryFiles.isStashReflogFile); only `git stash` writes it.
     'logs/refs/stash',
   ];
+
+  /**
+   * The {@link WATCHED_GIT_PATTERNS} git keeps in each worktree's own gitdir.
+   * The rest live in the common dir all worktrees share, which is where a
+   * commit, branch or stash made from ANOTHER worktree shows up.
+   */
+  private static readonly PER_WORKTREE_GIT_PATTERNS: ReadonlySet<string> = new Set([
+    'HEAD',
+    'index',
+    'MERGE_HEAD',
+    'CHERRY_PICK_HEAD',
+    'REVERT_HEAD',
+    'BISECT_LOG',
+    ...REBASE_STATE_DIRS.map((dir) => `${dir}/**`),
+  ]);
 
   /**
    * Path-segment test for a `.git` directory/file. Matches `/repo/.git`,
@@ -1260,12 +1254,10 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       return;
     }
 
-    // Root the watchers at the per-worktree git directory. For a normal
-    // checkout this is `<root>/.git` (a directory); for a LINKED WORKTREE or
-    // submodule `<root>/.git` is a FILE holding a `gitdir:` pointer — globbing
-    // it directly would match nothing (no live refresh) and `handleHeadDelete`'s
-    // readdir would throw on a file. `resolveWorktreeGitDir` follows the pointer.
+    // Root the watchers at real directories: in a linked worktree or submodule
+    // `<root>/.git` is a FILE (a `gitdir:` pointer) that globs nothing.
     const gitDir = vscode.Uri.file(resolveWorktreeGitDir(rootPath));
+    const commonDir = vscode.Uri.file(resolveCommonGitDir(rootPath));
 
     const handleChange = (trigger?: vscode.Uri): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
@@ -1388,7 +1380,10 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     const watchers: vscode.Disposable[] = [];
     for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
       const watcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(gitDir, pattern)
+        new vscode.RelativePattern(
+          GitService.PER_WORKTREE_GIT_PATTERNS.has(pattern) ? gitDir : commonDir,
+          pattern
+        )
       );
       watcher.onDidChange(handleChange);
       watcher.onDidCreate(handleChange);
