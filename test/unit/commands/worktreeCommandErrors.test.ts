@@ -15,7 +15,11 @@ import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMe
 import { BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { GitError, SpawnFailedError, CommandFailedError } from '../../../src/git-core/errors';
-import { IWorktreeEntry, IAddWorktreeOptions } from '../../../src/git-core/ops/WorktreeOps';
+import {
+  IWorktreeEntry,
+  IAddWorktreeOptions,
+  WorktreeRemoveForce,
+} from '../../../src/git-core/ops/WorktreeOps';
 import { Uri } from '../../mocks/vscode';
 import {
   installErrorMessageTracker,
@@ -43,9 +47,10 @@ function makeGitService(over: {
   removeWorktree?: (
     repo: IRepository,
     path: string,
-    force?: boolean
+    force?: WorktreeRemoveForce
   ) => ResultAsync<void, GitError>;
   pruneWorktrees?: (repo: IRepository) => ResultAsync<void, GitError>;
+  hasUncommittedChanges?: () => ResultAsync<boolean, GitError>;
 }): IGitService {
   return {
     listWorktrees:
@@ -53,6 +58,8 @@ function makeGitService(over: {
     addWorktree: over.addWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
     removeWorktree: over.removeWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
     pruneWorktrees: over.pruneWorktrees ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
+    hasUncommittedChanges:
+      over.hasUncommittedChanges ?? ((): ResultAsync<boolean, GitError> => okAsync(false)),
   } as unknown as IGitService;
 }
 
@@ -159,7 +166,7 @@ describe('_handleRemoveWorktree', () => {
 
   it('removes the picked worktree after one modal confirm and refreshes', async () => {
     installQuickPickChooser(/feature\/x/);
-    const removeCalls: Array<{ path: string; force?: boolean }> = [];
+    const removeCalls: Array<{ path: string; force?: WorktreeRemoveForce }> = [];
     const gitService = makeGitService({
       listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
       removeWorktree: (_r, p, force) => {
@@ -173,7 +180,7 @@ describe('_handleRemoveWorktree', () => {
 
     await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
 
-    assert.deepStrictEqual(removeCalls, [{ path: '/elsewhere/wt-feature', force: undefined }]);
+    assert.deepStrictEqual(removeCalls, [{ path: '/elsewhere/wt-feature', force: 'none' }]);
     assert.ok(info.calls.some((c) => c.message.includes('Removed')));
   });
 
@@ -197,12 +204,12 @@ describe('_handleRemoveWorktree', () => {
 
   it('offers Force Remove when git refuses a dirty worktree, and retries with force', async () => {
     installQuickPickChooser(/feature\/x/);
-    const removeCalls: Array<{ path: string; force?: boolean }> = [];
+    const removeCalls: Array<{ path: string; force?: WorktreeRemoveForce }> = [];
     const gitService = makeGitService({
       listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
       removeWorktree: (_r, p, force) => {
         removeCalls.push({ path: p, force });
-        if (!force) {
+        if (force === 'none') {
           return errAsync(
             new CommandFailedError(
               128,
@@ -227,8 +234,72 @@ describe('_handleRemoveWorktree', () => {
     await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
 
     assert.deepStrictEqual(removeCalls, [
-      { path: '/elsewhere/wt-feature', force: undefined },
-      { path: '/elsewhere/wt-feature', force: true },
+      { path: '/elsewhere/wt-feature', force: 'none' },
+      { path: '/elsewhere/wt-feature', force: 'discardChanges' },
+    ]);
+  });
+
+  it('names the lock in the one confirm and removes a locked worktree past it', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const removeCalls: Array<{ path: string; force?: WorktreeRemoveForce }> = [];
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, { ...LINKED_WT, isLocked: true }]),
+      removeWorktree: (_r, p, force) => {
+        removeCalls.push({ path: p, force });
+        return okAsync(undefined);
+      },
+    });
+    const warning = installWarningMessageTracker('Remove');
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.strictEqual(warning.calls.length, 1, 'one confirm, not a confirm then a retry');
+    assert.match(warning.calls[0].message, /locked/i);
+    assert.deepStrictEqual(removeCalls, [{ path: '/elsewhere/wt-feature', force: 'overrideLock' }]);
+  });
+
+  it('warns in that confirm when the locked worktree has uncommitted changes', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, { ...LINKED_WT, isLocked: true }]),
+      hasUncommittedChanges: () => okAsync(true),
+    });
+    const warning = installWarningMessageTracker(undefined);
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.match(warning.calls[0].message, /uncommitted changes, which will be lost/);
+  });
+
+  it('offers to override a lock git reports that the list did not show', async () => {
+    installQuickPickChooser(/feature\/x/);
+    const removeCalls: Array<{ path: string; force?: WorktreeRemoveForce }> = [];
+    const gitService = makeGitService({
+      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      removeWorktree: (_r, p, force) => {
+        removeCalls.push({ path: p, force });
+        return force === 'overrideLock'
+          ? okAsync(undefined)
+          : errAsync(
+              new CommandFailedError(
+                128,
+                "fatal: cannot remove a locked working tree;\nuse 'remove -f -f' to override or unlock first"
+              )
+            );
+      },
+    });
+    const responses = ['Remove', 'Force Remove'];
+    let call = 0;
+    writableWindow().showWarningMessage = async () => responses[call++];
+    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
+
+    await (commands as unknown as RemoveWorktreeSurface)._handleRemoveWorktree();
+
+    assert.deepStrictEqual(removeCalls, [
+      { path: '/elsewhere/wt-feature', force: 'none' },
+      { path: '/elsewhere/wt-feature', force: 'overrideLock' },
     ]);
   });
 

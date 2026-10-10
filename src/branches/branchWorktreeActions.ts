@@ -8,7 +8,12 @@ import * as vscode from 'vscode';
 import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import type { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
 import { formatActionFailureToast } from '../git-core/gitError';
-import type { IWorktreeCapableService, IWorktreeEntry } from '../git-core/ops/WorktreeOps';
+import { worktreeRemoveRefusal } from '../git-core/gitProse';
+import type {
+  IWorktreeCapableService,
+  IWorktreeEntry,
+  WorktreeRemoveForce,
+} from '../git-core/ops/WorktreeOps';
 
 /** Deps the worktree actions reach back into the dispatcher for. */
 export interface IBranchWorktreeContext {
@@ -272,34 +277,61 @@ export async function handleRemoveWorktree(ctx: IBranchWorktreeContext): Promise
     return;
   }
 
-  const worktree = picked.worktree;
-  if (!worktree) {
-    return;
+  if (picked.worktree) {
+    await confirmAndRemoveWorktree(ctx, repo, picked.worktree);
   }
+}
+
+/**
+ * Confirm once, then `git worktree remove`. A worktree the list shows as
+ * locked says so in that one confirm and is removed past the lock; anything
+ * else starts unforced.
+ */
+async function confirmAndRemoveWorktree(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository,
+  worktree: IWorktreeEntry
+): Promise<void> {
+  const lock = worktree.isLocked ? ` It is locked${await lostChanges(ctx, worktree.path)}.` : '';
   const confirm = await vscode.window.showWarningMessage(
-    `Remove worktree '${worktree.path}'?`,
+    `Remove worktree '${worktree.path}'?${lock}`,
     { modal: true },
     'Remove'
   );
   if (confirm !== 'Remove') {
     return;
   }
-  await removeWorktreeReporting(ctx, repo, worktree.path, false);
+  await removeWorktreeReporting(
+    ctx,
+    repo,
+    worktree.path,
+    worktree.isLocked ? 'overrideLock' : 'none'
+  );
 }
 
 /**
- * Run one `git worktree remove`; on git's use-`--force` refusal (dirty or
- * locked tree) offer a single Force Remove retry, otherwise surface the
- * sanitized failure.
+ * The clause a lock-overriding confirm adds when the tree has uncommitted
+ * changes: `-f -f` skips git's own check for them, so the confirm is the only
+ * warning. A tree whose status cannot be read (its folder is gone) adds none.
+ */
+async function lostChanges(ctx: IBranchWorktreeContext, worktreePath: string): Promise<string> {
+  const dirty = await worktreeService(ctx).hasUncommittedChanges(worktreePath).unwrapOr(false);
+  return dirty ? ' and has uncommitted changes, which will be lost' : '';
+}
+
+/**
+ * Run one `git worktree remove`. When git refuses for a reason more force
+ * gets past (local changes, a lock) offer one Force Remove retry at that
+ * force; otherwise surface the sanitized failure.
  */
 async function removeWorktreeReporting(
   ctx: IBranchWorktreeContext,
   repo: IRepository,
   worktreePath: string,
-  force: boolean
+  force: WorktreeRemoveForce
 ): Promise<void> {
   const failure = await worktreeService(ctx)
-    .removeWorktree(repo, worktreePath, force ? true : undefined)
+    .removeWorktree(repo, worktreePath, force)
     .match(
       () => undefined,
       (error) => error
@@ -309,14 +341,19 @@ async function removeWorktreeReporting(
     ctx.branchTreeProvider.refresh();
     return;
   }
-  if (!force && /--force/.test(failure.message)) {
+  const needed = worktreeRemoveRefusal(failure.message);
+  if (needed && needed !== force) {
+    const why =
+      needed === 'overrideLock'
+        ? `is locked${await lostChanges(ctx, worktreePath)}`
+        : 'has local modifications';
     const choice = await vscode.window.showWarningMessage(
-      `Worktree '${worktreePath}' has local modifications or is locked. Remove it anyway?`,
+      `Worktree '${worktreePath}' ${why}. Remove it anyway?`,
       { modal: true },
       'Force Remove'
     );
     if (choice === 'Force Remove') {
-      await removeWorktreeReporting(ctx, repo, worktreePath, true);
+      await removeWorktreeReporting(ctx, repo, worktreePath, needed);
     }
     return;
   }

@@ -55,6 +55,15 @@ describe('check-git-prose-matching guard', () => {
     );
   });
 
+  it('catches the worktree-remove refusals too', () => {
+    for (const src of [
+      'if (/cannot remove a locked working tree/.test(message)) { retry(); }\n',
+      "if (message.includes('contains modified or untracked files')) { retry(); }\n",
+    ]) {
+      assert.strictEqual(checkSource(src), 1, `the worktree-remove refusal is fenced: ${src}`);
+    }
+  });
+
   it('catches the untracked-overwrite phrasing too', () => {
     assert.strictEqual(
       checkSource(

@@ -422,5 +422,17 @@
     "test": "test/unit/extension/graphLogPage.test.ts",
     "title": "keeps the selected branches that still exist, in order",
     "why": "git log fails as a whole on one unknown ref, so a filter still naming a deleted or renamed branch loads no commits at all and the graph reads \"No commits match the current filter\" while the Branch popup shows the survivors"
+  },
+  {
+    "id": "worktree-remove-override-lock-arm",
+    "file": "src/git-core/ops/WorktreeOps.ts",
+    "anchor": "  overrideLock: ['--force', '--force'],",
+    "mutation": {
+      "kind": "replace",
+      "with": "  overrideLock: ['--force'],"
+    },
+    "test": "test/unit/services/worktreeOps.test.ts",
+    "title": "removes a locked worktree only when told to override the lock",
+    "why": "git refuses a locked worktree unless --force is given twice; one --force fails again with \"cannot remove a locked working tree\", which is how Remove failed on every locked worktree before the force level existed"
   }
 ]

@@ -389,6 +389,38 @@ describe('WorktreeOps real-git round-trip', () => {
     );
   });
 
+  it('removes a locked worktree only when told to override the lock', async () => {
+    const target = path.join(worktreeParent, 'wt-locked');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    await gitCli.exec(['worktree', 'lock', '--', target], { cwd: repoPath });
+
+    const plain = await ops.removeWorktree(repo, target, 'discardChanges');
+    assert.ok(plain.isErr(), 'forcing past changes alone must not remove a locked worktree');
+    assert.match(plain._unsafeUnwrapErr().message, /locked/i);
+
+    const overridden = await ops.removeWorktree(repo, target, 'overrideLock');
+    assert.ok(overridden.isOk(), 'overriding the lock should remove it');
+    assert.ok(!fs.existsSync(target));
+  });
+
+  it('overriding a lock also discards uncommitted changes, so callers must say so', async () => {
+    const target = path.join(worktreeParent, 'wt-locked-dirty');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    fs.writeFileSync(path.join(target, 'untracked.txt'), 'work in progress');
+    await gitCli.exec(['worktree', 'lock', '--', target], { cwd: repoPath });
+
+    assert.ok((await ops.removeWorktree(repo, target, 'overrideLock')).isOk());
+    assert.ok(!fs.existsSync(target), 'the uncommitted file went with it');
+  });
+
+  it('reports whether a worktree has uncommitted changes', async () => {
+    const target = path.join(worktreeParent, 'wt-status');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    assert.strictEqual((await ops.hasUncommittedChanges(target))._unsafeUnwrap(), false);
+    fs.writeFileSync(path.join(target, 'untracked.txt'), 'new');
+    assert.strictEqual((await ops.hasUncommittedChanges(target))._unsafeUnwrap(), true);
+  });
+
   it('refuses a dirty worktree without force, removes it with force', async () => {
     const target = path.join(worktreeParent, 'wt-dirty');
     (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
@@ -398,7 +430,7 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok(refused.isErr(), 'a dirty worktree must be refused without force');
     assert.match(refused._unsafeUnwrapErr().message, /force/i);
 
-    const forced = await ops.removeWorktree(repo, target, true);
+    const forced = await ops.removeWorktree(repo, target, 'discardChanges');
     assert.ok(forced.isOk(), 'force removal should succeed');
     assert.ok(!fs.existsSync(target));
   });
@@ -437,10 +469,24 @@ describe('WorktreeOps.removeWorktree argv', () => {
     assert.ok(!argv.includes('--force'), 'no --force unless requested');
   });
 
+  it('passes --force twice before the -- to override a lock', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+
+    await ops.removeWorktree(makeRepo('/repo'), '/wt', 'overrideLock');
+
+    const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'remove')!;
+    assert.deepStrictEqual(argv.slice(0, argv.indexOf('--')), [
+      'worktree',
+      'remove',
+      '--force',
+      '--force',
+    ]);
+  });
+
   it('adds --force before the -- when forced', async () => {
     const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
 
-    await ops.removeWorktree(makeRepo('/repo'), '/wt', true);
+    await ops.removeWorktree(makeRepo('/repo'), '/wt', 'discardChanges');
 
     const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'remove')!;
     const forceIndex = argv.indexOf('--force');

@@ -65,6 +65,7 @@ import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
 import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
 import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/WorktreeOps';
+import type { WorktreeRemoveForce } from './ops/WorktreeOps';
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
@@ -2128,34 +2129,31 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   // New capability landed on the GitService class (NOT the frozen IGitService
   // composite — ADR-001), mirroring the Incoming/Outgoing additions above.
 
-  /**
-   * List the repository's worktrees (`git worktree list --porcelain`).
-   * See {@link WorktreeOps.listWorktrees}.
-   */
+  /** `git worktree list --porcelain`; see {@link WorktreeOps.listWorktrees}. */
   listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError> {
     return this._worktrees.listWorktrees(repo);
   }
 
-  /**
-   * Create a linked worktree (`git worktree add`). See
-   * {@link WorktreeOps.addWorktree}.
-   */
+  /** `git worktree add`; see {@link WorktreeOps.addWorktree}. */
   addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError> {
     return this._worktrees.addWorktree(repo, options);
   }
 
-  /**
-   * Remove a linked worktree (`git worktree remove`). See
-   * {@link WorktreeOps.removeWorktree}.
-   */
-  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError> {
+  /** `git worktree remove`; see {@link WorktreeOps.removeWorktree}. */
+  removeWorktree(
+    repo: IRepository,
+    path: string,
+    force?: WorktreeRemoveForce
+  ): ResultAsync<void, GitError> {
     return this._worktrees.removeWorktree(repo, path, force);
   }
 
-  /**
-   * Prune stale worktree records (`git worktree prune`). See
-   * {@link WorktreeOps.pruneWorktrees}.
-   */
+  /** See {@link WorktreeOps.hasUncommittedChanges}. */
+  hasUncommittedChanges(worktreePath: string): ResultAsync<boolean, GitError> {
+    return this._worktrees.hasUncommittedChanges(worktreePath);
+  }
+
+  /** `git worktree prune`; see {@link WorktreeOps.pruneWorktrees}. */
   pruneWorktrees(repo: IRepository): ResultAsync<void, GitError> {
     return this._worktrees.pruneWorktrees(repo);
   }
