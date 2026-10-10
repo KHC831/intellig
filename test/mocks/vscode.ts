@@ -988,6 +988,32 @@ export const commands = {
   },
 };
 
+/**
+ * The path a file Uri stores, as `vscode-uri`'s `Uri.file` builds it: on
+ * Windows backslashes become slashes and a drive path gains a leading slash
+ * (`C:\\repo` → `/C:/repo`); elsewhere the path is kept as given.
+ */
+export function fileUriPath(fsPath: string, windows = process.platform === 'win32'): string {
+  if (!windows) {
+    return fsPath;
+  }
+  const slashed = fsPath.replace(/\\/g, '/');
+  return slashed.startsWith('/') ? slashed : `/${slashed}`;
+}
+
+/**
+ * A Uri path's `fsPath`, as `vscode-uri` derives it: a drive path loses its
+ * leading slash, and on Windows slashes become backslashes, so a path joined
+ * with `Uri.joinPath` reads the way `path.join` would write it.
+ */
+export function uriFsPath(uriPath: string, windows = process.platform === 'win32'): string {
+  if (!windows) {
+    return uriPath;
+  }
+  const unrooted = /^\/[A-Za-z]:/.test(uriPath) ? uriPath.slice(1) : uriPath;
+  return unrooted.replace(/\//g, '\\');
+}
+
 // Mock Uri class
 export class Uri {
   readonly scheme: string;
@@ -1009,11 +1035,11 @@ export class Uri {
     this.path = path;
     this.query = query;
     this.fragment = fragment;
-    this.fsPath = path;
+    this.fsPath = uriFsPath(path);
   }
 
   static file(path: string): Uri {
-    return new Uri('file', '', path, '', '');
+    return new Uri('file', '', fileUriPath(path), '', '');
   }
 
   static parse(value: string): Uri {
