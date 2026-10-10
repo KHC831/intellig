@@ -446,5 +446,17 @@
     "test": "test/unit/services/gitServiceWorktreeWatcher.test.ts",
     "title": "roots a linked worktree's own files at its gitdir and the shared ones at the common dir",
     "why": "refs, packed-refs, config and the stash reflog live in the common dir every worktree shares; watched under a linked worktree's own gitdir they never fire, so a commit or branch made from another worktree leaves that window's graph stale"
+  },
+  {
+    "id": "fresh-coalescer-follow-up-arm",
+    "file": "src/utils/freshCoalescer.ts",
+    "anchor": "    const run = slot ? slot.running.then(ignore, ignore).then(task) : task();",
+    "mutation": {
+      "kind": "replace",
+      "with": "    const run = slot ? slot.running.then(ignore, ignore).then(() => slot.running) : task();"
+    },
+    "test": "test/unit/utils/freshCoalescer.test.ts",
+    "title": "answers a caller arriving mid-run with a run that starts after it",
+    "why": "sharing the in-flight run hands a caller who asked after a change a result read before it; that is how a file written just before a changelist reconcile landed in no changelist on CI"
   }
 ]

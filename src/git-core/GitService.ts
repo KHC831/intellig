@@ -66,6 +66,7 @@ import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
 import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
 import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/WorktreeOps';
+import { FreshCoalescer } from '../utils/freshCoalescer';
 import type { WorktreeRemoveForce } from './ops/WorktreeOps';
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
@@ -141,6 +142,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    */
   private _lastEventedRefreshAt: Map<string, number> = new Map();
   /** In-flight `loadRepository` promises, keyed by rootPath. */
+  // in-flight-map-exempt: discovery loads, drained at teardown; the watcher chains a fresh reload
   private _reloading: Map<string, Promise<IRepository>> = new Map();
   /**
    * Per-rootPath removal counter, bumped whenever a root is torn down
@@ -169,14 +171,13 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    */
   private _defaultBranchCache: Map<string, string | undefined> = new Map();
   /**
-   * In-flight `getStatus` promises, keyed by rootPath. On activation several
-   * subscribers (SCM provider, changelist + shelf views) request the same
-   * repo's status at once; each `git status --porcelain` walks the whole work
-   * tree to enumerate untracked files (multi-second on a large repo), so the
-   * concurrent duplicates saturate the disk and starve the graph's `git log`.
-   * Coalescing identical overlapping calls into one walk removes that storm.
+   * `getStatus` walks, keyed by rootPath. On activation several subscribers
+   * request the same repo's status at once; each `git status --porcelain`
+   * walks the whole work tree (multi-second on a large repo), and concurrent
+   * walks starve the graph's `git log`. One walk runs at a time, and callers
+   * arriving during it share one follow-up, so none gets a stale answer.
    */
-  private _statusInFlight: Map<string, Promise<IFileStatus[]>> = new Map();
+  private readonly _statusWalks = new FreshCoalescer<IFileStatus[]>();
   /**
    * In-flight `getLog` promises. The graph's `git log --topo-order` is CPU-bound
    * on a large repo with no commit-graph (~2s on a 500k-commit tree); letting
@@ -2646,19 +2647,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   // ============================================
 
   getStatus(repo: IRepository): Promise<IFileStatus[]> {
-    // Coalesce concurrent identical walks (see `_statusInFlight`). A call that
-    // arrives while one is already running shares its result; once it settles
-    // the slot clears, so a later non-overlapping call walks fresh.
-    const key = repo.rootUri.fsPath;
-    const existing = this._statusInFlight.get(key);
-    if (existing) {
-      return existing;
-    }
-    const pending = this._statusYieldingToLog(repo).finally(() => {
-      this._statusInFlight.delete(key);
-    });
-    this._statusInFlight.set(key, pending);
-    return pending;
+    return this._statusWalks.run(repo.rootUri.fsPath, () => this._statusYieldingToLog(repo));
   }
 
   /**

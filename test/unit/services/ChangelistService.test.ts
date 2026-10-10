@@ -1062,7 +1062,7 @@ describe('ChangelistService', () => {
       }
     });
 
-    it('concurrent reconcile calls coalesce into a single in-flight run', async () => {
+    it('concurrent reconcile calls coalesce: the late ones share one follow-up run', async () => {
       let calls = 0;
       const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'x.txt' }]]]), () => {
         calls++;
@@ -1075,7 +1075,31 @@ describe('ChangelistService', () => {
           svc.reconcileWithGitStatus(mockRepo),
         ];
         await Promise.all([a, b, c]);
-        assert.strictEqual(calls, 1, 'only one getStatus call for three concurrent reconciles');
+        assert.strictEqual(calls, 2, 'two getStatus calls for three concurrent reconciles');
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('a reconcile requested during another reads git status again after it', async () => {
+      const statuses = new Map<string, { path: string }[]>([[testRepoPath, []]]);
+      let calls = 0;
+      // The file is written after the first status read.
+      const stub = makeGitServiceStub(statuses, () => {
+        calls++;
+        if (calls === 2) {
+          statuses.set(testRepoPath, [{ path: 'written-after.txt' }]);
+        }
+      });
+      const svc = createChangelistService(stub.gitService);
+      try {
+        const first = svc.reconcileWithGitStatus(mockRepo);
+        const second = svc.reconcileWithGitStatus(mockRepo);
+        await Promise.all([first, second]);
+        assert.ok(
+          svc.getDefaultChangelist(mockRepo).files.some((f) => f.path === 'written-after.txt'),
+          'the later reconcile must see a change made after the earlier one read status'
+        );
       } finally {
         svc.dispose();
       }

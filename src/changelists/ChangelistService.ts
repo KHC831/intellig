@@ -14,6 +14,7 @@ import {
 } from '../git-core/interfaces/IGitService';
 import { statusCodeToFileStatus } from '../git-core/gitParser';
 import { resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
+import { FreshCoalescer } from '../utils/freshCoalescer';
 
 /**
  * Changelist storage file format version.
@@ -312,11 +313,11 @@ export class ChangelistService implements IChangelistService {
   private _disposables: vscode.Disposable[] = [];
 
   /**
-   * In-flight reconcile promises keyed by repo-key. Concurrent callers
-   * coalesce to the same promise so we never run two reconciles in
-   * parallel for the same repository.
+   * Reconcile runs keyed by repo-key: never two in parallel for one
+   * repository, and a call arriving during a run gets a follow-up run, so a
+   * change made after the earlier run read status is not missed.
    */
-  private _inFlightReconcile: Map<string, Promise<void>> = new Map();
+  private readonly _reconciles = new FreshCoalescer<void>();
 
   /**
    * Pending debounce timers keyed by repo-key. Set when
@@ -752,19 +753,7 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    */
   reconcileWithGitStatus(repo: IRepository): Promise<void> {
-    const repoKey = this.getRepoKey(repo);
-
-    // Coalesce concurrent reconcile calls for the same repo.
-    const existing = this._inFlightReconcile.get(repoKey);
-    if (existing) {
-      return existing;
-    }
-
-    const promise = this.doReconcile(repo).finally(() => {
-      this._inFlightReconcile.delete(repoKey);
-    });
-    this._inFlightReconcile.set(repoKey, promise);
-    return promise;
+    return this._reconciles.run(this.getRepoKey(repo), () => this.doReconcile(repo));
   }
 
   /**
@@ -1133,7 +1122,6 @@ export class ChangelistService implements IChangelistService {
       clearTimeout(timer);
     }
     this._reconcileTimers.clear();
-    this._inFlightReconcile.clear();
 
     for (const disposable of this._disposables) {
       disposable.dispose();
