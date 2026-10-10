@@ -64,7 +64,9 @@ describe('e2e — branch jump reaches a tip outside the loaded window', function
     provider = getGitToolWindowProvider()!;
     assert.ok(provider, 'the tool window provider must be live');
 
-    await poll(() => provider.log.state.commitNodes.length > 0, 'the log to paint its first page');
+    // The provider outlives workspace swaps, so a previous suite's rows can
+    // still be painted: wait for THIS repository's first page.
+    await poll(() => loadedHashes().has(headTip), 'the log to paint its first page');
 
     // Positive control: the tip of the current branch IS on the first page, so
     // this click must land on a real row.
