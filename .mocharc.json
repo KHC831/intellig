@@ -4,7 +4,7 @@
     "ts-node/register",
     "test/setup.ts",
     "test/helpers/scratchRoot.ts",
-    "test/helpers/gitIdentity.ts"
+    "test/helpers/gitTestEnv.ts"
   ],
   "timeout": 30000,
   "recursive": true,
