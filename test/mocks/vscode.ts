@@ -379,9 +379,12 @@ export const workspace = {
         }
 
         // Fire configuration change event
+        // As VS Code answers it: the changed setting, or any section that
+        // contains it — not a sibling setting of the same section.
+        const changed = `${section}.${key}`;
         const event: ConfigurationChangeEvent = {
           affectsConfiguration(s: string): boolean {
-            return s === section || s.startsWith(`${section}.`);
+            return changed === s || changed.startsWith(`${s}.`);
           },
         };
         configChangeListeners.forEach((listener) => listener(event));

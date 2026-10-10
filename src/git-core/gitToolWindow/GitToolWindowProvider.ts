@@ -17,6 +17,7 @@ import {
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
 import { ICommitNode, IBranchRef } from '../commitGraph';
 import { fingerprintLogState } from './provider/logStateFingerprint';
+import { watchGraphSettings } from './provider/graphSettingsWatcher';
 import { sanitizeWebviewLogFilter } from './provider/logFilterSanitizer';
 import { groupBranchFilterOptions } from './provider/loadedGraphQueries';
 import { loadLogFilter, saveLogFilter } from '../../utils/logFilterStorage';
@@ -572,6 +573,7 @@ export class GitToolWindowProvider
 
     // Register event emitters for disposal
     this._disposables.push(
+      watchGraphSettings({ repaint: () => this._render(), reload: () => this.refresh() }),
       this._onDidChangeState,
       this._onDidRequestContextAction,
       this._onDidRequestFileDrop,
