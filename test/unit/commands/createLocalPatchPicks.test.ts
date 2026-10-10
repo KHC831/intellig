@@ -86,10 +86,16 @@ describe('validatePatchDestinations', () => {
 describe('patch save destination', () => {
   const repoRoot = vscode.Uri.file(path.join(path.sep, 'repo'));
 
+  /** `uri` names changes.patch directly in the repo root, whichever separator joined it. */
+  const assertInRepoRoot = (uri: vscode.Uri): void => {
+    assert.strictEqual(path.dirname(uri.fsPath), repoRoot.fsPath);
+    assert.strictEqual(path.basename(uri.fsPath), 'changes.patch');
+  };
+
   it('seeds the save dialog under the repo root when nothing is remembered', () => {
     const uri = patchSaveDefaultUri(makeMemento(), repoRoot, 'changes.patch');
 
-    assert.strictEqual(uri.fsPath, path.join(repoRoot.fsPath, 'changes.patch'));
+    assertInRepoRoot(uri);
   });
 
   it('seeds the save dialog in the last used directory once one is remembered', async () => {
@@ -108,6 +114,6 @@ describe('patch save destination', () => {
 
     const uri = patchSaveDefaultUri(memento, repoRoot, 'changes.patch');
 
-    assert.strictEqual(uri.fsPath, path.join(repoRoot.fsPath, 'changes.patch'));
+    assertInRepoRoot(uri);
   });
 });
