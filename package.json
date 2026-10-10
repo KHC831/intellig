@@ -1131,12 +1131,12 @@
         },
         {
           "command": "intellig.branch.removeWorktree",
-          "when": "viewItem == intellig.localBranch",
+          "when": "viewItem =~ /^intellig\\.localBranch(Current)?$/",
           "group": "3_worktree@2"
         },
         {
           "command": "intellig.branch.openWorktree",
-          "when": "viewItem == intellig.localBranch",
+          "when": "viewItem =~ /^intellig\\.localBranch(Current)?$/",
           "group": "1_branchOps@5"
         },
         {

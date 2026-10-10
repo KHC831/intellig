@@ -43,7 +43,14 @@ function getMenuEntries(): MenuEntry[] {
  * Filter menu entries by a specific viewItem context value.
  */
 function getEntriesForContext(entries: MenuEntry[], contextValue: string): MenuEntry[] {
-  return entries.filter((e) => e.when === `viewItem == ${contextValue}`);
+  // `viewItem == X` or `viewItem =~ /pattern/`, the two forms the menus use.
+  return entries.filter((e) => {
+    if (e.when === `viewItem == ${contextValue}`) {
+      return true;
+    }
+    const pattern = /^viewItem =~ \/(.*)\/$/.exec(e.when ?? '');
+    return pattern !== null && new RegExp(pattern[1]).test(contextValue);
+  });
 }
 
 /**
@@ -73,10 +80,18 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranchCurrent');
     });
 
-    it('should have exactly 6 menu items', () => {
+    it('should have exactly 8 menu items', () => {
       // intellig.branch.focusOnGraph (inline) + intellig.branch.toggleFavorite
-      // (4_favorite) added on top of the four branch-op entries.
-      assert.strictEqual(entries.length, 6, `Expected 6 items, got ${entries.length}`);
+      // (4_favorite) + Open / Remove Worktree… on top of the four branch-op
+      // entries.
+      assert.strictEqual(entries.length, 8, `Expected 8 items, got ${entries.length}`);
+    });
+
+    it('should include Open and Remove Worktree… (they act on the whole repository)', () => {
+      const open = entries.find((e) => e.command === 'intellig.branch.openWorktree');
+      const remove = entries.find((e) => e.command === 'intellig.branch.removeWorktree');
+      assert.strictEqual(open?.group, '1_branchOps@5');
+      assert.strictEqual(remove?.group, '3_worktree@2');
     });
 
     it('should include Toggle Favorite in section 4_favorite@1', () => {
@@ -133,6 +148,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         '1_branchOps',
         '2_sync',
         '3_manage',
+        '3_worktree',
         '4_favorite',
         'inline',
       ]);
