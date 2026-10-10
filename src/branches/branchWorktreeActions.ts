@@ -19,7 +19,6 @@ import type {
 export interface IBranchWorktreeContext {
   readonly gitService: IGitService;
   readonly branchTreeProvider: BranchTreeProvider;
-  getRepository(): IRepository | undefined;
   resolveRepository(item?: BranchTreeItem): IRepository | undefined;
 }
 
@@ -154,8 +153,11 @@ export async function handleNewWorktree(
  * repo root are still listed (you may want to reopen the main checkout in a
  * fresh window).
  */
-export async function handleOpenWorktree(ctx: IBranchWorktreeContext): Promise<void> {
-  const repo = ctx.getRepository();
+export async function handleOpenWorktree(
+  ctx: IBranchWorktreeContext,
+  item?: BranchTreeItem
+): Promise<void> {
+  const repo = ctx.resolveRepository(item);
   if (!repo) {
     return;
   }
@@ -215,8 +217,11 @@ export async function handleOpenWorktree(ctx: IBranchWorktreeContext): Promise<v
  * stale records of manually-deleted worktrees are cleanable from one
  * front door.
  */
-export async function handleRemoveWorktree(ctx: IBranchWorktreeContext): Promise<void> {
-  const repo = ctx.getRepository();
+export async function handleRemoveWorktree(
+  ctx: IBranchWorktreeContext,
+  item?: BranchTreeItem
+): Promise<void> {
+  const repo = ctx.resolveRepository(item);
   if (!repo) {
     return;
   }

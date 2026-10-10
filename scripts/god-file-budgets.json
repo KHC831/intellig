@@ -3,7 +3,7 @@
   "budgets": {
     "git-core/gitToolWindow/GitToolWindowProvider.ts": 3012,
     "commits/CommitContextMenuCommands.ts": 1078,
-    "branches/BranchContextMenuCommands.ts": 952,
+    "branches/BranchContextMenuCommands.ts": 947,
     "git-core/GitService.ts": 2886,
     "commits/CommitDialog.ts": 1654,
     "commits/CommitToolWindow.ts": 1093,

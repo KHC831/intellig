@@ -54,10 +54,6 @@
       "category": "dialog",
       "note": "worktree dialog"
     },
-    "intellig.branch.openWorktree": {
-      "category": "dialog",
-      "note": "worktree picker dialog"
-    },
     "intellig.tag.newBranchFrom": {
       "category": "dialog",
       "note": "NewBranchDialog"

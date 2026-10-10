@@ -251,21 +251,12 @@ export class BranchContextMenuCommands {
     return {
       gitService: this._gitService,
       branchTreeProvider: this._branchTreeProvider,
-      getRepository: () => this._getRepository(),
       resolveRepository: (item) => this._resolveRepository(item),
     };
   }
 
   private _handleNewWorktree(item?: BranchTreeItem): Promise<void> {
     return handleNewWorktree(this._worktreeContext(), item);
-  }
-
-  private _handleOpenWorktree(): Promise<void> {
-    return handleOpenWorktree(this._worktreeContext());
-  }
-
-  private _handleRemoveWorktree(): Promise<void> {
-    return handleRemoveWorktree(this._worktreeContext());
   }
 
   /**
@@ -610,12 +601,16 @@ export class BranchContextMenuCommands {
       )
     );
     this._disposables.push(
-      // spine-exempt: itemless repo-scope picker (lists worktrees, no tree target)
-      registerLoggedCommand('intellig.branch.openWorktree', () => this._handleOpenWorktree())
+      // spine-exempt: repo-scope picker; the clicked row only names the repository
+      registerLoggedCommand('intellig.branch.openWorktree', (i?: BranchTreeItem) =>
+        handleOpenWorktree(this._worktreeContext(), i)
+      )
     );
     this._disposables.push(
-      // spine-exempt: itemless repo-scope picker (lists worktrees, no tree target)
-      registerLoggedCommand('intellig.branch.removeWorktree', () => this._handleRemoveWorktree())
+      // spine-exempt: repo-scope picker; the clicked row only names the repository
+      registerLoggedCommand('intellig.branch.removeWorktree', (i?: BranchTreeItem) =>
+        handleRemoveWorktree(this._worktreeContext(), i)
+      )
     );
 
     // Refresh command
