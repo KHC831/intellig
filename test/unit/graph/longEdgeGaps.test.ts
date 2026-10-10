@@ -163,7 +163,8 @@ function referenceCuts(
       const [a, b] = key.split(':').map(Number);
       let first: number | undefined;
       const close = (last: number): void => {
-        if (first !== undefined && last - first >= 2) {
+        // Stubs at `first` and `last`; at least two rows between them to hide.
+        if (first !== undefined && last - first >= 3) {
           const run = `${first}:${last}`;
           if (!seen.has(run)) {
             seen.add(run);
@@ -237,7 +238,22 @@ describe('computeLongEdgeCuts — agrees with the per-row reference', () => {
           referenceCuts(nodes, input)
         );
       }),
-      { numRuns: 500 }
+      {
+        numRuns: 500,
+        // A second run, rows 68..70, leaves one row between its stubs: not cut.
+        examples: [
+          [
+            {
+              '2': [
+                { startRow: 0, endRow: 71 },
+                { startRow: 0, endRow: 67 },
+                { startRow: 0, endRow: 0 },
+              ],
+            },
+            Array.from({ length: ROWS }, () => 0),
+          ],
+        ],
+      }
     );
   });
 });
