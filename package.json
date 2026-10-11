@@ -316,6 +316,36 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.worktree.openInNewWindow",
+        "title": "Open in New Window",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.worktree.openInCurrentWindow",
+        "title": "Open in Current Window",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.worktree.lock",
+        "title": "Lock…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.worktree.unlock",
+        "title": "Unlock",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.worktree.remove",
+        "title": "Remove…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.worktree.prune",
+        "title": "Prune Worktrees…",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.branch.mergeIntoCurrent",
         "title": "Merge This into Current",
         "category": "IntelliG"
@@ -829,6 +859,30 @@
           "when": "false"
         },
         {
+          "command": "intellig.worktree.openInNewWindow",
+          "when": "false"
+        },
+        {
+          "command": "intellig.worktree.openInCurrentWindow",
+          "when": "false"
+        },
+        {
+          "command": "intellig.worktree.lock",
+          "when": "false"
+        },
+        {
+          "command": "intellig.worktree.unlock",
+          "when": "false"
+        },
+        {
+          "command": "intellig.worktree.remove",
+          "when": "false"
+        },
+        {
+          "command": "intellig.worktree.prune",
+          "when": "false"
+        },
+        {
           "command": "intellig.branch.push",
           "when": "false"
         },
@@ -1138,6 +1192,41 @@
           "command": "intellig.branch.openWorktree",
           "when": "viewItem =~ /^intellig\\.localBranch(Current)?$/",
           "group": "1_branchOps@5"
+        },
+        {
+          "command": "intellig.worktree.openInNewWindow",
+          "when": "viewItem =~ /^intellig\\.worktree .*\\bcanOpen\\b/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "intellig.worktree.openInCurrentWindow",
+          "when": "viewItem =~ /^intellig\\.worktree .*\\bcanOpen\\b/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "intellig.worktree.lock",
+          "when": "viewItem =~ /^intellig\\.worktree .*\\bcanLock\\b/",
+          "group": "2_lock@1"
+        },
+        {
+          "command": "intellig.worktree.unlock",
+          "when": "viewItem =~ /^intellig\\.worktree .*\\bcanUnlock\\b/",
+          "group": "2_lock@2"
+        },
+        {
+          "command": "intellig.worktree.remove",
+          "when": "viewItem =~ /^intellig\\.worktree .*\\bcanRemove\\b/",
+          "group": "3_remove@1"
+        },
+        {
+          "command": "intellig.branch.newWorktree",
+          "when": "viewItem == intellig.worktreesCategory",
+          "group": "1_worktree@1"
+        },
+        {
+          "command": "intellig.worktree.prune",
+          "when": "viewItem == intellig.worktreesCategory",
+          "group": "1_worktree@2"
         },
         {
           "command": "intellig.branch.checkoutAndRebase",

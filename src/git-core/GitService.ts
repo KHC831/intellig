@@ -65,9 +65,8 @@ import { BranchOps } from './ops/BranchOps';
 import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
 import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
-import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/WorktreeOps';
+import { WorktreeOps, IWorktreeHost } from './ops/WorktreeOps';
 import { FreshCoalescer } from '../utils/freshCoalescer';
-import type { WorktreeRemoveForce } from './ops/WorktreeOps';
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
@@ -88,7 +87,9 @@ interface IRepositoryCache {
  * Git Service implementation.
  * Provides all Git operations through the Git CLI.
  */
-export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeEvents {
+export class GitService
+  implements IGitService, IGitServiceCli, IGitWorkingTreeEvents, IWorktreeHost
+{
   private _gitCli: GitCli;
   private readonly _staging: StagingOps;
   private readonly _diff: DiffOps;
@@ -312,10 +313,10 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    * every command); `FETCH_HEAD` (our own fetch fires `onDidFetch`);
    * `ORIG_HEAD` (reset/merge side effect; HEAD and refs carry the change);
    * `modules/**` (submodules surface through the parent's HEAD and index);
-   * `worktrees/**` (each linked worktree's HEAD and index churn there).
-   * `config` IS watched: `git remote set-url` and user edits write nothing
-   * else, and remote-derived caches flush on the event; read-path commands
-   * never write it.
+   * `worktrees/**` but the two files the Worktrees list shows (each linked
+   * worktree's HEAD and index churn there). `config` IS watched: `git remote
+   * set-url` and user edits write nothing else, and remote-derived caches
+   * flush on the event; read-path commands never write it.
    */
   private static readonly WATCHED_GIT_PATTERNS: readonly string[] = [
     'HEAD',
@@ -331,6 +332,8 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     // Dropping a NON-TOP stash rewrites only the stash reflog (git4idea
     // GitRepositoryFiles.isStashReflogFile); only `git stash` writes it.
     'logs/refs/stash',
+    'worktrees/*/locked', // a worktree locked or unlocked
+    'worktrees/*/gitdir', // a worktree added, removed or pruned
   ];
 
   /**
@@ -2125,33 +2128,12 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   // New capability landed on the GitService class (NOT the frozen IGitService
   // composite — ADR-001), mirroring the Incoming/Outgoing additions above.
 
-  /** `git worktree list --porcelain`; see {@link WorktreeOps.listWorktrees}. */
-  listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError> {
-    return this._worktrees.listWorktrees(repo);
-  }
-
-  /** `git worktree add`; see {@link WorktreeOps.addWorktree}. */
-  addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError> {
-    return this._worktrees.addWorktree(repo, options);
-  }
-
-  /** `git worktree remove`; see {@link WorktreeOps.removeWorktree}. */
-  removeWorktree(
-    repo: IRepository,
-    path: string,
-    force?: WorktreeRemoveForce
-  ): ResultAsync<void, GitError> {
-    return this._worktrees.removeWorktree(repo, path, force);
-  }
-
-  /** See {@link WorktreeOps.hasUncommittedChanges}. */
-  hasUncommittedChanges(worktreePath: string): ResultAsync<boolean, GitError> {
-    return this._worktrees.hasUncommittedChanges(worktreePath);
-  }
-
-  /** `git worktree prune`; see {@link WorktreeOps.pruneWorktrees}. */
-  pruneWorktrees(repo: IRepository): ResultAsync<void, GitError> {
-    return this._worktrees.pruneWorktrees(repo);
+  /**
+   * The worktree operations as one unit rather than a forwarder per call:
+   * every consumer wants several. Declared by {@link IWorktreeHost}.
+   */
+  get worktrees(): WorktreeOps {
+    return this._worktrees;
   }
 
   // ============================================

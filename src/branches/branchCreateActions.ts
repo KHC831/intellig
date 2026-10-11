@@ -11,7 +11,7 @@ import type { IGitService, IRepository } from '../git-core/interfaces/IGitServic
 import type { BranchTreeProvider } from './BranchTreeProvider';
 import type { NewBranchDialogOpener } from './BranchContextMenuCommands';
 import { sanitizeGitError } from '../git-core/gitError';
-import type { TreeItemTarget } from '../commands/registration/commandSpine';
+import type { RefTarget } from '../commands/registration/commandSpine';
 
 /** Deps the create actions reach back into the dispatcher for. */
 export interface IBranchCreateContext {
@@ -54,7 +54,7 @@ export async function handleNewBranchFrom(
     target,
   }: {
     repo: IRepository;
-    target: TreeItemTarget;
+    target: RefTarget;
   }
 ): Promise<void> {
   // The start point is whatever was clicked: a branch name, a tag name,

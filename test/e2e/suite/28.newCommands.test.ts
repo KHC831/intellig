@@ -107,6 +107,7 @@ describe('e2e — 0.2.11 command surfaces (real git state)', function () {
     stubs = stubPrompts({
       quickPick: (items: unknown) =>
         (items as Array<{ label: string }>).find((i) => /prune/i.test(i.label)),
+      warningMessage: () => 'Prune Worktrees',
     });
     await vscode.commands.executeCommand('intellig.branch.removeWorktree');
 

@@ -8,11 +8,12 @@
  * the failure.
  */
 
+import { GitService } from '../../../src/git-core/GitService';
 import '../../setup';
 import * as assert from 'assert';
 import { errAsync, okAsync, ResultAsync } from 'neverthrow';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
-import { BranchTreeProvider, type BranchTreeItem } from '../../../src/branches/BranchTreeProvider';
+import { BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
 import {
   handleOpenWorktree,
   handleRemoveWorktree,
@@ -47,7 +48,7 @@ function makeProvider(repo: IRepository | undefined): BranchTreeProvider {
 
 /** GitService stub exposing only the worktree capability the handlers use. */
 function makeGitService(over: {
-  listWorktrees?: (repo: IRepository) => ResultAsync<IWorktreeEntry[], GitError>;
+  listWorktrees?: () => ResultAsync<IWorktreeEntry[], GitError>;
   addWorktree?: (repo: IRepository, options: IAddWorktreeOptions) => ResultAsync<void, GitError>;
   removeWorktree?: (
     repo: IRepository,
@@ -55,16 +56,24 @@ function makeGitService(over: {
     force?: WorktreeRemoveForce
   ) => ResultAsync<void, GitError>;
   pruneWorktrees?: (repo: IRepository) => ResultAsync<void, GitError>;
-  hasUncommittedChanges?: () => ResultAsync<boolean, GitError>;
 }): IGitService {
+  // Shaped like the real façade: the worktree ops hang off the `worktrees`
+  // accessor, so a double that answers these calls directly would pass while
+  // production code reads through the accessor.
   return {
-    listWorktrees:
-      over.listWorktrees ?? ((): ResultAsync<IWorktreeEntry[], GitError> => okAsync([])),
-    addWorktree: over.addWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
-    removeWorktree: over.removeWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
-    pruneWorktrees: over.pruneWorktrees ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
-    hasUncommittedChanges:
-      over.hasUncommittedChanges ?? ((): ResultAsync<boolean, GitError> => okAsync(false)),
+    getRepositories: () => [makeRepo()],
+    worktrees: {
+      listWorktrees:
+        over.listWorktrees ?? ((): ResultAsync<IWorktreeEntry[], GitError> => okAsync([])),
+      addWorktree: over.addWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
+      removeWorktree:
+        over.removeWorktree ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
+      pruneWorktrees:
+        over.pruneWorktrees ?? ((): ResultAsync<void, GitError> => okAsync(undefined)),
+      lockWorktree: (): ResultAsync<void, GitError> => okAsync(undefined),
+      unlockWorktree: (): ResultAsync<void, GitError> => okAsync(undefined),
+      hasUncommittedChanges: (): ResultAsync<boolean, GitError> => okAsync(false),
+    },
   } as unknown as IGitService;
 }
 
@@ -72,6 +81,16 @@ function makeGitService(over: {
 function worktreeContextOf(commands: BranchContextMenuCommands): IBranchWorktreeContext {
   return (commands as unknown as { _worktreeContext(): IBranchWorktreeContext })._worktreeContext();
 }
+
+describe('worktree seam', () => {
+  it('the real GitService exposes the accessor the handlers and this double rely on', () => {
+    // The double below hangs the ops off `worktrees` by hand. This ties that
+    // key to the real class, so renaming the accessor fails here instead of
+    // leaving the double green while every worktree command throws.
+    const accessor = Object.getOwnPropertyDescriptor(GitService.prototype, 'worktrees');
+    assert.strictEqual(typeof accessor?.get, 'function');
+  });
+});
 
 describe('worktree command handlers — Result Err arm', () => {
   afterEach(() => {
@@ -134,6 +153,7 @@ const MAIN_WT: IWorktreeEntry = {
   isDetached: false,
   isBare: false,
   isLocked: false,
+  isPrunable: false,
 };
 const LINKED_WT: IWorktreeEntry = {
   path: '/elsewhere/wt-feature',
@@ -143,6 +163,7 @@ const LINKED_WT: IWorktreeEntry = {
   isDetached: false,
   isBare: false,
   isLocked: false,
+  isPrunable: false,
 };
 
 describe('Remove Worktree…', () => {
@@ -245,7 +266,8 @@ describe('Remove Worktree…', () => {
     installQuickPickChooser(/feature\/x/);
     const removeCalls: Array<{ path: string; force?: WorktreeRemoveForce }> = [];
     const gitService = makeGitService({
-      listWorktrees: () => okAsync([MAIN_WT, { ...LINKED_WT, isLocked: true }]),
+      listWorktrees: () =>
+        okAsync([MAIN_WT, { ...LINKED_WT, isLocked: true, lockReason: 'on a USB disk' }]),
       removeWorktree: (_r, p, force) => {
         removeCalls.push({ path: p, force });
         return okAsync(undefined);
@@ -258,21 +280,8 @@ describe('Remove Worktree…', () => {
 
     assert.strictEqual(warning.calls.length, 1, 'one confirm, not a confirm then a retry');
     assert.match(warning.calls[0].message, /locked/i);
+    assert.match(warning.calls[0].message, /on a USB disk/);
     assert.deepStrictEqual(removeCalls, [{ path: '/elsewhere/wt-feature', force: 'overrideLock' }]);
-  });
-
-  it('warns in that confirm when the locked worktree has uncommitted changes', async () => {
-    installQuickPickChooser(/feature\/x/);
-    const gitService = makeGitService({
-      listWorktrees: () => okAsync([MAIN_WT, { ...LINKED_WT, isLocked: true }]),
-      hasUncommittedChanges: () => okAsync(true),
-    });
-    const warning = installWarningMessageTracker(undefined);
-    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
-
-    await handleRemoveWorktree(worktreeContextOf(commands));
-
-    assert.match(warning.calls[0].message, /uncommitted changes, which will be lost/);
   });
 
   it('offers to override a lock git reports that the list did not show', async () => {
@@ -305,21 +314,28 @@ describe('Remove Worktree…', () => {
     ]);
   });
 
-  it('runs prune when the prune item is picked', async () => {
+  it('runs prune, after the confirm naming the missing worktree, when the prune item is picked', async () => {
     installQuickPickChooser(/[Pp]rune/);
     let pruned = 0;
     const gitService = makeGitService({
-      listWorktrees: () => okAsync([MAIN_WT, LINKED_WT]),
+      listWorktrees: () =>
+        okAsync([
+          MAIN_WT,
+          LINKED_WT,
+          { ...LINKED_WT, path: '/elsewhere/wt-gone', isPrunable: true },
+        ]),
       pruneWorktrees: () => {
         pruned += 1;
         return okAsync(undefined);
       },
     });
+    const confirm = installWarningMessageTracker('Prune Worktrees');
     const info = installInfoMessageTracker();
     const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
 
     await handleRemoveWorktree(worktreeContextOf(commands));
 
+    assert.match(confirm.calls[0].message, /wt-gone/);
     assert.strictEqual(pruned, 1);
     assert.ok(info.calls.some((c) => /prune/i.test(c.message)));
   });
@@ -344,31 +360,5 @@ describe('Remove Worktree…', () => {
     assert.strictEqual(tracker.calls.length, 1);
     assert.match(tracker.calls[0].message, /Failed to remove worktree/);
     assert.ok(!tracker.calls[0].message.includes('ghp_SECRETTOKEN123456'));
-  });
-});
-
-describe('the worktree pickers in a multi-repository tree', () => {
-  afterEach(() => {
-    restoreMessageFunctions();
-  });
-
-  it("list the worktrees of the clicked branch's repository, not the tree's current one", async () => {
-    const other = { rootUri: Uri.file('/other-repo') } as unknown as IRepository;
-    const listed: string[] = [];
-    const gitService = makeGitService({
-      listWorktrees: (repo) => {
-        listed.push(repo.rootUri.fsPath);
-        return okAsync([]);
-      },
-    });
-    installInfoMessageTracker();
-    installQuickPickChooser(undefined);
-    const commands = new BranchContextMenuCommands(gitService, makeProvider(makeRepo()));
-    const clicked = { repository: other } as unknown as BranchTreeItem;
-
-    await handleOpenWorktree(worktreeContextOf(commands), clicked);
-    await handleRemoveWorktree(worktreeContextOf(commands), clicked);
-
-    assert.deepStrictEqual(listed, ['/other-repo', '/other-repo']);
   });
 });

@@ -13,6 +13,10 @@ import '../../setup';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../src/branches/BranchContextMenuCommands';
 import { BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
+import {
+  handleNewWorktree,
+  type IBranchWorktreeContext,
+} from '../../../src/branches/branchWorktreeActions';
 import { IGitService, IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
@@ -51,33 +55,19 @@ function makeTrappedGitService(reached: string[]): IGitService {
   ) as IGitService;
 }
 
-/**
- * Handlers that take the clicked tree item as their only argument. Handlers
- * migrated onto the tree-item spine scope leave this list — the scope's own
- * contract suite (treeItemCommandSpine.test.ts) pins undefined-tolerance
- * once for every command registered through it.
- */
-const ITEM_HANDLERS = ['_handleNewWorktree'] as const;
-
-type ItemHandlerSurface = Record<
-  (typeof ITEM_HANDLERS)[number],
-  (item: undefined) => Promise<void> | void
->;
-
 describe('BranchContextMenuCommands — undefined tree item', () => {
-  for (const handler of ITEM_HANDLERS) {
-    it(`${handler}(undefined) neither throws nor starts a git operation`, async () => {
-      const reached: string[] = [];
-      const commands = new BranchContextMenuCommands(
-        makeTrappedGitService(reached),
-        makeProvider(makeRepo())
-      );
-      const surface = commands as unknown as ItemHandlerSurface;
-      assert.strictEqual(typeof surface[handler], 'function', `${handler} exists`);
+  it('New Worktree… with no tree item neither throws nor starts a git operation', async () => {
+    const reached: string[] = [];
+    const commands = new BranchContextMenuCommands(
+      makeTrappedGitService(reached),
+      makeProvider(makeRepo())
+    );
+    const ctx = (
+      commands as unknown as { _worktreeContext(): IBranchWorktreeContext }
+    )._worktreeContext();
 
-      await surface[handler](undefined);
+    await handleNewWorktree(ctx, undefined);
 
-      assert.deepStrictEqual(reached, [], `${handler} must not reach git without an item`);
-    });
-  }
+    assert.deepStrictEqual(reached, [], 'New Worktree must not reach git without an item');
+  });
 });

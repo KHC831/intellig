@@ -48,10 +48,8 @@ import {
   updateFavoritesList,
   updateRecentLru,
 } from '../../../src/branches/BranchPopup';
-import {
-  BranchTreeProvider,
-  InMemoryFavoritesStore as ProductionInMemoryFavoritesStore,
-} from '../../../src/branches/BranchTreeProvider';
+import { BranchTreeProvider } from '../../../src/branches/BranchTreeProvider';
+import { InMemoryFavoritesStore as ProductionInMemoryFavoritesStore } from '../../../src/branches/favoritesStore';
 import { createMockGitService, attachedRepo } from '../../mocks/mockGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 

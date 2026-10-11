@@ -73,6 +73,7 @@ export interface WritableCommands {
 
 /** Mutable slice of `vscode.workspace` whose fields we override in tests. */
 export interface WritableWorkspace {
+  workspaceFolders: Array<{ uri: vscode.Uri; name: string; index: number }> | undefined;
   fs: {
     writeFile: (uri: vscode.Uri, content: Uint8Array) => Promise<void>;
     readFile: (uri: vscode.Uri) => Promise<Uint8Array>;

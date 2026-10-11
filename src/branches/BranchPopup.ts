@@ -28,7 +28,7 @@ import {
   type PersistedSlot,
 } from '../utils/persistedState';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
-import type { FavoriteRefType, IFavoritesStore } from './BranchTreeProvider';
+import type { FavoriteRefType, IFavoritesStore } from './favoritesStore';
 import type { IIncomingOutgoing } from '../git-core/ops/IncomingOutgoingOps';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
