@@ -45,12 +45,13 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const HELPER_REL = join('utils', 'contextKeys.ts');
+const HELPER_REL = 'utils/contextKeys.ts';
 const RHS_LHS = ['view', 'viewItem', 'activeWebviewPanelId', 'focusedView'];
 
 function collectTsFiles(dir) {
@@ -69,7 +70,7 @@ function findRawSetContext(srcDir) {
   const rawRe = /executeCommand\(\s*['"]setContext['"]/g;
   for (const file of collectTsFiles(srcDir)) {
     if (file.endsWith('.test.ts')) continue;
-    if (relative(srcDir, file) === HELPER_REL) continue;
+    if (posixRelative(srcDir, file) === HELPER_REL) continue;
     const content = readFileSync(file, 'utf8');
     let m;
     while ((m = rawRe.exec(content)) !== null) {
@@ -78,7 +79,7 @@ function findRawSetContext(srcDir) {
       const lines = content.split('\n');
       const windowAbove = lines.slice(Math.max(0, line - 1 - 4), line - 1).join('\n');
       if (!windowAbove.includes('context-key-exempt:')) {
-        violations.push({ file: relative(root, file), line });
+        violations.push({ file: posixRelative(root, file), line });
       }
     }
   }

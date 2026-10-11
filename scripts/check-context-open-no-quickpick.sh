@@ -84,7 +84,7 @@ while IFS= read -r file; do
   handlers=$((handlers + 1))
   while IFS= read -r qpline; do
     [ -z "$qpline" ] && continue
-    lineno="${qpline%%:*}"
+    lineno="${qpline%%:*}" # script-path-exempt: grep -n on one file prints no file
     is_exempt "$file" "$lineno" "$MARKER" && continue
     violations+=("$file:$lineno")
   done < <(grep -nE 'showQuickPick' "$file" | grep -vE '^[0-9]+:[[:space:]]*(//|\*|/\*)' || true)

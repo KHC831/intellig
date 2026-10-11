@@ -277,4 +277,12 @@ describe('check-host-revalidates guard', () => {
 
     assert.strictEqual(result.code, 0);
   });
+
+  it('fails closed when it finds no webview entry to check', () => {
+    const result = runGuard(
+      makeFixture({ 'sync/ThingDialog.ts': 'export class ThingDialog {}\n' })
+    );
+    assert.strictEqual(result.code, 1, result.output);
+    assert.match(result.output, /no webview entry/);
+  });
 });

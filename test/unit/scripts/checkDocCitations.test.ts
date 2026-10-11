@@ -558,6 +558,16 @@ describe('check-doc-citations resolveInvocation', () => {
   });
 });
 
+/** Copy the script and the shared libs it imports into `scriptsDir`. */
+function copyScriptInto(scriptsDir: string): string {
+  const copy = path.join(scriptsDir, path.basename(SCRIPT));
+  fs.copyFileSync(SCRIPT, copy);
+  fs.cpSync(path.join(path.dirname(SCRIPT), 'lib'), path.join(scriptsDir, 'lib'), {
+    recursive: true,
+  });
+  return copy;
+}
+
 describe('check-doc-citations runs when spawned from a path containing a space', () => {
   // import.meta.url percent-encodes; process.argv[1] does not. A naive
   // string comparison between the two makes main() never run on any
@@ -567,8 +577,7 @@ describe('check-doc-citations runs when spawned from a path containing a space',
     const scriptRoot = fs.mkdtempSync(path.join(TMP_ROOT, 'space-'));
     const scriptsDir = path.join(scriptRoot, 'r22 spaced', 'scripts');
     fs.mkdirSync(scriptsDir, { recursive: true });
-    const spacedScript = path.join(scriptsDir, path.basename(SCRIPT));
-    fs.copyFileSync(SCRIPT, spacedScript);
+    const spacedScript = copyScriptInto(scriptsDir);
     const root = makeFixture({ 'ADR-fixture.md': 'See `src/utils/gone.ts` for the split.\n' });
 
     const result = spawnSync('node', [spacedScript, '--fixture', path.join(root, 'docs'), root], {
@@ -590,7 +599,7 @@ describe('check-doc-citations runs when spawned from a path containing a space',
     const scriptRoot = fs.mkdtempSync(path.join(TMP_ROOT, 'symlink-'));
     const realScriptsDir = path.join(scriptRoot, 'real', 'scripts');
     fs.mkdirSync(realScriptsDir, { recursive: true });
-    fs.copyFileSync(SCRIPT, path.join(realScriptsDir, path.basename(SCRIPT)));
+    copyScriptInto(realScriptsDir);
     const linkedScriptsDir = path.join(scriptRoot, 'linked', 'scripts');
     fs.mkdirSync(path.dirname(linkedScriptsDir), { recursive: true });
     fs.symlinkSync(realScriptsDir, linkedScriptsDir, 'dir');

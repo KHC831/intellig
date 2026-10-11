@@ -70,7 +70,7 @@ TARGETS=(
 
 violations=0
 for entry in "${TARGETS[@]}"; do
-  file="${entry%%:*}"
+  file="${entry%%:*}" # script-path-exempt: a path:interface entry of TARGETS above
   iface="${entry##*:}"
 
   if [ ! -f "$file" ]; then

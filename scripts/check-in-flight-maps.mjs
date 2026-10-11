@@ -34,9 +34,10 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanSource, lineAt } from './lib/source-scan.mjs';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const root = process.argv[2] ?? join(repoRoot, 'src');
@@ -78,7 +79,7 @@ for (const file of files) {
       exempt++;
       continue;
     }
-    failures.push(`${relative(root, file)}:${line}: ${(lines[line - 1] ?? '').trim()}`);
+    failures.push(`${posixRelative(root, file)}:${line}: ${(lines[line - 1] ?? '').trim()}`);
   }
 }
 

@@ -63,6 +63,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -125,7 +126,7 @@ function walk(dir, filter) {
   return out;
 }
 
-const rel = (abs) => path.relative(REL_BASE, abs).split(path.sep).join('/');
+const rel = (abs) => posixRelative(REL_BASE, abs);
 
 /**
  * The declaration's line plus the one above it, where the exemption marker may

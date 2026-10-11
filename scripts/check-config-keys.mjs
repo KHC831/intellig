@@ -47,12 +47,13 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const SEAM_REL = join('config', 'configKeys.ts');
+const SEAM_REL = 'config/configKeys.ts';
 
 function collectTsFiles(dir) {
   const out = [];
@@ -70,7 +71,7 @@ function findRawGetConfiguration(srcDir) {
   const rawRe = /getConfiguration\(\s*['"]intellig/g;
   for (const file of collectTsFiles(srcDir)) {
     if (file.endsWith('.test.ts')) continue;
-    if (relative(srcDir, file) === SEAM_REL) continue;
+    if (posixRelative(srcDir, file) === SEAM_REL) continue;
     const content = readFileSync(file, 'utf8');
     let m;
     while ((m = rawRe.exec(content)) !== null) {
@@ -78,7 +79,7 @@ function findRawGetConfiguration(srcDir) {
       const lines = content.split('\n');
       const windowAbove = lines.slice(Math.max(0, line - 1 - 4), line - 1).join('\n');
       if (!windowAbove.includes('config-key-exempt:')) {
-        violations.push({ file: relative(root, file), line });
+        violations.push({ file: posixRelative(root, file), line });
       }
     }
   }

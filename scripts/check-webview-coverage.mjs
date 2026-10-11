@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(root, 'src');
@@ -42,7 +43,7 @@ function walk(dir, filter) {
   return out;
 }
 
-const rel = (abs) => path.relative(root, abs).split(path.sep).join('/');
+const rel = (abs) => posixRelative(root, abs);
 
 // Ground truth: src files that acquire the webview client API.
 const clientScriptFiles = walk(SRC, (p) => p.endsWith('.ts'))

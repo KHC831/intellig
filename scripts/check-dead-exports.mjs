@@ -52,6 +52,7 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -176,7 +177,7 @@ if (!fixtureMode && existsSync(ALLOWLIST_FILE)) {
 
 const dead = allFiles
   .filter((f) => !reachable.has(f) && !allow.has(f))
-  .map((f) => path.relative(repoRoot, f))
+  .map((f) => posixRelative(repoRoot, f))
   .sort();
 
 if (dead.length > 0) {

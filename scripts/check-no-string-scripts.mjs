@@ -42,7 +42,8 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -105,10 +106,10 @@ function main() {
 
   for (const file of collectTsFiles(srcDir)) {
     if (file.endsWith('.test.ts')) continue;
-    const rel = relative(srcDir, file);
+    const rel = posixRelative(srcDir, file);
     const rawContent = readFileSync(file, 'utf8');
     const content = maskComments(rawContent);
-    const relRoot = relative(root, file);
+    const relRoot = posixRelative(root, file);
     const allowlisted = allowlist.has(rel);
 
     let m;

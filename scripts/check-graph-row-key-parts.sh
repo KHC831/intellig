@@ -48,6 +48,8 @@ cd "$(dirname "$0")/.."
 
 # shellcheck source=scripts/lib/exempt-marker.sh
 source scripts/lib/exempt-marker.sh
+# shellcheck source=scripts/lib/grep-hit.sh
+source scripts/lib/grep-hit.sh
 
 PATTERN='\.(branchMap|tagMap)\.(entries|keys)\('
 MARKER='row-key-exempt:'
@@ -61,9 +63,8 @@ fi
 hits=""
 if [ -n "$raw" ]; then
   while IFS= read -r line; do
-    file="${line%%:*}"
-    rest="${line#*:}"
-    lineno="${rest%%:*}"
+    split_grep_hit "$line"
+    file=$HIT_FILE lineno=$HIT_LINE
     is_exempt "$file" "$lineno" "$MARKER" && continue
     # File decomposes keys through the shared helper.
     if grep -qF 'graphRowKeyParts' "$file" 2>/dev/null; then

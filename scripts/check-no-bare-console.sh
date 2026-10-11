@@ -100,6 +100,9 @@
 
 set -euo pipefail
 
+# shellcheck source=scripts/lib/grep-hit.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/grep-hit.sh"
+
 # The single sanctioned production reference to console.* — the
 # developer-only ConsoleSink mirror (Requirement 3.3).
 ALLOWLISTED_FILE='src/utils/logger/sinks/ConsoleSink.ts'
@@ -126,9 +129,8 @@ while IFS= read -r line; do
     continue
   fi
   # Format: <file>:<lineno>:<content>
-  file="${line%%:*}"
-  rest="${line#*:}"
-  content="${rest#*:}"
+  split_grep_hit "$line"
+  file=$HIT_FILE content=$HIT_TEXT
 
   # Allow the single sanctioned ConsoleSink definition site.
   if [ "$file" = "$ALLOWLISTED_FILE" ]; then
