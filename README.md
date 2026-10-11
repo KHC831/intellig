@@ -58,6 +58,7 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 - **Branch Popup** — sectioned, searchable popup with Recent, Favorites, and contextual action menus
 - **Branch Tree Provider** — local, remote, and tag groups with right-click context menus
 - **Favorites** — star branches for quick access
+- **Worktrees** — each repository's worktrees in the Branches tree: open, lock, unlock, remove, create and prune from the right-click menu
 - **New Branch / New Tag dialogs** — with validation and remote-start-point detection
 - **Log with Graph** — commit-history viewer with graph visualization, filtering, jump-to-hash, and cherry-pick highlighting
 - **File History** — `--follow` file history with branch filter, diff-any-two, and compare-with-local

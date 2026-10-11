@@ -10,6 +10,31 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.11] - 2026-10-11
+
+### Added
+
+- The Branches tree lists each repository's worktrees. Right-click one to open,
+  lock, unlock or remove it, or the section to create or prune worktrees.
+
+### Fixed
+
+- A branch filter in the Git window keeps working when branches are created,
+  checked out, deleted or renamed, instead of showing "No commits match the
+  current filter".
+- Open Worktree… and Remove Worktree… list every worktree of the clicked
+  branch's repository, and appear on the current branch too.
+- Removing a locked worktree works, with a warning before uncommitted changes
+  in it are lost.
+- A window open on a linked worktree updates its graph when another worktree
+  commits or changes branches.
+- Turning Show Long Edges on or off redraws the graph right away.
+- Hiding a long graph edge no longer erases another line in the same column.
+- With `core.quotePath` off, a file name holding a quote or backslash next to
+  non-ASCII letters (e.g. `say "café"`) shows correctly instead of garbled.
+- A file changed just before a refresh no longer goes missing from the Changes
+  list.
+
 ## [0.5.10] - 2026-09-05
 
 ### Fixed
