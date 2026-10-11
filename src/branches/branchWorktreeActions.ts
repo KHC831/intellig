@@ -1,14 +1,28 @@
 /**
- * Worktree actions for the branch context menu: create a linked worktree,
- * open an existing one, and remove/prune worktrees. Each action reaches back
- * into the dispatcher through {@link IBranchWorktreeContext}.
+ * Worktree actions: the branch context menu's create / open / remove pickers,
+ * and the actions on a Worktrees row (open, lock, unlock, remove) and on the
+ * Worktrees category (prune). Each reaches back into the dispatcher through
+ * {@link IBranchWorktreeContext}.
  */
 
 import * as vscode from 'vscode';
-import type { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import type { IRepository } from '../git-core/interfaces/IGitService';
+import type { GitError } from '../git-core/errors';
 import type { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
 import { formatActionFailureToast } from '../git-core/gitError';
 import { worktreeRemoveRefusal } from '../git-core/gitProse';
+import { canonicalizeFsPath } from '../utils/repoRelativePath';
+import {
+  capabilityRefusal,
+  isOpenInWindow,
+  windowRoots,
+  worktreeCapabilities,
+  worktreeCheckout,
+  worktreeName,
+  worktreesForDisplay,
+  worktreeStates,
+  type WorktreeCapability,
+} from './worktreeTreeItems';
 import type {
   IWorktreeCapableService,
   IWorktreeEntry,
@@ -17,19 +31,9 @@ import type {
 
 /** Deps the worktree actions reach back into the dispatcher for. */
 export interface IBranchWorktreeContext {
-  readonly gitService: IGitService;
+  readonly worktrees: IWorktreeCapableService;
   readonly branchTreeProvider: BranchTreeProvider;
   resolveRepository(item?: BranchTreeItem): IRepository | undefined;
-}
-
-/**
- * View the GitService through its worktree capability. The frozen
- * {@link IGitService} composite (ADR-001) does not declare the post-freeze
- * worktree methods; the concrete `GitService` implements them, so consumers
- * widen through the {@link IWorktreeCapableService} role interface.
- */
-function worktreeService(ctx: IBranchWorktreeContext): IWorktreeCapableService {
-  return ctx.gitService as unknown as IWorktreeCapableService;
 }
 
 /**
@@ -117,7 +121,7 @@ export async function handleNewWorktree(
     }
   }
 
-  const created = await worktreeService(ctx)
+  const created = await ctx.worktrees
     .addWorktree(repo, { path: worktreePath, ref, newBranch })
     .match(
       () => true,
@@ -147,32 +151,16 @@ export async function handleNewWorktree(
 }
 
 /**
- * "Open Worktree…" — list the repo's worktrees
- * (`git worktree list --porcelain`), let the user pick one, and open it as a
- * VS Code folder. The current/main worktree and any path equal to the active
- * repo root are still listed (you may want to reopen the main checkout in a
- * fresh window).
+ * "Open Worktree…" — list the repo's worktrees, let the user pick one, and
+ * open it as a VS Code folder. The main worktree and the one this window has
+ * open are listed too (you may want either in a fresh window).
  */
 export async function handleOpenWorktree(
   ctx: IBranchWorktreeContext,
   item?: BranchTreeItem
 ): Promise<void> {
   const repo = ctx.resolveRepository(item);
-  if (!repo) {
-    return;
-  }
-
-  const worktrees = await worktreeService(ctx)
-    .listWorktrees(repo)
-    .match(
-      (list) => list,
-      (error) => {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to list worktrees', error)
-        );
-        return undefined;
-      }
-    );
+  const worktrees = repo ? await loadWorktrees(ctx, repo) : undefined;
   if (!worktrees) {
     return;
   }
@@ -181,12 +169,7 @@ export async function handleOpenWorktree(
     return;
   }
 
-  const items = worktrees.map((wt) => ({
-    label: worktreeLabel(wt),
-    description: wt.path,
-    worktree: wt,
-  }));
-  const picked = await vscode.window.showQuickPick(items, {
+  const picked = await vscode.window.showQuickPick(worktrees.map(pickItem), {
     placeHolder: 'Select a worktree to open',
   });
   if (!picked) {
@@ -200,56 +183,34 @@ export async function handleOpenWorktree(
     ],
     { placeHolder: `Open '${picked.worktree.path}'` }
   );
-  if (!newWindow) {
-    return;
+  if (newWindow) {
+    await openWorktreeFolder(picked.worktree, newWindow.forceNewWindow);
   }
-
-  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(picked.worktree.path), {
-    forceNewWindow: newWindow.forceNewWindow,
-  });
 }
 
 /**
- * "Remove Worktree…" — pick a linked worktree (never the main worktree or
- * the checkout this window has open), confirm once, and `git worktree
- * remove` it. Git's dirty/locked refusal is surfaced with a Force Remove
- * retry. The same picker carries a prune item (`git worktree prune`) so
- * stale records of manually-deleted worktrees are cleanable from one
- * front door.
+ * "Remove Worktree…" — pick a worktree that offers Remove (never the main
+ * worktree, never one this window has open), confirm once, and `git worktree
+ * remove` it. The same picker carries a prune item so stale records of
+ * manually deleted worktrees are cleanable from one front door.
  */
 export async function handleRemoveWorktree(
   ctx: IBranchWorktreeContext,
   item?: BranchTreeItem
 ): Promise<void> {
   const repo = ctx.resolveRepository(item);
-  if (!repo) {
+  const worktrees = repo ? await loadWorktrees(ctx, repo) : undefined;
+  if (!repo || !worktrees) {
     return;
   }
 
-  const worktrees = await worktreeService(ctx)
-    .listWorktrees(repo)
-    .match(
-      (list) => list,
-      (error) => {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to list worktrees', error)
-        );
-        return undefined;
-      }
-    );
-  if (!worktrees) {
-    return;
-  }
-
-  const repoRoot = repo.rootUri.fsPath;
-  const removable = worktrees.filter((wt) => !wt.isMain && wt.path !== repoRoot);
+  const roots = windowRoots(repo);
+  const removable = worktrees.filter(
+    (wt) => worktreeCapabilities(wt, isOpenInWindow(wt, roots)).canRemove
+  );
 
   type RemoveItem = vscode.QuickPickItem & { worktree?: IWorktreeEntry; prune?: boolean };
-  const items: RemoveItem[] = removable.map((wt) => ({
-    label: worktreeLabel(wt),
-    description: wt.path,
-    worktree: wt,
-  }));
+  const items: RemoveItem[] = removable.map(pickItem);
   items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
   items.push({ label: '$(trash) Prune stale worktree records', prune: true });
 
@@ -259,45 +220,184 @@ export async function handleRemoveWorktree(
         ? 'No linked worktrees to remove — prune cleans records of deleted ones'
         : 'Select a worktree to remove',
   });
-  if (!picked) {
-    return;
-  }
-
-  if (picked.prune) {
-    const pruned = await worktreeService(ctx)
-      .pruneWorktrees(repo)
-      .match(
-        () => true,
-        (error) => {
-          void vscode.window.showErrorMessage(
-            formatActionFailureToast('Failed to prune worktrees', error)
-          );
-          return false;
-        }
-      );
-    if (pruned) {
-      void vscode.window.showInformationMessage('Pruned stale worktree records.');
-      ctx.branchTreeProvider.refresh();
-    }
-    return;
-  }
-
-  if (picked.worktree) {
+  if (picked?.prune) {
+    await prunePrunable(ctx, repo, worktrees);
+  } else if (picked?.worktree) {
     await confirmAndRemoveWorktree(ctx, repo, picked.worktree);
   }
 }
 
 /**
- * Confirm once, then `git worktree remove`. A worktree the list shows as
- * locked says so in that one confirm and is removed past the lock; anything
- * else starts unforced.
+ * Run a Worktrees row action on the worktree as git lists it NOW, not as the
+ * row rendered it: a lock, unlock or remove from a terminal since then would
+ * otherwise send the wrong force or the wrong verb. The action runs only if
+ * the current worktree still offers `capability`, the same word that gated
+ * its menu item; otherwise the user is told why and the tree catches up.
  */
-async function confirmAndRemoveWorktree(
+export async function withCurrentWorktree(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository,
+  clicked: IWorktreeEntry,
+  capability: WorktreeCapability,
+  act: (worktree: IWorktreeEntry) => Promise<void>
+): Promise<void> {
+  const worktrees = await loadWorktrees(ctx, repo);
+  if (!worktrees) {
+    return;
+  }
+  const key = canonicalizeFsPath(clicked.path);
+  const current = worktrees.find((wt) => canonicalizeFsPath(wt.path) === key);
+  if (!current) {
+    void vscode.window.showInformationMessage(
+      `'${worktreeName(clicked)}' is no longer a worktree of this repository.`
+    );
+    ctx.branchTreeProvider.refresh();
+    return;
+  }
+  const openHere = isOpenInWindow(current, windowRoots(repo));
+  if (!worktreeCapabilities(current, openHere)[capability]) {
+    void vscode.window.showWarningMessage(capabilityRefusal(capability, current, openHere));
+    ctx.branchTreeProvider.refresh();
+    return;
+  }
+  await act(current);
+}
+
+/** Open a worktree's folder in a new or the current window. */
+export async function openWorktreeFolder(
+  worktree: IWorktreeEntry,
+  newWindow: boolean
+): Promise<void> {
+  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(worktree.path), {
+    forceNewWindow: newWindow,
+  });
+}
+
+/** Lock a worktree, with an optional reason (`git worktree lock --reason`). */
+export async function handleLockWorktree(
   ctx: IBranchWorktreeContext,
   repo: IRepository,
   worktree: IWorktreeEntry
 ): Promise<void> {
-  const lock = worktree.isLocked ? ` It is locked${await lostChanges(ctx, worktree.path)}.` : '';
+  const reason = await vscode.window.showInputBox({
+    prompt: `Lock worktree '${worktreeName(worktree)}'. Reason (optional)`,
+    placeHolder: 'e.g. on a removable drive',
+  });
+  if (reason === undefined) {
+    return;
+  }
+  const trimmed = reason.trim();
+  await ctx.worktrees
+    .lockWorktree(repo, worktree.path, trimmed.length > 0 ? trimmed : undefined)
+    .match(refreshTree(ctx), toastFailure('Failed to lock worktree'));
+}
+
+/** Unlock a worktree (`git worktree unlock`). */
+export async function handleUnlockWorktree(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository,
+  worktree: IWorktreeEntry
+): Promise<void> {
+  await ctx.worktrees
+    .unlockWorktree(repo, worktree.path)
+    .match(refreshTree(ctx), toastFailure('Failed to unlock worktree'));
+}
+
+/** "Prune Worktrees…" on the Worktrees category. */
+export async function handlePruneWorktrees(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository
+): Promise<void> {
+  const worktrees = await loadWorktrees(ctx, repo);
+  if (worktrees) {
+    await prunePrunable(ctx, repo, worktrees);
+  }
+}
+
+/**
+ * `git worktree prune` after one confirm naming the worktrees it will drop
+ * (git4idea PruneWorkingTreesAction); with none missing, say so instead.
+ */
+async function prunePrunable(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository,
+  worktrees: readonly IWorktreeEntry[]
+): Promise<void> {
+  const missing = worktrees.filter((wt) => wt.isPrunable).map(worktreeName);
+  if (missing.length === 0) {
+    void vscode.window.showInformationMessage('There are no missing worktrees to prune.');
+    return;
+  }
+  const confirm = await vscode.window.showWarningMessage(
+    `Remove Git records for missing worktrees: ${missing.join(', ')}?`,
+    { modal: true },
+    'Prune Worktrees'
+  );
+  if (confirm !== 'Prune Worktrees') {
+    return;
+  }
+  const pruned = await ctx.worktrees
+    .pruneWorktrees(repo)
+    .match(refreshTree(ctx), toastFailure('Failed to prune worktrees'));
+  if (pruned) {
+    void vscode.window.showInformationMessage(`Pruned ${missing.join(', ')}.`);
+  }
+}
+
+/** The worktrees `repo` shows, or undefined after a toast saying why not. */
+function loadWorktrees(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository
+): Promise<IWorktreeEntry[] | undefined> {
+  return worktreesForDisplay(ctx.worktrees, repo).match(
+    (list) => list,
+    (error) => {
+      toastFailure('Failed to list worktrees')(error);
+      return undefined;
+    }
+  );
+}
+
+/** A picker item for a worktree: what it has checked out, its states, and its path. */
+function pickItem(worktree: IWorktreeEntry): vscode.QuickPickItem & { worktree: IWorktreeEntry } {
+  const states = worktreeStates(worktree);
+  return {
+    label: worktreeCheckout(worktree),
+    description: states.length > 0 ? `${states.join(' · ')}  ${worktree.path}` : worktree.path,
+    worktree,
+  };
+}
+
+/** The success arm of a worktree change: refresh the tree to show it. */
+function refreshTree(ctx: IBranchWorktreeContext): () => boolean {
+  return () => {
+    ctx.branchTreeProvider.refresh();
+    return true;
+  };
+}
+
+/** The failure arm of a worktree change: a sanitized toast saying why. */
+function toastFailure(title: string): (error: GitError) => boolean {
+  return (error) => {
+    void vscode.window.showErrorMessage(formatActionFailureToast(title, error));
+    return false;
+  };
+}
+
+/**
+ * Confirm once, then `git worktree remove`. A worktree the list shows as
+ * locked says so (with its reason) in that one confirm and is removed past
+ * the lock; anything else starts unforced.
+ */
+export async function confirmAndRemoveWorktree(
+  ctx: IBranchWorktreeContext,
+  repo: IRepository,
+  worktree: IWorktreeEntry
+): Promise<void> {
+  const lock = worktree.isLocked
+    ? ` It is locked${worktree.lockReason ? ` (${worktree.lockReason})` : ''}` +
+      `${await lostChanges(ctx, worktree.path)}.`
+    : '';
   const confirm = await vscode.window.showWarningMessage(
     `Remove worktree '${worktree.path}'?${lock}`,
     { modal: true },
@@ -320,7 +420,7 @@ async function confirmAndRemoveWorktree(
  * warning. A tree whose status cannot be read (its folder is gone) adds none.
  */
 async function lostChanges(ctx: IBranchWorktreeContext, worktreePath: string): Promise<string> {
-  const dirty = await worktreeService(ctx).hasUncommittedChanges(worktreePath).unwrapOr(false);
+  const dirty = await ctx.worktrees.hasUncommittedChanges(worktreePath).unwrapOr(false);
   return dirty ? ' and has uncommitted changes, which will be lost' : '';
 }
 
@@ -335,12 +435,10 @@ async function removeWorktreeReporting(
   worktreePath: string,
   force: WorktreeRemoveForce
 ): Promise<void> {
-  const failure = await worktreeService(ctx)
-    .removeWorktree(repo, worktreePath, force)
-    .match(
-      () => undefined,
-      (error) => error
-    );
+  const failure = await ctx.worktrees.removeWorktree(repo, worktreePath, force).match(
+    () => undefined,
+    (error) => error
+  );
   if (!failure) {
     void vscode.window.showInformationMessage(`Removed worktree '${worktreePath}'.`);
     ctx.branchTreeProvider.refresh();
@@ -365,30 +463,4 @@ async function removeWorktreeReporting(
   void vscode.window.showErrorMessage(
     formatActionFailureToast('Failed to remove worktree', failure)
   );
-}
-
-/**
- * Human-readable label for a worktree pick: the short branch name (stripping
- * the `refs/heads/` prefix git's porcelain emits), `(detached)` /
- * `(bare)` for those states, plus a `(locked)` / `(main)` suffix.
- */
-function worktreeLabel(wt: IWorktreeEntry): string {
-  let base: string;
-  if (wt.isBare) {
-    base = '(bare)';
-  } else if (wt.isDetached) {
-    base = '(detached)';
-  } else if (wt.branch) {
-    base = wt.branch.replace(/^refs\/heads\//, '');
-  } else {
-    base = '(unknown)';
-  }
-  const tags: string[] = [];
-  if (wt.isMain) {
-    tags.push('main');
-  }
-  if (wt.isLocked) {
-    tags.push('locked');
-  }
-  return tags.length > 0 ? `${base} (${tags.join(', ')})` : base;
 }

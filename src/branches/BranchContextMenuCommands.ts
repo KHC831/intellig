@@ -3,6 +3,8 @@
  * Provides command handlers for branch, remote branch, and tag context menus.
  */
 
+import { worktreesOf, type IWorktreeCapableService } from '../git-core/ops/WorktreeOps';
+import { registerWorktreeCommands } from './worktreeCommands';
 import * as vscode from 'vscode';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
@@ -17,14 +19,9 @@ import {
   ITreeItemCommandDeps,
   ITreeItemBatchEntry,
   ITreeItemRunArgs,
-  TreeItemTarget,
+  RefTarget,
 } from '../commands/registration/commandSpine';
-import {
-  handleNewWorktree,
-  handleOpenWorktree,
-  handleRemoveWorktree,
-  type IBranchWorktreeContext,
-} from './branchWorktreeActions';
+import type { IBranchWorktreeContext } from './branchWorktreeActions';
 import {
   handleTagCheckoutDetached,
   handleTagCherryPick,
@@ -242,21 +239,17 @@ export class BranchContextMenuCommands {
     );
   }
 
-  /**
-   * Deps the worktree action module reaches back into the dispatcher for.
-   * `gitService`/`branchTreeProvider` are constructor-stable, so a snapshot is
-   * live; `getRepository`/`resolveRepository` stay on the class.
-   */
+  /** Deps for the worktree actions. The worktree operations are read on use,
+   * so only an action that needs them can fail. */
   private _worktreeContext(): IBranchWorktreeContext {
+    const gitService = this._gitService;
     return {
-      gitService: this._gitService,
+      get worktrees(): IWorktreeCapableService {
+        return worktreesOf(gitService);
+      },
       branchTreeProvider: this._branchTreeProvider,
       resolveRepository: (item) => this._resolveRepository(item),
     };
-  }
-
-  private _handleNewWorktree(item?: BranchTreeItem): Promise<void> {
-    return handleNewWorktree(this._worktreeContext(), item);
   }
 
   /**
@@ -593,24 +586,8 @@ export class BranchContextMenuCommands {
       })
     );
 
-    // Worktree commands
     this._disposables.push(
-      // spine-exempt: deliberately usable without a tree target (worktree ref falls back to HEAD)
-      registerLoggedCommand('intellig.branch.newWorktree', (item?: BranchTreeItem) =>
-        this._handleNewWorktree(item)
-      )
-    );
-    this._disposables.push(
-      // spine-exempt: repo-scope picker; the clicked row only names the repository
-      registerLoggedCommand('intellig.branch.openWorktree', (i?: BranchTreeItem) =>
-        handleOpenWorktree(this._worktreeContext(), i)
-      )
-    );
-    this._disposables.push(
-      // spine-exempt: repo-scope picker; the clicked row only names the repository
-      registerLoggedCommand('intellig.branch.removeWorktree', (i?: BranchTreeItem) =>
-        handleRemoveWorktree(this._worktreeContext(), i)
-      )
+      ...registerWorktreeCommands(this._worktreeContext(), this._treeItemDeps())
     );
 
     // Refresh command
@@ -715,7 +692,7 @@ export class BranchContextMenuCommands {
     handleNewBranch(this._createContext());
   }
 
-  private _handleNewBranchFrom(args: { repo: IRepository; target: TreeItemTarget }): Promise<void> {
+  private _handleNewBranchFrom(args: { repo: IRepository; target: RefTarget }): Promise<void> {
     return handleNewBranchFrom(this._createContext(), args);
   }
 

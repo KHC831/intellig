@@ -35,6 +35,7 @@ import { repoRelativePath } from '../../utils/repoRelativePath';
 import { isPathInsideOrEqual } from '../../git-core/repo/RepositoryDiscovery';
 import { formatActionFailureToast } from '../../git-core/gitError';
 import type { IBranch, IRepository, ITag } from '../../git-core/interfaces/IGitService';
+import type { IWorktreeEntry } from '../../git-core/ops/WorktreeOps';
 import type { ExtensionServices } from '../../services';
 import type { ICommandContext } from './CommandContext';
 
@@ -351,6 +352,7 @@ export function registerRepoCommand(
 export interface IClickedTreeItem {
   branch?: IBranch;
   tag?: ITag;
+  worktree?: IWorktreeEntry;
   repository?: IRepository;
   getDetachedHeadSha?(): string | undefined;
 }
@@ -359,7 +361,11 @@ export interface IClickedTreeItem {
 export type TreeItemTarget =
   | { kind: 'branch'; branch: IBranch }
   | { kind: 'tag'; tag: ITag }
-  | { kind: 'detached'; sha: string };
+  | { kind: 'detached'; sha: string }
+  | { kind: 'worktree'; worktree: IWorktreeEntry };
+
+/** A target that names a ref or commit (everything but a worktree row). */
+export type RefTarget = Exclude<TreeItemTarget, { kind: 'worktree' }>;
 
 /**
  * The tree surface a tree-item command needs: the fallback repository (the
@@ -411,6 +417,9 @@ export interface ITreeItemCommandSpec<K extends TreeItemTarget['kind'] = TreeIte
 function targetFromItem(item: IClickedTreeItem | undefined): TreeItemTarget | undefined {
   if (!item) {
     return undefined;
+  }
+  if (item.worktree) {
+    return { kind: 'worktree', worktree: item.worktree };
   }
   if (item.branch) {
     return { kind: 'branch', branch: item.branch };
@@ -475,7 +484,7 @@ export function registerTreeItemCommand<K extends TreeItemTarget['kind']>(
 
 /**
  * A target's identity within its repo, for batch dedupe: two selection rows
- * naming the same branch/tag/SHA in the same repo are one operation.
+ * naming the same branch/tag/SHA/worktree path in the same repo are one operation.
  */
 function batchIdentity(repo: IRepository, target: TreeItemTarget): string {
   const name =
@@ -483,7 +492,9 @@ function batchIdentity(repo: IRepository, target: TreeItemTarget): string {
       ? target.branch.name
       : target.kind === 'tag'
         ? target.tag.name
-        : target.sha;
+        : target.kind === 'worktree'
+          ? target.worktree.path
+          : target.sha;
   return `${repo.rootUri.fsPath}\u0000${target.kind}\u0000${name}`;
 }
 

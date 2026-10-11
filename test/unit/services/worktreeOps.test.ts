@@ -15,13 +15,13 @@
 
 import * as assert from 'assert';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { WorktreeOps, parseWorktreeList } from '../../../src/git-core/ops/WorktreeOps';
+import { WorktreeOps, parseWorktreeList, worktreesOf } from '../../../src/git-core/ops/WorktreeOps';
 import { IGitOpsContext } from '../../../src/git-core/ops/GitOpsContext';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { GitCli, GitCommandError } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 interface ExecResult {
   exitCode: number;
@@ -101,6 +101,9 @@ describe('parseWorktreeList', () => {
       isDetached: false,
       isBare: false,
       isLocked: false,
+      lockReason: undefined,
+      isPrunable: false,
+      prunableReason: undefined,
     });
 
     assert.strictEqual(entries[1].path, '/home/user/project-feature');
@@ -164,6 +167,146 @@ describe('parseWorktreeList', () => {
   });
 });
 
+describe('parseWorktreeList — states the Worktrees list renders', () => {
+  it('captures a lock reason, not just the lock', () => {
+    const entries = parseWorktreeList(
+      [
+        'worktree /repo',
+        'HEAD aaa',
+        'branch refs/heads/main',
+        '',
+        'worktree /wt/pinned',
+        'HEAD bbb',
+        'branch refs/heads/feature',
+        'locked on a removable drive',
+        '',
+      ].join('\n')
+    );
+    assert.strictEqual(entries[1].isLocked, true);
+    assert.strictEqual(entries[1].lockReason, 'on a removable drive');
+  });
+
+  it('decodes a C-quoted reason: git quotes non-ASCII, quotes and newlines', () => {
+    const entries = parseWorktreeList(
+      [
+        'worktree /repo',
+        'HEAD aaa',
+        '',
+        'worktree /wt/a',
+        'HEAD bbb',
+        'locked "caf\\303\\251 \\"B\\" drive"',
+        '',
+        'worktree /wt/b',
+        'HEAD ccc',
+        'locked "two\\nlines"',
+        '',
+      ].join('\n')
+    );
+    assert.strictEqual(entries[1].lockReason, 'café "B" drive');
+    assert.strictEqual(entries[2].lockReason, 'two\nlines');
+  });
+
+  it('leaves the lock reason undefined for a bare `locked` line', () => {
+    const entries = parseWorktreeList(
+      ['worktree /repo', 'HEAD aaa', '', 'worktree /wt/x', 'HEAD bbb', 'locked', ''].join('\n')
+    );
+    assert.strictEqual(entries[1].isLocked, true);
+    assert.strictEqual(entries[1].lockReason, undefined);
+  });
+
+  it('flags a prunable worktree and keeps the reason git gave', () => {
+    const entries = parseWorktreeList(
+      [
+        'worktree /repo',
+        'HEAD aaa',
+        'branch refs/heads/main',
+        '',
+        'worktree /wt/gone',
+        'HEAD bbb',
+        'prunable gitdir file points to non-existent location',
+        '',
+      ].join('\n')
+    );
+    assert.strictEqual(entries[1].isPrunable, true);
+    assert.strictEqual(entries[1].prunableReason, 'gitdir file points to non-existent location');
+  });
+
+  it('flags a bare `prunable` line with no reason', () => {
+    const entries = parseWorktreeList(
+      ['worktree /repo', 'HEAD aaa', '', 'worktree /wt/gone', 'prunable', ''].join('\n')
+    );
+    assert.strictEqual(entries[1].isPrunable, true);
+    assert.strictEqual(entries[1].prunableReason, undefined);
+  });
+
+  it('reports neither lock nor prunable on an ordinary worktree', () => {
+    const entries = parseWorktreeList(
+      ['worktree /repo', 'HEAD aaa', 'branch refs/heads/main', ''].join('\n')
+    );
+    assert.strictEqual(entries[0].isLocked, false);
+    assert.strictEqual(entries[0].isPrunable, false);
+    assert.strictEqual(entries[0].lockReason, undefined);
+    assert.strictEqual(entries[0].prunableReason, undefined);
+  });
+});
+
+describe('WorktreeOps.lockWorktree / unlockWorktree argv', () => {
+  it('locks with the path after --, so a hostile path cannot become a flag', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const res = await ops.lockWorktree(makeRepo('/repo'), '--upload-pack=evil');
+    assert.ok(res.isOk(), 'expected Ok');
+    const args = cli.executed[0];
+    assert.deepStrictEqual(args.slice(0, 2), ['worktree', 'lock']);
+    assert.strictEqual(args[args.length - 2], '--');
+    assert.strictEqual(args[args.length - 1], '--upload-pack=evil');
+  });
+
+  it('passes a lock reason as --reason with its own value', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const res = await ops.lockWorktree(makeRepo('/repo'), '/wt/x', 'on a removable drive');
+    assert.ok(res.isOk(), 'expected Ok');
+    assert.deepStrictEqual(cli.executed[0], [
+      'worktree',
+      'lock',
+      '--reason',
+      'on a removable drive',
+      '--',
+      '/wt/x',
+    ]);
+  });
+
+  it('unlocks with the path after --', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const res = await ops.unlockWorktree(makeRepo('/repo'), '/wt/x');
+    assert.ok(res.isOk(), 'expected Ok');
+    assert.deepStrictEqual(cli.executed[0], ['worktree', 'unlock', '--', '/wt/x']);
+  });
+
+  it('requires a non-empty path on both, with no git run', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    assert.ok((await ops.lockWorktree(makeRepo('/repo'), '  ')).isErr());
+    assert.ok((await ops.unlockWorktree(makeRepo('/repo'), '')).isErr());
+    assert.strictEqual(cli.executed.length, 0, 'git must not run for an empty path');
+  });
+
+  it('returns a typed command-failed Err when git refuses the lock', async () => {
+    const { ops } = makeOps(() => ({ exitCode: 128, stderr: 'already locked' }));
+    const res = await ops.lockWorktree(makeRepo('/repo'), '/wt/x');
+    assert.ok(res.isErr(), 'expected Err');
+  });
+});
+
+describe('worktreesOf', () => {
+  it('returns the worktree operations of a service that provides them', () => {
+    const { ops } = makeOps(() => ({ exitCode: 0 }));
+    assert.strictEqual(worktreesOf({ worktrees: ops }), ops);
+  });
+
+  it('refuses, by name, a git service without them', () => {
+    assert.throws(() => worktreesOf({}), /worktree operations/);
+  });
+});
+
 describe('WorktreeOps.addWorktree argv', () => {
   it('places a single -- before the user path and ref so a hostile path cannot become a flag', async () => {
     const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
@@ -210,6 +353,14 @@ describe('WorktreeOps.addWorktree argv', () => {
     const bIndex = argv.indexOf('-b');
     assert.ok(bIndex >= 0, 'expected -b for new branch creation');
     assert.strictEqual(argv[bIndex + 1], 'feature/x');
+  });
+
+  it('reports a missing path first, even when the ref is also bad', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+    const res = await ops.addWorktree(makeRepo('/repo'), { path: '', ref: '-x' });
+    assert.ok(res.isErr(), 'expected Err');
+    assert.match(res._unsafeUnwrapErr().message, /path is required/i);
+    assert.strictEqual(cli.executed.length, 0);
   });
 
   it('rejects a new branch name that looks like a flag (invalid-argument Err, no git run)', async () => {
@@ -308,8 +459,8 @@ describe('WorktreeOps real-git round-trip', () => {
   }
 
   beforeEach(async () => {
-    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-test-'));
-    worktreeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-dest-'));
+    repoPath = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'worktree-test-'));
+    worktreeParent = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'worktree-dest-'));
     gitCli = new GitCli();
     // Force the initial branch to `main` regardless of the host's
     // init.defaultBranch so the `ref: 'main'` assertions below are deterministic.
@@ -389,38 +540,6 @@ describe('WorktreeOps real-git round-trip', () => {
     );
   });
 
-  it('removes a locked worktree only when told to override the lock', async () => {
-    const target = path.join(worktreeParent, 'wt-locked');
-    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
-    await gitCli.exec(['worktree', 'lock', '--', target], { cwd: repoPath });
-
-    const plain = await ops.removeWorktree(repo, target, 'discardChanges');
-    assert.ok(plain.isErr(), 'forcing past changes alone must not remove a locked worktree');
-    assert.match(plain._unsafeUnwrapErr().message, /locked/i);
-
-    const overridden = await ops.removeWorktree(repo, target, 'overrideLock');
-    assert.ok(overridden.isOk(), 'overriding the lock should remove it');
-    assert.ok(!fs.existsSync(target));
-  });
-
-  it('overriding a lock also discards uncommitted changes, so callers must say so', async () => {
-    const target = path.join(worktreeParent, 'wt-locked-dirty');
-    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
-    fs.writeFileSync(path.join(target, 'untracked.txt'), 'work in progress');
-    await gitCli.exec(['worktree', 'lock', '--', target], { cwd: repoPath });
-
-    assert.ok((await ops.removeWorktree(repo, target, 'overrideLock')).isOk());
-    assert.ok(!fs.existsSync(target), 'the uncommitted file went with it');
-  });
-
-  it('reports whether a worktree has uncommitted changes', async () => {
-    const target = path.join(worktreeParent, 'wt-status');
-    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
-    assert.strictEqual((await ops.hasUncommittedChanges(target))._unsafeUnwrap(), false);
-    fs.writeFileSync(path.join(target, 'untracked.txt'), 'new');
-    assert.strictEqual((await ops.hasUncommittedChanges(target))._unsafeUnwrap(), true);
-  });
-
   it('refuses a dirty worktree without force, removes it with force', async () => {
     const target = path.join(worktreeParent, 'wt-dirty');
     (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
@@ -433,6 +552,105 @@ describe('WorktreeOps real-git round-trip', () => {
     const forced = await ops.removeWorktree(repo, target, 'discardChanges');
     assert.ok(forced.isOk(), 'force removal should succeed');
     assert.ok(!fs.existsSync(target));
+  });
+
+  it('removes a locked worktree only when told to override the lock', async () => {
+    const target = path.join(worktreeParent, 'wt-locked');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    (await ops.lockWorktree(repo, target, 'on a USB disk'))._unsafeUnwrap();
+
+    const plain = await ops.removeWorktree(repo, target, 'discardChanges');
+    assert.ok(plain.isErr(), 'forcing past changes alone must not remove a locked worktree');
+    assert.match(plain._unsafeUnwrapErr().message, /locked/i);
+
+    const overridden = await ops.removeWorktree(repo, target, 'overrideLock');
+    assert.ok(overridden.isOk(), 'overriding the lock should remove it');
+    assert.ok(!fs.existsSync(target));
+  });
+
+  it('removes the record of a worktree whose folder is already gone', async () => {
+    const target = path.join(worktreeParent, 'wt-vanished');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    fs.rmSync(target, { recursive: true, force: true });
+
+    const removed = await ops.removeWorktree(repo, target);
+    assert.ok(removed.isOk(), `remove: ${removed.isErr() ? removed.error.message : ''}`);
+    const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
+    assert.ok(!entries.some((e) => e.path.endsWith('wt-vanished')), 'the record is gone');
+  });
+
+  it('reports whether a worktree has uncommitted changes', async () => {
+    const target = path.join(worktreeParent, 'wt-status');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    assert.strictEqual((await ops.hasUncommittedChanges(target))._unsafeUnwrap(), false);
+    fs.writeFileSync(path.join(target, 'untracked.txt'), 'new');
+    assert.strictEqual((await ops.hasUncommittedChanges(target))._unsafeUnwrap(), true);
+  });
+
+  it('overriding a lock also discards uncommitted changes, so callers must say so', async () => {
+    const target = path.join(worktreeParent, 'wt-locked-dirty');
+    (await ops.addWorktree(repo, { path: target, ref: 'feature' }))._unsafeUnwrap();
+    fs.writeFileSync(path.join(target, 'untracked.txt'), 'work in progress');
+    (await ops.lockWorktree(repo, target))._unsafeUnwrap();
+
+    assert.ok((await ops.removeWorktree(repo, target, 'overrideLock')).isOk());
+    assert.ok(!fs.existsSync(target), 'the uncommitted file went with it');
+  });
+
+  it('round-trips a lock with its reason, and unlocks it again', async () => {
+    const target = path.join(worktreeParent, 'wt-lock');
+    assert.ok((await ops.addWorktree(repo, { path: target, ref: 'feature' })).isOk());
+
+    assert.ok((await ops.lockWorktree(repo, target, 'on a removable drive')).isOk());
+    const locked = await ops.listWorktrees(repo);
+    assert.ok(locked.isOk(), 'expected Ok');
+    const lockedEntry = locked._unsafeUnwrap().find((e) => e.path === fs.realpathSync(target));
+    assert.ok(lockedEntry, 'the locked worktree must still be listed');
+    assert.strictEqual(lockedEntry.isLocked, true);
+    assert.strictEqual(lockedEntry.lockReason, 'on a removable drive');
+
+    assert.ok((await ops.unlockWorktree(repo, target)).isOk());
+    const unlocked = await ops.listWorktrees(repo);
+    assert.ok(unlocked.isOk(), 'expected Ok');
+    const unlockedEntry = unlocked._unsafeUnwrap().find((e) => e.path === fs.realpathSync(target));
+    assert.ok(unlockedEntry, 'the unlocked worktree must still be listed');
+    assert.strictEqual(unlockedEntry.isLocked, false);
+    assert.strictEqual(unlockedEntry.lockReason, undefined);
+  });
+
+  it('reads back a reason git has to quote exactly as it was given', async () => {
+    const target = path.join(worktreeParent, 'wt-quoted');
+    assert.ok((await ops.addWorktree(repo, { path: target, ref: 'feature' })).isOk());
+    const reason = 'café "B" drive';
+    assert.ok((await ops.lockWorktree(repo, target, reason)).isOk());
+    const listed = await ops.listWorktrees(repo);
+    assert.ok(listed.isOk(), 'expected Ok');
+    const entry = listed._unsafeUnwrap().find((e) => e.path === fs.realpathSync(target));
+    assert.strictEqual(entry?.lockReason, reason);
+  });
+
+  it('refuses to unlock a worktree that is not locked', async () => {
+    const target = path.join(worktreeParent, 'wt-not-locked');
+    assert.ok((await ops.addWorktree(repo, { path: target, ref: 'feature' })).isOk());
+    const res = await ops.unlockWorktree(repo, target);
+    assert.ok(res.isErr(), 'git refuses this, and the Err must surface');
+  });
+
+  it('reports a worktree whose directory vanished as prunable', async () => {
+    const target = path.join(worktreeParent, 'wt-vanished');
+    assert.ok((await ops.addWorktree(repo, { path: target, ref: 'feature' })).isOk());
+    const real = fs.realpathSync(target);
+    fs.rmSync(target, { recursive: true, force: true });
+
+    const listed = await ops.listWorktrees(repo);
+    assert.ok(listed.isOk(), 'expected Ok');
+    const gone = listed._unsafeUnwrap().find((e) => e.path === real);
+    assert.ok(gone, 'git still lists the stale record until pruned');
+    assert.strictEqual(gone.isPrunable, true);
+    assert.ok(
+      (gone.prunableReason ?? '').length > 0,
+      'git states why, and the list shows that text'
+    );
   });
 
   it('prunes a stale record after the worktree directory is deleted manually', async () => {
@@ -469,6 +687,18 @@ describe('WorktreeOps.removeWorktree argv', () => {
     assert.ok(!argv.includes('--force'), 'no --force unless requested');
   });
 
+  it('adds --force before the -- when forced', async () => {
+    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
+
+    await ops.removeWorktree(makeRepo('/repo'), '/wt', 'discardChanges');
+
+    const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'remove')!;
+    const forceIndex = argv.indexOf('--force');
+    const dashDashIndex = argv.indexOf('--');
+    assert.ok(forceIndex >= 0, 'expected --force');
+    assert.ok(forceIndex < dashDashIndex, '--force must precede the -- separator');
+  });
+
   it('passes --force twice before the -- to override a lock', async () => {
     const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
 
@@ -481,18 +711,6 @@ describe('WorktreeOps.removeWorktree argv', () => {
       '--force',
       '--force',
     ]);
-  });
-
-  it('adds --force before the -- when forced', async () => {
-    const { ops, cli } = makeOps(() => ({ exitCode: 0 }));
-
-    await ops.removeWorktree(makeRepo('/repo'), '/wt', 'discardChanges');
-
-    const argv = cli.executed.find((a) => a[0] === 'worktree' && a[1] === 'remove')!;
-    const forceIndex = argv.indexOf('--force');
-    const dashDashIndex = argv.indexOf('--');
-    assert.ok(forceIndex >= 0, 'expected --force');
-    assert.ok(forceIndex < dashDashIndex, '--force must precede the -- separator');
   });
 
   it('requires a non-empty path (invalid-argument Err, no git run)', async () => {

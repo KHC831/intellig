@@ -22,6 +22,7 @@ import {
 } from '../../../src/commands/registration/commandSpine';
 import type { IBranch, IRepository, ITag } from '../../../src/git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
+import type { IWorktreeEntry } from '../../../src/git-core/ops/WorktreeOps';
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -235,5 +236,27 @@ describe('tree-item command spine', () => {
     const handler = register();
     await handler(clicked, [clicked, dupe]);
     assert.strictEqual(batches[0].length, 1);
+  });
+
+  it('extracts a worktree target for worktree commands, and only for them', async () => {
+    const worktree = { path: '/wt/one', isMain: false } as IWorktreeEntry;
+    const handler = register({ accepts: ['worktree'] });
+    await handler(item({ worktree, repository: REPO_B }));
+    assert.deepStrictEqual(runs[0], { repo: REPO_B, target: { kind: 'worktree', worktree } });
+
+    runs = [];
+    await register({ accepts: ['branch'] })(item({ worktree }));
+    assert.deepStrictEqual(runs, [], 'a branch command ignores a worktree row');
+  });
+
+  it('dedupes selected worktrees by path', async () => {
+    const one = item({ worktree: { path: '/wt/one' } as IWorktreeEntry });
+    const again = item({ worktree: { path: '/wt/one' } as IWorktreeEntry });
+    const two = item({ worktree: { path: '/wt/two' } as IWorktreeEntry });
+    await register({ accepts: ['worktree'] })(one, [one, again, two]);
+    assert.deepStrictEqual(
+      batches[0].map((e) => (e.target as { worktree: IWorktreeEntry }).worktree.path),
+      ['/wt/one', '/wt/two']
+    );
   });
 });

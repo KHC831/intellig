@@ -11,671 +11,31 @@ import { BranchTreeScope } from './branchTreeScope';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 import {
-  loadPersisted,
-  savePersisted,
-  readStringArray,
-  type PersistedSlot,
-} from '../utils/persistedState';
+  favoritesRepoPath,
+  InMemoryFavoritesStore,
+  type FavoriteRefType,
+  type IFavoritesStore,
+} from './favoritesStore';
 import {
   enrichBranchesWithIncomingOutgoing,
   getIncomingOutgoingFetcher,
   type IncomingOutgoingFetcher,
 } from './BranchPopup';
+import {
+  BranchTreeItem,
+  repositoryLabel,
+  WORKTREES_CATEGORY,
+  type BranchFolderScope,
+} from './branchTreeItem';
+import { worktreeRows } from './worktreeTreeItems';
 
-/**
- * Last path segment of a repository root, used as the label of a
- * `'repository'` root node in multi-repo mode. Matches the repo-name
- * derivation used elsewhere (e.g. the update/pull/push repo pickers).
- */
-function repositoryLabel(repo: IRepository): string {
-  const fsPath = repo.rootUri.fsPath;
-  return fsPath.split(/[\\/]/).filter(Boolean).pop() ?? fsPath;
-}
-
-/** The one color repository-row icons render in (per UX decision). */
-const REPOSITORY_ICON_COLOR = 'charts.green';
-
-/**
- * Tree item types for the branch tree
- */
-export type BranchTreeItemType =
-  | 'local-branch'
-  | 'remote-branch'
-  | 'tag'
-  | 'category'
-  | 'detached-head' // Synthetic row for detached HEAD state — the only HEAD-specific row (an attached HEAD is the checked row inside Local)
-  | 'branch-folder' // IntelliJ-parity nesting node ("feature" container with feature/* children)
-  | 'repository'; // Per-repository root node in a multi-repo workspace (git4idea GitBranchesTreeMultiRepoModel)
-
-/**
- * Folder scope (the kind of ref the folder groups). Used to dispatch back
- * to the right ref list when expanding the folder.
- */
-export type BranchFolderScope = 'local' | 'remote' | 'tag';
-
-/**
- * Context values for tree items (used in when clauses for menus)
- */
-export const CONTEXT_VALUES = {
-  LOCAL_BRANCH: 'intellig.localBranch',
-  LOCAL_BRANCH_CURRENT: 'intellig.localBranchCurrent',
-  REMOTE_BRANCH: 'intellig.remoteBranch',
-  TAG: 'intellig.tag',
-  CATEGORY: 'intellig.category',
-  DETACHED_HEAD: 'intellig.detachedHead',
-  BRANCH_FOLDER: 'intellig.branchFolder',
-  REPOSITORY: 'intellig.repository',
-} as const;
-
-/**
- * Memento key under which favorite refs are persisted.
- * Mirrors git4idea's `DvcsBranchSettings` (favorites + excluded-from-favorite),
- * keyed by repository path so a star in one root stays in that root.
- */
-const FAVORITES_MEMENTO_KEY = 'intellig.branchTree.favorites';
-
-/** Which ref namespace a favorite belongs to (git4idea GitBranchType). */
-export type FavoriteRefType = 'local' | 'remote';
-
-/**
- * One starred (or explicitly un-starred) ref. `repoPath` is the repository
- * root; the empty string is the all-repositories bucket that legacy, unscoped
- * favorites migrate into (DvcsBranchInfo.repoPath).
- */
-export interface IFavoriteRef {
-  repoPath: string;
-  type: FavoriteRefType;
-  name: string;
-}
-
-/** Persisted favorites state: explicit stars plus explicit un-stars. */
-export interface IFavoritesState {
-  favorites: IFavoriteRef[];
-  excluded: IFavoriteRef[];
-}
-
-/**
- * Names starred out of the box (GitBranchManager.getDefaultBranchNames).
- * A default applies to every repository until explicitly excluded.
- */
-const PREDEFINED_FAVORITES: Readonly<Record<FavoriteRefType, readonly string[]>> = {
-  local: ['master', 'main'],
-  remote: ['origin/master', 'origin/main'],
-};
-
-function isPredefinedFavorite(type: FavoriteRefType, name: string): boolean {
-  return PREDEFINED_FAVORITES[type].includes(name);
-}
-
-function readFavoriteRefs(raw: unknown): IFavoriteRef[] | undefined {
-  if (!Array.isArray(raw)) {
-    return undefined;
-  }
-  const refs: IFavoriteRef[] = [];
-  for (const entry of raw) {
-    if (typeof entry !== 'object' || entry === null) {
-      continue;
-    }
-    const { repoPath, type, name } = entry as Record<string, unknown>;
-    if (
-      typeof repoPath === 'string' &&
-      (type === 'local' || type === 'remote') &&
-      typeof name === 'string' &&
-      name.length > 0
-    ) {
-      refs.push({ repoPath, type, name });
-    }
-  }
-  return refs;
-}
-
-/** Persisted slot for the favorites state. */
-export const FAVORITES_SLOT: PersistedSlot<IFavoritesState> = {
-  key: FAVORITES_MEMENTO_KEY,
-  version: 2,
-  validate: (raw) => {
-    if (typeof raw !== 'object' || raw === null) {
-      return undefined;
-    }
-    const favorites = readFavoriteRefs((raw as Record<string, unknown>).favorites);
-    const excluded = readFavoriteRefs((raw as Record<string, unknown>).excluded);
-    return favorites && excluded ? { favorites, excluded } : undefined;
-  },
-};
-
-/** Store key for a repository; '' is the all-repositories bucket. */
-function favoritesRepoPath(repo: IRepository | undefined): string {
-  return repo?.rootUri.fsPath ?? '';
-}
-
-/**
- * An entry addressed to exactly this repository. This is the WRITE-path rule
- * (git4idea `BranchStorage.add/remove/contains` resolve their target by
- * strict `repoPath` equality — platform/dvcs-impl/shared/src/com/intellij/
- * dvcs/branch/BranchStorage.kt `find()`), so a mutation in one root never
- * rewrites another root's entry.
- */
-function matchesExact(
-  ref: IFavoriteRef,
-  type: FavoriteRefType,
-  repoPath: string,
-  name: string
-): boolean {
-  return ref.type === type && ref.name === name && ref.repoPath === repoPath;
-}
-
-/**
- * An all-repositories entry, which applies to every root on the READ path
- * (git4idea fans `repoPath == ""` out across roots in
- * `DvcsBranchManager.collectBranchesByRoot`).
- */
-function matchesAllRepos(ref: IFavoriteRef, type: FavoriteRefType, name: string): boolean {
-  return ref.type === type && ref.name === name && ref.repoPath === '';
-}
-
-/**
- * Resolve whether a ref reads as starred in `repoPath`. A repository-scoped
- * entry outranks an all-repositories one, so un-starring in a single root
- * shadows a shared star there and leaves it standing everywhere else;
- * predefined defaults apply last (DvcsBranchManager.isFavorite ordering).
- */
-function resolveFavorite(
-  favorites: readonly IFavoriteRef[],
-  excluded: readonly IFavoriteRef[],
-  type: FavoriteRefType,
-  repoPath: string,
-  name: string
-): boolean {
-  if (favorites.some((ref) => matchesExact(ref, type, repoPath, name))) {
-    return true;
-  }
-  if (excluded.some((ref) => matchesExact(ref, type, repoPath, name))) {
-    return false;
-  }
-  if (favorites.some((ref) => matchesAllRepos(ref, type, name))) {
-    return true;
-  }
-  if (excluded.some((ref) => matchesAllRepos(ref, type, name))) {
-    return false;
-  }
-  return isPredefinedFavorite(type, name);
-}
-
-/**
- * Persistence seam for favorite refs (git4idea parity: `DvcsBranchManager` +
- * `DvcsBranchSettings`). Resolution follows DvcsBranchManager.isFavorite: an
- * explicit star wins, then an explicit exclusion, then the predefined
- * defaults. Constructor-injected so favorites survive across sessions in
- * production (Memento-backed) while unit tests drive an in-memory double.
- *
- * Observable: {@link onDidChangeFavorites} fires whenever a mutation lands, so
- * every surface sharing the store (Branches tree, branch popup) stays
- * live-consistent within a session. `dispose` tears down the change emitter;
- * the store's owner (the extension) calls it, not the injected consumers.
- */
-export interface IFavoritesStore {
-  isFavorite(type: FavoriteRefType, repoPath: string, name: string): boolean;
-  setFavorite(type: FavoriteRefType, repoPath: string, name: string, favorite: boolean): void;
-  /** Resolved favorite names for a repository: defaults plus stars, minus exclusions. */
-  favoriteNames(type: FavoriteRefType, repoPath: string): string[];
-  readonly onDidChangeFavorites: vscode.Event<void>;
-  dispose(): void;
-}
-
-/**
- * Shared base for the {@link IFavoritesStore} implementations. Owns the
- * change-emitter plumbing and the favorite/excluded resolution rules, so a
- * backing store only supplies state {@link _load} / {@link _save}.
- */
-abstract class FavoritesStoreBase implements IFavoritesStore {
-  private readonly _onDidChangeFavorites = new vscode.EventEmitter<void>();
-  readonly onDidChangeFavorites = this._onDidChangeFavorites.event;
-
-  protected abstract _load(): IFavoritesState;
-  protected abstract _save(state: IFavoritesState): void;
-
-  isFavorite(type: FavoriteRefType, repoPath: string, name: string): boolean {
-    const state = this._load();
-    return resolveFavorite(state.favorites, state.excluded, type, repoPath, name);
-  }
-
-  /**
-   * Record the star state for `repoPath` only. Entries owned by other roots
-   * — including the shared all-repositories bucket — are left verbatim; the
-   * new state is expressed by adding the repository-scoped entry that flips
-   * the resolution, exactly as git4idea's strict-equality storage does.
-   */
-  setFavorite(type: FavoriteRefType, repoPath: string, name: string, favorite: boolean): void {
-    const state = this._load();
-    const without = (refs: IFavoriteRef[]): IFavoriteRef[] =>
-      refs.filter((ref) => !matchesExact(ref, type, repoPath, name));
-    const favorites = without(state.favorites);
-    const excluded = without(state.excluded);
-    const entry: IFavoriteRef = { repoPath, type, name };
-    const readsFavorite = resolveFavorite(favorites, excluded, type, repoPath, name);
-    const next: IFavoritesState =
-      favorite === readsFavorite
-        ? { favorites, excluded }
-        : favorite
-          ? { favorites: [...favorites, entry], excluded }
-          : { favorites, excluded: [...excluded, entry] };
-    this._save(next);
-    this._fireChange();
-  }
-
-  favoriteNames(type: FavoriteRefType, repoPath: string): string[] {
-    const state = this._load();
-    const candidates = new Set<string>(PREDEFINED_FAVORITES[type]);
-    for (const ref of state.favorites) {
-      if (ref.type === type && (ref.repoPath === repoPath || ref.repoPath === '')) {
-        candidates.add(ref.name);
-      }
-    }
-    return [...candidates].filter((name) =>
-      resolveFavorite(state.favorites, state.excluded, type, repoPath, name)
-    );
-  }
-
-  protected _fireChange(): void {
-    this._onDidChangeFavorites.fire();
-  }
-  dispose(): void {
-    this._onDidChangeFavorites.dispose();
-  }
-}
-
-/**
- * In-memory {@link IFavoritesStore} used when no persistent store is
- * supplied (tests, and as a safe default that keeps favorites for the
- * lifetime of the provider). Production wires {@link MementoFavoritesStore}.
- */
-export class InMemoryFavoritesStore extends FavoritesStoreBase {
-  private _state: IFavoritesState = { favorites: [], excluded: [] };
-  protected _load(): IFavoritesState {
-    return this._state;
-  }
-  protected _save(state: IFavoritesState): void {
-    this._state = state;
-  }
-}
-
-/**
- * {@link IFavoritesStore} backed by a VS Code {@link vscode.Memento}
- * (the extension's workspaceState) so favorites persist across sessions
- * per workspace — the analogue of git4idea persisting branch settings in
- * PROJECT-level state (starring `main` in one project must not star `main`
- * everywhere).
- */
-class MementoFavoritesStore extends FavoritesStoreBase {
-  constructor(private readonly _memento: vscode.Memento) {
-    super();
-  }
-  protected _load(): IFavoritesState {
-    return loadPersisted(this._memento, FAVORITES_SLOT) ?? { favorites: [], excluded: [] };
-  }
-  protected _save(state: IFavoritesState): void {
-    void savePersisted(this._memento, FAVORITES_SLOT, state);
-  }
-}
-
-/**
- * Read any pre-repo-scope payload as all-repository LOCAL stars. The old slot
- * held a bare (or version-1 enveloped) array of local branch names, which had
- * no repository dimension — so those stars keep applying everywhere.
- */
-function migrateFlatFavorites(raw: unknown): IFavoritesState | undefined {
-  const names = Array.isArray(raw)
-    ? raw
-    : typeof raw === 'object' && raw !== null && (raw as { v?: unknown }).v === 1
-      ? (raw as { data?: unknown }).data
-      : undefined;
-  const flat = readStringArray(names);
-  if (!flat) {
-    return undefined;
-  }
-  return {
-    favorites: flat.map((name) => ({ repoPath: '', type: 'local' as const, name })),
-    excluded: [],
-  };
-}
-
-/**
- * Build the shared, Memento-backed favorites store — the single source of
- * truth for starred refs across the Branches tree and the branch popup
- * (git4idea parity: one project-level `DvcsBranchSettings`). Persists to
- * `workspaceState`. Favorites once lived in globalState as a flat name list;
- * both the legacy location and the legacy shape are migrated once, leaving the
- * legacy slot intact so other workspaces can run the same migration.
- */
-export function createFavoritesStore(
-  workspaceState: vscode.Memento,
-  legacyGlobalState?: vscode.Memento
-): IFavoritesStore {
-  // RAW-key reads: the current slot validator rejects the legacy shapes, so a
-  // migration probe cannot go through loadPersisted.
-  // persisted-state-exempt: migration probe only — the steady-state reads and writes below go through loadPersisted/savePersisted.
-  const workspaceRaw = workspaceState.get(FAVORITES_SLOT.key);
-  if (workspaceRaw !== undefined) {
-    const migrated = migrateFlatFavorites(workspaceRaw);
-    if (migrated) {
-      void savePersisted(workspaceState, FAVORITES_SLOT, migrated);
-    }
-  } else if (legacyGlobalState) {
-    // persisted-state-exempt: migration probe only — see above.
-    const legacyRaw = legacyGlobalState.get(FAVORITES_SLOT.key);
-    const legacy = migrateFlatFavorites(legacyRaw) ?? FAVORITES_SLOT.validate(legacyRaw);
-    if (legacy) {
-      void savePersisted(workspaceState, FAVORITES_SLOT, legacy);
-    }
-  }
-  return new MementoFavoritesStore(workspaceState);
-}
-
-/**
- * Branch tree item representing a branch, tag, or category in the tree view
- */
-/**
- * Where should the git graph navigate when this tree row is selected?
- * Branch rows jump by NAME (the graph resolves the tip from its branch
- * map) plus the row's repo root when it has one — in a multi-root workspace
- * several repos carry a same-named branch, and the merged log needs the root
- * to land on the clicked repo's tip. Tag rows jump by the tag's peeled
- * COMMIT hash (tags aren't in the branch map, so name-based lookup can't
- * find them — the class of bug that left tag clicks doing nothing);
- * structural rows (categories, folders, repository headers) don't navigate.
- */
-export function graphTargetForTreeSelection(
-  item: BranchTreeItem
-):
-  | { kind: 'branch'; name: string; repoRoot?: string }
-  | { kind: 'commit'; hash: string }
-  | undefined {
-  if (item.branch) {
-    const repoRoot = item.repository?.rootUri.fsPath;
-    return repoRoot
-      ? { kind: 'branch', name: item.branch.name, repoRoot }
-      : { kind: 'branch', name: item.branch.name };
-  }
-  if (item.tag) {
-    return { kind: 'commit', hash: item.tag.commit };
-  }
-  return undefined;
-}
-
-export class BranchTreeItem extends vscode.TreeItem {
-  public readonly itemType: BranchTreeItemType;
-  public readonly branch?: IBranch;
-  public readonly tag?: ITag;
-  public readonly isCurrentBranch: boolean;
-  /**
-   * Full 40-char commit SHA when {@link itemType} is
-   * `'detached-head'`. Read by dispatcher (e.g. `_handleCheckout`,
-   * `_handleNewBranchFrom`) via {@link getDetachedHeadSha}; never reach
-   * inside this field directly so the dispatcher contract stays
-   * grep-able.
-   *
-   * Undefined for every non-detached-head row.
-   */
-  private readonly _detachedHeadSha?: string;
-  /**
-   * Folder-path data for {@link itemType} === `'branch-folder'`.
-   *
-   * `folderPath` is the slash-joined path from the category root
-   * (e.g. `feature` or `feature/auth`); `folderScope` is `'local'` or
-   * `'remote'` so getChildren can re-fetch the right branch list.
-   * `remotePrefix` is the remote name (e.g. `origin`) when the folder
-   * lives under the Remote category — remote branches arrive as
-   * `origin/feature/auth`, but the user-visible path under Remote is
-   * `origin → feature → auth`, so we keep the prefix separate from
-   * `folderPath` to avoid double-counting `origin/` while filtering.
-   *
-   * All three are undefined for non-folder rows.
-   */
-  public readonly folderPath?: string;
-  public readonly folderScope?: BranchFolderScope;
-  public readonly remotePrefix?: string;
-  /**
-   * True when this row is a branch the user has starred (git4idea
-   * parity: `GitRepositoryModel.favoriteRefs`). Drives the star icon.
-   * Always false for non-branch rows.
-   */
-  public readonly isFavorite: boolean;
-  /**
-   * Repository this node belongs to in a multi-repo workspace
-   * (git4idea parity: `GitBranchesTreeMultiRepoModel` builds a
-   * `RepositoryNode` per repo). Set on the `'repository'` root node and
-   * propagated to every section/folder node beneath it so `getChildren`
-   * resolves branches against the right repo. Undefined in the
-   * single-repo flat layout, where the provider falls back to its
-   * `_currentRepository`.
-   */
-  public readonly repository?: IRepository;
-
-  constructor(
-    label: string,
-    collapsibleState: vscode.TreeItemCollapsibleState,
-    itemType: BranchTreeItemType,
-    branch?: IBranch,
-    tag?: ITag,
-    isCurrentBranch: boolean = false,
-    detachedHeadSha?: string, // Full 40-char SHA for detached row
-    folderPath?: string,
-    folderScope?: BranchFolderScope,
-    remotePrefix?: string,
-    isFavorite: boolean = false,
-    repository?: IRepository
-  ) {
-    super(label, collapsibleState);
-
-    this.itemType = itemType;
-    this.branch = branch;
-    this.tag = tag;
-    this.isCurrentBranch = isCurrentBranch;
-    this._detachedHeadSha = detachedHeadSha;
-    this.folderPath = folderPath;
-    this.folderScope = folderScope;
-    this.remotePrefix = remotePrefix;
-    this.isFavorite = isFavorite;
-    this.repository = repository;
-
-    // Set context value for menu contributions
-    this.contextValue = this._getContextValue();
-
-    // Set icon based on type
-    this.iconPath = this._getIcon();
-
-    // Set description for branches
-    this.description = this._getDescription();
-
-    // Set tooltip
-    this.tooltip = this._getTooltip();
-
-    // accessibilityInformation for the synthetic
-    // detached-head row. VS Code's TreeView reads `label + description`
-    // by default; for the detached row we want the SR to hear the
-    // multi-line tooltip's leading phrase ("Detached HEAD — at <sha>")
-    // because the visible label is just `(HEAD detached at <sha>)` and
-    // the description ("detached") doesn't convey "this is your current
-    // commit". Pinned by `branchTree-detached-aria-1` in
-    // BranchTreeProvider.test.ts.
-    if (this.itemType === 'detached-head') {
-      const sha = this._detachedHeadSha ?? '';
-      const shortSha = sha.length >= 7 ? sha.substring(0, 7) : sha;
-      this.accessibilityInformation = {
-        label: shortSha
-          ? `Detached HEAD at ${shortSha} — not on a branch`
-          : 'Detached HEAD — not on a branch',
-        role: 'treeitem',
-      };
-    }
-  }
-
-  /**
-   * Public accessor for the detached HEAD SHA. Returns the full
-   * 40-char commit SHA when this row is the synthetic detached-head row;
-   * `undefined` otherwise.
-   *
-   * Dispatchers (`_handleCheckout`, `_handleNewBranchFrom`) call this
-   * to obtain the git start-point WITHOUT reading the parenthesized
-   * label string — that path is the regression class.
-   */
-  public getDetachedHeadSha(): string | undefined {
-    return this._detachedHeadSha;
-  }
-
-  private _getContextValue(): string {
-    switch (this.itemType) {
-      case 'local-branch':
-        // Favorite state is conveyed by the star icon, not the context
-        // value — so a starred branch keeps the full local-branch menu
-        // (checkout, compare, …). The Toggle Favorite action binds to
-        // both local-branch context values.
-        return this.isCurrentBranch
-          ? CONTEXT_VALUES.LOCAL_BRANCH_CURRENT
-          : CONTEXT_VALUES.LOCAL_BRANCH;
-      case 'remote-branch':
-        return CONTEXT_VALUES.REMOTE_BRANCH;
-      case 'tag':
-        return CONTEXT_VALUES.TAG;
-      case 'category':
-        return CONTEXT_VALUES.CATEGORY;
-      case 'detached-head':
-        return CONTEXT_VALUES.DETACHED_HEAD;
-      case 'branch-folder':
-        return CONTEXT_VALUES.BRANCH_FOLDER;
-      case 'repository':
-        return CONTEXT_VALUES.REPOSITORY;
-      default:
-        return '';
-    }
-  }
-
-  private _getIcon(): vscode.ThemeIcon {
-    switch (this.itemType) {
-      case 'repository':
-        return new vscode.ThemeIcon('repo', new vscode.ThemeColor(REPOSITORY_ICON_COLOR));
-      case 'local-branch':
-        if (this.isCurrentBranch) {
-          return new vscode.ThemeIcon(
-            'check',
-            new vscode.ThemeColor('gitDecoration.addedResourceForeground')
-          );
-        }
-        // Starred branches get a filled star (git4idea parity: favorite
-        // refs render with the favorite/star icon).
-        return this.isFavorite
-          ? new vscode.ThemeIcon('star-full')
-          : new vscode.ThemeIcon('git-branch');
-      case 'remote-branch':
-        // Both local and remote branches use the same git-branch icon
-        // (per UX request to drop the cloud-vs-branch distinction). The
-        // ref kind is still distinguishable via the parent category in
-        // the tree (`Local` vs `Remote`) and the `Remote branch:` aria
-        // label on chips. Favorites star the same way either side of that
-        // line — a remote ref can be starred, so it must be able to show it.
-        return this.isFavorite
-          ? new vscode.ThemeIcon('star-full')
-          : new vscode.ThemeIcon('git-branch');
-      case 'tag':
-        return new vscode.ThemeIcon('tag');
-      case 'category':
-        return new vscode.ThemeIcon('folder');
-      case 'branch-folder':
-        return new vscode.ThemeIcon('folder');
-      case 'detached-head':
-        // yellow/gold matches the HEAD chip in the graph
-        // (`statusBarItem.warningBackground`). User reads "this is HEAD"
-        // consistently across both surfaces.
-        return new vscode.ThemeIcon(
-          'git-commit',
-          new vscode.ThemeColor('statusBarItem.warningBackground')
-        );
-      default:
-        return new vscode.ThemeIcon('circle-outline');
-    }
-  }
-
-  private _getDescription(): string | undefined {
-    // Synthetic detached-head row description. Distinct from
-    // 'current' (which implies a branch is checked out) — 'detached'
-    // reads as "you are at this commit; HEAD is not bound to a branch".
-    if (this.itemType === 'detached-head') {
-      return 'detached';
-    }
-    if (this.branch) {
-      const parts: string[] = [];
-
-      if (this.isCurrentBranch) {
-        parts.push('current');
-      }
-
-      if (this.branch.ahead !== undefined && this.branch.ahead > 0) {
-        parts.push(`↑${this.branch.ahead}`);
-      }
-
-      if (this.branch.behind !== undefined && this.branch.behind > 0) {
-        parts.push(`↓${this.branch.behind}`);
-      }
-
-      if (parts.length === 0 && this.branch.commit) {
-        parts.push(this.branch.commit.substring(0, 7));
-      }
-
-      return parts.join(' ');
-    }
-
-    if (this.tag) {
-      return this.tag.commit.substring(0, 7);
-    }
-
-    return undefined;
-  }
-
-  private _getTooltip(): string {
-    // Per-repository root node tooltip — the repository's root path.
-    if (this.itemType === 'repository') {
-      const name = typeof this.label === 'string' ? this.label : '';
-      const path = this.repository?.rootUri.fsPath;
-      return path ? `Repository: ${name}\n${path}` : `Repository: ${name}`;
-    }
-    // Synthetic detached-head row tooltip.
-    if (this.itemType === 'detached-head') {
-      const sha = this._detachedHeadSha ?? '';
-      return (
-        `Detached HEAD\n` +
-        `Commit: ${sha}\n` +
-        `(Not on a branch — checkout a branch to attach HEAD)`
-      );
-    }
-    if (this.branch) {
-      let tooltip = `Branch: ${this.branch.name}`;
-      if (this.branch.commit) {
-        tooltip += `\nCommit: ${this.branch.commit}`;
-      }
-      if (this.branch.upstream) {
-        tooltip += `\nUpstream: ${this.branch.upstream.remote}/${this.branch.upstream.name}`;
-      }
-      if (this.isCurrentBranch) {
-        tooltip += '\n(Current Branch)';
-      }
-      return tooltip;
-    }
-
-    if (this.tag) {
-      let tooltip = `Tag: ${this.tag.name}`;
-      tooltip += `\nCommit: ${this.tag.commit}`;
-      if (this.tag.message) {
-        tooltip += `\nMessage: ${this.tag.message}`;
-      }
-      if (this.tag.isAnnotated) {
-        tooltip += '\n(Annotated Tag)';
-      }
-      return tooltip;
-    }
-
-    return typeof this.label === 'string' ? this.label : '';
-  }
-}
+export {
+  BranchTreeItem,
+  CONTEXT_VALUES,
+  graphTargetForTreeSelection,
+  type BranchFolderScope,
+  type BranchTreeItemType,
+} from './branchTreeItem';
 
 /**
  * Branch Tree Data Provider.
@@ -997,22 +357,13 @@ export class BranchTreeProvider
       if (groupByRepository) {
         return repositories
           .filter((repo) => this._scope.repoVisible(repo))
-          .map(
-            (repo) =>
-              new BranchTreeItem(
-                repositoryLabel(repo),
-                vscode.TreeItemCollapsibleState.Expanded,
-                'repository',
-                undefined,
-                undefined,
-                false,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                false,
-                repo
-              )
+          .map((repo) =>
+            BranchTreeItem.forRepository(
+              repositoryLabel(repo),
+              vscode.TreeItemCollapsibleState.Expanded,
+              'repository',
+              repo
+            )
           );
       }
       if (!this._currentRepository) {
@@ -1033,6 +384,10 @@ export class BranchTreeProvider
     const repo = element.repository ?? this._currentRepository;
     if (!repo) {
       return [];
+    }
+
+    if (element.itemType === 'worktrees-category') {
+      return await worktreeRows(this._gitService, repo);
     }
 
     // Category level - show items
@@ -1103,28 +458,19 @@ export class BranchTreeProvider
 
     // Favorites section — only when a ref that exists here is starred.
     if (this._hasAnyFavorite(repo, branches)) {
-      nodes.push(
-        new BranchTreeItem(
-          'Favorites',
-          vscode.TreeItemCollapsibleState.Expanded,
-          'category',
-          undefined,
-          undefined,
-          false,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          false,
-          repo
-        )
-      );
+      nodes.push(this._categoryNode('Favorites', vscode.TreeItemCollapsibleState.Expanded, repo));
     }
 
     nodes.push(
       this._categoryNode('Local', vscode.TreeItemCollapsibleState.Expanded, repo),
       this._categoryNode('Remote', vscode.TreeItemCollapsibleState.Collapsed, repo),
-      this._categoryNode('Tags', vscode.TreeItemCollapsibleState.Collapsed, repo)
+      this._categoryNode('Tags', vscode.TreeItemCollapsibleState.Collapsed, repo),
+      BranchTreeItem.forRepository(
+        WORKTREES_CATEGORY,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'worktrees-category',
+        repo
+      )
     );
 
     return nodes;
@@ -1140,20 +486,7 @@ export class BranchTreeProvider
     collapsibleState: vscode.TreeItemCollapsibleState,
     repo: IRepository
   ): BranchTreeItem {
-    return new BranchTreeItem(
-      label,
-      collapsibleState,
-      'category',
-      undefined,
-      undefined,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      repo
-    );
+    return BranchTreeItem.forRepository(label, collapsibleState, 'category', repo);
   }
 
   /**

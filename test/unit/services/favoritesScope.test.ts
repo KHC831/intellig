@@ -8,7 +8,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { createFavoritesStore, FAVORITES_SLOT } from '../../../src/branches/BranchTreeProvider';
+import { createFavoritesStore, FAVORITES_SLOT } from '../../../src/branches/favoritesStore';
 import { loadPersisted } from '../../../src/utils/persistedState';
 
 function makeMemento(): vscode.Memento {

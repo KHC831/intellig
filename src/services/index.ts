@@ -64,10 +64,10 @@ export {
   BranchTreeProvider,
   BranchTreeItem,
   createBranchTreeProvider,
-  createFavoritesStore,
   CONTEXT_VALUES,
 } from '../branches/BranchTreeProvider';
-export type { IFavoritesStore } from '../branches/BranchTreeProvider';
+export { createFavoritesStore } from '../branches/favoritesStore';
+export type { IFavoritesStore } from '../branches/favoritesStore';
 export { ChangelistService, createChangelistService } from '../changelists/ChangelistService';
 export { CommitDialog, createCommitDialog, performCommit } from '../commits/CommitDialog';
 export {

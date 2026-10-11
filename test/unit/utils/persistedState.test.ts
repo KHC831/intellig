@@ -26,7 +26,7 @@ import {
 } from '../../../src/commits/CommitToolWindow';
 import { LAST_NO_VERIFY_SLOT } from '../../../src/commits/CommitDialog';
 import { RECENT_BRANCHES_SLOT, FAVORITES_LEGACY_SLOT } from '../../../src/branches/BranchPopup';
-import { FAVORITES_SLOT } from '../../../src/branches/BranchTreeProvider';
+import { FAVORITES_SLOT } from '../../../src/branches/favoritesStore';
 import { HIDDEN_REVISIONS_SLOT } from '../../../src/blame/BlameOptionsSource';
 import { RESET_MODE_SLOT } from '../../../src/ui-shell/ResetDialog';
 import { REBASE_OPTIONS_SLOT } from '../../../src/rebase/RebaseDialog';

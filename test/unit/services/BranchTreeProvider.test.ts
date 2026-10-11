@@ -29,10 +29,9 @@ import * as assert from 'assert';
 import {
   BranchTreeProvider,
   CONTEXT_VALUES,
-  InMemoryFavoritesStore,
   type BranchTreeItem,
-  type IFavoritesStore,
 } from '../../../src/branches/BranchTreeProvider';
+import { InMemoryFavoritesStore, type IFavoritesStore } from '../../../src/branches/favoritesStore';
 import {
   createMockGitService,
   attachedRepo,
@@ -711,8 +710,8 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     const root = await provider.getChildren();
     assert.strictEqual(root[0].label, 'Local', 'root starts with the categories');
     assert.deepStrictEqual(
-      root.map((c) => c.itemType),
-      ['category', 'category', 'category'],
+      root.filter((c) => c.itemType === 'detached-head').map((c) => c.label),
+      [],
       'no synthetic head row anywhere in the root'
     );
   });
@@ -748,7 +747,7 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     const root = await provider.getChildren();
     assert.deepStrictEqual(
       root.map((c) => c.label),
-      ['Local', 'Remote', 'Tags']
+      ['Local', 'Remote', 'Tags', 'Worktrees']
     );
   });
 
@@ -813,7 +812,7 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     // The remaining sections are preserved in order.
     assert.deepStrictEqual(
       root.slice(1).map((c) => c.label),
-      ['Local', 'Remote', 'Tags']
+      ['Local', 'Remote', 'Tags', 'Worktrees']
     );
   });
 
@@ -967,7 +966,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
 
     assert.deepStrictEqual(
       sections.map((s) => s.label),
-      ['Local', 'Remote', 'Tags'],
+      ['Local', 'Remote', 'Tags', 'Worktrees'],
       'categories only — the checked row inside Local carries the current branch; ' +
         'repoB holds only `dev`, so no default is starred and Favorites stays hidden'
     );
@@ -1248,7 +1247,7 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     );
     assert.deepStrictEqual(
       root.map((n) => n.label),
-      ['Favorites', 'Local', 'Remote', 'Tags'],
+      ['Favorites', 'Local', 'Remote', 'Tags', 'Worktrees'],
       'flat layout is the categories alone (main is starred by default)'
     );
   });

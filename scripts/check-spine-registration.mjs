@@ -15,7 +15,7 @@
  *
  * 2. Heuristic + how it scales
  *    Scope: src/commands/registration/*.ts + src/extension.ts +
- *    src/branches/BranchContextMenuCommands.ts (the tree-item spine's
+ *    src/branches/BranchContextMenuCommands.ts + worktreeCommands.ts (the tree-item spine's
  *    surface). Any literal-id registerLoggedCommand /
  *    commands.registerCommand call there must carry a
  *    `spine-exempt: <reason>` comment within the four lines above the
@@ -45,6 +45,7 @@ files.push(join(root, 'src', 'extension.ts'));
 // (registerTreeItemCommand); its remaining literal-id registrations carry
 // justified spine-exempt comments like the registration modules.
 files.push(join(root, 'src', 'branches', 'BranchContextMenuCommands.ts'));
+files.push(join(root, 'src', 'branches', 'worktreeCommands.ts'));
 
 const CALL = /(?:registerLoggedCommand|commands\.registerCommand)\(/;
 const violations = [];
@@ -71,7 +72,7 @@ if (violations.length > 0) {
     'check-spine-registration: literal-id command registrations outside the spine.\n' +
       'Register through the command spine (src/commands/registration/commandSpine.ts:\n' +
       'registerSelectionCommand / registerFileCommand / registerRepoCommand /\n' +
-      "registerBareCommand), or add a justified `// spine-exempt: <reason>` comment\n" +
+      'registerBareCommand), or add a justified `// spine-exempt: <reason>` comment\n' +
       'within the four lines above the call:\n'
   );
   for (const v of violations) console.error(v);

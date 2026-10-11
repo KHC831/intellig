@@ -248,6 +248,14 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
       assert.ok(patterns.includes('rebase-merge/**'), 'should watch rebase-merge/**');
       assert.ok(patterns.includes('rebase-apply/**'), 'should watch rebase-apply/**');
 
+      // The Worktrees list: a lock, an add, a remove or prune. Only those two
+      // files: each linked worktree's HEAD and index also live under
+      // worktrees/, and change whenever someone works in it.
+      assert.deepStrictEqual(
+        patterns.filter((p) => p.startsWith('worktrees')),
+        ['worktrees/*/locked', 'worktrees/*/gitdir']
+      );
+
       // Negative invariants — loop-causing paths must NOT be watched. The
       // stash reflog is the ONE sanctioned logs/ entry: only `git stash`
       // mutations write it (reads don't), so it cannot loop.

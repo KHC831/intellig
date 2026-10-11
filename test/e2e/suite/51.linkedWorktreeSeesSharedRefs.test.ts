@@ -15,7 +15,7 @@ import * as vscode from 'vscode';
 
 import { createFixtureRepo, execGit, Fixture, revParse } from '../support/gitFixture';
 import { clearWorkspace, useFixtureWorkspace } from '../support/workspaceHelper';
-import { getGitToolWindowProvider } from '../support/activatedExtension';
+import { getBranchTreeProvider, getGitToolWindowProvider } from '../support/activatedExtension';
 import type { GitToolWindowProvider } from '../../../src/git-core/gitToolWindow/GitToolWindowProvider';
 
 describe('e2e — a linked worktree sees refs changed from another worktree', function () {
@@ -79,5 +79,29 @@ describe('e2e — a linked worktree sees refs changed from another worktree', fu
       () => !branchNames().includes('made-elsewhere'),
       () => `the deleted branch to leave the graph (${branchNames().join(', ')})`
     );
+  });
+
+  it('repaints its Worktrees list when another worktree locks it', async () => {
+    fix = await createFixtureRepo({ commits: 1 });
+    const linked = path.join(path.dirname(fix.rootPath), 'linked');
+    await execGit(fix.rootPath, ['worktree', 'add', '-b', 'side', linked, 'HEAD']);
+    await useFixtureWorkspace(linked);
+    const tree = getBranchTreeProvider()!;
+    assert.ok(tree, 'the Branches tree provider must be live');
+    await new Promise((r) => setTimeout(r, 1500));
+
+    let repaints = 0;
+    const listener = tree.onDidChangeTreeData(() => {
+      repaints += 1;
+    });
+    try {
+      await execGit(fix.rootPath, ['worktree', 'lock', '--reason', 'from main', linked]);
+      await poll(
+        () => repaints > 0,
+        () => 'the Branches tree to repaint after a lock made from the main worktree'
+      );
+    } finally {
+      listener.dispose();
+    }
   });
 });
