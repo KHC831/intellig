@@ -48,6 +48,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ALLOWLIST = path.join(repoRoot, 'scripts/protocol-reachability-allowlist.txt');
@@ -158,7 +159,7 @@ for (const { name, file, webviewDir } of protocolTargets()) {
     if (!webviewSource.includes(`'${type}'`)) {
       failures.push(
         `${name}: '${type}' is declared in the protocol but never appears in ` +
-          `${path.relative(repoRoot, webviewDir)} — nothing posts it and nothing handles it.`
+          `${posixRelative(repoRoot, webviewDir)} — nothing posts it and nothing handles it.`
       );
     }
   }

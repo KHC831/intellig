@@ -26,7 +26,8 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,7 +55,7 @@ for (const file of walk(srcDir)) {
     if (!lines[i].includes('default-src')) continue;
     const windowAbove = lines.slice(Math.max(0, i - 4), i).join('\n');
     if (!windowAbove.includes('csp-exempt:')) {
-      violations.push(`  ${relative(root, file)}:${i + 1}`);
+      violations.push(`  ${posixRelative(root, file)}:${i + 1}`);
     }
   }
 }

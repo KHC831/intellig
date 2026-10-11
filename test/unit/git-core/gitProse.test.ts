@@ -14,6 +14,7 @@ import {
   isLocalChangesWouldBeOverwritten,
   isIndexConflictOnUnstash,
   parseLocalChangesOverwriteFiles,
+  worktreeRemoveRefusal,
 } from '../../../src/git-core/gitProse';
 
 describe('gitProse — shared English-prose predicates', () => {
@@ -116,5 +117,36 @@ describe('gitProse — shared English-prose predicates', () => {
     it('stays quiet on unrelated errors', () => {
       assert.strictEqual(isLocalChangesWouldBeOverwritten('fatal: bad revision'), false);
     });
+  });
+});
+
+describe('worktreeRemoveRefusal', () => {
+  it('reads the lock refusal, with and without a lock reason', () => {
+    assert.strictEqual(
+      worktreeRemoveRefusal(
+        "fatal: cannot remove a locked working tree;\nuse 'remove -f -f' to override or unlock first"
+      ),
+      'overrideLock'
+    );
+    assert.strictEqual(
+      worktreeRemoveRefusal(
+        "fatal: cannot remove a locked working tree, lock reason: on a USB disk\nuse 'remove -f -f' to override or unlock first"
+      ),
+      'overrideLock'
+    );
+  });
+
+  it('reads the changes refusal', () => {
+    assert.strictEqual(
+      worktreeRemoveRefusal(
+        "fatal: '../wt' contains modified or untracked files, use --force to delete it"
+      ),
+      'discardChanges'
+    );
+  });
+
+  it('answers nothing for any other failure', () => {
+    assert.strictEqual(worktreeRemoveRefusal("fatal: '../wt' is not a working tree"), undefined);
+    assert.strictEqual(worktreeRemoveRefusal('error: unknown switch `x`'), undefined);
   });
 });

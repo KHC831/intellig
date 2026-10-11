@@ -27,7 +27,8 @@ import {
   type WorkingStateSnapshot,
 } from '../git-core/ops/preservedChanges';
 import { runAmSessionOp } from '../git-core/ops/amSession';
-import { isConflictedStatus, unquoteCStylePath } from '../git-core/gitParser';
+import { isConflictedStatus } from '../git-core/gitParser';
+import { unquoteCStylePath } from '../git-core/cQuote';
 import {
   looksLikePatchConflictText,
   parseAppliedPatchFiles,

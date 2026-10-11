@@ -60,6 +60,7 @@ import { readFileSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -108,7 +109,7 @@ const offenders = [];
 const skipped = [];
 
 for (const file of trackedFiles()) {
-  const relative = path.relative(root, file);
+  const relative = posixRelative(root, file);
   if (allowlist.has(relative)) {
     continue;
   }

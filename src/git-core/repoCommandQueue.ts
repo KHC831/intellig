@@ -13,6 +13,7 @@
  * and the caller still observes the op's own resolution/rejection.
  */
 export class RepoCommandQueue {
+  // in-flight-map-exempt: a serial queue's tail, never handed out as a result
   private readonly _tails = new Map<string, Promise<unknown>>();
 
   /**

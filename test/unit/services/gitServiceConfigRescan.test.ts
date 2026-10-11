@@ -59,7 +59,7 @@ interface ConfigRescanSurface {
   setupRepositoryWatcher: (root: string) => void;
   discoverRepository: (path: string) => Promise<void>;
   _repoScanFs: IRepoScanFs;
-  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
+  _repoScanPath: Pick<typeof path, 'join' | 'normalize'>;
 }
 
 function makeFsStub(tree: Record<string, string[]>): IRepoScanFs {
@@ -105,33 +105,27 @@ function setWorkspaceFolders(folders: string[]): void {
   }));
 }
 
-async function flushMicrotasks(): Promise<void> {
-  // Rediscovery awaits `loadRepository`, which interleaves git execs with
-  // several on-disk marker reads (fs I/O for repository-state detection). Those
-  // resolve across multiple event-loop turns, so yield generously to let the
-  // full async tail of every re-loaded repo settle before asserting.
-  for (let i = 0; i < 20; i++) {
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-  }
+/**
+ * Let a rediscovery's async tail settle: a stretch of wall-clock time, not a
+ * count of event-loop turns, which a loaded CI runner can outrun.
+ */
+async function settle(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 200);
+  });
 }
 
 /**
- * Poll until `predicate` holds, yielding across event-loop turns, up to a
- * generous cap. The config listener fires rediscovery fire-and-forget, so a
- * fixed number of yields (flushMicrotasks) can under-wait when the async scan
- * tail is scheduled behind other work on a loaded CI runner. Waiting on the
- * observable end-state instead is deterministic: it returns the instant
- * discovery settles and only throws on a genuine hang.
+ * Poll until `predicate` holds, up to ten seconds of wall-clock time. The
+ * config listener fires rediscovery fire-and-forget, and on a loaded CI runner
+ * its async tail can outlast any fixed number of event-loop turns; a time
+ * budget returns the instant discovery settles and only throws on a hang.
  */
 async function waitUntil(predicate: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 500; i++) {
-    if (predicate()) {
-      return;
-    }
+  const deadline = Date.now() + 10_000;
+  while (!predicate() && Date.now() < deadline) {
     await new Promise<void>((resolve) => {
-      setImmediate(resolve);
+      setTimeout(resolve, 5);
     });
   }
   assert.ok(predicate(), `timed out waiting for: ${label}`);
@@ -170,11 +164,13 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
     };
   });
 
-  afterEach(() => {
-    setWorkspaceFolders([]);
-    void workspace.getConfiguration('intellig').update('repositoryScanMaxDepth', undefined);
-    void workspace.getConfiguration('intellig').update('repositoryScanIgnoredFolders', undefined);
+  afterEach(async () => {
+    // Dispose first, so resetting the settings below cannot start a
+    // rediscovery whose late result lands in the next test.
     gitService.dispose();
+    setWorkspaceFolders([]);
+    await workspace.getConfiguration('intellig').update('repositoryScanMaxDepth', undefined);
+    await workspace.getConfiguration('intellig').update('repositoryScanIgnoredFolders', undefined);
   });
 
   it('re-runs discovery on all workspace folders when repositoryScanMaxDepth changes', async () => {
@@ -265,6 +261,7 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
     // Initial discovery: /work/a is added.
     await surface.discoverRepository('/work');
     assert.strictEqual(gitService.getRepositories().length, 1);
+    const probesBefore = stubCli.calls.length;
 
     const fired: string[] = [];
     const sub = gitService.onDidChangeRepository((r) => {
@@ -274,7 +271,9 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
       // User changes the setting (no new repos to discover; existing /work/a
       // stays put). The emitter must NOT fire for /work/a — it's already known.
       await workspace.getConfiguration('intellig').update('repositoryScanIgnoredFolders', []);
-      await flushMicrotasks();
+      // The rescan probes the folders again even though it loads nothing new.
+      await waitUntil(() => stubCli.calls.length > probesBefore, 'the rediscovery to run');
+      await settle();
     } finally {
       sub.dispose();
     }
@@ -314,7 +313,8 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
     try {
       // User clears the ignored list — /work/b should now be discovered.
       await workspace.getConfiguration('intellig').update('repositoryScanIgnoredFolders', []);
-      await flushMicrotasks();
+      await waitUntil(() => fired.length > 0, 'the newly discovered /work/b to be announced');
+      await settle();
     } finally {
       sub.dispose();
     }
@@ -342,7 +342,7 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
     const baselineLoadCalls = loadCalls.length;
 
     await workspace.getConfiguration('intellig').update('fetchTags', 'all');
-    await flushMicrotasks();
+    await settle();
 
     assert.strictEqual(
       loadCalls.length,

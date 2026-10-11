@@ -16,7 +16,8 @@
  * structural channel.
  */
 
-import { unquoteCStylePath } from './gitParser';
+import { unquoteCStylePath } from './cQuote';
+import type { WorktreeRemoveForce } from './ops/WorktreeOps';
 
 /**
  * Does this apply-family error text (stash/shelf/merge/checkout) look like
@@ -122,6 +123,23 @@ export function parseConflictedPatchFiles(output: string): string[] {
  */
 export function isLocalChangesWouldBeOverwritten(text: string): boolean {
   return text.includes('would be overwritten') || text.includes('Please commit your changes');
+}
+
+/**
+ * The force `git worktree remove` asks for when it refuses: a locked tree
+ * needs the lock overridden (`-f -f`), one with modified or untracked files
+ * needs them discarded (`--force`). Undefined for any other failure.
+ */
+export function worktreeRemoveRefusal(
+  text: string
+): Exclude<WorktreeRemoveForce, 'none'> | undefined {
+  if (text.includes('cannot remove a locked working tree')) {
+    return 'overrideLock';
+  }
+  if (text.includes('contains modified or untracked files')) {
+    return 'discardChanges';
+  }
+  return undefined;
 }
 
 /**

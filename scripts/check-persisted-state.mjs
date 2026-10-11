@@ -51,12 +51,13 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const SEAM_REL = join('utils', 'persistedState.ts');
+const SEAM_REL = 'utils/persistedState.ts';
 const BAN_RE = /\b_?(?:workspaceState|globalState|memento|store)\s*\.\s*(?:get|update)\s*\(/g;
 
 function collectTsFiles(dir) {
@@ -75,7 +76,7 @@ function main() {
 
   for (const file of collectTsFiles(srcDir)) {
     if (file.endsWith('.test.ts')) continue;
-    if (relative(srcDir, file) === SEAM_REL) continue;
+    if (posixRelative(srcDir, file) === SEAM_REL) continue;
     const content = readFileSync(file, 'utf8');
     let m;
     while ((m = BAN_RE.exec(content)) !== null) {
@@ -83,7 +84,7 @@ function main() {
       const lines = content.split('\n');
       const windowAbove = lines.slice(Math.max(0, line - 1 - 4), line - 1).join('\n');
       if (!windowAbove.includes('persisted-state-exempt:')) {
-        violations.push({ file: relative(root, file), line });
+        violations.push({ file: posixRelative(root, file), line });
       }
     }
   }

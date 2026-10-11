@@ -56,6 +56,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const [argScanRoot] = process.argv.slice(2);
@@ -68,7 +69,7 @@ function collectTsFiles(root) {
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(abs);
       else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
-        out.push(path.relative(root, abs).split(path.sep).join('/'));
+        out.push(posixRelative(root, abs));
       }
     }
   };

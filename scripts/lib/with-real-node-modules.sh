@@ -174,10 +174,19 @@ clone_tree() {
 }
 
 acquire_lock
+# On a signal, stop the wrapped command (if it has started) and let it exit
+# before node_modules is restored under it.
+stop_command() {
+  if [ -n "${COMMAND_PID:-}" ]; then
+    kill -TERM "$COMMAND_PID" 2>/dev/null || true
+    wait "$COMMAND_PID" 2>/dev/null || true
+  fi
+}
+
 trap 'release_all' EXIT
-trap 'trap - EXIT; release_all; exit 130' INT
-trap 'trap - EXIT; release_all; exit 143' TERM
-trap 'trap - EXIT; release_all; exit 129' HUP
+trap 'trap - EXIT; stop_command; release_all; exit 130' INT
+trap 'trap - EXIT; stop_command; release_all; exit 143' TERM
+trap 'trap - EXIT; stop_command; release_all; exit 129' HUP
 
 reconcile_crash
 
@@ -202,9 +211,15 @@ fi
 
 # Run the wrapped command, preserving its exit code. `set +e` so a
 # non-zero status does not abort before we capture it; the traps restore
-# the symlink and release the lock regardless.
+# the symlink and release the lock regardless. It runs in the background
+# and is waited for: bash defers a trap until a FOREGROUND command ends, so
+# a signal landing while that command is still starting would leave the
+# trap waiting on it, whereas `wait` returns to the trap at once. `<&0`
+# keeps its stdin, which a background job would otherwise lose.
 set +e
-"$@"
+"$@" <&0 &
+COMMAND_PID=$!
+wait "$COMMAND_PID"
 status=$?
 set -e
 

@@ -151,11 +151,17 @@ describe('check-no-string-scripts guard', () => {
         'export const html = (s: string): string => `<script nonce="${n}">${s}</script>`;\n',
     });
     try {
-      const listed = runGuard([fx.srcDir, path.join('legacy', 'Old.ts')]);
+      const listed = runGuard([fx.srcDir, path.posix.join('legacy', 'Old.ts')]);
       assert.strictEqual(
         listed.status,
         0,
         `an allowlisted site must pass; stderr:\n${listed.stderr}`
+      );
+      const windowsSpelled = runGuard([fx.srcDir, path.win32.join('legacy', 'Old.ts')]);
+      assert.strictEqual(
+        windowsSpelled.status,
+        0,
+        `an allowlist entry with Windows separators must match; stderr:\n${windowsSpelled.stderr}`
       );
       const empty = runGuard([fx.srcDir, '']);
       assert.strictEqual(empty.status, 1, 'the same site fails once the allowlist is empty');

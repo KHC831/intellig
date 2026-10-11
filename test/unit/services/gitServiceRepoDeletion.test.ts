@@ -63,7 +63,7 @@ interface DeletionSurface {
   discoverRepository: (path: string) => Promise<void>;
   setupNewRepoWatcher: (folderPath: string) => void;
   _repoScanFs: IRepoScanFs;
-  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
+  _repoScanPath: Pick<typeof path, 'join' | 'normalize'>;
   _fileWatchers: Map<string, unknown[]>;
   _repositories: Map<string, unknown>;
 }
@@ -304,8 +304,9 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
     const surface = gitService as unknown as DeletionSurface;
     surface._repoScanFs = {
       async readdir(p: string) {
-        // The HEAD-deletion guard reads `.git`; report HEAD as still present.
-        if (p.endsWith('/.git')) {
+        // The HEAD-deletion guard reads `.git` (host-joined, so either
+        // separator); report HEAD as still present.
+        if (/[\\/]\.git$/.test(p)) {
           return [
             {
               name: 'HEAD',

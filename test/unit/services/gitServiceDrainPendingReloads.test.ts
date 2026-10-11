@@ -202,13 +202,17 @@ describe('GitService — _drainPendingReloads (structural drain fix)', () => {
       // with on-disk marker reads (fs I/O for repository-state detection), so an
       // exec is not always parked between steps — drive off drain completion, not
       // "an exec is in flight", and resolve each exec as it appears.
-      for (let i = 0; i < 100 && !drainResolved; i++) {
+      // A wall-clock budget, not a count of turns: on a slow runner the fs reads
+      // between execs outlast any fixed number, and an exec left parked hangs
+      // the drain until the test times out.
+      const deadline = Date.now() + 10_000;
+      while (!drainResolved && Date.now() < deadline) {
         if (stubCli.execResolve) {
           const release = stubCli.execResolve;
           stubCli.execResolve = null;
           release({ exitCode: 0, stdout: 'main\n', stderr: '', combined: 'main\n' });
         }
-        await flushMicrotasks();
+        await new Promise<void>((resolve) => setTimeout(resolve, 2));
       }
 
       // The drain must now resolve.

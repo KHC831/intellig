@@ -45,6 +45,8 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/grep-hit.sh
+source scripts/lib/grep-hit.sh
 
 PATTERN='file\(s\)\. Please resolve conflicts'
 GUARD='onflictResolutionService'
@@ -60,10 +62,8 @@ fi
 fail=0
 while IFS= read -r hit; do
   [ -z "$hit" ] && continue
-  file=${hit%%:*}
-  rest=${hit#*:}
-  line=${rest%%:*}
-  code=${rest#*:}
+  split_grep_hit "$hit"
+  file=$HIT_FILE line=$HIT_LINE code=$HIT_TEXT
   case "$code" in
     *"$MARKER"*) continue ;;
   esac

@@ -86,6 +86,9 @@
 
 set -euo pipefail
 
+# shellcheck source=scripts/lib/grep-hit.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/grep-hit.sh"
+
 # Test-only seam symbols and their single legitimate definition site.
 # Keep the two arrays index-aligned: NAMES[i] is defined in
 # DEFINITION_FILES[i].
@@ -120,9 +123,8 @@ for i in "${!NAMES[@]}"; do
       continue
     fi
     # Format: <file>:<lineno>:<content>
-    file="${line%%:*}"
-    rest="${line#*:}"
-    content="${rest#*:}"
+    split_grep_hit "$line"
+    file=$HIT_FILE content=$HIT_TEXT
 
     # Allow the definition site for this symbol.
     if [ "$file" = "$definition_file" ]; then

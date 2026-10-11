@@ -64,12 +64,13 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const BASE_FILES = new Set([join('utils', 'BaseWebviewPanel.ts'), join('utils', 'BaseWebviewView.ts')]);
+const BASE_FILES = new Set(['utils/BaseWebviewPanel.ts', 'utils/BaseWebviewView.ts']);
 
 /**
  * Ratcheting allowlist — panels not yet migrated to the typed spine still hold
@@ -140,7 +141,10 @@ function main() {
   const srcDir = process.argv[2] ?? join(root, 'src');
   const allowlist = new Set(
     process.argv[3] !== undefined
-      ? process.argv[3].split(',').filter((s) => s.length > 0)
+      ? process.argv[3]
+          .split(',')
+          .filter((s) => s.length > 0)
+          .map((s) => s.replace(/\\/g, '/'))
       : NOT_YET_MIGRATED_DEFAULT
   );
 
@@ -148,10 +152,10 @@ function main() {
 
   for (const file of collectTsFiles(srcDir)) {
     if (file.endsWith('.test.ts')) continue;
-    const rel = relative(srcDir, file);
+    const rel = posixRelative(srcDir, file);
     if (BASE_FILES.has(rel)) continue;
     const content = readFileSync(file, 'utf8');
-    const relRoot = relative(root, file);
+    const relRoot = posixRelative(root, file);
     const allowlisted = allowlist.has(rel);
 
     // Rule A — raw onDidReceiveMessage outside the Base classes.
@@ -217,14 +221,14 @@ function main() {
   // must appear in at least one of them.
   const allFiles = collectTsFiles(srcDir).filter((f) => !f.endsWith('.test.ts'));
   const webviewFiles = allFiles.filter((f) =>
-    relative(srcDir, f).split(/[\\/]/).includes('webview')
+    posixRelative(srcDir, f).split('/').includes('webview')
   );
   const webviewContents = new Map(webviewFiles.map((f) => [f, readFileSync(f, 'utf8')]));
   for (const protoFile of allFiles.filter((f) => f.endsWith('.protocol.ts'))) {
     const content = readFileSync(protoFile, 'utf8');
-    const relRoot = relative(root, protoFile);
-    const baseName = relative(srcDir, protoFile)
-      .split(/[\\/]/)
+    const relRoot = posixRelative(root, protoFile);
+    const baseName = posixRelative(srcDir, protoFile)
+      .split('/')
       .pop()
       .slice(0, -'.protocol.ts'.length);
     const importRe = new RegExp(`from\\s+['"][^'"]*\\b${baseName}\\.protocol['"]`);

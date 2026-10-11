@@ -15,7 +15,11 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { resolveWorktreeGitDir } from '../../../src/git-core/repo/RepositoryDiscovery';
+import {
+  resolveCommonGitDir,
+  resolveWorktreeGitDir,
+} from '../../../src/git-core/repo/RepositoryDiscovery';
+import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
 
 describe('resolveWorktreeGitDir', () => {
   let tmpRoot: string;
@@ -63,5 +67,38 @@ describe('resolveWorktreeGitDir', () => {
     fs.writeFileSync(path.join(tmpRoot, '.git'), 'garbage with no pointer\n', 'utf8');
 
     assert.strictEqual(resolveWorktreeGitDir(tmpRoot), path.join(tmpRoot, '.git'));
+  });
+});
+
+describe('resolveCommonGitDir', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'common-dir-'));
+  });
+
+  it('is <root>/.git for a normal checkout', () => {
+    fs.mkdirSync(path.join(tmpRoot, '.git'));
+    assert.strictEqual(resolveCommonGitDir(tmpRoot), path.join(tmpRoot, '.git'));
+  });
+
+  it("follows a linked worktree's commondir back to the shared .git", () => {
+    const common = path.join(tmpRoot, 'main', '.git');
+    const own = path.join(common, 'worktrees', 'wt');
+    fs.mkdirSync(own, { recursive: true });
+    fs.writeFileSync(path.join(own, 'commondir'), '../..\n');
+    const wt = path.join(tmpRoot, 'wt');
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${own}\n`);
+    assert.strictEqual(resolveCommonGitDir(wt), common);
+  });
+
+  it('is the gitdir itself when there is no commondir (a submodule)', () => {
+    const modules = path.join(tmpRoot, 'super', '.git', 'modules', 'sub');
+    fs.mkdirSync(modules, { recursive: true });
+    const sub = path.join(tmpRoot, 'sub');
+    fs.mkdirSync(sub);
+    fs.writeFileSync(path.join(sub, '.git'), `gitdir: ${modules}\n`);
+    assert.strictEqual(resolveCommonGitDir(sub), modules);
   });
 });

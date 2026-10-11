@@ -17,9 +17,10 @@ import type { IRowPrintModel, IRowEdgeElement } from '../../../src/git-core/grap
 import { paintRow } from '../../../src/git-core/graph/graphPainter';
 import { generateCommitGraph } from '../../../src/git-core/commitGraph';
 import { DEFAULT_GRAPH_CONFIG } from '../../../src/utils/graphRenderer';
+import type { ILaneInterval } from '../../../src/utils/graphRenderer';
 import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
 
-type Iv = { startRow: number; endRow: number };
+type Iv = ILaneInterval;
 
 /** graphColumn per row from a compact `row → lane` spec (default lane 0). */
 function nodesWithLanes(count: number, laneAt: Record<number, number>): { graphColumn: number }[] {
@@ -35,12 +36,12 @@ describe('computeLongEdgeCuts', () => {
     // 40 rows on lane 0; lane 1 has nodes ONLY at its endpoints (child row 2,
     // parent row 38) → a 36-row edge with an empty interior.
     const nodes = nodesWithLanes(40, { 2: 1, 38: 1 });
-    const merged = intervals([
+    const perEdge = intervals([
       [0, [{ startRow: 0, endRow: 39 }]],
       [1, [{ startRow: 2, endRow: 38 }]],
     ]);
 
-    const { hidden, arrows } = computeLongEdgeCuts(nodes, merged);
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
 
     // Arrows: row 3 (child+1) DOWN, row 37 (parent-1) UP.
     assert.strictEqual(arrows.get(3)?.get(1), 'down');
@@ -57,11 +58,11 @@ describe('computeLongEdgeCuts', () => {
 
   it('leaves the dense mainline (a node every row) untouched', () => {
     const nodes = nodesWithLanes(40, { 2: 1, 38: 1 });
-    const merged = intervals([
+    const perEdge = intervals([
       [0, [{ startRow: 0, endRow: 39 }]],
       [1, [{ startRow: 2, endRow: 38 }]],
     ]);
-    const { hidden, arrows } = computeLongEdgeCuts(nodes, merged);
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
     for (let r = 0; r < 40; r++) {
       assert.ok(!hidden.get(r)?.has(0), `lane 0 must never be hidden (row ${r})`);
       assert.ok(!arrows.get(r)?.has(0), `lane 0 must never get an arrow (row ${r})`);
@@ -73,11 +74,11 @@ describe('computeLongEdgeCuts', () => {
     const child = 2;
     const parent = child + (LONG_EDGE_SIZE - 1);
     const nodes = nodesWithLanes(parent + 5, { [child]: 1, [parent]: 1 });
-    const merged = intervals([
+    const perEdge = intervals([
       [0, [{ startRow: 0, endRow: parent + 4 }]],
       [1, [{ startRow: child, endRow: parent }]],
     ]);
-    const { hidden, arrows } = computeLongEdgeCuts(nodes, merged);
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
     assert.strictEqual(hidden.size, 0);
     assert.strictEqual(arrows.size, 0);
   });
@@ -86,24 +87,167 @@ describe('computeLongEdgeCuts', () => {
     // Far-parent style: source lane runs [child .. endRow-1] with no node at the
     // bottom (the bend lands one row lower). Still in-window → hidden.
     const nodes = nodesWithLanes(50, { 2: 1 }); // node on lane 1 only at the child
-    const merged = intervals([
+    const perEdge = intervals([
       [0, [{ startRow: 0, endRow: 49 }]],
       [1, [{ startRow: 2, endRow: 40 }]],
     ]);
-    const { hidden, arrows } = computeLongEdgeCuts(nodes, merged);
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
     assert.strictEqual(arrows.get(3)?.get(1), 'down');
     assert.strictEqual(arrows.get(39)?.get(1), 'up');
     assert.ok(hidden.get(20)?.has(1));
   });
 
-  it('skips an interval that runs off the bottom of the window (ends in a chevron)', () => {
-    // lane 2 reaches the last row with no node there → off-window continuation.
+  it('keeps a short edge inked where it shares a lane with a long edge', () => {
+    // Lane 1 carries a 48-row edge [2..50] AND a 5-row edge [20..25] that
+    // begins inside it — a second merge into the same parent. The short edge is
+    // under the threshold, so its rows stay drawn and the long edge hides the
+    // two stretches either side of them, each capped by its own arrow pair.
+    const nodes = nodesWithLanes(60, { 2: 1 });
+    const perEdge = intervals([
+      [0, [{ startRow: 0, endRow: 59 }]],
+      [
+        1,
+        [
+          { startRow: 2, endRow: 50 },
+          { startRow: 20, endRow: 25 },
+        ],
+      ],
+    ]);
+
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
+
+    assert.strictEqual(arrows.get(3)?.get(1), 'down');
+    assert.strictEqual(arrows.get(19)?.get(1), 'up');
+    assert.strictEqual(arrows.get(26)?.get(1), 'down');
+    assert.strictEqual(arrows.get(49)?.get(1), 'up');
+    for (let r = 20; r <= 25; r++) {
+      assert.ok(!hidden.get(r)?.has(1), `short edge's row ${r} must keep its ink`);
+    }
+    for (const r of [4, 18, 27, 48]) {
+      assert.ok(hidden.get(r)?.has(1), `row ${r} must hide lane 1`);
+    }
+  });
+
+  it('cuts the same runs for two long edges sharing a lane, swallowing no stub', () => {
+    // Overlapping long edges [0..50] and [10..60] on lane 1. Each stretch that
+    // neither edge inks becomes its own gap; because both edges' endpoints
+    // count as drawn, the two cut identical runs, so no edge's arrow row ends
+    // up hidden by the other.
+    const nodes = nodesWithLanes(70, {});
+    const pair: Iv[] = [
+      { startRow: 0, endRow: 50 },
+      { startRow: 10, endRow: 60 },
+    ];
+    const perEdge = intervals([[1, pair]]);
+
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
+
+    for (const [row, dir] of [
+      [1, 'down'],
+      [9, 'up'],
+      [11, 'down'],
+      [49, 'up'],
+      [51, 'down'],
+      [59, 'up'],
+    ] as Array<[number, 'up' | 'down']>) {
+      assert.strictEqual(arrows.get(row)?.get(1), dir, `row ${row} arrow`);
+      assert.ok(!hidden.get(row)?.has(1), `row ${row} arrow must survive, not be hidden`);
+    }
+    for (const r of [0, 10, 50, 60]) {
+      assert.ok(!hidden.get(r)?.has(1), `endpoint row ${r} must keep its ink`);
+    }
+    for (const r of [2, 8, 12, 48, 52, 58]) {
+      assert.ok(hidden.get(r)?.has(1), `row ${r} must hide lane 1`);
+    }
+    // Interval order within a lane must not change the cuts.
+    const reversed = computeLongEdgeCuts(nodes, intervals([[1, [...pair].reverse()]]));
+    assert.deepStrictEqual(reversed.hidden, hidden);
+    assert.deepStrictEqual(reversed.arrows, arrows);
+  });
+
+  it('exempts only the edge reaching the window edge, not the rest of its lane', () => {
+    // Lane 1 carries a 39-row edge [2..41] ending at a real parent and a
+    // trunk-style 38-row interval [41..79] that reaches the last row with no
+    // node there. The chevron interval keeps all its ink; the earlier long edge
+    // is hidden like any other. Merging the lane first yields one span [2..79]
+    // that reaches the last row, which would exempt BOTH and leave the earlier
+    // edge fully drawn.
+    const nodes = nodesWithLanes(80, { 2: 1, 41: 1 });
+    const perEdge = intervals([
+      [0, [{ startRow: 0, endRow: 79 }]],
+      [
+        1,
+        [
+          { startRow: 2, endRow: 41 },
+          { startRow: 41, endRow: 79, offWindow: true },
+        ],
+      ],
+    ]);
+
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
+
+    assert.strictEqual(arrows.get(3)?.get(1), 'down');
+    assert.strictEqual(arrows.get(40)?.get(1), 'up');
+    for (const r of [4, 20, 39]) {
+      assert.ok(hidden.get(r)?.has(1), `row ${r} of the in-window edge must hide lane 1`);
+    }
+    for (let r = 42; r <= 79; r++) {
+      assert.ok(!hidden.get(r)?.has(1), `chevron row ${r} must keep its ink`);
+      assert.ok(!arrows.get(r)?.has(1), `chevron row ${r} must not be arrowed`);
+    }
+  });
+
+  it('leaves a run too short to be worth hiding fully drawn', () => {
+    // Lane 1: a long edge [2..50] whose interior is inked by two other edges
+    // that leave rows 19..21 free. A stub costs the first and last of those, so
+    // hiding would blank one row and spend two on arrowheads — the run is left
+    // drawn instead.
+    const nodes = nodesWithLanes(60, { 2: 1 });
+    const perEdge = intervals([
+      [0, [{ startRow: 0, endRow: 59 }]],
+      [
+        1,
+        [
+          { startRow: 2, endRow: 50 },
+          { startRow: 3, endRow: 18 },
+          { startRow: 22, endRow: 48 },
+        ],
+      ],
+    ]);
+
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
+
+    for (const r of [19, 20, 21]) {
+      assert.ok(!hidden.get(r)?.has(1), `free row ${r} must stay drawn`);
+    }
+    for (let r = 0; r < 60; r++) {
+      assert.ok(!arrows.get(r)?.has(1), `no stub belongs at row ${r}`);
+    }
+  });
+
+  it('hides a long edge that merely ends on the last row, when its parent is loaded', () => {
+    // Lane 2 runs rows 5..39 to a parent on the last row. Nothing marks it off
+    // window, so it is an ordinary long edge — reaching the last row is not, by
+    // itself, a reason to stay whole.
     const nodes = nodesWithLanes(40, { 5: 2 });
-    const merged = intervals([
+    const perEdge = intervals([
       [0, [{ startRow: 0, endRow: 39 }]],
       [2, [{ startRow: 5, endRow: 39 }]],
     ]);
-    const { hidden, arrows } = computeLongEdgeCuts(nodes, merged);
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
+    assert.strictEqual(arrows.get(6)?.get(2), 'down');
+    assert.strictEqual(arrows.get(38)?.get(2), 'up');
+    assert.ok(hidden.get(20)?.has(2));
+  });
+
+  it('leaves an edge whose parent is not loaded whole (it ends in a chevron)', () => {
+    // lane 2 reaches the last row with no node there → off-window continuation.
+    const nodes = nodesWithLanes(40, { 5: 2 });
+    const perEdge = intervals([
+      [0, [{ startRow: 0, endRow: 39 }]],
+      [2, [{ startRow: 5, endRow: 39, offWindow: true }]],
+    ]);
+    const { hidden, arrows } = computeLongEdgeCuts(nodes, perEdge);
     for (let r = 0; r < 40; r++) {
       assert.ok(!hidden.get(r)?.has(2), `off-window lane 2 must not be hidden (row ${r})`);
       assert.ok(!arrows.get(r)?.has(2), `off-window lane 2 must not be arrowed (row ${r})`);

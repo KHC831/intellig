@@ -1,0 +1,150 @@
+{
+  "commits": [
+    {
+      "hash": "c0",
+      "parents": ["c1", "c30"]
+    },
+    {
+      "hash": "c1",
+      "parents": ["c2"]
+    },
+    {
+      "hash": "c2",
+      "parents": ["c3"]
+    },
+    {
+      "hash": "c3",
+      "parents": ["c4"]
+    },
+    {
+      "hash": "c4",
+      "parents": ["c5"]
+    },
+    {
+      "hash": "c5",
+      "parents": ["c6"]
+    },
+    {
+      "hash": "c6",
+      "parents": ["c7"]
+    },
+    {
+      "hash": "c7",
+      "parents": ["c8"]
+    },
+    {
+      "hash": "c8",
+      "parents": ["c9"]
+    },
+    {
+      "hash": "c9",
+      "parents": ["c10"]
+    },
+    {
+      "hash": "c10",
+      "parents": ["c11"]
+    },
+    {
+      "hash": "c11",
+      "parents": ["c12"]
+    },
+    {
+      "hash": "c12",
+      "parents": ["c13"]
+    },
+    {
+      "hash": "c13",
+      "parents": ["c14"]
+    },
+    {
+      "hash": "c14",
+      "parents": ["c15"]
+    },
+    {
+      "hash": "c15",
+      "parents": ["c16"]
+    },
+    {
+      "hash": "c16",
+      "parents": ["c17"]
+    },
+    {
+      "hash": "c17",
+      "parents": ["c18"]
+    },
+    {
+      "hash": "c18",
+      "parents": ["c19"]
+    },
+    {
+      "hash": "c19",
+      "parents": ["c20"]
+    },
+    {
+      "hash": "c20",
+      "parents": ["c21"]
+    },
+    {
+      "hash": "c21",
+      "parents": ["c22"]
+    },
+    {
+      "hash": "c22",
+      "parents": ["c23"]
+    },
+    {
+      "hash": "c23",
+      "parents": ["c24"]
+    },
+    {
+      "hash": "c24",
+      "parents": ["c25"]
+    },
+    {
+      "hash": "c25",
+      "parents": ["c26"]
+    },
+    {
+      "hash": "c26",
+      "parents": ["c27"]
+    },
+    {
+      "hash": "c27",
+      "parents": ["c28", "c30"]
+    },
+    {
+      "hash": "c28",
+      "parents": ["c29"]
+    },
+    {
+      "hash": "c29",
+      "parents": ["c32"]
+    },
+    {
+      "hash": "c30",
+      "parents": ["c31"]
+    },
+    {
+      "hash": "c31",
+      "parents": ["c32"]
+    },
+    {
+      "hash": "c32",
+      "parents": []
+    }
+  ],
+  "branches": [
+    {
+      "commit": "c0",
+      "name": "main",
+      "type": "local"
+    },
+    {
+      "commit": "c30",
+      "name": "release",
+      "type": "local"
+    }
+  ],
+  "headHash": "c0",
+  "headBranchName": "main"
+}

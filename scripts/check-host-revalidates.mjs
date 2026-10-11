@@ -27,7 +27,9 @@
  *    same validator through a re-export (ApplyPatchDialog validates
  *    stripLevel via PatchService's re-export of applyPatchValidation), and
  *    that is real validation, not an exception. A few file reads per entry;
- *    scales with the number of webview entries, which is small.
+ *    scales with the number of webview entries, which is small. A scan that
+ *    finds no webview entry at all fails, so a path-shape mismatch cannot
+ *    pass it vacuously.
  *
  * 3. Known false-positive cases: validation that is genuinely presentational
  *    (a character counter, a live-preview formatter) with no host-side
@@ -88,6 +90,7 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, basename, dirname, resolve } from 'node:path';
+import { posixRelative } from './lib/posix-path.mjs';
 import { scanSource } from './lib/source-scan.mjs';
 
 const SRC_ROOT = process.argv[2] ?? 'src';
@@ -204,11 +207,13 @@ function hostDialogFor(entryPath) {
 }
 
 const failures = [];
+let entries = 0;
 
 for (const entry of walk(SRC_ROOT)) {
-  if (!/(^|\/)webview\/[^/]+\.ts$/.test(entry)) {
+  if (!/(^|\/)webview\/[^/]+\.ts$/.test(posixRelative(SRC_ROOT, entry))) {
     continue;
   }
+  entries++;
   const entryFile = read(entry);
   const validators = validatorModulesFor(entry, entryFile.codeWithStrings);
   if (validators.length === 0) {
@@ -249,6 +254,11 @@ for (const entry of walk(SRC_ROOT)) {
     }
     void named;
   }
+}
+
+if (entries === 0) {
+  console.error(`check-host-revalidates: found no webview entry under ${resolve(SRC_ROOT)}; the scan is vacuous`);
+  process.exit(1);
 }
 
 if (failures.length > 0) {

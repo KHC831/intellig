@@ -150,11 +150,28 @@ export interface IAddWorktreeOptions {
  * {@link GitService} exposes these post-freeze methods directly; consumers
  * depend on this role interface rather than the frozen composite.
  */
+/**
+ * How hard `git worktree remove` pushes. Git refuses a worktree with changes
+ * unless forced once, and a locked one unless forced twice.
+ */
+export type WorktreeRemoveForce = 'none' | 'discardChanges' | 'overrideLock';
+
+const REMOVE_FORCE_FLAGS: Readonly<Record<WorktreeRemoveForce, readonly string[]>> = {
+  none: [],
+  discardChanges: ['--force'],
+  overrideLock: ['--force', '--force'],
+};
+
 export interface IWorktreeCapableService {
   listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError>;
   addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError>;
-  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError>;
+  removeWorktree(
+    repo: IRepository,
+    path: string,
+    force?: WorktreeRemoveForce
+  ): ResultAsync<void, GitError>;
   pruneWorktrees(repo: IRepository): ResultAsync<void, GitError>;
+  hasUncommittedChanges(worktreePath: string): ResultAsync<boolean, GitError>;
 }
 
 /**
@@ -251,19 +268,21 @@ export class WorktreeOps {
    *
    * Injection safety: the user-controlled path is the only positional and
    * follows a single `--`, so a flag-shaped path can never be parsed as an
-   * option (same grammar note as {@link addWorktree}). Git itself refuses a
-   * dirty or locked worktree without `--force`; the caller decides whether
-   * to retry forced after surfacing that refusal.
+   * option (same grammar note as {@link addWorktree}). Git refuses a
+   * worktree with changes, or a locked one, unless forced to the matching
+   * {@link WorktreeRemoveForce}; the caller decides whether to retry forced
+   * after surfacing that refusal.
    */
-  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError> {
+  removeWorktree(
+    repo: IRepository,
+    path: string,
+    force: WorktreeRemoveForce = 'none'
+  ): ResultAsync<void, GitError> {
     if (!path || path.trim().length === 0) {
       return errAsync(new InvalidArgumentError('Worktree path is required'));
     }
 
-    const args: string[] = ['worktree', 'remove'];
-    if (force) {
-      args.push('--force');
-    }
+    const args: string[] = ['worktree', 'remove', ...REMOVE_FORCE_FLAGS[force]];
     // pathspec-exempt: the worktree DIRECTORY to remove, not a pathspec
     args.push('--', path);
 
@@ -273,6 +292,23 @@ export class WorktreeOps {
     ).map(() => {
       this.ctx.invalidateCache(repo.rootUri.fsPath);
     });
+  }
+
+  /**
+   * Whether the worktree at `worktreePath` has modified, staged or untracked
+   * files (`git status --porcelain` run in it prints anything). Overriding a
+   * lock removes those along with the tree, so a confirm needs to know.
+   */
+  hasUncommittedChanges(worktreePath: string): ResultAsync<boolean, GitError> {
+    return ResultAsync.fromPromise(
+      // git-path-quote-exempt: only whether git printed anything is read, never a path
+      this.ctx.gitCli.exec(['status', '--porcelain'], { cwd: worktreePath }),
+      classifyGitCommandError
+    ).andThen((result) =>
+      result.exitCode !== 0
+        ? err(new CommandFailedError(result.exitCode, result.stderr))
+        : ok(result.stdout.trim().length > 0)
+    );
   }
 
   /**

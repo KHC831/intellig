@@ -26,7 +26,7 @@
 #    fragment with no closer between — identifiers like
 #    RESOLVE_CONFLICTS_DIALOG_… stay out): conflict, needs merge, would be
 #    overwritten, please commit your changes, untracked working tree, patch
-#    does not apply, patch failed. Both matching shapes are covered: the
+#    does not apply, patch failed, locked working tree, modified or untracked. Both matching shapes are covered: the
 #    fragment as the call argument (`.includes('…')`) and as a
 #    regex-literal receiver (`/…/.test(x)`).
 #    Comment-only lines are skipped. Scope: git-tracked (and new) TS under
@@ -71,7 +71,7 @@ fi
 # Fragment must appear inside a string/regex literal: an opening quote or
 # slash precedes it with no closer between. Passed via ENVIRON so the
 # character class survives awk -v backslash processing.
-LITFRAG="['\"\`/][^'\"\`/]*(conflict|needs merge|would be overwritten|please commit your changes|untracked working tree|patch does not apply|patch failed)"
+LITFRAG="['\"\`/][^'\"\`/]*(conflict|needs merge|would be overwritten|please commit your changes|untracked working tree|patch does not apply|patch failed|locked working tree|modified or untracked)"
 export LITFRAG
 
 fail=0

@@ -38,6 +38,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,7 +55,7 @@ function fail(msg) {
 }
 
 if (!fs.existsSync(COVERAGE_FILE)) {
-  fail(`coverage report not found at ${path.relative(root, COVERAGE_FILE)}. Run \`npm run coverage\` first.`);
+  fail(`coverage report not found at ${posixRelative(root, COVERAGE_FILE)}. Run \`npm run coverage\` first.`);
 }
 
 const ignoreGlobs = fs.existsSync(IGNORE_FILE)
@@ -148,7 +149,7 @@ function coverageByFile() {
   const byFile = new Map(); // rel → Map<lineNo, hit:boolean>
   for (const [abs, c] of Object.entries(data)) {
     if (!c.statementMap || !c.s) continue;
-    const rel = path.relative(root, abs).split(path.sep).join('/');
+    const rel = posixRelative(root, abs);
     const lines = new Map();
     for (const [id, loc] of Object.entries(c.statementMap)) {
       const hit = (c.s[id] || 0) > 0;

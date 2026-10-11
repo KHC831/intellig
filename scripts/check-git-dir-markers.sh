@@ -54,6 +54,8 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/grep-hit.sh
+source scripts/lib/grep-hit.sh
 
 # The dir name inside a string/regex literal: an opening quote/backtick/slash
 # somewhere before it on the line, and NOT followed by `s` (--rebase-merges).
@@ -70,10 +72,8 @@ fi
 fail=0
 while IFS= read -r hit; do
   [ -z "$hit" ] && continue
-  file=${hit%%:*}
-  rest=${hit#*:}
-  line=${rest%%:*}
-  code=${rest#*:}
+  split_grep_hit "$hit"
+  file=$HIT_FILE line=$HIT_LINE code=$HIT_TEXT
 
   # Sanctioned module (default mode only — explicit paths test the teeth).
   if [ "$#" -eq 0 ] && [ "$file" = "$SANCTIONED" ]; then

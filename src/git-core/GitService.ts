@@ -53,6 +53,7 @@ import {
   isNewRepoBeyondScanDepth,
   isNewRepoPathIgnored,
   resolveWorktreeGitDir,
+  resolveCommonGitDir,
 } from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead } from './gitParser';
 import { sanitizeGitError } from './gitError';
@@ -65,6 +66,8 @@ import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
 import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
 import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/WorktreeOps';
+import { FreshCoalescer } from '../utils/freshCoalescer';
+import type { WorktreeRemoveForce } from './ops/WorktreeOps';
 import type { ResultAsync } from 'neverthrow';
 import type { GitError } from './errors';
 import { readInProgressOperation } from './gitInProgress';
@@ -139,6 +142,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    */
   private _lastEventedRefreshAt: Map<string, number> = new Map();
   /** In-flight `loadRepository` promises, keyed by rootPath. */
+  // in-flight-map-exempt: discovery loads, drained at teardown; the watcher chains a fresh reload
   private _reloading: Map<string, Promise<IRepository>> = new Map();
   /**
    * Per-rootPath removal counter, bumped whenever a root is torn down
@@ -167,14 +171,13 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    */
   private _defaultBranchCache: Map<string, string | undefined> = new Map();
   /**
-   * In-flight `getStatus` promises, keyed by rootPath. On activation several
-   * subscribers (SCM provider, changelist + shelf views) request the same
-   * repo's status at once; each `git status --porcelain` walks the whole work
-   * tree to enumerate untracked files (multi-second on a large repo), so the
-   * concurrent duplicates saturate the disk and starve the graph's `git log`.
-   * Coalescing identical overlapping calls into one walk removes that storm.
+   * `getStatus` walks, keyed by rootPath. On activation several subscribers
+   * request the same repo's status at once; each `git status --porcelain`
+   * walks the whole work tree (multi-second on a large repo), and concurrent
+   * walks starve the graph's `git log`. One walk runs at a time, and callers
+   * arriving during it share one follow-up, so none gets a stale answer.
    */
-  private _statusInFlight: Map<string, Promise<IFileStatus[]>> = new Map();
+  private readonly _statusWalks = new FreshCoalescer<IFileStatus[]>();
   /**
    * In-flight `getLog` promises. The graph's `git log --topo-order` is CPU-bound
    * on a large repo with no commit-graph (~2s on a 500k-commit tree); letting
@@ -235,7 +238,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    * POSIX literal paths overwrite this with `path.posix` so the discovery joins
    * and prefix checks stay consistent with those fixtures on any runner.
    */
-  private _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'> = path;
+  private _repoScanPath: Pick<typeof path, 'join' | 'normalize'> = path;
 
   /**
    * Watchers that fire when a NEW `.git/` directory is created mid-session
@@ -303,34 +306,16 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   private static readonly STATUS_LANE_FLOOR_MS = 5000;
 
   /**
-   * Narrow allow-list of `.git/` entries we react to. Ordered roughly by
-   * hit frequency; each entry becomes its own `FileSystemWatcher` with a
-   * `RelativePattern(gitDir, entry)` glob.
-   *
-   * Deliberately EXCLUDED:
-   *  - `objects/**` — every git read/write touches this; watching it causes
-   *    an infinite refresh loop.
-   *  - `logs/**` — with the single exception of `logs/refs/stash` below,
-   *    reflog updates fire on every command; no user-visible state the UI
-   *    needs to re-render.
-   *  - `FETCH_HEAD` — redundant with `onDidFetch` which fires when our own
-   *    `fetch()` call completes.
-   *  - `ORIG_HEAD` — a side-effect file written by reset/merge; the real
-   *    branch change is captured by HEAD/refs/** which we already watch.
-   *
-   * `config` IS watched: `git remote set-url` (and user/alias edits) write it
-   * and fire no other event, and remote-derived caches (blame links,
-   * tool-window remotes) flush on the repository-lane event this produces.
-   * Config writes are rare — read-path git commands never touch it — so the
-   * watcher adds no churn.
-   *  - `modules/**` — submodule state changes surface through the parent
-   *    repo's `HEAD` / `index` updates; the inner `.git/modules/<name>/`
-   *    tree is deliberately not watched. Relies on the 5 s cache TTL +
-   *    explicit reload.
-   *  - `worktrees/**` — linked-worktree metadata (`git worktree add/remove`)
-   *    mutates here but the active worktree's state is already reflected
-   *    through the other allow-listed entries. Deliberately not watched;
-   *    relies on the 5 s cache TTL + explicit reload.
+   * Narrow allow-list of `.git/` entries we react to, each its own watcher.
+   * Deliberately EXCLUDED: `objects/**` (every git command touches it: an
+   * infinite refresh loop); `logs/**` but the stash reflog (reflogs change on
+   * every command); `FETCH_HEAD` (our own fetch fires `onDidFetch`);
+   * `ORIG_HEAD` (reset/merge side effect; HEAD and refs carry the change);
+   * `modules/**` (submodules surface through the parent's HEAD and index);
+   * `worktrees/**` (each linked worktree's HEAD and index churn there).
+   * `config` IS watched: `git remote set-url` and user edits write nothing
+   * else, and remote-derived caches flush on the event; read-path commands
+   * never write it.
    */
   private static readonly WATCHED_GIT_PATTERNS: readonly string[] = [
     'HEAD',
@@ -343,14 +328,25 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     'REVERT_HEAD',
     'BISECT_LOG',
     ...REBASE_STATE_DIRS.map((dir) => `${dir}/**`),
-    // The stash reflog is the ONE reflog worth watching (IntelliJ watches
-    // exactly this file: GitRepositoryFiles.isStashReflogFile, consumed by
-    // git4idea's GitStashTracker): dropping/renaming a NON-TOP stash rewrites
-    // only this file — `refs/stash` and `index` are untouched, so no other
-    // pattern fires. Loop-safe: only `git stash` mutations write it; reads
-    // (`git stash list`) never do.
+    // Dropping a NON-TOP stash rewrites only the stash reflog (git4idea
+    // GitRepositoryFiles.isStashReflogFile); only `git stash` writes it.
     'logs/refs/stash',
   ];
+
+  /**
+   * The {@link WATCHED_GIT_PATTERNS} git keeps in each worktree's own gitdir.
+   * The rest live in the common dir all worktrees share, which is where a
+   * commit, branch or stash made from ANOTHER worktree shows up.
+   */
+  private static readonly PER_WORKTREE_GIT_PATTERNS: ReadonlySet<string> = new Set([
+    'HEAD',
+    'index',
+    'MERGE_HEAD',
+    'CHERRY_PICK_HEAD',
+    'REVERT_HEAD',
+    'BISECT_LOG',
+    ...REBASE_STATE_DIRS.map((dir) => `${dir}/**`),
+  ]);
 
   /**
    * Path-segment test for a `.git` directory/file. Matches `/repo/.git`,
@@ -735,7 +731,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     // .has(folderPath)`) misses the duplicate and stacks watchers.
     // `path.normalize` is platform-aware and cheap; on macOS/Linux it's
     // an idempotent no-op for already-canonical paths.
-    const folderPath = path.normalize(rawFolderPath);
+    const folderPath = this._repoScanPath.normalize(rawFolderPath);
     const maxDepth = readConfig('repositoryScanMaxDepth');
     const ignoredFolders = readConfig('repositoryScanIgnoredFolders');
 
@@ -1259,12 +1255,10 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
       return;
     }
 
-    // Root the watchers at the per-worktree git directory. For a normal
-    // checkout this is `<root>/.git` (a directory); for a LINKED WORKTREE or
-    // submodule `<root>/.git` is a FILE holding a `gitdir:` pointer — globbing
-    // it directly would match nothing (no live refresh) and `handleHeadDelete`'s
-    // readdir would throw on a file. `resolveWorktreeGitDir` follows the pointer.
+    // Root the watchers at real directories: in a linked worktree or submodule
+    // `<root>/.git` is a FILE (a `gitdir:` pointer) that globs nothing.
     const gitDir = vscode.Uri.file(resolveWorktreeGitDir(rootPath));
+    const commonDir = vscode.Uri.file(resolveCommonGitDir(rootPath));
 
     const handleChange = (trigger?: vscode.Uri): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
@@ -1387,7 +1381,10 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     const watchers: vscode.Disposable[] = [];
     for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
       const watcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(gitDir, pattern)
+        new vscode.RelativePattern(
+          GitService.PER_WORKTREE_GIT_PATTERNS.has(pattern) ? gitDir : commonDir,
+          pattern
+        )
       );
       watcher.onDidChange(handleChange);
       watcher.onDidCreate(handleChange);
@@ -2128,34 +2125,31 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   // New capability landed on the GitService class (NOT the frozen IGitService
   // composite — ADR-001), mirroring the Incoming/Outgoing additions above.
 
-  /**
-   * List the repository's worktrees (`git worktree list --porcelain`).
-   * See {@link WorktreeOps.listWorktrees}.
-   */
+  /** `git worktree list --porcelain`; see {@link WorktreeOps.listWorktrees}. */
   listWorktrees(repo: IRepository): ResultAsync<IWorktreeEntry[], GitError> {
     return this._worktrees.listWorktrees(repo);
   }
 
-  /**
-   * Create a linked worktree (`git worktree add`). See
-   * {@link WorktreeOps.addWorktree}.
-   */
+  /** `git worktree add`; see {@link WorktreeOps.addWorktree}. */
   addWorktree(repo: IRepository, options: IAddWorktreeOptions): ResultAsync<void, GitError> {
     return this._worktrees.addWorktree(repo, options);
   }
 
-  /**
-   * Remove a linked worktree (`git worktree remove`). See
-   * {@link WorktreeOps.removeWorktree}.
-   */
-  removeWorktree(repo: IRepository, path: string, force?: boolean): ResultAsync<void, GitError> {
+  /** `git worktree remove`; see {@link WorktreeOps.removeWorktree}. */
+  removeWorktree(
+    repo: IRepository,
+    path: string,
+    force?: WorktreeRemoveForce
+  ): ResultAsync<void, GitError> {
     return this._worktrees.removeWorktree(repo, path, force);
   }
 
-  /**
-   * Prune stale worktree records (`git worktree prune`). See
-   * {@link WorktreeOps.pruneWorktrees}.
-   */
+  /** See {@link WorktreeOps.hasUncommittedChanges}. */
+  hasUncommittedChanges(worktreePath: string): ResultAsync<boolean, GitError> {
+    return this._worktrees.hasUncommittedChanges(worktreePath);
+  }
+
+  /** `git worktree prune`; see {@link WorktreeOps.pruneWorktrees}. */
   pruneWorktrees(repo: IRepository): ResultAsync<void, GitError> {
     return this._worktrees.pruneWorktrees(repo);
   }
@@ -2653,19 +2647,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
   // ============================================
 
   getStatus(repo: IRepository): Promise<IFileStatus[]> {
-    // Coalesce concurrent identical walks (see `_statusInFlight`). A call that
-    // arrives while one is already running shares its result; once it settles
-    // the slot clears, so a later non-overlapping call walks fresh.
-    const key = repo.rootUri.fsPath;
-    const existing = this._statusInFlight.get(key);
-    if (existing) {
-      return existing;
-    }
-    const pending = this._statusYieldingToLog(repo).finally(() => {
-      this._statusInFlight.delete(key);
-    });
-    this._statusInFlight.set(key, pending);
-    return pending;
+    return this._statusWalks.run(repo.rootUri.fsPath, () => this._statusYieldingToLog(repo));
   }
 
   /**

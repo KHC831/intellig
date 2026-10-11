@@ -1,3 +1,4 @@
+import { unquoteCStylePath } from './cQuote';
 import {
   ICommit,
   IAuthor,
@@ -675,62 +676,6 @@ export function parseHead(
     ahead,
     behind,
   };
-}
-
-/**
- * Decode a git C-style-quoted path token back to its real UTF-8 string.
- *
- * The inverse of `StagingOps.escapePatchPath` / git's `quote_c_style`: a token
- * wrapped in double quotes is unescaped byte-wise (`\a \b \t \n \v \f \r \" \\`
- * and octal `\NNN`), then the assembled bytes are decoded as UTF-8 (git escapes
- * every non-ASCII byte as octal, so `é` arrives as `\303\251`). A token without
- * surrounding quotes is returned unchanged.
- */
-export function unquoteCStylePath(token: string): string {
-  if (token.length < 2 || token[0] !== '"' || token[token.length - 1] !== '"') {
-    return token;
-  }
-  const body = token.slice(1, -1);
-  const bytes: number[] = [];
-  const simple: Record<string, number> = {
-    a: 0x07,
-    b: 0x08,
-    t: 0x09,
-    n: 0x0a,
-    v: 0x0b,
-    f: 0x0c,
-    r: 0x0d,
-    '"': 0x22,
-    '\\': 0x5c,
-  };
-
-  for (let i = 0; i < body.length; i++) {
-    if (body[i] !== '\\') {
-      // git escapes every non-ASCII byte, so a literal char here is ASCII.
-      bytes.push(body.charCodeAt(i) & 0xff);
-      continue;
-    }
-    const next = body[i + 1];
-    if (next === undefined) {
-      break;
-    }
-    if (next >= '0' && next <= '7') {
-      // Octal byte escape \NNN (1–3 digits).
-      let oct = '';
-      let k = i + 1;
-      while (k < body.length && oct.length < 3 && body[k] >= '0' && body[k] <= '7') {
-        oct += body[k];
-        k += 1;
-      }
-      bytes.push(parseInt(oct, 8) & 0xff);
-      i = k - 1;
-      continue;
-    }
-    bytes.push(next in simple ? simple[next] : next.charCodeAt(0) & 0xff);
-    i += 1;
-  }
-
-  return Buffer.from(bytes).toString('utf8');
 }
 
 /**

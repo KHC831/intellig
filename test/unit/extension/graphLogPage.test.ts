@@ -17,6 +17,8 @@ import {
   fetchGraphPage,
   narrowRefsForRepo,
   parseHashQuery,
+  pruneMissingBranches,
+  reconcileFilterBranches,
 } from '../../../src/registration/graphLogPage';
 import type { ILogScopeFilter } from '../../../src/registration/graphLogPage';
 import type {
@@ -252,5 +254,106 @@ describe('fetchGraphPage — getLog and getLogCount consume the identical scope'
     } as unknown as Pick<IGitService, 'getLog' | 'getLogCount'>;
     const page = await fetchGraphPage(gitService, repo, undefined, 500);
     assert.strictEqual(await page.totalAvailable, undefined);
+  });
+});
+
+describe('pruneMissingBranches — a selected branch that was deleted or renamed', () => {
+  const existing = new Set(['main', 'feature/a', 'origin/main']);
+
+  it('returns the same filter when every selected branch still exists', () => {
+    const filter: ILogScopeFilter = { branches: ['main', 'origin/main'] };
+    assert.strictEqual(pruneMissingBranches(filter, existing), filter);
+  });
+
+  it('keeps the selected branches that still exist, in order', () => {
+    assert.deepStrictEqual(
+      pruneMissingBranches({ branches: ['gone', 'feature/a', 'main'] }, existing)?.branches,
+      ['feature/a', 'main']
+    );
+  });
+
+  it('drops the branch criterion when none are left, keeping the others', () => {
+    const pruned = pruneMissingBranches({ branches: ['gone'], author: 'kaho' }, existing);
+    assert.deepStrictEqual(pruned, { author: 'kaho' });
+  });
+
+  it('leaves no filter when the branches were all it had', () => {
+    assert.strictEqual(pruneMissingBranches({ branches: ['gone'] }, existing), undefined);
+    assert.strictEqual(pruneMissingBranches({ branch: 'gone' }, existing), undefined);
+  });
+
+  it('leaves a filter without a branch subset alone', () => {
+    const none: ILogScopeFilter = { branchesNone: true };
+    const range: ILogScopeFilter = { logRange: 'main..gone' };
+    assert.strictEqual(pruneMissingBranches(none, existing), none);
+    assert.strictEqual(pruneMissingBranches(range, existing), range);
+    assert.strictEqual(pruneMissingBranches(undefined, existing), undefined);
+  });
+});
+
+describe('reconcileFilterBranches — against what the repositories have now', () => {
+  const other = { rootUri: { fsPath: '/o' } } as unknown as IRepository;
+  const service = (byRoot: Record<string, string[] | Error>): Pick<IGitService, 'getBranches'> =>
+    ({
+      getBranches: async (r: IRepository) => {
+        const v = byRoot[r.rootUri.fsPath];
+        if (v instanceof Error) {
+          throw v;
+        }
+        return v.map((name) => ({ name, type: 'local' }));
+      },
+    }) as unknown as Pick<IGitService, 'getBranches'>;
+
+  it('keeps a branch any of the repositories still has, and stores the change', async () => {
+    const filter = { branches: ['main', 'only-in-o', 'gone'] };
+    const stored: unknown[] = [];
+    const result = await reconcileFilterBranches(
+      service({ '/r': ['main'], '/o': ['only-in-o'] }),
+      [repo, other],
+      filter,
+      (f) => stored.push(f)
+    );
+    assert.deepStrictEqual(result?.branches, ['main', 'only-in-o']);
+    assert.deepStrictEqual(stored, [result]);
+  });
+
+  it('stores nothing when nothing was dropped', async () => {
+    const stored: unknown[] = [];
+    await reconcileFilterBranches(
+      service({ '/r': ['main'] }),
+      [repo],
+      { branches: ['main'] },
+      (f) => stored.push(f)
+    );
+    assert.deepStrictEqual(stored, []);
+  });
+
+  it('leaves the filter alone when a repository lists no branches (a failed read)', async () => {
+    const filter = { branches: ['main', 'gone'] };
+    assert.strictEqual(
+      await reconcileFilterBranches(service({ '/r': ['main'], '/o': [] }), [repo, other], filter),
+      filter
+    );
+    assert.strictEqual(
+      await reconcileFilterBranches(
+        service({ '/r': ['main'], '/o': new Error('spawn failed') }),
+        [repo, other],
+        filter
+      ),
+      filter
+    );
+  });
+
+  it('does not read branches when the filter selects none', async () => {
+    let reads = 0;
+    const counting = {
+      getBranches: async () => {
+        reads++;
+        return [];
+      },
+    } as unknown as Pick<IGitService, 'getBranches'>;
+    await reconcileFilterBranches(counting, [repo], { author: 'kaho' });
+    await reconcileFilterBranches(counting, [repo], undefined);
+    assert.strictEqual(reads, 0);
   });
 });

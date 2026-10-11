@@ -51,6 +51,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/exempt-marker.sh
 source "$SCRIPT_DIR/lib/exempt-marker.sh"
+# shellcheck source=scripts/lib/grep-hit.sh
+source "$SCRIPT_DIR/lib/grep-hit.sh"
 
 # Optional scan root so the companion spec can point the guard at a fixture
 # tree. Defaults to the real source tree.
@@ -77,11 +79,10 @@ violations=()
 # silently un-fence every clamp written below it.
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  file="${line%%:*}"
+  split_grep_hit "$line"
+  file=$HIT_FILE lineno=$HIT_LINE
   [ "$file" = "$OWNER" ] && continue
   grep -qE "$HEIGHT" "$file" || continue
-  rest="${line#*:}"
-  lineno="${rest%%:*}"
   is_exempt "$file" "$lineno" 'placement-exempt:' && continue
   violations+=("$file:$lineno")
 done < <(grep -rnE "$WIDTH" "$SCAN_ROOT" --include='*.ts' 2>/dev/null || true)

@@ -132,6 +132,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { posixRelative } from './lib/posix-path.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REAL_EXEMPTIONS_PATH = path.join(REPO_ROOT, 'scripts', 'doc-citation-exemptions.json');
@@ -386,7 +387,7 @@ function main() {
       citations++;
       const citedAbs = path.join(repoRoot, citedPath);
       if (!fs.existsSync(citedAbs)) {
-        const docKey = path.relative(repoRoot, f).split(path.sep).join('/');
+        const docKey = posixRelative(repoRoot, f);
         if (exemptionSet.has(`${docKey} ${citedPath}`)) {
           exempt++;
         } else {

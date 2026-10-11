@@ -1,6 +1,8 @@
 /**
- * Startup-latency guard: concurrent getStatus calls for the same repo coalesce
- * into ONE `git status --porcelain` walk.
+ * Startup-latency guard: concurrent getStatus calls for the same repo never
+ * run two `git status --porcelain` walks at once, and a burst costs at most
+ * two walks — without answering any caller with a walk that started before it
+ * asked.
  *
  * On activation several subscribers (SCM provider, changelist view, shelf view)
  * each call getStatus for the same repo at once. `git status --porcelain`
@@ -20,6 +22,10 @@ import { Uri } from '../../mocks/vscode';
 
 class CountingGitCli {
   public statusCalls = 0;
+  public concurrent = 0;
+  public maxConcurrent = 0;
+  /** What each walk prints, in call order; later walks repeat the last. */
+  public outputs: string[] = [''];
   private _release!: () => void;
   public gate: Promise<void>;
 
@@ -38,8 +44,13 @@ class CountingGitCli {
   ): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> {
     if (args[0] === 'status' && args.includes('--porcelain')) {
       this.statusCalls += 1;
-      // Hold the walk open until released, so both callers overlap in flight.
+      const stdout = this.outputs[Math.min(this.statusCalls, this.outputs.length) - 1];
+      this.concurrent += 1;
+      this.maxConcurrent = Math.max(this.maxConcurrent, this.concurrent);
+      // Hold the walk open until released, so callers overlap in flight.
       await this.gate;
+      this.concurrent -= 1;
+      return { exitCode: 0, stdout, stderr: '', combined: stdout };
     }
     return { exitCode: 0, stdout: '', stderr: '', combined: '' };
   }
@@ -76,18 +87,30 @@ describe('GitService.getStatus coalesces concurrent identical walks', () => {
     gitService.dispose();
   });
 
-  it('two concurrent getStatus calls trigger only ONE git status --porcelain', async () => {
+  it('a burst of getStatus calls never walks twice at once, and walks at most twice', async () => {
     const r = repo();
-    const p1 = gitService.getStatus(r);
-    const p2 = gitService.getStatus(r);
-    // Both are now in flight against the gated walk.
+    const burst = [gitService.getStatus(r), gitService.getStatus(r), gitService.getStatus(r)];
     cli.release();
-    await Promise.all([p1, p2]);
+    await Promise.all(burst);
+    assert.strictEqual(cli.maxConcurrent, 1, 'walks never overlap');
+    assert.strictEqual(cli.statusCalls, 2, 'the late callers share ONE follow-up walk');
+  });
 
-    assert.strictEqual(
-      cli.statusCalls,
-      1,
-      'concurrent getStatus for the same repo must share one underlying walk'
+  it('a getStatus arriving while a walk is in flight is answered by a walk that starts after it', async () => {
+    const r = repo();
+    cli.outputs = ['', ' M late.txt\0'];
+    const first = gitService.getStatus(r);
+    // A file changes after the first walk started; this caller asks after it.
+    const second = gitService.getStatus(r);
+    cli.release();
+    assert.deepStrictEqual(
+      (await first).map((s) => s.path),
+      []
+    );
+    assert.deepStrictEqual(
+      (await second).map((s) => s.path),
+      ['late.txt'],
+      'the later caller sees the change, not the earlier walk'
     );
   });
 
