@@ -65,16 +65,31 @@ describe('e2e — a branch filter survives branch changes', function () {
       provider.log.state.filter
     )}`;
 
-  /** Run a git change and wait for the reload it triggers to land. */
-  async function change(args: string[]): Promise<void> {
+  /**
+   * Run a git change, wait for the watcher to reach the graph, then for the
+   * graph to settle into `settled`. A load already in flight when git runs can
+   * land first with the old branches; the reload the change triggers follows.
+   */
+  async function change(args: string[], settled: () => boolean, what: string): Promise<void> {
     const before = deliveries;
     await execGit(fix.rootPath, args);
     await poll(
       () => deliveries > before,
       () => `a reload after git ${args.join(' ')}`
     );
-    // Let trailing coalesced reloads settle before judging.
-    await new Promise((r) => setTimeout(r, 1000));
+    await poll(settled, () => `${what} after git ${args.join(' ')} (${describeState()})`);
+  }
+
+  /** Apply a branch filter and wait for the load it starts to land. */
+  async function applyBranchFilter(branches: string[]): Promise<void> {
+    const before = deliveries;
+    provider.applyLogFilter({ branches } as IWebviewLogFilter);
+    await poll(
+      () =>
+        deliveries > before &&
+        JSON.stringify(provider.log.state.filter?.branches) === JSON.stringify(branches),
+      () => `the branch filter to apply (${describeState()})`
+    );
   }
 
   it('keeps showing the filtered branch through create, checkout, commit and delete', async () => {
@@ -96,11 +111,10 @@ describe('e2e — a branch filter survives branch changes', function () {
       origUpdateLogState!(...args);
     };
 
-    provider.applyLogFilter({ branches: [fix.defaultBranch] } as IWebviewLogFilter);
-    await poll(
-      () => provider.log.state.filter?.branches?.[0] === fix.defaultBranch,
-      () => `the branch filter to apply (${describeState()})`
-    );
+    await applyBranchFilter([fix.defaultBranch]);
+    const showsDefault = (): boolean =>
+      provider.log.state.commitNodes.length >= 3 &&
+      provider.log.state.filter?.branches?.[0] === fix.defaultBranch;
 
     const steps: string[][] = [
       ['branch', 'created-later'],
@@ -109,7 +123,7 @@ describe('e2e — a branch filter survives branch changes', function () {
       ['branch', '-D', 'created-later'],
     ];
     for (const step of steps) {
-      await change(step);
+      await change(step, showsDefault, 'the filtered branch');
       assert.ok(
         provider.log.state.commitNodes.length >= 3,
         `after git ${step.join(' ')}: ${describeState()}`
@@ -120,7 +134,11 @@ describe('e2e — a branch filter survives branch changes', function () {
 
     fs.writeFileSync(path.join(fix.rootPath, 'more.txt'), 'more\n');
     await execGit(fix.rootPath, ['add', 'more.txt']);
-    await change(['commit', '-q', '-m', 'more']);
+    await change(
+      ['commit', '-q', '-m', 'more'],
+      () => provider.log.state.commitNodes.length >= 4,
+      'the new commit'
+    );
     assert.ok(provider.log.state.commitNodes.length >= 4, `after a commit: ${describeState()}`);
   });
 
@@ -141,18 +159,24 @@ describe('e2e — a branch filter survives branch changes', function () {
       deliveries++;
       origUpdateLogState!(...args);
     };
-    provider.applyLogFilter({
-      branches: [fix.defaultBranch, 'doomed', 'renamed-away'],
-    } as IWebviewLogFilter);
-    await poll(
-      () => provider.log.state.filter?.branches?.length === 3,
-      () => `the branch filter to apply (${describeState()})`
-    );
+    await applyBranchFilter([fix.defaultBranch, 'doomed', 'renamed-away']);
 
-    await change(['branch', '-D', 'doomed']);
+    await change(
+      ['branch', '-D', 'doomed'],
+      () =>
+        provider.log.state.commitNodes.length >= 3 &&
+        !provider.log.state.filter?.branches?.includes('doomed'),
+      'the filter without the deleted branch'
+    );
     assert.ok(provider.log.state.commitNodes.length >= 3, `after a delete: ${describeState()}`);
 
-    await change(['branch', '-m', 'renamed-away', 'renamed-to']);
+    await change(
+      ['branch', '-m', 'renamed-away', 'renamed-to'],
+      () =>
+        provider.log.state.commitNodes.length >= 3 &&
+        !provider.log.state.filter?.branches?.includes('renamed-away'),
+      'the filter without the renamed branch'
+    );
     assert.ok(provider.log.state.commitNodes.length >= 3, `after a rename: ${describeState()}`);
     assert.deepStrictEqual(
       provider.log.state.filter?.branches,
@@ -183,13 +207,13 @@ describe('e2e — a branch filter survives branch changes', function () {
       deliveries++;
       origUpdateLogState!(...args);
     };
-    provider.applyLogFilter({ branches: ['only-one'] } as IWebviewLogFilter);
-    await poll(
-      () => provider.log.state.filter?.branches?.[0] === 'only-one',
-      () => `the branch filter to apply (${describeState()})`
-    );
+    await applyBranchFilter(['only-one']);
 
-    await change(['branch', '-D', 'only-one']);
+    await change(
+      ['branch', '-D', 'only-one'],
+      () => provider.log.state.commitNodes.length >= 3 && provider.log.state.filter === undefined,
+      'all branches'
+    );
     assert.ok(provider.log.state.commitNodes.length >= 3, `after the delete: ${describeState()}`);
     assert.strictEqual(provider.log.state.filter, undefined, 'no branch criterion is left');
     const html = panelHtml();
