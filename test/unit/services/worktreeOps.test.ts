@@ -22,16 +22,13 @@ import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { GitCli, GitCommandError } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
 import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
-import { canonicalizeFsPath } from '../../../src/utils/repoRelativePath';
+import { isSamePath } from '../../helpers/samePath';
 
-/**
- * Whether a listed worktree is the one at `target`. Git prints `D:/a/x` where
- * Node spells `D:\a\x`, so both sides are canonicalized, as the product does.
- */
+/** Whether a listed worktree is the one at `target`. */
 const isAt =
   (target: string) =>
   (e: { path: string }): boolean =>
-    canonicalizeFsPath(e.path) === canonicalizeFsPath(target);
+    isSamePath(e.path, target);
 
 interface ExecResult {
   exitCode: number;
@@ -435,6 +432,13 @@ describe('WorktreeOps.listWorktrees', () => {
     assert.ok(argv.includes('--porcelain'), 'expected --porcelain flag');
     assert.strictEqual(entries.length, 1);
     assert.strictEqual(entries[0].branch, 'refs/heads/main');
+  });
+
+  it('spells each worktree path the way this host spells paths', async () => {
+    // Git prints `D:/a/x` on Windows; Node and VS Code spell it `D:\a\x`.
+    const { ops } = makeOps(() => ({ exitCode: 0, stdout: 'worktree /home//user/project\n' }));
+    const entries = (await ops.listWorktrees(makeRepo('/home/user/project')))._unsafeUnwrap();
+    assert.strictEqual(entries[0].path, path.normalize('/home//user/project'));
   });
 
   it('returns a typed command-failed Err on git failure (not a silent empty list)', async () => {

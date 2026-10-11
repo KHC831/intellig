@@ -3,6 +3,7 @@ import { spawn, SpawnOptions, execFileSync } from 'child_process';
 import { StringDecoder } from 'string_decoder';
 import { ResultAsync, ok, err } from 'neverthrow';
 import { getOutputChannel } from '../utils/outputChannel';
+import { fromGitPath } from './fromGitPath';
 import {
   GitError,
   CommandFailedError,
@@ -628,7 +629,7 @@ export class GitCli {
     return ResultAsync.fromPromise(
       this.exec(['rev-parse', '--show-toplevel'], { cwd: path }),
       classifyGitCommandError
-    ).map((result) => (result.exitCode === 0 ? result.stdout.trim() : undefined));
+    ).map((result) => (result.exitCode === 0 ? fromGitPath(result.stdout.trim()) : undefined));
   }
 
   /**

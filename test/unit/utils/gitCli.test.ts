@@ -285,6 +285,17 @@ describe('Git CLI Utilities', () => {
       assert.strictEqual(fs.realpathSync.native(root), fs.realpathSync.native(tmpRoot));
     });
 
+    it('spells the root the way this host spells paths', async () => {
+      // Git prints `D:/a/repo` on Windows; Node and VS Code spell it `D:\a\repo`.
+      class PrintingCli extends GitCli {
+        override exec(): ReturnType<GitCli['exec']> {
+          return Promise.resolve({ exitCode: 0, stdout: '/a//repo\n', stderr: '', combined: '' });
+        }
+      }
+      const root = (await new PrintingCli().getRepositoryRoot(tmpRoot))._unsafeUnwrap();
+      assert.strictEqual(root, path.normalize('/a//repo'));
+    });
+
     it('returns Ok(undefined) for a real directory that is NOT a repo (domain absence)', async () => {
       const result = await gitCli.getRepositoryRoot(tmpRoot);
 
