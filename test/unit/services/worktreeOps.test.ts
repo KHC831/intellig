@@ -22,6 +22,16 @@ import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { GitCli, GitCommandError } from '../../../src/git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
 import { SCRATCH_ROOT } from '../../helpers/scratchRoot';
+import { canonicalizeFsPath } from '../../../src/utils/repoRelativePath';
+
+/**
+ * Whether a listed worktree is the one at `target`. Git prints `D:/a/x` where
+ * Node spells `D:\a\x`, so both sides are canonicalized, as the product does.
+ */
+const isAt =
+  (target: string) =>
+  (e: { path: string }): boolean =>
+    canonicalizeFsPath(e.path) === canonicalizeFsPath(target);
 
 interface ExecResult {
   exitCode: number;
@@ -496,9 +506,7 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok(fs.existsSync(path.join(target, 'file.txt')), 'committed file should be checked out');
 
     const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
-    const added = entries.find(
-      (e) => fs.realpathSync.native(e.path) === fs.realpathSync.native(target)
-    );
+    const added = entries.find(isAt(target));
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/feature');
     assert.strictEqual(added.isMain, false);
@@ -517,9 +525,7 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok(fs.existsSync(target), 'worktree directory should exist on disk');
 
     const entries = (await ops.listWorktrees(repo))._unsafeUnwrap();
-    const added = entries.find(
-      (e) => fs.realpathSync.native(e.path) === fs.realpathSync.native(target)
-    );
+    const added = entries.find(isAt(target));
     assert.ok(added, 'listWorktrees should return the newly added worktree');
     assert.strictEqual(added.branch, 'refs/heads/spawned');
   });
@@ -604,7 +610,7 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok((await ops.lockWorktree(repo, target, 'on a removable drive')).isOk());
     const locked = await ops.listWorktrees(repo);
     assert.ok(locked.isOk(), 'expected Ok');
-    const lockedEntry = locked._unsafeUnwrap().find((e) => e.path === fs.realpathSync(target));
+    const lockedEntry = locked._unsafeUnwrap().find(isAt(target));
     assert.ok(lockedEntry, 'the locked worktree must still be listed');
     assert.strictEqual(lockedEntry.isLocked, true);
     assert.strictEqual(lockedEntry.lockReason, 'on a removable drive');
@@ -612,7 +618,7 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok((await ops.unlockWorktree(repo, target)).isOk());
     const unlocked = await ops.listWorktrees(repo);
     assert.ok(unlocked.isOk(), 'expected Ok');
-    const unlockedEntry = unlocked._unsafeUnwrap().find((e) => e.path === fs.realpathSync(target));
+    const unlockedEntry = unlocked._unsafeUnwrap().find(isAt(target));
     assert.ok(unlockedEntry, 'the unlocked worktree must still be listed');
     assert.strictEqual(unlockedEntry.isLocked, false);
     assert.strictEqual(unlockedEntry.lockReason, undefined);
@@ -625,7 +631,7 @@ describe('WorktreeOps real-git round-trip', () => {
     assert.ok((await ops.lockWorktree(repo, target, reason)).isOk());
     const listed = await ops.listWorktrees(repo);
     assert.ok(listed.isOk(), 'expected Ok');
-    const entry = listed._unsafeUnwrap().find((e) => e.path === fs.realpathSync(target));
+    const entry = listed._unsafeUnwrap().find(isAt(target));
     assert.strictEqual(entry?.lockReason, reason);
   });
 
@@ -639,12 +645,11 @@ describe('WorktreeOps real-git round-trip', () => {
   it('reports a worktree whose directory vanished as prunable', async () => {
     const target = path.join(worktreeParent, 'wt-vanished');
     assert.ok((await ops.addWorktree(repo, { path: target, ref: 'feature' })).isOk());
-    const real = fs.realpathSync(target);
     fs.rmSync(target, { recursive: true, force: true });
 
     const listed = await ops.listWorktrees(repo);
     assert.ok(listed.isOk(), 'expected Ok');
-    const gone = listed._unsafeUnwrap().find((e) => e.path === real);
+    const gone = listed._unsafeUnwrap().find(isAt(target));
     assert.ok(gone, 'git still lists the stale record until pruned');
     assert.strictEqual(gone.isPrunable, true);
     assert.ok(
