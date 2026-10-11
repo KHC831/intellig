@@ -8,6 +8,7 @@ import {
 } from '../errors';
 import { IGitOpsContext } from './GitOpsContext';
 import { unquoteCStylePath } from '../cQuote';
+import { fromGitPath } from '../fromGitPath';
 
 /**
  * One linked-or-main working tree as reported by
@@ -251,7 +252,12 @@ export class WorktreeOps implements IWorktreeCapableService {
     ).andThen((result) =>
       result.exitCode !== 0
         ? err(new CommandFailedError(result.exitCode, result.stderr))
-        : ok(parseWorktreeList(result.stdout))
+        : ok(
+            parseWorktreeList(result.stdout).map((entry) => ({
+              ...entry,
+              path: fromGitPath(entry.path),
+            }))
+          )
     );
   }
 

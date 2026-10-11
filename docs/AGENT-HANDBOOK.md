@@ -238,6 +238,13 @@ Tests & tooling:
 
 Runtime & platform:
 
+- **Windows spells one path three ways.** Git prints `D:/a/x`, Node and
+  VS Code spell `D:\a\x` (VS Code with a lowercase drive), temp dirs can
+  surface as 8.3 short names, and grep output adds the drive's colon. A
+  macOS or Linux run cannot see any of it, so only the Windows CI job does.
+  Absolute paths read from git go through `fromGitPath`; tests compare paths
+  through `isSamePath` (`check:test-path-equality`); guard scripts split and
+  relativize through `scripts/lib` (`check:script-host-paths`).
 - **Monaco cannot mirror its gutter/glyph margin** — it's always at the
   pane's left edge. That's why the merge window uses divider-hugging
   action strips; don't "simplify" back to glyph margins (user-rejected,
