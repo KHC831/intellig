@@ -49,27 +49,30 @@ describe('split_grep_hit (scripts/lib/grep-hit.sh)', () => {
     assert.deepStrictEqual(split('a:5:text'), ['a', '5', 'text']);
   });
 
-  it('lets a guard scanning a drive-lettered root name the offending file', () => {
-    // A directory literally named `D:` makes grep print the Windows hit shape
-    // on any host.
-    const cwd = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'grep-hit-drive-'));
-    const src = path.join(cwd, 'D:', 'src');
-    fs.mkdirSync(path.join(src, 'webview-common'), { recursive: true });
-    fs.writeFileSync(
-      path.join(src, 'webview-common', 'placeNearPointer.ts'),
-      'const w = window.innerWidth;\nconst h = window.innerHeight;\n'
-    );
-    fs.writeFileSync(
-      path.join(src, 'menu.ts'),
-      'const x = Math.min(a, view.innerWidth - w);\nconst y = Math.min(b, view.innerHeight - h);\n'
-    );
-    const r = spawnSync(
-      'bash',
-      [path.join(process.cwd(), 'scripts/check-popup-placement-shared.sh'), 'D:/src'],
-      { cwd, encoding: 'utf8' }
-    );
-    assert.strictEqual(r.status, 1, r.stderr);
-    assert.match(r.stderr, /D:\/src\/menu\.ts:1/);
-    assert.doesNotMatch(r.stderr, /No such file|syntax error/);
-  });
+  // A directory literally named `D:` makes grep print the Windows hit shape on
+  // a POSIX host; Windows cannot create one, and prints that shape natively.
+  (process.platform === 'win32' ? it.skip : it)(
+    'lets a guard scanning a drive-lettered root name the offending file',
+    () => {
+      const cwd = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'grep-hit-drive-'));
+      const src = path.join(cwd, 'D:', 'src');
+      fs.mkdirSync(path.join(src, 'webview-common'), { recursive: true });
+      fs.writeFileSync(
+        path.join(src, 'webview-common', 'placeNearPointer.ts'),
+        'const w = window.innerWidth;\nconst h = window.innerHeight;\n'
+      );
+      fs.writeFileSync(
+        path.join(src, 'menu.ts'),
+        'const x = Math.min(a, view.innerWidth - w);\nconst y = Math.min(b, view.innerHeight - h);\n'
+      );
+      const r = spawnSync(
+        'bash',
+        [path.join(process.cwd(), 'scripts/check-popup-placement-shared.sh'), 'D:/src'],
+        { cwd, encoding: 'utf8' }
+      );
+      assert.strictEqual(r.status, 1, r.stderr);
+      assert.match(r.stderr, /D:\/src\/menu\.ts:1/);
+      assert.doesNotMatch(r.stderr, /No such file|syntax error/);
+    }
+  );
 });

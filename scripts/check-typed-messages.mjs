@@ -141,7 +141,10 @@ function main() {
   const srcDir = process.argv[2] ?? join(root, 'src');
   const allowlist = new Set(
     process.argv[3] !== undefined
-      ? process.argv[3].split(',').filter((s) => s.length > 0)
+      ? process.argv[3]
+          .split(',')
+          .filter((s) => s.length > 0)
+          .map((s) => s.replace(/\\/g, '/'))
       : NOT_YET_MIGRATED_DEFAULT
   );
 
