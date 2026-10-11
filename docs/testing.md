@@ -98,10 +98,14 @@ For test coverage — the `npm run coverage` report, the patch-coverage PR
 gate, and how to make that gate airtight by merging coverage across these
 lanes — see [coverage.md](./coverage.md).
 
-These are exactly the lanes `.github/workflows/ci.yml` runs
-(`test:ext-host` and `test:e2e` under `xvfb-run -a`; `test:visual` against a
-Chromium pinned to the `playwright-core` version, so a runner base-image bump
-cannot change what the assertions measure). Each Electron lane
+These are exactly the lanes `.github/workflows/ci.yml` runs, on pull
+requests only (drafts skipped, a newer push cancelling the run in progress).
+On Linux the property lane runs through `test:property:stress` alone. CI
+compiles once (`compile`, `compile:tests`) and then runs the Electron lanes
+through `test:ext-host:run` and `test:e2e:run`, which skip the rebuild that
+`test:ext-host` and `test:e2e` do locally (both under `xvfb-run -a` on Linux;
+`test:visual` against a Chromium pinned to the `playwright-core` version, so
+a runner base-image bump cannot change what the assertions measure). Each Electron lane
 (`test:ext-host`, `test:e2e`) launches with
 `--disable-extensions --disable-workspace-trust` so it runs fully
 unattended — no workspace-trust modal, no extension-recommendations
