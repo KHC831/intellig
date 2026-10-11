@@ -1,10 +1,16 @@
 name: CI
 
+# Pull requests only: a merge into main would re-run what the PR already
+# passed. Drafts are skipped until marked ready for review.
 on:
-  push:
-    branches: [main, master, feat/**, fix/**]
   pull_request:
     branches: [main, master, feat/**]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# A new push to a PR cancels that PR's run still in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +19,7 @@ jobs:
   test:
     name: Build & test
     runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
     # 25 min: the e2e + ext-host lanes routinely run 12-14 min on a
     # contended runner; 15 min cliff was timing out runs whose actual
     # work succeeded. Headroom > tight gate when the timeout is killing
@@ -48,8 +55,12 @@ jobs:
       - name: Lint
         run: npm run lint -- --max-warnings 0
 
+      # Built once here; the Electron lanes below run against this build.
       - name: Compile
         run: npm run compile
+
+      - name: Compile tests
+        run: npm run compile:tests
 
       # TL-100. Single umbrella step replacing 8 individual structural-
       # guard invocations. Adding a new guard now means appending one
@@ -104,9 +115,6 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
-      - name: Property tests (single run)
-        run: npm run test:property
-
       # R6 Gap-D: 10× property-test stress guard. R4's 5× budget caught TR-5
       # but missed TR-6 / TR-7, which were latent through R1-R3. A 10× budget
       # keeps the same class of flake from slipping again.
@@ -122,14 +130,14 @@ jobs:
       # command is registered. Catches duplicate-register + webview-CSP
       # regressions that unit-test mocks silently paper over.
       - name: Extension-host smoke tests
-        run: xvfb-run -a npm run test:ext-host
+        run: xvfb-run -a npm run test:ext-host:run
 
       # Tier-2 command E2E suite. Runs each shipped command against a real
       # temp-dir git repo and verifies the effect by re-reading git state.
       # Catches command-level regressions that depend on real git subprocess
       # output (not the in-process mocks the unit suite uses).
       - name: Tier-2 command E2E tests
-        run: xvfb-run -a npm run test:e2e
+        run: xvfb-run -a npm run test:e2e:run
 
       # Computed-style lane. Renders production css + production markup in a
       # real engine and asserts resolved values, which is the only lane with a
@@ -154,6 +162,7 @@ jobs:
   cross-os:
     name: Cross-OS unit/property (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -177,6 +186,7 @@ jobs:
   e2e-macos:
     name: Tier-2 E2E (macOS)
     runs-on: macos-latest
+    if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
@@ -184,12 +194,14 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npm run test:ext-host
-      - run: npm run test:e2e
+      - run: npm run compile
+      - run: npm run compile:tests
+      - run: npm run test:ext-host:run
+      - run: npm run test:e2e:run
 
-  # Patch coverage: new/changed source lines in a PR must be tested. Runs only
-  # on pull_request (it diffs against the PR base), generates unit-lane coverage,
-  # then fails if changed executable lines fall below the threshold. Complements
+  # Patch coverage: new/changed source lines in a PR must be tested. Diffs
+  # against the PR base, generates unit-lane coverage, then fails if changed
+  # executable lines fall below the threshold. Complements
   # the global suite — the global % barely moves when a small untested branch
   # lands, but this gate catches it on the lines that changed. fetch-depth: 0 so
   # the base ref is present to diff against. e2e/ext-host-only paths are excluded
@@ -197,7 +209,7 @@ jobs:
   patch-coverage:
     name: Patch coverage (changed lines)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
