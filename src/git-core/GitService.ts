@@ -238,7 +238,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
    * POSIX literal paths overwrite this with `path.posix` so the discovery joins
    * and prefix checks stay consistent with those fixtures on any runner.
    */
-  private _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'> = path;
+  private _repoScanPath: Pick<typeof path, 'join' | 'normalize'> = path;
 
   /**
    * Watchers that fire when a NEW `.git/` directory is created mid-session
@@ -731,7 +731,7 @@ export class GitService implements IGitService, IGitServiceCli, IGitWorkingTreeE
     // .has(folderPath)`) misses the duplicate and stacks watchers.
     // `path.normalize` is platform-aware and cheap; on macOS/Linux it's
     // an idempotent no-op for already-canonical paths.
-    const folderPath = path.normalize(rawFolderPath);
+    const folderPath = this._repoScanPath.normalize(rawFolderPath);
     const maxDepth = readConfig('repositoryScanMaxDepth');
     const ignoredFolders = readConfig('repositoryScanIgnoredFolders');
 

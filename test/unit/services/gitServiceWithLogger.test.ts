@@ -342,7 +342,7 @@ interface GitServiceWaypointSurface {
   loadRepository: (root: string) => Promise<IRepository>;
   setupRepositoryWatcher: (root: string) => void;
   _repoScanFs: IRepoScanFs;
-  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
+  _repoScanPath: Pick<typeof path, 'join' | 'normalize'>;
   discoverRepository: (path: string) => Promise<void>;
   _performDebouncedRefresh: (root: string) => Promise<void>;
 }

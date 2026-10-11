@@ -65,7 +65,7 @@ interface DiscoverTestSurface {
   setupRepositoryWatcher: (root: string) => void;
   discoverRepository: (path: string) => Promise<void>;
   _repoScanFs: IRepoScanFs;
-  _repoScanPath: Pick<typeof path, 'join' | 'dirname' | 'sep'>;
+  _repoScanPath: Pick<typeof path, 'join' | 'normalize'>;
 }
 
 /**
