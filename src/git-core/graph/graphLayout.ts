@@ -1,3 +1,6 @@
+// Ported from intellij-community platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/permanent/GraphLayoutBuilder.kt
+// and GraphLayoutImpl.kt. Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache 2.0 license.
+
 /**
  * Faithful TypeScript port of IntelliJ's graph-layout ownership engine —
  * `GraphLayoutBuilder` + `GraphLayoutImpl` (platform/vcs-log/graph).

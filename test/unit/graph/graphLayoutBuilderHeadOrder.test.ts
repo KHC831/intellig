@@ -1,3 +1,6 @@
+// Ported from intellij-community platform/vcs-log/graph/test/com/intellij/vcs/log/graph/impl/permanent/GraphLayoutBuilderHeadOrderTest.kt
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache 2.0 license.
+
 /**
  * Verbatim port of IntelliJ's
  * `platform/vcs-log/graph/test/.../permanent/GraphLayoutBuilderHeadOrderTest.kt`.

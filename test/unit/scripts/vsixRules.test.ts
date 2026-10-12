@@ -136,10 +136,18 @@ describe('scripts/lib/vsix-rules.sh — shared .vsix content rules', () => {
       assert.match(r.stdout, /resources\/git-icon-branch\.svg/, r.stdout);
       assert.match(r.stdout, /images\/icon\.png/, r.stdout);
       assert.match(r.stdout, /media\/codicon\.ttf/, r.stdout);
+      assert.match(r.stdout, /^NOTICE$/m, r.stdout);
+      assert.match(r.stdout, /^THIRD_PARTY_NOTICES\.md$/m, r.stdout);
+      assert.match(r.stdout, /media\/monaco\/ThirdPartyNotices\.txt/, r.stdout);
     });
 
     it('reports nothing when all required entries are present', () => {
       const r = evaluate('vsix_missing_required', [
+        'LICENSE',
+        'NOTICE',
+        'THIRD_PARTY_NOTICES.md',
+        'media/monaco/LICENSE',
+        'media/monaco/ThirdPartyNotices.txt',
         'dist/extension.js',
         'dist/rebaseTodoEditor.js',
         'media/mergeWindow.js',

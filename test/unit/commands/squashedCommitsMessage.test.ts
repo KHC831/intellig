@@ -1,3 +1,6 @@
+// Ported from intellij-community plugins/git4idea/tests/git4idea/rebase/GitSquashedCommitsMessageTest.kt
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache 2.0 license.
+
 /**
  * Unit tests for the squashed-commits message rules, ported from git4idea's
  * GitSquashedCommitsMessageTest.kt (plugins/git4idea/tests/git4idea/rebase/)

@@ -30,8 +30,9 @@
 #    on disk), then check THREE directions via vsix-rules.sh:
 #      - ALLOW (primary): every listed entry MUST fall under an
 #        allowed prefix (dist/ media/ resources/) or be an exact root
-#        file (images/icon.png, README/CHANGELOG/SECURITY .md,
-#        LICENSE, package.json). Anything else fails — this closes the
+#        file (images/icon.png, README/CHANGELOG/SECURITY .md, LICENSE,
+#        NOTICE, THIRD_PARTY_NOTICES.md, package.json). Anything else
+#        fails — this closes the
 #        leak class the deny-list alone cannot (an unknown internal
 #        file matches nothing allowed).
 #      - FORBIDDEN (second net): a hand-curated pattern list covering
@@ -195,7 +196,8 @@ if [ -n "$NOT_ALLOWED" ]; then
   echo ""
   echo "[check:vsix-clean] Every packaged entry must fall under dist/, media/,"
   echo "  resources/, or the exact root set (images/icon.png, README.md,"
-  echo "  CHANGELOG.md, LICENSE, SECURITY.md, package.json). Audit .vscodeignore;"
+  echo "  CHANGELOG.md, LICENSE, NOTICE, THIRD_PARTY_NOTICES.md, SECURITY.md,"
+  echo "  package.json). Audit .vscodeignore;"
   echo "  if the file legitimately ships, add it to VSIX_ALLOWED_* in"
   echo "  scripts/lib/vsix-rules.sh."
   exit 1
