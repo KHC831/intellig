@@ -207,8 +207,10 @@ Build & packaging:
   debugging or you'll step through minified code.
 - **Icons**: rasterize with `npx sharp-cli`; macOS `qlmanage` rounds
   corners and shrinks SVGs.
-- **README screenshots** are served from the PUBLIC `intellig-issues`
-  repo (the origin repo is private — marketplace can't read its raws).
+- **README screenshots** live in `images/screenshots/` and are linked by
+  relative path; `vsce` rewrites them to absolute GitHub URLs from the
+  `repository` field, so they render on the Marketplace only while this
+  repository is public.
 
 Tests & tooling:
 

@@ -30,12 +30,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/KHC831/intellig-issues"
+    "url": "https://github.com/KHC831/intellig"
   },
   "bugs": {
-    "url": "https://github.com/KHC831/intellig-issues/issues"
+    "url": "https://github.com/KHC831/intellig/issues"
   },
-  "homepage": "https://github.com/KHC831/intellig-issues#readme",
+  "homepage": "https://github.com/KHC831/intellig#readme",
   "license": "Apache-2.0",
   "activationEvents": [
     "onStartupFinished",
