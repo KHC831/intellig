@@ -37,6 +37,16 @@
   },
   "homepage": "https://github.com/KHC831/intellig#readme",
   "license": "Apache-2.0",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "IntelliG runs git in the workspace, and a repository's git config and hooks can run programs."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "IntelliG runs the git command line, which needs the files on disk."
+    }
+  },
   "activationEvents": [
     "onStartupFinished",
     "onWebviewPanel:intellig.gitLogPanel"
