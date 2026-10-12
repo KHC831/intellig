@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Dev tooling only: the extension has no runtime dependencies (everything
+  # ships bundled). Grouped so a week's updates arrive as one pull request.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

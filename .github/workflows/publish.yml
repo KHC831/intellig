@@ -57,6 +57,9 @@ jobs:
   publish:
     name: Build & publish
     runs-on: ubuntu-latest
+    # The `release` environment holds the gallery tokens and requires the
+    # maintainer's approval before this job starts.
+    environment: release
     # 30 min: same gates as CI (lint, compile, unit, property — ~5 min)
     # plus the build + Marketplace + Open VSX upload (~3-5 min, network-
     # dependent). 30 leaves enough headroom for either gallery to be
@@ -66,7 +69,7 @@ jobs:
     steps:
       - name: Checkout
         # v5+ runs on Node 24 (clears the mid-2026 deprecation).
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # Required so the workflow can push the tag it creates on
           # a manual dispatch (the default checkout uses a token that
@@ -82,7 +85,7 @@ jobs:
         # which marks the entire run as failed even when every publish
         # step has already succeeded. The honest signal is worth the
         # ~30s lost on each `npm ci` cold install.
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22'
 
@@ -229,7 +232,7 @@ jobs:
         # v6+ defaults to Node 24 (clears the mid-2026 deprecation).
         # v5 had preliminary Node 24 support but still ran on Node 20
         # by default; only v6+ flips the default.
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: intellig-vsix
           path: intellig-*.vsix

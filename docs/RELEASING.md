@@ -301,9 +301,15 @@ npm run test:unit && npm run test:property`).
 
 ### One-time GitHub setup
 
-The Action reads two secrets. Add them at:
-**repo → Settings → Secrets and variables → Actions → New
-repository secret.**
+The publish job runs in the `release` environment and reads two secrets
+from it. Set it up at **repo → Settings → Environments → New environment**,
+named `release`:
+
+- **Required reviewers:** the maintainer, so every publish waits for an
+  explicit approval.
+- **Deployment branches and tags:** tags matching `v*`.
+- **Environment secrets:** the two below. Keep them only here, not as
+  repository secrets, so no other workflow can read them.
 
 - `OPEN_VSX_TOKEN` — **REQUIRED**. Open VSX token from
   <https://open-vsx.org/user-settings/tokens>. The Open VSX publish
