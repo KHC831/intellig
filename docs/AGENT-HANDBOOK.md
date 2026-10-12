@@ -32,8 +32,8 @@ WORK on it.
    task IDs, or SHAs in code comments or commit messages.
 7. **Read IntelliJ source, don't guess.** IntelliJ is a REFERENCE, not a
    spec (unpinned 2026-07-03) — but when you DO lean on its behavior,
-   read the actual source in `~/Documents/workspace/intellij-community`
-   (usually `plugins/git4idea` or `platform/diff-impl` /
+   read the actual source in a local clone of
+   https://github.com/JetBrains/intellij-community (usually `plugins/git4idea` or `platform/diff-impl` /
    `platform/util/diff`) and cite the path. Guessing has shipped
    silent-wrong behavior.
 8. **Dogfood before "done".** Tests passing ≠ working software. UI work
@@ -358,11 +358,10 @@ tests; the lead designs and reviews and writes no code itself.
   8451, property 747; `gate:full` adds ext-host 28, e2e 161, visual 216,
   mutation lane 19/19 (see `docs/testing.md`, "The test surface is the CI
   lanes", for the mutation lane's not-in-CI status and what it does).
-- The user owes an F5 dogfood pass over the new command surfaces and the
-  merge window (now the default conflict surface).
-- Before the first marketplace release shipping ported IntelliJ code: add
-  the Apache 2.0 provenance NOTICE entry (ported files carry per-file
-  headers already).
+- IntelliG is licensed under Apache-2.0. Code translated from IntelliJ
+  keeps JetBrains' copyright line and is listed in
+  `scripts/ported-files.json`; `check:port-headers` enforces both, and
+  NOTICE / THIRD_PARTY_NOTICES.md ship in the package.
 - BranchContextMenuCommands is fully on the tree-item spine scope
   (registerTreeItemCommand; check:spine-registration now scans the file).
   CommitContextMenuCommands needs no registration-scope work: it registers

@@ -55,7 +55,7 @@ by construction: a row with _k_ visible lanes always fills columns
 
 This mirrors IntelliJ's `getSortedVisibleElementsInRow`
 (`platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/print/PrintElementGeneratorImpl.kt:246-268`
-in the vendored source at `~/Documents/workspace/intellij-community/platform/vcs-log`):
+in https://github.com/JetBrains/intellij-community):
 it collects every element visible in the row and sorts it once
 (`Collections.sort(result, elementComparator)`), so an element's
 printed position is its rank in that per-row sorted list, not a
@@ -130,7 +130,7 @@ direction-dependent: a DOWN stub runs `rowCenter` to `rowHeight`
 (the row's bottom edge); an UP stub runs the opposite way, `rowCenter`
 to `0` (the row's top edge)
 (`platform/vcs-log/impl/src/com/intellij/vcs/log/paint/SimpleGraphCellPainter.kt:158-161`
-in the vendored source at `~/Documents/workspace/intellij-community`). A
+in https://github.com/JetBrains/intellij-community). A
 non-vertical edge always runs a full row height from the same start:
 a DOWN half ends `rowCenter` beyond the bottom edge at `rowHeight +
 rowCenter`, and an UP half ends `rowHeight - rowCenter` beyond the

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-IntelliG is a VS Code extension bringing IntelliJ's git tooling (`git4idea`) to VS Code. IntelliJ is a behavioral reference, not a spec: when you lean on its behavior, read the actual source at `~/Documents/workspace/intellij-community/plugins/git4idea` and cite the path — never guess.
+IntelliG is a VS Code extension bringing IntelliJ's git tooling (`git4idea`) to VS Code. IntelliJ is a behavioral reference, not a spec: when you lean on its behavior, read the actual source in a local clone of https://github.com/JetBrains/intellij-community (`plugins/git4idea`) and cite the path — never guess.
 
 Read next: `docs/ARCHITECTURE.md` (what the code is), `docs/AGENT-HANDBOOK.md` (how to work on it — golden rules, locked product decisions, every trap already hit), `docs/testing.md` (test layers), `docs/adr/` (14 decision records — check before re-deciding anything structural).
 
