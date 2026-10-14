@@ -58,6 +58,8 @@ VSIX_ALLOWED_EXACT=(
   'CHANGELOG.md'
   'LICENSE'
   'LICENSE.txt'
+  'NOTICE'
+  'THIRD_PARTY_NOTICES.md'
   'SECURITY.md'
   'package.json'
 )
@@ -70,10 +72,16 @@ VSIX_ALLOWED_EXACT=(
 # the day it ships, without touching this file.
 VSIX_VENDORED_JS_PREFIX='media/monaco/'
 
-# Runtime manifest — every entry MUST appear in the listing. Missing
+# Required manifest — every entry MUST appear in the listing. Missing
 # a bundle/asset = activation-dead (0.2.3 class); missing an icon =
-# a visually-broken package that ships undetected.
+# a visually-broken package that ships undetected; missing a license or
+# notice file = a package that breaks its Apache-2.0, MIT or CC-BY terms.
 VSIX_REQUIRED_FILES=(
+  'LICENSE'
+  'NOTICE'
+  'THIRD_PARTY_NOTICES.md'
+  'media/monaco/LICENSE'
+  'media/monaco/ThirdPartyNotices.txt'
   'dist/extension.js'
   'dist/rebaseTodoEditor.js'
   'media/mergeWindow.js'

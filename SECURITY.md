@@ -11,7 +11,7 @@ later) before reporting a vulnerability.
 Please report security vulnerabilities privately via GitHub's private
 vulnerability reporting:
 
-<https://github.com/KHC831/intellig-issues/security/advisories/new>
+<https://github.com/KHC831/intellig/security/advisories/new>
 
 Reports filed through that flow are visible only to the repository
 maintainers. Do not file public GitHub issues for security bugs —

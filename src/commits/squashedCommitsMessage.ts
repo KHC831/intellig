@@ -1,3 +1,6 @@
+// Ported from intellij-community plugins/git4idea/backend/src/rebase/GitSquashedCommitsMessage.kt
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache 2.0 license.
+
 /**
  * Message-combination rules for squashed commits, ported from git4idea's
  * GitSquashedCommitsMessage (plugins/git4idea/backend/src/rebase/

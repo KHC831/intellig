@@ -11,6 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = path.join(root, 'node_modules', 'monaco-editor', 'min', 'vs');
 const targetDir = path.join(root, 'media', 'monaco', 'vs');
 const versionMarker = path.join(root, 'media', 'monaco', '.version');
+// Monaco's license and its own third-party notices ship beside the code they cover.
+const LEGAL_FILES = ['LICENSE', 'ThirdPartyNotices.txt'];
 
 const monacoVersion = JSON.parse(
   fs.readFileSync(path.join(root, 'node_modules', 'monaco-editor', 'package.json'), 'utf8')
@@ -24,7 +26,8 @@ if (!fs.existsSync(sourceDir)) {
 const upToDate =
   fs.existsSync(versionMarker) &&
   fs.readFileSync(versionMarker, 'utf8').trim() === monacoVersion &&
-  fs.existsSync(path.join(targetDir, 'loader.js'));
+  fs.existsSync(path.join(targetDir, 'loader.js')) &&
+  LEGAL_FILES.every((name) => fs.existsSync(path.join(root, 'media', 'monaco', name)));
 if (upToDate) {
   console.log(`copy-monaco-assets: media/monaco/vs already at ${monacoVersion}`);
   process.exit(0);
@@ -32,5 +35,11 @@ if (upToDate) {
 
 fs.rmSync(path.join(root, 'media', 'monaco'), { recursive: true, force: true });
 fs.cpSync(sourceDir, targetDir, { recursive: true });
+for (const name of LEGAL_FILES) {
+  fs.copyFileSync(
+    path.join(root, 'node_modules', 'monaco-editor', name),
+    path.join(root, 'media', 'monaco', name)
+  );
+}
 fs.writeFileSync(versionMarker, `${monacoVersion}\n`);
 console.log(`copy-monaco-assets: copied monaco-editor@${monacoVersion} min/vs → media/monaco/vs`);

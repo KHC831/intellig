@@ -1,3 +1,6 @@
+// layoutPriority is ported from intellij-community plugins/git4idea/backend/src/log/GitRefManager.kt
+// (GitBranchLayoutComparator). Copyright 2000-2023 JetBrains s.r.o. and contributors. Apache 2.0 license.
+
 /**
  * Per-branch graph coloring — "color follows the branch, not the lane".
  *

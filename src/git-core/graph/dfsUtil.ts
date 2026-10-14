@@ -1,3 +1,6 @@
+// Ported from intellij-community platform/vcs-log/graph/src/com/intellij/vcs/log/graph/utils/DfsUtil.kt
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache 2.0 license.
+
 /**
  * Faithful port of IntelliJ's `DfsUtil` (platform/vcs-log/graph) — the
  * stack-based DFS driver `GraphLayoutBuilder` uses to walk a graph fragment.

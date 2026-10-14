@@ -3,6 +3,9 @@
  * `ICheckinHandler` / `CheckinHandlerFactory` mechanism
  * (`GitCheckinHandlerFactory.kt:55-516`).
  *
+ * intellij-reference-only: follows the shape of git4idea's handler chain; the
+ * checks and their code are IntelliG's own.
+ *
  * git4idea runs a chain of independent handlers before a commit lands; each
  * returns a `CommitProblem` (or nothing) that can warn, block, or offer a
  * modal fix. IntelliG mirrors the shape with a much smaller surface:

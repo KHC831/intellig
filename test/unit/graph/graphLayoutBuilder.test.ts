@@ -1,3 +1,6 @@
+// Adapted from intellij-community platform/vcs-log/graph/test/com/intellij/vcs/log/graph/impl/permanent/GraphLayoutBuilderTest.java
+// Copyright 2000-2014 JetBrains s.r.o. Apache 2.0 license.
+
 /**
  * Port of the INTENT of IntelliJ's
  * `platform/vcs-log/graph/test/.../permanent/GraphLayoutBuilderTest.java`.

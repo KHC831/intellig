@@ -38,6 +38,8 @@ coverage/
 .agent/
 AGENT_WORKSPACE.md
 workspace-notes/
+# Personal Claude Code settings; nothing under .claude/ is shared
+.claude/settings.local.json
 
 # Reviewer / runtime-verification scratchpad — local artifacts (e.g. UX-
 # reviewer's runtime-check probes), never committed.

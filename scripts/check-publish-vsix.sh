@@ -48,7 +48,7 @@
 #      guard cannot intercept. The check is run as part of the
 #      publish-flow npm script, not a vsce hook. A human who runs
 #      `vsce publish` directly and bypasses the npm script bypasses
-#      this guard. Documented in CONTRIBUTING.md publish flow.
+#      this guard. Documented in docs/RELEASING.md.
 #
 # 5. Retirement criteria
 #    Retire when the Marketplace gains attestation / signed
@@ -94,7 +94,7 @@ if [ "${#violations[@]}" -gt 0 ]; then
   echo "  \`npm run package:dogfood\`, which engages the placeholder bypass"
   echo "  and is for LOCAL DOGFOOD ONLY. Build a real .vsix via"
   echo "  \`npx --yes @vscode/vsce@2.24.0 package\` (no env vars set)"
-  echo "  before publishing. See CONTRIBUTING.md section 'Publishing to the"
+  echo "  before publishing. See docs/RELEASING.md section 'Publishing to the"
   echo "  Marketplace' for the full flow."
   exit 1
 fi

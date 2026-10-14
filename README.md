@@ -2,7 +2,7 @@
 
 IntelliG is a native-feeling Git UI for VS Code users who miss IntelliJ's. It brings the workflows that made Git pleasant in IntelliJ IDEA's `git4idea` into VS Code: changelists, the branch popup, the shelf, the interactive-rebase planner, the commit-graph log, a three-pane merge window, and inline blame annotations. Rather than transplant Swing, IntelliG rebuilds those workflows the VS Code way and settles into native touchpoints like the diff editor and Explorer context menus.
 
-![The IntelliG log with graph visualization](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/graph.png)
+![The IntelliG log with graph visualization](images/screenshots/graph.png)
 
 ## Marketplace
 
@@ -17,31 +17,31 @@ Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click 
 
 **Three-way merge window** — resolve conflicts IntelliJ-style: yours, the merged result, and theirs side by side. Accept a side (or both) per conflict, or apply all non-conflicting changes in one click.
 
-![Three-way merge window](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/merge.png)
+![Three-way merge window](images/screenshots/merge.png)
 
 **Inline blame** — per-line author, date, and commit as you read, color-coded by commit. Gutter and inline styles, whitespace/movement detection, and open-on-GitHub from the hover.
 
-![Inline blame annotations](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/blame.png)
+![Inline blame annotations](images/screenshots/blame.png)
 
 **Commit tool window** — Local Changes with staged, unstaged, and untracked files.
 
-![Commit tool window](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/commit.png)
+![Commit tool window](images/screenshots/commit.png)
 
 **Branch popup** — local, remote, and tag groups with contextual actions.
 
-![Branch popup](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/branch.png)
+![Branch popup](images/screenshots/branch.png)
 
 **Incoming tab** — commits waiting upstream before you pull.
 
-![Incoming commits tab](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/incoming.png)
+![Incoming commits tab](images/screenshots/incoming.png)
 
 **File history** — follows renames across the file's whole history.
 
-![File history following a rename](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/history.png)
+![File history following a rename](images/screenshots/history.png)
 
 **Shelve Changes** — pick which files to shelve in a dedicated dialog.
 
-![Shelve Changes dialog](https://raw.githubusercontent.com/KHC831/intellig-issues/main/images/screenshots/shelf.png)
+![Shelve Changes dialog](images/screenshots/shelf.png)
 
 ## Features
 
@@ -354,11 +354,12 @@ chord that behaves differently under the preset.
 
 ## Feedback & Issues
 
-Found a bug, have a question, or want to request a feature? [Open an issue](https://github.com/KHC831/intellig-issues/issues) on the public issue tracker.
+Found a bug, have a question, or want to request a feature? [Open an issue](https://github.com/KHC831/intellig/issues). Pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For security vulnerabilities, please use [GitHub's private vulnerability reporting](https://github.com/KHC831/intellig-issues/security/advisories/new) — your report stays private to repo maintainers and isn't disclosed publicly until a fix ships.
+For security vulnerabilities, please use [GitHub's private vulnerability reporting](https://github.com/KHC831/intellig/security/advisories/new) — your report stays private to repo maintainers and isn't disclosed publicly until a fix ships.
 
 ## License
 
-Proprietary — all rights reserved. The full LICENSE file is included
-in the extension package. For licensing inquiries, [open an issue](https://github.com/KHC831/intellig-issues/issues) tagged `licensing`.
+IntelliG is open source under the [Apache License 2.0](LICENSE). It includes
+code derived from the IntelliJ Platform (see [NOTICE](NOTICE)) and bundles the
+third-party software listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
