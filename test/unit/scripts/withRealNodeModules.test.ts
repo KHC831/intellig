@@ -229,17 +229,40 @@ describe('scripts/lib/with-real-node-modules.sh — symlink-tolerant node_module
       const child = spawn('bash', [SCRIPT, 'sleep', '30'], {
         cwd: repo,
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
       });
-      const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
+      let stderr = '';
+      child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+      const exited = new Promise<boolean>((resolve) => child.on('exit', () => resolve(true)));
 
-      // Wait until the helper has swapped a real clone into place.
-      await waitUntil(() => !fs.lstatSync(nm).isSymbolicLink());
+      // Wait until the helper has swapped a real clone into place. Between
+      // its two renames node_modules briefly does not exist at all.
+      await waitUntil(() => fs.existsSync(nm) && !fs.lstatSync(nm).isSymbolicLink());
 
       // SIGTERM the process group (negative pid) so the sleep dies and the
       // helper's trap runs.
       process.kill(-child.pid!, 'SIGTERM');
-      await exited;
+      // A wrapper that ignores the signal would sit out the whole `sleep 30`:
+      // fail with what is still running instead of a bare mocha timeout.
+      const stopped = await Promise.race([
+        exited,
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+      ]);
+      if (!stopped) {
+        const ps = spawnSync('ps', ['-o', 'pid,stat,command', '-g', String(child.pid)], {
+          encoding: 'utf8',
+        }).stdout;
+        const nmState = fs.existsSync(nm)
+          ? fs.lstatSync(nm).isSymbolicLink()
+            ? 'symlink'
+            : 'real directory'
+          : 'missing';
+        process.kill(-child.pid!, 'SIGKILL');
+        assert.fail(
+          `the wrapper was still running 8s after SIGTERM\n` +
+            `node_modules: ${nmState}\nprocesses:\n${ps}\nwrapper stderr:\n${stderr}`
+        );
+      }
 
       assert.ok(
         fs.lstatSync(nm).isSymbolicLink(),
