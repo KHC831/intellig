@@ -175,11 +175,15 @@ clone_tree() {
 
 acquire_lock
 # On a signal, stop the wrapped command (if it has started) and let it exit
-# before node_modules is restored under it.
+# before node_modules is restored under it. A command that survives SIGTERM is
+# killed after 2s, so a signal can never leave the swap in place.
 stop_command() {
   if [ -n "${COMMAND_PID:-}" ]; then
     kill -TERM "$COMMAND_PID" 2>/dev/null || true
+    (sleep 2 && kill -KILL "$COMMAND_PID" 2>/dev/null) &
+    local killer=$!
     wait "$COMMAND_PID" 2>/dev/null || true
+    kill "$killer" 2>/dev/null || true
   fi
 }
 
