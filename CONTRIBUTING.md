@@ -16,9 +16,13 @@ Thanks for your interest in contributing to IntelliG.
   A file that translates IntelliJ code keeps JetBrains' copyright line in its
   header and is listed in [`scripts/ported-files.json`](scripts/ported-files.json);
   `npm run check:port-headers` enforces both.
+- **Bundled packages.** Every package that ships inside the extension has a
+  section in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) naming its
+  installed version; `npm run check:third-party-notices` fails until an
+  upgrade updates it.
 - **Pull requests.** Open an issue first for anything larger than a small fix,
   so the approach can be agreed before you build it. CI runs on pull requests;
-  for a first-time contributor a maintainer approves the run. The gate below
+  for an outside contributor a maintainer approves the run. The gate below
   must pass, and UI changes need a manual check in the Extension Development
   Host (F5).
 
