@@ -189,17 +189,11 @@ describe('File History — real git (IntelliJ GitFileHistoryTest parity)', funct
     assert.ok(msgs.includes('add a.txt'), 'original add is present');
   });
 
-  it('does not return EMPTY history for a rename made inside a merge commit (--follow merge bug guard)', async () => {
-    // IntelliJ (GitFileHistoryTest "history through merged rename") recovers the
-    // full pre-rename chain via a manual rename walk. We approximate with
-    // `git log --follow`, which has a known bug: a rename performed *inside a
-    // merge commit* makes `--follow` return nothing. The fallback in
-    // `_getFileHistory` retries without `--follow` so the file still shows at
-    // least git's default history (the rename/merge commit) instead of an empty
-    // list. Recovering the deeper pre-rename branch edits would require porting
-    // IntelliJ's manual walk and is a known parity gap, recorded here.
+  /** IntelliJ's "history through merged rename": a.txt is renamed to dir/b.txt inside the merge commit. */
+  function renameInsideMerge(): void {
     commitFile('initial.txt', 'i\n', 'initial commit');
     const branchingPoint = git('rev-parse', 'HEAD');
+    commitFile('unrelated.txt', 'u\n', 'add unrelated.txt');
 
     git('checkout', '-q', '-b', 'newBranch', branchingPoint);
     commitFile('a.txt', 'a\n', 'add a.txt on branch');
@@ -210,13 +204,33 @@ describe('File History — real git (IntelliJ GitFileHistoryTest parity)', funct
     fs.mkdirSync(path.join(dir, 'dir'), { recursive: true });
     git('mv', 'a.txt', 'dir/b.txt');
     git('commit', '-q', '-m', 'rename a.txt to dir/b.txt in merge');
+  }
 
-    const msgs = messages(await history('dir/b.txt', { follow: true }));
-    assert.ok(msgs.length > 0, 'must not be empty (the --follow-on-merge bug guard)');
-    assert.ok(
-      msgs.includes('rename a.txt to dir/b.txt in merge'),
-      'the merge/rename commit itself is shown'
-    );
+  it('follows a rename made inside a merge commit (IntelliJ: history through merged rename)', async () => {
+    // `git log --follow` loses this rename, and git versions lose different
+    // commits: 2.50 returns nothing, 2.56 returns the branch commits without the
+    // merge. Both must give IntelliJ's full history.
+    renameInsideMerge();
+
+    const h = messages(await history('dir/b.txt', { follow: true }));
+    assert.deepStrictEqual(h, [
+      'rename a.txt to dir/b.txt in merge',
+      'edit a.txt on branch',
+      'add a.txt on branch',
+    ]);
+  });
+
+  it('keeps the history from before a rename inside a merge when the file changes after it', async () => {
+    renameInsideMerge();
+    commitFile('dir/b.txt', 'a\nb\nc\n', 'edit dir/b.txt after the merge');
+
+    const h = messages(await history('dir/b.txt', { follow: true }));
+    assert.deepStrictEqual(h, [
+      'edit dir/b.txt after the merge',
+      'rename a.txt to dir/b.txt in merge',
+      'edit a.txt on branch',
+      'add a.txt on branch',
+    ]);
   });
 
   // ── branch scoping (IntelliJ: branches history) ────────────────────────────

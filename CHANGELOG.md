@@ -14,6 +14,11 @@ fresh empty `[Unreleased]` block is added on top.
 
 - IntelliG is now open source under the Apache License 2.0.
 
+### Fixed
+
+- On Linux, the Worktrees list updates when a worktree is locked or unlocked from a terminal.
+- File History shows the full history of a file renamed inside a merge commit, on any git version.
+
 ## [0.5.11] - 2026-10-11
 
 ### Added

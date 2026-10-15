@@ -26,6 +26,7 @@ import {
   getTagFormat,
 } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
+import { followedFileHistory } from './followedFileHistory';
 import { getOutputChannel } from '../../utils/outputChannel';
 import { isHexObjectId } from '../gitDirMarkers';
 
@@ -711,18 +712,12 @@ export class StashTagHistoryOps {
   ): Promise<ICommit[]> {
     // Standalone implementation so we can pass `--follow` and a
     // branch ref that the generic `getLog()` doesn't understand.
-    const commits = await this._runFileLog(repo, path, options, options?.follow === true);
-
-    // `git log --follow` has a long-standing bug: when a rename happens inside a
-    // MERGE commit it can return nothing at all (IntelliJ's GitFileHistory walks
-    // renames manually to avoid this). So if `--follow` came back empty, retry
-    // once without it — we then show at least git's default history for the path
-    // rather than an empty list. The non-merge rename case is unaffected because
-    // `--follow` returns results there and this fallback never runs.
-    if (commits.length === 0 && options?.follow === true) {
+    if (options?.follow !== true) {
       return this._runFileLog(repo, path, options, false);
     }
-    return commits;
+    return followedFileHistory(this.ctx.gitCli, repo, path, options, (p, o, follow) =>
+      this._runFileLog(repo, p, o, follow)
+    );
   }
 
   private async _runFileLog(
@@ -742,9 +737,7 @@ export class StashTagHistoryOps {
       // was later merged — a common workflow). Pairing it with
       // `--full-history --simplify-merges` walks the merged-in side so those
       // commits are retained, matching IntelliJ's full file-history output.
-      // (A rename performed *inside* a merge commit still defeats `--follow`,
-      // returning nothing; the empty-result fallback in `_getFileHistory`
-      // covers that rarer case.)
+      // A rename made inside a merge commit is followedFileHistory's job.
       flags.push('--follow', '--full-history', '--simplify-merges');
     }
     if (options?.maxCount !== undefined && options.maxCount > 0) {
