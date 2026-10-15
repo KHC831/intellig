@@ -118,6 +118,15 @@ describe('scripts/lib/vsix-rules.sh — shared .vsix content rules', () => {
       assert.deepStrictEqual(lines, ['dist/extension.js', 'package.json']);
     });
 
+    it("reads vsce's packaged LICENSE.txt as the LICENSE the required list names", () => {
+      // vsce renames a root LICENSE to LICENSE.txt inside the .vsix, while
+      // `vsce ls` (the pre-package check) lists it as LICENSE.
+      const norm = evaluate('vsix_normalize_zip_entries', ['extension/LICENSE.txt']);
+      assert.deepStrictEqual(norm.stdout.split('\n').filter(Boolean), ['LICENSE']);
+      const missing = evaluate('vsix_missing_required', norm.stdout.split('\n').filter(Boolean));
+      assert.doesNotMatch(missing.stdout, /^LICENSE$/m, missing.stdout);
+    });
+
     it('normalized dogfood-shaped entries feed the allow-list, which flags the leak', () => {
       const norm = evaluate('vsix_normalize_zip_entries', [
         'extension/dist/extension.js',

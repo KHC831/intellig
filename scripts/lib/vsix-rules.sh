@@ -139,15 +139,15 @@ vsix_allowlist_violations() {
 # package-metadata files at the archive root (`extension.vsixmanifest`,
 # `[Content_Types].xml`) that are not extension content; directory
 # entries carry a trailing slash. Strip the prefix, drop the metadata
-# files and directory entries.
+# files and directory entries. vsce also renames a root LICENSE to
+# LICENSE.txt in the archive; map it back so it matches the `vsce ls` name.
 vsix_normalize_zip_entries() {
   local line
   while IFS= read -r line; do
     case "$line" in
       extension.vsixmanifest | '[Content_Types].xml') continue ;;
       */) continue ;;
-    esac
-    case "$line" in
+      extension/LICENSE.txt) printf '%s\n' 'LICENSE' ;;
       extension/*) printf '%s\n' "${line#extension/}" ;;
     esac
   done
