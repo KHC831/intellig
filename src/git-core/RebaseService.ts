@@ -87,8 +87,7 @@ ELECTRON_RUN_AS_NODE=1 ${shellQuoteSh(toPosixPath(args.nodeBin))} ${shellQuoteSh
  * absence of information, not the information that nothing is conflicted.
  */
 type ConflictedFilesRead =
-  | { readonly ok: true; readonly files: string[] }
-  | { readonly ok: false; readonly stderr: string };
+  { readonly ok: true; readonly files: string[] } | { readonly ok: false; readonly stderr: string };
 
 export class RebaseService implements IRebaseService {
   private _gitCli: GitCli;

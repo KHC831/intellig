@@ -24,6 +24,10 @@ updates:
         update-types: ['version-update:semver-major', 'version-update:semver-minor']
       - dependency-name: '@vscode/codicons'
         update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      # A minor release can reformat code, failing lint until the PR runs
+      # `npm run fix`, which Dependabot cannot do.
+      - dependency-name: prettier
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
       # Builds the bundles; pre-1.0, so a minor can change the output.
       - dependency-name: esbuild
         update-types: ['version-update:semver-major', 'version-update:semver-minor']

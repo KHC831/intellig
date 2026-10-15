@@ -92,10 +92,7 @@ export type ConfigValues = {
   'blame.ignoreWhitespace': boolean;
   'blame.detectMovements': 'none' | 'within' | 'across';
   'diff.ignorePolicy':
-    | 'default'
-    | 'trim-whitespaces'
-    | 'ignore-whitespaces'
-    | 'ignore-whitespaces-empty-lines';
+    'default' | 'trim-whitespaces' | 'ignore-whitespaces' | 'ignore-whitespaces-empty-lines';
   'lineStatus.enabled': boolean;
   autoOpenResolveConflictsDialog: boolean;
   'mergeWindow.enabled': boolean;

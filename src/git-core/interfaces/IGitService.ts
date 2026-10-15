@@ -16,12 +16,7 @@ export type { FileStatus, DiffLineType, IDiffLine, IHunk, IDiff } from './gitMod
  * Repository state enumeration
  */
 export type RepositoryState =
-  | 'idle'
-  | 'merging'
-  | 'rebasing'
-  | 'applying'
-  | 'cherry-picking'
-  | 'reverting';
+  'idle' | 'merging' | 'rebasing' | 'applying' | 'cherry-picking' | 'reverting';
 
 /**
  * Payload describing an in-progress merge / rebase / cherry-pick / revert.

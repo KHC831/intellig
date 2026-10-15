@@ -7,13 +7,7 @@
  * Context menu action types for Local Changes View
  */
 export type LocalChangesContextAction =
-  | 'stage'
-  | 'unstage'
-  | 'revert'
-  | 'showDiff'
-  | 'moveToChangelist'
-  | 'shelve'
-  | 'delete';
+  'stage' | 'unstage' | 'revert' | 'showDiff' | 'moveToChangelist' | 'shelve' | 'delete';
 
 /**
  * Context menu action types for Log View.

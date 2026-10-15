@@ -112,8 +112,7 @@ export class ApplyPatchDialog extends BaseWebviewPanel<ApplyPatchDialogOutbound>
    * recent is kept — intermediate clicks describe trees already superseded.
    */
   private _pendingPreview:
-    | { msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>; generation: number }
-    | undefined;
+    { msg: Extract<ApplyPatchDialogInbound, { type: 'preview' }>; generation: number } | undefined;
 
   constructor(context: vscode.ExtensionContext, options: IApplyPatchDialogOptions) {
     super(context, VIEW_TYPE, TITLE, vscode.ViewColumn.One);

@@ -170,8 +170,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * fixed column width, so blank cells pad to the same size and stay aligned.
    */
   private _renderState:
-    | { uri: string; width: string; entries: Map<number, IGutterEntry> }
-    | undefined;
+    { uri: string; width: string; entries: Map<number, IGutterEntry> } | undefined;
   /**
    * `true` when annotation was turned on via the explicit "Annotate with Git
    * Blame" action (IntelliJ's AnnotateToggleAction), which always annotates

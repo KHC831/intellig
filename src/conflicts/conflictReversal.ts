@@ -17,12 +17,7 @@ export function isReversedOperation(operation?: IConflictOpContext['operation'])
 
 /** Git repository states the conflict service distinguishes. */
 export type ConflictRepoState =
-  | 'idle'
-  | 'merging'
-  | 'rebasing'
-  | 'applying'
-  | 'cherry-picking'
-  | 'reverting';
+  'idle' | 'merging' | 'rebasing' | 'applying' | 'cherry-picking' | 'reverting';
 
 /**
  * Operation to assume when (re)opening the Resolve Conflicts dialog and when

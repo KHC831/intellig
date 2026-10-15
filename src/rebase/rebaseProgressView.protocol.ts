@@ -40,10 +40,7 @@ export interface IRebaseProgressViewInit {
 }
 
 export type RebaseProgressViewInbound =
-  | { type: 'continue' }
-  | { type: 'abort' }
-  | { type: 'skip' }
-  | { type: 'refresh' };
+  { type: 'continue' } | { type: 'abort' } | { type: 'skip' } | { type: 'refresh' };
 
 export type RebaseProgressViewOutbound = never;
 

@@ -55,8 +55,7 @@ export type DefineRemoteDialogInbound =
  * git failure without closing the dialog.
  */
 export type DefineRemoteDialogOutbound =
-  | { type: 'busy'; busy: boolean }
-  | { type: 'error'; message: string };
+  { type: 'busy'; busy: boolean } | { type: 'error'; message: string };
 
 export const DEFINE_REMOTE_DIALOG_INBOUND_TYPES = ['submit', 'cancel'] as const;
 

@@ -139,8 +139,7 @@ export function createGraphLoadMoreController<F extends Readonly<Record<string, 
   /** Committed (rootPath, filterKey) baseline; undefined = next load is navigational. */
   let activeKey: string | undefined;
   let staged:
-    | { repo: IRepository; filter: F | undefined; key: string; navigational: boolean }
-    | undefined;
+    { repo: IRepository; filter: F | undefined; key: string; navigational: boolean } | undefined;
 
   const targetKey = (r: IRepository, f: F | undefined): string =>
     r.rootUri.fsPath + '\u0001' + stableLogFilterKey(f);

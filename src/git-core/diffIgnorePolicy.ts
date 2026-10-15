@@ -17,10 +17,7 @@
 
 /** User-facing diff whitespace ignore policies (subset of IntelliJ's IgnorePolicy). */
 export type DiffIgnorePolicy =
-  | 'default'
-  | 'trim-whitespaces'
-  | 'ignore-whitespaces'
-  | 'ignore-whitespaces-empty-lines';
+  'default' | 'trim-whitespaces' | 'ignore-whitespaces' | 'ignore-whitespaces-empty-lines';
 
 /** Policy applied when the setting is unset — preserves git's normal behavior. */
 export const DEFAULT_DIFF_IGNORE_POLICY: DiffIgnorePolicy = 'default';
