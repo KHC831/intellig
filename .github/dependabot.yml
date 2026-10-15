@@ -7,7 +7,30 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Must equal the minimum VS Code in engines.vscode; vsce refuses a
+      # newer one. Raise both together, by hand.
+      - dependency-name: '@types/vscode'
+      # The extension runs on the Node inside VS Code (esbuild targets
+      # node18), not the newest Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # Bundled into the package, and named with its version in
+      # THIRD_PARTY_NOTICES.md. Pre-1.0 minors can break, so anything past a
+      # patch is a deliberate upgrade.
+      - dependency-name: monaco-editor
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: neverthrow
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: '@vscode/codicons'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      # Builds the bundles; pre-1.0, so a minor can change the output.
+      - dependency-name: esbuild
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
     groups:
+      # The parser and the plugin only work at the same version.
+      typescript-eslint:
+        patterns: ['@typescript-eslint/*']
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
