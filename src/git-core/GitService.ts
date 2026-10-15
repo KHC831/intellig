@@ -46,6 +46,7 @@ import {
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
 import { readConfig } from '../config/configKeys';
 import { createStatusLane } from './statusLane';
+import { WorktreeStateWatchers } from './worktreeStateWatchers';
 import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
 import {
   isPathInsideOrEqual,
@@ -314,7 +315,8 @@ export class GitService
    * `ORIG_HEAD` (reset/merge side effect; HEAD and refs carry the change);
    * `modules/**` (submodules surface through the parent's HEAD and index);
    * `worktrees/**` but the two files the Worktrees list shows (each linked
-   * worktree's HEAD and index churn there). `config` IS watched: `git remote
+   * worktree's HEAD and index churn there; WorktreeStateWatchers also watches
+   * each worktree's folder for them). `config` IS watched: `git remote
    * set-url` and user edits write nothing else, and remote-derived caches
    * flush on the event; read-path commands never write it.
    */
@@ -1262,6 +1264,10 @@ export class GitService
     // `<root>/.git` is a FILE (a `gitdir:` pointer) that globs nothing.
     const gitDir = vscode.Uri.file(resolveWorktreeGitDir(rootPath));
     const commonDir = vscode.Uri.file(resolveCommonGitDir(rootPath));
+    const worktreeState = new WorktreeStateWatchers(
+      path.join(commonDir.fsPath, 'worktrees'),
+      (uri) => handleChange(uri)
+    );
 
     const handleChange = (trigger?: vscode.Uri): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
@@ -1275,6 +1281,7 @@ export class GitService
       // reload cycles. Chained re-entries pass no trigger.
       if (trigger) {
         this._logger.debug('watcher event', { rootPath, path: trigger.fsPath });
+        worktreeState.sync();
       }
       const existing = this._refreshTimers.get(rootPath);
       if (existing) {
@@ -1302,11 +1309,8 @@ export class GitService
           });
           return;
         }
-        // Bucket C: `_performDebouncedRefresh` already catches its
-        // own errors internally (see the try/catch that logs via
-        // `this._logger.error` around `loadRepository`), but we still route
-        // the outer call through safeFireAndForget so a future unhandled-
-        // rejection path doesn't regress silently.
+        // `_performDebouncedRefresh` logs its own errors; safeFireAndForget
+        // keeps a future unhandled rejection from passing silently.
         safeFireAndForget(
           this._performDebouncedRefresh(rootPath),
           `GitService.setupRepositoryWatcher: debounced refresh for ${rootPath}`
@@ -1373,14 +1377,10 @@ export class GitService
       );
     };
 
-    // Per-root watchers live in `_fileWatchers` which is the sole lifecycle
-    // owner — `removeRepositoryWatcher` disposes and removes from that map,
-    // and `dispose()` walks the same map. Watchers must NOT ALSO be pushed
-    // into `_disposables`: that leaves a dangling entry after a
-    // workspace-folder removal which accumulates across the session
-    // (Disposable.dispose() is idempotent, so it's not user-visible). Only the
-    // _onDidChangeRepository emitter and other process-lifetime disposables
-    // belong in `_disposables`.
+    // Per-root watchers live in `_fileWatchers`, their sole lifecycle owner
+    // (`removeRepositoryWatcher` and `dispose()` both walk it). They must NOT
+    // also go in `_disposables`, which holds process-lifetime disposables only:
+    // there each folder removal would leave a dangling entry behind.
     const watchers: vscode.Disposable[] = [];
     for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
       const watcher = vscode.workspace.createFileSystemWatcher(
@@ -1391,11 +1391,8 @@ export class GitService
       );
       watcher.onDidChange(handleChange);
       watcher.onDidCreate(handleChange);
-      // Only the HEAD watcher routes deletes to handleHeadDelete;
-      // all other patterns continue to go through the debounced refresh
-      // path (whose `_performDebouncedRefresh` already tolerates transient
-      // delete-then-recreate sequences via the cache invalidation +
-      // reload chain).
+      // Only HEAD routes deletes to handleHeadDelete; the debounced refresh
+      // already tolerates the other files' transient delete-then-recreate.
       if (pattern === 'HEAD') {
         watcher.onDidDelete(handleHeadDelete);
       } else {
@@ -1403,6 +1400,8 @@ export class GitService
       }
       watchers.push(watcher);
     }
+    worktreeState.sync();
+    watchers.push(worktreeState);
 
     // Working-tree watcher (ported from VS Code's git extension): a single
     // broad watcher over the repo root so a plain editor save — which touches
