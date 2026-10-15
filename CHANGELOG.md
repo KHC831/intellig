@@ -10,6 +10,8 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.5.12] - 2026-10-15
+
 ### Changed
 
 - IntelliG is now open source under the Apache License 2.0.
