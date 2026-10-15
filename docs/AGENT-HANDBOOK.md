@@ -364,6 +364,9 @@ tests; the lead designs and reviews and writes no code itself.
   keeps JetBrains' copyright line and is listed in
   `scripts/ported-files.json`; `check:port-headers` enforces both, and
   NOTICE / THIRD_PARTY_NOTICES.md ship in the package.
+  `check:third-party-notices` holds THIRD_PARTY_NOTICES.md to the bundled
+  packages at their installed versions, so a bundled upgrade updates its
+  notice in the same PR.
 - BranchContextMenuCommands is fully on the tree-item spine scope
   (registerTreeItemCommand; check:spine-registration now scans the file).
   CommitContextMenuCommands needs no registration-scope work: it registers

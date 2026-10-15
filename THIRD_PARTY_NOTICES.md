@@ -61,7 +61,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Codicons 0.0.45
+## @vscode/codicons 0.0.45
 
 The icon font `media/codicon.ttf` is from [@vscode/codicons](https://github.com/microsoft/vscode-codicons),
 Copyright (c) Microsoft Corporation, licensed under the

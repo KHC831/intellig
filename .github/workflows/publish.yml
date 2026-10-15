@@ -18,7 +18,8 @@ name: Publish
 # equal `package.json.version` on the tagged commit. Mismatches abort
 # the workflow before any publish step runs.
 #
-# GitHub Secrets:
+# Secrets of the `release` environment (the publish job runs in it, so
+# a run waits for the environment's required reviewer):
 #   OPEN_VSX_TOKEN   — REQUIRED. Open VSX access token for the
 #                      `KaHoChan` namespace
 #                      (https://open-vsx.org/user-settings/tokens).
@@ -32,8 +33,8 @@ name: Publish
 #                      automated Marketplace publishing without
 #                      editing this workflow.
 #
-# Set these at: Settings → Secrets and variables → Actions → New
-# repository secret.
+# Set these at: Settings → Environments → release → Environment
+# secrets. docs/RELEASING.md covers the environment's setup.
 
 on:
   push:
