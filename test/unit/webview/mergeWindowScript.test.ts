@@ -341,8 +341,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
 
     await f.click('btn-apply');
     const apply = f.posted.find((m) => (m as { type?: string }).type === 'apply') as
-      | { resultText?: string }
-      | undefined;
+      { resultText?: string } | undefined;
     assert.ok(apply);
     assert.strictEqual(apply.resultText, 'XX\nmid\nconf base\nmid2\nend');
   });
@@ -376,8 +375,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     await f.click('btn-accept-left');
     assert.strictEqual(f.resultText(), AFTER_NC_APPLY, 'nothing is discarded before the answer');
     const confirm = f.posted.find((m) => (m as { type?: string }).type === 'confirm') as
-      | { requestId: number; action: string }
-      | undefined;
+      { requestId: number; action: string } | undefined;
     assert.ok(confirm, 'a modified result must trigger a confirm request');
     assert.strictEqual(confirm.action, 'acceptLeft');
 
@@ -425,8 +423,7 @@ describe('webview: merge window script (jsdom + monaco stub)', () => {
     await f.flush();
 
     const apply = f.posted.find((m) => (m as { type?: string }).type === 'apply') as
-      | { resultText: string }
-      | undefined;
+      { resultText: string } | undefined;
     assert.ok(apply, 'confirming applies the result');
     assert.strictEqual(apply.resultText, BASE, 'the file saves exactly as shown in Result');
   });

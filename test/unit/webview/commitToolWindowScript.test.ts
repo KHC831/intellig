@@ -186,8 +186,7 @@ describe('webview: Commit Tool Window entry (jsdom)', () => {
     row.dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true }));
 
     const opened = h.posted.find((m) => (m as { type?: string }).type === 'openFileDiff') as
-      | { repoRoot?: string }
-      | undefined;
+      { repoRoot?: string } | undefined;
     assert.ok(opened, `expected an openFileDiff post; got: ${JSON.stringify(h.posted)}`);
     assert.strictEqual(
       opened.repoRoot,

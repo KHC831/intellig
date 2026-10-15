@@ -27,13 +27,7 @@ import { looksLikeConflictText } from '../git-core/gitProse';
 
 /** Keys of {@link IPullOptions} that represent CLI flags (not remote/branch). */
 export type PullFlagKey =
-  | 'rebase'
-  | 'ffOnly'
-  | 'noFf'
-  | 'squash'
-  | 'noCommit'
-  | 'noVerify'
-  | 'autostash';
+  'rebase' | 'ffOnly' | 'noFf' | 'squash' | 'noCommit' | 'noVerify' | 'autostash';
 
 /** CLI representation of each flag, for UI labelling. */
 const FLAG_LABELS: Record<PullFlagKey, string> = {

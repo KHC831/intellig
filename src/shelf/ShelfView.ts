@@ -89,8 +89,7 @@ export class ShelfView implements IShelfView {
    * the target LocalChangeList.
    */
   private _changelistService:
-    | Pick<IChangelistService, 'getChangelists' | 'createChangelist'>
-    | undefined;
+    Pick<IChangelistService, 'getChangelists' | 'createChangelist'> | undefined;
   /**
    * Filter toggle. When `false` (default), entries with `unshelvedAt !=
    * undefined` are elided from the list. When `true`, they appear with an

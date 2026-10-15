@@ -20,12 +20,7 @@ export interface IPushOverflowState {
 
 /** Classified push-failure kind carried on a row's error. */
 export type PushErrorKind =
-  | 'rejected-non-ff'
-  | 'rejected-stale-lease'
-  | 'rejected-protected'
-  | 'auth'
-  | 'hook'
-  | 'other';
+  'rejected-non-ff' | 'rejected-stale-lease' | 'rejected-protected' | 'auth' | 'hook' | 'other';
 
 /** One repo row baked into the init island (wire view — no live IRepository). */
 export interface IPushRowView {

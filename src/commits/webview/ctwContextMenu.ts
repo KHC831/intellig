@@ -131,8 +131,7 @@ export class CtwContextMenu {
   private _target: ICtwMenuTarget = {};
   /** Pointer position of the right-click awaiting the host's item list. */
   private _pending:
-    | { x: number; y: number; target: ICtwMenuTarget; opener?: HTMLElement }
-    | undefined;
+    { x: number; y: number; target: ICtwMenuTarget; opener?: HTMLElement } | undefined;
   private readonly _menu: ContextMenu;
   /** What the target row looked like when the menu was drawn on it. */
   private _signature: string | null = null;

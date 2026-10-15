@@ -220,8 +220,7 @@ describe('Wave D R1 / Senior L-4 — focus race property', () => {
               let resolveRef: (v: string | undefined) => void = () => {};
               const p = new Promise<string | undefined>((res) => (resolveRef = res));
               const last = ops.find((o) => o.kind === 'focus') as
-                | { kind: 'focus'; name: string | null; resolveOrder: number }
-                | undefined;
+                { kind: 'focus'; name: string | null; resolveOrder: number } | undefined;
               deferreds.push({
                 promise: p,
                 resolve: resolveRef,

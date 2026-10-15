@@ -72,13 +72,7 @@ export type IShelfTabEntry =
 
 /** Action payload on a changelist-level context menu entry. */
 export type ChangelistAction =
-  | 'new'
-  | 'setActive'
-  | 'rename'
-  | 'editDescription'
-  | 'delete'
-  | 'commitOnly'
-  | 'shelve';
+  'new' | 'setActive' | 'rename' | 'editDescription' | 'delete' | 'commitOnly' | 'shelve';
 
 /** Action payload on a file-level context menu entry. */
 export type FileAction =
@@ -130,11 +124,7 @@ export interface ICommitToolWebviewMessage {
    * picked. It rides the same `action` field as those concrete actions.
    */
   action?:
-    | ChangelistAction
-    | FileAction
-    | ShelfTabShelfAction
-    | ShelfTabStashAction
-    | 'contextOpen';
+    ChangelistAction | FileAction | ShelfTabShelfAction | ShelfTabStashAction | 'contextOpen';
   targetFiles?: string[];
   /** Gear-menu item being toggled when `type` is `gearAction`. */
   id?: 'toggleNoVerify';
@@ -166,10 +156,7 @@ export interface ICommitToolWebviewMessage {
 
 /** An action a context-menu row can carry — the union the wire message accepts. */
 export type CtwMenuAction =
-  | ChangelistAction
-  | FileAction
-  | ShelfTabShelfAction
-  | ShelfTabStashAction;
+  ChangelistAction | FileAction | ShelfTabShelfAction | ShelfTabStashAction;
 
 /**
  * One row of the Commit window's context menu, as the host describes it.

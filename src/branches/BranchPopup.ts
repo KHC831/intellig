@@ -391,14 +391,12 @@ export async function enrichBranchesWithIncomingOutgoing(
     if (branches[i].upstream) {
       tasks.push({
         index: i,
-        task: fetcher(repo, branches[i].name).catch(
-          (): IIncomingOutgoing => ({
-            branch: branches[i].name,
-            incoming: 0,
-            outgoing: 0,
-            noUpstream: true,
-          })
-        ),
+        task: fetcher(repo, branches[i].name).catch((): IIncomingOutgoing => ({
+          branch: branches[i].name,
+          incoming: 0,
+          outgoing: 0,
+          noUpstream: true,
+        })),
       });
     }
   }

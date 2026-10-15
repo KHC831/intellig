@@ -115,10 +115,7 @@ export async function handleShelfTabAction(
   message: ICommitToolWebviewMessage
 ): Promise<void> {
   const action = message.action as
-    | ShelfTabShelfAction
-    | ShelfTabStashAction
-    | 'contextOpen'
-    | undefined;
+    ShelfTabShelfAction | ShelfTabStashAction | 'contextOpen' | undefined;
   if (!action) {
     return;
   }

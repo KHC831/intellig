@@ -142,18 +142,22 @@ depends on. Its own responsibilities:
   directory cwd), mid-session `**/.git` create/delete watchers with depth
   parity to the scan.
 - **Watching — two lanes** (a port of VS Code's git-extension response
-  policy). REF lane: a narrow allow-list of `.git/` entries per repo (HEAD,
-  index, refs/**, packed-refs, config, in-progress markers) — never
-  `objects/**`or`logs/**`(self-triggered refresh loops) — funnels into a
-250ms debounced full reload with an in-flight guard and fires`onDidChangeRepository`. STATUS lane: the broad `**`working-tree watcher
-(a save can only change file statuses, never refs or the log) runs through`statusLane.ts`— 1s trailing debounce, refresh deferred while the window
-is unfocused, a 5s floor between runs — defers to any ref-lane reload that
-covers it, and fires`onDidChangeWorkingTree`(role interface`IGitWorkingTreeEvents`, ADR-001). Views that render file statuses (SCM
-provider, changelists) MUST subscribe to BOTH events; everything else
-(graph, branches, blame, caches) subscribes to the repository event only.
-HEAD deletion is verified against a readdir before evicting (FSEvents
-surfaces renames as delete+create). Watcher families register in
-`\_watcherMaps` (ADR-008) so teardown walks them uniformly.
+  policy). REF lane: a narrow allow-list of `.git/` entries per repo (`HEAD`,
+  `index`, `refs/**`, `packed-refs`, `config`, in-progress markers, each
+  worktree's lock and gitdir files) — never `objects/**` or `logs/**`
+  (self-triggered refresh loops) — funnels into a 250ms debounced full reload
+  with an in-flight guard and fires `onDidChangeRepository`. STATUS lane: the
+  broad `**` working-tree watcher (a save can only change file statuses, never
+  refs or the log) runs through `statusLane.ts` — 1s trailing debounce,
+  refresh deferred while the window is unfocused, a 5s floor between runs —
+  defers to any ref-lane reload that covers it, and fires
+  `onDidChangeWorkingTree` (role interface `IGitWorkingTreeEvents`, ADR-001).
+  Views that render file statuses (changelists) MUST subscribe to BOTH
+  events; everything else (graph, branches, blame, caches)
+  subscribes to the repository event only. HEAD deletion is verified against
+  a readdir before evicting (FSEvents surfaces renames as delete+create).
+  Watcher families register in `_watcherMaps` (ADR-008) so teardown walks
+  them uniformly.
 - **Lifecycle safety**: a `_disposed` latch checked at every async
   re-entry; per-root removal-generation counters so an in-flight load
   can't resurrect a removed repo; `_enrollReload` tracks in-flight loads

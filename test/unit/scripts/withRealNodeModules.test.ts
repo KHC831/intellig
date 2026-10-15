@@ -214,47 +214,88 @@ describe('scripts/lib/with-real-node-modules.sh — symlink-tolerant node_module
     assert.deepStrictEqual(strayArtefacts(repo), []);
   });
 
+  /**
+   * Spawn the helper detached (its own process group) wrapping `command`,
+   * wait until the swap has happened, SIGTERM the whole group, and assert the
+   * symlink is restored with nothing left behind.
+   */
+  async function interruptMidRun(command: string[]): Promise<void> {
+    const { repo, target } = symlinkedRepo();
+    const nm = path.join(repo, 'node_modules');
+
+    const child = spawn('bash', [SCRIPT, ...command], {
+      cwd: repo,
+      detached: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    const exited = new Promise<boolean>((resolve) => child.on('exit', () => resolve(true)));
+
+    // Wait until the helper has swapped a real clone into place. Between
+    // its two renames node_modules briefly does not exist at all.
+    await waitUntil(() => fs.existsSync(nm) && !fs.lstatSync(nm).isSymbolicLink());
+
+    process.kill(-child.pid!, 'SIGTERM');
+    // A wrapper still waiting on its command would sit out the whole sleep:
+    // fail with what is still running instead of a bare mocha timeout.
+    const stopped = await Promise.race([
+      exited,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+    ]);
+    if (!stopped) {
+      const ps = spawnSync('ps', ['-o', 'pid,stat,command', '-g', String(child.pid)], {
+        encoding: 'utf8',
+      }).stdout;
+      const nmState = fs.existsSync(nm)
+        ? fs.lstatSync(nm).isSymbolicLink()
+          ? 'symlink'
+          : 'real directory'
+        : 'missing';
+      process.kill(-child.pid!, 'SIGKILL');
+      assert.fail(
+        `the wrapper was still running 8s after SIGTERM\n` +
+          `node_modules: ${nmState}\nprocesses:\n${ps}\nwrapper stderr:\n${stderr}`
+      );
+    }
+
+    assert.ok(
+      fs.lstatSync(nm).isSymbolicLink(),
+      'node_modules must be a symlink again after SIGTERM'
+    );
+    assert.strictEqual(
+      fs.realpathSync(nm),
+      fs.realpathSync(target),
+      'symlink must point back at the target'
+    );
+    assert.deepStrictEqual(
+      strayArtefacts(repo),
+      [],
+      'no transient clone/backup/lock left after a signal'
+    );
+    // A grandchild that ignored SIGTERM outlives the wrapper; do not leave it running.
+    try {
+      process.kill(-child.pid!, 'SIGKILL');
+    } catch {
+      // The group is already gone.
+    }
+  }
+
   // POSIX-only: uses SIGTERM process-group signalling (`process.kill(-pid)`),
   // which Windows does not support, and asserts POSIX symlink/file-lock cleanup.
   (process.platform === 'win32' ? it.skip : it)(
     'restores the symlink when the wrapped command is killed by SIGTERM mid-run',
     async function () {
-      // Core safety claim: a signal interrupt restores the symlink. Spawn
-      // the helper detached (its own process group) wrapping a long sleep,
-      // wait until the swap has happened, then SIGTERM the whole group.
       this.timeout(20000);
-      const { repo, target } = symlinkedRepo();
-      const nm = path.join(repo, 'node_modules');
+      await interruptMidRun(['sleep', '30']);
+    }
+  );
 
-      const child = spawn('bash', [SCRIPT, 'sleep', '30'], {
-        cwd: repo,
-        detached: true,
-        stdio: 'ignore',
-      });
-      const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
-
-      // Wait until the helper has swapped a real clone into place.
-      await waitUntil(() => !fs.lstatSync(nm).isSymbolicLink());
-
-      // SIGTERM the process group (negative pid) so the sleep dies and the
-      // helper's trap runs.
-      process.kill(-child.pid!, 'SIGTERM');
-      await exited;
-
-      assert.ok(
-        fs.lstatSync(nm).isSymbolicLink(),
-        'node_modules must be a symlink again after SIGTERM'
-      );
-      assert.strictEqual(
-        fs.realpathSync(nm),
-        fs.realpathSync(target),
-        'symlink must point back at the target'
-      );
-      assert.deepStrictEqual(
-        strayArtefacts(repo),
-        [],
-        'no transient clone/backup/lock left after a signal'
-      );
+  (process.platform === 'win32' ? it.skip : it)(
+    'restores the symlink when the wrapped command survives SIGTERM, by killing it',
+    async function () {
+      this.timeout(20000);
+      await interruptMidRun(['bash', '-c', "trap '' TERM; sleep 30"]);
     }
   );
 

@@ -28,11 +28,7 @@
 import { GitCommandError } from './gitCli';
 
 export type GitErrorKind =
-  | 'not-a-repository'
-  | 'spawn-failed'
-  | 'command-failed'
-  | 'timeout'
-  | 'invalid-argument';
+  'not-a-repository' | 'spawn-failed' | 'command-failed' | 'timeout' | 'invalid-argument';
 
 /**
  * Base for the typed git errors. Extends `Error` so a `GitError` drops straight
@@ -116,11 +112,7 @@ export class InvalidArgumentError extends GitErrorBase {
 }
 
 export type GitError =
-  | NotARepositoryError
-  | SpawnFailedError
-  | CommandFailedError
-  | TimeoutError
-  | InvalidArgumentError;
+  NotARepositoryError | SpawnFailedError | CommandFailedError | TimeoutError | InvalidArgumentError;
 
 /**
  * Classify a thrown value from the gitCli layer into a typed {@link GitError}.

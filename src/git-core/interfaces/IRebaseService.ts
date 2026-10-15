@@ -17,12 +17,7 @@ export type { RebaseAction } from './rebaseAction';
  * honestly rather than claiming the rebase completed.
  */
 export type RebaseStatus =
-  | 'planning'
-  | 'in-progress'
-  | 'paused'
-  | 'conflict'
-  | 'completed'
-  | 'cleared-stale';
+  'planning' | 'in-progress' | 'paused' | 'conflict' | 'completed' | 'cleared-stale';
 
 /**
  * Commit in a rebase session

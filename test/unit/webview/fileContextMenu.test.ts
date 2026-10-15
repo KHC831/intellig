@@ -75,8 +75,7 @@ describe('webview: details-panel file context menu', () => {
       assert.ok(entry, `menu must carry a ${action} entry`);
       click(h, entry);
       const msg = h.posted.find((m) => (m as { type?: string }).type === 'fileContextAction') as
-        | { action?: string; commitHash?: string; path?: string }
-        | undefined;
+        { action?: string; commitHash?: string; path?: string } | undefined;
       assert.ok(msg, `clicking must post fileContextAction; posted: ${JSON.stringify(h.posted)}`);
       assert.strictEqual(msg.action, action);
       assert.strictEqual(msg.commitHash, SHA);
@@ -130,8 +129,7 @@ describe('webview: history-tab revision context menu', () => {
       assert.ok(entry, `menu must carry a ${action} entry`);
       click(h, entry);
       const msg = h.posted.find((m) => (m as { type?: string }).type === type) as
-        | { rev?: string }
-        | undefined;
+        { rev?: string } | undefined;
       assert.ok(msg, `clicking must post ${type}; posted: ${JSON.stringify(h.posted)}`);
       assert.strictEqual(msg.rev, SHA);
       const menu = h.document.getElementById('history-context-menu');
