@@ -70,7 +70,7 @@ jobs:
     steps:
       - name: Checkout
         # v5+ runs on Node 24 (clears the mid-2026 deprecation).
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Required so the workflow can push the tag it creates on
           # a manual dispatch (the default checkout uses a token that
@@ -86,7 +86,7 @@ jobs:
         # which marks the entire run as failed even when every publish
         # step has already succeeded. The honest signal is worth the
         # ~30s lost on each `npm ci` cold install.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -233,7 +233,7 @@ jobs:
         # v6+ defaults to Node 24 (clears the mid-2026 deprecation).
         # v5 had preliminary Node 24 support but still ran on Node 20
         # by default; only v6+ flips the default.
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: intellig-vsix
           path: intellig-*.vsix
