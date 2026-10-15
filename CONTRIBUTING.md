@@ -337,39 +337,19 @@ placeholder and try again.
 
 ### Structural guards
 
-The repo ships a set of CI-time structural guards as a complement
-to per-site unit specs (rationale + maintenance contract:
+The repo ships structural guards that complement per-site unit specs
+(rationale and maintenance contract:
 [ADR-007](docs/adr/ADR-007-structural-guards-as-complementary-tool.md)).
-Each guard has its own npm-script alias under `check:*`; CI runs
-them as named steps so a regression points at the offending
-class. Run a single guard locally as `npm run check:<name>`:
+Each is a `scripts/check-*.sh` or `scripts/check-*.mjs` file whose header
+states the bug class it catches, its heuristic, its known false positives and
+negatives, and when it can retire. `npm run check:<name>` runs one guard,
+`npm run check:all` runs them all, and CI runs `check:all` as one step; a
+failing guard names itself in the output.
 
-| `check:` script                     | Guard                                                                              |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `check:quickpick-state`             | `IShelf/Stash/BranchComparisonViewState` carry no `error` field (TL-74)            |
-| `check:action-toasts`               | `vscode.window.show*Message` calls don't leak unsanitized git stderr (TL-72/78/79) |
-| `check:config-coherence`            | README config tables match `package.json` schema defaults                          |
-| `check:vsix-clean`                  | `vsce ls` output excludes every forbidden file class                               |
-| `check:100-gate`                    | 1.0.0 gate checklist + structural gate (2) (TL-96)                                 |
-| `check:publish-vsix`                | Refuses any `*-dogfood.vsix` filename (TL-95)                                      |
-| `check:output-channel-test-surface` | OutputChannel test seam not used in production (Cluster C, TL-58)                  |
-
-`npm run check:all` runs every structural guard in sequence — the
-recommended pre-push smoke. CI keeps the steps named individually
-so failures point at a specific guard rather than the umbrella.
-Adding a new guard means: ship the script + ADR-007 maintenance-
-contract header + an `check:<name>` npm alias + an entry in this
-table + an entry in `check:all` + a CI step. All six places must
-land together; reviewers will catch any miss.
-
-> **Note (transient):** `check:output-channel-test-surface` lands
-> with Cluster C (TL-58); until that branch merges to main,
-> `npm run check:all` will fail at this step with an opaque
-> "Missing script" error. Run individual `check:*` scripts from
-> the table above in the meantime, or skip the umbrella entirely.
-> TL-100 (#229) tracks the CI-side collapse of the individual
-> guard steps into a single `npm run check:all` step once Cluster
-> C lands the missing alias.
+Adding a guard means: the script with its ADR-007 header, a companion spec
+under `test/unit/scripts/`, a `check:<name>` alias in `package.json`, and an
+entry in the `check:all` chain. `check:all-complete` fails when a `check:*`
+alias is missing from the chain.
 
 ## Changelog cadence
 
