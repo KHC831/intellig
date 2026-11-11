@@ -2324,7 +2324,7 @@
   },
   "overrides": {
     "diff": "^8.0.3",
-    "serialize-javascript": "^7.0.5",
+    "serialize-javascript": "^7.1.4",
     "minimatch": "^9.0.7"
   }
 }
